@@ -1,0 +1,5 @@
+/ebin/
+*.swp
+/log/*
+.project
+.settings/

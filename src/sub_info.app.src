@@ -1,0 +1,15 @@
+{application, sub_info,
+ [
+  {description, "A replication Mnesia table cluster"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { sub_info_app, []}},
+  {env, [
+         {mnesia_timeout, 30000},
+		 {mnesia_bulk_sleep_time, 500}
+		]}
+ ]}.
