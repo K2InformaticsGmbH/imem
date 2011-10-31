@@ -80,7 +80,14 @@ delete_subscriber(Msisdn, SyncDate, ChangeCount) ->
 			end
 	end.
 
-write_subscriber(Msisdn, Record, SyncDate, ChangeCount) ->
+write_subscriber(Msisdn, {IntMsisdn, PaymentType, PaymentMethod, IntStatus, IntChangeCount}, SyncDate, ChangeCount)
+    when is_list(PaymentType), is_list(PaymentMethod)->
+    Record = #subscriber{msisdn=IntMsisdn
+                ,payment_type=trunc(list_to_integer(PaymentType))
+                ,payment_method=trunc(list_to_integer(PaymentMethod))
+                ,status=IntStatus
+                ,change_count=IntChangeCount
+            },
 	DbRecord = mnesia:dirty_read(subscriber, Msisdn),
 	case DbRecord of
 		[] ->
