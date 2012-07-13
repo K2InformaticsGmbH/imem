@@ -5,7 +5,7 @@
 %%% Created	: 30.09.2011
 %%% -------------------------------------------------------------------
 
--module(sub_info_super).
+-module(imem_super).
 
 -behaviour(supervisor).
 
@@ -67,7 +67,7 @@ init(_StartArgs) ->
 	io:format("~ninitializing ~p..~n", [?MODULE]),
 	{ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
 	io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),
-	SubSync = {ss1, {'sub_info', start_link, []}, permanent, MnesiaTimeout, worker, ['sub_info']},
+	SubSync = {ss1, {'imem', start_link, []}, permanent, MnesiaTimeout, worker, ['imem']},
     ThreadList = [SubSync],
 	{ok, {{one_for_one, 3, 10}, ThreadList}}.
 

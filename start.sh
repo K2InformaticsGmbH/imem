@@ -1,7 +1,7 @@
 #!/bin/sh
 if [ $# -eq 0 ]
 then
-    sname=sub_info
+    sname=imem
 else
     sname=$1
 fi

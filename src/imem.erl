@@ -5,7 +5,7 @@
 %%% Created		: 30.09.2011
 %%% -------------------------------------------------------------------
 
--module(sub_info).
+-module(imem).
 
 -behaviour(gen_server).
 
@@ -13,7 +13,7 @@
 %% Include files
 %% --------------------------------------------------------------------
 
--include("../include/sub_info_records.hrl"). 
+-include("../include/imem_records.hrl"). 
 
 -define(NODE_DISCOVERY_DELAY, 1000).
 
@@ -238,7 +238,7 @@ init([]) ->
 %% 	timer:sleep(?NODE_DISCOVERY_DELAY),
 	SubNodes = lists:foldl(
 				 fun(N, Acc) ->
-						 case re:run(lists:nth(1, re:split(atom_to_list(N), "@", [{return, list}])), "sub_info") of
+						 case re:run(lists:nth(1, re:split(atom_to_list(N), "@", [{return, list}])), "imem") of
 							 {match, _} ->
 								 case lists:member(N, Acc) of
 									 true -> Acc;
