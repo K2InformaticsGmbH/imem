@@ -26,6 +26,7 @@
 		, cluster/1
 		, get_bulk_sleep_time/0
 		, get_sync_count/0
+        , start/0
 		]).
 
 %% gen_server callbacks
@@ -48,6 +49,7 @@
 %% ====================================================================
 %% External functions
 %% ====================================================================
+start() -> application:start(?MODULE).
 
 cluster(Node) when is_atom(Node) ->
 	cluster([node(), Node]);
@@ -236,57 +238,13 @@ get_payment_info_result({error, _Error}) ->
 %% --------------------------------------------------------------------
 init([]) ->
 %% 	timer:sleep(?NODE_DISCOVERY_DELAY),
-	SubNodes = lists:foldl(
-				 fun(N, Acc) ->
-						 case re:run(lists:nth(1, re:split(atom_to_list(N), "@", [{return, list}])), "imem") of
-							 {match, _} ->
-								 case lists:member(N, Acc) of
-									 true -> Acc;
-									 false -> [N|Acc]
-								 end;
-							 _ -> Acc
-						 end 
-				 end
-				 , []
-				 , nodes()),
-	NodeList = [node()|SubNodes],
+	NodeList = imem_if:find_imem_nodes(),
+    io:format("Starting on nodes ~p~n", [NodeList]),
 	mnesia:change_config(extra_db_nodes, NodeList),
-	case mnesia:create_table(sub_counter, [{ram_copies, NodeList}, {attributes, record_info(fields, sub_counter)}]) of
-		{aborted, _} ->
-			io:format("copying 'sub_counter' table...~n", []),
-			mnesia:wait_for_tables([sub_counter], 30000),
-			mnesia:add_table_copy(sub_counter, node(), ram_copies);
-		_ ->
-			io:format("table sub_counter created...~n", []),
-			mnesia:clear_table(sub_counter)
-	end,
-	case mnesia:create_table(subscriber, [{ram_copies, NodeList}, {attributes, record_info(fields, subscriber)}]) of
-		{aborted, _} ->
-			io:format("copying 'subscriber' table...~n", []),
-			mnesia:wait_for_tables([subscriber], 30000),
-			mnesia:add_table_copy(subscriber, node(), ram_copies);
-		_ ->
-			io:format("table subscriber created...~n", []),
-			mnesia:clear_table(subscriber)
-	end,
-	case mnesia:create_table(syncinfo, [{ram_copies, NodeList}, {attributes, record_info(fields, syncinfo)}]) of
-		{aborted, _} ->
-			io:format("copying 'syncinfo' table...~n", []),
-			mnesia:wait_for_tables([syncinfo], 30000),
-			mnesia:add_table_copy(syncinfo, node(), ram_copies);
-		_ ->
-			io:format("table syncinfo created...~n", []),
-			mnesia:clear_table(syncinfo),
-			mnesia:dirty_write(syncinfo, #syncinfo{key='change_count', val=0}),
-			mnesia:dirty_write(syncinfo, #syncinfo{key='sync_time', val=get_datetime_stamp()}),
-			mnesia:dirty_write(syncinfo, #syncinfo{key='update_time', val=get_datetime_stamp()}),
-			mnesia:dirty_write(syncinfo, #syncinfo{key='record_count', val=0})
-	end,
 	{ok, BulkSleepTime} = application:get_env(mnesia_bulk_sleep_time),
 	put(mnesia_bulk_sleep_time, BulkSleepTime),
 	mnesia:subscribe(system),
-	{ok, Timeout} = application:get_env(mnesia_timeout),
-	mnesia:wait_for_tables([subscriber, syncinfo], Timeout),
+	%{ok, Timeout} = application:get_env(mnesia_timeout),
 	io:format("~p started!~n", [?MODULE]),
 	{ok, #state{session=[]}}.
 
