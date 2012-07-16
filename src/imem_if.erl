@@ -1,5 +1,22 @@
 -module(imem_if).
+-behaviour(gen_server).
+
 -compile(export_all).
+
+-record(state, {
+        lsock = undefined
+        , csock = undefined
+        , buf = <<>>
+    }).
+
+-export([start_link/0
+        , init/1
+		, handle_call/3
+		, handle_cast/2
+		, handle_info/2
+		, terminate/2
+		, code_change/3
+		]).
 
 add_ram_copies(Ns, Opts) -> update_opts({ram_copies,Ns}, Opts).
 add_disc_copies(Ns, Opts) -> update_opts({disc_copies,Ns}, Opts).
@@ -25,6 +42,9 @@ create_table(Table, Opts) when is_atom(Table) ->
 			io:format("table '~p' created...~n", [Table]),
 			mnesia:clear_table(Table)
 	end.
+
+delete_table(Table) when is_atom(Table) ->
+    mnesia:delete_table(Table).
 
 insert_into_table(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
     Row1 = case element(1, Row) of
@@ -67,6 +87,86 @@ find_imem_nodes() ->
             , nodes())].
 
 
+start_link() ->
+	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+init([Sock]) ->
+    io:format(user, "~p tcp client ~p~n", [self(), Sock]),
+    {ok, #state{csock=Sock}};
+init([]) ->
+    {ok, LSock} = gen_tcp:listen(8124, [binary, {packet, 0}, {active, false}]),     
+    io:format(user, "~p started imem_if ~p~n", [self(), LSock]),
+    gen_server:cast(self(), accept),
+    {ok, #state{lsock=LSock}}.
+
+handle_call(_Request, _From, State) ->
+    io:format(user, "handle_call ~p~n", [_Request]),
+    {reply, ok, State}.
+
+handle_cast(accept, #state{lsock=LSock}=State) ->
+    {ok, Sock} = gen_tcp:accept(LSock),
+    io:format(user, "accept conn ~p~n", [Sock]),
+    {ok,Pid} = gen_server:start(?MODULE, [Sock], []),
+    ok = gen_tcp:controlling_process(Sock, Pid),
+    gen_server:cast(Pid, activate),
+    gen_server:cast(self(), accept),
+    {noreply, State#state{csock=Sock}};
+handle_cast(activate, #state{csock=Sock} = State) ->
+    ok = inet:setopts(Sock, [{active, once}, binary, {packet, 0}, {nodelay, true}]),
+    io:format(user, "~p Socket activated ~p~n", [self(), Sock]),
+    {noreply, State};
+handle_cast(_Msg, State) ->
+    io:format(user, "handle_cast ~p~n", [_Msg]),
+	{noreply, State}.
+
+handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
+    ok = inet:setopts(Sock, [{active, once}]),
+    NewBuf = <<Buf/binary, Data/binary>>,
+    case (catch binary_to_term(NewBuf, [safe])) of
+        {'EXIT', _} ->
+            io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(Data)]),
+            {noreply, State#state{buf=NewBuf}};
+        D ->
+            io:format(user, "Cmd ~p~n", [D]),
+            process_cmd(D, Sock),
+            {noreply, State#state{buf= <<>>}}
+    end;
+handle_info({tcp_closed, Sock}, State) ->
+    io:format(user, "handle_info closed ~p~n", [Sock]),
+	{stop, sock_close, State};
+handle_info(_Info, State) ->
+    io:format(user, "handle_info ~p~n", [_Info]),
+	{noreply, State}.
+
+terminate(_Reason, #state{csock=Sock}) ->
+    io:format(user, "~p terminating~n", [self()]),
+    gen_tcp:close(Sock),
+    shutdown.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+process_cmd({tables}, Sock) ->
+    Tables = lists:delete(schema, mnesia:system_info(tables)),
+    Tb = term_to_binary(Tables),
+    io:format(user, "tables ~p size ~p~n", [Tables, byte_size(Tb)]),
+    gen_tcp:send(Sock, Tb);
+process_cmd({table, Tab}, Sock) ->
+    Cols = mnesia:table_info(Tab, attributes),
+    gen_tcp:send(Sock, term_to_binary(Cols));
+process_cmd({row, Tab}, Sock) ->
+    {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(Tab) end),
+    Data = [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(Tab, X)))) || X <- Keys],
+    gen_tcp:send(Sock, term_to_binary(Data));
+process_cmd({build_table, TableName, Columns}, Sock) ->
+    build_table(TableName, Columns),
+    gen_tcp:send(Sock, term_to_binary(ok));
+process_cmd({delete_table, TableName}, Sock) ->
+    delete_table(TableName),
+    gen_tcp:send(Sock, term_to_binary(ok));
+process_cmd({insert_into_table, TableName, Row}, Sock) ->
+    insert_into_table(TableName, Row),
+    gen_tcp:send(Sock, term_to_binary(ok)).
 
 %% EXAMPLE1: create a table and add data to it
 % rd(table1, {a,b,c}).

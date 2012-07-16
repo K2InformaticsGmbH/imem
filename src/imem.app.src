@@ -10,6 +10,7 @@
   {mod, { imem_app, []}},
   {env, [
          {mnesia_timeout, 30000},
-		 {mnesia_bulk_sleep_time, 500}
+		 {mnesia_bulk_sleep_time, 500},
+		 {start_monitor, false}
 		]}
  ]}.

@@ -5,7 +5,7 @@
 %%% Created	: 30.09.2011
 %%% -------------------------------------------------------------------
 
--module(imem_super).
+-module(imem_sup).
 
 -behaviour(supervisor).
 
@@ -67,9 +67,12 @@ init(_StartArgs) ->
 	io:format("~ninitializing ~p..~n", [?MODULE]),
 	{ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
 	io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),
-	SubSync = {ss1, {'imem', start_link, []}, permanent, MnesiaTimeout, worker, ['imem']},
-    ThreadList = [SubSync],
-	{ok, {{one_for_one, 3, 10}, ThreadList}}.
+    ThreadList = [{imem, {imem, start_link, []}, permanent, MnesiaTimeout, worker, [imem]}],
+    ThreadList0 = case application:get_env(start_monitor) of
+        {ok, false} -> ThreadList;
+        _ -> [{imem_if, {imem_if, start_link, []}, permanent, MnesiaTimeout, worker, [imem_if]} | ThreadList]
+    end,
+	{ok, {{one_for_one, 3, 10}, ThreadList0}}.
 
 %% ====================================================================
 %% Internal functions

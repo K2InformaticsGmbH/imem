@@ -20,28 +20,28 @@
 %% --------------------------------------------------------------------
 %% External exports
 
--export([start_link/0
-		, get_subscriber/1
+-export([get_subscriber/1
 		, get_payment_info/1
 		, cluster/1
 		, get_bulk_sleep_time/0
 		, get_sync_count/0
-        , start/0
-		]).
-
-%% gen_server callbacks
-
--export([init/1
-		, handle_call/3
-		, handle_cast/2
-		, handle_info/2
-		, terminate/2
-		, code_change/3
 		, delete_subscriber/3
 		, write_subscriber/4
 		, set_sub_counter/5
 		, update_sub_counters/4
 		, read_sub_counters/4
+		]).
+
+%% gen_server callbacks
+
+-export([start_link/0
+        , start/0
+		, init/1
+		, handle_call/3
+		, handle_cast/2
+		, handle_info/2
+		, terminate/2
+		, code_change/3
 		]).
 
 -record(state, {session = 0}).

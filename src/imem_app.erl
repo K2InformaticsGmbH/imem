@@ -43,7 +43,7 @@
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
     mnesia:start(),
-    case imem_super:start_link(StartArgs) of
+    case imem_sup:start_link(StartArgs) of
     	{ok, Pid} ->
     		{ok, Pid};
     	Error ->
