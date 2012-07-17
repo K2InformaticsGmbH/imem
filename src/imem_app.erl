@@ -42,7 +42,6 @@
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
-    mnesia:start(),
     case imem_sup:start_link(StartArgs) of
     	{ok, Pid} ->
     		{ok, Pid};

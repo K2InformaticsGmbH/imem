@@ -26,7 +26,7 @@ update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
 build_table(TableName, Columns) when is_atom(TableName), is_list(Columns) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
-    Opts0 = add_ram_copies(find_imem_nodes(imem), []),
+    Opts0 = add_disc_copies(find_imem_nodes(imem), []),
     Opts1 = add_attribute(Cols, Opts0),
     create_table(TableName, Opts1).
 
@@ -94,10 +94,17 @@ init([Sock]) ->
     io:format(user, "~p tcp client ~p~n", [self(), Sock]),
     {ok, #state{csock=Sock}};
 init([]) ->
-    {ok, LSock} = gen_tcp:listen(8124, [binary, {packet, 0}, {active, false}]),     
-    io:format(user, "~p started imem_if ~p~n", [self(), LSock]),
-    gen_server:cast(self(), accept),
-    {ok, #state{lsock=LSock}}.
+    ListenIf = application:get_env(mgmt_if),
+    {ok, ListenPort} = inet:getaddr(application:get_env(mgmt_port), inet),
+    case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
+        {ok, LSock} ->
+            io:format(user, "~p started imem_if ~p~n", [self(), LSock]),
+            gen_server:cast(self(), accept),
+            {ok, #state{lsock=LSock}};
+        Reason ->
+            io:format(user, "~p imem_if not started : ~p~n", [self(), Reason]),
+            {ok, #state{}}
+    end.
 
 handle_call(_Request, _From, State) ->
     io:format(user, "handle_call ~p~n", [_Request]),

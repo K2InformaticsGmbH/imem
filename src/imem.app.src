@@ -11,6 +11,8 @@
   {env, [
          {mnesia_timeout, 30000},
 		 {mnesia_bulk_sleep_time, 500},
-		 {start_monitor, false}
+		 {start_monitor, false},
+		 {mgmt_if, localhost},
+		 {mgmt_port, 8124}
 		]}
  ]}.

@@ -4,7 +4,7 @@ set _Machine.01=A@127.0.0.1
 ::set _Machine.04=D@127.0.0.1
 
 set Pa=D:\Work\Git\imem\ebin
-set Opts= -setcookie imem -env ERL_MAX_ETS_TABLES 10000 -mnesia schema_location ram dc_dump_limit 40 -kernel inet_dist_listen_min 9000 inet_dist_listen_max 9020
+set Opts= -setcookie imem -env ERL_MAX_ETS_TABLES 10000 -kernel inet_dist_listen_min 9000 inet_dist_listen_max 9020
 
 FOR /F "tokens=2* delims=.=" %%A IN ('set _Machine.') DO (
     start werl.exe -name %%B -pa %Pa% %Opts% -eval "apply(net_adm, ping, ['%_Machine.01%'])" -s imem start -imem start_monitor true
