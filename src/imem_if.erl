@@ -14,6 +14,7 @@
 		, handle_info/2
 		, terminate/2
 		, code_change/3
+        , find_imem_nodes/0
 		]).
 
 -export([config_copies/3
@@ -22,6 +23,7 @@
 		, delete_table/1
 		, insert_into_table/2
         , update_opts/2
+        , read_all_rows/1
 		]).
 
 config_copies(ram, Ns, Opts) -> update_opts({ram_copies,Ns}, Opts);
@@ -33,7 +35,7 @@ update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
 build_table(TableName, Columns) when is_atom(TableName), is_list(Columns) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
-    Opts0 = config_copies(disc, find_imem_nodes(), []),
+    Opts0 = config_copies(ram, find_imem_nodes(), []),
     Opts1 = add_attribute(Cols, Opts0),
     create_table(TableName, Opts1).
 
@@ -68,6 +70,10 @@ insert_into_table(TableName, Row) when is_atom(TableName), is_list(Row) ->
         mnesia:dirty_write(TableName, list_to_tuple([TableName|Row]));
         true -> {error, {"schema mismatch {table_row_len, insert_row_len} ", TableRowLen, RowLen}}
     end.
+
+read_all_rows(TableName) ->
+    {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
+    [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(TableName, X)))) || X <- Keys].
 
 find_imem_nodes() ->
     [node() |
@@ -159,8 +165,7 @@ process_cmd({table, Tab}, Sock) ->
     Cols = mnesia:table_info(Tab, attributes),
     gen_tcp:send(Sock, term_to_binary(Cols));
 process_cmd({row, Tab}, Sock) ->
-    {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(Tab) end),
-    Data = [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(Tab, X)))) || X <- Keys],
+    Data = read_all_rows(Tab),
     gen_tcp:send(Sock, term_to_binary(Data));
 process_cmd({build_table, TableName, Columns}, Sock) ->
     build_table(TableName, Columns),

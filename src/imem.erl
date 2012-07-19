@@ -28,6 +28,7 @@
 
 -export([start_link/0
         , start/0
+        , start/1
 		, init/1
 		, handle_call/3
 		, handle_cast/2
@@ -41,7 +42,10 @@
 %% ====================================================================
 %% External functions
 %% ====================================================================
-start() -> application:start(?MODULE).
+start() -> start(node()).
+start(Node) ->
+    application:set_env(?MODULE, cluster_node, Node),
+    application:start(?MODULE).
 
 cluster(Node) when is_atom(Node) ->
 	cluster([node(), Node]);
@@ -72,7 +76,7 @@ get_bulk_sleep_time() ->
 %%          {stop, Reason}
 %% --------------------------------------------------------------------
 init([]) ->
-%% 	timer:sleep(?NODE_DISCOVERY_DELAY),
+ 	timer:sleep(?NODE_DISCOVERY_DELAY),
     io:format("Starting imem...~n", []),
 	NodeList = imem_if:find_imem_nodes(),
     io:format("Starting on nodes ~p~n", [NodeList]),

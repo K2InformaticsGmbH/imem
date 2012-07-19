@@ -66,11 +66,14 @@ start_link(Args) ->
 init(_StartArgs) ->
     io:format("~ninitializing ~p..~n", [?MODULE]),
     {ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
-    NodeList = imem_if:find_imem_nodes(),
-    case mnesia:create_schema(NodeList) of
-        ok -> ok;
-        {error, R0} -> io:format(user, "imem:mnesia:create_schema error ~p~n", [R0])
+    CNode = case application:get_env(cluster_node) of
+        {ok, undefined} -> node();
+        {ok, CN} -> CN
     end,
+    io:format(user, "Cluster node ~p~n", [CNode]),
+    pong = net_adm:ping(CNode),
+    %NodeList = imem_if:find_imem_nodes(),
+    %create_schema_on_missing_nodes(NodeList),
     ok = mnesia:start(),
     io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),
     ThreadList = [{imem, {imem, start_link, []}, permanent, MnesiaTimeout, worker, [imem]}],
@@ -80,6 +83,16 @@ init(_StartArgs) ->
     end,
     {ok, {{one_for_one, 3, 10}, ThreadList0}}.
 
+%create_schema_on_missing_nodes([]) -> ok;
+%create_schema_on_missing_nodes([N|NodeList]) ->
+%    case mnesia:create_schema([N]) of
+%        ok ->
+%            io:format(user, "imem:mnesia:create_schema created ~p~n", [N]);
+%        {error, {N,{already_exists,N}}} ->
+%            io:format(user, "imem:mnesia:create_schema schema exists on ~p skipping~n", [N]),
+%            create_schema_on_missing_nodes(NodeList)
+ %    end.
+
 %% ====================================================================
 %% Internal functions
-%% ====================================================================
+ %% ====================================================================
