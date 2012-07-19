@@ -69,7 +69,7 @@ init(_StartArgs) ->
     NodeList = imem_if:find_imem_nodes(),
     case mnesia:create_schema(NodeList) of
         ok -> ok;
-        {error, R0} -> io:format(user, "dderl:mnesia:create_schema error ~p~n", [R0])
+        {error, R0} -> io:format(user, "imem:mnesia:create_schema error ~p~n", [R0])
     end,
     ok = mnesia:start(),
     io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),

@@ -1,8 +1,6 @@
 -module(imem_if).
 -behaviour(gen_server).
 
--compile(export_all).
-
 -record(state, {
         lsock = undefined
         , csock = undefined
@@ -18,15 +16,24 @@
 		, code_change/3
 		]).
 
-add_ram_copies(Ns, Opts) -> update_opts({ram_copies,Ns}, Opts).
-add_disc_copies(Ns, Opts) -> update_opts({disc_copies,Ns}, Opts).
+-export([config_copies/3
+        , add_attribute/2
+		, build_table/2
+		, delete_table/1
+		, insert_into_table/2
+        , update_opts/2
+		]).
+
+config_copies(ram, Ns, Opts) -> update_opts({ram_copies,Ns}, Opts);
+config_copies(disc, Ns, Opts) -> update_opts({disc_copies,Ns}, Opts).
+
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
 build_table(TableName, Columns) when is_atom(TableName), is_list(Columns) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
-    Opts0 = add_disc_copies(find_imem_nodes(imem), []),
+    Opts0 = config_copies(disc, find_imem_nodes(), []),
     Opts1 = add_attribute(Cols, Opts0),
     create_table(TableName, Opts1).
 
@@ -62,23 +69,11 @@ insert_into_table(TableName, Row) when is_atom(TableName), is_list(Row) ->
         true -> {error, {"schema mismatch {table_row_len, insert_row_len} ", TableRowLen, RowLen}}
     end.
 
-find_imem_nodes(App) ->
-    [node() |
-        lists:foldl(
-            fun(N, Acc) ->
-                    case lists:keyfind(App, 1, rpc:call(N, application, loaded_applications, [])) of
-                        false -> Acc;
-                        _ -> [N|Acc]
-                    end
-            end
-            , []
-            , nodes())].
 find_imem_nodes() ->
-    {ok, App} = application:get_application(),
     [node() |
         lists:foldl(
             fun(N, Acc) ->
-                    case lists:keyfind(App, 1, rpc:call(N, application, loaded_applications, [])) of
+                    case lists:keyfind(imem, 1, rpc:call(N, application, loaded_applications, [])) of
                         false -> Acc;
                         _ -> [N|Acc]
                     end
@@ -94,11 +89,13 @@ init([Sock]) ->
     io:format(user, "~p tcp client ~p~n", [self(), Sock]),
     {ok, #state{csock=Sock}};
 init([]) ->
-    ListenIf = application:get_env(mgmt_if),
-    {ok, ListenPort} = inet:getaddr(application:get_env(mgmt_port), inet),
+    {ok, Interface} = application:get_env(mgmt_if),
+    {ok, ListenIf} = inet:getaddr(Interface, inet),
+    {ok, ListenPort} = application:get_env(mgmt_port),
+    %io:format(user, "~p:~p @ ~p~n", [?MODULE,?LINE, {ListenIf, ListenPort}]),
     case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
         {ok, LSock} ->
-            io:format(user, "~p started imem_if ~p~n", [self(), LSock]),
+            io:format(user, "~p started imem_if ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
             gen_server:cast(self(), accept),
             {ok, #state{lsock=LSock}};
         Reason ->

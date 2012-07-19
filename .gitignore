@@ -3,3 +3,5 @@
 /log/*
 .project
 .settings/
+Mnesia*
+*.dump

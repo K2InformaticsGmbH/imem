@@ -73,6 +73,7 @@ get_bulk_sleep_time() ->
 %% --------------------------------------------------------------------
 init([]) ->
 %% 	timer:sleep(?NODE_DISCOVERY_DELAY),
+    io:format("Starting imem...~n", []),
 	NodeList = imem_if:find_imem_nodes(),
     io:format("Starting on nodes ~p~n", [NodeList]),
 	mnesia:change_config(extra_db_nodes, NodeList),
