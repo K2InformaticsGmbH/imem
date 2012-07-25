@@ -14,6 +14,6 @@
 		 {start_monitor, false},
 		 {mgmt_if, localhost},
 		 {mgmt_port, 8124},
-         {cluster_node, undefined}
+         {node_type, undefined}
 		]}
  ]}.

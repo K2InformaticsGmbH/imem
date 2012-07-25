@@ -17,8 +17,7 @@
         , find_imem_nodes/0
 		]).
 
--export([config_copies/3
-        , add_attribute/2
+-export([add_attribute/2
 		, build_table/2
 		, delete_table/1
 		, insert_into_table/2
@@ -26,18 +25,16 @@
         , read_all_rows/1
 		]).
 
-config_copies(ram, Ns, Opts) -> update_opts({ram_copies,Ns}, Opts);
-config_copies(disc, Ns, Opts) -> update_opts({disc_copies,Ns}, Opts).
-
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
 build_table(TableName, Columns) when is_atom(TableName), is_list(Columns) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
-    Opts0 = config_copies(ram, find_imem_nodes(), []),
-    Opts1 = add_attribute(Cols, Opts0),
-    create_table(TableName, Opts1).
+    DiscNodes = mnesia:table_info(schema, disc_copies),
+    RamNodes = mnesia:table_info(schema, ram_copies),
+    Opts = add_attribute(Cols, [{ram_copies, RamNodes}, {disc_copies, DiscNodes}]),
+    create_table(TableName, Opts).
 
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    
