@@ -23,6 +23,7 @@
 		, insert_into_table/2
         , update_opts/2
         , read_all_rows/1
+        , select_rows/2
 		]).
 
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
@@ -65,12 +66,15 @@ insert_into_table(TableName, Row) when is_atom(TableName), is_list(Row) ->
     TableRowLen = length(mnesia:table_info(TableName, attributes)),
     if TableRowLen =:= RowLen ->
         mnesia:dirty_write(TableName, list_to_tuple([TableName|Row]));
-        true -> {error, {"schema mismatch {table_row_len, insert_row_len} ", TableRowLen, RowLen}}
+        true -> {error, {"schema mismatch {table_row_len, insert_row_len} ", TableRowLen, RowLen, Row}}
     end.
 
 read_all_rows(TableName) ->
     {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
     [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(TableName, X)))) || X <- Keys].
+
+select_rows(TableName, MatchSpec) ->
+    mnesia:dirty_select(TableName, MatchSpec).
 
 find_imem_nodes() ->
     [node() |
@@ -153,6 +157,11 @@ terminate(_Reason, #state{csock=Sock}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+process_cmd({imem_nodes}, Sock) ->
+    Nodes = find_imem_nodes(),
+    Tb = term_to_binary(Nodes),
+    io:format(user, "nodes ~p size ~p~n", [Nodes, byte_size(Tb)]),
+    gen_tcp:send(Sock, Tb);
 process_cmd({tables}, Sock) ->
     Tables = lists:delete(schema, mnesia:system_info(tables)),
     Tb = term_to_binary(Tables),
