@@ -96,17 +96,24 @@ init([Sock]) ->
     io:format(user, "~p tcp client ~p~n", [self(), Sock]),
     {ok, #state{csock=Sock}};
 init([]) ->
-    {ok, Interface} = application:get_env(mgmt_if),
-    {ok, ListenIf} = inet:getaddr(Interface, inet),
-    {ok, ListenPort} = application:get_env(mgmt_port),
-    %io:format(user, "~p:~p @ ~p~n", [?MODULE,?LINE, {ListenIf, ListenPort}]),
-    case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
-        {ok, LSock} ->
-            io:format(user, "~p started imem_if ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
-            gen_server:cast(self(), accept),
-            {ok, #state{lsock=LSock}};
-        Reason ->
+    {ok, {Interface, ListenPort}} = application:get_env(mgmt_if),
+    case inet:getaddr(Interface, inet) of
+        {error, Reason} ->
             io:format(user, "~p imem_if not started : ~p~n", [self(), Reason]),
+            {ok, #state{}};
+        {ok, ListenIf} when is_integer(ListenPort) ->
+            %io:format(user, "~p:~p @ ~p~n", [?MODULE,?LINE, {ListenIf, ListenPort}]),
+            case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
+                {ok, LSock} ->
+                    io:format(user, "~p started imem_if ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
+                    gen_server:cast(self(), accept),
+                    {ok, #state{lsock=LSock}};
+                Reason ->
+                    io:format(user, "~p imem_if not started : ~p~n", [self(), Reason]),
+                    {ok, #state{}}
+            end;
+        _ ->
+            io:format(user, "~p imem_if disabled!~n", [self()]),
             {ok, #state{}}
     end.
 
