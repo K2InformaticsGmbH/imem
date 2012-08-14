@@ -23,6 +23,7 @@
 		, insert_into_table/2
         , update_opts/2
         , read_all_rows/1
+        , read/2
         , select_rows/2
 		]).
 
@@ -68,6 +69,9 @@ insert_into_table(TableName, Row) when is_atom(TableName), is_list(Row) ->
         mnesia:dirty_write(TableName, list_to_tuple([TableName|Row]));
         true -> {error, {"schema mismatch {table_row_len, insert_row_len} ", TableRowLen, RowLen, Row}}
     end.
+
+read(TableName, Key) ->
+    mnesia:dirty_read(TableName, Key).
 
 read_all_rows(TableName) ->
     {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
