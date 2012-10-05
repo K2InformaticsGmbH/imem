@@ -20,11 +20,13 @@
 -export([add_attribute/2
 		, build_table/2
 		, delete_table/1
-		, insert_into_table/2
         , update_opts/2
         , read_all_rows/1
-        , read/2
         , select_rows/2
+        , read/2                 
+        , insert_into_table/2    
+        , write/2
+        , delete/2
 		]).
 
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
@@ -72,6 +74,12 @@ insert_into_table(TableName, Row) when is_atom(TableName), is_list(Row) ->
 
 read(TableName, Key) ->
     mnesia:dirty_read(TableName, Key).
+
+write(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
+    mnesia:dirty_write(TableName, Row).
+
+delete(TableName, Key) ->
+    mnesia:delete({TableName, Key}).
 
 read_all_rows(TableName) ->
     {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
