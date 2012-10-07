@@ -49,17 +49,16 @@ build_table(TableName, Columns, Opts) when is_atom(TableName), is_list(Columns) 
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    
 create_table(Table, Opts) when is_atom(Table) ->
-    LocalNode = node(),
    	case mnesia:create_table(Table, Opts) of
-        {aborted, {already_exists, Table, LocalNode}} ->
+        {aborted, {already_exists, Table}} ->
             %% table exists on local node.
-            {aborted, {already_exists, Table, LocalNode}};
+            {aborted, {already_exists, Table}};
         {aborted, {already_exists, Table, _}} ->
             %% table exists on remote node(s)
             %% io:format("waiting for table '~p' ...~n", [Table]),
             mnesia:wait_for_tables([Table], 30000),
             %% io:format("copying table '~p' ...~n", [Table]),
-            mnesia:add_table_copy(Table, LocalNode, ram_copies);
+            mnesia:add_table_copy(Table, node(), ram_copies);
 		{aborted, Details} ->
             %% other table creation problems
 			{aborted, Details};
