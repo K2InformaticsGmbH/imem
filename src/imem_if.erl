@@ -79,7 +79,7 @@ write(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
     mnesia:dirty_write(TableName, Row).
 
 delete(TableName, Key) ->
-    mnesia:delete({TableName, Key}).
+    mnesia:dirty_delete({TableName, Key}).
 
 read_all_rows(TableName) ->
     {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
