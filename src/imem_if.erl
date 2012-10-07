@@ -19,6 +19,7 @@
 
 -export([add_attribute/2
 		, build_table/2
+        , build_table/3
 		, delete_table/1
         , update_opts/2
         , read_all_rows/1
@@ -37,20 +38,36 @@ build_table(TableName, Columns) when is_atom(TableName), is_list(Columns) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
-    Opts = add_attribute(Cols, [{ram_copies, RamNodes}, {disc_copies, DiscNodes}]),
-    create_table(TableName, Opts).
+    CompleteOpts = add_attribute(Cols, [{ram_copies, RamNodes}, {disc_copies, DiscNodes}]),
+    create_table(TableName, CompleteOpts).
+
+build_table(TableName, Columns, Opts) when is_atom(TableName), is_list(Columns) ->
+    Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
+    CompleteOpts = add_attribute(Cols, Opts),
+    create_table(TableName, CompleteOpts).
 
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    
 create_table(Table, Opts) when is_atom(Table) ->
+    LocalNode = node(),
    	case mnesia:create_table(Table, Opts) of
-		{aborted, _} ->
-			io:format("copying '~p' table...~n", [Table]),
-			mnesia:wait_for_tables([Table], 30000),
-			mnesia:add_table_copy(Table, node(), ram_copies);
-		_ ->
-			io:format("table '~p' created...~n", [Table]),
-			mnesia:clear_table(Table)
+        {aborted, {already_exists, Table, LocalNode}} ->
+            %% table exists on local node.
+            {aborted, {already_exists, Table, LocalNode}};
+        {aborted, {already_exists, Table, _}} ->
+            %% table exists on remote node(s)
+            %% io:format("waiting for table '~p' ...~n", [Table]),
+            mnesia:wait_for_tables([Table], 30000),
+            %% io:format("copying table '~p' ...~n", [Table]),
+            mnesia:add_table_copy(Table, LocalNode, ram_copies);
+		{aborted, Details} ->
+            %% other table creation problems
+			{aborted, Details};
+		%%_ ->
+			%% io:format("table '~p' created...~n", [Table]),
+            %% ToDo: Check if this is needed.
+			%% mnesia:clear_table(Table)
+        Result -> Result
 	end.
 
 delete_table(Table) when is_atom(Table) ->
