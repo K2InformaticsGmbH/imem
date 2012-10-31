@@ -192,31 +192,25 @@ terminate(_Reason, #state{csock=Sock}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-process_cmd({imem_nodes}, Sock) ->
-    Nodes = find_imem_nodes(),
-    Tb = term_to_binary(Nodes),
-    io:format(user, "nodes ~p size ~p~n", [Nodes, byte_size(Tb)]),
-    gen_tcp:send(Sock, Tb);
-process_cmd({tables}, Sock) ->
-    Tables = lists:delete(schema, mnesia:system_info(tables)),
-    Tb = term_to_binary(Tables),
-    io:format(user, "tables ~p size ~p~n", [Tables, byte_size(Tb)]),
-    gen_tcp:send(Sock, Tb);
-process_cmd({table, Tab}, Sock) ->
-    Cols = mnesia:table_info(Tab, attributes),
-    gen_tcp:send(Sock, term_to_binary(Cols));
-process_cmd({row, Tab}, Sock) ->
-    Data = read_all_rows(Tab),
-    gen_tcp:send(Sock, term_to_binary(Data));
-process_cmd({build_table, TableName, Columns}, Sock) ->
-    build_table(TableName, Columns),
-    gen_tcp:send(Sock, term_to_binary(ok));
-process_cmd({delete_table, TableName}, Sock) ->
-    delete_table(TableName),
-    gen_tcp:send(Sock, term_to_binary(ok));
-process_cmd({insert_into_table, TableName, Row}, Sock) ->
-    insert_into_table(TableName, Row),
-    gen_tcp:send(Sock, term_to_binary(ok)).
+
+process_cmd({imem_nodes},                               Sock) -> send_resp(find_imem_nodes(), Sock);
+process_cmd({tables},                                   Sock) -> send_resp(lists:delete(schema, mnesia:system_info(tables)), Sock);
+process_cmd({columns, TableName},                       Sock) -> send_resp(mnesia:table_info(TableName, attributes), Sock);
+process_cmd({read, TableName, Key},                     Sock) -> send_resp(read(TableName, Key), Sock);
+process_cmd({write, TableName, Row},                    Sock) -> send_resp(write(TableName, Row), Sock);
+process_cmd({delete, TableName, Key},                   Sock) -> send_resp(delete(TableName, Key), Sock);
+process_cmd({add_attribute, A, Opts},                   Sock) -> send_resp(add_attribute(A, Opts), Sock);
+process_cmd({delete_table, TableName},                  Sock) -> send_resp(delete_table(TableName), Sock);
+process_cmd({update_opts, Tuple, Opts},                 Sock) -> send_resp(update_opts(Tuple, Opts), Sock);
+process_cmd({read_all_rows, TableName},                 Sock) -> send_resp(read_all_rows(TableName), Sock);
+process_cmd({build_table, TableName, Columns},          Sock) -> send_resp(build_table(TableName, Columns), Sock);
+process_cmd({select_rows, TableName, MatchSpec},        Sock) -> send_resp(select_rows(TableName, MatchSpec), Sock);
+process_cmd({insert_into_table, TableName, Row},        Sock) -> send_resp(insert_into_table(TableName, Row), Sock);
+process_cmd({build_table, TableName, Columns, Opts},    Sock) -> send_resp(build_table(TableName, Columns, Opts), Sock).
+
+send_resp(Resp, Sock) ->
+    RespBin = term_to_binary(Resp),
+    gen_tcp:send(Sock, RespBin).
 
 %% EXAMPLE1: create a table and add data to it
 % rd(table1, {a,b,c}).
