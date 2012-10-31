@@ -18,14 +18,15 @@
 		]).
 
 -export([add_attribute/2
-		, build_table/2
-        , build_table/3
-		, delete_table/1
+		, create_table/2
+        , create_table/3
+        , create_cluster_table/3
+		, drop_table/1
         , update_opts/2
-        , read_all_rows/1
-        , select_rows/2
+        , read_all/1
+        , select/2
         , read/2                 
-        , insert_into_table/2    
+        , insert/2    
         , write/2
         , delete/2
 		]).
@@ -34,14 +35,14 @@ add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
-build_table(TableName, Columns) when is_atom(TableName), is_list(Columns) ->
-    Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
+
+
+create_cluster_table(TableName,Columns,Opts) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
-    CompleteOpts = add_attribute(Cols, [{ram_copies, RamNodes}, {disc_copies, DiscNodes}]),
-    create_table(TableName, CompleteOpts).
+    create_table(TableName,Columns,[{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts]).
 
-build_table(TableName, Columns, Opts) when is_atom(TableName), is_list(Columns) ->
+create_table(TableName,Columns,Opts) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
     CompleteOpts = add_attribute(Cols, Opts),
     create_table(TableName, CompleteOpts).
@@ -69,18 +70,18 @@ create_table(Table, Opts) when is_atom(Table) ->
         Result -> Result
 	end.
 
-delete_table(Table) when is_atom(Table) ->
+drop_table(Table) when is_atom(Table) ->
     mnesia:delete_table(Table).
 
-insert_into_table(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
+insert(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
     Row1 = case element(1, Row) of
         TableName ->
             [_|R] = tuple_to_list(Row),
             R;
         _ -> tuple_to_list(Row)
     end,
-    insert_into_table(TableName, Row1);
-insert_into_table(TableName, Row) when is_atom(TableName), is_list(Row) ->
+    insert(TableName, Row1);
+insert(TableName, Row) when is_atom(TableName), is_list(Row) ->
     RowLen = length(Row),
     TableRowLen = length(mnesia:table_info(TableName, attributes)),
     if TableRowLen =:= RowLen ->
@@ -97,11 +98,11 @@ write(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
 delete(TableName, Key) ->
     mnesia:dirty_delete({TableName, Key}).
 
-read_all_rows(TableName) ->
+read_all(TableName) ->
     {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
     [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(TableName, X)))) || X <- Keys].
 
-select_rows(TableName, MatchSpec) ->
+select(TableName, MatchSpec) ->
     mnesia:dirty_select(TableName, MatchSpec).
 
 find_imem_nodes() ->
@@ -200,13 +201,14 @@ process_cmd({read, TableName, Key},                     Sock) -> send_resp(read(
 process_cmd({write, TableName, Row},                    Sock) -> send_resp(write(TableName, Row), Sock);
 process_cmd({delete, TableName, Key},                   Sock) -> send_resp(delete(TableName, Key), Sock);
 process_cmd({add_attribute, A, Opts},                   Sock) -> send_resp(add_attribute(A, Opts), Sock);
-process_cmd({delete_table, TableName},                  Sock) -> send_resp(delete_table(TableName), Sock);
+process_cmd({delete_table, TableName},                  Sock) -> send_resp(drop_table(TableName), Sock);
 process_cmd({update_opts, Tuple, Opts},                 Sock) -> send_resp(update_opts(Tuple, Opts), Sock);
-process_cmd({read_all_rows, TableName},                 Sock) -> send_resp(read_all_rows(TableName), Sock);
-process_cmd({build_table, TableName, Columns},          Sock) -> send_resp(build_table(TableName, Columns), Sock);
-process_cmd({select_rows, TableName, MatchSpec},        Sock) -> send_resp(select_rows(TableName, MatchSpec), Sock);
-process_cmd({insert_into_table, TableName, Row},        Sock) -> send_resp(insert_into_table(TableName, Row), Sock);
-process_cmd({build_table, TableName, Columns, Opts},    Sock) -> send_resp(build_table(TableName, Columns, Opts), Sock).
+process_cmd({read_all_rows, TableName},                 Sock) -> send_resp(read_all(TableName), Sock);
+process_cmd({create_table, TableName, Columns},         Sock) -> send_resp(create_table(TableName, Columns), Sock);
+process_cmd({create_table, TableName, Columns, Opts},   Sock) -> send_resp(create_table(TableName, Columns, Opts), Sock);
+process_cmd({create_cluster_table, TableName, Columns, Opts},   Sock) -> send_resp(create_cluster_table(TableName, Columns, Opts), Sock);
+process_cmd({select, TableName, MatchSpec},             Sock) -> send_resp(select(TableName, MatchSpec), Sock);
+process_cmd({insert, TableName, Row},                   Sock) -> send_resp(insert(TableName, Row), Sock).
 
 send_resp(Resp, Sock) ->
     RespBin = term_to_binary(Resp),
