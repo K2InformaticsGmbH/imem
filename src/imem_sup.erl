@@ -82,7 +82,7 @@ init(_StartArgs) ->
     ThreadList = [{imem, {imem, start_link, []}, permanent, MnesiaTimeout, worker, [imem]}],
     ThreadList0 = case application:get_env(start_monitor) of
         {ok, false} -> ThreadList;
-        _ -> [{imem_if, {imem_if, start_link, []}, permanent, MnesiaTimeout, worker, [imem_if]} | ThreadList]
+        _ -> [{imem_server, {imem_server, start_link, []}, permanent, MnesiaTimeout, worker, [imem_server]} | ThreadList]
     end,
     {ok, {{one_for_one, 3, 10}, ThreadList0}}.
 

@@ -5,3 +5,4 @@
 .settings/
 Mnesia*
 *.dump
+deps
