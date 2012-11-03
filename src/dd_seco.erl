@@ -102,7 +102,7 @@ create_tables(SeCoUser) ->
     if_create_tables(SeCoUser).
 
 drop_tables(SeCoUser) -> 
-    case dderl_role:have_permission(SeCoUser, manage_accounts) of
+    case have_permission(SeCoUser, manage_accounts) of
         true ->     if_drop_tables(SeCoUser);
         false ->    {error, {"Drop security context tables unauthorized", SeCoUser}}
     end.

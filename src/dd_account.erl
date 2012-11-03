@@ -1,5 +1,7 @@
 -module(dd_account).
 
+-define(PASSWORD_VALIDITY,100).
+
 -include_lib("eunit/include/eunit.hrl").
 
 -include("dd.hrl").
@@ -8,21 +10,22 @@
         , drop_tables/1
         ]).
 
+-export([ authenticate/3
+        , login/1
+        , change_credentials/3
+        , logout/1
+        ]).
+
 -export([ create/2
         , get/2
         , get_by_name/2
         , update/3
         , delete/2
         , exists/2
-        , authenticate/3
-        , login/1
-        , change_credentials/3
-        , logout/1
         , lock/2
         , unlock/2
         ]).
 
- 
 %% --Interface functions  (calling imem_if for now, not exported) -------------------
 
 schema() ->
@@ -170,6 +173,8 @@ exists(SeCo, AccountId) ->                          %% exists, maybe in changed 
         false ->    {error, {"Exists account unauthorized",SeCo}}
     end.            
 
+
+
 authenticate(SessionId, Name, Credentials) ->
     LocalTime = calendar:local_time(),
     SeCo = dd_seco:create(SessionId, Name, Credentials),
@@ -192,9 +197,6 @@ authenticate(SessionId, Name, Credentials) ->
             Error
     end.
 
-unauthenticate(SeKey) ->
-     dd_seco:delete(SeKey).
-
 login(SeKey) ->
     case dd_seco:get(SeKey) of
         #ddSeCo{accountId=AccountId} = SeCo ->
@@ -204,17 +206,17 @@ login(SeKey) ->
             PwdExpireDate = calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*?PASSWORD_VALIDITY),
             case {Result=if_get(SeCo, AccountId), AuthenticationMethod} of
                 {#ddAccount{lastPasswordChangeTime=undefined}, pwdmd5} -> 
-                    unauthenticate(SeKey),
+                    logout(SeKey),
                     {error,{"Password expired. Please change it", AccountId}};
                 {#ddAccount{lastPasswordChangeTime=LastChange}, pwdmd5} when LastChange < PwdExpireDate -> 
-                    unauthenticate(SeKey),
+                    logout(SeKey),
                     {error,{"Password expired. Please change it", AccountId}};
                 {#ddAccount{}, _} ->
                     ok = dd_seco:update(SeCo,SeCo#ddSeCo{state=authorized}),
                     if_write(SeCo, Result#ddAccount{lastLoginTime=calendar:local_time()}),
                     SeKey;            
                 {Error, _} ->                    
-                    unauthenticate(SeKey),
+                    logout(SeKey),
                     Error
             end;
         Error  ->   Error
@@ -239,7 +241,8 @@ change_credentials(SeKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
     end.
 
 logout(SeKey) ->
-    unauthenticate(SeKey).
+    dd_seco:delete(SeKey).
+
 
 %% ----- TESTS ------------------------------------------------
 
