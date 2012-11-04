@@ -11,7 +11,7 @@
         ]).
 
 -export([ create/3
-        , get/1
+        , seco/1
         , register/2
         , update/2
         , delete/1
@@ -58,10 +58,10 @@ if_write(_SeCoUser, Table, Record) ->
 if_read(_SeCoUser, Key) -> 
     imem_if:read(ddSeCo, Key).
 
-% if_read(_SeCoUser, Table, Key) -> 
-%    imem_if:read(Table, Key).
+if_read(_SeCoUser, Table, Key) -> 
+    imem_if:read(Table, Key).
 
-if_get(_SeCoUser, Key) -> 
+if_seco(_SeCoUser, Key) -> 
     case if_read(_SeCoUser, Key) of
         [] ->       {error, {"Security context does not exist", Key}};
         [SeCo] ->   SeCo
@@ -149,150 +149,195 @@ if_has_child_permission(SeCo, [RootRoleId|OtherRoles], Permission) ->
 
 %% --Implementation ------------------------------------------------------------------
 
-system_table(Id) ->
-    lists:member(Id,?SYSTEM_TABLES).
+system_table(Table) ->
+    lists:member(Table,?SYSTEM_TABLES).
 
-create_table(SeCo, Id, Opts) ->
-    Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
-    case Result of
+create_table(SeKey, Table, Opts) ->
+    case SeCo=seco(SeKey) of
         #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            Owner = case system_table(Id) of
+            Owner = case system_table(Table) of
                 true ->     
                     system;
                 false ->    
-                    case have_permission(SeCo, create_table) of
+                    case if_has_permission(SeCo, AccountId, create_table) of
                         true ->     AccountId;
                         false ->    false
                     end
             end,
             case Owner of
                 false ->
-                    {error, {"Create table unauthorized",Id}};
+                    {error, {"Create table unauthorized", Table}};
                 Owner ->        
-                    if_create_table(SeCo, Id, Opts, Owner) 
+                    if_create_table(SeKey, Table, Opts, Owner) 
             end;
         #ddSeCo{} -> 
-            {error, {"Invalid security context", SeCo}};
+            {error, {"Invalid security context", SeKey}};
         Error ->    
             Error 
     end.
 
-create_table(SeCo, Id, RecordInfo, Opts) ->
-    Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
-    case Result of
-        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            Owner = case system_table(Id) of
+create_table(SeKey, Table, RecordInfo, Opts) ->
+    case SeCo=seco(SeKey) of
+        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} -> 
+            Owner = case system_table(Table) of
                 true ->     
                     system;
                 false ->    
-                    case have_permission(SeCo, create_table) of
+                    case if_has_permission(SeCo, AccountId, create_table) of
                         true ->     AccountId;
                         false ->    false
                     end
             end,
             case Owner of
                 false ->
-                    {error, {"Create table unauthorized",Id}};
+                    {error, {"Create table unauthorized", Table}};
                 Owner ->        
-                    if_create_table(SeCo, Id, RecordInfo, Opts, Owner)
+                    if_create_table(SeKey, Table, RecordInfo, Opts, Owner)
             end;
-        #ddSeCo{} -> 
-            {error, {"Invalid security context", SeCo}};
         Error ->    
             Error 
     end.
 
-create_system_tables(SeCo) ->
-    if_create_table(SeCo, ddTable, record_info(fields, ddTable),[], system),        %% may fail if exists
-    if_create_table(SeCo, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
-    if_create_table(SeCo, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
-    if_create_table(SeCo, ddSeCo, record_info(fields, ddSeCo),[], system).      %% ToDo: [local]
+create_system_tables(SeKey) ->
+    if_create_table(SeKey, ddTable, record_info(fields, ddTable),[], system),        %% may fail if exists
+    if_create_table(SeKey, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
+    if_create_table(SeKey, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
+    if_create_table(SeKey, ddSeCo, record_info(fields, ddSeCo),[], system).      %% ToDo: [local]
 
-drop_system_tables(SeCo) ->
+drop_system_tables(SeKey) ->
+    SeCo=seco(SeKey),
     case have_permission(SeCo, manage_system_tables) of
         true ->
-            if_drop_table(SeCo, ddSeCo),     
-            if_drop_table(SeCo, ddRole),         
-            if_drop_table(SeCo, ddAccount),   
-            if_drop_table(SeCo, ddTable);
+            if_drop_table(SeKey, ddSeCo),     
+            if_drop_table(SeKey, ddRole),         
+            if_drop_table(SeKey, ddAccount),   
+            if_drop_table(SeKey, ddTable);
         false ->
-            {error, {"Drop system tables unauthorized", SeCo}}
+            {error, {"Drop system tables unauthorized", SeKey}};
+        Error ->
+            Error
     end.
 
-drop_table(SeCo, Id) -> 
-    case have_permission(SeCo, manage_accounts) of
-        true ->     if_drop_table(SeCo, Id);
-        false ->    {error, {"Drop table unauthorized", SeCo}}
+drop_table(SeKey, Table) ->
+    SeCo = seco(SeKey),
+    case system_table(Table) of
+        true  -> drop_system_table(SeCo, Table);
+        false -> drop_user_table(SeCo, Table)
     end.
+
+drop_user_table(#ddSeCo{key=SeKey,accountId=AccountId}=SeCo, Table) ->
+    case have_permission(SeCo, manage_user_tables) of
+        true ->
+            if_drop_table(SeKey, Table);
+        false ->
+            case if_read(SeKey, ddTable, Table)  of
+                [] ->
+                    {error, {"Drop table not found", SeKey}};
+                [#ddTable{owner=AccountId}] -> 
+                    if_drop_table(SeKey, Table);
+                _ ->     
+                    {error, {"Drop table unauthorized", SeKey}}
+            end;
+        Error ->
+            Error
+    end. 
+
+drop_system_table(#ddSeCo{key=SeKey}=SeCo, Table) ->
+    case have_permission(SeCo, manage_system_tables) of
+        true ->
+            if_drop_table(SeKey, Table);
+        false ->
+            {error, {"Drop system table unauthorized", SeKey}};
+        Error ->
+            Error
+    end. 
 
 create(SessionId, Name, _Credentials) -> 
     SeCo = #ddSeCo{phid=self(), sessionId=SessionId, name=Name, authTime=erlang:now()},
-    Key = erlang:phash2(SeCo), 
-    SeCo#ddSeCo{key=Key, state=unauthorized}.
+    SeKey = erlang:phash2(SeCo), 
+    SeCo#ddSeCo{key=SeKey, state=unauthorized}.
 
-register(#ddSeCo{key=Key}=SeCo, AccountId) -> 
-    case if_write(SeCo, SeCo#ddSeCo{accountId=AccountId}) of
-        ok ->       Key;    %% hash is returned back to caller
+register(#ddSeCo{key=SeKey}=SeCo, AccountId) -> 
+    case if_write(SeKey, SeCo#ddSeCo{accountId=AccountId}) of
+        ok ->       SeKey;    %% hash is returned back to caller
         Error ->    Error    
     end.
 
-get(Key) -> 
-    Result = if_get(#ddSeCo{key=Key,phid=self()}, Key),
-    case Result of
-        #ddSeCo{phid=Pid} when Pid == self() -> Result;
-        #ddSeCo{} -> {error, {"Security context does not match", Key}};
+seco(SeKey) -> 
+    SeCo = if_seco(#ddSeCo{key=SeKey,phid=self()}, SeKey),
+    case SeCo of
+        #ddSeCo{phid=Pid} when Pid == self() -> SeCo;
+        #ddSeCo{} -> {error, {"Security context does not match", SeKey}};
         Error ->    Error 
     end.
 
-update(#ddSeCo{key=Key}=SeCo, SeCoNew) -> 
-    case if_read(SeCo, Key) of
-        [] -> {error, {"Security context does not exist", Key}};
-        [#ddSeCo{phid=Pid}] when Pid == self() -> if_write(SeCo, SeCoNew);
-        [#ddSeCo{}] -> {error, {"Invalid security context", Key}};
-        [_] -> {error, {"Security context is modified by someone else", Key}}
+update(#ddSeCo{key=SeKey,phid=Pid}=SeCo, SeCoNew) when Pid == self() -> 
+    case if_read(SeKey, SeKey) of
+        [] -> {error, {"Security context does not exist", SeKey}};
+        [SeCo] -> if_write(SeKey, SeCoNew);
+        [_] -> {error, {"Security context is modified by someone else", SeKey}}
+    end;
+update(#ddSeCo{key=SeKey}, _) -> 
+    {error, {"Invalid security context", SeKey}}.
+
+delete(#ddSeCo{key=SeKey,phid=Pid}) when Pid == self() -> 
+    if_delete(SeKey, SeKey);
+delete(#ddSeCo{key=SeKey}) -> 
+    {error, {"Delete security context unauthorized", SeKey}};
+delete(SeKey) ->
+    case SeCo=seco(SeKey) of
+        #ddSeCo{} -> delete(SeCo);
+        Error -> Error
     end.
 
-delete(SeCo) -> 
-    Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
-    case Result of
-        #ddSeCo{phid=Pid} when Pid == self() -> 
-            if_delete(#ddSeCo{key=SeCo,phid=self()}, SeCo);
-        #ddSeCo{} -> 
-            {error, {"Delete security context unauthorized", SeCo}};
-        Error ->    
-            Error 
-    end.
-
-has_role(SeCo, RootRoleId, RoleId) ->
+has_role(#ddSeCo{key=SeKey}=SeCo, RootRoleId, RoleId) ->
     case have_permission(SeCo, manage_accounts) of
-        true ->     if_has_role(SeCo, RootRoleId, RoleId); 
-        false ->    {error, {"Has role unauthorized",SeCo}}
+        true ->     if_has_role(SeKey, RootRoleId, RoleId); 
+        _ ->        {error, {"Has role unauthorized",SeKey}}
+    end;
+has_role(SeKey, RootRoleId, RoleId) ->
+    case have_permission(SeKey, manage_accounts) of
+        true ->     if_has_role(SeKey, RootRoleId, RoleId); 
+        _ ->        {error, {"Has role unauthorized",SeKey}}
     end.
 
-has_permission(SeCo, RootRoleId, Permission) ->
+has_permission(#ddSeCo{key=SeKey}=SeCo, RootRoleId, Permission) ->
     case have_permission(SeCo, manage_accounts) of
-        true ->     if_has_permission(SeCo, RootRoleId, Permission); 
-        false ->    {error, {"Has permission unauthorized",SeCo}}
+        true ->     if_has_permission(SeKey, RootRoleId, Permission); 
+        _ ->        {error, {"Has permission unauthorized",SeKey}}
+    end;
+has_permission(SeKey, RootRoleId, Permission) ->
+    case have_permission(SeKey, manage_accounts) of
+        true ->     if_has_permission(SeKey, RootRoleId, Permission); 
+        _ ->        {error, {"Has permission unauthorized",SeKey}}
     end.
 
-have_role(SeCo, RoleId) ->
-    Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
-    case Result of
+have_role(#ddSeCo{key=SeKey}=SeCo, RoleId) ->
+    case SeCo of
         #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            if_has_role(SeCo, AccountId, RoleId);
+            if_has_role(SeKey, AccountId, RoleId);
         #ddSeCo{} -> 
-            {error, {"Invalid security context", SeCo}};
+            {error, {"Invalid security context", SeKey}};
         Error ->    
             Error 
+    end;
+have_role(SeKey, RoleId) ->
+    case SeCo=seco(SeKey) of
+        #ddSeCo{} -> have_role(SeCo, RoleId);
+        Error -> Error
     end.
 
-have_permission(SeCo, Permission) ->
-    Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
-    case Result of
+have_permission(#ddSeCo{key=SeKey}=SeCo, Permission) ->
+    case SeCo of
         #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            if_has_permission(SeCo, AccountId, Permission);
+            if_has_permission(SeKey, AccountId, Permission);
         #ddSeCo{} -> 
-            {error, {"Invalid security context", SeCo}};
+            {error, {"Invalid security context", SeKey}};
         Error ->    
             Error 
+    end;
+have_permission(SeKey, Permission) ->
+    case SeCo=seco(SeKey) of
+        #ddSeCo{} -> have_permission(SeCo, Permission);
+        Error -> Error
     end.

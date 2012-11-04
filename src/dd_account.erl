@@ -180,7 +180,7 @@ authenticate(SessionId, Name, Credentials) ->
     end.
 
 login(SeKey) ->
-    case dd_seco:get(SeKey) of
+    case dd_seco:seco(SeKey) of
         #ddSeCo{accountId=AccountId} = SeCo ->
             LocalTime = calendar:local_time(),
             AuthenticationMethod = pwdmd5,      %% ToDo: get it from security context
@@ -205,7 +205,7 @@ login(SeKey) ->
     end.
 
 change_credentials(SeKey, {pwdmd5,_}=OldCred, {pwdmd5,_}=NewCred) ->
-    case dd_seco:get(SeKey) of
+    case dd_seco:seco(SeKey) of
         #ddSeCo{accountId=AccountId} = SeCo ->
             LocalTime = calendar:local_time(),
             #ddAccount{credentials=CredList} = Account = if_get(SeCo, AccountId),
@@ -214,7 +214,7 @@ change_credentials(SeKey, {pwdmd5,_}=OldCred, {pwdmd5,_}=NewCred) ->
         Error -> Error
     end;
 change_credentials(SeKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
-    case dd_seco:get(SeKey) of
+    case dd_seco:seco(SeKey) of
         #ddSeCo{accountId=AccountId} = SeCo ->
             #ddAccount{credentials=CredList} = Account = if_get(SeCo, AccountId),
             if_write(SeCo, Account#ddAccount{credentials=[NewCred|lists:delete(OldCred,CredList)]}),
@@ -395,13 +395,13 @@ test(_) ->
 
     io:format(user, "----TEST--~p:test_manage_account_rejectss~n", [?MODULE]),
 
-    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddTable)),
+    ?assertEqual({error, {"Drop system table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddTable)),
     io:format(user, "success ~p~n", [drop_table_table_rejected]), 
-    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddAccount)),
+    ?assertEqual({error, {"Drop system table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddAccount)),
     io:format(user, "success ~p~n", [drop_account_table_rejected]), 
-    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddRole)),
+    ?assertEqual({error, {"Drop system table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddRole)),
     io:format(user, "success ~p~n", [drop_role_table_rejected]), 
-    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddSeCo)),
+    ?assertEqual({error, {"Drop system table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddSeCo)),
     io:format(user, "success ~p~n", [drop_seco_table_rejected]), 
     ?assertEqual({error, {"Create account unauthorized",SeCo4}}, create(SeCo4, Account)),
     ?assertEqual({error, {"Create account unauthorized",SeCo4}}, create(SeCo4, Account0)),
