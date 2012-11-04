@@ -2,10 +2,6 @@
 
 -include("dd.hrl").
 
--export([ create_tables/1
-        , drop_tables/1
-        ]).
-
 -export([ create/2
         , get/2
         , update/3
@@ -21,12 +17,6 @@
 
 
 %% --Interface functions  (calling imem_if for now) ----------------------------------
-
-if_create_tables(_SeCo) ->
-    imem_if:create_table(ddRole, record_info(fields, ddRole),[]).
-
-if_drop_tables(_SeCo) -> 
-    imem_if:drop_table(ddRole).
 
 if_write(_SeCo, #ddRole{}=Role) -> 
     imem_if:write(ddRole, Role).
@@ -48,15 +38,6 @@ if_delete(_SeCo, RoleId) ->
 
 
 %% --Implementation ------------------------------------------------------------------
-
-create_tables(SeCo) ->
-    if_create_tables(SeCo).
-
-drop_tables(SeCo) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
-        true ->     if_drop_tables(SeCo);
-        false ->    {error, {"Drop role tables unauthorized",SeCo}}
-    end.
 
 create(SeCo, #ddRole{id=RoleId}=Role) -> 
     case dd_seco:have_permission(SeCo, manage_accounts) of

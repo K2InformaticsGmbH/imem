@@ -6,10 +6,6 @@
 
 -include("dd.hrl").
 
--export([ create_tables/1
-        , drop_tables/1
-        ]).
-
 -export([ authenticate/3
         , login/1
         , change_credentials/3
@@ -31,12 +27,6 @@
 schema() ->
     [Schema|_]=re:split(filename:basename(mnesia:system_info(directory)),"[.]",[{return,list}]),
     Schema.
-
-if_create_tables(_SeCo) ->
-    imem_if:create_table(ddAccount, record_info(fields, ddAccount),[]).
-
-if_drop_tables(_SeCo) -> 
-    imem_if:drop_table(ddAccount).
 
 if_write(_SeCo, #ddAccount{}=Account) -> 
     imem_if:write(ddAccount, Account).
@@ -74,14 +64,6 @@ if_write(Role) ->
 
 %% --Implementation ------------------------------------------------------------------
 
-create_tables(SeCo) ->
-    if_create_tables(SeCo).
-
-drop_tables(SeCo) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
-        true ->     if_drop_tables(SeCo);
-        false ->    {error, {"Drop account tables unauthorized",SeCo}}
-    end.
 
 create(SeCo, #ddAccount{id=AccountId, name=Name}=Account) when is_binary(Name) ->
     case dd_seco:have_permission(SeCo, manage_accounts) of
@@ -144,16 +126,16 @@ delete(SeCo, AccountId) ->
     end.        
 
 lock(SeCo, #ddAccount{}=Account) -> 
-    update(SeCo, Account, Account#ddAccount{isLocked=true});
+    update(SeCo, Account, Account#ddAccount{locked=true});
 lock(SeCo, AccountId) -> 
     Account = get(SeCo, AccountId),
-    update(SeCo,  Account, Account#ddAccount{isLocked=true}).
+    update(SeCo,  Account, Account#ddAccount{locked=true}).
 
 unlock(SeCo, #ddAccount{}=Account) -> 
-    update(SeCo, Account, Account#ddAccount{isLocked=false,lastFailureTime=undefined});
+    update(SeCo, Account, Account#ddAccount{locked=false,lastFailureTime=undefined});
 unlock(SeCo, AccountId) -> 
     Account = get(SeCo, AccountId),
-    update(SeCo, Account, Account#ddAccount{isLocked=false,lastFailureTime=undefined}).
+    update(SeCo, Account, Account#ddAccount{locked=false,lastFailureTime=undefined}).
 
 exists(SeCo, #ddAccount{id=AccountId}=Account) ->   %% exists unchanged
     case dd_seco:have_permission(SeCo, manage_accounts) of
@@ -180,11 +162,11 @@ authenticate(SessionId, Name, Credentials) ->
     SeCo = dd_seco:create(SessionId, Name, Credentials),
     Result = if_get_by_name(SeCo, Name),
     case Result of
-        #ddAccount{isLocked='true'} ->
+        #ddAccount{locked='true'} ->
             {error,{"Account is locked. Contact a system administrator", Name}};
         #ddAccount{lastFailureTime=LocalTime} ->
             %% lie a bit, don't show a fast attacker that this attempt might have worked
-            if_write(SeCo, Result#ddAccount{lastFailureTime=calendar:local_time(), isLocked='true'}),
+            if_write(SeCo, Result#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
             {error,{"Invalid account credentials. Please retry", Name}};
         #ddAccount{id=AccountId, credentials=CredList} -> 
             case lists:member(Credentials,CredList) of
@@ -271,24 +253,10 @@ test(_) ->
 
     io:format(user, "----TEST--~p:test_create_account_table~n", [?MODULE]),
 
-    ?assertEqual({atomic,ok}, create_tables(none)),
+    ?assertEqual({atomic,ok}, dd_seco:create_system_tables(none)),
     io:format(user, "success ~p~n", [create_account_tables]),
-    ?assertMatch({aborted,{already_exists,ddAccount}}, create_tables(none)),
+    ?assertMatch({aborted,{already_exists,_}}, dd_seco:create_system_tables(none)),
     io:format(user, "success ~p~n", [create_account_table_already_exists]),
-
-    io:format(user, "----TEST--~p:test_create_role_tables~n", [?MODULE]),
-
-    ?assertEqual({atomic,ok}, dd_role:create_tables(none)),
-    io:format(user, "success ~p~n", [create_role_tables]),
-    ?assertMatch({aborted,{already_exists,ddRole}}, dd_role:create_tables(none)),
-    io:format(user, "success ~p~n", [create_role_tables_already_exist]), 
-
-    io:format(user, "----TEST--~p:test_create_seco_tables~n", [?MODULE]),
-
-    ?assertEqual({atomic,ok}, dd_seco:create_tables(none)),
-    io:format(user, "success ~p~n", [create_seco_tables]),
-    ?assertMatch({aborted,{already_exists,ddSeCo}}, dd_seco:create_tables(none)),
-    io:format(user, "success ~p~n", [create_seco_tables_already_exist]), 
 
     UserId = make_ref(),
     UserName= <<"test_admin">>,
@@ -321,6 +289,12 @@ test(_) ->
     io:format(user, "success ~p~n", [password_changed]), 
     ?assertEqual(true, dd_seco:have_permission(SeCo1, manage_accounts)), 
     ?assertEqual(false, dd_seco:have_permission(SeCo1, manage_bananas)), 
+    ?assertEqual(true, dd_seco:have_permission(SeCo1, [manage_accounts])), 
+    ?assertEqual(false, dd_seco:have_permission(SeCo1, [manage_bananas])), 
+    ?assertEqual(true, dd_seco:have_permission(SeCo1, [manage_accounts,some_unknown_permission])), 
+    ?assertEqual(false, dd_seco:have_permission(SeCo1, [manage_bananas,some_unknown_permission])), 
+    ?assertEqual(true, dd_seco:have_permission(SeCo1, [some_unknown_permission,manage_accounts])), 
+    ?assertEqual(false, dd_seco:have_permission(SeCo1, [some_unknown_permission,manage_bananas])), 
     io:format(user, "success ~p~n", [have_permission]),
     ?assertEqual(ok, logout(SeCo1)),
     io:format(user, "success ~p~n", [logout]), 
@@ -346,7 +320,7 @@ test(_) ->
     Account = #ddAccount{id=AccountId,name=AccountName,credentials=[AccountCred],fullName= <<"FullName">>},
     AccountId0 = make_ref(),
     Account0 = #ddAccount{id=AccountId0,name=AccountName,credentials=[AccountCred],fullName= <<"AnotherName">>},
-    Account1 = Account#ddAccount{credentials=[AccountCredNew],fullName= <<"NewFullName">>,isLocked='true'},
+    Account1 = Account#ddAccount{credentials=[AccountCredNew],fullName= <<"NewFullName">>,locked='true'},
     Account2 = Account#ddAccount{credentials=[AccountCredNew],fullName= <<"OldFullName">>},
 
     SeCo = SeCo2, %% belonging to user <<"test_admin">>
@@ -421,10 +395,14 @@ test(_) ->
 
     io:format(user, "----TEST--~p:test_manage_account_rejectss~n", [?MODULE]),
 
-    ?assertEqual({error, {"Drop role tables unauthorized",SeCo4}}, dd_role:drop_tables(SeCo4)),
-    io:format(user, "success ~p~n", [delete_role_tables_rejected]), 
-    ?assertEqual({error, {"Drop account tables unauthorized",SeCo4}}, drop_tables(SeCo4)),
-    io:format(user, "success ~p~n", [delete_account_tables_rejected]), 
+    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddTable)),
+    io:format(user, "success ~p~n", [drop_table_table_rejected]), 
+    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddAccount)),
+    io:format(user, "success ~p~n", [drop_account_table_rejected]), 
+    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddRole)),
+    io:format(user, "success ~p~n", [drop_role_table_rejected]), 
+    ?assertEqual({error, {"Drop table unauthorized",SeCo4}}, dd_seco:drop_table(SeCo4,ddSeCo)),
+    io:format(user, "success ~p~n", [drop_seco_table_rejected]), 
     ?assertEqual({error, {"Create account unauthorized",SeCo4}}, create(SeCo4, Account)),
     ?assertEqual({error, {"Create account unauthorized",SeCo4}}, create(SeCo4, Account0)),
     ?assertEqual({error, {"Get account unauthorized",SeCo4}}, get(SeCo4, AccountId)),
@@ -483,6 +461,8 @@ test(_) ->
     ?assertEqual(true, dd_seco:has_role(SeCo, AccountId, test_role)),
     io:format(user, "success ~p~n", [role_has_test_role]), 
     ?assertEqual(true, dd_seco:has_permission(SeCo, AccountId, perform_tests)),
+    ?assertEqual(true, dd_seco:has_permission(SeCo, AccountId, [perform_tests])),
+    ?assertEqual(true, dd_seco:has_permission(SeCo, AccountId, [crap1,perform_tests,{crap2,read}])),
     io:format(user, "success ~p~n", [role_has_test_permission]), 
 
     io:format(user, "----TEST--~p:test_manage_account_role rejects~n", [?MODULE]),
@@ -537,13 +517,11 @@ test(_) ->
 
 
     %% Cleanup only if we arrive at this point
-    ?assertEqual({atomic,ok}, dd_role:drop_tables(SeCo)),
-    io:format(user, "success ~p~n", [delete_role_tables]), 
-    %% ?assertEqual({aborted,{no_exists,ddRole}}, dd_role:delete_tables(SeCo)),
-    %% io:format(user, "success ~p~n", [delete_role_tables_no_exists]), 
-    ?assertEqual({atomic,ok}, if_drop_tables(SeCo)),
-    io:format(user, "success ~p~n", [drop_account_tables]), 
-    ?assertEqual({aborted,{no_exists,ddAccount}}, if_drop_tables(SeCo)),
-    io:format(user, "success ~p~n", [drop_account_tables_no_exists]), 
+    ?assertEqual({error,{"Drop system tables unauthorized",SeCo}}, dd_seco:drop_system_tables(SeCo)),
+    io:format(user, "success ~p~n", [drop_system_tables]), 
+    ?assertEqual(ok, dd_role:grant_permission(SeCo, UserId, manage_system_tables)),
+    io:format(user, "success ~p~n", [grant_manage_system_tables]), 
+    ?assertEqual({atomic,ok}, dd_seco:drop_system_tables(SeCo)),
+    io:format(user, "success ~p~n", [drop_system_tables]), 
     ok.
 

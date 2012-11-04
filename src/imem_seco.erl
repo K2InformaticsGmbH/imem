@@ -18,7 +18,6 @@
 
 -export([ create_table/3
         , create_table/4
-        , create_cluster_table/4
 		, drop_table/2
         , read_all/2
         , select/3
@@ -65,33 +64,14 @@ columns(_SeCo, TableName) ->
 
 %% imem_if but security context added --- DATA DEFINITION -------
 
-create_cluster_table(SeCo, TableName, Columns, Opts) ->
-    case dd_seco:have_permission(SeCo, create_table) of
-        true ->     imem_if:create_cluster_table(TableName, Columns, Opts);
-        false ->    {error, {"Create cluster table unauthorized", SeCo}};
-        Error ->    Error
-    end.
+create_table(SeCo, TableName, Opts) ->
+    dd_seco:create_table(SeCo, TableName, Opts).
 
 create_table(SeCo, TableName, Columns, Opts) ->
-    case dd_seco:have_permission(SeCo, create_table) of
-        true ->     imem_if:create_table(TableName, Columns, Opts);
-        false ->    {error, {"Create table unauthorized", SeCo}};
-        Error ->    Error
-    end.
-
-create_table(SeCo, Table, Opts) ->
-    case dd_seco:have_permission(SeCo, create_table) of
-        true ->     imem_if:create_table(Table, Opts);
-        false ->    {error, {"Create table unauthorized", SeCo}};
-        Error ->    Error
-    end.
+    dd_seco:create_table(SeCo, TableName, Columns, Opts).
 
 drop_table(SeCo, Table) ->
-    case dd_seco:have_permission(SeCo, drop_table) of
-        true ->     imem_if:drop_table(Table);
-        false ->    {error, {"Drop table unauthorized", SeCo}};
-        Error ->    Error
-    end.
+    dd_seco:drop_table(SeCo, Table).
 
 %% imem_if but security context added --- DATA ACCESS CRUD -----
 

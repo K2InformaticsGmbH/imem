@@ -17,7 +17,7 @@
                   , lastLoginTime           ::ddDatetime()        %% erlang time of last login success
                   , lastFailureTime         ::ddDatetime()        %% erlang time of last login failure (for existing account name)
                   , lastPasswordChangeTime  ::ddDatetime()        %% change time (undefined or too old  => must change it now and reconnect)
-                  , isLocked='false'        ::'true' | 'false'
+                  , locked='false'          ::'true' | 'false'
                   }
        ).
 
@@ -46,11 +46,20 @@
                   }
        ). 
 
--record(ddQuota,                             %% security context              
+-record(ddQuota,                            %% security context              
                   { key                     ::ddSeCoKey()         %% random hash value
                   , quota                   ::ddQuota()           %% granted quota
                   }
        ). 
+
+-record(ddTable,                            %% table    
+                  { id                      ::atom()
+                  , recinfo                 ::list()
+                  , opts = []               ::list()      
+                  , owner                   ::ddEntityId()        %% binary account.name of creator / owner
+                  , readonly='false'        ::'true' | 'false'
+                  }
+       ).
 
 -record(ddAdapter,                          %% DDerl adapter (connect to databases)              
                   { id                      :: atom()             %% oci | imem | ets | os_text | dfs_text | hdfs_text
@@ -67,7 +76,7 @@
 -record(dbConn,                             %% DB connection    
                   { id                      ::ddEntityId()       
                   , name                    ::binary()          %% connection name (mutable)
-                  , owner                   ::binary()          %% binary account.name of creator / owner
+                  , owner                   ::ddEntityId()      %% account.id of creator / owner
                   , adapter                 ::atom()            %% oci | imem | ets | os_text | dfs_text | hdfs_text
                   , access                  ::any()             %% erlang term depending on adapter (e.g. ip+service or tns)
                   , schema                  ::any()             %% erlang term depending on adapter (e.g. name or uri or data root path)
@@ -77,7 +86,7 @@
 -record(dbCmd,                              %% DB command     
                   { id                      ::ddEntityId()       
                   , name                    ::binary()          %% command template name (mutable)
-                  , owner                   ::binary()          %% ddAccount.id
+                  , owner                   ::ddEntityId()      %% account.id of creator / owner
                   , adapters                ::[atom()]          %% can be used for this list of ddAdap
                   , conns                   ::[ddEntityId()]    %% can be used for this list of dbConn references
                   , command                 ::string()          %% erlang term depending on adapter (e.g. SQL text)
@@ -88,19 +97,20 @@
 -record(ddView,                             %% user representation of a db command including rendering parameters
                   { id                      ::ddEntityId()
                   , interface               ::atom()            %% interface plugin (ddjson for now)  
-                  , owner                   ::ddEntityId()      %% dbAccount.id
+                  , owner                   ::ddEntityId()      %% account.id of creator / owner
                   , name                    ::binary()          %% should default to command name
-                  , dbCmdId                 ::ddEntityId()      %% db command id
-                  , viewState               ::any()             %% transparent viewstate (managed by client application)
+                  , cmd                     ::ddEntityId()      %% db command id
+                  , state                   ::any()             %% transparent viewstate (managed by client application)
                   }
        ).
 
 -record(ddDash,                             %% user representation of a dashboard (collection of views)
                   { id                      ::ddEntityId()
                   , interface               ::atom()            %% interface plugin (ddjson for now)  
-                  , owner                   ::ddEntityId()      %% dbAccount.id
+                  , owner                   ::ddEntityId()      %% account.id of creator / owner
                   , name                    ::binary()          %% should default to command name
-                  , ddViews                 ::[ddEntityId()]    %% ddView.ids
+                  , views                   ::[ddEntityId()]    %% ddView.ids
                   }
        ).
 
+-define(SYSTEM_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).

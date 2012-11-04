@@ -2,8 +2,12 @@
 
 -include("dd.hrl").
 
--export([ create_tables/1
-        , drop_tables/1
+-export([ system_table/1
+        , create_system_tables/1
+        , drop_system_tables/1
+        , create_table/3
+        , create_table/4
+        , drop_table/2
         ]).
 
 -export([ create/3
@@ -24,17 +28,38 @@
 
 %% --Interface functions  (calling imem_if for now) ----------------------------------
 
-if_create_tables(_SeCoUser) ->
-    imem_if:create_table(ddSeCo, record_info(fields, ddSeCo),[]).  %% ToDo: local_
+if_create_table(SeCo, Id, Opts, Owner) ->
+    case imem_if:create_table(Id, Opts) of
+        {ok,atomic} -> 
+            if_write(SeCo, Id, #ddTable{id=Id, recinfo=[], opts=Opts, owner=Owner}),
+            {ok,atomic};
+        Error -> 
+            Error
+    end.
 
-if_drop_tables(_SeCoUser) -> 
-    imem_if:drop_table(ddSeCo).
+if_create_table(SeCo, Id, RecordInfo, Opts, Owner) ->
+    case imem_if:create_table(Id, RecordInfo, Opts) of
+        {ok,atomic} -> 
+            if_write(SeCo, Id, #ddTable{id=Id, recinfo=RecordInfo, opts=Opts, owner=Owner}),
+            {ok,atomic};
+        Error -> 
+            Error
+    end.
+
+if_drop_table(_SeCoUser, Id) -> 
+    imem_if:drop_table(Id).
 
 if_write(_SeCoUser, #ddSeCo{}=SeCo) -> 
     imem_if:write(ddSeCo, SeCo).
 
+if_write(_SeCoUser, Table, Record) -> 
+    imem_if:write(Table, Record).
+
 if_read(_SeCoUser, Key) -> 
     imem_if:read(ddSeCo, Key).
+
+% if_read(_SeCoUser, Table, Key) -> 
+%    imem_if:read(Table, Key).
 
 if_get(_SeCoUser, Key) -> 
     case if_read(_SeCoUser, Key) of
@@ -72,7 +97,33 @@ if_has_child_role(SeCo, [RootRoleId|OtherRoles], RoleId) ->
         false ->                        if_has_child_role(SeCo, OtherRoles, RoleId)
     end.
 
+list_member([], _Permissions) ->
+    false;
+list_member([PermissionId|Rest], Permissions) ->
+    case lists:member(PermissionId, Permissions) of
+        true -> true;
+        false -> list_member(Rest, Permissions)
+    end.
+
+if_has_permission(_SeCo, _RootRoleId, []) ->
+    false;
+if_has_permission(SeCo, RootRoleId, PermissionList) when is_list(PermissionList)->
+    %% search for first match in list of permissions
+    case if_get_role(SeCo, RootRoleId) of
+        {error, Error} ->                       
+            {error, Error};
+        #ddRole{permissions=[],roles=[]} ->     
+            false;
+        #ddRole{permissions=Permissions, roles=[]} -> 
+            list_member(PermissionList, Permissions);
+        #ddRole{permissions=Permissions, roles=ChildRoles} ->
+            case list_member(PermissionList, Permissions) of
+                true ->     true;
+                false ->    if_has_child_permission(SeCo,  ChildRoles, PermissionList)
+            end            
+    end;
 if_has_permission(SeCo, RootRoleId, PermissionId) ->
+    %% search for single permission
     case if_get_role(SeCo, RootRoleId) of
         {error, Error} ->                       
             {error, Error};
@@ -87,24 +138,91 @@ if_has_permission(SeCo, RootRoleId, PermissionId) ->
             end            
     end.
 
-if_has_child_permission(_SeCo, [], _PermissionId) -> false;
-if_has_child_permission(SeCo, [RootRoleId|OtherRoles], PermissionId) ->
-    case if_has_permission(SeCo, RootRoleId, PermissionId) of
+if_has_child_permission(_SeCo, [], _Permission) -> false;
+if_has_child_permission(SeCo, [RootRoleId|OtherRoles], Permission) ->
+    case if_has_permission(SeCo, RootRoleId, Permission) of
         {error, Error} ->               {error, Error};
         true ->                         true;
-        false ->                        if_has_child_permission(SeCo, OtherRoles, PermissionId)
+        false ->                        if_has_child_permission(SeCo, OtherRoles, Permission)
     end.
 
 
 %% --Implementation ------------------------------------------------------------------
 
-create_tables(SeCoUser) ->
-    if_create_tables(SeCoUser).
+system_table(Id) ->
+    lists:member(Id,?SYSTEM_TABLES).
 
-drop_tables(SeCoUser) -> 
-    case have_permission(SeCoUser, manage_accounts) of
-        true ->     if_drop_tables(SeCoUser);
-        false ->    {error, {"Drop security context tables unauthorized", SeCoUser}}
+create_table(SeCo, Id, Opts) ->
+    Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
+    case Result of
+        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
+            Owner = case system_table(Id) of
+                true ->     
+                    system;
+                false ->    
+                    case have_permission(SeCo, create_table) of
+                        true ->     AccountId;
+                        false ->    false
+                    end
+            end,
+            case Owner of
+                false ->
+                    {error, {"Create table unauthorized",Id}};
+                Owner ->        
+                    if_create_table(SeCo, Id, Opts, Owner) 
+            end;
+        #ddSeCo{} -> 
+            {error, {"Invalid security context", SeCo}};
+        Error ->    
+            Error 
+    end.
+
+create_table(SeCo, Id, RecordInfo, Opts) ->
+    Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
+    case Result of
+        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
+            Owner = case system_table(Id) of
+                true ->     
+                    system;
+                false ->    
+                    case have_permission(SeCo, create_table) of
+                        true ->     AccountId;
+                        false ->    false
+                    end
+            end,
+            case Owner of
+                false ->
+                    {error, {"Create table unauthorized",Id}};
+                Owner ->        
+                    if_create_table(SeCo, Id, RecordInfo, Opts, Owner)
+            end;
+        #ddSeCo{} -> 
+            {error, {"Invalid security context", SeCo}};
+        Error ->    
+            Error 
+    end.
+
+create_system_tables(SeCo) ->
+    if_create_table(SeCo, ddTable, record_info(fields, ddTable),[], system),        %% may fail if exists
+    if_create_table(SeCo, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
+    if_create_table(SeCo, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
+    if_create_table(SeCo, ddSeCo, record_info(fields, ddSeCo),[], system).      %% ToDo: [local]
+
+drop_system_tables(SeCo) ->
+    case have_permission(SeCo, manage_system_tables) of
+        true ->
+            if_drop_table(SeCo, ddSeCo),     
+            if_drop_table(SeCo, ddRole),         
+            if_drop_table(SeCo, ddAccount),   
+            if_drop_table(SeCo, ddTable);
+        false ->
+            {error, {"Drop system tables unauthorized", SeCo}}
+    end.
+
+drop_table(SeCo, Id) -> 
+    case have_permission(SeCo, manage_accounts) of
+        true ->     if_drop_table(SeCo, Id);
+        false ->    {error, {"Drop table unauthorized", SeCo}}
     end.
 
 create(SessionId, Name, _Credentials) -> 
@@ -151,9 +269,9 @@ has_role(SeCo, RootRoleId, RoleId) ->
         false ->    {error, {"Has role unauthorized",SeCo}}
     end.
 
-has_permission(SeCo, RootRoleId, PermissionId) ->
+has_permission(SeCo, RootRoleId, Permission) ->
     case have_permission(SeCo, manage_accounts) of
-        true ->     if_has_permission(SeCo, RootRoleId, PermissionId); 
+        true ->     if_has_permission(SeCo, RootRoleId, Permission); 
         false ->    {error, {"Has permission unauthorized",SeCo}}
     end.
 
@@ -168,11 +286,11 @@ have_role(SeCo, RoleId) ->
             Error 
     end.
 
-have_permission(SeCo, PermissionId) ->
+have_permission(SeCo, Permission) ->
     Result = if_get(#ddSeCo{key=SeCo,phid=self()}, SeCo),
     case Result of
         #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            if_has_permission(SeCo, AccountId, PermissionId);
+            if_has_permission(SeCo, AccountId, Permission);
         #ddSeCo{} -> 
             {error, {"Invalid security context", SeCo}};
         Error ->    
