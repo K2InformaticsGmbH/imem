@@ -7,7 +7,6 @@ exec(Statement, Schema) when is_list(Statement) ->
         ";" -> Statement;
         _ -> Statement ++ ";"
     end,
-    io:format(user, "got sql ~p~n", [Sql]),
     case (catch sql_lex:string(Sql)) of
         {ok, Tokens, _} ->
             case (catch sql_parse:parse(Tokens)) of
@@ -21,12 +20,13 @@ exec({create_table, TableName, Columns}, _Schema) ->
     Cols = [erlang:binary_to_atom(X, utf8) || {X, _} <- Columns],
     imem_if:create_table(TableName,Cols,[]);
 exec({select, Params}, Schema) ->
+    io:format(user,"select params ~p~n", [Params]),
     Columns = case lists:keyfind(fields, 1, Params) of
         false -> [];
         Cols -> Cols
     end,
     TableName = case lists:keyfind(from, 1, Params) of
-        Tabs when length(Tabs) == 1 -> erlang:binary_to_atom(lists:nth(1, Tabs));
+        {_, Tabs} when length(Tabs) == 1 -> list_to_atom(binary_to_list(lists:nth(1, Tabs)));
         _ -> undefined
     end,
     case TableName of
