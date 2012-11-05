@@ -8,7 +8,8 @@
         , update_opts/2
         , find_imem_nodes/2
         , all_tables/1
-        , columns/2
+        , table_columns/2
+        , table_size/2
         ]).
 
 -export([ authenticate/3
@@ -65,8 +66,11 @@ find_imem_nodes(_SeCo, Schema) ->
 all_tables(_SeCo) ->
     imem_if:all_tables().
 
-columns(_SeCo, TableName) ->
-    imem_if:columns(TableName).
+table_columns(_SeCo, TableName) ->
+    imem_if:table_columns(TableName).
+
+table_size(_SeCo, TableName) ->
+    imem_if:table_size(TableName).
 
 %% imem_if but security context added --- DATA DEFINITION -------
 

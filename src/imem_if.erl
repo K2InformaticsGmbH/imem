@@ -14,7 +14,8 @@
         , write/2
         , delete/2
         , all_tables/0
-        , columns/1
+        , table_columns/1
+        , table_size/1
 		]).
 
 
@@ -125,5 +126,8 @@ find_imem_nodes(Schema) when is_list(Schema) ->
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
 
-columns(TableName) ->
+table_columns(TableName) ->
     mnesia:table_info(TableName, attributes).
+
+table_size(TableName) ->
+    mnesia:table_info(TableName, size).
