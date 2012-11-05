@@ -4,7 +4,6 @@
         , find_imem_nodes/1
 		, create_table/2
         , create_table/3
-        , create_cluster_table/3
 		, drop_table/1
         , update_opts/2
         , read_all/1
@@ -21,15 +20,20 @@ add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
-create_cluster_table(TableName,Columns,Opts) ->
+create_table(TableName,Columns,Opts) ->
+    case lists:member(loacl, Opts) of
+        true -> create_table(local, TableName, Columns, Opts -- local);
+        _ ->    create_table(cluster, TableName, Columns, Opts)
+    end.
+
+create_table(local,TableName,Columns,Opts) ->
+    Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
+    CompleteOpts = add_attribute(Cols, Opts),
+    create_table(TableName, CompleteOpts);
+create_table(cluster,TableName,Columns,Opts) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     create_table(TableName,Columns,[{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts]).
-
-create_table(TableName,Columns,Opts) ->
-    Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
-    CompleteOpts = add_attribute(Cols, Opts),
-    create_table(TableName, CompleteOpts).
 
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    

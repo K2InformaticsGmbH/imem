@@ -103,10 +103,10 @@ process_cmd({update_opts, Tuple, Opts},                         Sock) -> send_re
 process_cmd({read_all_rows, TableName},                         Sock) -> send_resp(imem_if:read_all(TableName), Sock);
 process_cmd({create_table, TableName, Columns},                 Sock) -> send_resp(imem_if:create_table(TableName, Columns), Sock);
 process_cmd({create_table, TableName, Columns, Opts},           Sock) -> send_resp(imem_if:create_table(TableName, Columns, Opts), Sock);
-process_cmd({create_cluster_table, TableName, Columns, Opts},   Sock) -> send_resp(imem_if:create_cluster_table(TableName, Columns, Opts), Sock);
+process_cmd({create_local_table, TableName, Columns, Opts},     Sock) -> send_resp(imem_if:create_local_table(TableName, Columns, Opts), Sock);
 process_cmd({select, TableName, MatchSpec},                     Sock) -> send_resp(imem_if:select(TableName, MatchSpec), Sock);
 process_cmd({insert, TableName, Row},                           Sock) -> send_resp(imem_if:insert(TableName, Row), Sock);
-process_cmd({exec, Statement},                                  Sock) -> send_resp(imem_sql:exec(Statement), Sock).
+process_cmd({exec, Statement, Schema},                          Sock) -> send_resp(imem_sql:exec(Statement, Schema), Sock).
 
 send_resp(Resp, Sock) ->
     RespBin = term_to_binary(Resp),
