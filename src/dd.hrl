@@ -31,7 +31,7 @@
 
 -record(ddSeCo,                             %% security context              
                   { key                     :: ddSeCoKey()        %% random hash value
-                  , phid                    :: any()              %% caller physical id
+                  , pid                     :: any()              %% caller physical id
                   , sessionId               :: integer()          %% erlang:phash2({dderl_session, self()})
                   , name                    :: ddIdentity()       %% account name
                   , accountId               :: ddEntityId()

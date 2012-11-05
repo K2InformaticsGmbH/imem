@@ -3,9 +3,9 @@
 -include("dd.hrl").
 
 -export([ system_table/1
-        , create_system_tables/1
+        , create_cluster_tables/1
+        , create_local_tables/1
         , drop_system_tables/1
-        , create_table/3
         , create_table/4
         , drop_table/2
         ]).
@@ -27,15 +27,6 @@
         ]).
 
 %% --Interface functions  (calling imem_if for now) ----------------------------------
-
-if_create_table(SeCo, Id, Opts, Owner) ->
-    case imem_if:create_table(Id, Opts) of
-        {ok,atomic} -> 
-            if_write(SeCo, Id, #ddTable{id=Id, recinfo=[], opts=Opts, owner=Owner}),
-            {ok,atomic};
-        Error -> 
-            Error
-    end.
 
 if_create_table(SeCo, Id, RecordInfo, Opts, Owner) ->
     case imem_if:create_table(Id, RecordInfo, Opts) of
@@ -152,33 +143,9 @@ if_has_child_permission(SeCo, [RootRoleId|OtherRoles], Permission) ->
 system_table(Table) ->
     lists:member(Table,?SYSTEM_TABLES).
 
-create_table(SeKey, Table, Opts) ->
-    case SeCo=seco(SeKey) of
-        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            Owner = case system_table(Table) of
-                true ->     
-                    system;
-                false ->    
-                    case if_has_permission(SeCo, AccountId, create_table) of
-                        true ->     AccountId;
-                        false ->    false
-                    end
-            end,
-            case Owner of
-                false ->
-                    {error, {"Create table unauthorized", Table}};
-                Owner ->        
-                    if_create_table(SeKey, Table, Opts, Owner) 
-            end;
-        #ddSeCo{} -> 
-            {error, {"Invalid security context", SeKey}};
-        Error ->    
-            Error 
-    end.
-
 create_table(SeKey, Table, RecordInfo, Opts) ->
     case SeCo=seco(SeKey) of
-        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} -> 
+        #ddSeCo{accountId=AccountId, state=authorized} -> 
             Owner = case system_table(Table) of
                 true ->     
                     system;
@@ -198,10 +165,12 @@ create_table(SeKey, Table, RecordInfo, Opts) ->
             Error 
     end.
 
-create_system_tables(SeKey) ->
+create_cluster_tables(SeKey) ->
     if_create_table(SeKey, ddTable, record_info(fields, ddTable),[], system),        %% may fail if exists
     if_create_table(SeKey, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
-    if_create_table(SeKey, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
+    if_create_table(SeKey, ddRole, record_info(fields, ddRole),[], system).          %% may fail if exists
+
+create_local_tables(SeKey) ->
     if_create_table(SeKey, ddSeCo, record_info(fields, ddSeCo),[], system).      %% ToDo: [local]
 
 drop_system_tables(SeKey) ->
@@ -253,25 +222,26 @@ drop_system_table(#ddSeCo{key=SeKey}=SeCo, Table) ->
     end. 
 
 create(SessionId, Name, _Credentials) -> 
-    SeCo = #ddSeCo{phid=self(), sessionId=SessionId, name=Name, authTime=erlang:now()},
+    SeCo = #ddSeCo{pid=self(), sessionId=SessionId, name=Name, authTime=erlang:now()},
     SeKey = erlang:phash2(SeCo), 
     SeCo#ddSeCo{key=SeKey, state=unauthorized}.
 
 register(#ddSeCo{key=SeKey}=SeCo, AccountId) -> 
     case if_write(SeKey, SeCo#ddSeCo{accountId=AccountId}) of
-        ok ->       SeKey;    %% hash is returned back to caller
+        ok ->       %% ToDo: register SeKey for pid with monitor
+                    SeKey;    %% hash is returned back to caller
         Error ->    Error    
     end.
 
 seco(SeKey) -> 
-    SeCo = if_seco(#ddSeCo{key=SeKey,phid=self()}, SeKey),
+    SeCo = if_seco(#ddSeCo{key=SeKey,pid=self()}, SeKey),
     case SeCo of
-        #ddSeCo{phid=Pid} when Pid == self() -> SeCo;
+        #ddSeCo{pid=Pid} when Pid == self() -> SeCo;
         #ddSeCo{} -> {error, {"Security context does not match", SeKey}};
         Error ->    Error 
     end.
 
-update(#ddSeCo{key=SeKey,phid=Pid}=SeCo, SeCoNew) when Pid == self() -> 
+update(#ddSeCo{key=SeKey,pid=Pid}=SeCo, SeCoNew) when Pid == self() -> 
     case if_read(SeKey, SeKey) of
         [] -> {error, {"Security context does not exist", SeKey}};
         [SeCo] -> if_write(SeKey, SeCoNew);
@@ -280,7 +250,7 @@ update(#ddSeCo{key=SeKey,phid=Pid}=SeCo, SeCoNew) when Pid == self() ->
 update(#ddSeCo{key=SeKey}, _) -> 
     {error, {"Invalid security context", SeKey}}.
 
-delete(#ddSeCo{key=SeKey,phid=Pid}) when Pid == self() -> 
+delete(#ddSeCo{key=SeKey,pid=Pid}) when Pid == self() -> 
     if_delete(SeKey, SeKey);
 delete(#ddSeCo{key=SeKey}) -> 
     {error, {"Delete security context unauthorized", SeKey}};
@@ -314,7 +284,7 @@ has_permission(SeKey, RootRoleId, Permission) ->
 
 have_role(#ddSeCo{key=SeKey}=SeCo, RoleId) ->
     case SeCo of
-        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
+        #ddSeCo{pid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
             if_has_role(SeKey, AccountId, RoleId);
         #ddSeCo{} -> 
             {error, {"Invalid security context", SeKey}};
@@ -329,7 +299,7 @@ have_role(SeKey, RoleId) ->
 
 have_permission(#ddSeCo{key=SeKey}=SeCo, Permission) ->
     case SeCo of
-        #ddSeCo{phid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
+        #ddSeCo{pid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
             if_has_permission(SeKey, AccountId, Permission);
         #ddSeCo{} -> 
             {error, {"Invalid security context", SeKey}};

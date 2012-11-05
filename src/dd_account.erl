@@ -24,9 +24,8 @@
 
 %% --Interface functions  (calling imem_if for now, not exported) -------------------
 
-schema() ->
-    [Schema|_]=re:split(filename:basename(mnesia:system_info(directory)),"[.]",[{return,list}]),
-    Schema.
+if_schema() ->
+    imem_if:schema().
 
 if_write(_SeCo, #ddAccount{}=Account) -> 
     imem_if:write(ddAccount, Account).
@@ -156,7 +155,6 @@ exists(SeCo, AccountId) ->                          %% exists, maybe in changed 
     end.            
 
 
-
 authenticate(SessionId, Name, Credentials) ->
     LocalTime = calendar:local_time(),
     SeCo = dd_seco:create(SessionId, Name, Credentials),
@@ -248,14 +246,18 @@ account_test_() ->
 test(_) ->
     io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-    ?assertEqual("Mnesia", schema()),
+    ?assertEqual("Mnesia", if_schema()),
     io:format(user, "success ~p~n", [schema]),
 
-    io:format(user, "----TEST--~p:test_create_account_table~n", [?MODULE]),
+    io:format(user, "----TEST--~p:test_create_seco_tables~n", [?MODULE]),
 
-    ?assertEqual({atomic,ok}, dd_seco:create_system_tables(none)),
-    io:format(user, "success ~p~n", [create_account_tables]),
-    ?assertMatch({aborted,{already_exists,_}}, dd_seco:create_system_tables(none)),
+    ?assertEqual({atomic,ok}, dd_seco:create_cluster_tables(none)),
+    io:format(user, "success ~p~n", [create_cluster_tables]),
+    ?assertMatch({aborted,{already_exists,_}}, dd_seco:create_cluster_tables(none)),
+    io:format(user, "success ~p~n", [create_account_table_already_exists]),
+    ?assertEqual({atomic,ok}, dd_seco:create_local_tables(none)),
+    io:format(user, "success ~p~n", [create_cluster_tables]),
+    ?assertMatch({aborted,{already_exists,_}}, dd_seco:create_local_tables(none)),
     io:format(user, "success ~p~n", [create_account_table_already_exists]),
 
     UserId = make_ref(),
@@ -518,10 +520,10 @@ test(_) ->
 
     %% Cleanup only if we arrive at this point
     ?assertEqual({error,{"Drop system tables unauthorized",SeCo}}, dd_seco:drop_system_tables(SeCo)),
-    io:format(user, "success ~p~n", [drop_system_tables]), 
+    io:format(user, "success ~p~n", [drop_system_tables_reject]), 
     ?assertEqual(ok, dd_role:grant_permission(SeCo, UserId, manage_system_tables)),
     io:format(user, "success ~p~n", [grant_manage_system_tables]), 
     ?assertEqual({atomic,ok}, dd_seco:drop_system_tables(SeCo)),
-    io:format(user, "success ~p~n", [drop_system_tables]), 
+    io:format(user, "success ~p~n", [drop_cluster_tables]), 
     ok.
 

@@ -1,8 +1,9 @@
 -module(imem_if).
 
--export([add_attribute/2
+-export([ schema/0
+        , schema/1
+        , add_attribute/2
         , find_imem_nodes/1
-		, create_table/2
         , create_table/3
 		, drop_table/1
         , update_opts/2
@@ -16,24 +17,36 @@
         , columns/1
 		]).
 
+
+schema() ->
+    %% schema identifier of local imem node
+    [Schema|_]=re:split(filename:basename(mnesia:system_info(directory)),"[.]",[{return,list}]),
+    Schema.
+
+schema(Node) ->
+    %% schema identifier of remote imem node in the same erlang cluster
+    [Schema|_] = re:split(filename:basename(rpc:call(Node, mnesia, system_info, [directory])), "[.]", [{return, list}]),
+    Schema.
+
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
 create_table(TableName,Columns,Opts) ->
-    case lists:member(loacl, Opts) of
-        true -> create_table(local, TableName, Columns, Opts -- local);
-        _ ->    create_table(cluster, TableName, Columns, Opts)
+    case lists:member(local, Opts) of
+        true ->     create_local_table(TableName, Columns, Opts -- [local]);
+        false ->    create_cluster_table(TableName, Columns, Opts)
     end.
 
-create_table(local,TableName,Columns,Opts) ->
+create_local_table(TableName,Columns,Opts) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
     CompleteOpts = add_attribute(Cols, Opts),
-    create_table(TableName, CompleteOpts);
-create_table(cluster,TableName,Columns,Opts) ->
+    create_table(TableName, CompleteOpts).
+
+create_cluster_table(TableName,Columns,Opts) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
-    create_table(TableName,Columns,[{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts]).
+    create_local_table(TableName,Columns,[{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts]).
 
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    
@@ -99,11 +112,9 @@ find_imem_nodes(Schema) when is_list(Schema) ->
                     case lists:keyfind(imem, 1, rpc:call(N, application, loaded_applications, [])) of
                         false -> Acc;
                         _ ->
-                            case re:split(filename:basename(
-                                    rpc:call(N, mnesia, system_info, [directory])
-                                ), "[.]", [{return, list}]) of
-                                [Schema|_] -> [N|Acc];
-                                _ -> Acc
+                            case schema(N) of
+                                Schema ->   [N|Acc];
+                                _ ->        Acc
                             end
                     end
             end

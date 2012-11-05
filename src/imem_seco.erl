@@ -3,6 +3,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([ schema/0
+        , schema/1
         , add_attribute/2
         , update_opts/2
         , find_imem_nodes/2
@@ -43,13 +44,18 @@ logout(SeCo) ->
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
-schema() ->         %% ToDo: move to imem_if and execute there
-    [Schema|_]=re:split(filename:basename(mnesia:system_info(directory)),"[.]",[{return,list}]),
-    Schema.
+schema() ->
+    imem_if:schema().
 
-add_attribute(A, Opts) -> imem_if:add_attribute(A, Opts).
+schema(Node) ->
+    imem_if:schema(Node).
 
-update_opts(T, Opts) -> imem_if:update_opts(T, Opts).
+add_attribute(A, Opts) -> 
+    imem_if:add_attribute(A, Opts).
+
+update_opts(T, Opts) ->
+    imem_if:update_opts(T, Opts).
+
 
 %% imem_if but security context added --- META INFORMATION ------
 
