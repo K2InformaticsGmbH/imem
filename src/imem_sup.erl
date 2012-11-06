@@ -79,12 +79,16 @@ init(_StartArgs) ->
     ok = mnesia:start(),
     mnesia:change_config(extra_db_nodes, nodes()),
     io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),
-    ThreadList = [{imem, {imem, start_link, []}, permanent, MnesiaTimeout, worker, [imem]}],
-    ThreadList0 = case application:get_env(start_monitor) of
-        {ok, false} -> ThreadList;
-        _ -> [{imem_server, {imem_server, start_link, []}, permanent, MnesiaTimeout, worker, [imem_server]} | ThreadList]
-    end,
-    {ok, {{one_for_one, 3, 10}, ThreadList0}}.
+    ThreadList =
+    [{imem, {imem, start_link, []}, permanent, MnesiaTimeout, worker, [imem]}]
+    ++
+    case application:get_env(start_monitor) of
+        {ok, false} -> [];
+        _ -> [{imem_server, {imem_server, start_link, []}, permanent, MnesiaTimeout, worker, [imem_server]}]
+    end
+    ++
+    [{imem_monitor, {imem_monitor, start_link, []}, permanent, MnesiaTimeout, worker, [imem_monitor]}],
+    {ok, {{one_for_one, 3, 10}, ThreadList}}.
 
 
 %% ====================================================================

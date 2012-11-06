@@ -16,11 +16,18 @@ exec(Statement, Schema) when is_list(Statement) ->
             end;
         {'EXIT', Error} -> {error, Error}
     end;
+
 exec({create_table, TableName, Columns}, _Schema) ->
     Tab = binary_to_atom(TableName),
     Cols = [binary_to_atom(X) || {X, _} <- Columns],
     io:format(user,"create ~p columns ~p~n", [Tab, Cols]),
     imem_if:create_table(Tab,Cols,[local]);
+
+exec({insert, TableName, {_, Columns}, {_, Values}}, _Schema) ->
+    Tab = binary_to_atom(TableName),
+    io:format(user,"insert ~p ~p in ~p~n", [Columns, Values, Tab]),
+    {ok, ok};
+
 exec({select, Params}, Schema) ->
     Columns = case lists:keyfind(fields, 1, Params) of
         false -> [];
