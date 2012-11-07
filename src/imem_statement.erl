@@ -1,9 +1,22 @@
 -module(imem_statement).
+
+%% gen_server
 -behaviour(gen_server).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3]).
 
 -export([ exec/3
-        , read_block/1
+        , read_block/2
         ]).
+
+-record(state, {
+    statement
+}).
 
 -record(statement, {
         table = undefined
@@ -44,6 +57,12 @@ exec({insert, TableName, {_, Columns}, {_, Values}}, _Stmt, _Schema) ->
     Vs = [binary_to_list(V) || V <- Values],
     imem_if:insert(Tab, Vs);
 
+exec({drop_table, {tables, TableNames}, _, _}, _Stmt, _Schema) ->
+    Tabs = [binary_to_atom(T) || T <- TableNames],
+    io:format(user,"drop_table ~p~n", [Tabs]),
+    [imem_if:drop_table(Tab) || Tab <- Tabs],
+    ok;
+
 exec({select, Params}, Stmt, _Schema) ->
     Columns = case lists:keyfind(fields, 1, Params) of
         false -> [];
@@ -65,18 +84,37 @@ exec({select, Params}, Stmt, _Schema) ->
                 table = TableName
                 , cols = Clms
             },
-            StmtRef = imem_server:create_stmt(Statement),
+            {ok, StmtRef} = create_stmt(Statement),
             {ok, Clms, StmtRef}
     end.
 
-read_block(Ref) when is_reference(Ref) ->
-    {ok, #statement {
-            table = TableName
-            , key = Key
-            , block_size = BlockSize
-    } = Stmt} = imem_server:get_stmt(Ref),
-    {NewKey, Rows} = imem_if:read_block(TableName, Key, BlockSize),
-    imem_server:update_stmt(Ref, Stmt#statement{key=NewKey}),
-    {ok, Rows}.
+read_block(Pid, Sock) when is_pid(Pid) ->
+    gen_server:cast(Pid, {read_block, gen_server:call(Pid, get_stmt), Sock}).
 
 binary_to_atom(Bin) when is_binary(Bin) -> list_to_atom(binary_to_list(Bin)).
+
+%% gen_server
+create_stmt(Statement) ->
+    gen_server:start(?MODULE, [Statement], []).
+
+init([Statement]) ->
+    {ok, #state{statement=Statement}}.
+
+handle_call(get_stmt, _From, #state{statement=Statement}=State) ->
+    {reply,Statement,State};
+handle_call(_Msg, _From, State) ->
+    {reply,ok,State}.
+
+handle_cast({read_block, #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt, Sock}, State) ->
+    {NewKey, Rows} = imem_if:read_block(TableName, Key, BlockSize),
+    gen_tcp:send(Sock, term_to_binary({ok, Rows})),
+    {noreply,State#state{statement=Stmt#statement{key=NewKey}}};
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) -> ok.
+
+code_change(_OldVsn, State, _Extra) -> {ok, State}.

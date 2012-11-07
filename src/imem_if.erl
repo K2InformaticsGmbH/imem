@@ -16,6 +16,7 @@
         , all_tables/0
         , table_columns/1
         , table_size/1
+        , read_block/3
 		]).
 
 
@@ -122,7 +123,6 @@ find_imem_nodes(Schema) when is_list(Schema) ->
             , []
             , [node() | nodes()])].
 
-
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
 
@@ -131,3 +131,12 @@ table_columns(TableName) ->
 
 table_size(TableName) ->
     mnesia:table_info(TableName, size).
+
+read_block(TableName, Key, BlockSize)                       -> read_block(TableName, Key, BlockSize, []).
+read_block(_, '$end_of_table' = Key, _, Acc)                -> {Key, Acc};
+read_block(_, Key, BlockSize, Acc) when BlockSize =< 0      -> {Key, Acc};
+read_block(TableName, '$start_of_table', BlockSize, Acc)    -> read_block(TableName, mnesia:dirty_first(TableName), BlockSize, Acc);
+read_block(TableName, Key, BlockSize, Acc) ->
+    Rows = mnesia:dirty_read(TableName, Key),
+    read_block(TableName, mnesia:dirty_next(TableName, Key), BlockSize - length(Rows), Acc ++ Rows).
+
