@@ -32,16 +32,16 @@
 %% one to one from dd_account ------------ AA FUNCTIONS _--------
 
 authenticate(SessionId, Name, Credentials) ->
-    dd_account:authenticate(SessionId, Name, Credentials).
+    dd_seco:authenticate(SessionId, Name, Credentials).
 
 login(SeCo) ->
-    dd_account:login(SeCo).
+    dd_seco:login(SeCo).
 
 change_credentials(SeCo, OldCred, NewCred) ->
-    dd_account:change_credentials(SeCo, OldCred, NewCred).
+    dd_seco:change_credentials(SeCo, OldCred, NewCred).
 
 logout(SeCo) ->
-    dd_account:logout(SeCo).
+    dd_seco:logout(SeCo).
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 

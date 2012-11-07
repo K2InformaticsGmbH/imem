@@ -37,7 +37,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
     io:format(user, "~p - died pid ~p ref ~p as ~p~n", [?MODULE, Pid, Ref, Reason]),
-    %% - TODO - Stefan: call correct imem_seco fun to handle this
+    dd_seco:cleanup(Pid),
     {noreply, State};
 handle_cast(_Request, State) ->
     {noreply, State}.

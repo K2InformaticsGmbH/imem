@@ -35,6 +35,7 @@
                   , sessionId               :: integer()          %% erlang:phash2({dderl_session, self()})
                   , name                    :: ddIdentity()       %% account name
                   , accountId               :: ddEntityId()
+                  , authMethod              :: atom()             %% see ddCredential() 
                   , authTime                :: ddTimestamp()      %% (re)authentication timestamp erlang:now()
                   , state                   :: any()              %% authentication state
                   }     
@@ -114,3 +115,16 @@
        ).
 
 -define(SYSTEM_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).
+
+% -ifdef(DEBUG). 
+% -define(SecurityException(Reason), throw(Reason)).
+% -define(SecurityViolation(Reason), error(Reason)).
+% -else.
+
+-define(ClientError(Reason), throw({'ClientError',Reason})).
+-define(ConcurrencyException(Reason), throw({'ConcurrencyException',Reason})).
+-define(SystemException(Reason), throw({'SystemException',Reason})).
+-define(SecurityException(Reason), throw({'SecurityException',Reason})).
+-define(SecurityViolation(Reason), exit({'SecurityViolation',Reason})).
+
+% -endif.
