@@ -84,7 +84,9 @@ init(_StartArgs) ->
     ++
     case application:get_env(start_monitor) of
         {ok, false} -> [];
-        _ -> [{imem_server, {imem_server, start_link, []}, permanent, MnesiaTimeout, worker, [imem_server]}]
+        _ ->
+            {ok, NativeIfMod} = application:get_env(native_if_mod),
+            [{imem_server, {imem_server, start_link, [NativeIfMod]}, transient, MnesiaTimeout, worker, [imem_server]}]
     end
     ++
     [{imem_monitor, {imem_monitor, start_link, []}, permanent, MnesiaTimeout, worker, [imem_monitor]}],

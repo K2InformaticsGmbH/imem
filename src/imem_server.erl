@@ -5,9 +5,10 @@
         lsock = undefined
         , csock = undefined
         , buf = <<>>
+        , native_if_mod
     }).
 
--export([start_link/0
+-export([start_link/1
         , init/1
 		, handle_call/3
 		, handle_cast/2
@@ -16,31 +17,30 @@
 		, code_change/3
 		]).
 
-start_link() ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(NativeIfMod) ->
+	gen_server:start_link({local, ?MODULE}, ?MODULE, [NativeIfMod], []).
 
-init([Sock]) ->
+init([Sock, NativeIfMod]) ->
     io:format(user, "~p tcp client ~p~n", [self(), Sock]),
-    {ok, #state{csock=Sock}};
-init([]) ->
+    {ok, #state{csock=Sock, native_if_mod=NativeIfMod}};
+init([NativeIfMod]) ->
     {ok, {Interface, ListenPort}} = application:get_env(mgmt_if),
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
-            io:format(user, "~p imem_server not started : ~p~n", [self(), Reason]),
+            gen_server:cast(self(), {stop, Reason}),
             {ok, #state{}};
         {ok, ListenIf} when is_integer(ListenPort) ->
-            %io:format(user, "~p:~p @ ~p~n", [?MODULE,?LINE, {ListenIf, ListenPort}]),
             case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
                 {ok, LSock} ->
                     io:format(user, "~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
                     gen_server:cast(self(), accept),
-                    {ok, #state{lsock=LSock}};
+                    {ok, #state{lsock=LSock, native_if_mod=NativeIfMod}};
                 Reason ->
-                    io:format(user, "~p imem_server not started : ~p~n", [self(), Reason]),
+                    gen_server:cast(self(), {stop, Reason}),
                     {ok, #state{}}
             end;
         _ ->
-            io:format(user, "~p imem_server disabled!~n", [self()]),
+            gen_server:cast(self(), {stop, disabled}),
             {ok, #state{}}
     end.
 
@@ -48,10 +48,13 @@ handle_call(_Request, _From, State) ->
     io:format(user, "handle_call ~p~n", [_Request]),
     {reply, ok, State}.
 
-handle_cast(accept, #state{lsock=LSock}=State) ->
+handle_cast({stop, Reason}, State) ->
+    io:format(user, "~p imem_server not started : ~p~n", [self(), Reason]),
+    {stop,{shutdown,Reason},State};
+handle_cast(accept, #state{lsock=LSock, native_if_mod=NativeIfMod}=State) ->
     {ok, Sock} = gen_tcp:accept(LSock),
     io:format(user, "accept conn ~p~n", [Sock]),
-    {ok,Pid} = gen_server:start(?MODULE, [Sock], []),
+    {ok,Pid} = gen_server:start(?MODULE, [Sock, NativeIfMod], []),
     ok = gen_tcp:controlling_process(Sock, Pid),
     gen_server:cast(Pid, activate),
     gen_server:cast(self(), accept),
@@ -64,7 +67,7 @@ handle_cast(_Msg, State) ->
     io:format(user, "handle_cast ~p~n", [_Msg]),
 	{noreply, State}.
 
-handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
+handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=Mod}=State) ->
     ok = inet:setopts(Sock, [{active, once}]),
     NewBuf = <<Buf/binary, Data/binary>>,
     case (catch binary_to_term(NewBuf, [safe])) of
@@ -73,7 +76,7 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
             {noreply, State#state{buf=NewBuf}};
         D ->
             io:format(user, "Cmd ~p~n", [D]),
-            process_cmd(D, Sock),
+            process_cmd(D, Sock, Mod),
             {noreply, State#state{buf= <<>>}}
     end;
 handle_info({tcp_closed, Sock}, State) ->
@@ -83,31 +86,56 @@ handle_info(_Info, State) ->
     io:format(user, "handle_info ~p~n", [_Info]),
 	{noreply, State}.
 
+terminate(_Reason, #state{csock=undefined}) -> ok;
 terminate(_Reason, #state{csock=Sock}) ->
-    io:format(user, "~p terminating~n", [self()]),
-    gen_tcp:close(Sock),
-    shutdown.
+    io:format(user, "~p closing tcp ~p~n", [self(), Sock]),
+    gen_tcp:close(Sock).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-process_cmd({find_imem_nodes, Schema},                          Sock) -> send_resp(imem_if:find_imem_nodes(Schema), Sock);
-process_cmd({all_tables},                                       Sock) -> send_resp(imem_if:all_tables(), Sock);
-process_cmd({columns, TableName},                               Sock) -> send_resp(imem_if:columns(TableName), Sock);
-process_cmd({read, TableName, Key},                             Sock) -> send_resp(imem_if:read(TableName, Key), Sock);
-process_cmd({write, TableName, Row},                            Sock) -> send_resp(imem_if:write(TableName, Row), Sock);
-process_cmd({delete, TableName, Key},                           Sock) -> send_resp(imem_if:delete(TableName, Key), Sock);
-process_cmd({add_attribute, A, Opts},                           Sock) -> send_resp(imem_if:add_attribute(A, Opts), Sock);
-process_cmd({delete_table, TableName},                          Sock) -> send_resp(imem_if:drop_table(TableName), Sock);
-process_cmd({update_opts, Tuple, Opts},                         Sock) -> send_resp(imem_if:update_opts(Tuple, Opts), Sock);
-process_cmd({read_all_rows, TableName},                         Sock) -> send_resp(imem_if:read_all(TableName), Sock);
-process_cmd({create_table, TableName, Columns},                 Sock) -> send_resp(imem_if:create_table(TableName, Columns), Sock);
-process_cmd({create_table, TableName, Columns, Opts},           Sock) -> send_resp(imem_if:create_table(TableName, Columns, Opts), Sock);
-process_cmd({create_local_table, TableName, Columns, Opts},     Sock) -> send_resp(imem_if:create_local_table(TableName, Columns, Opts), Sock);
-process_cmd({select, TableName, MatchSpec},                     Sock) -> send_resp(imem_if:select(TableName, MatchSpec), Sock);
-process_cmd({insert, TableName, Row},                           Sock) -> send_resp(imem_if:insert(TableName, Row), Sock);
-process_cmd({exec, Statement, BlockSize, Schema},               Sock) -> send_resp(imem_statement:exec(Statement, BlockSize, Schema), Sock);
-process_cmd({read_block, StmtRef},                              Sock) -> imem_statement:read_block(StmtRef, Sock).
+process_cmd(Cmd, Sock, Module) when is_list(Cmd), is_atom(Module) ->
+    Fun = element(1, Cmd),
+    Args = lists:nthtail(0, tuple_to_list(Cmd)),
+    Resp = exec_fun_in_module(Module, Fun, Args),
+    send_resp(Resp, Sock).
+
+exec_fun_in_module(Module, Fun, Args) ->
+    ArgsLen = length(Args),
+    case code:is_loaded(Module) of
+        {_,_} ->
+            case lists:keyfind(Fun, 1, Module:module_info(exports)) of
+                {_, Arity} when ArgsLen >= Arity ->
+                    if ArgsLen > Arity -> apply(Module, Fun, lists:split(1, Args));
+                        true ->           apply(Module, Fun, Args)
+                    end;
+                false ->
+                    case Module of
+                        imem_statement -> {error, tuple_to_list(Module)++":"++tuple_to_list(Fun)++" doesn't exists or exported"};
+                        _ -> exec_fun_in_module(imem_statement, Fun, Args)
+                    end;
+                _ -> {error, tuple_to_list(Module)++":"++tuple_to_list(Fun)++" wrong number of arguments"}
+            end;
+        _ -> {error, "Module "++ tuple_to_list(Module) ++" doesn't exists"}
+    end.
+
+%% process_cmd({find_imem_nodes, Schema},                          Sock) -> send_resp(imem_if:find_imem_nodes(Schema), Sock);
+%% process_cmd({all_tables},                                       Sock) -> send_resp(imem_if:all_tables(), Sock);
+%% process_cmd({columns, TableName},                               Sock) -> send_resp(imem_if:columns(TableName), Sock);
+%% process_cmd({read, TableName, Key},                             Sock) -> send_resp(imem_if:read(TableName, Key), Sock);
+%% process_cmd({write, TableName, Row},                            Sock) -> send_resp(imem_if:write(TableName, Row), Sock);
+%% process_cmd({delete, TableName, Key},                           Sock) -> send_resp(imem_if:delete(TableName, Key), Sock);
+%% process_cmd({add_attribute, A, Opts},                           Sock) -> send_resp(imem_if:add_attribute(A, Opts), Sock);
+%% process_cmd({delete_table, TableName},                          Sock) -> send_resp(imem_if:drop_table(TableName), Sock);
+%% process_cmd({update_opts, Tuple, Opts},                         Sock) -> send_resp(imem_if:update_opts(Tuple, Opts), Sock);
+%% process_cmd({read_all_rows, TableName},                         Sock) -> send_resp(imem_if:read_all(TableName), Sock);
+%% process_cmd({create_table, TableName, Columns},                 Sock) -> send_resp(imem_if:create_table(TableName, Columns), Sock);
+%% process_cmd({create_table, TableName, Columns, Opts},           Sock) -> send_resp(imem_if:create_table(TableName, Columns, Opts), Sock);
+%% process_cmd({create_local_table, TableName, Columns, Opts},     Sock) -> send_resp(imem_if:create_local_table(TableName, Columns, Opts), Sock);
+%% process_cmd({select, TableName, MatchSpec},                     Sock) -> send_resp(imem_if:select(TableName, MatchSpec), Sock);
+%% process_cmd({insert, TableName, Row},                           Sock) -> send_resp(imem_if:insert(TableName, Row), Sock);
+%% process_cmd({exec, Statement, BlockSize, Schema},               Sock) -> send_resp(imem_statement:exec(Statement, BlockSize, Schema), Sock);
+%% process_cmd({read_block, StmtRef},                              Sock) -> imem_statement:read_block(StmtRef, Sock).
 
 send_resp(Resp, Sock) ->
     RespBin = term_to_binary(Resp),

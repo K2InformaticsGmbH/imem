@@ -13,6 +13,7 @@
          {mnesia_bulk_sleep_time, 500},
          {start_monitor, false},
          {mgmt_if, {localhost,8124}},
-         {node_type, undefined}
+         {node_type, undefined},
+         {native_if_mod, imem_seco}
         ]}
  ]}.

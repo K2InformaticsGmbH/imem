@@ -10,8 +10,8 @@
     terminate/2,
     code_change/3]).
 
--export([ exec/3
-        , read_block/2
+-export([ exec/4
+        , read_block/3
         ]).
 
 -record(state, {
@@ -27,7 +27,7 @@
         , cols = []
     }).
 
-exec(Statement, BlockSize, Schema) when is_list(Statement) ->
+exec(_SeCo, Statement, BlockSize, Schema) when is_list(Statement) ->
     Sql =
     case [lists:last(string:strip(Statement))] of
         ";" -> Statement;
@@ -36,7 +36,7 @@ exec(Statement, BlockSize, Schema) when is_list(Statement) ->
     case (catch sql_lex:string(Sql)) of
         {ok, Tokens, _} ->
             case (catch sql_parse:parse(Tokens)) of
-                {ok, [ParseTree|_]} -> exec(ParseTree, #statement{stmt_str=Statement
+                {ok, [ParseTree|_]} -> exec(_SeCo, ParseTree, #statement{stmt_str=Statement
                                                                 , stmt_parse=ParseTree
                                                                 , block_size=BlockSize}, Schema);
                 {'EXIT', Error} -> {error, Error};
@@ -45,25 +45,25 @@ exec(Statement, BlockSize, Schema) when is_list(Statement) ->
         {'EXIT', Error} -> {error, Error}
     end;
 
-exec({create_table, TableName, Columns}, _Stmt, _Schema) ->
+exec(_SeCo, {create_table, TableName, Columns}, _Stmt, _Schema) ->
     Tab = binary_to_atom(TableName),
     Cols = [binary_to_atom(X) || {X, _} <- Columns],
     io:format(user,"create ~p columns ~p~n", [Tab, Cols]),
     imem_if:create_table(Tab,Cols,[local]);
 
-exec({insert, TableName, {_, Columns}, {_, Values}}, _Stmt, _Schema) ->
+exec(_SeCo, {insert, TableName, {_, Columns}, {_, Values}}, _Stmt, _Schema) ->
     Tab = binary_to_atom(TableName),
     io:format(user,"insert ~p ~p in ~p~n", [Columns, Values, Tab]),
     Vs = [binary_to_list(V) || V <- Values],
     imem_if:insert(Tab, Vs);
 
-exec({drop_table, {tables, TableNames}, _, _}, _Stmt, _Schema) ->
+exec(_SeCo, {drop_table, {tables, TableNames}, _, _}, _Stmt, _Schema) ->
     Tabs = [binary_to_atom(T) || T <- TableNames],
     io:format(user,"drop_table ~p~n", [Tabs]),
     [imem_if:drop_table(Tab) || Tab <- Tabs],
     ok;
 
-exec({select, Params}, Stmt, _Schema) ->
+exec(_SeCo, {select, Params}, Stmt, _Schema) ->
     Columns = case lists:keyfind(fields, 1, Params) of
         false -> [];
         {_, Cols} -> Cols
@@ -88,8 +88,8 @@ exec({select, Params}, Stmt, _Schema) ->
             {ok, Clms, StmtRef}
     end.
 
-read_block(Pid, Sock) when is_pid(Pid) ->
-    gen_server:cast(Pid, {read_block, gen_server:call(Pid, get_stmt), Sock}).
+read_block(SeCo, Pid, Sock) when is_pid(Pid) ->
+    gen_server:cast(Pid, {read_block, Sock, SeCo}).
 
 binary_to_atom(Bin) when is_binary(Bin) -> list_to_atom(binary_to_list(Bin)).
 
@@ -100,12 +100,11 @@ create_stmt(Statement) ->
 init([Statement]) ->
     {ok, #state{statement=Statement}}.
 
-handle_call(get_stmt, _From, #state{statement=Statement}=State) ->
-    {reply,Statement,State};
 handle_call(_Msg, _From, State) ->
     {reply,ok,State}.
 
-handle_cast({read_block, #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt, Sock}, State) ->
+handle_cast({read_block, Sock, _SeCo}, #state{statement=Stmt}=State) ->
+    #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
     {NewKey, Rows} = imem_if:read_block(TableName, Key, BlockSize),
     gen_tcp:send(Sock, term_to_binary({ok, Rows})),
     {noreply,State#state{statement=Stmt#statement{key=NewKey}}};
