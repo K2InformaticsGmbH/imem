@@ -11,7 +11,7 @@
         ]).
 
 -export([ cleanup_pid/1
-        , system_table/1
+        , system_table/2
         , drop_seco_tables/1
         ]).
 
@@ -39,20 +39,11 @@
 
 %% --Interface functions  (duplicated in dd_account) ----------------------------------
 
-if_system_table(ddTable) ->
-    true;
-if_system_table(_Table) ->
-%    imem_meta:system_table(Table).     ToDo: implement in imem_meta
-    false.
+if_system_table(_SeCo, Table) ->
+    imem_meta:system_table(Table).
 
 if_select(_SeCo, Table, MatchSpec) ->
-    imem_if:select(Table, MatchSpec). 
-
-if_get_account(SeCo, AccountId) -> 
-    case if_read(SeCo, ddAccount, AccountId) of
-        [] -> {dd_error, {"Account does not exist", AccountId}};
-        [Row] -> Row
-    end.
+    imem_meta:select(Table, MatchSpec). 
 
 if_read_seco_keys_by_pid(SeCo, Pid) -> 
     MatchHead = #ddSeCo{key='$1', pid='$2', _='_'},
@@ -60,17 +51,14 @@ if_read_seco_keys_by_pid(SeCo, Pid) ->
     Result = '$1',
     if_select(SeCo, ddSeCo, [{MatchHead, [Guard], [Result]}]).
 
-if_get_account_by_name(SeCo, Name) -> 
+if_read_account_by_name(SeCo, Name) -> 
     MatchHead = #ddAccount{name='$1', _='_'},
     Guard = {'==', '$1', Name},
     Result = '$_',
-    case if_select(SeCo, ddAccount, [{MatchHead, [Guard], [Result]}]) of
-        [] ->           {dd_error, {"Account does not exist", Name}};
-        [Account] ->    Account
-    end.
+    if_select(SeCo, ddAccount, [{MatchHead, [Guard], [Result]}]).
 
 if_table_size(TableName) ->
-    imem_if:table_size(TableName).
+    imem_meta:table_size(TableName).
 
 %% --Interface functions  (calling imem_if for now) ----------------------------------
 
@@ -169,11 +157,11 @@ init([]) ->
     check_table(ddAccount),
     if_create_table(none, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
     check_table(ddRole),
-    if_create_table(none, ddSeCo, record_info(fields, ddSeCo),[local], system),     
+    if_create_table(none, ddSeCo, record_info(fields, ddSeCo),[local, {local_content,true}], system),     
     check_table(ddSeCo),
-    if_create_table(none, ddPerm, record_info(fields, ddPerm),[local], system),     
+    if_create_table(none, ddPerm, record_info(fields, ddPerm),[local, {local_content,true}], system),     
     check_table(ddPerm),
-    if_create_table(none, ddQuota, record_info(fields, ddQuota),[local], system),     
+    if_create_table(none, ddQuota, record_info(fields, ddQuota),[local, {local_content,true}], system),     
     check_table(ddQuota),
     ok.
 
@@ -181,15 +169,12 @@ terminate(_Reason, _State) ->
     ok.
 
 check_table(Table) ->
-    case if_table_size(Table) of
-        N when is_integer(N) ->  ok;
-        _ ->                    {stop,{"Missing system table", {Table, ?MODULE}}}
-    end.
+    if_table_size(Table).
 
-system_table(Table) ->
+system_table(_SeCo, Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
-        false ->    if_system_table(Table) 
+        false ->    if_system_table(_SeCo, Table)  
     end.
 
 list_member([], _Permissions) ->
@@ -350,23 +335,22 @@ have_permission(SeKey, Permission) ->
 authenticate(SessionId, Name, Credentials) ->
     LocalTime = calendar:local_time(),
     SeCo = dd_seco:create(SessionId, Name, Credentials),
-    Result = if_get_account_by_name(SeCo, Name),
-    case Result of
-        #ddAccount{locked='true'} ->
+    case if_read_account_by_name(SeCo, Name) of
+        [#ddAccount{locked='true'}] ->
             ?SecurityException({"Account is locked. Contact a system administrator", Name});
-        #ddAccount{lastFailureTime=LocalTime} ->
+        [#ddAccount{lastFailureTime=LocalTime} = Account] ->
             %% lie a bit, don't show a fast attacker that this attempt might have worked
-            if_write(SeCo, ddAccount, Result#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
+            if_write(SeCo, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
             ?SecurityException({"Invalid account credentials. Please retry", Name});
-        #ddAccount{id=AccountId, credentials=CredList} -> 
+        [#ddAccount{id=AccountId, credentials=CredList} = Account] -> 
             case lists:member(Credentials,CredList) of
-                false ->    if_write(SeCo, ddAccount, Result#ddAccount{lastFailureTime=calendar:local_time()}),
+                false ->    if_write(SeCo, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time()}),
                             ?SecurityException({"Invalid account credentials. Please retry", Name});
-                true ->     ok=if_write(SeCo, ddAccount, Result#ddAccount{lastFailureTime=undefined}),
+                true ->     ok=if_write(SeCo, ddAccount, Account#ddAccount{lastFailureTime=undefined}),
                             dd_seco:register(SeCo, AccountId)  % return (hash) value to client
             end;
-        {dd_error,Error} -> 
-            ?SecurityException(Error);
+        [] -> 
+            ?SecurityException({"Account does not exist", Name});
         Error ->        
             ?SystemException(Error)    
     end.
@@ -376,34 +360,31 @@ login(SeKey) ->
     LocalTime = calendar:local_time(),
     PwdExpireSecs = calendar:datetime_to_gregorian_seconds(LocalTime),
     PwdExpireDate = calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*?PASSWORD_VALIDITY),
-    case {Result=if_get_account(SeCo, AccountId), AuthenticationMethod} of
-        {#ddAccount{lastPasswordChangeTime=undefined}, pwdmd5} -> 
+    case {if_read(SeCo, ddAccount, AccountId), AuthenticationMethod} of
+        {[#ddAccount{lastPasswordChangeTime=undefined}], pwdmd5} -> 
             logout(SeKey),
             ?SecurityException({"Password expired. Please change it", AccountId});
-        {#ddAccount{lastPasswordChangeTime=LastChange}, pwdmd5} when LastChange < PwdExpireDate -> 
+        {[#ddAccount{lastPasswordChangeTime=LastChange}], pwdmd5} when LastChange < PwdExpireDate -> 
             logout(SeKey),
             ?SecurityException({"Password expired. Please change it", AccountId});
-        {#ddAccount{}, _} ->
+        {[#ddAccount{}=Account], _} ->
             ok = dd_seco:update(SeCo,SeCo#ddSeCo{state=authorized}),
-            if_write(SeCo, ddAccount, Result#ddAccount{lastLoginTime=calendar:local_time()}),
+            if_write(SeCo, ddAccount, Account#ddAccount{lastLoginTime=calendar:local_time()}),
             SeKey;            
-        {{dd_error,Error}, _} ->                    
+        {[], _} ->                    
             logout(SeKey),
-            ?SecurityException(Error);
-        {Error, _} ->                    
-            logout(SeKey),
-            ?SystemException(Error)
+            ?SecurityException({"Account does not exist", AccountId})
     end.
 
 change_credentials(SeKey, {pwdmd5,_}=OldCred, {pwdmd5,_}=NewCred) ->
     #ddSeCo{accountId=AccountId} = SeCo = dd_seco:seco(SeKey),
     LocalTime = calendar:local_time(),
-    #ddAccount{credentials=CredList} = Account = if_get_account(SeCo, AccountId),
+    [#ddAccount{credentials=CredList} = Account] = if_read(SeCo, ddAccount, AccountId),
     if_write(SeCo, ddAccount, Account#ddAccount{lastPasswordChangeTime=LocalTime, credentials=[NewCred|lists:delete(OldCred,CredList)]}),
     login(SeKey);
 change_credentials(SeKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
     #ddSeCo{accountId=AccountId} = SeCo = dd_seco:seco(SeKey),
-    #ddAccount{credentials=CredList} = Account = if_get_account(SeCo, AccountId),
+    [#ddAccount{credentials=CredList} = Account]= if_read(SeCo, ddAccount, AccountId),
     if_write(SeCo, ddAccount, Account#ddAccount{credentials=[NewCred|lists:delete(OldCred,CredList)]}),
     login(SeKey).
 

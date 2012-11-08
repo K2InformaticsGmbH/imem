@@ -6,6 +6,10 @@
 
 -include("dd_meta.hrl").
 
+-export([ init/1
+        , terminate/2
+        ]).
+
 -export([ schema/0
         , schema/1
         , data_nodes/0
@@ -31,43 +35,60 @@
         , insert/2    
         , write/2           %% write single key
         , delete/2          %% delete rows by key
+        , truncate/1        %% truncate table
 		]).
+
+
+init([]) ->
+    imem_if:create_table(ddTable, record_info(fields, ddTable),[]),    %% may fail if exists
+    check_table(ddTable),
+    ok.
+
+terminate(_Reason, _State) ->
+    ok.
+
+check_table(Table) ->
+    imem_if:table_size(Table).
+
+return_ok(ok) -> ok;
+return_ok(Error) -> ?SystemException(Error).
+
+return_list(L) when is_list(L) -> L;
+return_list(Error) -> ?SystemException(Error).
 
 
 create_table(Table, RecordInfo, Opts, Owner) ->
     case imem_if:create_table(Table, RecordInfo, Opts) of
-        {atomic,ok} -> 
-            imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=Owner}),
-            {atomic,ok};
+        ok -> 
+            return_ok(imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=Owner}));
         Error -> 
-            Error
+            ?SystemException(Error)
     end.
 
 create_table(Table, RecordInfo, Opts) ->
     case imem_if:create_table(Table, RecordInfo, Opts) of
-        {atomic,ok} -> 
-            imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=system}),
-            {atomic,ok};
+        ok -> 
+            return_ok(imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=system}));
         Error -> 
-            Error
+            ?SystemException(Error)
     end.
 
 drop_table(Table) -> 
-    imem_if:drop_table(Table).
+    return_ok(imem_if:drop_table(Table)).
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
 schema() ->
-    imem_if:schema().
+    return_list(imem_if:schema()).
 
 schema(Node) ->
-    imem_if:schema(Node).
+    return_list(imem_if:schema(Node)).
 
 add_attribute(A, Opts) -> 
-    imem_if:add_attribute(A, Opts).
+    return_list(imem_if:add_attribute(A, Opts)).
 
 update_opts(T, Opts) ->
-    imem_if:update_opts(T, Opts).
+    return_list(imem_if:update_opts(T, Opts)).
 
 system_table(Table) ->
     case lists:member(Table,?META_TABLES) of
@@ -79,42 +100,50 @@ system_table(Table) ->
 %% imem_if but security context added --- META INFORMATION ------
 
 data_nodes() ->
-    imem_if:data_nodes().
+    return_list(imem_if:data_nodes()).
 
 all_tables() ->
-    imem_if:all_tables().
+    return_list(imem_if:all_tables()).
 
-table_columns(TableName) ->
-    imem_if:table_columns(TableName).
+table_columns(Table) ->
+    return_list(imem_if:table_columns(Table)).
 
-table_size(TableName) ->
-    imem_if:table_size(TableName).
-
+table_size(Table) ->
+    imem_if:table_size(Table).
 
 read(Table, Key) -> 
-    imem_if:read(Table, Key).
+    return_list(imem_if:read(Table, Key)).
 
-read(TableName) ->
-    imem_if:read(TableName).
+read(Table) ->
+    return_list(imem_if:read(Table)).
 
-read_block(TableName, Key, BlockSize) ->
-    imem_if:read_block(TableName, Key, BlockSize).    
+read_block(Table, Key, BlockSize) ->
+    return_list(imem_if:read_block(Table, Key, BlockSize)).    
 
-select(TableName, MatchSpec) ->
-    imem_if:select(TableName, MatchSpec).
+select(all_tables, MatchSpec) ->
+    select(ddTable, MatchSpec);
+select(Table, MatchSpec) ->
+    return_list(imem_if:select(Table, MatchSpec)).
 
-select(TableName, MatchSpec, Limit) ->
-    imem_if:select(TableName, MatchSpec, Limit).
+select(all_tables, MatchSpec, Limit) ->
+    select(ddTable, MatchSpec, Limit);
+select(Table, MatchSpec, Limit) ->
+    return_list(imem_if:select(Table, MatchSpec, Limit)).
 
 select(Continuation) ->
-    imem_if:select(Continuation).
+    return_list(imem_if:select(Continuation)).
 
 write(Table, Record) -> 
-    imem_if:write(Table, Record).
+    return_ok(imem_if:write(Table, Record)).
 
-insert(TableName, Row) ->
-    imem_if:insert(TableName, Row).
+insert(Table, Row) ->
+    return_ok(imem_if:insert(Table, Row)).
 
-delete(TableName, Key) ->
-    imem_if:delete(TableName, Key).    
+delete(Table, Key) ->
+    return_ok(imem_if:delete(Table, Key)).
+
+truncate(Table) ->
+    return_ok(imem_if:truncate(Table)).
+
+
 

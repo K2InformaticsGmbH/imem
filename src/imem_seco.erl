@@ -34,6 +34,7 @@
         , insert/3    
         , write/3
         , delete/3
+        , truncate/2
 		]).
 
 
@@ -88,7 +89,7 @@ table_size(_SeCo, TableName) ->
 create_table(SeKey, Table, RecordInfo, Opts) ->
     case SeCo=dd_seco:seco(SeKey) of
         #ddSeCo{accountId=AccountId, state=authorized} -> 
-            Owner = case dd_seco:system_table(Table) of
+            Owner = case dd_seco:system_table(SeKey, Table) of
                 true ->     
                     system;
                 false ->    
@@ -113,7 +114,7 @@ create_table(SeKey, Table, RecordInfo, Opts) ->
 
 drop_table(SeKey, Table) ->
     SeCo = dd_seco:seco(SeKey),
-    case dd_seco:system_table(Table) of
+    case dd_seco:system_table(SeKey, Table) of
         true  -> drop_system_table(SeCo, Table);
         false -> drop_user_table(SeCo, Table)
     end.
@@ -155,58 +156,60 @@ drop_system_table(#ddSeCo{key=SeKey}=SeCo, Table) ->
 insert(SeCo, TableName, Row) ->
     case dd_seco:have_permission(SeCo, {TableName,insert}) of
         true ->     imem_meta:insert(TableName, Row) ;
-        false ->    {error, {"Insert unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Insert unauthorized", SeCo})
     end.
 
 read(SeCo, TableName) ->
     case dd_seco:have_permission(SeCo, {TableName,select}) of
         true ->     imem_meta:read(TableName);
-        false ->    {error, {"Select unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Select unauthorized", SeCo})
     end.
 
 read(SeCo, TableName, Key) ->
     case dd_seco:have_permission(SeCo, {TableName,select}) of
         true ->     imem_meta:read(TableName, Key);
-        false ->    {error, {"Select unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Select unauthorized", SeCo})
     end.
 
 read_block(SeCo, TableName, Key, BlockSize) ->
     case dd_seco:have_permission(SeCo, {TableName,select}) of
         true ->     imem_meta:read_block(TableName, Key, BlockSize);
-        false ->    {error, {"Select unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Select unauthorized", SeCo})
     end.
 
 write(SeCo, TableName, Row) ->
     case dd_seco:have_permission(SeCo, {TableName,insert}) of
         true ->     imem_meta:write(TableName, Row);
-        false ->    {error, {"Insert/update unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Insert/update unauthorized", SeCo})
     end.
 
 delete(SeCo, TableName, Key) ->
     case dd_seco:have_permission(SeCo, {TableName,delete}) of
         true ->     imem_meta:delete(TableName, Key);
-        false ->    {error, {"Delete unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Delete unauthorized", SeCo})
+    end.
+
+truncate(SeCo, TableName) ->
+    case dd_seco:have_permission(SeCo, {TableName,delete}) of
+        true ->     imem_meta:truncate(TableName);
+        false ->    ?SecurityException({"Truncate unauthorized", SeCo})
     end.
 
 select(_SeCo, Continuation) ->
         imem_meta:select(Continuation).
 
+select(_SeCo, all_tables, _MatchSpec) ->
+    ?UnimplementedException({"Select metadata unimplemented"});
 select(SeCo, TableName, MatchSpec) ->
     case dd_seco:have_permission(SeCo, {TableName,select}) of
         true ->     imem_meta:select(TableName, MatchSpec) ;
-        false ->    {error, {"Select unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Select unauthorized", SeCo})
     end.
 
+select(_SeCo, all_tables, _MatchSpec, _Limit) ->
+    ?UnimplementedException({"Select metadata unimplemented"});
 select(SeCo, TableName, MatchSpec, Limit) ->
     case dd_seco:have_permission(SeCo, {TableName,select}) of
         true ->     imem_meta:select(TableName, MatchSpec, Limit) ;
-        false ->    {error, {"Select unauthorized", SeCo}};
-        Error ->    Error
+        false ->    ?SecurityException({"Select unauthorized", SeCo})
     end.
