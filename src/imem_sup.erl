@@ -78,7 +78,6 @@ init(_StartArgs) ->
     end,
     ok = mnesia:start(),
     mnesia:change_config(extra_db_nodes, nodes()),
-    mnesia:subscribe(system),
     io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),
     {ok, Mod} = application:get_env(if_mod),
     {ok, IsSec} = application:get_env(if_seco),
@@ -87,7 +86,6 @@ init(_StartArgs) ->
     Children = [
         {SMod, {SMod, start_link, [DefParams ++ SParams]}, transient, MnesiaTimeout, worker, [SMod]}
         || {_SName, {SMod, SParams}} <- Servers],
-    io:format(user, "~p Children ~p~n", [?MODULE, Children]),
     {ok, {{one_for_one, 3, 10}, Children}}.
 
 

@@ -1,4 +1,19 @@
 -module(imem_if).
+-behavior(gen_server).
+
+% gen_server
+-record(state, {
+        }).
+
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        , format_status/2
+        , start_link/1
+        ]).
 
 -export([ schema/0
         , schema/1
@@ -158,3 +173,39 @@ read_block(TableName, Key, BlockSize, Acc) ->
 
 ret_ok({atomic, ok}) -> ok;
 ret_ok(Other)        -> Other.
+
+%% gen_server
+start_link(Params) ->
+	gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+
+init(_Args) ->
+	mnesia:subscribe(system),
+	io:format("~p started!~n", [?MODULE]),
+    {ok,#state{}}.
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info(Info, State) ->
+	case Info of
+		{mnesia_system_event,{mnesia_overload,Details}} ->
+			BulkSleepTime0 = get(mnesia_bulk_sleep_time),
+			BulkSleepTime = trunc(1.1 * BulkSleepTime0),
+			put(mnesia_bulk_sleep_time, BulkSleepTime),
+			io:format("Mnesia overload : ~p!~n",[Details]);
+		{mnesia_system_event,{Event,Node}} ->
+			io:format("Mnesia event ~p from Node ~p!~n",[Event, Node]);
+		Error ->
+			io:format("Mnesia error : ~p~n",[Error])
+	end,
+	{noreply, State}.
+
+terminate(_Reson, _State) -> ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+format_status(_Opt, [_PDict, _State]) -> ok.

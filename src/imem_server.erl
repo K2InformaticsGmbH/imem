@@ -98,29 +98,30 @@ terminate(_Reason, #state{csock=Sock}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-process_cmd(Cmd, Sock, Module) when is_list(Cmd), is_atom(Module) ->
+process_cmd(Cmd, Sock, Module) when is_tuple(Cmd), is_atom(Module) ->
     Fun = element(1, Cmd),
     Args = lists:nthtail(0, tuple_to_list(Cmd)),
     Resp = exec_fun_in_module(Module, Fun, Args),
     send_resp(Resp, Sock).
 
+exec_fun_in_module(_Module, read_block, Args) -> exec_fun_in_module(imem_statement, read_block, Args);
 exec_fun_in_module(Module, Fun, Args) ->
     ArgsLen = length(Args),
-    case code:is_loaded(Module) of
-        {_,_} ->
+    case code:ensure_loaded(Module) of
+        {_,Module} ->
             case lists:keyfind(Fun, 1, Module:module_info(exports)) of
                 {_, Arity} when ArgsLen >= Arity ->
-                    if ArgsLen > Arity -> apply(Module, Fun, lists:split(1, Args));
+                    if ArgsLen > Arity -> apply(Module, Fun, lists:nthtail(1, Args));
                         true ->           apply(Module, Fun, Args)
                     end;
                 false ->
                     case Module of
-                        imem_statement -> {error, tuple_to_list(Module)++":"++tuple_to_list(Fun)++" doesn't exists or exported"};
+                        imem_statement -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" doesn't exists or exported"};
                         _ -> exec_fun_in_module(imem_statement, Fun, Args)
                     end;
-                _ -> {error, tuple_to_list(Module)++":"++tuple_to_list(Fun)++" wrong number of arguments"}
+                _ -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" wrong number of arguments"}
             end;
-        _ -> {error, "Module "++ tuple_to_list(Module) ++" doesn't exists"}
+        _ -> {error, "Module "++ atom_to_list(Module) ++" doesn't exists"}
     end.
 
 %% process_cmd({find_imem_nodes, Schema},                          Sock) -> send_resp(imem_if:find_imem_nodes(Schema), Sock);
