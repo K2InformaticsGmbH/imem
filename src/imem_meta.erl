@@ -6,8 +6,28 @@
 
 -include("dd_meta.hrl").
 
+-behavior(gen_server).
+
+-record(state, {
+        }).
+
+-export([ start_link/0
+        ]).
+
+% gen_server interface (monitoring calling processes)
+
+% gen_server behavior callbacks
 -export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
         , terminate/2
+        , code_change/3
+        , format_status/2
+        ]).
+
+
+-export([ drop_meta_tables/0
         ]).
 
 -export([ schema/0
@@ -39,16 +59,45 @@
 		]).
 
 
-init([]) ->
-    imem_if:create_table(ddTable, record_info(fields, ddTable),[]),    %% may fail if exists
-    check_table(ddTable),
-    ok.
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-terminate(_Reason, _State) ->
-    ok.
+init(_Args) ->
+    io:format(user, "~p starting...~n", [?MODULE]),
+    try
+        imem_if:create_table(ddTable, record_info(fields, ddTable),[]),    %% may fail if exists
+        check_table(ddTable),
+        io:format(user, "~p started!~n", [?MODULE])
+    catch
+        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
+    end,
+    {ok,#state{}}.
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast({stop, Reason}, State) ->
+    {stop,{shutdown,Reason},State};
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reson, _State) -> ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+format_status(_Opt, [_PDict, _State]) -> ok.
+
 
 check_table(Table) ->
     imem_if:table_size(Table).
+
+drop_meta_tables() ->
+    drop_table(ddTable).     
+
 
 return_ok(ok) -> ok;
 return_ok(Error) -> ?SystemException(Error).

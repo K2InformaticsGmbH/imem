@@ -145,6 +145,7 @@ table_columns(TableName) ->
     mnesia:table_info(TableName, attributes).
 
 table_size(TableName) ->
+    mnesia:table_info(TableName, all),
     mnesia:table_info(TableName, size).
 
 read_block(TableName, Key, BlockSize)                       -> read_block(TableName, Key, BlockSize, []).
