@@ -11,7 +11,7 @@
 -record(state, {
         }).
 
--export([ start_link/0
+-export([ start_link/1
         ]).
 
 % gen_server interface (monitoring calling processes)
@@ -59,8 +59,8 @@
 %       returns a ref() of the monitor
 monitor(Pid) when is_pid(Pid) -> gen_server:call(?MODULE, {monitor, Pid}).
 
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(Params) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
