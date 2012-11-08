@@ -15,6 +15,7 @@
         
 -export([ create_table/3
 		, drop_table/1
+        , truncate/1
         , select/1
         , select/2
         , select/3
@@ -71,7 +72,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             %% io:format("waiting for table '~p' ...~n", [Table]),
             mnesia:wait_for_tables([Table], 30000),
             %% io:format("copying table '~p' ...~n", [Table]),
-            mnesia:add_table_copy(Table, node(), ram_copies);
+            ret_ok(mnesia:add_table_copy(Table, node(), ram_copies));
 		{aborted, Details} ->
             %% other table creation problems
 			{aborted, Details};
@@ -79,11 +80,14 @@ create_table(Table, Opts) when is_atom(Table) ->
 			%% io:format("table '~p' created...~n", [Table]),
             %% ToDo: Check if this is needed.
 			%% mnesia:clear_table(Table)
-        Result -> Result
+        Result -> ret_ok(Result)
 	end.
 
 drop_table(Table) when is_atom(Table) ->
-    mnesia:delete_table(Table).
+    ret_ok(mnesia:delete_table(Table)).
+
+truncate(Table) when is_atom(Table) ->
+    ret_ok(mnesia:clear_table(Table)).
 
 insert(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
     Row1 = case element(1, Row) of
@@ -126,7 +130,7 @@ select(TableName, MatchSpec, Limit) ->
 data_nodes() ->
     [lists:foldl(
             fun(N, Acc) ->
-                    case lists:keyfind(imem, 1, rpc:call(N, application, loaded_applications, [])) of
+                    case lists:keyfind(imem, 1, rpc:call(N, application, which_applications, [])) of
                         false ->    Acc;
                         _ ->        [{schema(N),N}|Acc]
                     end
@@ -151,3 +155,5 @@ read_block(TableName, Key, BlockSize, Acc) ->
     Rows = mnesia:dirty_read(TableName, Key),
     read_block(TableName, mnesia:dirty_next(TableName, Key), BlockSize - length(Rows), Acc ++ Rows).
 
+ret_ok({atomic, ok}) -> ok;
+ret_ok(Other)        -> Other.
