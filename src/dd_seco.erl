@@ -6,12 +6,31 @@
 
 -include("dd_seco.hrl").
 
--export([ init/1
-        , terminate/2
+-behavior(gen_server).
+
+-record(state, {
+        }).
+
+-export([ start_link/0
         ]).
 
--export([ cleanup_pid/1
-        , system_table/2
+% gen_server interface (monitoring calling processes)
+-export([ monitor/1
+        , cleanup_pid/1
+        ]).
+
+% gen_server behavior callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        , format_status/2
+        ]).
+
+% security context library interface
+-export([ system_table/2
         , drop_seco_tables/1
         ]).
 
@@ -36,6 +55,69 @@
 -export([ have_role/2
         , have_permission/2
         ]).
+
+%       returns a ref() of the monitor
+monitor(Pid) when is_pid(Pid) -> gen_server:call(?MODULE, {monitor, Pid}).
+
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+init(_Args) ->
+    io:format(user, "~p starting...~n", [?MODULE]),
+    try
+        check_table(ddTable),
+        if_create_table(none, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
+        check_table(ddAccount),
+        if_create_table(none, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
+        check_table(ddRole),
+        if_create_table(none, ddSeCo, record_info(fields, ddSeCo),[local, {local_content,true}], system),     
+        check_table(ddSeCo),
+        if_create_table(none, ddPerm, record_info(fields, ddPerm),[local, {local_content,true}], system),     
+        check_table(ddPerm),
+        if_create_table(none, ddQuota, record_info(fields, ddQuota),[local, {local_content,true}], system),     
+        check_table(ddQuota),
+        UserName= <<"admin">>,
+        case if_read_account_by_name(none, UserName) of
+            [] ->  
+                    UserId = make_ref(),
+                    UserCred={pwdmd5, erlang:md5(<<"change_on_install">>)},
+                    User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
+                                        ,fullName= <<"DB Administrator">>, lastLoginTime=calendar:local_time()},
+                    if_write(none, ddAccount, User),                    
+                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_accounts]});
+            _ ->    ok       
+        end,        
+        io:format(user, "~p started!~n", [?MODULE])
+    catch
+        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
+    end,
+    {ok,#state{}}.
+
+handle_call({monitor, Pid}, _From, State) ->
+    io:format(user, "~p - started monitoring pid ~p~n", [?MODULE, Pid]),
+    {reply, erlang:monitor(process, Pid), State};
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
+    io:format(user, "~p - died pid ~p ref ~p as ~p~n", [?MODULE, Pid, Ref, Reason]),
+    cleanup_pid(Pid),
+    {noreply, State};
+handle_cast({stop, Reason}, State) ->
+    {stop,{shutdown,Reason},State};
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reson, _State) -> ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+format_status(_Opt, [_PDict, _State]) -> ok.
+
 
 %% --Interface functions  (duplicated in dd_account) ----------------------------------
 
@@ -150,23 +232,6 @@ if_has_child_permission(SeCo, [RootRoleId|OtherRoles], Permission) ->
 
 
 %% --Implementation ------------------------------------------------------------------
-
-init([]) ->
-    check_table(ddTable),
-    if_create_table(none, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
-    check_table(ddAccount),
-    if_create_table(none, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
-    check_table(ddRole),
-    if_create_table(none, ddSeCo, record_info(fields, ddSeCo),[local, {local_content,true}], system),     
-    check_table(ddSeCo),
-    if_create_table(none, ddPerm, record_info(fields, ddPerm),[local, {local_content,true}], system),     
-    check_table(ddPerm),
-    if_create_table(none, ddQuota, record_info(fields, ddQuota),[local, {local_content,true}], system),     
-    check_table(ddQuota),
-    ok.
-
-terminate(_Reason, _State) ->
-    ok.
 
 check_table(Table) ->
     if_table_size(Table).

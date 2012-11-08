@@ -45,14 +45,14 @@ test(_) ->
 
     io:format(user, "----TEST--~p:test_create_seco_tables~n", [?MODULE]),
 
-    ?assertExit({aborted,{no_exists,ddTable}}, dd_seco:init([])),
-    io:format(user, "success ~p~n", [initialize_seco_failure]),
-    ?assertEqual(ok, imem_meta:init([])),
-    io:format(user, "success ~p~n", [initialize_meta]),
-    ?assertEqual(ok, dd_seco:init([])),
-    io:format(user, "success ~p~n", [initialize_seco]),
-    ?assertMatch(ok, dd_seco:init([])),
-    io:format(user, "success ~p~n", [re_initialize_seco]),
+%    ?assertExit({aborted,{no_exists,ddTable,all}}, dd_seco:init([])),
+%    io:format(user, "success ~p~n", [initialize_seco_failure]),
+%    ?assertEqual(ok, imem_meta:init([])),
+%    io:format(user, "success ~p~n", [initialize_meta]),
+%    ?assertEqual(ok, dd_seco:init([])),
+%    io:format(user, "success ~p~n", [initialize_seco]),
+%    ?assertMatch(ok, dd_seco:init([])),
+%    io:format(user, "success ~p~n", [re_initialize_seco]),
 
     UserId = make_ref(),
     UserName= <<"test_admin">>,
@@ -307,11 +307,13 @@ test(_) ->
 
 
     %% Cleanup only if we arrive at this point
-    ?assertException(throw, {SeEx,{"Drop system tables unauthorized",SeCo}}, dd_seco:drop_system_tables(SeCo)),
-    io:format(user, "success ~p~n", [drop_system_tables_reject]), 
+    ?assertException(throw, {SeEx,{"Drop system tables unauthorized",SeCo}}, dd_seco:drop_seco_tables(SeCo)),
+    io:format(user, "success ~p~n", [drop_seco_tables_reject]), 
     ?assertEqual(ok, dd_role:grant_permission(SeCo, UserId, manage_system_tables)),
     io:format(user, "success ~p~n", [grant_manage_system_tables]), 
-    ?assertEqual({atomic,ok}, dd_seco:drop_system_tables(SeCo)),
-    io:format(user, "success ~p~n", [drop_cluster_tables]), 
+    ?assertEqual(ok, dd_seco:drop_seco_tables(SeCo)),
+    io:format(user, "success ~p~n", [drop_seco_tables]), 
+    ?assertEqual(ok, imem_meta:drop_meta_tables()),
+    io:format(user, "success ~p~n", [drop_meta_tables]),     
     ok.
 
