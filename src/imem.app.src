@@ -12,14 +12,17 @@
          {node_type, undefined},
          {mnesia_timeout, 30000},
          {mnesia_bulk_sleep_time, 500},
-         {meta_server, {true, imem_meta, imem_meta, []}},
-         {seco_server, {true, dd_seco, imem_seco, []}},
-         {sql_server, {true, imem_sql, imem_sql, []}},
-         {tcp_server, {true, imem_server,[
-         	{tcp_ip, localhost},
-         	{tcp_port, 8124},
-         	{tcp_if_mod, imem_seco},
-         	{tcp_if_seco, true}
-         ]}}
+         {if_mod, imem_seco},
+         {if_seco, true},
+         {servers, [
+            {meta_server, {imem_meta, []}},
+            {seco_server, {imem_seco, []}},
+%%            {sql_server, {imem_sql, []}},
+            {tcp_server, {imem_server, [
+            	            {tcp_ip, localhost},
+            	            {tcp_port, 8124}
+                         ]}
+            }
+         ]}
         ]}
  ]}.

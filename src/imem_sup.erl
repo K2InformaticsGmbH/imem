@@ -78,19 +78,29 @@ init(_StartArgs) ->
     end,
     ok = mnesia:start(),
     mnesia:change_config(extra_db_nodes, nodes()),
+    mnesia:subscribe(system),
     io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),
-    ThreadList =
-    [{imem, {imem, start_link, []}, permanent, MnesiaTimeout, worker, [imem]}]
-    ++
-    case application:get_env(start_monitor) of
-        {ok, false} -> [];
-        _ ->
-            {ok, NativeIfMod} = application:get_env(native_if_mod),
-            [{imem_server, {imem_server, start_link, [NativeIfMod]}, transient, MnesiaTimeout, worker, [imem_server]}]
-    end
-    ++
-    [{imem_monitor, {imem_monitor, start_link, []}, permanent, MnesiaTimeout, worker, [imem_monitor]}],
-    {ok, {{one_for_one, 3, 10}, ThreadList}}.
+%% -     ThreadList =
+%% -     [{imem, {imem, start_link, []}, permanent, MnesiaTimeout, worker, [imem]}]
+%% -     ++
+%% -     case application:get_env(start_monitor) of
+%% -         {ok, false} -> [];
+%% -         _ ->
+%% -             {ok, NativeIfMod} = application:get_env(native_if_mod),
+%% -             [{imem_server, {imem_server, start_link, [NativeIfMod]}, transient, MnesiaTimeout, worker, [imem_server]}]
+%% -     end
+%% -     ++
+%% -     [{imem_monitor, {imem_monitor, start_link, []}, permanent, MnesiaTimeout, worker, [imem_monitor]}],
+%% -     {ok, {{one_for_one, 3, 10}, ThreadList}}.
+    {ok, Mod} = application:get_env(if_mod),
+    {ok, IsSec} = application:get_env(if_seco),
+    DefParams = [{if_mod, Mod}, {if_sec, IsSec}],
+    {ok, Servers} = application:get_env(servers),
+    Children = [
+        {SMod, {SMod, start_link, [DefParams ++ SParams]}, transient, MnesiaTimeout, worker, [SMod]}
+        || {_SName, {SMod, SParams}} <- Servers],
+    io:format(user, "~p Children ~p~n", [?MODULE, Children]),
+    {ok, {{one_for_one, 3, 10}, Children}}.
 
 
 %% ====================================================================

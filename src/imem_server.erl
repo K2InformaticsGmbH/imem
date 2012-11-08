@@ -6,6 +6,7 @@
         , csock = undefined
         , buf = <<>>
         , native_if_mod
+        , is_secure = false
     }).
 
 -export([start_link/1
@@ -17,14 +18,17 @@
 		, code_change/3
 		]).
 
-start_link(NativeIfMod) ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [NativeIfMod], []).
+start_link(Params) ->
+	gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init([Sock, NativeIfMod]) ->
     io:format(user, "~p tcp client ~p~n", [self(), Sock]),
     {ok, #state{csock=Sock, native_if_mod=NativeIfMod}};
-init([NativeIfMod]) ->
-    {ok, {Interface, ListenPort}} = application:get_env(mgmt_if),
+init(Params) ->
+    {_, Interface} = lists:keyfind(tcp_ip,1,Params),
+    {_, ListenPort} = lists:keyfind(tcp_port,1,Params),
+    {_, NativeIfMod} = lists:keyfind(if_mod,1,Params),
+    {_, IsSec} = lists:keyfind(if_sec,1,Params),
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
             gen_server:cast(self(), {stop, Reason}),
@@ -34,7 +38,7 @@ init([NativeIfMod]) ->
                 {ok, LSock} ->
                     io:format(user, "~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
                     gen_server:cast(self(), accept),
-                    {ok, #state{lsock=LSock, native_if_mod=NativeIfMod}};
+                    {ok, #state{lsock=LSock, native_if_mod=NativeIfMod, is_secure=IsSec}};
                 Reason ->
                     gen_server:cast(self(), {stop, Reason}),
                     {ok, #state{}}
