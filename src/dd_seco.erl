@@ -2,17 +2,17 @@
 
 -define(PASSWORD_VALIDITY,100).
 
--include("dd.hrl").
+-define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).
 
--export([ cleanup_pid/1
+-include("dd_seco.hrl").
+
+-export([ init/1
+        , terminate/2
         ]).
 
--export([ system_table/1
-        , create_cluster_tables/1
-        , create_local_tables/1
-        , drop_system_tables/1
-        , create_table/4
-        , drop_table/2
+-export([ cleanup_pid/1
+        , system_table/1
+        , drop_seco_tables/1
         ]).
 
 -export([ create/3
@@ -39,6 +39,12 @@
 
 %% --Interface functions  (duplicated in dd_account) ----------------------------------
 
+if_system_table(ddTable) ->
+    true;
+if_system_table(_Table) ->
+%    imem_meta:system_table(Table).     ToDo: implement in imem_meta
+    false.
+
 if_select(_SeCo, Table, MatchSpec) ->
     imem_if:select(Table, MatchSpec). 
 
@@ -62,6 +68,9 @@ if_get_account_by_name(SeCo, Name) ->
         [] ->           {dd_error, {"Account does not exist", Name}};
         [Account] ->    Account
     end.
+
+if_table_size(TableName) ->
+    imem_if:table_size(TableName).
 
 %% --Interface functions  (calling imem_if for now) ----------------------------------
 
@@ -110,14 +119,6 @@ if_has_child_role(SeCo, [RootRoleId|OtherRoles], RoleId) ->
         Error ->                        Error        
     end.
 
-list_member([], _Permissions) ->
-    false;
-list_member([PermissionId|Rest], Permissions) ->
-    case lists:member(PermissionId, Permissions) of
-        true -> true;
-        false -> list_member(Rest, Permissions)
-    end.
-
 if_has_permission(_SeCo, _RootRoleId, []) ->
     false;
 if_has_permission(SeCo, RootRoleId, PermissionList) when is_list(PermissionList)->
@@ -162,98 +163,53 @@ if_has_child_permission(SeCo, [RootRoleId|OtherRoles], Permission) ->
 
 %% --Implementation ------------------------------------------------------------------
 
-system_table(Table) ->
-    lists:member(Table,?SYSTEM_TABLES).
+init([]) ->
+    check_table(ddTable),
+    if_create_table(none, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
+    check_table(ddAccount),
+    if_create_table(none, ddRole, record_info(fields, ddRole),[], system),          %% may fail if exists
+    check_table(ddRole),
+    if_create_table(none, ddSeCo, record_info(fields, ddSeCo),[local], system),     
+    check_table(ddSeCo),
+    if_create_table(none, ddPerm, record_info(fields, ddPerm),[local], system),     
+    check_table(ddPerm),
+    if_create_table(none, ddQuota, record_info(fields, ddQuota),[local], system),     
+    check_table(ddQuota),
+    ok.
 
-create_table(SeKey, Table, RecordInfo, Opts) ->
-    case SeCo=seco(SeKey) of
-        #ddSeCo{accountId=AccountId, state=authorized} -> 
-            Owner = case system_table(Table) of
-                true ->     
-                    system;
-                false ->    
-                    case if_has_permission(SeCo, AccountId, create_table) of
-                        true ->     AccountId;
-                        false ->    false;
-                        Error1 ->    ?SystemException(Error1)
-                    end
-            end,
-            case Owner of
-                false ->
-                    ?SecurityException({"Create table unauthorized", Table});
-                Owner ->        
-                    case if_create_table(SeKey, Table, RecordInfo, Opts, Owner) of 
-                        {atomic,ok} ->  {atomic,ok};
-                        Error2 ->        ?SystemException(Error2)  
-                    end
-            end;
-        _ ->    
-            ?SecurityException({"Create table not logged in", SeKey})
+terminate(_Reason, _State) ->
+    ok.
+
+check_table(Table) ->
+    case if_table_size(Table) of
+        N when is_integer(N) ->  ok;
+        _ ->                    {stop,{"Missing system table", {Table, ?MODULE}}}
     end.
 
-create_cluster_tables(SeKey) ->
-    %% Does not throw errors, returns {atomic,ok} or {Error, Reason}
-    if_create_table(SeKey, ddTable, record_info(fields, ddTable),[], system),        %% may fail if exists
-    if_create_table(SeKey, ddAccount, record_info(fields, ddAccount),[], system),    %% may fail if exists
-    if_create_table(SeKey, ddRole, record_info(fields, ddRole),[], system).          %% may fail if exists
+system_table(Table) ->
+    case lists:member(Table,?SECO_TABLES) of
+        true ->     true;
+        false ->    if_system_table(Table) 
+    end.
 
-create_local_tables(SeKey) ->
-    %% Does not throw errors, returns {atomic,ok} or {Error, Reason}
-    if_create_table(SeKey, ddSeCo, record_info(fields, ddSeCo),[local], system).     
+list_member([], _Permissions) ->
+    false;
+list_member([PermissionId|Rest], Permissions) ->
+    case lists:member(PermissionId, Permissions) of
+        true -> true;
+        false -> list_member(Rest, Permissions)
+    end.
 
-drop_system_tables(SeKey) ->
+drop_seco_tables(SeKey) ->
     SeCo=seco(SeKey),
     case have_permission(SeCo, manage_system_tables) of
         true ->
             if_drop_table(SeKey, ddSeCo),     
             if_drop_table(SeKey, ddRole),         
-            if_drop_table(SeKey, ddAccount),   
-            case if_drop_table(SeKey, ddTable) of
-                {atomic,ok} ->  {atomic,ok};
-                Error ->        ?SystemException(Error)
-            end;
+            if_drop_table(SeKey, ddAccount);   
         false ->
             ?SecurityException({"Drop system tables unauthorized", SeKey})
     end.
-
-drop_table(SeKey, Table) ->
-    SeCo = seco(SeKey),
-    case system_table(Table) of
-        true  -> drop_system_table(SeCo, Table);
-        false -> drop_user_table(SeCo, Table)
-    end.
-
-drop_user_table(#ddSeCo{key=SeKey,accountId=AccountId}=SeCo, Table) ->
-    case have_permission(SeCo, manage_user_tables) of
-        true ->
-            case if_drop_table(SeKey, Table) of
-                {atomic,ok} ->  {atomic,ok};
-                Error ->        ?SystemException(Error)
-            end;
-        false ->
-            case if_read(SeKey, ddTable, Table)  of
-                [] ->
-                    ?ClientError({"Drop table not found", SeKey});
-                [#ddTable{owner=AccountId}] -> 
-                    case if_drop_table(SeKey, Table) of
-                        {atomic,ok} ->  {atomic,ok};
-                        Error ->        ?SystemException(Error)
-                    end;
-                _ ->     
-                    ?SecurityException({"Drop table unauthorized", SeKey})
-            end
-    end. 
-
-drop_system_table(#ddSeCo{key=SeKey}=SeCo, Table) ->
-    case have_permission(SeCo, manage_system_tables) of
-        true ->
-            case if_drop_table(SeKey, Table) of
-                {atomic,ok} ->  {atomic,ok};
-                Error ->        ?SystemException(Error)
-            end;
-        false ->
-            ?SecurityException({"Drop system table unauthorized", SeKey})
-    end. 
 
 create(SessionId, Name, {AuthMethod,_}) -> 
     SeCo = #ddSeCo{pid=self(), sessionId=SessionId, name=Name, authMethod=AuthMethod, authTime=erlang:now()},

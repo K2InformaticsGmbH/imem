@@ -2,8 +2,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--include("dd.hrl").
-
+-include("dd_seco.hrl").
 
 % for test setup only, not exported
 if_write(#ddAccount{}=Account) -> 

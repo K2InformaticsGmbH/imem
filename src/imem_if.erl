@@ -2,22 +2,29 @@
 
 -export([ schema/0
         , schema/1
-        , add_attribute/2
-        , find_imem_nodes/1
-        , create_table/3
-		, drop_table/1
-        , update_opts/2
-        , read_all/1
-        , select/2
-        , read/2                 
-        , insert/2    
-        , write/2
-        , delete/2
+        , data_nodes/0
         , all_tables/0
         , table_columns/1
         , table_size/1
+        , system_table/1
+        ]).
+
+-export([ add_attribute/2
+        , update_opts/2
+        ]).
+        
+-export([ create_table/3
+		, drop_table/1
+        , select/1
+        , select/2
+        , select/3
+        , read/1
+        , read/2                 
         , read_block/3
-		]).
+        , write/2
+        , insert/2    
+        , delete/2
+        ]).
 
 
 schema() ->
@@ -39,6 +46,8 @@ create_table(TableName,Columns,Opts) ->
         true ->     create_local_table(TableName, Columns, Opts -- [local]);
         false ->    create_cluster_table(TableName, Columns, Opts)
     end.
+
+system_table(_) -> false.
 
 create_local_table(TableName,Columns,Opts) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
@@ -92,6 +101,10 @@ insert(TableName, Row) when is_atom(TableName), is_list(Row) ->
         true -> {error, {"schema mismatch {table_row_len, insert_row_len} ", TableRowLen, RowLen, Row}}
     end.
 
+read(TableName) ->
+    {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
+    [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(TableName, X)))) || X <- Keys].
+
 read(TableName, Key) ->
     mnesia:dirty_read(TableName, Key).
 
@@ -101,23 +114,21 @@ write(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
 delete(TableName, Key) ->
     mnesia:dirty_delete({TableName, Key}).
 
-read_all(TableName) ->
-    {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
-    [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(TableName, X)))) || X <- Keys].
+select(Continuation) ->
+    mnesia:dirty_select(Continuation).
 
 select(TableName, MatchSpec) ->
     mnesia:dirty_select(TableName, MatchSpec).
 
-find_imem_nodes(Schema) when is_list(Schema) ->
+select(TableName, MatchSpec, Limit) ->
+    mnesia:dirty_select(TableName, MatchSpec, Limit).
+
+data_nodes() ->
     [lists:foldl(
             fun(N, Acc) ->
                     case lists:keyfind(imem, 1, rpc:call(N, application, loaded_applications, [])) of
-                        false -> Acc;
-                        _ ->
-                            case schema(N) of
-                                Schema ->   [N|Acc];
-                                _ ->        Acc
-                            end
+                        false ->    Acc;
+                        _ ->        [{schema(N),N}|Acc]
                     end
             end
             , []
