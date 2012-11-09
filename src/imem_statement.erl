@@ -72,7 +72,6 @@ exec(_SeCo, {select, Params}, Stmt, _Schema) ->
         {_, Tabs} when length(Tabs) == 1 -> binary_to_atom(lists:nth(1, Tabs));
         _ -> undefined
     end,
-    io:format(user,"select params ~p in ~p~n", [Columns, TableName]),
     case TableName of
         undefined -> {error, "Only single valid names are supported"};
         _ ->
@@ -85,6 +84,7 @@ exec(_SeCo, {select, Params}, Stmt, _Schema) ->
                 , cols = Clms
             },
             {ok, StmtRef} = create_stmt(Statement),
+            io:format(user,"select params ~p in ~p~n", [{Columns, Clms}, TableName]),
             {ok, Clms, StmtRef}
     end.
 

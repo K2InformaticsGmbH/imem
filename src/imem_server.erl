@@ -21,9 +21,9 @@
 start_link(Params) ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
-init([Sock, NativeIfMod]) ->
+init([Sock, NativeIfMod, IsSec]) ->
     io:format(user, "~p tcp client ~p~n", [self(), Sock]),
-    {ok, #state{csock=Sock, native_if_mod=NativeIfMod}};
+    {ok, #state{csock=Sock, native_if_mod=NativeIfMod, is_secure=IsSec}};
 init(Params) ->
     {_, Interface} = lists:keyfind(tcp_ip,1,Params),
     {_, ListenPort} = lists:keyfind(tcp_port,1,Params),
@@ -55,10 +55,10 @@ handle_call(_Request, _From, State) ->
 handle_cast({stop, Reason}, State) ->
     io:format(user, "~p imem_server not started : ~p~n", [self(), Reason]),
     {stop,{shutdown,Reason},State};
-handle_cast(accept, #state{lsock=LSock, native_if_mod=NativeIfMod}=State) ->
+handle_cast(accept, #state{lsock=LSock, native_if_mod=NativeIfMod, is_secure=IsSec}=State) ->
     {ok, Sock} = gen_tcp:accept(LSock),
     io:format(user, "accept conn ~p~n", [Sock]),
-    {ok,Pid} = gen_server:start(?MODULE, [Sock, NativeIfMod], []),
+    {ok,Pid} = gen_server:start(?MODULE, [Sock, NativeIfMod, IsSec], []),
     ok = gen_tcp:controlling_process(Sock, Pid),
     gen_server:cast(Pid, activate),
     gen_server:cast(self(), accept),
@@ -79,7 +79,6 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=Mod}=State) ->
             io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(Data)]),
             {noreply, State#state{buf=NewBuf}};
         D ->
-            io:format(user, "Cmd ~p~n", [D]),
             process_cmd(D, Sock, Mod),
             {noreply, State#state{buf= <<>>}}
     end;
@@ -100,12 +99,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_cmd(Cmd, Sock, Module) when is_tuple(Cmd), is_atom(Module) ->
     Fun = element(1, Cmd),
-    Args = lists:nthtail(0, tuple_to_list(Cmd)),
-    Resp = exec_fun_in_module(Module, Fun, Args),
-    send_resp(Resp, Sock).
+    Args = lists:nthtail(1, tuple_to_list(Cmd)),
+    Resp = exec_fun_in_module(Module, Fun, Args, Sock),
+    if Fun =/= read_block -> send_resp(Resp, Sock); true -> ok end.
 
-exec_fun_in_module(_Module, read_block, Args) -> exec_fun_in_module(imem_statement, read_block, Args);
-exec_fun_in_module(Module, Fun, Args) ->
+exec_fun_in_module(Module, read_block, Args, Sock) when Module =/= imem_statement ->
+    exec_fun_in_module(imem_statement, read_block, Args ++ [Sock], Sock);
+exec_fun_in_module(Module, Fun, Args, Sock) ->
     ArgsLen = length(Args),
     case code:ensure_loaded(Module) of
         {_,Module} ->
@@ -117,9 +117,9 @@ exec_fun_in_module(Module, Fun, Args) ->
                 false ->
                     case Module of
                         imem_statement -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" doesn't exists or exported"};
-                        _ -> exec_fun_in_module(imem_statement, Fun, Args)
+                        _ -> exec_fun_in_module(imem_statement, Fun, Args, Sock)
                     end;
-                _ -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" wrong number of arguments"}
+                {_, Arity} -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" wrong number of arguments", ArgsLen, Arity}
             end;
         _ -> {error, "Module "++ atom_to_list(Module) ++" doesn't exists"}
     end.
