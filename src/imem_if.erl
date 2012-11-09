@@ -143,7 +143,7 @@ select(TableName, MatchSpec, Limit) ->
     mnesia:dirty_select(TableName, MatchSpec, Limit).
 
 data_nodes() ->
-    [lists:foldl(
+    lists:flatten([lists:foldl(
             fun(N, Acc) ->
                     case lists:keyfind(imem, 1, rpc:call(N, application, which_applications, [])) of
                         false ->    Acc;
@@ -151,7 +151,7 @@ data_nodes() ->
                     end
             end
             , []
-            , [node() | nodes()])].
+            , [node() | nodes()])]).
 
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
@@ -178,10 +178,49 @@ ret_ok(Other)        -> Other.
 start_link(Params) ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
-init(_Args) ->
+init(Params) ->
+    {_, NodeType} = lists:keyfind(node_type,1,Params),
+    {_, SchemaName} = lists:keyfind(schema_name,1,Params),
+    SchemaDir = SchemaName ++ "." ++ atom_to_list(node()),
+    {A1,A2,A3} = now(),
+    random:seed(A1, A2, A3),
+    SleepTime = random:uniform(1000),
+    io:format(user, "~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
+    timer:sleep(SleepTime),
+    application:set_env(mnesia, dir, SchemaDir),
+    ok = mnesia:start(),
+    case disc_schema_nodes(SchemaName) of
+        [] -> ok;
+        [DiscSchemaNode|_] ->
+            io:format(user, "~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
+            {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config, [extra_db_nodes, [node()]])
+    end,
+    case NodeType of
+        disc -> mnesia:change_table_copy_type(schema, node(), disc_copies);
+        _ -> ok
+    end,
 	mnesia:subscribe(system),
 	io:format("~p started!~n", [?MODULE]),
     {ok,#state{}}.
+
+disc_schema_nodes(Schema) ->
+    lists:flatten([lists:foldl(
+            fun(N, Acc) ->
+                    case lists:keyfind(mnesia, 1, rpc:call(N, application, which_applications, [])) of
+                        false -> Acc;
+                        _ ->
+                            case rpc:call(N,mnesia,table_info,[schema, disc_copies]) of
+                                Nodes when length(Nodes) > 0 ->
+                                    case schema(N) of
+                                        Schema -> [N|Acc];
+                                        _ -> Acc
+                                    end;
+                                _ -> Acc
+                            end
+                    end
+            end
+            , []
+            , nodes())]).
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.

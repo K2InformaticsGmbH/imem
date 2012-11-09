@@ -9,7 +9,8 @@
                  ]},
   {mod, { imem_app, []}},
   {env, [
-         {node_type, undefined},
+         {mnesia_schema_name, "Imem"},
+         {mnesia_node_type, undefined},
          {mnesia_timeout, 30000},
          {mnesia_bulk_sleep_time, 500},
          {if_mod, imem_seco},

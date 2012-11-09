@@ -64,24 +64,13 @@ start_link(Args) ->
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 init(_StartArgs) ->
-    io:format("~ninitializing ~p..~n", [?MODULE]),
     {ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
-    case application:get_env(node_type) of
-        {ok, disc} ->
-            case mnesia:create_schema([node()|imem_if:data_nodes()]) of
-                ok ->
-                    io:format(user, "imem:mnesia:create_schema created~n", []);
-                {error, {N,{already_exists,N}}} ->
-                    io:format(user, "imem:mnesia:create_schema schema exists on ~p skipping~n", [N])
-            end;
-        _ -> ok
-    end,
-    ok = mnesia:start(),
-    mnesia:change_config(extra_db_nodes, nodes()),
-    io:format("~nMnesiaTimeout ~p..~n", [MnesiaTimeout]),
+    {ok, SchemaName} = application:get_env(mnesia_schema_name),
+    io:format("~pinitializing with MnesiaTimeout ~p~n", [?MODULE, MnesiaTimeout]),
+    {ok, NodeType} = application:get_env(node_type),
     {ok, Mod} = application:get_env(if_mod),
     {ok, IsSec} = application:get_env(if_seco),
-    DefParams = [{if_mod, Mod}, {if_sec, IsSec}],
+    DefParams = [{schema_name, SchemaName}, {node_type, NodeType}, {if_mod, Mod}, {if_sec, IsSec}],
     {ok, Servers} = application:get_env(servers),
     Children = [
         {SMod, {SMod, start_link, [DefParams ++ SParams]}, transient, MnesiaTimeout, worker, [SMod]}
