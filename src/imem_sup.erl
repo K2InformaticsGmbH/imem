@@ -68,7 +68,7 @@ init(_StartArgs) ->
     {ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
     case application:get_env(node_type) of
         {ok, disc} ->
-            case mnesia:create_schema([node()]) of
+            case mnesia:create_schema([node()|imem_if:data_nodes()]) of
                 ok ->
                     io:format(user, "imem:mnesia:create_schema created~n", []);
                 {error, {N,{already_exists,N}}} ->
