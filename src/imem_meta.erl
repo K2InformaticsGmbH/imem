@@ -65,7 +65,7 @@ start_link(Params) ->
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
     try
-        imem_if:create_table(ddTable, record_info(fields, ddTable),[]),    %% may fail if exists
+        catch create_table(ddTable, record_info(fields, ddTable), [], system),
         check_table(ddTable),
         io:format(user, "~p started!~n", [?MODULE])
     catch

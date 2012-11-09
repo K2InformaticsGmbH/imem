@@ -4,13 +4,6 @@
 
 -include("dd_seco.hrl").
 
-% for test setup only, not exported
-if_write(#ddAccount{}=Account) -> 
-    imem_if:write(ddAccount, Account);
-if_write(#ddRole{}=Role) -> 
-    imem_if:write(ddRole, Role).
-
-
 %% ----- TESTS ------------------------------------------------
 
 setup() -> 
@@ -40,19 +33,20 @@ test(_) ->
 
     io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-    ?assertEqual("Mnesia", imem_if:schema()),
+    ?assertEqual("Mnesia", imem_seco:schema(none)),
     io:format(user, "success ~p~n", [schema]),
 
-    io:format(user, "----TEST--~p:test_create_seco_tables~n", [?MODULE]),
+    io:format(user, "----TEST--~p:test_virgin_database~n", [?MODULE]),
 
-%    ?assertExit({aborted,{no_exists,ddTable,all}}, dd_seco:init([])),
-%    io:format(user, "success ~p~n", [initialize_seco_failure]),
-%    ?assertEqual(ok, imem_meta:init([])),
-%    io:format(user, "success ~p~n", [initialize_meta]),
-%    ?assertEqual(ok, dd_seco:init([])),
-%    io:format(user, "success ~p~n", [initialize_seco]),
-%    ?assertMatch(ok, dd_seco:init([])),
-%    io:format(user, "success ~p~n", [re_initialize_seco]),
+    ?assertEqual(1, imem_seco:table_size(none, ddAccount)),       %% pre_generated admin account
+    ?assertEqual(1, imem_seco:table_size(none, ddRole)),          %% pre_generated admin role
+    ?assertEqual(0, imem_seco:table_size(none, ddSeCo)),
+    ?assertEqual(0, imem_seco:table_size(none, ddPerm)),
+    ?assertEqual(0, imem_seco:table_size(none, ddQuota)),
+    ?assertEqual(6, imem_seco:table_size(none, ddTable)),
+    io:format(user, "success ~p~n", [init_table_sizes]),
+
+    io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
 
     UserId = make_ref(),
     UserName= <<"test_admin">>,
@@ -60,22 +54,42 @@ test(_) ->
     UserCredNew={pwdmd5, erlang:md5(<<"test_5a6d7m8i9n">>)},
     User = #ddAccount{id=UserId,name=UserName,credentials=[UserCred],fullName= <<"TestAdmin">>},
 
-    ?assertEqual(ok, if_write(User)),
-    io:format(user, "success ~p~n", [create_test_admin]), 
-    ?assertEqual(ok, if_write(#ddRole{id=UserId,roles=[],permissions=[manage_accounts]})),
+    SeCoAdmin0=dd_seco:authenticate(adminSessionId, <<"admin">>, dd_seco:create_credentials(<<"change_on_install">>)),
+    ?assertEqual(is_integer(SeCoAdmin0), true),
+    io:format(user, "success ~p~n", [admin_authentification]), 
+    ?assertEqual(SeCoAdmin0, dd_seco:login(SeCoAdmin0)),
+    io:format(user, "success ~p~n", [admin_login]),
+    ?assertEqual(1, imem_seco:table_size(SeCoAdmin0, ddSeCo)),
+    io:format(user, "success ~p~n", [seco_table_size]), 
+    gen_server:cast(dd_seco, {'DOWN', simulated_reference, process, self(), simulated_exit}),
+    timer:sleep(1000),
+    ?assertEqual(0, imem_seco:table_size(SeCoAdmin0, ddSeCo)),
+    io:format(user, "success ~p~n", [seco_table_size]), 
+    ?assertException(throw,{'SecurityException',{"Security context does not exist", SeCoAdmin0}}, dd_account:create(SeCoAdmin0, User)),
+    io:format(user, "success ~p~n", [admin_logged_out]),
+    SeCoAdmin1=dd_seco:authenticate(adminSessionId, <<"admin">>, dd_seco:create_credentials(<<"change_on_install">>)),
+    ?assertEqual(SeCoAdmin1, dd_seco:login(SeCoAdmin1)),
+    io:format(user, "success ~p~n", [admin_re_login]),
+
+    ?assertEqual(ok, dd_account:create(SeCoAdmin1, User)),
+    io:format(user, "success ~p~n", [account_create_user]),
+    ?assertEqual(ok, dd_role:grant_permission(SeCoAdmin1, UserId, manage_accounts)),
     io:format(user, "success ~p~n", [create_test_admin_permissions]), 
  
     io:format(user, "----TEST--~p:test_authentification~n", [?MODULE]),
 
     SeCo0=dd_seco:authenticate(someSessionId, UserName, UserCred),
     ?assertEqual(is_integer(SeCo0), true),
+    ?assertEqual(2, imem_seco:table_size(SeCo0, ddSeCo)),
     io:format(user, "success ~p~n", [test_admin_authentification]), 
     ?assertException(throw,{SeEx,{"Password expired. Please change it", UserId}}, dd_seco:login(SeCo0)),
     io:format(user, "success ~p~n", [new_password]),
     SeCo1=dd_seco:authenticate(someSessionId, UserName, UserCred), 
     ?assertEqual(is_integer(SeCo1), true),
+    ?assertEqual(2, imem_seco:table_size(SeCo1, ddSeCo)),
     io:format(user, "success ~p~n", [test_admin_authentification]), 
     ?assertEqual(SeCo1, dd_seco:change_credentials(SeCo1, UserCred, UserCredNew)),
+    ?assertEqual(2, imem_seco:table_size(SeCo1, ddSeCo)),
     io:format(user, "success ~p~n", [password_changed]), 
     ?assertEqual(true, dd_seco:have_permission(SeCo1, manage_accounts)), 
     ?assertEqual(false, dd_seco:have_permission(SeCo1, manage_bananas)), 
@@ -87,6 +101,7 @@ test(_) ->
     ?assertEqual(false, dd_seco:have_permission(SeCo1, [some_unknown_permission,manage_bananas])), 
     io:format(user, "success ~p~n", [have_permission]),
     ?assertEqual(ok, dd_seco:logout(SeCo1)),
+    ?assertEqual(1, imem_seco:table_size(SeCo1, ddSeCo)),
     io:format(user, "success ~p~n", [logout]), 
     SeCo2=dd_seco:authenticate(someSessionId, UserName, UserCredNew),
     ?assertEqual(is_integer(SeCo2), true),
@@ -307,7 +322,7 @@ test(_) ->
 
 
     %% Cleanup only if we arrive at this point
-    ?assertException(throw, {SeEx,{"Drop system tables unauthorized",SeCo}}, dd_seco:drop_seco_tables(SeCo)),
+    ?assertException(throw, {SeEx,{"Drop seco tables unauthorized",SeCo}}, dd_seco:drop_seco_tables(SeCo)),
     io:format(user, "success ~p~n", [drop_seco_tables_reject]), 
     ?assertEqual(ok, dd_role:grant_permission(SeCo, UserId, manage_system_tables)),
     io:format(user, "success ~p~n", [grant_manage_system_tables]), 

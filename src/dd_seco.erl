@@ -32,6 +32,8 @@
 % security context library interface
 -export([ system_table/2
         , drop_seco_tables/1
+        , create_credentials/1
+        , create_credentials/2
         ]).
 
 -export([ create/3
@@ -82,9 +84,9 @@ init(_Args) ->
                     UserId = make_ref(),
                     UserCred={pwdmd5, erlang:md5(<<"change_on_install">>)},
                     User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
-                                        ,fullName= <<"DB Administrator">>, lastLoginTime=calendar:local_time()},
+                                        ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
                     if_write(none, ddAccount, User),                    
-                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_accounts]});
+                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
         end,        
         io:format(user, "~p started!~n", [?MODULE])
@@ -100,7 +102,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
-    io:format(user, "~p - died pid ~p ref ~p as ~p~n", [?MODULE, Pid, Ref, Reason]),
+    io:format(user, "~p - monitored pid ~p exit for ref ~p with ~p~n", [?MODULE, Pid, Ref, Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_cast({stop, Reason}, State) ->
@@ -142,28 +144,23 @@ if_read_account_by_name(SeCo, Name) ->
 if_table_size(TableName) ->
     imem_meta:table_size(TableName).
 
-%% --Interface functions  (calling imem_if for now) ----------------------------------
+%% --Interface functions  (calling imem_meta) ----------------------------------
 
 if_create_table(SeCo, Table, RecordInfo, Opts, Owner) ->
-    case imem_if:create_table(Table, RecordInfo, Opts) of
-        {atomic,ok} -> 
-            if_write(SeCo, ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=Owner}),
-            {atomic,ok};
-        Error -> 
-            Error
-    end.
+    imem_meta:create_table(Table, RecordInfo, Opts, Owner).
+
 
 if_drop_table(_SeCoUser, Table) -> 
-    imem_if:drop_table(Table).
+    imem_meta:drop_table(Table).
 
 if_write(_SeCoUser, Table, Record) -> 
-    imem_if:write(Table, Record).
+    imem_meta:write(Table, Record).
 
 if_read(_SeCoUser, Table, Key) -> 
-    imem_if:read(Table, Key).
+    imem_meta:read(Table, Key).
 
 if_delete(_SeCo, Table, RowId) ->
-    imem_if:delete(Table, RowId).
+    imem_meta:delete(Table, RowId).
 
 if_get_role(SeCoUser, RoleId) -> 
     case if_read(SeCoUser, ddRole, RoleId) of
@@ -233,6 +230,17 @@ if_has_child_permission(SeCo, [RootRoleId|OtherRoles], Permission) ->
 
 %% --Implementation ------------------------------------------------------------------
 
+create_credentials(Password) ->
+    create_credentials(pwdmd5, Password).
+
+create_credentials(Type, Password) when is_list(Password) ->
+    create_credentials(Type, list_to_binary(Password));
+create_credentials(Type, Password) when is_integer(Password) ->
+    create_credentials(Type, integer_to_list(list_to_binary(Password)));
+create_credentials(pwdmd5, Password) ->
+    {pwdmd5, erlang:md5(Password)}.
+
+
 check_table(Table) ->
     if_table_size(Table).
 
@@ -258,7 +266,7 @@ drop_seco_tables(SeKey) ->
             if_drop_table(SeKey, ddRole),         
             if_drop_table(SeKey, ddAccount);   
         false ->
-            ?SecurityException({"Drop system tables unauthorized", SeKey})
+            ?SecurityException({"Drop seco tables unauthorized", SeKey})
     end.
 
 create(SessionId, Name, {AuthMethod,_}) -> 
@@ -308,19 +316,21 @@ delete(SeKey) ->
     delete(seco(SeKey)).
 
 cleanup_pid(Pid) ->
-    MonitorPid =  whereis(imem_monitor),
-    case self() of
-        MonitorPid ->    
-            cleanup_context(if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"cleanup_pid">>},Pid),[]);
-        _ ->
-            ?SecurityViolation({"Cleanup unauthorized",{self(),Pid}})
-    end.
+    cleanup_context(if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"cleanup_pid">>},Pid),[]).
+
+    % MonitorPid =  whereis(?MODULE),
+    % case self() of
+    %     MonitorPid ->    
+    %         cleanup_context(if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"cleanup_pid">>},Pid),[]);
+    %     _ ->
+    %         ?SecurityViolation({"Cleanup unauthorized",{self(),Pid}})
+    % end.
 
 cleanup_context([],[]) ->
     ok;
 cleanup_context([],ErrorAcc) ->
     {error,{"Security context cleanup failed for some keys",ErrorAcc}};
-cleanup_context([{SeKey},Rest], ErrorAcc) ->
+cleanup_context([SeKey|Rest], ErrorAcc) ->
     NewAcc = case if_delete(none, ddSeCo, SeKey) of
         ok ->       ErrorAcc;
         _ ->        [SeKey|ErrorAcc]
