@@ -1,4 +1,6 @@
 
+-include("imem_if.hrl").
+
 -type ddEntityId() :: reference() | atom().                    
 
 -record(ddTable,                            %% table    
@@ -11,6 +13,4 @@
        ).
 
 -define(UnimplementedException(Reason), throw({'UnimplementedException',Reason})).
--define(ClientError(Reason), throw({'ClientError',Reason})).
 -define(ConcurrencyException(Reason), throw({'ConcurrencyException',Reason})).
--define(SystemException(Reason), throw({'SystemException',Reason})).

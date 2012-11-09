@@ -108,6 +108,8 @@ return_list(Error) -> ?SystemException(Error).
 
 create_table(Table, RecordInfo, Opts, Owner) ->
     case imem_if:create_table(Table, RecordInfo, Opts) of
+        {aborted,{already_exists,_}} -> 
+            ?ClientError({"Table already exists", Table});
         ok -> 
             return_ok(imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=Owner}));
         Error -> 
@@ -117,7 +119,7 @@ create_table(Table, RecordInfo, Opts, Owner) ->
 create_table(Table, RecordInfo, Opts) ->
     case imem_if:create_table(Table, RecordInfo, Opts) of
         ok -> 
-            return_ok(imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=system}));
+            return_ok(imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts}));
         Error -> 
             ?SystemException(Error)
     end.

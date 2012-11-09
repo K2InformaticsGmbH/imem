@@ -31,7 +31,7 @@
        ). 
 
 -record(ddSeCo,                             %% security context              
-                  { key                     :: ddSeCoKey()        %% random hash value
+                  { skey                    :: ddSeCoKey()        %% random hash value
                   , pid                     :: any()              %% caller physical id
                   , sessionId               :: integer()          %% erlang:phash2({dderl_session, self()})
                   , name                    :: ddIdentity()       %% account name
@@ -43,14 +43,18 @@
        ). 
 
 -record(ddPerm,                             %% acquired permission cache bag table             
-                  { key                     :: ddSeCoKey()
-                  , permission              :: ddPermission()
+                  { pkey                    :: {ddSeCoKey(), ddPermission()}  %% permission key
+                  , skey                    :: ddSeCoKey()                    %% security key
+                  , pid                     :: pid()                  
+                  , value                   :: 'true' | 'false'
                   }
        ). 
 
 -record(ddQuota,                            %% security context              
-                  { key                     ::ddSeCoKey()         %% random hash value
-                  , quota                   ::ddQuota()           %% granted quota
+                  { qkey                    :: {ddSeCoKey(),atom()}           %% quota key
+                  , skey                    :: ddSeCoKey()                    %% security key
+                  , pid                     :: pid()                  
+                  , value                   :: any()                          %% granted quota
                   }
        ). 
 

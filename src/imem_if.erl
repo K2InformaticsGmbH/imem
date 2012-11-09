@@ -1,6 +1,8 @@
 -module(imem_if).
 -behavior(gen_server).
 
+-include("imem_if.hrl").
+
 % gen_server
 -record(state, {
         }).
@@ -159,9 +161,14 @@ all_tables() ->
 table_columns(TableName) ->
     mnesia:table_info(TableName, attributes).
 
-table_size(TableName) ->
-    mnesia:table_info(TableName, all),
-    mnesia:table_info(TableName, size).
+table_size(Table) ->
+    try
+        mnesia:table_info(Table, all),
+        mnesia:table_info(Table, size)
+    catch
+        exit:{aborted,{no_exists,_,all}} -> ?ClientError({"Table does not exist", Table});
+        throw:Error ->                      ?SystemException(Error)
+    end.
 
 read_block(TableName, Key, BlockSize)                       -> read_block(TableName, Key, BlockSize, []).
 read_block(_, '$end_of_table' = Key, _, Acc)                -> {Key, Acc};

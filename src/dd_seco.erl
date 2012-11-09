@@ -36,13 +36,6 @@
         , create_credentials/2
         ]).
 
--export([ create/3
-        , seco/1
-        , register/2
-        , update/2
-        , delete/1
-        ]).
-
 -export([ authenticate/3
         , login/1
         , change_credentials/3
@@ -82,7 +75,7 @@ init(_Args) ->
         case if_read_account_by_name(none, UserName) of
             [] ->  
                     UserId = make_ref(),
-                    UserCred={pwdmd5, erlang:md5(<<"change_on_install">>)},
+                    UserCred=create_credentials(pwdmd5, <<"change_on_install">>),
                     User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
                                         ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
                     if_write(none, ddAccount, User),                    
@@ -123,74 +116,71 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% --Interface functions  (duplicated in dd_account) ----------------------------------
 
-if_system_table(_SeCo, Table) ->
+if_system_table(_SKey, Table) ->
     imem_meta:system_table(Table).
 
-if_select(_SeCo, Table, MatchSpec) ->
+if_select(_SKey, Table, MatchSpec) ->
     imem_meta:select(Table, MatchSpec). 
 
-if_read_seco_keys_by_pid(SeCo, Pid) -> 
-    MatchHead = #ddSeCo{key='$1', pid='$2', _='_'},
+if_read_seco_keys_by_pid(SKey, Pid) -> 
+    MatchHead = #ddSeCo{skey='$1', pid='$2', _='_'},
     Guard = {'==', '$2', Pid},
     Result = '$1',
-    if_select(SeCo, ddSeCo, [{MatchHead, [Guard], [Result]}]).
+    if_select(SKey, ddSeCo, [{MatchHead, [Guard], [Result]}]).
 
-if_read_account_by_name(SeCo, Name) -> 
+if_read_account_by_name(SKey, Name) -> 
     MatchHead = #ddAccount{name='$1', _='_'},
     Guard = {'==', '$1', Name},
     Result = '$_',
-    if_select(SeCo, ddAccount, [{MatchHead, [Guard], [Result]}]).
+    if_select(SKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
 
 if_table_size(TableName) ->
     imem_meta:table_size(TableName).
 
 %% --Interface functions  (calling imem_meta) ----------------------------------
 
-if_create_table(SeCo, Table, RecordInfo, Opts, Owner) ->
+if_create_table(_SKey, Table, RecordInfo, Opts, Owner) ->
     imem_meta:create_table(Table, RecordInfo, Opts, Owner).
 
 
-if_drop_table(_SeCoUser, Table) -> 
+if_drop_table(_SKey, Table) -> 
     imem_meta:drop_table(Table).
 
-if_write(_SeCoUser, Table, Record) -> 
+if_write(_SKey, Table, Record) -> 
     imem_meta:write(Table, Record).
 
-if_read(_SeCoUser, Table, Key) -> 
+if_read(_SKey, Table, Key) -> 
     imem_meta:read(Table, Key).
 
-if_delete(_SeCo, Table, RowId) ->
+if_delete(_SKey, Table, RowId) ->
     imem_meta:delete(Table, RowId).
 
-if_get_role(SeCoUser, RoleId) -> 
-    case if_read(SeCoUser, ddRole, RoleId) of
+if_get_role(SKey, RoleId) -> 
+    case if_read(SKey, ddRole, RoleId) of
         [] ->       {dd_error, {"Role does not exist", RoleId}};
-        [Role] ->   Role;
-        Error ->    Error
+        [Role] ->   Role
     end.
 
-if_has_role(_SeCo, _RootRoleId, _RootRoleId) ->
+if_has_role(_SKey, _RootRoleId, _RootRoleId) ->
     true;
-if_has_role(SeCo, RootRoleId, RoleId) ->
-    case if_get_role(SeCo, RootRoleId) of
+if_has_role(SKey, RootRoleId, RoleId) ->
+    case if_get_role(SKey, RootRoleId) of
         #ddRole{roles=[]} ->            false;
-        #ddRole{roles=ChildRoles} ->    if_has_child_role(SeCo,  ChildRoles, RoleId);
-        Error ->                        Error
+        #ddRole{roles=ChildRoles} ->    if_has_child_role(SKey,  ChildRoles, RoleId)
     end.
 
-if_has_child_role(_SeCo, [], _RoleId) -> false;
-if_has_child_role(SeCo, [RootRoleId|OtherRoles], RoleId) ->
-    case if_has_role(SeCo, RootRoleId, RoleId) of
+if_has_child_role(_SKey, [], _RoleId) -> false;
+if_has_child_role(SKey, [RootRoleId|OtherRoles], RoleId) ->
+    case if_has_role(SKey, RootRoleId, RoleId) of
         true ->                         true;
-        false ->                        if_has_child_role(SeCo, OtherRoles, RoleId);
-        Error ->                        Error        
+        false ->                        if_has_child_role(SKey, OtherRoles, RoleId)
     end.
 
-if_has_permission(_SeCo, _RootRoleId, []) ->
+if_has_permission(_SKey, _RootRoleId, []) ->
     false;
-if_has_permission(SeCo, RootRoleId, PermissionList) when is_list(PermissionList)->
+if_has_permission(SKey, RootRoleId, PermissionList) when is_list(PermissionList)->
     %% search for first match in list of permissions
-    case if_get_role(SeCo, RootRoleId) of
+    case if_get_role(SKey, RootRoleId) of
         #ddRole{permissions=[],roles=[]} ->     
             false;
         #ddRole{permissions=Permissions, roles=[]} -> 
@@ -198,14 +188,12 @@ if_has_permission(SeCo, RootRoleId, PermissionList) when is_list(PermissionList)
         #ddRole{permissions=Permissions, roles=ChildRoles} ->
             case list_member(PermissionList, Permissions) of
                 true ->     true;
-                false ->    if_has_child_permission(SeCo,  ChildRoles, PermissionList)
-            end;
-        Error ->
-            Error
+                false ->    if_has_child_permission(SKey,  ChildRoles, PermissionList)
+            end
     end;
-if_has_permission(SeCo, RootRoleId, PermissionId) ->
+if_has_permission(SKey, RootRoleId, PermissionId) ->
     %% search for single permission
-    case if_get_role(SeCo, RootRoleId) of
+    case if_get_role(SKey, RootRoleId) of
         #ddRole{permissions=[],roles=[]} ->     
             false;
         #ddRole{permissions=Permissions, roles=[]} -> 
@@ -213,18 +201,15 @@ if_has_permission(SeCo, RootRoleId, PermissionId) ->
         #ddRole{permissions=Permissions, roles=ChildRoles} ->
             case lists:member(PermissionId, Permissions) of
                 true ->     true;
-                false ->    if_has_child_permission(SeCo,  ChildRoles, PermissionId)
-            end;
-        Error ->
-            Error
+                false ->    if_has_child_permission(SKey,  ChildRoles, PermissionId)
+            end
     end.
 
-if_has_child_permission(_SeCo, [], _Permission) -> false;
-if_has_child_permission(SeCo, [RootRoleId|OtherRoles], Permission) ->
-    case if_has_permission(SeCo, RootRoleId, Permission) of
+if_has_child_permission(_SKey, [], _Permission) -> false;
+if_has_child_permission(SKey, [RootRoleId|OtherRoles], Permission) ->
+    case if_has_permission(SKey, RootRoleId, Permission) of
         true ->     true;
-        false ->    if_has_child_permission(SeCo, OtherRoles, Permission);
-        Error ->    Error
+        false ->    if_has_child_permission(SKey, OtherRoles, Permission)
     end.
 
 
@@ -244,10 +229,10 @@ create_credentials(pwdmd5, Password) ->
 check_table(Table) ->
     if_table_size(Table).
 
-system_table(_SeCo, Table) ->
+system_table(_SKey, Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
-        false ->    if_system_table(_SeCo, Table)  
+        false ->    if_system_table(_SKey, Table)  
     end.
 
 list_member([], _Permissions) ->
@@ -258,70 +243,60 @@ list_member([PermissionId|Rest], Permissions) ->
         false -> list_member(Rest, Permissions)
     end.
 
-drop_seco_tables(SeKey) ->
-    SeCo=seco(SeKey),
+drop_seco_tables(SKey) ->
+    SeCo=seco(SKey),
     case have_permission(SeCo, manage_system_tables) of
         true ->
-            if_drop_table(SeKey, ddSeCo),     
-            if_drop_table(SeKey, ddRole),         
-            if_drop_table(SeKey, ddAccount);   
+            if_drop_table(SKey, ddSeCo),     
+            if_drop_table(SKey, ddRole),         
+            if_drop_table(SKey, ddAccount);   
         false ->
-            ?SecurityException({"Drop seco tables unauthorized", SeKey})
+            ?SecurityException({"Drop seco tables unauthorized", SKey})
     end.
 
-create(SessionId, Name, {AuthMethod,_}) -> 
+seco_create(SessionId, Name, {AuthMethod,_}) -> 
     SeCo = #ddSeCo{pid=self(), sessionId=SessionId, name=Name, authMethod=AuthMethod, authTime=erlang:now()},
-    SeKey = erlang:phash2(SeCo), 
-    SeCo#ddSeCo{key=SeKey, state=unauthorized}.
+    SKey = erlang:phash2(SeCo), 
+    SeCo#ddSeCo{skey=SKey, state=unauthorized}.
 
-register(#ddSeCo{key=SeKey, pid=Pid}=SeCo, AccountId) when Pid == self() -> 
-    case if_write(SeKey, ddSeCo, SeCo#ddSeCo{accountId=AccountId}) of
-        ok ->       case if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
-                        [] ->   imem_monitor:monitor(Pid);
-                        _ ->    ok
-                    end,
-                    SeKey;    %% hash is returned back to caller
-        Error ->    ?SystemException(Error)    
-    end.
+seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AccountId) when Pid == self() -> 
+    if_write(SKey, ddSeCo, SeCo#ddSeCo{accountId=AccountId}),
+    case if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
+        [] ->   imem_monitor:monitor(Pid);
+        _ ->    ok
+    end,
+    SKey.    %% hash is returned back to caller
 
-seco(SeKey) -> 
-    case if_read(#ddSeCo{key=SeKey,pid=self()}, ddSeCo, SeKey) of
-        [] ->               ?SecurityException({"Security context does not exist", SeKey});
+seco(SKey) -> 
+    case if_read(SKey, ddSeCo, SKey) of
+        [] ->               ?SecurityException({"Security context does not exist", SKey});
         [#ddSeCo{pid=Pid} = SeCo] when Pid == self() -> SeCo;
-        [#ddSeCo{}] ->      ?SecurityViolation({"Security context does not match", SeKey});
-        Error ->            ?SystemException(Error)
+        [#ddSeCo{}] ->      ?SecurityViolation({"Security context does not match", SKey})
     end.   
 
-update(#ddSeCo{key=SeKey,pid=Pid}=SeCo, #ddSeCo{key=SeKey,pid=Pid}=SeCoNew) when Pid == self() -> 
-    case if_read(SeKey, ddSeCo, SeKey) of
-        [] ->       ?SecurityException({"Security context does not exist", SeKey});
-        [SeCo] ->   case if_write(SeKey, ddSeCo, SeCoNew) of
-                        ok ->       ok;
-                        Error ->    ?SystemException(Error)
-                    end;
-        [_] ->      ?SecurityException({"Security context is modified by someone else", SeKey});
-        Error ->    ?SystemException(Error)
+seco_update(#ddSeCo{skey=SKey,pid=Pid}=SeCo, #ddSeCo{skey=SKey,pid=Pid}=SeCoNew) when Pid == self() -> 
+    case if_read(SKey, ddSeCo, SKey) of
+        [] ->       ?SecurityException({"Security context does not exist", SKey});
+        [SeCo] ->   if_write(SKey, ddSeCo, SeCoNew);
+        [_] ->      ?SecurityException({"Security context is modified by someone else", SKey})
     end;
-update(#ddSeCo{key=SeKey}, _) -> 
-    ?SecurityViolation({"Invalid security context", SeKey}).
+seco_update(#ddSeCo{skey=SKey}, _) -> 
+    ?SecurityViolation({"Invalid security context", SKey}).
 
-delete(#ddSeCo{key=SeKey,pid=Pid}) when Pid == self() -> 
-    case if_delete(SeKey, ddSeCo, SeKey) of
-        ok ->       ok;
-        Error ->    ?SystemException(Error)
-    end;
-delete(#ddSeCo{key=SeKey}) -> 
-    ?SecurityViolation({"Delete security context unauthorized", SeKey});
-delete(SeKey) ->
-    delete(seco(SeKey)).
+seco_delete(#ddSeCo{skey=SKey,pid=Pid}) when Pid == self() -> 
+    if_delete(SKey, ddSeCo, SKey);
+seco_delete(#ddSeCo{skey=SKey}) -> 
+    ?SecurityViolation({"Delete security context unauthorized", SKey});
+seco_delete(SKey) ->
+    seco_delete(seco(SKey)).
 
 cleanup_pid(Pid) ->
     cleanup_context(if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"cleanup_pid">>},Pid),[]).
-
+    % ToDo: make sure this function is only called by the dd_SKey gen_server
     % MonitorPid =  whereis(?MODULE),
     % case self() of
     %     MonitorPid ->    
-    %         cleanup_context(if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"cleanup_pid">>},Pid),[]);
+    %         cleanup_context(if_read_skey_keys_by_pid(#ddSeCo{pid=self(),name= <<"cleanup_pid">>},Pid),[]);
     %     _ ->
     %         ?SecurityViolation({"Cleanup unauthorized",{self(),Pid}})
     % end.
@@ -330,99 +305,94 @@ cleanup_context([],[]) ->
     ok;
 cleanup_context([],ErrorAcc) ->
     {error,{"Security context cleanup failed for some keys",ErrorAcc}};
-cleanup_context([SeKey|Rest], ErrorAcc) ->
-    NewAcc = case if_delete(none, ddSeCo, SeKey) of
+cleanup_context([SKey|Rest], ErrorAcc) ->
+    NewAcc = case if_delete(none, ddSeCo, SKey) of
         ok ->       ErrorAcc;
-        _ ->        [SeKey|ErrorAcc]
+        _ ->        [SKey|ErrorAcc]
     end,
     cleanup_context(Rest, NewAcc).
 
-has_role(#ddSeCo{key=SeKey}=SeCo, RootRoleId, RoleId) ->
+has_role(#ddSeCo{skey=SKey}=SeCo, RootRoleId, RoleId) ->
     case have_permission(SeCo, manage_accounts) of
-        true ->     case if_has_role(SeKey, RootRoleId, RoleId) of
+        true ->     case if_has_role(SKey, RootRoleId, RoleId) of
                         true ->     true;
-                        false ->    false;
-                        Error ->    ?SystemException(Error)
+                        false ->    false
                     end; 
-        false ->    ?SecurityException({"Has role unauthorized",SeKey})
+        false ->    ?SecurityException({"Has role unauthorized",SKey})
     end;
-has_role(SeKey, RootRoleId, RoleId) ->
-    case have_permission(SeKey, manage_accounts) of
-        true ->     case if_has_role(SeKey, RootRoleId, RoleId) of
+has_role(SKey, RootRoleId, RoleId) ->
+    case have_permission(SKey, manage_accounts) of
+        true ->     case if_has_role(SKey, RootRoleId, RoleId) of
                         true ->     true;
-                        false ->    false;
-                        Error ->    ?SystemException(Error)            
+                        false ->    false       
                     end; 
-        false ->    ?SecurityException({"Has role unauthorized",SeKey})
+        false ->    ?SecurityException({"Has role unauthorized",SKey})
     end.
 
-has_permission(#ddSeCo{key=SeKey}=SeCo, RootRoleId, Permission) ->
+has_permission(#ddSeCo{skey=SKey}=SeCo, RootRoleId, Permission) ->
     case have_permission(SeCo, manage_accounts) of
-        true ->     case if_has_permission(SeKey, RootRoleId, Permission) of
+        true ->     case if_has_permission(SKey, RootRoleId, Permission) of
                         true ->     true;
-                        false ->    false;
-                        Error ->    ?SystemException(Error)            
+                        false ->    false   
                     end; 
-        false ->    ?SecurityException({"Has permission unauthorized",SeKey})
+        false ->    ?SecurityException({"Has permission unauthorized",SKey})
     end;
-has_permission(SeKey, RootRoleId, Permission) ->
-    case have_permission(SeKey, manage_accounts) of
-        true ->     case if_has_permission(SeKey, RootRoleId, Permission) of
+has_permission(SKey, RootRoleId, Permission) ->
+    case have_permission(SKey, manage_accounts) of
+        true ->     case if_has_permission(SKey, RootRoleId, Permission) of
                         true ->     true;
-                        false ->    false;
-                        Error ->    ?SystemException(Error)                                    
+                        false ->    false                                   
                     end; 
-        false ->    ?SecurityException({"Has permission unauthorized",SeKey})
+        false ->    ?SecurityException({"Has permission unauthorized",SKey})
     end.
 
-have_role(#ddSeCo{key=SeKey}=SeCo, RoleId) ->
+have_role(#ddSeCo{skey=SKey}=SeCo, RoleId) ->
     case SeCo of
         #ddSeCo{pid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            case if_has_role(SeKey, AccountId, RoleId) of
+            case if_has_role(SKey, AccountId, RoleId) of
                 true ->     true;
-                false ->    false;
-                Error ->    ?SystemException(Error)                                                    
+                false ->    false                                            
             end;
         #ddSeCo{} -> 
-            ?SecurityViolation({"Invalid security context", SeKey});
+            ?SecurityViolation({"Invalid security context", SKey});
         Error ->    
             ?SecurityViolation(Error)
     end;
-have_role(SeKey, RoleId) ->
-    have_role(seco(SeKey), RoleId).
+have_role(SKey, RoleId) ->
+    have_role(seco(SKey), RoleId).
 
-have_permission(#ddSeCo{key=SeKey}=SeCo, Permission) ->
+have_permission(#ddSeCo{skey=SKey}=SeCo, Permission) ->
     case SeCo of
         #ddSeCo{pid=Pid, accountId=AccountId, state=authorized} when Pid == self() -> 
-            case if_has_permission(SeKey, AccountId, Permission) of
+            case if_has_permission(SKey, AccountId, Permission) of
                 true ->     true;
                 false ->    false;
                 Error ->    ?SystemException(Error)                                                                    
             end;
         #ddSeCo{} -> 
-            ?SecurityViolation({"Invalid security context", SeKey});
+            ?SecurityViolation({"Invalid security context", SKey});
         Error ->    
             ?SecurityViolation(Error)
     end;
-have_permission(SeKey, Permission) ->
-    have_permission(seco(SeKey), Permission).
+have_permission(SKey, Permission) ->
+    have_permission(seco(SKey), Permission).
 
 authenticate(SessionId, Name, Credentials) ->
     LocalTime = calendar:local_time(),
-    SeCo = dd_seco:create(SessionId, Name, Credentials),
-    case if_read_account_by_name(SeCo, Name) of
+    #ddSeCo{skey=SKey} = SeCo = seco_create(SessionId, Name, Credentials),
+    case if_read_account_by_name(SKey, Name) of
         [#ddAccount{locked='true'}] ->
             ?SecurityException({"Account is locked. Contact a system administrator", Name});
         [#ddAccount{lastFailureTime=LocalTime} = Account] ->
             %% lie a bit, don't show a fast attacker that this attempt might have worked
-            if_write(SeCo, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
+            if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
             ?SecurityException({"Invalid account credentials. Please retry", Name});
         [#ddAccount{id=AccountId, credentials=CredList} = Account] -> 
             case lists:member(Credentials,CredList) of
-                false ->    if_write(SeCo, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time()}),
+                false ->    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time()}),
                             ?SecurityException({"Invalid account credentials. Please retry", Name});
-                true ->     ok=if_write(SeCo, ddAccount, Account#ddAccount{lastFailureTime=undefined}),
-                            dd_seco:register(SeCo, AccountId)  % return (hash) value to client
+                true ->     ok=if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=undefined}),
+                            seco_register(SeCo, AccountId)  % return (hash) value to client
             end;
         [] -> 
             ?SecurityException({"Account does not exist", Name});
@@ -430,38 +400,39 @@ authenticate(SessionId, Name, Credentials) ->
             ?SystemException(Error)    
     end.
 
-login(SeKey) ->
-    #ddSeCo{accountId=AccountId, authMethod=AuthenticationMethod}=SeCo=dd_seco:seco(SeKey),
+login(SKey) ->
+    #ddSeCo{accountId=AccountId, authMethod=AuthenticationMethod} = SeCo = seco(SKey),
     LocalTime = calendar:local_time(),
     PwdExpireSecs = calendar:datetime_to_gregorian_seconds(LocalTime),
     PwdExpireDate = calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*?PASSWORD_VALIDITY),
-    case {if_read(SeCo, ddAccount, AccountId), AuthenticationMethod} of
+    case {if_read(SKey, ddAccount, AccountId), AuthenticationMethod} of
         {[#ddAccount{lastPasswordChangeTime=undefined}], pwdmd5} -> 
-            logout(SeKey),
+            logout(SKey),
             ?SecurityException({"Password expired. Please change it", AccountId});
         {[#ddAccount{lastPasswordChangeTime=LastChange}], pwdmd5} when LastChange < PwdExpireDate -> 
-            logout(SeKey),
+            logout(SKey),
             ?SecurityException({"Password expired. Please change it", AccountId});
         {[#ddAccount{}=Account], _} ->
-            ok = dd_seco:update(SeCo,SeCo#ddSeCo{state=authorized}),
-            if_write(SeCo, ddAccount, Account#ddAccount{lastLoginTime=calendar:local_time()}),
-            SeKey;            
+            ok = seco_update(SeCo, SeCo#ddSeCo{state=authorized}),
+            if_write(SKey, ddAccount, Account#ddAccount{lastLoginTime=calendar:local_time()}),
+            SKey;            
         {[], _} ->                    
-            logout(SeKey),
+            logout(SKey),
             ?SecurityException({"Account does not exist", AccountId})
     end.
 
-change_credentials(SeKey, {pwdmd5,_}=OldCred, {pwdmd5,_}=NewCred) ->
-    #ddSeCo{accountId=AccountId} = SeCo = dd_seco:seco(SeKey),
+change_credentials(SKey, {pwdmd5,_}=OldCred, {pwdmd5,_}=NewCred) ->
+    #ddSeCo{accountId=AccountId} = seco(SKey),
     LocalTime = calendar:local_time(),
-    [#ddAccount{credentials=CredList} = Account] = if_read(SeCo, ddAccount, AccountId),
-    if_write(SeCo, ddAccount, Account#ddAccount{lastPasswordChangeTime=LocalTime, credentials=[NewCred|lists:delete(OldCred,CredList)]}),
-    login(SeKey);
-change_credentials(SeKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
-    #ddSeCo{accountId=AccountId} = SeCo = dd_seco:seco(SeKey),
-    [#ddAccount{credentials=CredList} = Account]= if_read(SeCo, ddAccount, AccountId),
-    if_write(SeCo, ddAccount, Account#ddAccount{credentials=[NewCred|lists:delete(OldCred,CredList)]}),
-    login(SeKey).
+    [#ddAccount{credentials=CredList} = Account] = if_read(SKey, ddAccount, AccountId),
+    if_write(SKey, ddAccount, Account#ddAccount{lastPasswordChangeTime=LocalTime, credentials=[NewCred|lists:delete(OldCred,CredList)]}),
+    login(SKey);
+change_credentials(SKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
+    #ddSeCo{accountId=AccountId} = seco(SKey),
+    [#ddAccount{credentials=CredList} = Account]= if_read(SKey, ddAccount, AccountId),
+    if_write(SKey, ddAccount, Account#ddAccount{credentials=[NewCred|lists:delete(OldCred,CredList)]}),
+    login(SKey).
 
-logout(SeKey) ->
-    dd_seco:delete(SeKey).
+logout(SKey) ->
+    seco_delete(SKey).
+
