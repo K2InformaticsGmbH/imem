@@ -1,5 +1,7 @@
 -module(imem_seco).
 
+-define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).
+
 -include_lib("eunit/include/eunit.hrl").
 
 -include("dd_seco.hrl").
@@ -56,11 +58,11 @@ logout(SKey) ->
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
-schema(_SKey) ->
-    imem_meta:schema().
-
-schema(_SKey, Node) ->
-    imem_meta:schema(Node).
+if_system_table(SKey, Table) ->
+    case lists:member(Table,?SECO_TABLES) of
+        true ->     true;
+        false ->    imem_meta:system_table(Table)
+    end.
 
 add_attribute(_SKey, A, Opts) -> 
     imem_meta:add_attribute(A, Opts).
@@ -71,58 +73,78 @@ update_opts(_SKey, T, Opts) ->
 
 %% imem_if but security context added --- META INFORMATION ------
 
-system_table(_SKey, Table) ->
-    dd_seco:system_table(_SKey, Table).    
+schema(SKey) ->
+    seco_authorized(SKey),
+    imem_meta:schema().
 
-data_nodes(_SKey) ->
+schema(SKey, Node) ->
+    seco_authorized(SKey),
+    imem_meta:schema(Node).
+
+system_table(SKey, Table) ->
+    seco_authorized(SKey),    
+    if_system_table(SKey, Table).
+
+data_nodes(SKey) ->
+    seco_authorized(SKey),
     imem_meta:data_nodes().
 
-all_tables(_SKey) ->
-    imem_meta:all_tables().
+all_tables(SKey) ->
+    all_selectable_tables(SKey, imem_meta:all_tables(), []).
 
-table_columns(_SKey, Table) ->
-    imem_meta:table_columns(Table).
+all_selectable_tables(_SKey, [], Acc) -> lists:sort(Acc);
+all_selectable_tables(SKey, [Table|Rest], Acc0) -> 
+    Acc1 = case have_table_permission(SKey, Table, select) of
+        false ->    Acc0;
+        true ->     [Table|Acc0]
+    end,
+    all_selectable_tables(SKey, Rest, Acc1).
 
-table_size(_SKey, Table) ->
-    imem_meta:table_size(Table).
+table_columns(SKey, Table) ->
+    case have_table_permission(SKey, Table, select) of
+        true ->     imem_meta:table_columns(Table);
+        false ->    ?SecurityException({"Select unauthorized", SKey})
+    end.
+
+table_size(SKey, Table) ->
+    case have_table_permission(SKey, Table, select) of
+        true ->     imem_meta:table_size(Table);
+        false ->    ?SecurityException({"Select unauthorized", SKey})
+    end.
 
 %% imem_if but security context added --- DATA DEFINITION -------
 
 create_table(SKey, Table, RecordInfo, Opts) ->
-    case seco(SKey) of
-        #ddSeCo{accountId=AccountId, state=authorized} -> 
-            Owner = case dd_seco:system_table(SKey, Table) of
-                true ->     
-                    system;
-                false ->    
-                    case dd_seco:have_permission(SKey,[manage_user_tables, create_table]) of
-                        true ->     AccountId;
-                        false ->    false
-                    end
-            end,
-            case Owner of
-                false ->
-                    ?SecurityException({"Create table unauthorized", SKey});
-                Owner ->        
-                    imem_meta:create_table(Table, RecordInfo, Opts, Owner)
-            end;
-        _ ->    
-            ?SecurityException({"Create table not logged in", SKey})
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    Owner = case if_system_table(SKey, Table) of
+        true ->     
+            system;
+        false ->    
+            case dd_seco:have_permission(SKey,[manage_user_tables, create_table]) of
+                true ->     AccountId;
+                false ->    false
+            end
+    end,
+    case Owner of
+        false ->
+            ?SecurityException({"Create table unauthorized", SKey});
+        Owner ->        
+            imem_meta:create_table(Table, RecordInfo, Opts, Owner)
     end.
 
 drop_table(SKey, Table) ->
-    SeCo = seco(SKey),
-    case dd_seco:system_table(SKey, Table) of
-        true  -> drop_system_table(SeCo, Table);
-        false -> drop_user_table(SeCo, Table)
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    case if_system_table(SKey, Table) of
+        true  -> drop_system_table(SKey, Table, AccountId);
+        false -> drop_user_table(SKey, Table, AccountId)
     end.
 
-drop_user_table(#ddSeCo{skey=SKey,accountId=AccountId}, Table) ->
+drop_user_table(SKey, Table, AccountId) ->
     case have_table_permission(SKey, Table, drop) of
         true ->
             imem_meta:drop_table(Table);
         false ->
-            case imem_meta:read(ddTable, SKey) of
+            case imem_meta:read(ddTable, Table) of
                 [] ->
                     ?ClientError({"Drop table not found", SKey});
                 [#ddTable{owner=AccountId}] -> 
@@ -132,8 +154,8 @@ drop_user_table(#ddSeCo{skey=SKey,accountId=AccountId}, Table) ->
             end
     end. 
 
-drop_system_table(#ddSeCo{skey=SKey}=SeCo, Table) ->
-    case dd_seco:have_permission(SeCo, manage_system_tables) of
+drop_system_table(SKey, Table, _AccountId) ->
+    case dd_seco:have_permission(SKey, manage_system_tables) of
         true ->
             imem_meta:drop_table(Table);
         false ->
@@ -212,18 +234,21 @@ have_table_permission(SKey, Table, Operation) ->
         true ->         true;
         false ->        false;
         no_exists ->    
-            Result = have_table_permission(SKey, Table, Operation, system_table(SKey, Table)),
+            Result = have_table_permission(SKey, Table, Operation, if_system_table(SKey, Table)),
             set_permission_cache(SKey, {Table,Operation}, Result),
             Result
     end.      
 
 %% ------- local private security extension for sql and tables (do not export!!) ------------
 
-seco(SKey) -> 
+seco_authorized(SKey) -> 
     case imem_meta:read(ddSeCo, SKey) of
-        [] ->               ?SecurityException({"Security context does not exist", SKey});
-        [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> SeCo;
-        [#ddSeCo{}] ->      ?SecurityViolation({"Security context does not match", SKey})
+        [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> 
+            SeCo;
+        [#ddSeCo{}] ->      
+            ?SecurityViolation({"Not logged in", SKey});
+        [] ->               
+            ?SecurityException({"Not logged in", SKey})
     end.   
 
 table_metadata(_SKey,Table) ->
@@ -233,8 +258,8 @@ table_metadata(_SKey,Table) ->
     end.    
 
 have_table_ownership(SKey, Table) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     #ddTable{owner=Owner} = table_metadata(SKey, Table),
-    #ddSeCo{accountId=AccountId} = seco(SKey),
     (Owner =:= AccountId).
 
 have_table_permission(SKey, Table, Operation, true) ->
