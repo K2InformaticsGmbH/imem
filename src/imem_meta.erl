@@ -37,6 +37,8 @@
         , table_columns/1
         , table_size/1
         , system_table/1
+        , subscribe/1
+        , unsubscribe/1
         ]).
 
 -export([ add_attribute/2
@@ -198,5 +200,10 @@ delete(Table, Key) ->
 truncate(Table) ->
     return_ok(imem_if:truncate(Table)).
 
+subscribe(EventCategory) ->
+    imem_if:subscribe(EventCategory).
+
+unsubscribe(EventCategory) ->
+    imem_if:unsubscribe(EventCategory).
 
 

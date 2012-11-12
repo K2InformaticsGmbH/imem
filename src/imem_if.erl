@@ -24,6 +24,8 @@
         , table_columns/1
         , table_size/1
         , system_table/1
+        , subscribe/1
+        , unsubscribe/1
         ]).
 
 -export([ add_attribute/2
@@ -177,6 +179,21 @@ read_block(TableName, '$start_of_table', BlockSize, Acc)    -> read_block(TableN
 read_block(TableName, Key, BlockSize, Acc) ->
     Rows = mnesia:dirty_read(TableName, Key),
     read_block(TableName, mnesia:dirty_next(TableName, Key), BlockSize - length(Rows), Acc ++ Rows).
+
+
+subscribe({table, Tab, simple}) ->
+mnesia:subscribe({table, Tab, simple});
+subscribe({table, Tab, detailed}) ->
+mnesia:subscribe({table, Tab, detailed});
+subscribe(EventCategory) ->
+    ?ClientError({"Unsupported event category", EventCategory}).
+
+unsubscribe({table, Tab, simple}) ->
+mnesia:unsubscribe({table, Tab, simple});
+unsubscribe({table, Tab, detailed}) ->
+mnesia:unsubscribe({table, Tab, detailed});
+unsubscribe(EventCategory) ->
+    ?ClientError({"Unsupported event category", EventCategory}).
 
 ret_ok({atomic, ok}) -> ok;
 ret_ok(Other)        -> Other.

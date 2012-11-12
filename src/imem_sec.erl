@@ -13,6 +13,8 @@
         , table_columns/2
         , table_size/2
         , system_table/2
+        , subscribe/2
+        , unsubscribe/2
         ]).
 
 -export([ update_opts/3
@@ -112,7 +114,20 @@ table_size(SKey, Table) ->
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
-%% imem_if but security context added --- DATA DEFINITION -------
+subscribe(SKey, {table, Table, Level}) ->
+    case have_table_permission(SKey, Table, select) of
+        true ->     imem_meta:subscribe({table, Table, Level});
+        false ->    ?SecurityException({"Subscribe unauthorized", SKey})
+    end;
+subscribe(_SKey, EventCategory) ->
+    ?SecurityException({"Unsupported event category", EventCategory}).
+
+unsubscribe(_Skey, EventCategory) ->
+    imem_meta:unsubscribe(EventCategory).
+
+
+
+%% imem_if but security context added --- DATA DEFINITIONimem_meta--
 
 create_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
