@@ -69,11 +69,11 @@ init(_StartArgs) ->
     io:format("~pinitializing with MnesiaTimeout ~p~n", [?MODULE, MnesiaTimeout]),
     {ok, NodeType} = application:get_env(mnesia_node_type),
     {ok, Mod} = application:get_env(if_mod),
-    {ok, IsSec} = application:get_env(if_seco),
+    {ok, IsSec} = application:get_env(if_sec),
     DefParams = [{schema_name, SchemaName}, {node_type, NodeType}, {if_mod, Mod}, {if_sec, IsSec}],
     {ok, Servers} = application:get_env(servers),
     Children = [
-        {SMod, {SMod, start_link, [DefParams ++ SParams]}, transient, MnesiaTimeout, worker, [SMod]}
+        {SMod, {SMod, start_link, [DefParams ++ SParams]}, permanent, MnesiaTimeout, worker, [SMod]}
         || {_SName, {SMod, SParams}} <- Servers],
     {ok, {{one_for_one, 3, 10}, Children}}.
 

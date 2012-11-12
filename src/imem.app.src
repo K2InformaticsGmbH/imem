@@ -13,12 +13,12 @@
          {mnesia_node_type, undefined},
          {mnesia_timeout, 30000},
          {mnesia_bulk_sleep_time, 500},
-         {if_mod, imem_seco},
-         {if_seco, true},
+         {if_mod, imem_sec},
+         {if_sec, true},
          {servers, [
             {if_server, {imem_if, []}},
             {meta_server, {imem_meta, []}},
-            {seco_server, {dd_seco, []}},
+            {seco_server, {imem_seco, []}},
 %%            {sql_server, {imem_sql, []}},
             {tcp_server, {imem_server, [
             	            {tcp_ip, localhost},

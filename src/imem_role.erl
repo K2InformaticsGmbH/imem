@@ -1,6 +1,6 @@
--module(dd_role).
+-module(imem_role).
 
--include("dd_seco.hrl").
+-include("imem_seco.hrl").
 
 -export([ create/2
         , get/2
@@ -31,70 +31,54 @@ if_delete(_SeCo, Table, RoleId) ->
 %% --Implementation ------------------------------------------------------------------
 
 create(SeCo, #ddRole{id=RoleId}=Role) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
+    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, RoleId) of
                         [] ->   %% ToDo: Check if roles contained in Role are all defined $$$$$$$$$$$$$$
-                                case if_write(SeCo, ddRole, Role) of
-                                    ok ->       ok;
-                                    Error ->    ?SystemException(Error)
-                                end;
+                                ok=if_write(SeCo, ddRole, Role);
                         [_] -> ?ClientError({"Role already exists",RoleId})
                     end;
         false ->    ?SecurityException({"Create role unauthorized",SeCo})
     end;        
 create(SeCo, RoleId) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
+    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, RoleId) of
-                        [] ->       case if_write(SeCo, ddRole, #ddRole{id=RoleId}) of
-                                        ok ->       ok;
-                                        Error ->    ?SystemException(Error)
-                                    end;
-                        [_] ->      ?ClientError({"Role already exists",RoleId});
-                        Error ->    ?SystemException(Error)
+                        [] ->       ok = if_write(SeCo, ddRole, #ddRole{id=RoleId});
+                        [_] ->      ?ClientError({"Role already exists",RoleId})
                     end;
         false ->    ?SecurityException({"Create role unauthorized",SeCo})
     end.
 
 get(SeCo, RoleId) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
+    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, RoleId) of
                         [] ->       ?ClientError({"Role does not exist", RoleId});
-                        [Role] ->   Role;
-                        Error ->    ?SystemException(Error)
+                        [Role] ->   Role
                     end;
         false ->    ?SecurityException({"Get role unauthorized",SeCo})
     end.            
 
 update(SeCo, #ddRole{id=RoleId}=Role, RoleNew) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
+    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, RoleId) of
                         [] ->       ?ClientError({"Role does not exist", RoleId});
-                        [Role] ->   case if_write(SeCo, ddRole, RoleNew) of
-                                        ok ->       ok;
-                                        Error ->    ?SystemException(Error)                                    
-                                    end;
-                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", RoleId});
-                        Error ->    ?SystemException(Error)
+                        [Role] ->   ok = if_write(SeCo, ddRole, RoleNew);
+                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", RoleId})
                     end;
         false ->    ?SecurityException({"Update role unauthorized",SeCo})
     end.
 
 delete(SeCo, #ddRole{id=RoleId}=Role) ->
-    case dd_seco:have_permission(SeCo, manage_accounts) of
+    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, RoleId) of
                         [] ->       ?ClientError({"Role does not exist", RoleId});
                         [Role] ->   delete(SeCo, RoleId);
-                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", RoleId});
-                        Error ->    ?SystemException(Error)
+                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", RoleId})
                     end;
         false ->    ?SecurityException({"Delete role unauthorized",SeCo})
     end;
 delete(SeCo, RoleId) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_delete(SeCo, ddRole, RoleId) of
-                        ok ->       ok;
-                        Error ->    ?SystemException(Error)                                                            
-                    end;
+    case imem_seco:have_permission(SeCo, manage_accounts) of
+        true ->     ok = if_delete(SeCo, ddRole, RoleId);
         false ->    ?SecurityException({"Delete role unauthorized",SeCo})
     end.
 
@@ -107,22 +91,20 @@ exists(SeCo, #ddRole{id=RoleId}=Role) ->    %% exists unchanged
 exists(SeCo, RoleId) ->                     %% exists, maybe in changed form
     case if_read(SeCo, ddRole, RoleId) of
         [] -> false;
-        [_] -> true;
-        Error ->    ?SystemException(Error)
+        [_] -> true
     end.
 
 grant_role(SeCo, #ddRole{id=ToRoleId}=ToRole, RoleId) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, ToRoleId) of
                         [] ->       ?ClientError({"Role does not exist", ToRoleId});
                         [ToRole] -> grant_role(SeCo, ToRoleId, RoleId);
-                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", ToRoleId});
-                        Error ->    ?SystemException(Error)
+                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", ToRoleId})
                     end;
         false ->    ?SecurityException({"Grant role unauthorized",SeCo})
     end;
 grant_role(SeCo, ToRoleId, RoleId) ->
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case exists(SeCo, RoleId) of
                         false ->  
                             ?ClientError({"Role does not exist", RoleId});
@@ -138,34 +120,32 @@ grant_role(SeCo, ToRoleId, RoleId) ->
     end.            
 
 revoke_role(SeCo, #ddRole{id=FromRoleId}=FromRole, RoleId) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, FromRoleId) of
                         [] ->           ?ClientError({"Role does not exist", FromRoleId});
                         [FromRole] ->   revoke_role(SeCo, FromRoleId, RoleId);
-                        [_] ->          ?ConcurrencyException({"Role is modified by someone else", FromRoleId});
-                        Error ->        ?SystemException(Error)
+                        [_] ->          ?ConcurrencyException({"Role is modified by someone else", FromRoleId})
                     end;
         false ->    ?SecurityException({"Revoke role unauthorized",SeCo})
     end;            
 revoke_role(SeCo, FromRoleId, RoleId) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     #ddRole{roles=Roles} = FromRole = get(SeCo, FromRoleId),
                     update(SeCo,FromRole,FromRole#ddRole{roles=lists:delete(RoleId, Roles)});   
         false ->    ?SecurityException({"Revoke role unauthorized",SeCo})
     end.            
 
 grant_permission(SeCo, #ddRole{id=ToRoleId}=ToRole, PermissionId) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, ToRoleId) of
                         [] ->       ?ClientError({"Role does not exist", ToRoleId});
                         [ToRole] -> grant_permission(SeCo, ToRoleId, PermissionId);
-                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", ToRoleId});
-                        Error ->    ?SystemException(Error)
+                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", ToRoleId})
                     end;
         false ->    ?SecurityException({"Grant permission unauthorized",SeCo})
     end;
 grant_permission(SeCo, ToRoleId, PermissionId) ->
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     #ddRole{permissions=Permissions} = ToRole = get(SeCo, ToRoleId),
                     NewPermissions = case lists:member(PermissionId, Permissions) of
                         true ->     Permissions;
@@ -176,34 +156,32 @@ grant_permission(SeCo, ToRoleId, PermissionId) ->
     end.
 
 revoke_permission(SeCo, #ddRole{id=FromRoleId}=FromRole, PermissionId) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, FromRoleId) of
                         [] ->           ?ClientError({"Role does not exist", FromRoleId});
                         [FromRole] ->   revoke_permission(SeCo, FromRoleId, PermissionId);
-                        [_] ->          ?ConcurrencyException({"Role is modified by someone else", FromRoleId});
-                        Error ->        ?SystemException(Error)
+                        [_] ->          ?ConcurrencyException({"Role is modified by someone else", FromRoleId})
                     end;
         false ->    ?SecurityException({"Revoke permission unauthorized",SeCo})
     end;        
 revoke_permission(SeCo, FromRoleId, PermissionId) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     #ddRole{permissions=Permissions} = FromRole = get(SeCo, FromRoleId),
                     update(SeCo,FromRole,FromRole#ddRole{permissions=lists:delete(PermissionId, Permissions)});   
         false ->    ?SecurityException({"Revoke permission unauthorized",SeCo})
     end.
 
 grant_quota(SeCo, #ddRole{id=ToRoleId}=ToRole, QuotaId, Value) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, ToRoleId) of
                         [] ->       ?ClientError({"Role does not exist", ToRoleId});
                         [ToRole] -> grant_quota(SeCo, ToRoleId, QuotaId, Value);
-                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", ToRoleId});
-                        Error ->    ?SystemException(Error)
+                        [_] ->      ?ConcurrencyException({"Role is modified by someone else", ToRoleId})
                     end;
         false ->    ?SecurityException({"Grant quota unauthorized",SeCo})
     end;
 grant_quota(SeCo, ToRoleId, QuotaId, Value) ->
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     #ddRole{quotas=Quotas} = ToRole = get(SeCo, ToRoleId),
                     OtherQuotas = lists:key_delete(QuotaId, 1, Quotas),
                     update(SeCo,ToRole,ToRole#ddRole{quotas=lists:append(OtherQuotas, [{QuotaId,Value}])});   
@@ -211,17 +189,16 @@ grant_quota(SeCo, ToRoleId, QuotaId, Value) ->
     end.
 
 revoke_quota(SeCo, #ddRole{id=FromRoleId}=FromRole, QuotaId) -> 
-   case dd_seco:have_permission(SeCo, manage_accounts) of
+   case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, FromRoleId) of
                         [] ->           ?ClientError({"Role does not exist", FromRoleId});
                         [FromRole] ->   revoke_quota(SeCo, FromRoleId, QuotaId);
-                        [_] ->          ?ConcurrencyException({"Role is modified by someone else", FromRoleId});
-                        Error ->        ?SystemException(Error)
+                        [_] ->          ?ConcurrencyException({"Role is modified by someone else", FromRoleId})
                     end;
         false ->    ?SecurityException({"Revoke quota unauthorized",SeCo})
     end;        
 revoke_quota(SeCo, FromRoleId, QuotaId) -> 
-    case dd_seco:have_permission(SeCo, manage_accounts) of
+    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     #ddRole{quotas=Quotas} = FromRole = get(SeCo, FromRoleId),
                     update(SeCo,FromRole,FromRole#ddRole{quotas=lists:key_delete(QuotaId, 1, Quotas)});   
         false ->    ?SecurityException({"Revoke quota unauthorized",SeCo})

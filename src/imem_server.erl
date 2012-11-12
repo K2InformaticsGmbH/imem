@@ -31,8 +31,9 @@ init(Params) ->
     {_, IsSec} = lists:keyfind(if_sec,1,Params),
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
-            gen_server:cast(self(), {stop, Reason}),
-            {ok, #state{}};
+            {stop, Reason};
+%%            gen_server:cast(self(), {stop, Reason}),
+%%            {ok, #state{}};
         {ok, ListenIf} when is_integer(ListenPort) ->
             case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
                 {ok, LSock} ->
@@ -40,21 +41,23 @@ init(Params) ->
                     gen_server:cast(self(), accept),
                     {ok, #state{lsock=LSock, native_if_mod=NativeIfMod, is_secure=IsSec}};
                 Reason ->
-                    gen_server:cast(self(), {stop, Reason}),
-                    {ok, #state{}}
+                    {stop, Reason}
+%%                    gen_server:cast(self(), {stop, Reason}),
+%%                    {ok, #state{}}
             end;
         _ ->
-            gen_server:cast(self(), {stop, disabled}),
-            {ok, #state{}}
+            {stop, disabled}
+%%            gen_server:cast(self(), {stop, disabled}),
+%%            {ok, #state{}}
     end.
 
 handle_call(_Request, _From, State) ->
     io:format(user, "handle_call ~p~n", [_Request]),
     {reply, ok, State}.
 
-handle_cast({stop, Reason}, State) ->
-    io:format(user, "~p imem_server not started : ~p~n", [self(), Reason]),
-    {stop,{shutdown,Reason},State};
+% handle_cast({stop, Reason}, State) ->
+%     io:format(user, "~p imem_server not started : ~p~n", [self(), Reason]),
+%     {stop,{shutdown,Reason},State};
 handle_cast(accept, #state{lsock=LSock, native_if_mod=NativeIfMod, is_secure=IsSec}=State) ->
     {ok, Sock} = gen_tcp:accept(LSock),
     io:format(user, "accept conn ~p~n", [Sock]),

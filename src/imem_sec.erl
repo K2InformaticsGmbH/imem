@@ -1,10 +1,10 @@
--module(imem_seco).
+-module(imem_sec).
 
 -define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).
 
 -include_lib("eunit/include/eunit.hrl").
 
--include("dd_seco.hrl").
+-include("imem_seco.hrl").
 
 -export([ schema/1
         , schema/2
@@ -45,20 +45,20 @@
 %% one to one from dd_account ------------ AA FUNCTIONS _--------
 
 authenticate(_SKey, SessionId, Name, Credentials) ->
-    dd_seco:authenticate(SessionId, Name, Credentials).
+    imem_seco:authenticate(SessionId, Name, Credentials).
 
 login(SKey) ->
-    dd_seco:login(SKey).
+    imem_seco:login(SKey).
 
 change_credentials(SKey, OldCred, NewCred) ->
-    dd_seco:change_credentials(SKey, OldCred, NewCred).
+    imem_seco:change_credentials(SKey, OldCred, NewCred).
 
 logout(SKey) ->
-    dd_seco:logout(SKey).
+    imem_seco:logout(SKey).
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
-if_system_table(SKey, Table) ->
+if_system_table(_SKey, Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
         false ->    imem_meta:system_table(Table)
@@ -120,7 +120,7 @@ create_table(SKey, Table, RecordInfo, Opts) ->
         true ->     
             system;
         false ->    
-            case dd_seco:have_permission(SKey,[manage_user_tables, create_table]) of
+            case imem_seco:have_permission(SKey,[manage_user_tables, create_table]) of
                 true ->     AccountId;
                 false ->    false
             end
@@ -155,7 +155,7 @@ drop_user_table(SKey, Table, AccountId) ->
     end. 
 
 drop_system_table(SKey, Table, _AccountId) ->
-    case dd_seco:have_permission(SKey, manage_system_tables) of
+    case imem_seco:have_permission(SKey, manage_system_tables) of
         true ->
             imem_meta:drop_table(Table);
         false ->
@@ -263,21 +263,21 @@ have_table_ownership(SKey, Table) ->
     (Owner =:= AccountId).
 
 have_table_permission(SKey, Table, Operation, true) ->
-    dd_seco:have_permission(SKey, [manage_system_tables, {Table,Operation}]);
+    imem_seco:have_permission(SKey, [manage_system_tables, {Table,Operation}]);
 
 have_table_permission(SKey, Table, select, false) ->
-    case dd_seco:have_permission(SKey, [manage_user_tables, {Table,select}]) of
+    case imem_seco:have_permission(SKey, [manage_user_tables, {Table,select}]) of
         true ->     true;
         false ->    have_table_ownership(SKey,Table) 
     end;
 have_table_permission(SKey, Table, Operation, false) ->
     case table_metadata(SKey,Table) of
         #ddTable{id=Table, readonly=true} -> 
-            dd_seco:have_permission(SKey, manage_user_tables);
+            imem_seco:have_permission(SKey, manage_user_tables);
         #ddTable{id=Table, readonly=false} ->
             case have_table_ownership(SKey,Table) of
                 true ->     true;
-                false ->    dd_seco:have_permission(SKey, [manage_user_tables, {Table,Operation}])
+                false ->    imem_seco:have_permission(SKey, [manage_user_tables, {Table,Operation}])
             end
     end.
 

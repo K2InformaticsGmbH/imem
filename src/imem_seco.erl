@@ -1,8 +1,8 @@
--module(dd_seco).
+-module(imem_seco).
 
 -define(PASSWORD_VALIDITY,100).
 
--include("dd_seco.hrl").
+-include("imem_seco.hrl").
 
 -behavior(gen_server).
 
@@ -56,7 +56,7 @@ start_link(Params) ->
 
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
-    try %% try creating system tables, may fail if they exist, then check existence 
+    Result = try %% try creating system tables, may fail if they exist, then check existence 
         if_table_size(none, ddTable),
         catch if_create_table(none, ddAccount, record_info(fields, ddAccount),[], system),
         if_table_size(none, ddAccount),
@@ -79,11 +79,13 @@ init(_Args) ->
                     if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
         end,        
-        io:format(user, "~p started!~n", [?MODULE])
+        io:format(user, "~p started!~n", [?MODULE]),
+        {ok,#state{}}    
     catch
-        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
+        _:_ -> {stop, "Insufficient resources for start"} 
+%        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
     end,
-    {ok,#state{}}.
+    Result.
 
 handle_call({monitor, Pid}, _From, State) ->
     io:format(user, "~p - started monitoring pid ~p~n", [?MODULE, Pid]),
@@ -95,8 +97,8 @@ handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
     io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     cleanup_pid(Pid),
     {noreply, State};
-handle_cast({stop, Reason}, State) ->
-    {stop,{shutdown,Reason},State};
+% handle_cast({stop, Reason}, State) ->
+%     {stop,{shutdown,Reason},State};
 handle_cast(_Request, State) ->
     {noreply, State}.
 

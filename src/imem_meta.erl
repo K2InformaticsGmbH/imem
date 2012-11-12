@@ -4,7 +4,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--include("dd_meta.hrl").
+-include("imem_meta.hrl").
 
 -behavior(gen_server).
 
@@ -64,20 +64,22 @@ start_link(Params) ->
 
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
-    try
+    Result = try
         catch create_table(ddTable, record_info(fields, ddTable), [], system),
         check_table(ddTable),
-        io:format(user, "~p started!~n", [?MODULE])
+        io:format(user, "~p started!~n", [?MODULE]),
+        {ok,#state{}}
     catch
-        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
+        _:_ -> {stop, "Insufficient resources for start"}
+%%        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
     end,
-    {ok,#state{}}.
+    Result.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({stop, Reason}, State) ->
-    {stop,{shutdown,Reason},State};
+% handle_cast({stop, Reason}, State) ->
+%     {stop,{shutdown,Reason},State};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
