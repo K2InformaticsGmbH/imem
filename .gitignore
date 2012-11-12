@@ -6,3 +6,4 @@
 Mnesia*
 *.dump
 deps
+.eunit/*
