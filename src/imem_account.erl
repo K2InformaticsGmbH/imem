@@ -63,7 +63,7 @@ get(SeCo, AccountId) ->
     case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddAccount, AccountId) of
                         [#ddAccount{}=Account] ->   Account;
-                        [] ->                       ?SystemException({"Account does not exist", AccountId})
+                        [] ->                       ?ClientError({"Account does not exist", AccountId})
                     end;
         false ->    ?SecurityException({"Get account unauthorized",SeCo})
     end.
@@ -72,7 +72,7 @@ get_by_name(SeCo, Name) ->
     case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read_account_by_name(SeCo, Name) of
                         [#ddAccount{}=Account] ->   Account;
-                        [] ->                       ?SystemException({"Account does not exist", Name})
+                        [] ->                       ?ClientError({"Account does not exist", Name})
                     end;
         false ->    ?SecurityException({"Get account unauthorized",SeCo})
     end.
