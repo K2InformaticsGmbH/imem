@@ -266,35 +266,39 @@ seco_authorized(SKey) ->
             ?SecurityException({"Not logged in", SKey})
     end.   
 
-table_metadata(_SKey,Table) ->
-    case imem_meta:read(ddTable, Table) of
-        [#ddTable{} = TM] ->    TM;
-        _ ->                    ?ClientError({"Table does not exist", Table})
-    end.    
-
-have_table_ownership(SKey, Table) ->
+have_table_ownership(SKey, {Schema,Table}) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    #ddTable{owner=Owner} = table_metadata(SKey, Table),
-    (Owner =:= AccountId).
+    Owner = case imem_meta:read(ddTable, {Schema,Table}) of
+        [#ddTable{owner=O}] ->  O;
+        _ ->                    no_one
+    end,
+    (Owner =:= AccountId);
+have_table_ownership(SKey, Table) ->
+    have_table_ownership(SKey, {imem_meta:schema(),Table}).
 
 have_table_permission(SKey, Table, Operation, true) ->
     imem_seco:have_permission(SKey, [manage_system_tables, {Table,Operation}]);
 
-have_table_permission(SKey, Table, select, false) ->
+have_table_permission(SKey, {Schema,Table}, select, false) ->
     case imem_seco:have_permission(SKey, [manage_user_tables, {Table,select}]) of
         true ->     true;
-        false ->    have_table_ownership(SKey,Table) 
+        false ->    have_table_ownership(SKey,{Schema,Table}) 
     end;
-have_table_permission(SKey, Table, Operation, false) ->
-    case table_metadata(SKey,Table) of
-        #ddTable{id=Table, readonly=true} -> 
+have_table_permission(SKey, Table, select, false) ->
+    have_table_permission(SKey, {imem_meta:schema(),Table}, select, false) ;
+have_table_permission(SKey, {Schema,Table}, Operation, false) ->
+    case imem_meta:read(ddTable, {Schema,Table}) of
+        [#ddTable{qname={Schema,Table}, readonly=true}] -> 
             imem_seco:have_permission(SKey, manage_user_tables);
-        #ddTable{id=Table, readonly=false} ->
-            case have_table_ownership(SKey,Table) of
+        [#ddTable{qname={Schema,Table}, readonly=false}] ->
+            case have_table_ownership(SKey,{Schema,Table}) of
                 true ->     true;
                 false ->    imem_seco:have_permission(SKey, [manage_user_tables, {Table,Operation}])
-            end
-    end.
+            end;
+        _ ->    false
+    end;
+have_table_permission(SKey, Table, Operation, false) ->
+    have_table_permission(SKey, {imem_meta:schema(),Table}, Operation, false).
 
 set_permission_cache(SKey, Permission, true) ->
     imem_meta:write(ddPerm,#ddPerm{pkey={SKey,Permission}, skey=SKey, pid=self(), value=true});

@@ -82,8 +82,8 @@ init(_Args) ->
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
-        _:_ -> {stop, "Insufficient resources for start"} 
-%        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
+        Class:Reason -> io:format(user, "~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
+                        {stop, "Insufficient resources for start"} 
     end,
     Result.
 

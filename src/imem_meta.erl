@@ -72,8 +72,8 @@ init(_Args) ->
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
-        _:_ -> {stop, "Insufficient resources for start"}
-%%        _:_ -> gen_server:cast(self(),{stop, "Insufficient resources for start"}) 
+        Class:Reason -> io:format(user, "~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
+                        {stop, "Insufficient resources for start"}
     end,
     Result.
 
@@ -103,47 +103,47 @@ drop_meta_tables() ->
     drop_table(ddTable).     
 
 
-return_ok(ok) -> ok;
-return_ok(Error) -> ?SystemException(Error).
+column_names(ColumnInfos)->
+    [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- ColumnInfos].
 
-return_list(L) when is_list(L) -> L;
-return_list(Error) -> ?SystemException(Error).
+column_infos(ColumnNames)->
+    [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N])))} || N <- ColumnNames].
 
+create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
+    ColumnNames = column_names(ColumnInfos),
+    imem_if:create_table(Table, ColumnNames, Opts),
+    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts, owner=Owner});
+create_table(Table, ColumnNames, Opts, Owner) ->
+    ColumnInfos = column_infos(ColumnNames), 
+    imem_if:create_table(Table, ColumnNames, Opts),
+    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts, owner=Owner}).
 
-create_table(Table, RecordInfo, Opts, Owner) ->
-    case imem_if:create_table(Table, RecordInfo, Opts) of
-        {aborted,{already_exists,_}} -> 
-            ?ClientError({"Table already exists", Table});
-        ok -> 
-            return_ok(imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts, owner=Owner}));
-        Error -> 
-            ?SystemException(Error)
-    end.
-
-create_table(Table, RecordInfo, Opts) ->
-    case imem_if:create_table(Table, RecordInfo, Opts) of
-        ok -> 
-            return_ok(imem_if:write(ddTable, #ddTable{id=Table, recinfo=RecordInfo, opts=Opts}));
-        Error -> 
-            ?SystemException(Error)
-    end.
+create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts) ->
+    ColumnNames = column_names(ColumnInfos),
+    imem_if:create_table(Table, ColumnNames, Opts),
+    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts});
+create_table(Table, ColumnNames, Opts) ->
+    ColumnInfos = column_infos(ColumnNames), 
+    imem_if:create_table(Table, ColumnNames, Opts),
+    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts}).
 
 drop_table(Table) -> 
-    return_ok(imem_if:drop_table(Table)).
+    imem_if:drop_table(Table),
+    imem_if:delete(ddTable, {schema(),Table}).
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
 schema() ->
-    return_list(imem_if:schema()).
+    imem_if:schema().
 
 schema(Node) ->
-    return_list(imem_if:schema(Node)).
+    imem_if:schema(Node).
 
 add_attribute(A, Opts) -> 
-    return_list(imem_if:add_attribute(A, Opts)).
+    imem_if:add_attribute(A, Opts).
 
 update_opts(T, Opts) ->
-    return_list(imem_if:update_opts(T, Opts)).
+    imem_if:update_opts(T, Opts).
 
 system_table(Table) ->
     case lists:member(Table,?META_TABLES) of
@@ -155,50 +155,50 @@ system_table(Table) ->
 %% imem_if but security context added --- META INFORMATION ------
 
 data_nodes() ->
-    return_list(imem_if:data_nodes()).
+    imem_if:data_nodes().
 
 all_tables() ->
-    return_list(imem_if:all_tables()).
+    imem_if:all_tables().
 
 table_columns(Table) ->
-    return_list(imem_if:table_columns(Table)).
+    imem_if:table_columns(Table).
 
 table_size(Table) ->
     imem_if:table_size(Table).
 
 read(Table, Key) -> 
-    return_list(imem_if:read(Table, Key)).
+    imem_if:read(Table, Key).
 
 read(Table) ->
-    return_list(imem_if:read(Table)).
+    imem_if:read(Table).
 
-read_block(Table, Key, BlockSize) ->
-    return_list(imem_if:read_block(Table, Key, BlockSize)).    
+read_block(Table, AfterKey, BlockSize) ->
+    imem_if:read_block(Table, AfterKey, BlockSize).    
 
 select(all_tables, MatchSpec) ->
     select(ddTable, MatchSpec);
 select(Table, MatchSpec) ->
-    return_list(imem_if:select(Table, MatchSpec)).
+    imem_if:select(Table, MatchSpec).
 
 select(all_tables, MatchSpec, Limit) ->
     select(ddTable, MatchSpec, Limit);
 select(Table, MatchSpec, Limit) ->
-    return_list(imem_if:select(Table, MatchSpec, Limit)).
+    imem_if:select(Table, MatchSpec, Limit).
 
 select(Continuation) ->
-    return_list(imem_if:select(Continuation)).
+    imem_if:select(Continuation).
 
 write(Table, Record) -> 
-    return_ok(imem_if:write(Table, Record)).
+    imem_if:write(Table, Record).
 
 insert(Table, Row) ->
-    return_ok(imem_if:insert(Table, Row)).
+    imem_if:insert(Table, Row).
 
 delete(Table, Key) ->
-    return_ok(imem_if:delete(Table, Key)).
+    imem_if:delete(Table, Key).
 
 truncate(Table) ->
-    return_ok(imem_if:truncate(Table)).
+    imem_if:truncate(Table).
 
 subscribe(EventCategory) ->
     imem_if:subscribe(EventCategory).

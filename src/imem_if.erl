@@ -34,6 +34,8 @@
         
 -export([ create_table/3
 		, drop_table/1
+        , create_index/2
+        , drop_index/2
         , truncate/1
         , select/1
         , select/2
@@ -46,6 +48,18 @@
         , delete/2
         ]).
 
+
+return_list(L) when is_list(L) -> L;
+return_list(Error) -> ?SystemException(Error).
+
+return_atomic_ok({atomic, ok}) -> ok;
+return_atomic_ok(Error)        -> ?SystemException(Error).
+
+mnesia_transaction(Function, Args) ->
+    F = fun() ->
+                apply(mnesia, Function, Args)
+        end,
+    mnesia:transaction(F).
 
 schema() ->
     %% schema identifier of local imem node
@@ -61,90 +75,120 @@ add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
-create_table(TableName,Columns,Opts) ->
+create_table(Table,Columns,Opts) ->
     case lists:member(local, Opts) of
-        true ->     create_local_table(TableName, Columns, Opts -- [local]);
-        false ->    create_cluster_table(TableName, Columns, Opts)
+        true ->     create_local_table(Table, Columns, Opts -- [local]);
+        false ->    create_cluster_table(Table, Columns, Opts)
     end.
 
 system_table(_) -> false.
 
-create_local_table(TableName,Columns,Opts) ->
+create_local_table(Table,Columns,Opts) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
     CompleteOpts = add_attribute(Cols, Opts),
-    create_table(TableName, CompleteOpts).
+    create_table(Table, CompleteOpts).
 
-create_cluster_table(TableName,Columns,Opts) ->
+create_cluster_table(Table,Columns,Opts) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
-    create_local_table(TableName,Columns,[{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts]).
+    create_local_table(Table,Columns,[{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts]).
 
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    
 create_table(Table, Opts) when is_atom(Table) ->
    	case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
-            %% table exists on local node.
-            {aborted, {already_exists, Table}};
+            ?ClientError({"Table already exists", Table});
         {aborted, {already_exists, Table, _}} ->
             %% table exists on remote node(s)
             %% io:format("waiting for table '~p' ...~n", [Table]),
             mnesia:wait_for_tables([Table], 30000),
             %% io:format("copying table '~p' ...~n", [Table]),
-            ret_ok(mnesia:add_table_copy(Table, node(), ram_copies));
-		{aborted, Details} ->
-            %% other table creation problems
-			{aborted, Details};
-		%%_ ->
-			%% io:format("table '~p' created...~n", [Table]),
-            %% ToDo: Check if this is needed.
-			%% mnesia:clear_table(Table)
-        Result -> ret_ok(Result)
+            return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
+        Result -> return_atomic_ok(Result)
 	end.
 
 drop_table(Table) when is_atom(Table) ->
-    ret_ok(mnesia:delete_table(Table)).
+    return_atomic_ok(mnesia:delete_table(Table)).
+
+create_index(Table, Column) ->
+    case mnesia:add_table_index(Table, Column) of
+        {aborted, {no_exists, Table}} ->
+            ?ClientError({"Table does not exist", Table});
+        {aborted, {already_exists, {Table,Column}}} ->
+            ?ClientError({"Index already exists", {Table,Column}});
+        Result -> return_atomic_ok(Result)
+    end.
+
+drop_index(Table, Column) ->
+    case mnesia:del_table_index(Table, Column) of
+        {aborted, {no_exists, Table}} ->
+            ?ClientError({"Table does not exist", Table});
+        {aborted, {no_exists, {Table,Column}}} ->
+            ?ClientError({"Index does not exist", {Table,Column}});
+        Result -> return_atomic_ok(Result)
+    end.
 
 truncate(Table) when is_atom(Table) ->
-    ret_ok(mnesia:clear_table(Table)).
+    return_atomic_ok(mnesia:clear_table(Table)).
 
-insert(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
+insert(Table, Row) when is_atom(Table), is_tuple(Row) ->
     Row1 = case element(1, Row) of
-        TableName ->
+        Table ->
             [_|R] = tuple_to_list(Row),
             R;
         _ -> tuple_to_list(Row)
     end,
-    insert(TableName, Row1);
-insert(TableName, Row) when is_atom(TableName), is_list(Row) ->
+    insert(Table, Row1);
+insert(Table, Row) when is_atom(Table), is_list(Row) ->
     RowLen = length(Row),
-    TableRowLen = length(mnesia:table_info(TableName, attributes)),
-    if TableRowLen =:= RowLen ->
-        mnesia:dirty_write(TableName, list_to_tuple([TableName|Row]));
-        true -> {error, {"schema mismatch {table_row_len, insert_row_len} ", TableRowLen, RowLen, Row}}
+    TableRowLen = length(mnesia:table_info(Table, attributes)),
+    case TableRowLen of 
+        RowLen ->   return_atomic_ok(mnesia_transaction(write,[Table, list_to_tuple([Table|Row])]));
+        _ ->        ?ClientError({"Wrong number of columns",RowLen})
     end.
 
-read(TableName) ->
-    {_, Keys} = mnesia:transaction(fun() -> mnesia:all_keys(TableName) end),
-    [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia:dirty_read(TableName, X)))) || X <- Keys].
+read(Table) ->
+    case mnesia_transaction(all_keys,[Table]) of
+        {aborted, no_exists} -> 
+            ?ClientError({"Table does not exists",Table});    
+        {aborted, Reason} -> 
+            ?SystemException(Reason);
+        {atomic, Keys} ->   
+            [lists:nthtail(1, tuple_to_list(lists:nth(1, mnesia_transaction(read,[Table, X])))) || X <- Keys]
+    end.
 
-read(TableName, Key) ->
-    mnesia:dirty_read(TableName, Key).
+read(Table, Key) ->
+    return_list(mnesia_transaction(read,[Table, Key])).
 
-write(TableName, Row) when is_atom(TableName), is_tuple(Row) ->
-    mnesia:dirty_write(TableName, Row).
+write(Table, Row) when is_atom(Table), is_tuple(Row) ->
+    return_atomic_ok(mnesia_transaction(write,[Table, Row, write])).
 
-delete(TableName, Key) ->
-    mnesia:dirty_delete({TableName, Key}).
+delete(Table, Key) ->
+    return_atomic_ok(mnesia_transaction(delete,[{Table, Key}])).
 
 select(Continuation) ->
-    mnesia:dirty_select(Continuation).
+    case mnesia_transaction(select,[Continuation]) of
+        {L,Cont} when is_list(L)    ->  {L,Cont};
+        '$end_of_table' ->              '$end_of_table';
+        Error ->                        ?SystemException(Error)
+    end.    
 
-select(TableName, MatchSpec) ->
-    mnesia:dirty_select(TableName, MatchSpec).
+select(Table, MatchSpec) ->
+    case mnesia_transaction(select,[Table, MatchSpec]) of
+        {atomic, L}     ->              L;
+        '$end_of_table' ->              '$end_of_table';
+        {aborted, no_exists} ->         ?ClientError({"Table does not exists",Table});    
+        Error ->                        ?SystemException(Error)        
+    end.
 
-select(TableName, MatchSpec, Limit) ->
-    mnesia:dirty_select(TableName, MatchSpec, Limit).
+select(Table, MatchSpec, Limit) ->
+    case mnesia_transaction(select,[Table, MatchSpec, Limit, read]) of
+        {L,Cont} when is_list(L)    ->  {L,Cont};
+        '$end_of_table' ->              '$end_of_table';
+        {aborted, no_exists} ->         ?ClientError({"Table does not exists",Table});    
+        Error ->                        ?SystemException(Error)        
+    end.    
 
 data_nodes() ->
     lists:flatten([lists:foldl(
@@ -160,8 +204,8 @@ data_nodes() ->
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
 
-table_columns(TableName) ->
-    mnesia:table_info(TableName, attributes).
+table_columns(Table) ->
+    mnesia:table_info(Table, attributes).
 
 table_size(Table) ->
     try
@@ -172,13 +216,13 @@ table_size(Table) ->
         throw:Error ->                      ?SystemException(Error)
     end.
 
-read_block(TableName, Key, BlockSize)                       -> read_block(TableName, Key, BlockSize, []).
-read_block(_, '$end_of_table' = Key, _, Acc)                -> {Key, Acc};
-read_block(_, Key, BlockSize, Acc) when BlockSize =< 0      -> {Key, Acc};
-read_block(TableName, '$start_of_table', BlockSize, Acc)    -> read_block(TableName, mnesia:dirty_first(TableName), BlockSize, Acc);
-read_block(TableName, Key, BlockSize, Acc) ->
-    Rows = mnesia:dirty_read(TableName, Key),
-    read_block(TableName, mnesia:dirty_next(TableName, Key), BlockSize - length(Rows), Acc ++ Rows).
+read_block(Table, Key, BlockSize)                       -> read_block(Table, Key, BlockSize, []).
+read_block(_, '$end_of_table' = Key, _, Acc)            -> {Key, Acc};
+read_block(_, Key, BlockSize, Acc) when BlockSize =< 0  -> {Key, Acc};
+read_block(Table, '$start_of_table', BlockSize, Acc)    -> read_block(Table, mnesia:dirty_first(Table), BlockSize, Acc);
+read_block(Table, Key, BlockSize, Acc) ->
+    Rows = mnesia:dirty_read(Table, Key),
+    read_block(Table, mnesia:dirty_next(Table, Key), BlockSize - length(Rows), Acc ++ Rows).
 
 
 subscribe({table, Tab, simple}) ->
@@ -194,9 +238,6 @@ unsubscribe({table, Tab, detailed}) ->
 mnesia:unsubscribe({table, Tab, detailed});
 unsubscribe(EventCategory) ->
     ?ClientError({"Unsupported event category", EventCategory}).
-
-ret_ok({atomic, ok}) -> ok;
-ret_ok(Other)        -> Other.
 
 %% gen_server
 start_link(Params) ->
