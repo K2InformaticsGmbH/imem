@@ -41,7 +41,8 @@ init(Params) ->
                     gen_server:cast(self(), accept),
                     {ok, #state{lsock=LSock, native_if_mod=NativeIfMod, is_secure=IsSec}};
                 Reason ->
-                    {stop, Reason}
+                    io:format(user, "~p imem_server not started ~p!~n", [self(), Reason]),
+                    {ok, #state{}}
 %%                    gen_server:cast(self(), {stop, Reason}),
 %%                    {ok, #state{}}
             end;
