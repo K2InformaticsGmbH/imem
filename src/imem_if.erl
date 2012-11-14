@@ -313,3 +313,26 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 format_status(_Opt, [_PDict, _State]) -> ok.
+
+
+%% ----- TESTS ------------------------------------------------
+
+-include_lib("eunit/include/eunit.hrl").
+
+setup() ->
+    application:start(imem).
+
+teardown(_) ->
+    application:stop(imem).
+
+db_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+            fun table_operations/1
+            %%, fun test_create_account/1
+        ]}}.    
+
+table_operations(_) -> ok.
