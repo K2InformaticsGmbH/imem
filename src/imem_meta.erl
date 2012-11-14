@@ -37,6 +37,7 @@
         , table_columns/1
         , table_size/1
         , system_table/1
+        , column_map/2
         , subscribe/1
         , unsubscribe/1
         ]).
@@ -102,6 +103,14 @@ check_table(Table) ->
 drop_meta_tables() ->
     drop_table(ddTable).     
 
+column_map(Tables, Columns) ->
+    column_map(Tables, Columns, 1, [], []).
+
+column_map([T|Tables], Columns, Tindex, Lookup, Acc0) ->
+    % #ddTable{columns=Cols} = imem_if:read(ddTable,T),
+    % L = [{TIndex, Cindex}   || C <- Cols, Cindex <- lists:seq(1,length(Cols))],
+    ok.
+
 
 column_names(ColumnInfos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- ColumnInfos].
@@ -127,6 +136,8 @@ create_table(Table, ColumnNames, Opts) ->
     imem_if:create_table(Table, ColumnNames, Opts),
     imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts}).
 
+drop_table(ddTable) -> 
+    imem_if:drop_table(ddTable);
 drop_table(Table) -> 
     imem_if:drop_table(Table),
     imem_if:delete(ddTable, {schema(),Table}).

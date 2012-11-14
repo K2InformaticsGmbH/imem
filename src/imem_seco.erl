@@ -69,8 +69,8 @@ init(_Args) ->
         catch if_create_table(none, ddQuota, record_info(fields, ddQuota),[local, {local_content,true}], system),     
         if_table_size(none, ddQuota),
         UserName= <<"admin">>,
-        case if_read_account_by_name(none, UserName) of
-            [] ->  
+        case if_select_account_by_name(none, UserName) of
+            {[],true} ->  
                     UserId = make_ref(),
                     UserCred=create_credentials(pwdmd5, <<"change_on_install">>),
                     User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
@@ -118,19 +118,19 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 if_select(_SKey, Table, MatchSpec) ->
     imem_meta:select(Table, MatchSpec). 
 
-if_read_seco_keys_by_pid(SKey, Pid) -> 
+if_select_seco_keys_by_pid(SKey, Pid) -> 
     MatchHead = #ddSeCo{skey='$1', pid='$2', _='_'},
     Guard = {'==', '$2', Pid},
     Result = '$1',
     if_select(SKey, ddSeCo, [{MatchHead, [Guard], [Result]}]).
 
-if_read_perm_keys_by_skey(_SKeyM, SKey) ->      %% M=Monitor / MasterContext 
+if_select_perm_keys_by_skey(_SKeyM, SKey) ->      %% M=Monitor / MasterContext 
     MatchHead = #ddPerm{pkey='$1', skey='$2', _='_'},
     Guard = {'==', '$2', SKey},
     Result = '$1',
     if_select(SKey, ddPerm, [{MatchHead, [Guard], [Result]}]).
 
-if_read_account_by_name(SKey, Name) -> 
+if_select_account_by_name(SKey, Name) -> 
     MatchHead = #ddAccount{name='$1', _='_'},
     Guard = {'==', '$1', Name},
     Result = '$_',
@@ -234,7 +234,7 @@ cleanup_pid(Pid) ->
     MonitorPid =  whereis(?MODULE),
     case self() of
         MonitorPid ->    
-            SKeys = if_read_seco_keys_by_pid(none,Pid),
+            {SKeys,true} = if_select_seco_keys_by_pid(none,Pid),
             seco_delete(none, SKeys);
         _ ->
             ?SecurityViolation({"Cleanup unauthorized",{self(),Pid}})
@@ -265,9 +265,9 @@ seco_create(SessionId, Name, {AuthMethod,_}) ->
 
 seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AccountId) when Pid == self() -> 
     if_write(SKey, ddSeCo, SeCo#ddSeCo{accountId=AccountId}),
-    case if_read_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
-        [] ->   imem_monitor:monitor(Pid);
-        _ ->    ok
+    case if_select_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
+        {[],true} ->    imem_monitor:monitor(Pid);
+        _ ->            ok
     end,
     SKey.    %% hash is returned back to caller
 
@@ -305,7 +305,8 @@ seco_delete(SKeyM, [SKey|SKeys]) ->
     seco_delete(SKeyM, SKey),
     seco_delete(SKeyM, SKeys);    
 seco_delete(SKeyM, SKey) ->
-    seco_perm_delete(SKeyM, if_read_perm_keys_by_skey(SKeyM, SKey)),
+    {Keys,true} = if_select_perm_keys_by_skey(SKeyM, SKey), 
+    seco_perm_delete(SKeyM, Keys),
     try 
         if_delete(SKeyM, ddSeCo, SKey)
     catch
@@ -344,21 +345,21 @@ have_permission(SKey, Permission) ->
 authenticate(SessionId, Name, Credentials) ->
     LocalTime = calendar:local_time(),
     #ddSeCo{skey=SKey} = SeCo = seco_create(SessionId, Name, Credentials),
-    case if_read_account_by_name(SKey, Name) of
-        [#ddAccount{locked='true'}] ->
+    case if_select_account_by_name(SKey, Name) of
+        {[#ddAccount{locked='true'}],true} ->
             ?SecurityException({"Account is locked. Contact a system administrator", Name});
-        [#ddAccount{lastFailureTime=LocalTime} = Account] ->
+        {[#ddAccount{lastFailureTime=LocalTime} = Account],true} ->
             %% lie a bit, don't show a fast attacker that this attempt might have worked
             if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
             ?SecurityException({"Invalid account credentials. Please retry", Name});
-        [#ddAccount{id=AccountId, credentials=CredList} = Account] -> 
+        {[#ddAccount{id=AccountId, credentials=CredList} = Account],true} -> 
             case lists:member(Credentials,CredList) of
                 false ->    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time()}),
                             ?SecurityException({"Invalid account credentials. Please retry", Name});
                 true ->     ok=if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=undefined}),
                             seco_register(SeCo, AccountId)  % return (hash) value to client
             end;
-        [] -> 
+        {[],true} -> 
             ?SecurityException({"Invalid account credentials. Please retry", Name})
     end.
 

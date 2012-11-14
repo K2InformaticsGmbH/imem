@@ -28,7 +28,7 @@ if_delete(_SeCo, Table, RowId) ->
 if_select(_SeCo, Table, MatchSpec) ->
     imem_if:select(Table, MatchSpec). 
 
-if_read_account_by_name(SeCo, Name) -> 
+if_select_account_by_name(SeCo, Name) -> 
     MatchHead = #ddAccount{name='$1', _='_'},
     Guard = {'==', '$1', Name},
     Result = '$_',
@@ -43,8 +43,8 @@ create(SeCo, #ddAccount{id=AccountId, name=Name}=Account) when is_binary(Name) -
                         [#ddAccount{}] ->  
                             ?ClientError({"Account already exists",AccountId});
                         [] ->   
-                            case if_read_account_by_name(SeCo, Name) of
-                                [] ->   
+                            case if_select_account_by_name(SeCo, Name) of
+                                {[],true} ->   
                                     ok = if_write(SeCo, ddAccount, Account),
                                     try
                                         ok=imem_role:create(SeCo,AccountId)
@@ -53,7 +53,7 @@ create(SeCo, #ddAccount{id=AccountId, name=Name}=Account) when is_binary(Name) -
                                                         delete(SeCo, Account),
                                                         ?SystemException(Error)
                                     end;
-                                [#ddAccount{}] ->     ?ClientError({"Account name already exists for",Name})
+                                {[#ddAccount{}],true} ->    ?ClientError({"Account name already exists for",Name})
                             end
                     end;
         false ->    ?SecurityException({"Create account unauthorized",SeCo})
@@ -70,9 +70,9 @@ get(SeCo, AccountId) ->
 
 get_by_name(SeCo, Name) -> 
     case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read_account_by_name(SeCo, Name) of
-                        [#ddAccount{}=Account] ->   Account;
-                        [] ->                       ?ClientError({"Account does not exist", Name})
+        true ->     case if_select_account_by_name(SeCo, Name) of
+                        {[#ddAccount{}=Account],true} ->   Account;
+                        {[],true} ->                       ?ClientError({"Account does not exist", Name})
                     end;
         false ->    ?SecurityException({"Get account unauthorized",SeCo})
     end.

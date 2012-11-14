@@ -7,11 +7,14 @@
 
 -record(ddColumn,                            %% table    
                   { name                    ::atom()
-                  , type              		::ddType()
-                  , length					::integer()
-                  , precision				::integer()
-                  , opts = []               ::list()      
-                  }
+                  , type              		  ::ddType()
+                  , length					        ::integer()
+                  , precision				        ::integer()
+                  , opts = []               ::list()
+                  , qname                   ::{atom(),atom(),atom()}  %% dynamic use only {Schema,Table.Column}
+                  , tind = 0                ::integer()               %% dynamic use only
+                  , cind = 0                ::integer()               %% dynamic use only   
+                  }                  
        ).
 
 -record(ddTable,                            %% table    
