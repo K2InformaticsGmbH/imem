@@ -32,8 +32,6 @@ init(Params) ->
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
             {stop, Reason};
-%%            gen_server:cast(self(), {stop, Reason}),
-%%            {ok, #state{}};
         {ok, ListenIf} when is_integer(ListenPort) ->
             case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
                 {ok, LSock} ->
@@ -43,22 +41,15 @@ init(Params) ->
                 Reason ->
                     io:format(user, "~p imem_server not started ~p!~n", [self(), Reason]),
                     {ok, #state{}}
-%%                    gen_server:cast(self(), {stop, Reason}),
-%%                    {ok, #state{}}
             end;
         _ ->
             {stop, disabled}
-%%            gen_server:cast(self(), {stop, disabled}),
-%%            {ok, #state{}}
     end.
 
 handle_call(_Request, _From, State) ->
     io:format(user, "handle_call ~p~n", [_Request]),
     {reply, ok, State}.
 
-% handle_cast({stop, Reason}, State) ->
-%     io:format(user, "~p imem_server not started : ~p~n", [self(), Reason]),
-%     {stop,{shutdown,Reason},State};
 handle_cast(accept, #state{lsock=LSock, native_if_mod=NativeIfMod, is_secure=IsSec}=State) ->
     {ok, Sock} = gen_tcp:accept(LSock),
     io:format(user, "accept conn ~p~n", [Sock]),
@@ -75,7 +66,7 @@ handle_cast(_Msg, State) ->
     io:format(user, "handle_cast ~p~n", [_Msg]),
 	{noreply, State}.
 
-handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=Mod}=State) ->
+handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=Mod, is_secure=IsSec}=State) ->
     ok = inet:setopts(Sock, [{active, once}]),
     NewBuf = <<Buf/binary, Data/binary>>,
     case (catch binary_to_term(NewBuf, [safe])) of
@@ -83,7 +74,7 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=Mod}=State) ->
             io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(Data)]),
             {noreply, State#state{buf=NewBuf}};
         D ->
-            process_cmd(D, Sock, Mod),
+            process_cmd(D, Sock, Mod, IsSec),
             {noreply, State#state{buf= <<>>}}
     end;
 handle_info({tcp_closed, Sock}, State) ->
@@ -101,15 +92,17 @@ terminate(_Reason, #state{csock=Sock}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-process_cmd(Cmd, Sock, Module) when is_tuple(Cmd), is_atom(Module) ->
+process_cmd(Cmd, Sock, Module, IsSec) when is_tuple(Cmd), is_atom(Module) ->
     Fun = element(1, Cmd),
     Args = lists:nthtail(1, tuple_to_list(Cmd)),
-    Resp = exec_fun_in_module(Module, Fun, Args, Sock),
+    Resp = exec_fun_in_module(Module, Fun, Args, Sock, IsSec),
     if Fun =/= read_block -> send_resp(Resp, Sock); true -> ok end.
 
-exec_fun_in_module(Module, read_block, Args, Sock) when Module =/= imem_statement ->
-    exec_fun_in_module(imem_statement, read_block, Args ++ [Sock], Sock);
-exec_fun_in_module(Module, Fun, Args, Sock) ->
+exec_fun_in_module(_Module, Fun, Args, Sock, IsSec) when Fun =:= read_block ->
+    apply(imem_statement, Fun, Args ++ [Sock, IsSec]);
+exec_fun_in_module(_Module, Fun, Args, _Sock, IsSec) when Fun =:= exec ->
+    apply(imem_statement, Fun, Args ++ [IsSec]);
+exec_fun_in_module(Module, Fun, Args, _Sock, _IsSec) ->
     ArgsLen = length(Args),
     case code:ensure_loaded(Module) of
         {_,Module} ->
@@ -118,11 +111,7 @@ exec_fun_in_module(Module, Fun, Args, Sock) ->
                     if ArgsLen > Arity -> apply(Module, Fun, lists:nthtail(1, Args));
                         true ->           apply(Module, Fun, Args)
                     end;
-                false ->
-                    case Module of
-                        imem_statement -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" doesn't exists or exported"};
-                        _ -> exec_fun_in_module(imem_statement, Fun, Args, Sock)
-                    end;
+                false -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" doesn't exists or exported"};
                 {_, Arity} -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" wrong number of arguments", ArgsLen, Arity}
             end;
         _ -> {error, "Module "++ atom_to_list(Module) ++" doesn't exists"}

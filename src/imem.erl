@@ -7,10 +7,10 @@
 
 -module(imem).
 
--export([start/0]).
+-export([start/0,stop/0]).
 
 %% ====================================================================
 %% External functions
 %% ====================================================================
-start() ->
-    application:start(?MODULE).
+start() -> application:start(?MODULE).
+stop()  -> application:stop(?MODULE).

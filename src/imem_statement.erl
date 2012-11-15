@@ -10,8 +10,8 @@
     terminate/2,
     code_change/3]).
 
--export([ exec/4
-        , read_block/3
+-export([ exec/5
+        , read_block/4
         ]).
 
 -record(state, {
@@ -27,7 +27,7 @@
         , cols = []
     }).
 
-exec(_SeCo, Statement, BlockSize, Schema) when is_list(Statement) ->
+exec(SeCo, Statement, BlockSize, Schema, IsSec) when is_list(Statement) ->
     Sql =
     case [lists:last(string:strip(Statement))] of
         ";" -> Statement;
@@ -36,34 +36,34 @@ exec(_SeCo, Statement, BlockSize, Schema) when is_list(Statement) ->
     case (catch sql_lex:string(Sql)) of
         {ok, Tokens, _} ->
             case (catch sql_parse:parse(Tokens)) of
-                {ok, [ParseTree|_]} -> exec(_SeCo, ParseTree, #statement{stmt_str=Statement
+                {ok, [ParseTree|_]} -> exec(SeCo, ParseTree, #statement{stmt_str=Statement
                                                                 , stmt_parse=ParseTree
-                                                                , block_size=BlockSize}, Schema);
+                                                                , block_size=BlockSize}, Schema, IsSec);
                 {'EXIT', Error} -> {error, Error};
                 Error -> {error, Error}
             end;
         {'EXIT', Error} -> {error, Error}
     end;
 
-exec(_SeCo, {create_table, TableName, Columns}, _Stmt, _Schema) ->
+exec(SeCo, {create_table, TableName, Columns}, _Stmt, _Schema, IsSec) ->
     Tab = binary_to_atom(TableName),
     Cols = [binary_to_atom(X) || {X, _} <- Columns],
     io:format(user,"create ~p columns ~p~n", [Tab, Cols]),
-    imem_if:create_table(Tab,Cols,[local]);
+    call_mfa(IsSec,create_table,[SeCo,Tab,Cols,[local]]);
 
-exec(_SeCo, {insert, TableName, {_, Columns}, {_, Values}}, _Stmt, _Schema) ->
+exec(SeCo, {insert, TableName, {_, Columns}, {_, Values}}, _Stmt, _Schema, IsSec) ->
     Tab = binary_to_atom(TableName),
     io:format(user,"insert ~p ~p in ~p~n", [Columns, Values, Tab]),
     Vs = [binary_to_list(V) || V <- Values],
-    imem_if:insert(Tab, Vs);
+    call_mfa(IsSec,insert,[SeCo,Tab, Vs]);
 
-exec(_SeCo, {drop_table, {tables, TableNames}, _, _}, _Stmt, _Schema) ->
+exec(SeCo, {drop_table, {tables, TableNames}, _, _}, _Stmt, _Schema, IsSec) ->
     Tabs = [binary_to_atom(T) || T <- TableNames],
     io:format(user,"drop_table ~p~n", [Tabs]),
-    [imem_if:drop_table(Tab) || Tab <- Tabs],
+    [call_mfa(IsSec,drop_table,[SeCo,Tab]) || Tab <- Tabs],
     ok;
 
-exec(_SeCo, {select, Params}, Stmt, _Schema) ->
+exec(SeCo, {select, Params}, Stmt, _Schema, IsSec) ->
     Columns = case lists:keyfind(fields, 1, Params) of
         false -> [];
         {_, Cols} -> Cols
@@ -76,7 +76,7 @@ exec(_SeCo, {select, Params}, Stmt, _Schema) ->
         undefined -> {error, "Only single valid names are supported"};
         _ ->
             Clms = case Columns of
-                [<<"*">>] -> imem_if:table_columns(TableName);
+                [<<"*">>] -> call_mfa(IsSec,table_columns,[SeCo,TableName]);
                 _ -> Columns
             end,
             Statement = Stmt#statement {
@@ -88,10 +88,16 @@ exec(_SeCo, {select, Params}, Stmt, _Schema) ->
             {ok, Clms, StmtRef}
     end.
 
-read_block(SeCo, Pid, Sock) when is_pid(Pid) ->
-    gen_server:cast(Pid, {read_block, Sock, SeCo}).
+read_block(SeCo, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {read_block, Sock, SeCo, IsSec}).
 
 binary_to_atom(Bin) when is_binary(Bin) -> list_to_atom(binary_to_list(Bin)).
+
+call_mfa(IsSec,Fun,Args) ->
+    case IsSec of
+        true -> apply(imem_sec,Fun,Args);
+        _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
+    end.
 
 %% gen_server
 create_stmt(Statement) ->
@@ -103,9 +109,9 @@ init([Statement]) ->
 handle_call(_Msg, _From, State) ->
     {reply,ok,State}.
 
-handle_cast({read_block, Sock, _SeCo}, #state{statement=Stmt}=State) ->
+handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
     #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
-    {NewKey, Rows} = imem_if:read_block(TableName, Key, BlockSize),
+    {NewKey, Rows} = call_mfa(IsSec,read_block,[SeCo,TableName, Key, BlockSize]),
     gen_tcp:send(Sock, term_to_binary({ok, Rows})),
     {noreply,State#state{statement=Stmt#statement{key=NewKey}}};
 handle_cast(_Request, State) ->
@@ -117,3 +123,48 @@ handle_info(_Info, State) ->
 terminate(_Reason, _State) -> ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+
+% EUnit tests --
+
+-include_lib("eunit/include/eunit.hrl").
+
+setup() -> imem:start().
+teardown(_) -> imem:stop().
+
+db_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+              fun test_with_sec/1
+            , fun test_without_sec/1
+        ]}
+    }.
+    
+test_with_sec(_) ->
+    SeCo = imem_seco:authenticate(adminSessionId, <<"admin">>, imem_seco:create_credentials(<<"change_on_install">>)),
+    IsSec = false,
+    io:format(user, "-------- create,insert,select (with security) --------~n", []),
+    ?assertEqual(true, is_integer(SeCo)),
+    ?assertEqual(SeCo, imem_seco:login(SeCo)),
+    ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
+    ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
+    {ok, Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
+    ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
+
+test_without_sec(_) ->
+    SeCo = {},
+    IsSec = false,
+    io:format(user, "-------- create,insert,select (without security) --------~n", []),
+    ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
+    ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
+    {ok, Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
+    io:format(user, "select ~p~n", [StmtRef]),
+    ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
+
+insert_range(_SeCo, 0, _TableName, _Schema, _IsSec) -> ok;
+insert_range(SeCo, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
+    exec(SeCo, "insert into " ++ TableName ++ " values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
+    insert_range(SeCo, N-1, TableName, Schema, IsSec).
