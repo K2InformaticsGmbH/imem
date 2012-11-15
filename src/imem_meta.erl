@@ -1,6 +1,7 @@
 -module(imem_meta).
 
 -define(META_TABLES,[ddTable]).
+-define(META_FIELDS,[user,schema,node,sysdate,systimestamp]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -37,6 +38,9 @@
         , table_columns/1
         , table_size/1
         , system_table/1
+        , meta_field/1
+        , meta_field_info/1
+        , meta_field_value/1
         , column_map/2
         , subscribe/1
         , unsubscribe/1
@@ -96,6 +100,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 format_status(_Opt, [_PDict, _State]) -> ok.
 
+%% ------ META implementation -------------------------------------------------------
+
+system_table(Table) ->
+    case lists:member(Table,?META_TABLES) of
+        true ->     true;
+        false ->    imem_if:system_table(Table) 
+    end.
 
 check_table(Table) ->
     imem_if:table_size(Table).
@@ -103,14 +114,65 @@ check_table(Table) ->
 drop_meta_tables() ->
     drop_table(ddTable).     
 
+meta_field(Name) ->
+    lists:member(Name,?META_FIELDS).
+
+meta_field_info(sysdate) ->
+    #ddColumn{name=sysdate, type='date', length=7, precision=0};
+meta_field_info(systimestamp) ->
+    #ddColumn{name=systimestamp, type='timestamp', length=20, precision=0};
+meta_field_info(schema) ->
+    #ddColumn{name=schema, type='string', length=40, precision=0};
+meta_field_info(node) ->
+    #ddColumn{name=node, type='string', length=40, precision=0};
+meta_field_info(Name) ->
+    ?ClientError({"Unknown meta column",Name}). 
+
+meta_field_value(Name) ->
+    imem_if:meta_field_value(Name). 
+
 column_map(Tables, Columns) ->
     column_map(Tables, Columns, 1, [], []).
 
-column_map([T|Tables], Columns, Tindex, Lookup, Acc0) ->
-    % #ddTable{columns=Cols} = imem_if:read(ddTable,T),
-    % L = [{TIndex, Cindex}   || C <- Cols, Cindex <- lists:seq(1,length(Cols))],
-    ok.
-
+column_map([{undefined,Table}|Tables], Columns, Tindex, Lookup, Acc) ->
+    column_map([{schema(),Table}|Tables], Columns, Tindex, Lookup, Acc);
+column_map([{Schema,Table}|Tables], Columns, Tindex, Lookup, Acc) ->
+    #ddTable{columns=Cols} = imem_if:read(ddTable,{Schema,Table}),
+    L = [{Tindex, Cindex, Schema, Table, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(1,length(Cols), Cols))],
+    column_map(Tables, Columns, Tindex+1, [L|Lookup], Acc);
+column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Acc) ->
+    Cmaps = [ Cmap0#ddColMap{tind=Ti, cind=Ci, type=Type, length=Len, precision=P, name=N} || {Ti, Ci, _S, _T, N, #ddColumn{type=Type, length=Len, precision=P}} <- Lookup],
+    column_map([], Cmaps ++ Columns, Tindex, Lookup, Acc);
+column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Acc) ->
+    column_map([], [Cmap0#ddColMap{schema=schema()}|Columns], Tindex, Lookup, Acc);
+column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Acc) ->
+    Cmaps = [ Cmap0#ddColMap{tind=Ti, cind=Ci, type=Type, length=Len, precision=P, name=N} || {Ti, Ci, S, T, N, #ddColumn{type=Type, length=Len, precision=P}} <- Lookup, S==Schema, T==Table],
+    column_map([], Cmaps ++ Columns, Tindex, Lookup, Acc);
+column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Acc) ->
+    Pred = fun(L) ->
+        (Name == lists:element(5, L)) andalso
+        ((Table == undefined) or (Table == lists:element(4, L))) andalso
+        ((Schema == undefined) or (Schema == lists:element(3, L)))
+    end,
+    Lmatch = lists:filter(Pred, Lookup),
+    Tcount = length(lists:usort([{lists:element(3, X), lists:element(4, X)} || X <- Lmatch])),
+    MetaField = meta_field(Name),
+    if 
+        (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined) andalso MetaField ->
+            #ddColumn{type=Type, length=Len, precision=P} = meta_field_info(Name),
+            Cmap1 = Cmap0#ddColMap{tind=0, cind=0, type=Type, length=Len, precision=P},
+            column_map([], Columns, Tindex, Lookup, [Cmap1|Acc]);                          
+        (Tcount==0) ->  
+            ?ClientError({"Unknown column name", Name});
+        (Tcount > 1) -> 
+            ?ClientError({"Ambiguous column name", Name});
+        true ->         
+            {Ti, Ci, S, T, Name, #ddColumn{type=Type, length=Len, precision=P}} = lists:head(Lmatch),
+            Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P},
+            column_map([], Columns, Tindex, Lookup, [Cmap1|Acc])
+    end;
+column_map([], [], _Tindex, _Lookup, Acc) ->
+    Acc.
 
 column_names(ColumnInfos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- ColumnInfos].
@@ -155,13 +217,6 @@ add_attribute(A, Opts) ->
 
 update_opts(T, Opts) ->
     imem_if:update_opts(T, Opts).
-
-system_table(Table) ->
-    case lists:member(Table,?META_TABLES) of
-        true ->     true;
-        false ->    imem_if:system_table(Table) 
-    end.
-
 
 %% imem_if but security context added --- META INFORMATION ------
 
@@ -217,4 +272,60 @@ subscribe(EventCategory) ->
 unsubscribe(EventCategory) ->
     imem_if:unsubscribe(EventCategory).
 
+%% ----- TESTS ------------------------------------------------
+
+-include_lib("eunit/include/eunit.hrl").
+
+setup() ->
+    application:start(imem).
+
+teardown(_) ->
+    application:stop(imem).
+
+db_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+            fun table_operations/1
+            %%, fun test_create_account/1
+        ]}}.    
+
+table_operations(_) -> 
+    ClEr = 'ClientError',
+    %% SyEx = 'SystemException',
+
+    io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+
+    ?assertEqual("Imem", schema()),
+    io:format(user, "success ~p~n", [schema]),
+    ?assertEqual([{"Imem",node()}], data_nodes()),
+    io:format(user, "success ~p~n", [data_nodes]),
+
+    io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
+    Types1 =    [ #ddColumn{name=a, type=string, length=10}
+                , #ddColumn{name=b1, type=string, length=20}
+                , #ddColumn{name=c1, type=string, length=30}
+                ],
+    Types2 =    [ #ddColumn{name=a, type=integer, length=10}
+                , #ddColumn{name=b2, type=integer, length=20}
+                , #ddColumn{name=c2, type=integer, length=30}
+                ],
+    Types3 =    [ #ddColumn{name=a, type=date, length=7}
+                , #ddColumn{name=b3, type=date, length=7}
+                , #ddColumn{name=c3, type=date, length=7}
+                ],
+    ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
+    ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
+    ?assertEqual(ok, create_table(meta_table_3, Types3, [])),
+    io:format(user, "success ~p~n", [create_tables]),
+
+%    ?assertEqual(ok, column_map([meta_table_1],[{undefined,'*'}])),
+
+    ?assertEqual(ok, drop_table(meta_table_3)),
+    ?assertEqual(ok, drop_table(meta_table_2)),
+    ?assertEqual(ok, drop_table(meta_table_1)),
+    io:format(user, "success ~p~n", [drop_tables]),
+    ok.
 
