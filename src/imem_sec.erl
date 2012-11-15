@@ -1,6 +1,7 @@
 -module(imem_sec).
 
 -define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).
+-define(SECO_FIELDS,[user]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -13,6 +14,9 @@
         , table_columns/2
         , table_size/2
         , system_table/2
+        , meta_field/2
+        , meta_field_info/2
+        , meta_field_value/2
         , subscribe/2
         , unsubscribe/2
         ]).
@@ -60,11 +64,32 @@ logout(SKey) ->
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
+if_read(_SKey, Table, Key) -> 
+    imem_meta:read(Table, Key).
+
 if_system_table(_SKey, Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
         false ->    imem_meta:system_table(Table)
     end.
+
+if_meta_field(_SKey, Name) ->
+    case lists:member(Name,?SECO_FIELDS) of
+        true ->     true;
+        false ->    imem_meta:meta_field(Name)
+    end.
+
+if_meta_field_info(_SKey, user) ->
+    #ddColumn{name=user, type='string', length=40, precision=0};
+if_meta_field_info(_SKey, Name) ->
+    imem_meta:meta_field_info(Name).
+
+if_meta_field_value(SKey, user) ->
+    #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
+    [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
+    Name;
+if_meta_field_value(_SKey, Name) ->
+    imem_meta:meta_field_value(Name).
 
 add_attribute(_SKey, A, Opts) -> 
     imem_meta:add_attribute(A, Opts).
@@ -86,6 +111,15 @@ schema(SKey, Node) ->
 system_table(SKey, Table) ->
     seco_authorized(SKey),    
     if_system_table(SKey, Table).
+
+meta_field(SKey, Name) ->
+    if_meta_field(SKey, Name).
+
+meta_field_info(SKey, Name) ->
+    if_meta_field_info(SKey, Name).
+
+meta_field_value(SKey, Name) ->
+    if_meta_field_value(SKey, Name).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),

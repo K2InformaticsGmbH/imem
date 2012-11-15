@@ -24,6 +24,7 @@
         , table_columns/1
         , table_size/1
         , system_table/1
+        , meta_value/1        
         , subscribe/1
         , unsubscribe/1
         ]).
@@ -165,6 +166,12 @@ transaction(Fun, Args, Retries) when is_function(Fun)->
     mnesia:transaction(Fun, Args, Retries).
 
 %% ---------- HELPER FUNCTIONS ------ exported -------------------------------
+
+meta_value(node) -> node();
+meta_value(schema) -> schema();
+meta_value(sysdate) -> erlang:now();            %% ToDo: convert to oracle 7 bit date
+meta_value(systimestamp) -> erlang:now();       %% ToDo: convert to oracle 20 bit timestamp
+meta_value(Name) -> ?ClientError({"Undefined meta value",Name}).
 
 schema() ->
     %% schema identifier of local imem node
