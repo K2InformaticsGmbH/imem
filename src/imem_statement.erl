@@ -151,7 +151,7 @@ test_with_sec(_) ->
     ?assertEqual(SeCo, imem_seco:login(SeCo)),
     ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
     ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
-    {ok, Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
+    {ok, _Clm, _StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
     ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
 
 test_without_sec(_) ->
@@ -160,7 +160,7 @@ test_without_sec(_) ->
     io:format(user, "-------- create,insert,select (without security) --------~n", []),
     ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
     ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
-    {ok, Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
+    {ok, _Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
     io:format(user, "select ~p~n", [StmtRef]),
     ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
 
