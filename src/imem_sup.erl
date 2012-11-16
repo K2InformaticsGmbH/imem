@@ -49,9 +49,8 @@ start_in_shell() ->
     unlink(Pid).
     
 start_link(Args) ->
-    io:format("~nStarting ~p~n", [?MODULE]),
     case Result=supervisor:start_link({local,?MODULE}, ?MODULE, Args) of
-        {ok,_} ->   io:format("~p started!~n~p~n", [?MODULE, Result]);
+        {ok,_} ->   io:format("~p started ~p~n", [?MODULE, Result]);
         Error ->    io:format("~p startup failed with ~p~n", [?MODULE, Error])
     end,
     Result.
