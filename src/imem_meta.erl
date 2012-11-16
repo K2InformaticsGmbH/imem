@@ -355,9 +355,9 @@ meta_operations(_) ->
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-        ?assertEqual("Imem", schema()),
+        ?assertEqual('Imem', schema()),
         io:format(user, "success ~p~n", [schema]),
-        ?assertEqual([{"Imem",node()}], data_nodes()),
+        ?assertEqual([{'Imem',node()}], data_nodes()),
         io:format(user, "success ~p~n", [data_nodes]),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
@@ -377,18 +377,18 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_3, Types3, [])),
         io:format(user, "success ~p~n", [create_tables]),
 
-        Table1 =    {"Imem", meta_table_1, undefined},
+        Table1 =    {'Imem', meta_table_1, undefined},
         Table2 =    {undefined, meta_table_2, undefined},
         Table3 =    {undefined, meta_table_3, undefined},
         TableX =    {undefined,meta_table_x, undefined},
 
         Alias1 =    {undefined, meta_table_1, alias1},
-        Alias2 =    {"Imem", meta_table_1, alias2},
+        Alias2 =    {'Imem', meta_table_1, alias2},
 
-        ?assertException(throw, {ClEr, {"Table does not exist", {"Imem", meta_table_x}}}, column_map([TableX], [])),
+        ?assertException(throw, {ClEr, {"Table does not exist", {'Imem', meta_table_x}}}, column_map([TableX], [])),
         io:format(user, "success ~p~n", [table_no_exists]),
 
-        ColsE1=     [ #ddColMap{tag="A1", schema="Imem", table=meta_table_1, name=a}
+        ColsE1=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", name=x}
                     , #ddColMap{tag="A3", name=c1}
                     ],
@@ -396,7 +396,7 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Unknown column name", x}}, column_map([Table1], ColsE1)),
         io:format(user, "success ~p~n", [unknown_column_name_1]),
 
-        ColsE2=     [ #ddColMap{tag="A1", schema="Imem", table=meta_table_1, name=a}
+        ColsE2=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", table=meta_table_x, name=b1}
                     , #ddColMap{tag="A3", name=c1}
                     ],
@@ -408,7 +408,7 @@ meta_operations(_) ->
         io:format(user, "success ~p~n", [empty_select_columns]),
 
 
-        ColsA =     [ #ddColMap{tag="A1", schema="Imem", table=meta_table_1, name=a}
+        ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", table=meta_table_1, name=b1}
                     , #ddColMap{tag="A3", name=c1}
                     ],
@@ -449,7 +449,7 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Unknown column name", {any,sysdate}}}, column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{table=any, name=sysdate}])),
         io:format(user, "success ~p~n", [sysdate_reject]),
 
-        ?assertMatch([_,_], column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}])),
+        ?assertEqual(["'Imem'.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}]),qname)),
         io:format(user, "success ~p~n", [user]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),

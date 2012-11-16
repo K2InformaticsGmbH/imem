@@ -176,12 +176,12 @@ meta_value(Name) -> ?ClientError({"Undefined meta value",Name}).
 schema() ->
     %% schema identifier of local imem node
     [Schema|_]=re:split(filename:basename(mnesia:system_info(directory)),"[.]",[{return,list}]),
-    Schema.
+    list_to_atom(Schema).
 
 schema(Node) ->
     %% schema identifier of remote imem node in the same erlang cluster
     [Schema|_] = re:split(filename:basename(rpc:call(Node, mnesia, system_info, [directory])), "[.]", [{return, list}]),
-    Schema.
+    list_to_atom(Schema).
 
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
@@ -417,9 +417,9 @@ table_operations(_) ->
 
     io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-    ?assertEqual("Imem", imem_meta:schema()),
+    ?assertEqual('Imem', imem_meta:schema()),
     io:format(user, "success ~p~n", [schema]),
-    ?assertEqual([{"Imem",node()}], imem_meta:data_nodes()),
+    ?assertEqual([{'Imem',node()}], imem_meta:data_nodes()),
     io:format(user, "success ~p~n", [data_nodes]),
 
     io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
