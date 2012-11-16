@@ -225,7 +225,7 @@ create_credentials(Password) ->
 create_credentials(Type, Password) when is_list(Password) ->
     create_credentials(Type, list_to_binary(Password));
 create_credentials(Type, Password) when is_integer(Password) ->
-    create_credentials(Type, integer_to_list(list_to_binary(Password)));
+    create_credentials(Type, list_to_binary(integer_to_list(Password)));
 create_credentials(pwdmd5, Password) ->
     {pwdmd5, erlang:md5(Password)}.
 

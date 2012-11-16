@@ -17,6 +17,8 @@
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
+        , column_map/3
+        , column_map_items/3        
         , subscribe/2
         , unsubscribe/2
         ]).
@@ -79,8 +81,6 @@ if_meta_field(_SKey, Name) ->
         false ->    imem_meta:meta_field(Name)
     end.
 
-if_meta_field_info(_SKey, user) ->
-    #ddColumn{name=user, type='string', length=40, precision=0};
 if_meta_field_info(_SKey, Name) ->
     imem_meta:meta_field_info(Name).
 
@@ -120,6 +120,12 @@ meta_field_info(SKey, Name) ->
 
 meta_field_value(SKey, Name) ->
     if_meta_field_value(SKey, Name).
+
+column_map(_SKey, Tables, Columns) ->
+    imem_meta:columns_map(Tables, Columns).
+
+column_map_items(_SKey, Map, Item) ->
+    imem_meta:column_map_items(Map, Item).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),
