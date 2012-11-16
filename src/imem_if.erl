@@ -84,7 +84,7 @@ init(Params) ->
         _ -> ok
     end,
     mnesia:subscribe(system),
-    io:format("~p started!~n", [?MODULE]),
+    io:format("~p started as ~p!~n", [?MODULE, NodeType]),
     {ok,#state{}}.
 
 disc_schema_nodes(Schema) ->
