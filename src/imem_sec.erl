@@ -17,6 +17,7 @@
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
+        , column_info_items/3        
         , column_map/3
         , column_map_items/3        
         , subscribe/2
@@ -123,6 +124,9 @@ meta_field_value(SKey, Name) ->
 
 column_map(_SKey, Tables, Columns) ->
     imem_meta:columns_map(Tables, Columns).
+
+column_info_items(_SKey, Info, Item) ->
+    imem_meta:column_map_items(Info, Item).
 
 column_map_items(_SKey, Map, Item) ->
     imem_meta:column_map_items(Map, Item).

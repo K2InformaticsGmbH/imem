@@ -42,6 +42,7 @@
         , meta_field_info/1
         , meta_field_value/1
         , column_map/2
+        , column_info_items/2
         , column_map_items/2
         , subscribe/1
         , unsubscribe/1
@@ -73,13 +74,22 @@ start_link(Params) ->
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
     Result = try
-        catch create_table(ddTable, record_info(fields, ddTable), [], system),
+        Cols =  [ #ddColumn{name=qname, type=tuple, length=2}
+                , #ddColumn{name=columns, type=list}
+                , #ddColumn{name=opts, type=list}
+                , #ddColumn{name=owner, type=list}
+                , #ddColumn{name=readonly, type=boolean}
+                ],
+        catch create_table(ddTable, Cols, [], system),
         check_table(ddTable),
+        RINames = record_info(fields, ddTable),
+        CINames = column_info_items(Cols,name),    
+        RINames = CINames,                                  %% guard against using wrong record 
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
         Class:Reason -> io:format(user, "~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
-                        {stop, "Insufficient resources for start"}
+                        {stop, "Insufficient/invalid resources for start"}
     end,
     Result.
 
@@ -100,6 +110,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 format_status(_Opt, [_PDict, _State]) -> ok.
+
 
 %% ------ META implementation -------------------------------------------------------
 
@@ -135,6 +146,19 @@ meta_field_value(user) ->
     "unknown"; 
 meta_field_value(Name) ->
     imem_if:meta_field_value(Name). 
+
+column_info_items(Info, name) ->
+    [C#ddColumn.name || C <- Info];
+column_info_items(Info, type) ->
+    [C#ddColumn.type || C <- Info];
+column_info_items(Info, length) ->
+    [C#ddColumn.length || C <- Info];
+column_info_items(Info, precision) ->
+    [C#ddColumn.precision || C <- Info];
+column_info_items(Info, opts) ->
+    [C#ddColumn.opts || C <- Info];
+column_info_items(_Info, Item) ->
+    ?ClientError({"Invalid item",Item}).
 
 column_map_items(Map, schema) ->
     [C#ddColMap.schema || C <- Map];
@@ -351,13 +375,13 @@ db_test_() ->
 meta_operations(_) ->
     try 
         ClEr = 'ClientError',
-        %% SyEx = 'SystemException',
+        %% SyEx = 'SystemException',    %% difficult to test
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-        ?assertEqual('Imem', schema()),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
         io:format(user, "success ~p~n", [schema]),
-        ?assertEqual([{'Imem',node()}], data_nodes()),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
         io:format(user, "success ~p~n", [data_nodes]),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),

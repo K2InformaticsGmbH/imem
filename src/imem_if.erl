@@ -417,9 +417,9 @@ table_operations(_) ->
 
     io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-    ?assertEqual('Imem', imem_meta:schema()),
+    ?assertEqual(true, is_atom(imem_meta:schema())),
     io:format(user, "success ~p~n", [schema]),
-    ?assertEqual([{'Imem',node()}], imem_meta:data_nodes()),
+    ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
     io:format(user, "success ~p~n", [data_nodes]),
 
     io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
