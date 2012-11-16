@@ -68,7 +68,7 @@ start_link(Args) ->
 init(_StartArgs) ->
     {ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
-    io:format("~pinitializing with MnesiaTimeout ~p~n", [?MODULE, MnesiaTimeout]),
+    io:format("~p initializing with MnesiaTimeout ~p~n", [?MODULE, MnesiaTimeout]),
     {ok, NodeType} = application:get_env(mnesia_node_type),
     {ok, Mod} = application:get_env(if_mod),
     {ok, IsSec} = application:get_env(if_sec),
