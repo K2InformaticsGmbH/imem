@@ -3,6 +3,8 @@
 
 -type ddEntityId() :: 	reference() | atom().
 -type ddType() ::		atom(). 			%% any | list | tuple | integer | float | binary | string | json | xml                  
+-type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
+-type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 
 
 -record(ddColumn,                           %% column definition    
@@ -10,6 +12,7 @@
                   , type              		  ::ddType()
                   , length					        ::integer()
                   , precision				        ::integer()
+                  , default                 ::any()
                   , opts = []               ::list()
                   }
         ).
@@ -36,5 +39,3 @@
                   }
        ).
 
--define(UnimplementedException(Reason), throw({'UnimplementedException',Reason})).
--define(ConcurrencyException(Reason), throw({'ConcurrencyException',Reason})).

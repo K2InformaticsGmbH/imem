@@ -37,6 +37,9 @@
         , all_tables/0
         , table_columns/1
         , table_size/1
+        , check_table/1
+        , check_table_record/2
+        , check_table_columns/2
         , system_table/1
         , meta_field/1
         , meta_field_info/1
@@ -74,17 +77,24 @@ start_link(Params) ->
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
     Result = try
-        Cols =  [ #ddColumn{name=qname, type=tuple, length=2}
+        Cols1 = [ #ddColumn{name=qname, type=tuple, length=2}
                 , #ddColumn{name=columns, type=list}
                 , #ddColumn{name=opts, type=list}
                 , #ddColumn{name=owner, type=list}
                 , #ddColumn{name=readonly, type=boolean}
                 ],
-        catch create_table(ddTable, Cols, [], system),
+        catch create_table(ddTable, Cols1, [], system),
         check_table(ddTable),
-        RINames = record_info(fields, ddTable),
-        CINames = column_info_items(Cols,name),    
-        RINames = CINames,                                  %% guard against using wrong record 
+        check_table_record(ddTable, record_info(fields, ddTable)),
+        check_table_columns(ddTable, Cols1),
+
+        Cols2 = [ #ddColumn{name=x, type=integer, length=1}
+                , #ddColumn{name=y, type=integer, length=1}
+                ],
+        catch create_table(dual, Cols2, [], system),
+        check_table(dual),
+        check_table_columns(dual, Cols2),
+
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -122,6 +132,45 @@ system_table(Table) ->
 
 check_table(Table) ->
     imem_if:table_size(Table).
+
+check_table_record(Table, ColumnNames) ->
+    TableColumns = table_columns(Table),    
+    if
+        ColumnNames =:= TableColumns ->
+            case imem_if:read(ddTable,{schema(), Table}) of
+                [] ->   ?SystemException({"Missing table metadata",Table}); 
+                [#ddTable{columns=ColumnInfo}] ->
+                    CINames = column_info_items(ColumnInfo, name),
+                    if
+                        CINames =:= ColumnNames ->  
+                            ok;
+                        true ->                 
+                            ?SystemException({"Record field names do not match table metadata",Table})
+                    end          
+            end;  
+        true ->                 
+            ?SystemException({"Record field names do not match table structure",Table})             
+    end.
+
+check_table_columns(Table, ColumnInfo) ->
+    ColumnNames = column_info_items(ColumnInfo, name),
+    TableColumns = table_columns(Table),    
+    if
+        ColumnNames =:= TableColumns ->
+            case imem_if:read(ddTable,{schema(), Table}) of
+                [] ->   
+                    ?SystemException({"Missing table metadata",Table}); 
+                [#ddTable{columns=CI}] ->
+                    if
+                        CI =:= ColumnInfo ->    
+                            ok;
+                        true ->                 
+                            ?SystemException({"Column info does not match table metadata",Table})
+                    end          
+            end;  
+        true ->                 
+            ?SystemException({"Column info does not match table structure",Table})             
+    end.
 
 drop_meta_tables() ->
     drop_table(ddTable).     

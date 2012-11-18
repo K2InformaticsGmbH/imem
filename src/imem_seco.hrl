@@ -1,8 +1,6 @@
 
 -include("imem_meta.hrl").
 
--type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
--type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 -type ddIdentity() :: binary().                 %% Account name
 -type ddCredential() :: {pwdmd5, binary()}.     %% {pwdmd5, md5(password)} for now
 -type ddPermission() :: atom() | tuple().       %% e.g. manage_accounts, {table,ddSeCo,select}

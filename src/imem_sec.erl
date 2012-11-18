@@ -13,6 +13,9 @@
         , all_tables/1
         , table_columns/2
         , table_size/2
+        , check_table/2
+        , check_table_record/3
+        , check_table_columns/3
         , system_table/2
         , meta_field/2
         , meta_field_info/2
@@ -157,6 +160,15 @@ table_size(SKey, Table) ->
         true ->     imem_meta:table_size(Table);
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
+
+check_table(_SeKey, Table) ->
+    imem_meta:check_table(Table).
+
+check_table_record(_SeKey, Table, ColumnNames) ->
+    imem_meta:check_table_record(Table, ColumnNames).
+
+check_table_columns(_SeKey, Table, ColumnInfo) ->
+    imem_meta:check_table_columns(Table, ColumnInfo).
 
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of

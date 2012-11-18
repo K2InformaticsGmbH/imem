@@ -23,6 +23,9 @@
         , all_tables/0
         , table_columns/1
         , table_size/1
+        , check_table/1
+        , check_table_record/2
+        , check_table_columns/2
         , system_table/1
         , meta_value/1        
         , subscribe/1
@@ -191,6 +194,54 @@ update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 column_names(ColumnInfos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [element(2,C)]))) || C <- ColumnInfos].
 
+data_nodes() ->
+    lists:flatten([lists:foldl(
+            fun(N, Acc) ->
+                    case lists:keyfind(imem, 1, rpc:call(N, application, which_applications, [])) of
+                        false ->    Acc;
+                        _ ->        [{schema(N),N}|Acc]
+                    end
+            end
+            , []
+            , [node() | nodes()])]).
+
+all_tables() ->
+    lists:delete(schema, mnesia:system_info(tables)).
+
+table_columns(Table) ->
+    mnesia:table_info(Table, attributes).
+
+table_size(Table) ->
+    try
+        mnesia:table_info(Table, all),
+        mnesia:table_info(Table, size)
+    catch
+        exit:{aborted,{no_exists,_,all}} -> ?ClientError({"Table does not exist", Table});
+        throw:Error ->                      ?SystemException(Error)
+    end.
+
+check_table(Table) ->
+    table_size(Table).
+
+check_table_record(Table, ColumnNames) ->
+    TableColumns = table_columns(Table),    
+    if
+        ColumnNames =:= TableColumns ->
+            ok;  
+        true ->                 
+            ?SystemException({"Record field names do not match table structure",Table})             
+    end.
+
+check_table_columns(Table, ColumnInfo) ->
+    ColumnNames = column_names(ColumnInfo),
+    TableColumns = table_columns(Table),    
+    if
+        ColumnNames =:= TableColumns ->
+            ok;  
+        true ->                 
+            ?SystemException({"Column info does not match table structure",Table})             
+    end.
+
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
 create_table(Table,[First|_]=ColumnInfos,Opts) when is_tuple(First) ->
@@ -341,32 +392,6 @@ select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-data_nodes() ->
-    lists:flatten([lists:foldl(
-            fun(N, Acc) ->
-                    case lists:keyfind(imem, 1, rpc:call(N, application, which_applications, [])) of
-                        false ->    Acc;
-                        _ ->        [{schema(N),N}|Acc]
-                    end
-            end
-            , []
-            , [node() | nodes()])]).
-
-all_tables() ->
-    lists:delete(schema, mnesia:system_info(tables)).
-
-table_columns(Table) ->
-    mnesia:table_info(Table, attributes).
-
-table_size(Table) ->
-    try
-        mnesia:table_info(Table, all),
-        mnesia:table_info(Table, size)
-    catch
-        exit:{aborted,{no_exists,_,all}} -> ?ClientError({"Table does not exist", Table});
-        throw:Error ->                      ?SystemException(Error)
-    end.
-
 read_block(Table, Key, BlockSize)                       -> read_block(Table, Key, BlockSize, []).
 read_block(_, '$end_of_table' = Key, _, Acc)            -> {Key, Acc};
 read_block(_, Key, BlockSize, Acc) when BlockSize =< 0  -> {Key, Acc};
@@ -412,83 +437,88 @@ db_test_() ->
         ]}}.    
 
 table_operations(_) -> 
-    ClEr = 'ClientError',
-    SyEx = 'SystemException',
+    try
+        ClEr = 'ClientError',
+        SyEx = 'SystemException',
 
-    io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-    ?assertEqual(true, is_atom(imem_meta:schema())),
-    io:format(user, "success ~p~n", [schema]),
-    ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-    io:format(user, "success ~p~n", [data_nodes]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        io:format(user, "success ~p~n", [schema]),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+        io:format(user, "success ~p~n", [data_nodes]),
 
-    io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
+        io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
 
-    ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
-    io:format(user, "success ~p~n", [table_size_no_exists]),
-    ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table)),
-    io:format(user, "success ~p~n", [table_read_no_exists]),
-    ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
-    io:format(user, "success ~p~n", [row_read_no_exists]),
-    ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
-    io:format(user, "success ~p~n", [row_write_no_exists]),
-    ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [])),
-    io:format(user, "success ~p~n", [create_table]),
-    ?assertEqual(0, table_size(imem_table_123)),
-    io:format(user, "success ~p~n", [table_size_empty]),
-    ?assertEqual(ok, insert(imem_table_123, {"A","B","C"})),
-    ?assertEqual(1, table_size(imem_table_123)),
-    io:format(user, "success ~p~n", [insert_table]),
-    ?assertEqual(ok, insert(imem_table_123, {"AA","BB","CC"})),
-    ?assertEqual(2, table_size(imem_table_123)),
-    io:format(user, "success ~p~n", [insert_table]),
-    ?assertEqual(ok, insert(imem_table_123, {"AA","BB","cc"})),
-    ?assertEqual(2, table_size(imem_table_123)),
-    io:format(user, "success ~p~n", [insert_table]),
-    ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
-    ?assertEqual(3, table_size(imem_table_123)),
-    io:format(user, "success ~p~n", [write_table]),
-    ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
-    ?assertEqual(3, table_size(imem_table_123)),
-    io:format(user, "success ~p~n", [write_table]),
-    ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
-    io:format(user, "success ~p~n", [read_table_1]),
-    ?assertEqual([{imem_table_123,"AA","BB","cc"}], read(imem_table_123,"AA")),
-    io:format(user, "success ~p~n", [read_table_2]),
-    ?assertEqual([], read(imem_table_123,"XX")),
-    io:format(user, "success ~p~n", [read_table_3]),
-    AllRecords=lists:sort([{imem_table_123,"A","B","C"},{imem_table_123,"AA","BB","cc"},{imem_table_123,"AAA","BB","CC"}]),
-    AllKeys=["A","AA","AAA"],
-    ?assertEqual(AllRecords, lists:sort(read(imem_table_123))),
-    io:format(user, "success ~p~n", [read_table_4]),
-    ?assertEqual({AllRecords,true}, select_sort(imem_table_123, ?MatchAllRecords)),
-    io:format(user, "success ~p~n", [select_all_records]),
-    ?assertEqual({AllKeys,true}, select_sort(imem_table_123, ?MatchAllKeys)),
-    io:format(user, "success ~p~n", [select_all_keys]),
-    ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, select(non_existing_table, ?MatchAllRecords)),
-    io:format(user, "success ~p~n", [select_table_no_exists]),
-    MatchHead = {'$1','$2','$3','$4'},
-    Guard = {'==', '$3', "BB"},
-    Result = {{'$3','$4'}},
-    DTupResult = lists:sort([{"BB","cc"},{"BB","CC"}]),
-    ?assertEqual({DTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [Result]}])),
-    io:format(user, "success ~p~n", [select_some_data1]),
-    STupResult = lists:sort(["cc","CC"]),
-    ?assertEqual({STupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], ['$4']}])),
-    io:format(user, "success ~p~n", [select_some_data]),
-    NTupResult = lists:sort([{"cc"},{"CC"}]),
-    ?assertEqual({NTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}])),
-    io:format(user, "success ~p~n", [select_some_data2]),
-    Limit=10,
-    SelRes=select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}], Limit),
-    ?assertMatch({[_|_], true}, SelRes),
-    {SelList, true} = SelRes,
-    ?assertEqual(NTupResult, SelList),
-    io:format(user, "success ~p~n", [select_some_data3]),
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
+        io:format(user, "success ~p~n", [table_size_no_exists]),
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table)),
+        io:format(user, "success ~p~n", [table_read_no_exists]),
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
+        io:format(user, "success ~p~n", [row_read_no_exists]),
+        ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
+        io:format(user, "success ~p~n", [row_write_no_exists]),
+        ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [])),
+        io:format(user, "success ~p~n", [create_table]),
+        ?assertEqual(0, table_size(imem_table_123)),
+        io:format(user, "success ~p~n", [table_size_empty]),
+        ?assertEqual(ok, insert(imem_table_123, {"A","B","C"})),
+        ?assertEqual(1, table_size(imem_table_123)),
+        io:format(user, "success ~p~n", [insert_table]),
+        ?assertEqual(ok, insert(imem_table_123, {"AA","BB","CC"})),
+        ?assertEqual(2, table_size(imem_table_123)),
+        io:format(user, "success ~p~n", [insert_table]),
+        ?assertEqual(ok, insert(imem_table_123, {"AA","BB","cc"})),
+        ?assertEqual(2, table_size(imem_table_123)),
+        io:format(user, "success ~p~n", [insert_table]),
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
+        ?assertEqual(3, table_size(imem_table_123)),
+        io:format(user, "success ~p~n", [write_table]),
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
+        ?assertEqual(3, table_size(imem_table_123)),
+        io:format(user, "success ~p~n", [write_table]),
+        ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
+        io:format(user, "success ~p~n", [read_table_1]),
+        ?assertEqual([{imem_table_123,"AA","BB","cc"}], read(imem_table_123,"AA")),
+        io:format(user, "success ~p~n", [read_table_2]),
+        ?assertEqual([], read(imem_table_123,"XX")),
+        io:format(user, "success ~p~n", [read_table_3]),
+        AllRecords=lists:sort([{imem_table_123,"A","B","C"},{imem_table_123,"AA","BB","cc"},{imem_table_123,"AAA","BB","CC"}]),
+        AllKeys=["A","AA","AAA"],
+        ?assertEqual(AllRecords, lists:sort(read(imem_table_123))),
+        io:format(user, "success ~p~n", [read_table_4]),
+        ?assertEqual({AllRecords,true}, select_sort(imem_table_123, ?MatchAllRecords)),
+        io:format(user, "success ~p~n", [select_all_records]),
+        ?assertEqual({AllKeys,true}, select_sort(imem_table_123, ?MatchAllKeys)),
+        io:format(user, "success ~p~n", [select_all_keys]),
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, select(non_existing_table, ?MatchAllRecords)),
+        io:format(user, "success ~p~n", [select_table_no_exists]),
+        MatchHead = {'$1','$2','$3','$4'},
+        Guard = {'==', '$3', "BB"},
+        Result = {{'$3','$4'}},
+        DTupResult = lists:sort([{"BB","cc"},{"BB","CC"}]),
+        ?assertEqual({DTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [Result]}])),
+        io:format(user, "success ~p~n", [select_some_data1]),
+        STupResult = lists:sort(["cc","CC"]),
+        ?assertEqual({STupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], ['$4']}])),
+        io:format(user, "success ~p~n", [select_some_data]),
+        NTupResult = lists:sort([{"cc"},{"CC"}]),
+        ?assertEqual({NTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}])),
+        io:format(user, "success ~p~n", [select_some_data2]),
+        Limit=10,
+        SelRes=select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}], Limit),
+        ?assertMatch({[_|_], true}, SelRes),
+        {SelList, true} = SelRes,
+        ?assertEqual(NTupResult, SelList),
+        io:format(user, "success ~p~n", [select_some_data3]),
 
-    io:format(user, "----TEST--~p:test_transactions~n", [?MODULE]),
+        io:format(user, "----TEST--~p:test_transactions~n", [?MODULE]),
 
+        ?assertEqual(ok, drop_table(imem_table_123)),
+        io:format(user, "success ~p~n", [drop_table])
 
-    ?assertEqual(ok, drop_table(imem_table_123)),
-    io:format(user, "success ~p~n", [drop_table]),
+    catch
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        throw ({Class, Reason})
+    end,
     ok.
