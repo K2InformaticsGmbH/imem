@@ -60,7 +60,6 @@
         , return_atomic_ok/1
         ]).
 
-
 %% gen_server
 start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
@@ -213,11 +212,13 @@ table_columns(Table) ->
 
 table_size(Table) ->
     try
+        {ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
+        mnesia:wait_for_tables([Table], MnesiaTimeout),
         mnesia:table_info(Table, all),
         mnesia:table_info(Table, size)
     catch
-        exit:{aborted,{no_exists,_,all}} -> ?ClientError({"Table does not exist", Table});
-        throw:Error ->                      ?SystemException(Error)
+        throw:Error ->                      ?SystemException(Error);
+        _:_ ->                              ?ClientError({"Table does not exist", Table})
     end.
 
 check_table(Table) ->
