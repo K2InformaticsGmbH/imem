@@ -58,21 +58,26 @@ init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
     Result = try %% try creating system tables, may fail if they exist, then check existence 
         if_check_table(none, ddTable),
-        catch if_create_table(none, ddAccount, record_info(fields, ddAccount),[], system),
+        ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
+        catch if_create_table(none, ddAccount, ADef ,[], system),
         if_check_table(none, ddAccount),
-        if_check_table_record(none, ddAccount, record_info(fields, ddAccount)),
-        catch if_create_table(none, ddRole, record_info(fields, ddRole),[], system),          
+        if_check_table_record(none, ddAccount, ADef),
+        RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
+        catch if_create_table(none, ddRole, RDef,[], system),          
         if_check_table(none, ddRole),
-        if_check_table_record(none, ddRole, record_info(fields, ddRole)),
-        catch if_create_table(none, ddSeCo, record_info(fields, ddSeCo),[local, {local_content,true}], system),     
+        if_check_table_record(none, ddRole, RDef),
+        SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
+        catch if_create_table(none, ddSeCo, SDef,[local, {local_content,true}], system),     
         if_check_table(none, ddSeCo),
-        if_check_table_record(none, ddSeCo, record_info(fields, ddSeCo)),
-        catch if_create_table(none, ddPerm, record_info(fields, ddPerm),[local, {local_content,true}], system),     
+        if_check_table_record(none, ddSeCo, SDef),
+        PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
+        catch if_create_table(none, ddPerm, PDef,[local, {local_content,true}], system),     
         if_check_table(none, ddPerm),
-        if_check_table_record(none, ddPerm, record_info(fields, ddPerm)),
-        catch if_create_table(none, ddQuota, record_info(fields, ddQuota),[local, {local_content,true}], system),     
+        if_check_table_record(none, ddPerm, PDef),
+        QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
+        catch if_create_table(none, ddQuota, QDef,[local, {local_content,true}], system),     
         if_check_table(none, ddQuota),
-        if_check_table_record(none, ddQuota, record_info(fields, ddQuota)),
+        if_check_table_record(none, ddQuota, QDef),
         UserName= <<"admin">>,
         case if_select_account_by_name(none, UserName) of
             {[],true} ->  
@@ -141,17 +146,11 @@ if_select_account_by_name(SKey, Name) ->
     Result = '$_',
     if_select(SKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
 
-if_table_size(_SeKey, Table) ->
-    imem_meta:table_size(Table).
-
 if_check_table(_SeKey, Table) ->
     imem_meta:check_table(Table).
 
 if_check_table_record(_SeKey, Table, ColumnNames) ->
     imem_meta:check_table_record(Table, ColumnNames).
-
-if_check_table_columns(_SeKey, Table, ColumnInfo) ->
-    imem_meta:check_table_columns(Table, ColumnInfo).
 
 %% --Interface functions  (calling imem_meta) ----------------------------------
 

@@ -77,23 +77,13 @@ start_link(Params) ->
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
     Result = try
-        Cols1 = [ #ddColumn{name=qname, type=tuple, length=2}
-                , #ddColumn{name=columns, type=list}
-                , #ddColumn{name=opts, type=list}
-                , #ddColumn{name=owner, type=list}
-                , #ddColumn{name=readonly, type=boolean}
-                ],
-        catch create_table(ddTable, Cols1, [], system),
+        catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
         check_table(ddTable),
-        check_table_record(ddTable, record_info(fields, ddTable)),
-        check_table_columns(ddTable, Cols1),
+        check_table_record(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
-        Cols2 = [ #ddColumn{name=x, type=integer, length=1}
-                , #ddColumn{name=y, type=integer, length=1}
-                ],
-        catch create_table(dual, Cols2, [], system),
+        catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system),
         check_table(dual),
-        check_table_columns(dual, Cols2),
+        check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
 
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}
@@ -133,6 +123,28 @@ system_table(Table) ->
 check_table(Table) ->
     imem_if:table_size(Table).
 
+check_table_record(Table, {Names, Types, DefaultRecord}) ->
+    [Table|Defaults] = tuple_to_list(DefaultRecord),
+    ColumnInfos = column_infos(Names, Types, Defaults),
+    TableColumns = table_columns(Table),    
+    if
+        Names =:= TableColumns ->
+            case imem_if:read(ddTable,{schema(), Table}) of
+                [] ->   ?SystemException({"Missing table metadata",Table}); 
+                [#ddTable{columns=ColumnInfos}] ->
+                    CINames = column_info_items(ColumnInfos, name),
+                    CITypes = column_info_items(ColumnInfos, type),
+                    CIDefaults = column_info_items(ColumnInfos, default),
+                    if
+                        (CINames =:= Names) andalso (CITypes =:= Types) andalso (CIDefaults =:= Defaults) ->  
+                            ok;
+                        true ->                 
+                            ?SystemException({"Record does not match table metadata",Table})
+                    end   
+            end;  
+        true ->                 
+            ?SystemException({"Record field names do not match table structure",Table})             
+    end;
 check_table_record(Table, ColumnNames) ->
     TableColumns = table_columns(Table),    
     if
@@ -152,6 +164,26 @@ check_table_record(Table, ColumnNames) ->
             ?SystemException({"Record field names do not match table structure",Table})             
     end.
 
+check_table_columns(Table, {Names, Types, DefaultRecord}) ->
+    [Table|Defaults] = tuple_to_list(DefaultRecord),
+    ColumnInfos = column_infos(Names, Types, Defaults),
+    TableColumns = table_columns(Table),    
+    if
+        Names =:= TableColumns ->
+            case imem_if:read(ddTable,{schema(), Table}) of
+                [] ->   
+                    ?SystemException({"Missing table metadata",Table}); 
+                [#ddTable{columns=CI}] ->
+                    if
+                        CI =:= ColumnInfos ->    
+                            ok;
+                        true ->                 
+                            ?SystemException({"Column info does not match table metadata",Table})
+                    end          
+            end;  
+        true ->                 
+            ?SystemException({"Column info does not match table structure",Table})             
+    end;
 check_table_columns(Table, ColumnInfo) ->
     ColumnNames = column_info_items(ColumnInfo, name),
     TableColumns = table_columns(Table),    
@@ -200,6 +232,8 @@ column_info_items(Info, name) ->
     [C#ddColumn.name || C <- Info];
 column_info_items(Info, type) ->
     [C#ddColumn.type || C <- Info];
+column_info_items(Info, default) ->
+    [C#ddColumn.default || C <- Info];
 column_info_items(Info, length) ->
     [C#ddColumn.length || C <- Info];
 column_info_items(Info, precision) ->
@@ -304,12 +338,20 @@ column_map(Tables, Columns, Tmax, Lookup, Acc) ->
     io:format(user, "column_map error Acc ~p~n", [Acc]),
     ?ClientError({"Column map invalid parameter",{Tables,Columns}}).
 
-column_names(ColumnInfos)->
-    [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- ColumnInfos].
+column_names(Infos)->
+    [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
-column_infos(ColumnNames)->
-    [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N])))} || N <- ColumnNames].
+column_infos(Names)->
+    [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N])))} || N <- Names].
 
+column_infos(Names, Types, Defaults)->
+    [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N]))), type=T, default=D} || {N,T,D} <- lists:zip3(Names, Types, Defaults)].
+
+create_table(Table, {Names, Types, DefaultRecord}, Opts, Owner) ->
+    [Table|Defaults] = tuple_to_list(DefaultRecord),
+    ColumnInfos = column_infos(Names, Types, Defaults),
+    imem_if:create_table(Table, ColumnInfos, Opts),
+    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts, owner=Owner});
 create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
     ColumnNames = column_names(ColumnInfos),
     imem_if:create_table(Table, ColumnNames, Opts),

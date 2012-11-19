@@ -38,4 +38,11 @@
                   , readonly='false'        ::'true' | 'false'
                   }
        ).
+-define(ddTable, [tuple,list,list,any,boolean]).
 
+-record(dual,                               %% table    
+                  { x                       ::integer()   
+                  , y                       ::integer()
+                  }
+       ).
+-define(dual, [integer,integer]).
