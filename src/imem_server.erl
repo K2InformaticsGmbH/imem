@@ -95,7 +95,11 @@ code_change(_OldVsn, State, _Extra) ->
 process_cmd(Cmd, Sock, Module, IsSec) when is_tuple(Cmd), is_atom(Module) ->
     Fun = element(1, Cmd),
     Args = lists:nthtail(1, tuple_to_list(Cmd)),
-    Resp = exec_fun_in_module(Module, Fun, Args, Sock, IsSec),
+    Resp = try
+        exec_fun_in_module(Module, Fun, Args, Sock, IsSec)
+    catch
+        _Class:Result -> {error, Result}
+    end,
     if Fun =/= read_block -> send_resp(Resp, Sock); true -> ok end.
 
 exec_fun_in_module(_Module, Fun, Args, Sock, IsSec) when Fun =:= read_block ->
