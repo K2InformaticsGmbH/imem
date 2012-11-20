@@ -5,6 +5,7 @@
 -include("imem_seco.hrl").
 
 -export([ create/2
+        , create/5
         , get/2
         , get_by_name/2
         , update/3
@@ -16,121 +17,127 @@
 
 %% --Interface functions  (calling imem_if for now, not exported) -------------------
 
-if_write(_SeCo, Table, Row) -> 
-    imem_if:write(Table, Row).
+if_write(_SeKey, Table, Row) -> 
+    imem_meta:write(Table, Row).
 
-if_read(_SeCo, Table, RowId) -> 
-    imem_if:read(Table, RowId).
+if_read(_SeKey, Table, RowId) -> 
+    imem_meta:read(Table, RowId).
 
-if_delete(_SeCo, Table, RowId) ->
-    imem_if:delete(Table, RowId).
+if_delete(_SeKey, Table, RowId) ->
+    imem_meta:delete(Table, RowId).
 
-if_select(_SeCo, Table, MatchSpec) ->
-    imem_if:select(Table, MatchSpec). 
+if_select(_SeKey, Table, MatchSpec) ->
+    imem_meta:select(Table, MatchSpec). 
 
-if_select_account_by_name(SeCo, Name) -> 
+if_select_account_by_name(SeKey, Name) -> 
     MatchHead = #ddAccount{name='$1', _='_'},
     Guard = {'==', '$1', Name},
     Result = '$_',
-    if_select(SeCo, ddAccount, [{MatchHead, [Guard], [Result]}]).
+    if_select(SeKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
 
 %% --Implementation ------------------------------------------------------------------
 
+create(SeKey, Type, Name, FullName, PasswordMd5) -> 
+    AccountId = make_ref(),
+    Cred={pwdmd5, PasswordMd5},
+    create(SeKey, #ddAccount{id=AccountId, name=Name, type=Type, fullName=FullName, credentials=[Cred]}).
 
-create(SeCo, #ddAccount{id=AccountId, name=Name}=Account) when is_binary(Name) ->
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read(SeCo, ddAccount, AccountId) of
+create(SeKey, #ddAccount{id=AccountId, name=Name}=Account) when is_binary(Name) ->
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccount, AccountId) of
                         [#ddAccount{}] ->  
                             ?ClientError({"Account already exists",AccountId});
                         [] ->   
-                            case if_select_account_by_name(SeCo, Name) of
+                            case if_select_account_by_name(SeKey, Name) of
                                 {[],true} ->   
-                                    ok = if_write(SeCo, ddAccount, Account),
+                                    ok = if_write(SeKey, ddAccount, Account),
                                     try
-                                        ok=imem_role:create(SeCo,AccountId)
+                                        ok=imem_role:create(SeKey,AccountId)
                                     catch
                                         _:Error ->  %% simple transaction rollback
-                                                        delete(SeCo, Account),
+                                                        delete(SeKey, Account),
                                                         ?SystemException(Error)
                                     end;
                                 {[#ddAccount{}],true} ->    ?ClientError({"Account name already exists for",Name})
                             end
                     end;
-        false ->    ?SecurityException({"Create account unauthorized",SeCo})
+        false ->    ?SecurityException({"Create account unauthorized",SeKey})
     end.
 
-get(SeCo, AccountId) -> 
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read(SeCo, ddAccount, AccountId) of
+get(SeKey, AccountId) -> 
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccount, AccountId) of
                         [#ddAccount{}=Account] ->   Account;
                         [] ->                       ?ClientError({"Account does not exist", AccountId})
                     end;
-        false ->    ?SecurityException({"Get account unauthorized",SeCo})
+        false ->    ?SecurityException({"Get account unauthorized",SeKey})
     end.
 
-get_by_name(SeCo, Name) -> 
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_select_account_by_name(SeCo, Name) of
+get_by_name(SeKey, Name) -> 
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_select_account_by_name(SeKey, Name) of
                         {[#ddAccount{}=Account],true} ->   Account;
                         {[],true} ->                       ?ClientError({"Account does not exist", Name})
                     end;
-        false ->    ?SecurityException({"Get account unauthorized",SeCo})
+        false ->    ?SecurityException({"Get account unauthorized",SeKey})
     end.
 
-update(SeCo, #ddAccount{id=AccountId}=Account, AccountNew) -> 
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read(SeCo, ddAccount, AccountId) of
+update(SeKey, #ddAccount{id=AccountId}=Account, AccountNew) -> 
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccount, AccountId) of
                         [] ->           ?ClientError({"Account does not exist", AccountId});
-                        [Account] ->    if_write(SeCo, ddAccount, AccountNew);
+                        [Account] ->    if_write(SeKey, ddAccount, AccountNew);
                         [_] ->          ?ConcurrencyException({"Account is modified by someone else", AccountId})
                     end;
-        false ->    ?SecurityException({"Update account unauthorized",SeCo})
+        false ->    ?SecurityException({"Update account unauthorized",SeKey})
     end.    
 
-delete(SeCo, #ddAccount{id=AccountId}=Account) ->
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read(SeCo, ddAccount, AccountId) of
+delete(SeKey, Name) when is_binary(Name)->
+    delete(SeKey, get_by_name(SeKey, Name));
+delete(SeKey, #ddAccount{id=AccountId}=Account) ->
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccount, AccountId) of
                         [] ->           ?ClientError({"Account does not exist", AccountId});
-                        [Account] ->    delete(SeCo, AccountId);
+                        [Account] ->    delete(SeKey, AccountId);
                         [_] ->          ?ConcurrencyException({"Account is modified by someone else", AccountId})
                     end;
-        false ->    ?SecurityException({"Delete account unauthorized",SeCo})
+        false ->    ?SecurityException({"Delete account unauthorized",SeKey})
     end;        
-delete(SeCo, AccountId) -> 
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_delete(SeCo, ddAccount, AccountId) of
-                        ok ->               imem_role:delete(SeCo, AccountId)
+delete(SeKey, AccountId) -> 
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_delete(SeKey, ddAccount, AccountId) of
+                        ok ->               imem_role:delete(SeKey, AccountId)
                     end;
-        false ->    ?SecurityException({"Delete account unauthorized",SeCo})
+        false ->    ?SecurityException({"Delete account unauthorized",SeKey})
     end.        
 
-lock(SeCo, #ddAccount{}=Account) -> 
-    update(SeCo, Account, Account#ddAccount{locked=true});
-lock(SeCo, AccountId) -> 
-    Account = get(SeCo, AccountId),
-    update(SeCo,  Account, Account#ddAccount{locked=true}).
+lock(SeKey, #ddAccount{}=Account) -> 
+    update(SeKey, Account, Account#ddAccount{locked=true});
+lock(SeKey, AccountId) -> 
+    Account = get(SeKey, AccountId),
+    update(SeKey,  Account, Account#ddAccount{locked=true}).
 
-unlock(SeCo, #ddAccount{}=Account) -> 
-    update(SeCo, Account, Account#ddAccount{locked=false,lastFailureTime=undefined});
-unlock(SeCo, AccountId) -> 
-    Account = get(SeCo, AccountId),
-    update(SeCo, Account, Account#ddAccount{locked=false,lastFailureTime=undefined}).
+unlock(SeKey, #ddAccount{}=Account) -> 
+    update(SeKey, Account, Account#ddAccount{locked=false,lastFailureTime=undefined});
+unlock(SeKey, AccountId) -> 
+    Account = get(SeKey, AccountId),
+    update(SeKey, Account, Account#ddAccount{locked=false,lastFailureTime=undefined}).
 
-exists(SeCo, #ddAccount{id=AccountId}=Account) ->   %% exists unchanged
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read(SeCo, ddAccount, AccountId) of
+exists(SeKey, #ddAccount{id=AccountId}=Account) ->   %% exists unchanged
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccount, AccountId) of
                         [] ->           false;
                         [Account] ->    true;
                         [_] ->          false
                     end;
-        false ->    ?SecurityException({"Exists account unauthorized",SeCo})
+        false ->    ?SecurityException({"Exists account unauthorized",SeKey})
     end;                    
-exists(SeCo, AccountId) ->                          %% exists, maybe in changed form
-    case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read(SeCo, ddAccount, AccountId) of
+exists(SeKey, AccountId) ->                          %% exists, maybe in changed form
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccount, AccountId) of
                         [] ->           false;
                         [_] ->          true
                     end;
-        false ->    ?SecurityException({"Exists account unauthorized",SeCo})
+        false ->    ?SecurityException({"Exists account unauthorized",SeKey})
     end.            
 

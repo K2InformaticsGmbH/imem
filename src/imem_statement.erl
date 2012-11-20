@@ -129,8 +129,18 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 -include_lib("eunit/include/eunit.hrl").
 
-setup() -> imem:start().
-teardown(_) -> imem:stop().
+setup() -> 
+    application:load(imem),
+    {ok, Schema} = application:get_env(imem, mnesia_schema_name),
+    {ok, Cwd} = file:get_cwd(),
+    NewSchema = Cwd ++ "/../" ++ Schema,
+    application:set_env(imem, mnesia_schema_name, NewSchema),
+    application:set_env(imem, mnesia_node_type, disc),
+    application:start(imem).
+
+teardown(_) -> 
+    catch imem_meta:drop_table(def),
+    application:stop(imem).
 
 db_test_() ->
     {

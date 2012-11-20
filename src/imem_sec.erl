@@ -49,6 +49,7 @@
         , write/3
         , delete/3
         , truncate/2
+        , admin_exec/4
 		]).
 
 -export([ have_table_permission/3   %% includes table ownership and readonly
@@ -94,6 +95,12 @@ if_meta_field_value(SKey, user) ->
     Name;
 if_meta_field_value(_SKey, Name) ->
     imem_meta:meta_field_value(Name).
+
+if_select_account_by_name(_SeCo, Name) -> 
+    MatchHead = #ddAccount{name='$1', _='_'},
+    Guard = {'==', '$1', Name},
+    Result = '$_',
+    imem_meta:select(ddAccount, [{MatchHead, [Guard], [Result]}]).    
 
 add_attribute(_SKey, A, Opts) -> 
     imem_meta:add_attribute(A, Opts).
@@ -184,6 +191,7 @@ unsubscribe(_Skey, EventCategory) ->
 
 
 %% imem_if but security context added --- DATA DEFINITIONimem_meta--
+
 
 create_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
@@ -296,7 +304,20 @@ select(SKey, Table, MatchSpec, Limit) ->
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
+admin_exec(SKey, imem_account, Function, Params) ->
+    admin_apply(SKey, imem_account, Function, Params, [manage_accounts, manage_system]);
+admin_exec(SKey, imem_role, Function, Params) ->
+    admin_apply(SKey, imem_role, Function, Params, [manage_accounts, manage_system]);
+admin_exec(SKey, Module, Function, Params) ->
+    admin_apply(SKey, Module, Function, Params, [manage_system]).
 
+admin_apply(SKey, Module, Function, Params, Permissions) ->
+    case imem_seco:have_permission(SKey, Permissions) of
+        true ->     
+            apply(Module, Function, Params);
+        false ->
+            ?SecurityException({"Admin execute unauthorized", {SKey, Module, Function, Params}})
+    end.
 
 %% ------- security extension for sql and tables (exported) ---------------------------------
 
@@ -366,5 +387,130 @@ get_permission_cache(SKey, Permission) ->
         [#ddPerm{value=Value}] -> Value;
         [] -> no_exists 
     end.
+
+
+%% ----- TESTS ------------------------------------------------
+
+setup() ->
+    application:load(imem),
+    {ok, Schema} = application:get_env(imem, mnesia_schema_name),
+    {ok, Cwd} = file:get_cwd(),
+    NewSchema = Cwd ++ "/../" ++ Schema,
+    application:set_env(imem, mnesia_schema_name, NewSchema),
+    application:set_env(imem, mnesia_node_type, disc),
+    application:start(imem).
+
+teardown(_) ->
+    {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
+    SeKey=imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
+    SeKey=imem_seco:login(SeKey),
+    imem_account:delete(SeKey, <<"test">>),
+    imem_account:delete(SeKey, <<"test_admin">>),
+    imem_role:delete(SeKey, table_creator),
+    imem_role:delete(SeKey, test_role),
+    imem_seco:logout(SeKey),
+    catch imem_meta:drop_table(user_table_123),
+    application:stop(imem).
+
+db_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+            fun test/1
+        ]}}.    
+
+    
+test(_) ->
+    try
+        ClEr = 'ClientError',
+        % CoEx = 'ConcurrencyException',
+        % SeEx = 'SecurityException',
+        % SeVi = 'SecurityViolation',
+        % SyEx = 'SystemException',          %% cannot easily test that
+
+        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+
+        ?assertEqual('Imem', imem_meta:schema()),
+        io:format(user, "success ~p~n", [schema]),
+        ?assertEqual([{'Imem',node()}], imem_meta:data_nodes()),
+        io:format(user, "success ~p~n", [data_nodes]),
+
+        io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
+
+        {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
+        io:format(user, "success ~p~n", [admin_credentials]), 
+        SeCoAdmin=authenticate(none, adminSessionId, <<"admin">>, AdminCred),
+        ?assertEqual(true, is_integer(SeCoAdmin)),
+        io:format(user, "success ~p~n", [admin_authentication]), 
+        ?assertEqual(SeCoAdmin, login(SeCoAdmin)),
+        io:format(user, "success ~p~n", [admin_login]),
+        ?assert(1 =< table_size(SeCoAdmin, ddSeCo)),
+        io:format(user, "success ~p~n", [seco_table_size]), 
+        AllTablesAdmin = all_tables(SeCoAdmin),
+        ?assertEqual(true, lists:member(ddAccount,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddPerm,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddQuota,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddRole,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddSeCo,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddTable,AllTablesAdmin)),
+        io:format(user, "success ~p~n", [all_tables_admin]), 
+
+        io:format(user, "----TEST--~p:test_admin_exec~n", [?MODULE]),
+
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [SeCoAdmin, user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
+        io:format(user, "success ~p~n", [account_create_user]),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [SeCoAdmin, <<"test_user_123">>, create_table])),
+        io:format(user, "success ~p~n", [create_test_admin_permissions]), 
+     
+        io:format(user, "----TEST--~p:test_user_login~n", [?MODULE]),
+
+        SeCoUser=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}),
+        ?assertEqual(true, is_integer(SeCoUser)),
+        io:format(user, "success ~p~n", [user_authentication]), 
+        ?assertEqual(SeCoUser, login(SeCoUser)),
+
+        ?assertEqual(ok, create_table(SeCoUser, user_table_123, [a,b,c], [])),
+        io:format(user, "success ~p~n", [create_user_table]),
+        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, [a,b,c], [])),
+        io:format(user, "success ~p~n", [create_user_table]),
+        ?assertEqual(0, table_size(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [own_table_size]),
+
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
+        io:format(user, "success ~p~n", [permissions_own_table]), 
+
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, revoke_role, [SeCoAdmin, <<"test_user_123">>, create_table])),
+        io:format(user, "success ~p~n", [role_revoke_role]),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, drop)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, alter)),
+        io:format(user, "success ~p~n", [permissions_own_table]),
+
+        ?assertEqual(ok, insert(SeCoUser, user_table_123, {"A","B","C"})),
+        ?assertEqual(1, table_size(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [insert_own_table]),
+        ?assertEqual(ok, insert(SeCoUser, user_table_123, {"AA","BB","CC"})),
+        ?assertEqual(2, table_size(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [insert_own_table]),
+        ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [drop_own_table]),
+        ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
+
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [SeCoAdmin, <<"test_user_123">>])),
+        io:format(user, "success ~p~n", [account_create_user])
+
+    catch
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        throw ({Class, Reason})
+    end,
+    ok.
 
 

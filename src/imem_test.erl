@@ -23,8 +23,16 @@ setup() ->
     application:set_env(imem, mnesia_node_type, disc),
     application:start(imem).
 
-teardown(_) -> 
-    catch imem_if:drop_table(user_table_123),
+teardown(_) ->
+    {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
+    SeKey=imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
+    SeKey=imem_seco:login(SeKey),
+    imem_account:delete(SeKey, <<"test">>),
+    imem_account:delete(SeKey, <<"test_admin">>),
+    imem_role:delete(SeKey, table_creator),
+    imem_role:delete(SeKey, test_role),
+    imem_seco:logout(SeKey),
+    catch imem_meta:drop_table(user_table_123),
     application:stop(imem).
 
 db_test_() ->
@@ -199,7 +207,7 @@ test(_) ->
         io:format(user, "success ~p~n", [account_create]), 
         ?assertException(throw, {CoEx,{"Account is modified by someone else", AccountId}}, imem_account:delete(SeCo, Account1)),
         io:format(user, "success ~p~n", [account_delete_wrong_version]), 
-        ?assertEqual(ok, imem_account:delete(SeCo, Account)),
+        ?assertEqual(ok, imem_account:delete(SeCo, AccountName)),
         io:format(user, "success ~p~n", [account_delete_with_check]), 
         ?assertEqual(ok, imem_account:create(SeCo, Account)),
         io:format(user, "success ~p~n", [account_create]), 

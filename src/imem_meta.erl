@@ -495,10 +495,7 @@ meta_operations(_) ->
                     , #ddColumn{name=c1, type=string, length=30}    %% value 2
                     ],
         Types2 =    [ #ddColumn{name=a, type=integer, length=10}    %% key
-                    , #ddColumn{name=b2, type=integer, length=20}   %% value
-                    ],
-        Types3 =    [ #ddColumn{name=a, type=date, length=7}        %% key
-                    , #ddColumn{name=nil, type=nil}                 %% needed as dummy value
+                    , #ddColumn{name=b2, type=float, length=8, precision=3}   %% value
                     ],
 
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),

@@ -19,14 +19,28 @@
 %% --Interface functions  (calling imem_if for now) ----------------------------------
 
 if_write(_SeCo, Table, #ddRole{}=Role) -> 
-    imem_if:write(Table, Role).
+    imem_meta:write(Table, Role).
 
 if_read(_SeCo, Table, RoleId) -> 
-    imem_if:read(Table, RoleId).
+    imem_meta:read(Table, RoleId).
 
 if_delete(_SeCo, Table, RoleId) ->
-    imem_if:delete(Table, RoleId).
+    imem_meta:delete(Table, RoleId).
 
+if_select(_SeKey, Table, MatchSpec) ->
+    imem_meta:select(Table, MatchSpec). 
+
+if_select_account_by_name(SKey, Name) -> 
+    MatchHead = #ddAccount{name='$1', _='_'},
+    Guard = {'==', '$1', Name},
+    Result = '$_',
+    if_select(SKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
+
+if_get_account_id_by_name(SKey, Name) ->
+    case if_select_account_by_name(SKey, Name) of
+        {[#ddAccount{id=AccountId}], true} -> AccountId;
+        {[],true} ->                            ?ClientError({"Account does not exist", Name})
+    end.
 
 %% --Implementation ------------------------------------------------------------------
 
@@ -94,6 +108,8 @@ exists(SeCo, RoleId) ->                     %% exists, maybe in changed form
         [_] -> true
     end.
 
+grant_role(SeCo, AccountName, RoleId) when is_binary(AccountName) ->
+    grant_role(SeCo, if_get_account_id_by_name(SeCo, AccountName), RoleId);    
 grant_role(SeCo, #ddRole{id=ToRoleId}=ToRole, RoleId) -> 
    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, ToRoleId) of
@@ -119,6 +135,8 @@ grant_role(SeCo, ToRoleId, RoleId) ->
         false ->    ?SecurityException({"Grant role unauthorized",SeCo})
     end.            
 
+revoke_role(SeCo, AccountName, RoleId) when is_binary(AccountName) ->
+    revoke_role(SeCo, if_get_account_id_by_name(SeCo, AccountName), RoleId);    
 revoke_role(SeCo, #ddRole{id=FromRoleId}=FromRole, RoleId) -> 
    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, FromRoleId) of
@@ -135,6 +153,8 @@ revoke_role(SeCo, FromRoleId, RoleId) ->
         false ->    ?SecurityException({"Revoke role unauthorized",SeCo})
     end.            
 
+grant_permission(SeCo, AccountName, PermissionId) when is_binary(AccountName) ->
+    grant_permission(SeCo, if_get_account_id_by_name(SeCo, AccountName), PermissionId);    
 grant_permission(SeCo, #ddRole{id=ToRoleId}=ToRole, PermissionId) -> 
    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, ToRoleId) of
@@ -155,6 +175,8 @@ grant_permission(SeCo, ToRoleId, PermissionId) ->
         false ->    ?SecurityException({"Grant permission unauthorized",SeCo})
     end.
 
+revoke_permission(SeCo, AccountName, PermissionId) when is_binary(AccountName) ->
+    revoke_permission(SeCo, if_get_account_id_by_name(SeCo, AccountName), PermissionId);    
 revoke_permission(SeCo, #ddRole{id=FromRoleId}=FromRole, PermissionId) -> 
    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, FromRoleId) of
@@ -171,6 +193,8 @@ revoke_permission(SeCo, FromRoleId, PermissionId) ->
         false ->    ?SecurityException({"Revoke permission unauthorized",SeCo})
     end.
 
+grant_quota(SeCo, AccountName, QuotaId, Value) when is_binary(AccountName) ->
+    grant_quota(SeCo, if_get_account_id_by_name(SeCo, AccountName), QuotaId, Value);    
 grant_quota(SeCo, #ddRole{id=ToRoleId}=ToRole, QuotaId, Value) -> 
    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, ToRoleId) of
@@ -188,6 +212,8 @@ grant_quota(SeCo, ToRoleId, QuotaId, Value) ->
         false ->    ?SecurityException({"Grant quota unauthorized",SeCo})
     end.
 
+revoke_quota(SeCo, AccountName, QuotaId) when is_binary(AccountName) ->
+    revoke_quota(SeCo, if_get_account_id_by_name(SeCo, AccountName), QuotaId);    
 revoke_quota(SeCo, #ddRole{id=FromRoleId}=FromRole, QuotaId) -> 
    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     case if_read(SeCo, ddRole, FromRoleId) of

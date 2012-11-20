@@ -86,7 +86,7 @@ init(_Args) ->
                     User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
                                         ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
                     if_write(none, ddAccount, User),                    
-                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_accounts, manage_system_tables, manage_user_tables]});
+                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
         end,        
         io:format(user, "~p started!~n", [?MODULE]),
