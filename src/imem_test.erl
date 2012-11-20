@@ -15,10 +15,16 @@ if_select_account_by_name(_SeCo, Name) ->
 %% ----- TESTS ------------------------------------------------
 
 setup() ->
-    application:set_env(imem,mnesia_node_type,disc), 
+    application:load(imem),
+    {ok, Schema} = application:get_env(imem, mnesia_schema_name),
+    {ok, Cwd} = file:get_cwd(),
+    NewSchema = Cwd ++ "/../" ++ Schema,
+    application:set_env(imem, mnesia_schema_name, NewSchema),
+    application:set_env(imem, mnesia_node_type, disc),
     application:start(imem).
 
 teardown(_) -> 
+    catch imem_if:drop_table(user_table_123),
     application:stop(imem).
 
 db_test_() ->
@@ -393,7 +399,7 @@ test(_) ->
 
         io:format(user, "----TEST--~p:test_imem_seco~n", [?MODULE])
 
-        %% Cleanup too dangerous for dev setup
+        %% Cleanup too dangerous for dev or prod setup
         % ?assertException(throw, {SeEx,{"Drop seco tables unauthorized",SeCo}}, imem_seco:drop_seco_tables(SeCo)),
         % io:format(user, "success ~p~n", [drop_seco_tables_reject]), 
         % ?assertEqual(ok, imem_role:grant_permission(SeCo, UserId, manage_system_tables)),

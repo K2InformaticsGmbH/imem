@@ -361,6 +361,11 @@ create_table(Table, ColumnNames, Opts, Owner) ->
     imem_if:create_table(Table, ColumnNames, Opts),
     imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts, owner=Owner}).
 
+create_table(Table, {Names, Types, DefaultRecord}, Opts) ->
+    [Table|Defaults] = tuple_to_list(DefaultRecord),
+    ColumnInfos = column_infos(Names, Types, Defaults),
+    imem_if:create_table(Table, ColumnInfos, Opts),
+    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts});
 create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts) ->
     ColumnNames = column_names(ColumnInfos),
     imem_if:create_table(Table, ColumnNames, Opts),
@@ -449,9 +454,18 @@ unsubscribe(EventCategory) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
+    application:load(imem),
+    {ok, Schema} = application:get_env(imem, mnesia_schema_name),
+    {ok, Cwd} = file:get_cwd(),
+    NewSchema = Cwd ++ "/../" ++ Schema,
+    application:set_env(imem, mnesia_schema_name, NewSchema),
+    application:set_env(imem, mnesia_node_type, disc),
     application:start(imem).
 
 teardown(_) ->
+    catch drop_table(meta_table_3),
+    catch drop_table(meta_table_2),
+    catch drop_table(meta_table_1),
     application:stop(imem).
 
 db_test_() ->
@@ -489,7 +503,8 @@ meta_operations(_) ->
 
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
-        ?assertEqual(ok, create_table(meta_table_3, Types3, [])),
+
+        ?assertEqual(ok, create_table(meta_table_3, {[a,nil],[date,nil],{meta_table_3,undefined,undefined}}, [])),
         io:format(user, "success ~p~n", [create_tables]),
 
         Table1 =    {'Imem', meta_table_1, undefined},

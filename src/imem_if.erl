@@ -212,13 +212,12 @@ table_columns(Table) ->
 
 table_size(Table) ->
     try
-        {ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
-        mnesia:wait_for_tables([Table], MnesiaTimeout),
+        mnesia:wait_for_tables([Table], 2000),
         mnesia:table_info(Table, all),
         mnesia:table_info(Table, size)
     catch
-        throw:Error ->                      ?SystemException(Error);
-        _:_ ->                              ?ClientError({"Table does not exist", Table})
+        exit:{aborted,{no_exists,_,all}} -> ?ClientError({"Table does not exist", Table});
+        throw:Error ->                      ?SystemException(Error)
     end.
 
 check_table(Table) ->
@@ -274,11 +273,16 @@ create_table(Table, Opts) when is_atom(Table) ->
             ?ClientError({"Table already exists", Table});
         {aborted, {already_exists, Table, _}} ->
             %% table exists on remote node(s)
-            %% io:format("waiting for table '~p' ...~n", [Table]),
+            %% io:format(user, "waiting for remote table ~p '~p' ...~n", [erlang:now(), Table]),
             mnesia:wait_for_tables([Table], 30000),
-            %% io:format("copying table '~p' ...~n", [Table]),
+            %% io:format(user, "copying table '~p' ...~n", [Table]),
+            %% io:format(user, "table copied ~p '~p' ...~n", [erlang:now(), Table]),
             return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
-        Result -> return_atomic_ok(Result)
+        Result -> 
+            %% io:format(user, "waiting for created table ~p '~p' ...~n", [erlang:now(), Table]),
+            mnesia:wait_for_tables([Table], 30000),
+            %% io:format(user, "table ready ~p '~p' ...~n", [erlang:now(), Table]),
+            return_atomic_ok(Result)
 	end.
 
 drop_table(Table) when is_atom(Table) ->
@@ -431,6 +435,7 @@ setup() ->
     application:start(imem).
 
 teardown(_) ->
+    catch drop_table(imem_table_123),
     application:stop(imem).
 
 db_test_() ->
