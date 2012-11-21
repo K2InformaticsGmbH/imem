@@ -13,6 +13,8 @@
         , exists/2
         , lock/2
         , unlock/2
+        , renew/2
+        , expire/2
         ]).
 
 %% --Interface functions  (calling imem_if for now, not exported) -------------------
@@ -111,18 +113,40 @@ delete(SeKey, AccountId) ->
         false ->    ?SecurityException({"Delete account unauthorized",SeKey})
     end.        
 
+lock(SeKey, Name) when is_binary(Name)->
+    lock(SeKey, get_by_name(SeKey, Name));
 lock(SeKey, #ddAccount{}=Account) -> 
     update(SeKey, Account, Account#ddAccount{locked=true});
 lock(SeKey, AccountId) -> 
     Account = get(SeKey, AccountId),
     update(SeKey,  Account, Account#ddAccount{locked=true}).
 
+unlock(SeKey, Name) when is_binary(Name)->
+    unlock(SeKey, get_by_name(SeKey, Name));
 unlock(SeKey, #ddAccount{}=Account) -> 
     update(SeKey, Account, Account#ddAccount{locked=false,lastFailureTime=undefined});
 unlock(SeKey, AccountId) -> 
     Account = get(SeKey, AccountId),
     update(SeKey, Account, Account#ddAccount{locked=false,lastFailureTime=undefined}).
 
+renew(SeKey, Name) when is_binary(Name)->
+    renew(SeKey, get_by_name(SeKey, Name));
+renew(SeKey, #ddAccount{}=Account) -> 
+    update(SeKey, Account, Account#ddAccount{lastLoginTime=calendar:local_time()});
+renew(SeKey, AccountId) ->
+    Account = get(SeKey, AccountId),
+    update(SeKey, Account, Account#ddAccount{lastLoginTime=calendar:local_time()}).
+
+expire(SeKey, Name) when is_binary(Name)->
+    expire(SeKey, get_by_name(SeKey, Name));
+expire(SeKey, #ddAccount{}=Account) -> 
+    update(SeKey, Account, Account#ddAccount{lastLoginTime=undefined});
+expire(SeKey, AccountId) ->
+    Account = get(SeKey, AccountId),
+    update(SeKey, Account, Account#ddAccount{lastLoginTime=undefined}).
+
+exists(SeKey, Name) when is_binary(Name)->
+    exists(SeKey, get_by_name(SeKey, Name));
 exists(SeKey, #ddAccount{id=AccountId}=Account) ->   %% exists unchanged
     case imem_seco:have_permission(SeKey, manage_accounts) of
         true ->     case if_read(SeKey, ddAccount, AccountId) of

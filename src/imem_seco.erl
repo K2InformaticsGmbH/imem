@@ -385,10 +385,10 @@ login(SKey) ->
     case {if_read(SKey, ddAccount, AccountId), AuthenticationMethod} of
         {[#ddAccount{lastPasswordChangeTime=undefined}], pwdmd5} -> 
             logout(SKey),
-            ?SecurityException({"Password expired. Please change it", AccountId});
+            ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{lastPasswordChangeTime=LastChange}], pwdmd5} when LastChange < PwdExpireDate -> 
             logout(SKey),
-            ?SecurityException({"Password expired. Please change it", AccountId});
+            ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{}=Account], _} ->
             ok = seco_update(SeCo, SeCo#ddSeCo{state=authorized}),
             if_write(SKey, ddAccount, Account#ddAccount{lastLoginTime=calendar:local_time()}),

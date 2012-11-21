@@ -63,3 +63,5 @@
 
 -define(SecurityException(Reason), throw({'SecurityException',Reason})).
 -define(SecurityViolation(Reason), exit({'SecurityViolation',Reason})).
+
+-define(PasswordChangeNeeded, "Password expired. Please change it").

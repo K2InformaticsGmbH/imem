@@ -47,6 +47,36 @@ exec(SeCo, Statement, BlockSize, Schema, IsSec) when is_list(Statement) ->
         {'EXIT', Error} -> {error, Error}
     end;
 
+exec(SKey, {create_user, Name, {identified_by, Password}, Opts}, _Stmt, _Schema, IsSec) ->
+    call_mfa(IsSec, admin_exec, [SKey, imem_account, create, [SKey, user, Name, Name, Password]]),
+    case lists:member({account,lock}, Opts) of 
+        true -> call_mfa(IsSec, admin_exec, [SKey, imem_account, lock, [SKey, Name]]);
+        false -> ok
+    end,
+    case lists:member({password,expire}, Opts) of 
+        true ->  call_mfa(IsSec, admin_exec, [SKey, imem_account, expire, [SKey, Name]]);
+        false -> call_mfa(IsSec, admin_exec, [SKey, imem_account, renew, [SKey, Name]])
+    end;
+
+exec(SKey, {alter_user, Name, {spec, Specs}}, _Stmt, _Schema, IsSec) ->
+    case lists:member({account,unlock}, Specs) of 
+        true -> call_mfa(IsSec, admin_exec, [SKey, imem_account, unlock, [SKey, Name]]);
+        false -> ok
+    end,
+    case lists:member({account,lock}, Specs) of 
+        true -> call_mfa(IsSec, admin_exec, [SKey, imem_account, lock, [SKey, Name]]);
+        false -> ok
+    end,
+    case lists:member({password,expire}, Specs) of 
+        true ->  call_mfa(IsSec, admin_exec, [SKey, imem_account, expire, [SKey, Name]]);
+        false -> ok
+    end,
+    case lists:keyfind(identified_by, 1, Specs) of 
+        {identified_by, NewPassword} ->  
+            call_mfa(IsSec, admin_exec, [SKey, imem_seco, change_credentials, [SKey, {pwdmd5,NewPassword}]]);
+        false -> ok
+    end;
+
 exec(SeCo, {create_table, TableName, Columns}, _Stmt, _Schema, IsSec) ->
     Tab = binary_to_atom(TableName),
     Cols = [binary_to_atom(X) || {X, _} <- Columns],
@@ -176,32 +206,50 @@ db_test_() ->
     }.
     
 test_with_sec(_) ->
-    {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
-    SeCo = imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
-    IsSec = true,
-    io:format(user, "-------- create,insert,select (with security) --------~n", []),
-    ?assertEqual(true, is_integer(SeCo)),
-    ?assertEqual(SeCo, imem_seco:login(SeCo)),
-    ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
-    ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
-    {ok, _Clm, _StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
-    Result0 = call_mfa(IsSec,select,[SeCo,ddTable,?MatchAllKeys]),
-    ?assertMatch({_,true}, Result0),
-    io:format(user, "~n~p~n", [Result0]),
-    Result1 = call_mfa(IsSec,select,[SeCo,all_tables,?MatchAllKeys]),
-    ?assertMatch({_,true}, Result1),
-    io:format(user, "~n~p~n", [Result1]),
-    ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
+    try
+        ClEr = 'ClientError',
+        % SeEx = 'SecurityException',
+
+        {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
+        SeCo = imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
+        IsSec = true,
+        io:format(user, "-------- create,insert,select (with security) --------~n", []),
+        ?assertEqual(true, is_integer(SeCo)),
+        ?assertEqual(SeCo, imem_seco:login(SeCo)),
+        ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
+        {ok, _Clm, _StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
+        Result0 = call_mfa(IsSec,select,[SeCo,ddTable,?MatchAllKeys]),
+        ?assertMatch({_,true}, Result0),
+        io:format(user, "~n~p~n", [Result0]),
+        Result1 = call_mfa(IsSec,select,[SeCo,all_tables,?MatchAllKeys]),
+        ?assertMatch({_,true}, Result1),
+        io:format(user, "~n~p~n", [Result1]),
+        ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)),
+        ?assertEqual(ok, exec(SeCo, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "Imem", IsSec)),
+        ?assertException(throw, {ClEr,{"Account already exists", test_user_1}}, exec(SeCo, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "Imem", IsSec))
+    catch
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        ?assert( true == "all tests completed")
+    end,
+    ok. 
 
 test_without_sec(_) ->
-    SeCo = {},
-    IsSec = false,
-    io:format(user, "-------- create,insert,select (without security) --------~n", []),
-    ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
-    ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
-    {ok, _Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
-    io:format(user, "select ~p~n", [StmtRef]),
-    ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
+    try
+        SeCo = {},
+        IsSec = false,
+        io:format(user, "-------- create,insert,select (without security) --------~n", []),
+        ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
+        {ok, _Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
+        io:format(user, "select ~p~n", [StmtRef]),
+        ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec))
+    catch
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        ?assert( true == "all tests completed")
+    end,
+    ok. 
+
 
 insert_range(_SeCo, 0, _TableName, _Schema, _IsSec) -> ok;
 insert_range(SeCo, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->

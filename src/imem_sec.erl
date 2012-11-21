@@ -532,7 +532,7 @@ test(_) ->
         SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}),
         ?assertEqual(true, is_integer(SeCoUser0)),
         io:format(user, "success ~p~n", [user_authentication]), 
-        ?assertException(throw,{SeEx,{"Password expired. Please change it", _}}, login(SeCoUser0)),
+        ?assertException(throw,{SeEx,{?PasswordChangeNeeded, _}}, login(SeCoUser0)),
         io:format(user, "success ~p~n", [password_expired]), 
         SeCoUser=authenticate(none, someSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}), 
         ?assertEqual(true, is_integer(SeCoUser)),
