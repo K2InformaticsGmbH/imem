@@ -286,20 +286,30 @@ truncate(SKey, Table) ->
     end.
 
 
-select_filter_all(_SKey, [], Acc) ->
-    {Acc, true};
+select_filter_all(_SKey, [], Acc) ->    Acc;
 select_filter_all(SKey, [#ddTable{qname=TableQN}=H|Tail], Acc0) ->
     Acc1 = case have_table_permission(SKey, TableQN, select) of
         true ->     [H|Acc0];
         false ->    Acc0
     end,  
+    select_filter_all(SKey, Tail, Acc1);
+select_filter_all(SKey, [TableQN|Tail], Acc0) ->
+    Acc1 = case have_table_permission(SKey, TableQN, select) of
+        true ->     [TableQN|Acc0];
+        false ->    Acc0
+    end,  
     select_filter_all(SKey, Tail, Acc1).
 
-select_filter_user(_SKey, [], Acc) ->
-    {Acc, true};
+select_filter_user(_SKey, [], Acc) ->   Acc;
 select_filter_user(SKey, [#ddTable{qname=TableQN}=H|Tail], Acc0) ->
     Acc1 = case have_table_ownership(SKey, TableQN) of
         true ->     [H|Acc0];
+        false ->    Acc0
+    end,  
+    select_filter_user(SKey, Tail, Acc1);
+select_filter_user(SKey, [TableQN|Tail], Acc0) ->
+    Acc1 = case have_table_ownership(SKey, TableQN) of
+        true ->     [TableQN|Acc0];
         false ->    Acc0
     end,  
     select_filter_user(SKey, Tail, Acc1).
@@ -311,17 +321,17 @@ select(_SKey, Continuation) ->
 select(SKey, dba_tables, MatchSpec) ->
     case imem_seco:have_permission(SKey, [manage_system_tables]) of
         true ->     
-            select(SKey, ddTable, MatchSpec);
+            imem_meta:select(ddTable, MatchSpec);
         false ->
             ?SecurityException({"Select unauthorized", SKey})
     end;
 select(SKey, user_tables, MatchSpec) ->
     seco_authorized(SKey),
-    {RList,true} = select(SKey, ddTable, MatchSpec),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec),
     {select_filter_user(SKey, RList, []), true};
 select(SKey, all_tables, MatchSpec) ->
     seco_authorized(SKey),
-    {RList,true} = select(SKey, ddTable, MatchSpec),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec),
     {select_filter_all(SKey, RList, []), true};
 select(SKey, Table, MatchSpec) ->
     case have_table_permission(SKey, Table, select) of
@@ -332,17 +342,17 @@ select(SKey, Table, MatchSpec) ->
 select(SKey, dba_tables, MatchSpec, Limit) ->
     case imem_seco:have_permission(SKey, [manage_system_tables]) of
         true ->     
-            select(SKey, ddTable, MatchSpec, Limit);
+            imem_meta:select(ddTable, MatchSpec, Limit);
         false ->
             ?SecurityException({"Select unauthorized", SKey})
     end;
 select(SKey, user_tables, MatchSpec, Limit) ->
     seco_authorized(SKey),
-    {RList,true} = select(SKey, ddTable, MatchSpec, Limit),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec, Limit),
     {select_filter_user(SKey, RList, []), true};
 select(SKey, all_tables, MatchSpec, Limit) ->
     seco_authorized(SKey),
-    {RList,true} = select(SKey, ddTable, MatchSpec, Limit),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec, Limit),
     {select_filter_all(SKey, RList, []), true};
 select(SKey, Table, MatchSpec, Limit) ->
     case have_table_permission(SKey, Table, select) of
@@ -549,7 +559,37 @@ test(_) ->
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, alter)),
         io:format(user, "success ~p~n", [permissions_own_table]),
 
-        %% ?assertException(throw, {SeEx,{"Select unauthorized", SKey}}, select(SeCoUser, dba_tables, MatchSpec),
+        ?assertException(throw, {SeEx,{"Select unauthorized", SeCoUser}}, select(SeCoUser, dba_tables, ?MatchAllKeys)),
+        io:format(user, "success ~p~n", [dba_tables_unauthorized]),
+        {DbaTables, true} = select(SeCoAdmin, dba_tables, ?MatchAllKeys),
+        ?assertEqual(true, lists:member({'Imem',ddAccount}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddPerm}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddQuota}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddRole}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddSeCo}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddTable}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',user_table_123}, DbaTables)),
+        io:format(user, "success ~p~n", [dba_tables]),
+
+        {AdminTables, true} = select(SeCoAdmin, user_tables, ?MatchAllKeys),
+        ?assertEqual(false, lists:member({'Imem',ddAccount}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddPerm}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddQuota}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddRole}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddSeCo}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddTable}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',user_table_123}, AdminTables)),
+        io:format(user, "success ~p~n", [admin_tables]),
+
+        {UserTables, true} = select(SeCoUser, user_tables, ?MatchAllKeys),
+        ?assertEqual(false, lists:member({'Imem',ddAccount}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddPerm}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddQuota}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddRole}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddSeCo}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddTable}, UserTables)),
+        ?assertEqual(true, lists:member({'Imem',user_table_123}, UserTables)),
+        io:format(user, "success ~p~n", [user_tables]),
 
         ?assertEqual(ok, insert(SeCoUser, user_table_123, {"A","B","C"})),
         ?assertEqual(1, table_size(SeCoUser, user_table_123)),
