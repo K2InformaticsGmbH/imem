@@ -280,7 +280,7 @@ seco_create(SessionId, Name, {AuthMethod,_}) ->
 seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AccountId) when Pid == self() -> 
     if_write(SKey, ddSeCo, SeCo#ddSeCo{accountId=AccountId}),
     case if_select_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
-        {[],true} ->    imem_monitor:monitor(Pid);
+        {[],true} ->    monitor(Pid);
         _ ->            ok
     end,
     SKey.    %% hash is returned back to caller
@@ -414,12 +414,12 @@ logout(SKey) ->
     seco_delete(SKey, SKey).
 
 
-clone_seco(SKey, Pid) ->
-    SeCoParent = seco_authenticated(SKey),
+clone_seco(SKeyParent, Pid) ->
+    SeCoParent = seco_authenticated(SKeyParent),
     SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
     SKey = erlang:phash2(SeCo), 
-    if_write(SKey, ddSeCo, SeCo#ddSeCo{skey=SKey}),
-    imem_monitor:monitor(Pid),
+    if_write(SKeyParent, ddSeCo, SeCo#ddSeCo{skey=SKey}),
+    monitor(Pid),
     SKey.
 
 
