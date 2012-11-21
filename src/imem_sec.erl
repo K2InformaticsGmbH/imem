@@ -285,19 +285,65 @@ truncate(SKey, Table) ->
         false ->    ?SecurityException({"Truncate unauthorized", SKey})
     end.
 
+
+select_filter_all(_SKey, [], Acc) ->
+    {Acc, true};
+select_filter_all(SKey, [#ddTable{qname=TableQN}=H|Tail], Acc0) ->
+    Acc1 = case have_table_permission(SKey, TableQN, select) of
+        true ->     [H|Acc0];
+        false ->    Acc0
+    end,  
+    select_filter_all(SKey, Tail, Acc1).
+
+select_filter_user(_SKey, [], Acc) ->
+    {Acc, true};
+select_filter_user(SKey, [#ddTable{qname=TableQN}=H|Tail], Acc0) ->
+    Acc1 = case have_table_ownership(SKey, TableQN) of
+        true ->     [H|Acc0];
+        false ->    Acc0
+    end,  
+    select_filter_user(SKey, Tail, Acc1).
+
+
 select(_SKey, Continuation) ->
         imem_meta:select(Continuation).
 
-select(_SKey, all_tables, _MatchSpec) ->
-    ?UnimplementedException({"Select metadata unimplemented"});
+select(SKey, dba_tables, MatchSpec) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            select(SKey, ddTable, MatchSpec);
+        false ->
+            ?SecurityException({"Select unauthorized", SKey})
+    end;
+select(SKey, user_tables, MatchSpec) ->
+    seco_authorized(SKey),
+    {RList,true} = select(SKey, ddTable, MatchSpec),
+    {select_filter_user(SKey, RList, []), true};
+select(SKey, all_tables, MatchSpec) ->
+    seco_authorized(SKey),
+    {RList,true} = select(SKey, ddTable, MatchSpec),
+    {select_filter_all(SKey, RList, []), true};
 select(SKey, Table, MatchSpec) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:select(Table, MatchSpec) ;
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
-select(_SKey, all_tables, _MatchSpec, _Limit) ->
-    ?UnimplementedException({"Select metadata unimplemented"});
+select(SKey, dba_tables, MatchSpec, Limit) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            select(SKey, ddTable, MatchSpec, Limit);
+        false ->
+            ?SecurityException({"Select unauthorized", SKey})
+    end;
+select(SKey, user_tables, MatchSpec, Limit) ->
+    seco_authorized(SKey),
+    {RList,true} = select(SKey, ddTable, MatchSpec, Limit),
+    {select_filter_user(SKey, RList, []), true};
+select(SKey, all_tables, MatchSpec, Limit) ->
+    seco_authorized(SKey),
+    {RList,true} = select(SKey, ddTable, MatchSpec, Limit),
+    {select_filter_all(SKey, RList, []), true};
 select(SKey, Table, MatchSpec, Limit) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:select(Table, MatchSpec, Limit) ;
@@ -404,11 +450,11 @@ teardown(_) ->
     {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
     SeKey=imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
     SeKey=imem_seco:login(SeKey),
-    imem_account:delete(SeKey, <<"test">>),
-    imem_account:delete(SeKey, <<"test_admin">>),
-    imem_role:delete(SeKey, table_creator),
-    imem_role:delete(SeKey, test_role),
-    imem_seco:logout(SeKey),
+    catch imem_account:delete(SeKey, <<"test_user_123">>),
+    % catch imem_account:delete(SeKey, <<"test">>),
+    catch imem_role:delete(SeKey, table_creator),
+    catch imem_role:delete(SeKey, test_role),
+    catch imem_seco:logout(SeKey),
     catch imem_meta:drop_table(user_table_123),
     application:stop(imem).
 
@@ -425,6 +471,8 @@ db_test_() ->
 test(_) ->
     try
         ClEr = 'ClientError',
+        SeEx = 'SecurityException',
+
         % CoEx = 'ConcurrencyException',
         % SeEx = 'SecurityException',
         % SeVi = 'SecurityViolation',
@@ -459,6 +507,7 @@ test(_) ->
 
         io:format(user, "----TEST--~p:test_admin_exec~n", [?MODULE]),
 
+        io:format(user, "accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [SeCoAdmin, user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
         io:format(user, "success ~p~n", [account_create_user]),
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [SeCoAdmin, <<"test_user_123">>, create_table])),
@@ -466,10 +515,16 @@ test(_) ->
      
         io:format(user, "----TEST--~p:test_user_login~n", [?MODULE]),
 
-        SeCoUser=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}),
+        SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}),
+        ?assertEqual(true, is_integer(SeCoUser0)),
+        io:format(user, "success ~p~n", [user_authentication]), 
+        ?assertException(throw,{SeEx,{"Password expired. Please change it", _}}, login(SeCoUser0)),
+        io:format(user, "success ~p~n", [password_expired]), 
+        SeCoUser=authenticate(none, someSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}), 
         ?assertEqual(true, is_integer(SeCoUser)),
         io:format(user, "success ~p~n", [user_authentication]), 
-        ?assertEqual(SeCoUser, login(SeCoUser)),
+        ?assertEqual(SeCoUser, change_credentials(SeCoUser, {pwdmd5,"PasswordMd5"}, {pwdmd5,"NewPasswordMd5"})),
+        io:format(user, "success ~p~n", [password_changed]), 
 
         ?assertEqual(ok, create_table(SeCoUser, user_table_123, [a,b,c], [])),
         io:format(user, "success ~p~n", [create_user_table]),
@@ -494,6 +549,8 @@ test(_) ->
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, alter)),
         io:format(user, "success ~p~n", [permissions_own_table]),
 
+        %% ?assertException(throw, {SeEx,{"Select unauthorized", SKey}}, select(SeCoUser, dba_tables, MatchSpec),
+
         ?assertEqual(ok, insert(SeCoUser, user_table_123, {"A","B","C"})),
         ?assertEqual(1, table_size(SeCoUser, user_table_123)),
         io:format(user, "success ~p~n", [insert_own_table]),
@@ -503,13 +560,14 @@ test(_) ->
         ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),
         io:format(user, "success ~p~n", [drop_own_table]),
         ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
+        io:format(user, "success ~p~n", [drop_own_table_no_exists]),
 
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [SeCoAdmin, <<"test_user_123">>])),
         io:format(user, "success ~p~n", [account_create_user])
 
     catch
         Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        throw ({Class, Reason})
+        ?assert( true == "all tests completed")
     end,
     ok.
 
