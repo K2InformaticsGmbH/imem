@@ -403,6 +403,8 @@ data_nodes() ->
 all_tables() ->
     imem_if:all_tables().
 
+table_columns(all_tables) ->
+    table_columns(ddTable);
 table_columns(Table) ->
     imem_if:table_columns(Table).
 
