@@ -1,5 +1,7 @@
 -module(imem_statement).
 
+-include("imem_seco.hrl").
+
 %% gen_server
 -behaviour(gen_server).
 -export([
@@ -137,6 +139,13 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 
+if_select_account_by_name(_SeCo, Name) -> 
+    MatchHead = #ddAccount{name='$1', _='_'},
+    Guard = {'==', '$1', Name},
+    Result = '$_',
+    imem_meta:select(ddAccount, [{MatchHead, [Guard], [Result]}]).    
+
+
 % EUnit tests --
 
 -include_lib("eunit/include/eunit.hrl").
@@ -166,14 +175,21 @@ db_test_() ->
     }.
     
 test_with_sec(_) ->
-    SeCo = imem_seco:authenticate(adminSessionId, <<"admin">>, imem_seco:create_credentials(<<"change_on_install">>)),
-    IsSec = false,
+    {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
+    SeCo = imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
+    IsSec = true,
     io:format(user, "-------- create,insert,select (with security) --------~n", []),
     ?assertEqual(true, is_integer(SeCo)),
     ?assertEqual(SeCo, imem_seco:login(SeCo)),
     ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
     ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
     {ok, _Clm, _StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
+    Result0 = call_mfa(IsSec,select,[SeCo,ddTable,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+    ?assertMatch({_,true}, Result0),
+    io:format(user, "~n~p~n", [Result0]),
+    Result1 = call_mfa(IsSec,select,[SeCo,all_tables,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+    ?assertMatch({_,true}, Result1),
+    io:format(user, "~n~p~n", [Result1]),
     ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
 
 test_without_sec(_) ->

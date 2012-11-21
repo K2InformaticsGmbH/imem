@@ -35,6 +35,7 @@
         , login/1
         , change_credentials/3
         , logout/1
+        , clone_seco/2
         ]).
 
 -export([ create_table/4
@@ -68,6 +69,9 @@ change_credentials(SKey, OldCred, NewCred) ->
 
 logout(SKey) ->
     imem_seco:logout(SKey).
+
+clone_seco(SKey, Pid) ->
+    imem_seco:clone_seco(SKey, Pid).
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 

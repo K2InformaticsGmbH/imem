@@ -37,6 +37,7 @@
         , login/1
         , change_credentials/3
         , logout/1
+        , clone_seco/2
         ]).
 
 -export([ has_role/3
@@ -411,4 +412,15 @@ change_credentials(SKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
 
 logout(SKey) ->
     seco_delete(SKey, SKey).
+
+
+clone_seco(SKey, Pid) ->
+    SeCoParent = seco_authenticated(SKey),
+    SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
+    SKey = erlang:phash2(SeCo), 
+    if_write(SKey, ddSeCo, SeCo#ddSeCo{skey=SKey}),
+    imem_monitor:monitor(Pid),
+    SKey.
+
+
 
