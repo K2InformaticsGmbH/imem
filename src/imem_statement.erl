@@ -1,5 +1,7 @@
 -module(imem_statement).
 
+-include("imem_if.hrl").
+
 %% gen_server
 -behaviour(gen_server).
 -export([
@@ -113,7 +115,8 @@ handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
     #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
     case TableName of
     all_tables ->
-        Rows = call_mfa(IsSec,select,[SeCo,TableName,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+        %Rows = call_mfa(IsSec,select,[SeCo,TableName,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+        Rows = call_mfa(IsSec,select,[SeCo,TableName,?MatchAllKeys]),
         gen_tcp:send(Sock, term_to_binary({ok, Rows})),
         {noreply,State};
     TableName ->
