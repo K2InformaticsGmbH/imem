@@ -111,9 +111,21 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
     #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
-    {NewKey, Rows} = call_mfa(IsSec,read_block,[SeCo,TableName, Key, BlockSize]),
-    gen_tcp:send(Sock, term_to_binary({ok, Rows})),
-    {noreply,State#state{statement=Stmt#statement{key=NewKey}}};
+    case TableName of
+    all_tables ->
+        Rows = call_mfa(IsSec,select,[SeCo,TableName,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+        gen_tcp:send(Sock, term_to_binary({ok, Rows})),
+        {noreply,State};
+    TableName ->
+        {NewKey, Rows} = call_mfa(IsSec,read_block,[SeCo,TableName, Key, BlockSize]),
+        gen_tcp:send(Sock, term_to_binary({ok, Rows})),
+        {noreply,State#state{statement=Stmt#statement{key=NewKey}}}
+    end;
+%handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
+%    #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
+%    {NewKey, Rows} = call_mfa(IsSec,read_block,[SeCo,TableName, Key, BlockSize]),
+%    gen_tcp:send(Sock, term_to_binary({ok, Rows})),
+%    {noreply,State#state{statement=Stmt#statement{key=NewKey}}};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
