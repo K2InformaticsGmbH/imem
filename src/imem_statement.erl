@@ -115,7 +115,8 @@ handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
     #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
     case TableName of
     all_tables ->
-        Rows = call_mfa(IsSec,select,[SeCo,TableName,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+        %Rows = call_mfa(IsSec,select,[SeCo,TableName,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+        Rows = call_mfa(IsSec,select,[SeCo,TableName,?MatchAllKeys]),
         gen_tcp:send(Sock, term_to_binary({ok, Rows})),
         {noreply,State};
     TableName ->
@@ -184,10 +185,10 @@ test_with_sec(_) ->
     ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
     ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
     {ok, _Clm, _StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
-    Result0 = call_mfa(IsSec,select,[SeCo,ddTable,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+    Result0 = call_mfa(IsSec,select,[SeCo,ddTable,?MatchAllKeys]),
     ?assertMatch({_,true}, Result0),
     io:format(user, "~n~p~n", [Result0]),
-    Result1 = call_mfa(IsSec,select,[SeCo,all_tables,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
+    Result1 = call_mfa(IsSec,select,[SeCo,all_tables,?MatchAllKeys]),
     ?assertMatch({_,true}, Result1),
     io:format(user, "~n~p~n", [Result1]),
     ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
