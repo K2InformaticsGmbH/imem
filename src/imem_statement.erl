@@ -16,9 +16,9 @@
         , read_block/4
         ]).
 
--record(state, {
-    statement
-}).
+-record(state, { statement
+               , seco
+               }).
 
 -record(statement, {
         table = undefined
@@ -85,13 +85,14 @@ exec(SeCo, {select, Params}, Stmt, _Schema, IsSec) ->
                 table = TableName
                 , cols = Clms
             },
-            {ok, StmtRef} = create_stmt(Statement),
+            {ok, StmtRef} = create_stmt(Statement, SeCo, IsSec),
             io:format(user,"select params ~p in ~p~n", [{Columns, Clms}, TableName]),
             {ok, Clms, StmtRef}
     end.
 
-read_block(SeCo, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {read_block, Sock, SeCo, IsSec}).
+% statement has its own SeCo
+read_block(_SeCo, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {read_block, Sock, IsSec}).
 
 binary_to_atom(Bin) when is_binary(Bin) -> list_to_atom(binary_to_list(Bin)).
 
@@ -102,21 +103,28 @@ call_mfa(IsSec,Fun,Args) ->
     end.
 
 %% gen_server
-create_stmt(Statement) ->
-    gen_server:start(?MODULE, [Statement], []).
+create_stmt(Statement, SeCo, IsSec) ->
+    case IsSec of
+        false -> gen_server:start(?MODULE, [Statement], []);
+        _ ->
+            {ok,Pid} = gen_server:start(?MODULE, [Statement], []),            
+            NewSeCo = imem_sec:clone_seco(SeCo, Pid),
+            ok = gen_server:call(Pid, {set_seco, NewSeCo}),
+            {ok,Pid}
+    end.
 
 init([Statement]) ->
     {ok, #state{statement=Statement}}.
 
-handle_call(_Msg, _From, State) ->
-    {reply,ok,State}.
+handle_call({set_seco, SeCo}, _From, State) ->    
+    {reply,ok,State#state{seco=SeCo}}.
 
-handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
+handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt,seco=SeCo}=State) ->
     #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
     case TableName of
     all_tables ->
         %Rows = call_mfa(IsSec,select,[SeCo,TableName,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
-        Rows = call_mfa(IsSec,select,[SeCo,TableName,?MatchAllKeys]),
+        {Rows, true} = call_mfa(IsSec,select,[SeCo,TableName,?MatchAllKeys]),
         gen_tcp:send(Sock, term_to_binary({ok, Rows})),
         {noreply,State};
     TableName ->
