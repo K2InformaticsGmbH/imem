@@ -425,6 +425,8 @@ select(all_tables, MatchSpec) ->
 select(Table, MatchSpec) ->
     imem_if:select(Table, MatchSpec).
 
+select(Table, MatchSpec, 0) ->
+    select(Table, MatchSpec);
 select(all_tables, MatchSpec, Limit) ->
     select(ddTable, MatchSpec, Limit);
 select(Table, MatchSpec, Limit) ->

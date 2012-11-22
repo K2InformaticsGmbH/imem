@@ -402,8 +402,8 @@ select_sort(Table, MatchSpec, Limit) ->
     {lists:sort(Result), AllRead}.
 
 read_block(Table, Key, BlockSize)                       -> read_block(Table, Key, BlockSize, []).
-read_block(_, '$end_of_table' = Key, _, Acc)            -> {Key, Acc};
-read_block(_, Key, BlockSize, Acc) when BlockSize =< 0  -> {Key, Acc};
+read_block(_, '$end_of_table' = Key, _, Acc)            -> {Acc, Key};
+read_block(_, Key, BlockSize, Acc) when BlockSize =< 0  -> {Acc, Key};
 read_block(Table, '$start_of_table', BlockSize, Acc)    -> read_block(Table, mnesia:dirty_first(Table), BlockSize, Acc);
 read_block(Table, Key, BlockSize, Acc) ->
     Rows = mnesia:dirty_read(Table, Key),

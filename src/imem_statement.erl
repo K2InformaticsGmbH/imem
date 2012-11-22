@@ -14,6 +14,7 @@
 
 -export([ exec/5
         , create_stmt/3
+        , select/4
         , read_block/4
         ]).
 
@@ -22,9 +23,12 @@
                }).
 
 exec(SKey, Statement, BlockSize, Schema, IsSec) ->
-    imem_sql:exec(SKey, Statement, BlockSize, Schema, IsSec).
+    imem_sql:exec(SKey, Statement, BlockSize, Schema, IsSec).   %% ToDo: remove this (in imem_sql now)
 
 % statement has its own SKey
+select(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {select, Sock, IsSec}).
+
 read_block(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {read_block, Sock, IsSec}).
 
@@ -33,10 +37,10 @@ create_stmt(Statement, SKey, IsSec) ->
     case IsSec of
         false -> gen_server:start(?MODULE, [Statement], []);
         _ ->
-            {ok,Pid} = gen_server:start(?MODULE, [Statement], []),            
+            {ok, Pid} = gen_server:start(?MODULE, [Statement], []),            
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
-            {ok,Pid}
+            {ok, Pid}
     end.
 
 
@@ -46,22 +50,36 @@ init([Statement]) ->
 handle_call({set_seco, SKey}, _From, State) ->    
     {reply,ok,State#state{seco=SKey}}.
 
-handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt,seco=SKey}=State) ->
-    #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
+handle_cast({select, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
+    #statement{table=Table, key=Key, limit=Limit, matchspec=Matchspec} = Stmt,
     {Result, NewState} =
-    case TableName of
-    all_tables ->
-        {Rows, true} = if_call_mfa(IsSec,select,[SKey,TableName,?MatchAllKeys]),
-        {term_to_binary({ok, Rows}),State};
-    TableName ->
-        {NewKey, Rows} = if_call_mfa(IsSec,read_block,[SKey,TableName, Key, BlockSize]),
-        {term_to_binary({ok, Rows}),State#state{statement=Stmt#statement{key=NewKey}}}
+    try
+        {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, Matchspec, Limit]),
+        {term_to_binary({Rows, Complete}), State}
+    catch
+        Class:Reason -> {Class, Reason}
     end,
     case Sock of
         Pid when is_pid(Pid)    -> Pid ! Result;
         Sock                    -> gen_tcp:send(Sock, Result)
     end,
-    {noreply,NewState};  
+    {noreply, NewState};  
+handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
+    #statement{table=Table, key=Key, block_size=BlockSize} = Stmt,
+    {Result, NewState} = 
+    try
+        case if_call_mfa(IsSec, read_block, [SKey, Table, Key, BlockSize]) of
+            {Rows, ?eot} ->   {term_to_binary({Rows, true}), State#state{statement=Stmt#statement{key=?eot}}};  
+            {Rows, NewKey} -> {term_to_binary({Rows, false}), State#state{statement=Stmt#statement{key=NewKey}}}
+        end
+    catch
+        Class:Reason -> {Class, Reason}
+    end,
+    case Sock of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end,
+    {noreply, NewState};  
 %handle_cast({read_block, Sock, SKey, IsSec}, #state{statement=Stmt}=State) ->
 %    #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
 %    {NewKey, Rows} = call_mfa(IsSec,read_block,[SKey,TableName, Key, BlockSize]),

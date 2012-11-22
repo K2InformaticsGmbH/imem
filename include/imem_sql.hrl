@@ -8,4 +8,7 @@
         , stmt_str = ""                     ::string()
         , stmt_parse = undefined            ::any()
         , cols = []                         ::list()
+        , matchspec = undefined 			::list()
+        , limit = 0							::integer()
+        , continuation = undefined  		::any()
     }).

@@ -24,6 +24,7 @@ exec(SeCo, {select, Params}, Stmt, _Schema, IsSec) ->
             Statement = Stmt#statement {
                 table = TableName
                 , cols = Clms
+                , matchspec = ?MatchAllKeys
             },
             {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
             io:format(user,"select params ~p in ~p~n", [{Columns, Clms}, TableName]),
@@ -73,16 +74,41 @@ test_with_or_without_sec(IsSec) ->
         % SeEx = 'SecurityException',
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
         SKey=?imem_test_admin_login(),
+
+        Result0 = if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 5]),
+        io:format(user, "ddTable result~n~p~n", [Result0]),
+        {List0, false} = Result0,
+        ?assertEqual(5, length(List0)),
+
+        Result1 = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
+        io:format(user, "all_tables result~n~p~n", [Result1]),
+        {List1, true} = Result1,
+        AllTableCount = length(List1),
+        ?assert(AllTableCount > 5),
+
         ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 integer, col2 integer);", 0, "Imem", IsSec)),
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
-        {ok, _Clm, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, "Imem", IsSec),
-        Result0 = if_call_mfa(IsSec,select,[SKey,ddTable,?MatchAllKeys]),
-        ?assertMatch({_,true}, Result0),
-        io:format(user, "~n~p~n", [Result0]),
-        Result1 = if_call_mfa(IsSec,select,[SKey,all_tables,?MatchAllKeys]),
-        ?assertMatch({_,true}, Result1),
-        io:format(user, "~n~p~n", [Result1]),
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec))
+ 
+        {ok, _Clm2, StmtRef2} = imem_sql:exec(SKey, "select col1 from def;", 100, "Imem", IsSec),
+        ?assertEqual(ok, imem_statement:read_block(SKey, StmtRef2, self(), IsSec)),
+        Result2 = receive 
+            R2 ->    binary_to_term(R2)
+        end,
+        io:format(user, "read_block result~n~p~n", [Result2]),
+        {List2, true} = Result2,
+        ?assertEqual(10, length(List2)),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
+
+        {ok, _Clm3, StmtRef3} = imem_sql:exec(SKey, "select qname from ddTable;", 100, "Imem", IsSec),
+        ?assertEqual(ok, imem_statement:select(SKey, StmtRef3, self(), IsSec)),
+        Result3 = receive 
+            R3 ->    binary_to_term(R3)
+        end,
+        io:format(user, "read_block result~n~p~n", [Result3]),
+        {List3, true} = Result3,
+        ?assertEqual(AllTableCount, length(List3))
+
     catch
         Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")

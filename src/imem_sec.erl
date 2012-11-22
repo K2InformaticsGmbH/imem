@@ -337,6 +337,8 @@ select(SKey, Table, MatchSpec) ->
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
+select(SKey, Table, MatchSpec, 0) ->
+    select(SKey, Table, MatchSpec);
 select(SKey, dba_tables, MatchSpec, Limit) ->
     case imem_seco:have_permission(SKey, [manage_system_tables]) of
         true ->     
