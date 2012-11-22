@@ -100,12 +100,12 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
 
-        {ok, _Clm3, StmtRef3} = imem_sql:exec(SKey, "select qname from ddTable;", 100, "Imem", IsSec),
+        {ok, _Clm3, StmtRef3} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:select(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    binary_to_term(R3)
         end,
-        io:format(user, "read_block result~n~p~n", [Result3]),
+        io:format(user, "select result~n~p~n", [Result3]),
         {List3, true} = Result3,
         ?assertEqual(AllTableCount, length(List3))
 
