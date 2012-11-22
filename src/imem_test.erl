@@ -1,39 +1,23 @@
 -module(imem_test).
 
--include_lib("eunit/include/eunit.hrl").
-
 -include("imem_seco.hrl").
-
-
-if_select_account_by_name(_SeCo, Name) -> 
-    MatchHead = #ddAccount{name='$1', _='_'},
-    Guard = {'==', '$1', Name},
-    Result = '$_',
-    imem_meta:select(ddAccount, [{MatchHead, [Guard], [Result]}]).
-
 
 %% ----- TESTS ------------------------------------------------
 
+-include_lib("eunit/include/eunit.hrl").
+
 setup() ->
-    application:load(imem),
-    {ok, Schema} = application:get_env(imem, mnesia_schema_name),
-    {ok, Cwd} = file:get_cwd(),
-    NewSchema = Cwd ++ "/../" ++ Schema,
-    application:set_env(imem, mnesia_schema_name, NewSchema),
-    application:set_env(imem, mnesia_node_type, disc),
-    application:start(imem).
+    ?imem_test_setup().
 
 teardown(_) ->
-    {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
-    SeKey=imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
-    SeKey=imem_seco:login(SeKey),
-    imem_account:delete(SeKey, <<"test">>),
-    imem_account:delete(SeKey, <<"test_admin">>),
-    imem_role:delete(SeKey, table_creator),
-    imem_role:delete(SeKey, test_role),
-    imem_seco:logout(SeKey),
+    SKey = ?imem_test_admin_login(),
+    catch imem_account:delete(SKey, <<"test">>),
+    catch imem_account:delete(SKey, <<"test_admin">>),
+    catch imem_role:delete(SKey, table_creator),
+    catch imem_role:delete(SKey, test_role),
+    catch imem_seco:logout(SKey),
     catch imem_meta:drop_table(user_table_123),
-    application:stop(imem).
+    ?imem_test_teardown().
 
 db_test_() ->
     {
@@ -53,7 +37,7 @@ test(_) ->
         SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
-        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+        io:format(user, "----TEST--~p~n", [?MODULE]),
 
         ?assertEqual('Imem', imem_meta:schema()),
         io:format(user, "success ~p~n", [schema]),
@@ -78,12 +62,7 @@ test(_) ->
         UserCredNew={pwdmd5, erlang:md5(<<"test_5a6d7m8i9n">>)},
         User = #ddAccount{id=UserId,name=UserName,credentials=[UserCred],fullName= <<"TestAdmin">>},
 
-        {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
-        io:format(user, "success ~p~n", [admin_credentials]), 
-        SeCoAdmin0=imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
-        ?assertEqual(true, is_integer(SeCoAdmin0)),
-        io:format(user, "success ~p~n", [admin_authentication]), 
-        ?assertEqual(SeCoAdmin0, imem_seco:login(SeCoAdmin0)),
+        SeCoAdmin0=?imem_test_admin_login(),
         io:format(user, "success ~p~n", [admin_login]),
         ?assertEqual(1, imem_sec:table_size(SeCoAdmin0, ddPerm)),    
         ?assertEqual(1, imem_sec:table_size(SeCoAdmin0, ddSeCo)),
@@ -96,8 +75,7 @@ test(_) ->
         ?assertException(throw,{'SecurityException',{"Not logged in", SeCoAdmin0}}, imem_sec:table_size(SeCoAdmin0, ddSeCo)),
         ?assertException(throw,{'SecurityException',{"Not logged in", SeCoAdmin0}}, imem_account:create(SeCoAdmin0, User)),
         io:format(user, "success ~p~n", [admin_logged_out]),
-        SeCoAdmin1=imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
-        ?assertEqual(SeCoAdmin1, imem_seco:login(SeCoAdmin1)),
+        SeCoAdmin1=?imem_test_admin_login(),
         io:format(user, "success ~p~n", [admin_re_login]),
         ?assertEqual(1, imem_sec:table_size(SeCoAdmin1, ddSeCo)),
         io:format(user, "success ~p~n", [seco_table_size]), 

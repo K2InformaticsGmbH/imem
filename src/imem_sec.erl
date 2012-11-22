@@ -73,7 +73,7 @@ logout(SKey) ->
 clone_seco(SKey, Pid) ->
     imem_seco:clone_seco(SKey, Pid).
 
-%% one to one from imme_if -------------- HELPER FUNCTIONS ------
+%% from imem_meta --- HELPER FUNCTIONS do not export!! --------
 
 if_read(_SKey, Table, Key) -> 
     imem_meta:read(Table, Key).
@@ -99,12 +99,6 @@ if_meta_field_value(SKey, user) ->
     Name;
 if_meta_field_value(_SKey, Name) ->
     imem_meta:meta_field_value(Name).
-
-if_select_account_by_name(_SeCo, Name) -> 
-    MatchHead = #ddAccount{name='$1', _='_'},
-    Guard = {'==', '$1', Name},
-    Result = '$_',
-    imem_meta:select(ddAccount, [{MatchHead, [Guard], [Result]}]).    
 
 add_attribute(_SKey, A, Opts) -> 
     imem_meta:add_attribute(A, Opts).
@@ -172,13 +166,13 @@ table_size(SKey, Table) ->
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
-check_table(_SeKey, Table) ->
+check_table(_SKey, Table) ->
     imem_meta:check_table(Table).
 
-check_table_record(_SeKey, Table, ColumnNames) ->
+check_table_record(_SKey, Table, ColumnNames) ->
     imem_meta:check_table_record(Table, ColumnNames).
 
-check_table_columns(_SeKey, Table, ColumnInfo) ->
+check_table_columns(_SKey, Table, ColumnInfo) ->
     imem_meta:check_table_columns(Table, ColumnInfo).
 
 subscribe(SKey, {table, Table, Level}) ->
@@ -397,8 +391,8 @@ seco_authorized(SKey) ->
     case imem_meta:read(ddSeCo, SKey) of
         [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> 
             SeCo;
-        [#ddSeCo{}] ->      
-            ?SecurityViolation({"Not logged in", SKey});
+        [#ddSeCo{pid=Pid}] ->      
+            ?SecurityViolation({"Not logged in", {SKey,Pid}});
         [] ->               
             ?SecurityException({"Not logged in", SKey})
     end.   
@@ -451,26 +445,17 @@ get_permission_cache(SKey, Permission) ->
 
 %% ----- TESTS ------------------------------------------------
 
-setup() ->
-    application:load(imem),
-    {ok, Schema} = application:get_env(imem, mnesia_schema_name),
-    {ok, Cwd} = file:get_cwd(),
-    NewSchema = Cwd ++ "/../" ++ Schema,
-    application:set_env(imem, mnesia_schema_name, NewSchema),
-    application:set_env(imem, mnesia_node_type, disc),
-    application:start(imem).
+setup() -> 
+    ?imem_test_setup().
 
-teardown(_) ->
-    {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
-    SeKey=imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
-    SeKey=imem_seco:login(SeKey),
-    catch imem_account:delete(SeKey, <<"test_user_123">>),
-    % catch imem_account:delete(SeKey, <<"test">>),
-    catch imem_role:delete(SeKey, table_creator),
-    catch imem_role:delete(SeKey, test_role),
-    catch imem_seco:logout(SeKey),
+teardown(_) -> 
+    SKey=?imem_test_admin_login(),
+    catch imem_account:delete(SKey, <<"test_user_123">>),
+    catch imem_role:delete(SKey, table_creator),
+    catch imem_role:delete(SKey, test_role),
+    catch imem_seco:logout(SKey),
     catch imem_meta:drop_table(user_table_123),
-    application:stop(imem).
+    ?imem_test_teardown().
 
 db_test_() ->
     {
@@ -501,12 +486,7 @@ test(_) ->
 
         io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
 
-        {[#ddAccount{credentials=[AdminCred|_]}],true} = if_select_account_by_name(none, <<"admin">>),
-        io:format(user, "success ~p~n", [admin_credentials]), 
-        SeCoAdmin=authenticate(none, adminSessionId, <<"admin">>, AdminCred),
-        ?assertEqual(true, is_integer(SeCoAdmin)),
-        io:format(user, "success ~p~n", [admin_authentication]), 
-        ?assertEqual(SeCoAdmin, login(SeCoAdmin)),
+        SeCoAdmin=?imem_test_admin_login(),
         io:format(user, "success ~p~n", [admin_login]),
         ?assert(1 =< table_size(SeCoAdmin, ddSeCo)),
         io:format(user, "success ~p~n", [seco_table_size]), 

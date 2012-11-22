@@ -286,7 +286,11 @@ create_table(Table, Opts) when is_atom(Table) ->
 	end.
 
 drop_table(Table) when is_atom(Table) ->
-    return_atomic_ok(mnesia:delete_table(Table)).
+    case mnesia:delete_table(Table) of
+        {atomic,ok} ->                  ok;
+        {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
+        Error ->                        ?SystemException(Error)
+    end.
 
 create_index(Table, Column) ->
     case mnesia:add_table_index(Table, Column) of

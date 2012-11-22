@@ -10,6 +10,7 @@
         , get_by_name/2
         , update/3
         , delete/2
+        , delete/3
         , exists/2
         , lock/2
         , unlock/2
@@ -48,19 +49,19 @@ create(SeKey, #ddAccount{id=AccountId, name=Name}=Account) when is_binary(Name) 
     case imem_seco:have_permission(SeKey, manage_accounts) of
         true ->     case if_read(SeKey, ddAccount, AccountId) of
                         [#ddAccount{}] ->  
-                            ?ClientError({"Account already exists",AccountId});
+                            ?ClientError({"Account already exists", AccountId});
                         [] ->   
                             case if_select_account_by_name(SeKey, Name) of
                                 {[],true} ->   
                                     ok = if_write(SeKey, ddAccount, Account),
                                     try
-                                        ok=imem_role:create(SeKey,AccountId)
+                                        ok=imem_role:create(SeKey, AccountId)
                                     catch
                                         _:Error ->  %% simple transaction rollback
-                                                        delete(SeKey, Account),
-                                                        ?SystemException(Error)
+                                                    delete(SeKey, Account),
+                                                    ?SystemException(Error)
                                     end;
-                                {[#ddAccount{}],true} ->    ?ClientError({"Account name already exists for",Name})
+                                {[#ddAccount{}],true} ->    ?ClientError({"Account already exists", Name})
                             end
                     end;
         false ->    ?SecurityException({"Create account unauthorized",SeKey})
@@ -93,6 +94,11 @@ update(SeKey, #ddAccount{id=AccountId}=Account, AccountNew) ->
                     end;
         false ->    ?SecurityException({"Update account unauthorized",SeKey})
     end.    
+
+delete(SeKey, Name, []) ->
+    delete(SeKey, Name);
+delete(_SeKey, _Name, Opts) ->
+    ?UnimplementedException({"Unimplemented account delete option", Opts}).   %% ToDo: [cascade]
 
 delete(SeKey, Name) when is_binary(Name)->
     delete(SeKey, get_by_name(SeKey, Name));
