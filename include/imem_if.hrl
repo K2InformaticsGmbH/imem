@@ -10,3 +10,22 @@
 -define(ConcurrencyException(Reason), throw({'ConcurrencyException',Reason})).
 -define(UnimplementedException(Reason), throw({'UnimplementedException',Reason})).
 
+%% HELPER FUNCTIONS (do not export!!) --------------------------------------
+
+-define(binary_to_atom(Bin), list_to_atom(binary_to_list(Bin))).
+
+-define(imem_test_setup, fun() ->
+      application:load(imem),
+      {ok, Schema} = application:get_env(imem, mnesia_schema_name),
+      {ok, Cwd} = file:get_cwd(),
+      NewSchema = Cwd ++ "/../" ++ Schema,
+      application:set_env(imem, mnesia_schema_name, NewSchema),
+      application:set_env(imem, mnesia_node_type, disc),
+      application:start(imem)
+    end
+    ).
+
+-define(imem_test_teardown, fun() ->
+      application:stop(imem)
+    end
+    ).

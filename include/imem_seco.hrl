@@ -65,3 +65,12 @@
 -define(SecurityViolation(Reason), exit({'SecurityViolation',Reason})).
 
 -define(PasswordChangeNeeded, "Password expired. Please change it").
+
+-define(imem_test_admin_login, fun() -> MatchHead = #ddAccount{name='$1', _='_'},
+      Guard = {'==', '$1', <<"admin">>},
+      Result = '$_',
+      {[#ddAccount{credentials=[AdminCred|_]}],true} = imem_meta:select(ddAccount, [{MatchHead, [Guard], [Result]}]),    
+      SKey = imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
+      imem_seco:login(SKey)
+    end 
+    ).
