@@ -151,17 +151,20 @@ handle_call({set_seco, SeCo}, _From, State) ->
 
 handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt,seco=SeCo}=State) ->
     #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
+    {Result, NewState} =
     case TableName of
     all_tables ->
-        %Rows = call_mfa(IsSec,select,[SeCo,TableName,[{{ddTable,'$1','_','_','_','_'},[],['$1']}]]),
         {Rows, true} = call_mfa(IsSec,select,[SeCo,TableName,?MatchAllKeys]),
-        gen_tcp:send(Sock, term_to_binary({ok, Rows})),
-        {noreply,State};
+        {term_to_binary({ok, Rows}),State};
     TableName ->
         {NewKey, Rows} = call_mfa(IsSec,read_block,[SeCo,TableName, Key, BlockSize]),
-        gen_tcp:send(Sock, term_to_binary({ok, Rows})),
-        {noreply,State#state{statement=Stmt#statement{key=NewKey}}}
-    end;
+        {term_to_binary({ok, Rows}),State#state{statement=Stmt#statement{key=NewKey}}}
+    end,
+    case Sock of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end,
+    {noreply,NewState};
 %handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
 %    #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
 %    {NewKey, Rows} = call_mfa(IsSec,read_block,[SeCo,TableName, Key, BlockSize]),
