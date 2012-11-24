@@ -14,8 +14,9 @@
 
 -export([ exec/5
         , create_stmt/3
-        , select/4
-        , read_block/4
+        , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
+%        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
+        , read_block/4      %% ToDo: remove
         ]).
 
 -record(state, { statement
@@ -26,8 +27,8 @@ exec(SKey, Statement, BlockSize, Schema, IsSec) ->
     imem_sql:exec(SKey, Statement, BlockSize, Schema, IsSec).   %% ToDo: remove this (in imem_sql now)
 
 % statement has its own SKey
-select(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {select, Sock, IsSec}).
+fetch_recs(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs, Sock, IsSec}).
 
 read_block(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {read_block, Sock, IsSec}).
@@ -35,8 +36,9 @@ read_block(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
 %% gen_server
 create_stmt(Statement, SKey, IsSec) ->
     case IsSec of
-        false -> gen_server:start(?MODULE, [Statement], []);
-        _ ->
+        false -> 
+            gen_server:start(?MODULE, [Statement], []);
+        true ->
             {ok, Pid} = gen_server:start(?MODULE, [Statement], []),            
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
@@ -50,8 +52,8 @@ init([Statement]) ->
 handle_call({set_seco, SKey}, _From, State) ->    
     {reply,ok,State#state{seco=SKey}}.
 
-handle_cast({select, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
-    #statement{table=Table, key=Key, limit=Limit, matchspec=Matchspec} = Stmt,
+handle_cast({fetch_recs, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
+    #statement{tables=[Table|_], limit=Limit, matchspec=Matchspec} = Stmt,
     {Result, NewState} =
     try
         {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, Matchspec, Limit]),
@@ -65,7 +67,7 @@ handle_cast({select, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
     end,
     {noreply, NewState};  
 handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
-    #statement{table=Table, key=Key, block_size=BlockSize} = Stmt,
+    #statement{tables=[Table|_], key=Key, block_size=BlockSize} = Stmt,
     {Result, NewState} = 
     try
         case if_call_mfa(IsSec, read_block, [SKey, Table, Key, BlockSize]) of

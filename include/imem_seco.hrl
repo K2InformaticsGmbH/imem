@@ -74,3 +74,5 @@
       imem_seco:login(SKey)
     end 
     ).
+
+-define(imem_logout, fun(X) -> imem_seco:logout(X) end).

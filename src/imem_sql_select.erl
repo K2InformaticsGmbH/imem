@@ -5,31 +5,39 @@
 -export([ exec/5
         ]).
 
-exec(SeCo, {select, Params}, Stmt, _Schema, IsSec) ->
-    Columns = case lists:keyfind(fields, 1, Params) of
-        false -> [];
-        {_, Cols} -> Cols
+exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
+    Tables = case lists:keyfind(from, 1, ParseTree) of
+        {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
+        TError ->       ?ClientError({"Invalid table name", TError})
     end,
-    TableName = case lists:keyfind(from, 1, Params) of
-        {_, Tabs} when length(Tabs) == 1 -> ?binary_to_atom(lists:nth(1, Tabs));
-        _ -> undefined
+    Columns = case lists:keyfind(fields, 1, ParseTree) of
+        false -> 
+            imem_meta:column_map(Tables,[]);
+        {_, CNames} -> 
+            QNames = [{C, imem_sql:field_qname(C)} || C <- CNames],
+            imem_meta:column_map(
+                Tables,
+                [#ddColMap{tag=Tag, oname=O, schema=S, table=T, name=N} || {Tag,{O,{S,T,N}}} <- lists:zip(lists:seq(1,length(QNames)), QNames)]
+                );
+        CError ->        
+            ?ClientError({"Invalid field name", CError})
     end,
-    case TableName of
-        undefined -> {error, "Only single valid names are supported"};
-        _ ->
-            Clms = case Columns of
-                [<<"*">>] -> if_call_mfa(IsSec,table_columns,[SeCo,TableName]);
-                _ -> Columns
-            end,
-            Statement = Stmt#statement {
-                table = TableName
-                , cols = Clms
-                , matchspec = ?MatchAllKeys
-            },
-            {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
-            io:format(user,"select params ~p in ~p~n", [{Columns, Clms}, TableName]),
-            {ok, Clms, StmtRef}
-    end.
+    RowFun = fun(X) -> X end, 
+    MatchSpec = ?MatchAllRecords,
+    JoinSpec = [],                      %% ToDo: e.g. {join type (inner|outer|self, join field element number, matchspec joined table} per join
+    Statement = Stmt#statement{
+                    stmt_str=Stmt, stmt_parse=ParseTree, 
+                    tables=Tables, cols=Columns, rowfun=RowFun,
+                    matchspec=MatchSpec, joinspec=JoinSpec
+                },
+    {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
+    io:format(user,"Statement : ~p~n", [Stmt]),
+    io:format(user,"Parse tree: ~p~n", [ParseTree]),
+    io:format(user,"Tables: ~p~n", [Tables]),
+    io:format(user,"Columns: ~p~n", [Columns]),
+    io:format(user,"Matchspec: ~p~n", [MatchSpec]),
+    io:format(user,"Joinspec: ~p~n", [JoinSpec]),
+    {ok, Columns, StmtRef}.
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -98,8 +106,6 @@ test_with_or_without_sec(IsSec) ->
         {List2, true} = Result2,
         ?assertEqual(10, length(List2)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
-
         {ok, _Clm3, StmtRef3} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:select(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
@@ -108,6 +114,8 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "select result~n~p~n", [Result3]),
         {List3, true} = Result3,
         ?assertEqual(AllTableCount, length(List3))
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec))
 
     catch
         Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),

@@ -417,10 +417,17 @@ read(Table, Key) ->
 read(Table) ->
     imem_if:read(Table).
 
+read_block(all_tables, AfterKey, BlockSize) ->
+    imem_if:read_block(ddTable, AfterKey, BlockSize);
+
 read_block(Table, AfterKey, BlockSize) ->
     imem_if:read_block(Table, AfterKey, BlockSize).    
 
+select(dba_tables, MatchSpec) ->
+    select(ddTable, MatchSpec);
 select(all_tables, MatchSpec) ->
+    select(ddTable, MatchSpec);
+select(user_tables, MatchSpec) ->
     select(ddTable, MatchSpec);
 select(Table, MatchSpec) ->
     imem_if:select(Table, MatchSpec).

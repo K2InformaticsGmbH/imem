@@ -19,6 +19,7 @@
 
 -record(ddColMap,                           %% column map entry
                   { tag                     ::any()
+                  , oname                   ::binary()    %% original name
                   , schema                  ::atom()
                   , table                   ::atom()
                   , name                    ::atom()    
