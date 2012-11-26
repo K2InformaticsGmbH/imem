@@ -68,6 +68,8 @@
         , write/2           %% write single key
         , delete/2          %% delete rows by key
         , truncate/1        %% truncate table
+        , exec/3
+        , fetch_recs/2
 		]).
 
 
@@ -410,11 +412,17 @@ table_columns(Table) ->
 table_size(Table) ->
     imem_if:table_size(Table).
 
+exec(Statement, BlockSize, Schema) ->
+    imem_sql:exec(none, Statement, BlockSize, Schema, false).   
+
+fetch_recs(Pid, Sock) ->
+    imem_statement:fetch_recs(none, Pid, Sock, false).
+
+read(Table) -> 
+    imem_if:read(Table).
+
 read(Table, Key) -> 
     imem_if:read(Table, Key).
-
-read(Table) ->
-    imem_if:read(Table).
 
 read_block(all_tables, AfterKey, BlockSize) ->
     imem_if:read_block(ddTable, AfterKey, BlockSize);

@@ -1,6 +1,6 @@
 -module(imem_statement).
 
--include("imem_sql.hrl").
+-include("imem_seco.hrl").
 
 %% gen_server
 -behaviour(gen_server).
@@ -12,8 +12,7 @@
     terminate/2,
     code_change/3]).
 
--export([ exec/5
-        , create_stmt/3
+-export([ create_stmt/3
         , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
 %        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
         , read_block/4      %% ToDo: remove
@@ -23,12 +22,9 @@
                , seco
                }).
 
-exec(SKey, Statement, BlockSize, Schema, IsSec) ->
-    imem_sql:exec(SKey, Statement, BlockSize, Schema, IsSec).   %% ToDo: remove this (in imem_sql now)
-
 % statement has its own SKey
 fetch_recs(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs, Sock, IsSec}).
+   gen_server:cast(Pid, {fetch_recs, Sock, IsSec}).
 
 read_block(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {read_block, Sock, IsSec}).

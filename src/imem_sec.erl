@@ -42,6 +42,8 @@
 		, drop_table/2
         , read/2
         , read/3
+        , exec/4
+        , fetch_recs/3
         , read_block/4                 
         , select/2
         , select/3
@@ -258,6 +260,12 @@ read(SKey, Table, Key) ->
         true ->     imem_meta:read(Table, Key);
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
+
+exec(SKey, Statement, BlockSize, Schema) ->
+    imem_sql:exec(SKey, Statement, BlockSize, Schema, true).   
+
+fetch_recs(SKey, Pid, Sock) ->
+    imem_statement:fetch_recs(SKey, Pid, Sock, true).
 
 read_block(SKey, Table, Key, BlockSize) ->
     case have_table_permission(SKey, Table, select) of

@@ -1,6 +1,6 @@
 -module(imem_sql_select).
 
--include("imem_sql.hrl").
+-include("imem_seco.hrl").
 
 -export([ exec/5
         ]).
@@ -135,13 +135,13 @@ test_with_or_without_sec(IsSec) ->
         {List2, true} = Result2,
         io:format(user, "fetch_recs result~n~p~n", [lists:map(RowFun2,List2)]),
         ?assertEqual(10, length(List2)),            %% ToDo: 4
-        {ok, _Clm3, _RowFun, StmtRef3} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),
+        {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    binary_to_term(R3)
         end,
-        io:format(user, "fetch_recs result~n~p~n", [Result3]),
         {List3, true} = Result3,
+        io:format(user, "fetch_recs result~n~p~n", [lists:map(RowFun3,List3)]),
         ?assertEqual(AllTableCount, length(List3)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),

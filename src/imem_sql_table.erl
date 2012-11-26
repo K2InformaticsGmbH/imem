@@ -1,6 +1,6 @@
 -module(imem_sql_table).
 
--include("imem_sql.hrl").
+-include("imem_seco.hrl").
 
 -export([ exec/5
         ]).

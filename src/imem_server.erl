@@ -102,10 +102,6 @@ process_cmd(Cmd, Sock, Module, IsSec) when is_tuple(Cmd), is_atom(Module) ->
     end,
     if Fun =/= read_block -> send_resp(Resp, Sock); true -> ok end.
 
-exec_fun_in_module(_Module, Fun, Args, Sock, IsSec) when Fun =:= read_block ->
-    apply(imem_statement, Fun, Args ++ [Sock, IsSec]);
-exec_fun_in_module(_Module, Fun, Args, _Sock, IsSec) when Fun =:= exec ->
-    apply(imem_statement, Fun, Args ++ [IsSec]);
 exec_fun_in_module(Module, Fun, Args, _Sock, _IsSec) ->
     ArgsLen = length(Args),
     case code:ensure_loaded(Module) of
