@@ -10,7 +10,7 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
         {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
         TError ->       ?ClientError({"Invalid table name", TError})
     end,
-    Columns = case lists:keyfind(fields, 1, ParseTree) of
+    ColMap = case lists:keyfind(fields, 1, ParseTree) of
         false -> 
             imem_meta:column_map(Tables,[]);
         {_, CNames} -> 
@@ -22,7 +22,19 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid field name", CError})
     end,
-    RowFun = fun(X) -> X end,
+    % WhereMap = case lists:keyfind(where, 1, ParseTree) of
+    %     false -> 
+    %         [];
+    %     {_, BoolTree} -> 
+    %         QNames = [{C, imem_sql:field_qname(C)} || C <- CNames],
+    %         imem_meta:column_map(
+    %             Tables,
+    %             [#ddColMap{tag=Tag, oname=O, schema=S, table=T, name=N} || {Tag,{O,{S,T,N}}} <- lists:zip(lists:seq(1,length(QNames)), QNames)]
+    %             );
+    %     CError ->        
+    %         ?ClientError({"Invalid field name", CError})
+    % end,
+    RowFun = fun({X}) -> lists:nthtail(1,tuple_to_list(X)) end,
    
     MatchHead = '$1',
     Guards = [],    
@@ -32,17 +44,29 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
     JoinSpec = [],                      %% ToDo: e.g. {join type (inner|outer|self, join field element number, matchspec joined table} per join
     Statement = Stmt#statement{
                     stmt_str=Stmt, stmt_parse=ParseTree, 
-                    tables=Tables, cols=Columns, rowfun=RowFun,
+                    tables=Tables, cols=ColMap, rowfun=RowFun,
                     matchspec=MatchSpec, joinspec=JoinSpec
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
     io:format(user,"Statement : ~p~n", [Stmt]),
     io:format(user,"Parse tree: ~p~n", [ParseTree]),
     io:format(user,"Tables: ~p~n", [Tables]),
-    io:format(user,"Columns: ~p~n", [Columns]),
-    io:format(user,"Matchspec: ~p~n", [MatchSpec]),
-    io:format(user,"Joinspec: ~p~n", [JoinSpec]),
-    {ok, Columns, StmtRef}.
+    io:format(user,"Column map: ~p~n", [ColMap]),
+    io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
+    io:format(user,"JoinSpec: ~p~n", [JoinSpec]),
+    {ok, ColMap, RowFun, StmtRef}.
+
+
+exec_tree(ParseTree) ->
+    exec_tree(ParseTree, []).
+
+exec_tree([], ExecTree) ->
+    ExecTree;
+exec_tree({select, Sections}, ExecTree) ->
+    ok.
+
+
+
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -103,16 +127,15 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
  
-        {ok, _Clm2, StmtRef2} = imem_sql:exec(SKey, "select col1 from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
+        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1 from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef2, self(), IsSec)),
         Result2 = receive 
             R2 ->    binary_to_term(R2)
         end,
-        io:format(user, "fetch_recs result~n~p~n", [Result2]),
         {List2, true} = Result2,
-%        ?assertEqual(4, length(List2)),
-
-        {ok, _Clm3, StmtRef3} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),
+        io:format(user, "fetch_recs result~n~p~n", [lists:map(RowFun2,List2)]),
+        ?assertEqual(10, length(List2)),            %% ToDo: 4
+        {ok, _Clm3, _RowFun, StmtRef3} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    binary_to_term(R3)

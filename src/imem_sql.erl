@@ -75,17 +75,15 @@ table_qname(Str) when is_list(Str) ->
         [S,T] ->    {list_to_atom(S), list_to_atom(T), list_to_atom(T)};
         _ ->        ?ClientError({"Invalid table name", Str})
     end;
-table_qname({S, T}) when is_atom(S), is_atom(T) ->
-    {S, T, T};
-table_qname({S, T, A}) when is_atom(S), is_atom(T), is_atom(A) ->
-    {S, T, A};
+table_qname({Table, Alias}) ->
+    table_qname(Table, Alias);
 table_qname(N) -> 
     ?ClientError({"Invalid table name", N}).
 
-table_qname(T, A) when is_binary(A) ->    
-    table_qname(T, binary_to_list(A));
-table_qname(T, S) when is_list(S) ->    
-    table_qname(T, list_to_atom(S));
+table_qname(Table, Alias) when is_binary(Alias) ->    
+    table_qname(Table, binary_to_list(Alias));
+table_qname(Table, Alias) when is_list(Alias) ->    
+    table_qname(Table, list_to_atom(Alias));
 table_qname(T, A) when is_atom(T), is_atom(A) ->
     {undefined, T, A};
 table_qname({S, T}, A) when is_atom(S), is_atom(T), is_atom(A) ->
@@ -138,13 +136,23 @@ test_with_or_without_sec(IsSec) ->
             true -> ?imem_test_admin_login();
             _ ->    ok
         end,
+        % field names
         ?assertEqual({undefined,undefined,field}, field_qname(<<"field">>)),
         ?assertEqual({undefined,table,field}, field_qname(<<"table.field">>)),
         ?assertEqual({schema,table,field}, field_qname(<<"schema.table.field">>)),
 
+        % table names without alias
         ?assertEqual({undefined,table,table}, table_qname(<<"table">>)),
         ?assertEqual({schema,table,table}, table_qname(<<"schema.table">>)),
         ?assertEqual({schema,table,alias}, table_qname(<<"schema.table">>, <<"alias">>)),
+        ?assertEqual({schema,table,alias}, table_qname(<<"schema.table">>, "alias")),
+
+        % table names with alias
+        ?assertEqual({undefined,table,alias}, table_qname({<<"table">>,"alias"})),
+        ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, "alias"})),
+        ?assertEqual({undefined,table,alias}, table_qname({<<"table">>,<<"alias">>})),
+        ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, <<"alias">>})),
+
         case IsSec of
             true -> ?imem_logout(SKey);
             _ ->    ok
