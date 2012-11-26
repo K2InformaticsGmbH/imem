@@ -275,13 +275,12 @@ column_map(Tables, Columns) ->
 
 column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
     column_map([{schema(),Table,Alias}|Tables], Columns, Tindex, Lookup, Acc);
-column_map([{Schema,Table,undefined}|Tables], Columns, Tindex, Lookup, Acc) ->
-    Cols = case imem_if:read(ddTable,{Schema,Table}) of
-        [#ddTable{columns=C}] ->    C;
-        [] ->                       ?ClientError({"Table does not exist",{Schema,Table}})
-    end,
-    L = [{Tindex, Cindex, Schema, Table, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(1,length(Cols)), Cols)],
-    column_map(Tables, Columns, Tindex+1, L++Lookup, Acc);
+column_map([{Schema,dba_tables,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
+    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Acc);
+column_map([{Schema,all_tables,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
+    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Acc);
+column_map([{Schema,user_tables,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
+    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Acc);
 column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
     Cols = case imem_if:read(ddTable,{Schema,Table}) of
         [#ddTable{columns=C}] ->    C;

@@ -14,6 +14,14 @@
 
 -define(binary_to_atom(Bin), list_to_atom(binary_to_list(Bin))).
 
+-define(binary_to_existing_atom(Bin), 
+        try
+          list_to_existing_atom(binary_to_list(Bin))
+        catch
+          _:_ -> ?ClientError({"Name does not exist", Bin})
+        end
+    ).
+
 -define(imem_test_setup, fun() ->
       application:load(imem),
       {ok, Schema} = application:get_env(imem, mnesia_schema_name),

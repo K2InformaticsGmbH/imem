@@ -5,11 +5,16 @@
 -export([ exec/5
         ]).
 
-exec(SeCo, {insert, TableName, {_, Columns}, {_, Values}} , _Stmt, _Schema, IsSec) ->
-    Tab = ?binary_to_atom(TableName),
-    io:format(user,"insert ~p ~p in ~p~n", [Columns, Values, Tab]),
-    Vs = [binary_to_list(V) || V <- Values],
-    if_call_mfa(IsSec,insert,[SeCo,Tab, Vs]).
+exec(SeCo, {insert, Table, {_, []}, {_, Values}} , _Stmt, _Schema, IsSec) ->
+    Tab = ?binary_to_existing_atom(Table),
+    io:format(user,"insert ~p ~p into ~p~n", [[], Values, Tab]),
+    Vs = [binary_to_list(V) || V <- Values],    %% ToDo: convert to column type
+    if_call_mfa(IsSec,insert,[SeCo, Tab, Vs]);  
+exec(SeCo, {insert, Table, {_, Columns}, {_, Values}} , _Stmt, _Schema, IsSec) ->
+    Tab = ?binary_to_existing_atom(Table),
+    io:format(user,"insert ~p ~p into ~p~n", [Columns, Values, Tab]),
+    Vs = [binary_to_list(V) || V <- Values],    %% ToDo: convert to column type
+    if_call_mfa(IsSec,insert,[SeCo, Tab, Vs]).  %% ToDo: set default column values
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

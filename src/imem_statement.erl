@@ -53,21 +53,12 @@ handle_call({set_seco, SKey}, _From, State) ->
     {reply,ok,State#state{seco=SKey}}.
 
 handle_cast({fetch_recs, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
-    #statement{tables=[Table|_], limit=Limit, matchspec=Matchspec} = Stmt,
-    {Result, NewState} =
-    try
-        {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, Matchspec, Limit]),
-        {term_to_binary({Rows, Complete}), State}
-    catch
-        Class:Reason -> {Class, Reason}
-    end,
-    case Sock of
-        Pid when is_pid(Pid)    -> Pid ! Result;
-        Sock                    -> gen_tcp:send(Sock, Result)
-    end,
-    {noreply, NewState};  
+    case length(Stmt#statement.tables) of
+        1 ->    fetch_recs_single(hd(Stmt#statement.tables), Sock, IsSec, Stmt, SKey, State);
+        _ ->    fetch_recs_join(Stmt#statement.tables, Sock, IsSec, Stmt, SKey, State)
+    end;
 handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
-    #statement{tables=[Table|_], key=Key, block_size=BlockSize} = Stmt,
+    #statement{tables=[{_Schema,Table,_Alias}|_], key=Key, block_size=BlockSize} = Stmt,
     {Result, NewState} = 
     try
         case if_call_mfa(IsSec, read_block, [SKey, Table, Key, BlockSize]) of
@@ -75,7 +66,7 @@ handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) 
             {Rows, NewKey} -> {term_to_binary({Rows, false}), State#state{statement=Stmt#statement{key=NewKey}}}
         end
     catch
-        Class:Reason -> {Class, Reason}
+        Class:Reason -> {term_to_binary({Class, Reason}),State}
     end,
     case Sock of
         Pid when is_pid(Pid)    -> Pid ! Result;
@@ -96,6 +87,51 @@ handle_info(_Info, State) ->
 terminate(_Reason, _State) -> ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+wrap(X) -> {X}.
+
+fetch_recs_single({_Schema,Table,_Alias}, Sock, IsSec, Stmt, SKey, State) ->
+    #statement{limit=Limit, matchspec=MatchSpec} = Stmt,
+    {Result, NewState} =
+    try
+        {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
+        {term_to_binary({lists:map(fun wrap/1, Rows), Complete}), State}
+    catch
+        Class:Reason -> {term_to_binary({Class, Reason}),State}
+    end,
+    case Sock of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end,
+    {noreply, NewState}.
+
+fetch_recs_join([{_Schema,Table,_Alias}|Tables], Sock, IsSec, Stmt, SKey, State) ->
+    #statement{limit=Limit, matchspec=MatchSpec, joinspec=JoinSpec} = Stmt,
+    {Result, NewState} =
+    try
+        {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
+        JoinedRecs = fetch_rec_join_run(Rows,Tables,JoinSpec),
+        {term_to_binary({JoinedRecs, Complete}), State}
+    catch
+        Class:Reason -> {term_to_binary({Class, Reason}),State}
+    end,
+    case Sock of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end,
+    {noreply, NewState}.
+
+fetch_rec_join_run(Rows, Tables, JoinSpec) ->
+    fetch_rec_join_run(Rows, Tables, JoinSpec, Tables, JoinSpec, [], []).
+
+fetch_rec_join_run([], _Tables, _JoinSpec, _TS, _JS, FAcc, _RAcc) ->
+    FAcc;
+fetch_rec_join_run([_|Rows], Tables, Joinspec, [], [], FAcc, RAcc) ->
+    fetch_rec_join_run(Rows, Tables, Joinspec, Tables, Joinspec, [list_to_tuple(lists:reverse(RAcc))|FAcc], []);
+fetch_rec_join_run([Row|Rows], Tables, JoinSpec, [_Tab|Tabs], [_JS|JSs], FAcc, RAcc) ->
+    ?UnimplementedException({"Joins not supported",Tables}),
+    fetch_rec_join_run([Row|Rows], Tables, JoinSpec, Tabs, JSs, FAcc, RAcc).
+
 
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
