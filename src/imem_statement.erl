@@ -14,12 +14,15 @@
 
 -export([ create_stmt/3
         , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_recs_async/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
 %        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
         , read_block/4      %% ToDo: remove
         ]).
 
 -record(state, { statement
                , seco
+               , trans_pid
+               , reply % TCP socket or Pid
                }).
 
 % statement has its own SKey
@@ -28,6 +31,9 @@ fetch_recs(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
 
 read_block(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {read_block, Sock, IsSec}).
+
+fetch_recs_async(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs_async, Sock, IsSec}).
 
 %% gen_server
 create_stmt(Statement, SKey, IsSec) ->
@@ -69,15 +75,32 @@ handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) 
         Sock                    -> gen_tcp:send(Sock, Result)
     end,
     {noreply, NewState};  
-%handle_cast({read_block, Sock, SKey, IsSec}, #state{statement=Stmt}=State) ->
-%    #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
-%    {NewKey, Rows} = call_mfa(IsSec,read_block,[SKey,TableName, Key, BlockSize]),
-%    gen_tcp:send(Sock, term_to_binary({ok, Rows})),
-%    {noreply,State#state{statement=Stmt#statement{key=NewKey}}};
+handle_cast({fetch_recs_async, Sock, _IsSec}, #state{statement=Stmt, seco=_SKey, trans_pid=Pid}=State) ->
+    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize} = Stmt,
+    NewTransPid = case Pid of
+        undefined ->
+            TransPid = imem_if:start_trans(self(), Table, [{'$1', [], ['$_']}], BlockSize),
+            TransPid ! next,
+            TransPid;
+        Pid ->
+            Pid ! next,
+            Pid
+    end,
+    {noreply, State#state{reply=Sock,trans_pid=NewTransPid}};  
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_info({row, eot}, State) ->
+    {noreply, State#state{trans_pid=undefined, reply=undefined}};
+handle_info({row, Rows}, #state{trans_pid=Pid, reply=Sock, seco=_SKey}=State) ->
+    io:format(user, "received rows ~p~n", Rows),
+    case Sock of
+        Pid when is_pid(Pid)    -> Pid ! Rows;
+        Sock                    -> gen_tcp:send(Sock, Rows)
+    end,
+    {noreply, State};
+handle_info(Info, State) ->
+    io:format(user, "imem_statement handle_info shouldn't come here ~p~n", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) -> ok.
