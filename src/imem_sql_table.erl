@@ -11,17 +11,12 @@ exec(SeCo, {create_table, TableName, Columns}, _Stmt, _Schema, IsSec) ->
     io:format(user,"create ~p columns ~p~n", [Tab, Cols]),
     if_call_mfa(IsSec, create_table, [SeCo,Tab,Cols,[local]]);
 
-exec(_SeCo, {drop_table, {tables, []}, _, _}, _Stmt, _Schema, _IsSec) -> ok;
-exec(SeCo, {drop_table, {tables, [Table|Tables]}, X, Y}, Stmt, Schema, IsSec) ->
+exec(_SeCo, {drop_table, {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
+exec(SeCo, {drop_table, {tables, [Table|Tables]}, Exists, RestrictCascade}, Stmt, Schema, IsSec) ->
     Tab = ?binary_to_existing_atom(Table),
-    % Tab = try
-    %     list_to_existing_atom(binary_to_list(Table))
-    % catch
-    %     _:_ -> ?ClientError({"Table does not exist", Table})
-    % end,
     io:format(user,"drop_table ~p~n", [Tab]),
     if_call_mfa(IsSec, drop_table, [SeCo,Tab]),
-    exec(SeCo, {drop_table, {tables, Tables}, X, Y}, Stmt, Schema, IsSec).
+    exec(SeCo, {drop_table, {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

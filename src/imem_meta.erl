@@ -44,9 +44,7 @@
         , meta_field/1
         , meta_field_info/1
         , meta_field_value/1
-        , column_map/2
         , column_info_items/2
-        , column_map_items/2
         , subscribe/1
         , unsubscribe/1
         ]).
@@ -245,100 +243,6 @@ column_info_items(Info, opts) ->
 column_info_items(_Info, Item) ->
     ?ClientError({"Invalid item",Item}).
 
-column_map_items(Map, schema) ->
-    [C#ddColMap.schema || C <- Map];
-column_map_items(Map, table) ->
-    [C#ddColMap.table || C <- Map];
-column_map_items(Map, name) ->
-    [C#ddColMap.name || C <- Map];
-column_map_items(Map, qname) ->
-    [lists:flatten(io_lib:format("~p.~p.~p", [C#ddColMap.schema,C#ddColMap.table,C#ddColMap.name])) || C <- Map];
-column_map_items(Map, qtype) ->
-    [lists:flatten(io_lib:format("~p(~p,~p)", [C#ddColMap.type,C#ddColMap.length,C#ddColMap.precision])) || C <- Map];
-column_map_items(Map, table_index) ->
-    [C#ddColMap.tind || C <- Map];
-column_map_items(Map, column_index) ->
-    [C#ddColMap.cind || C <- Map];
-column_map_items(Map, type) ->
-    [C#ddColMap.type || C <- Map];
-column_map_items(Map, length) ->
-    [C#ddColMap.length || C <- Map];
-column_map_items(Map, precision) ->
-    [C#ddColMap.length || C <- Map];
-column_map_items(_Map, Item) ->
-    ?ClientError({"Invalid item",Item}).
-
-column_map([], Columns) ->
-    ?ClientError({"Empty table list",Columns});
-column_map(Tables, []) ->
-    column_map(Tables, [#ddColMap{name='*'}]);    
-column_map(Tables, Columns) ->
-    column_map(Tables, Columns, 1, [], []).
-
-column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
-    column_map([{schema(),Table,Alias}|Tables], Columns, Tindex, Lookup, Acc);
-column_map([{Schema,dba_tables,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
-    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Acc);
-column_map([{Schema,all_tables,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
-    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Acc);
-column_map([{Schema,user_tables,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
-    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Acc);
-column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Acc) ->
-    Cols = case imem_if:read(ddTable,{Schema,Table}) of
-        [#ddTable{columns=C}] ->    C;
-        [] ->                       ?ClientError({"Table does not exist",{Schema,Table}})
-    end,
-    L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(1,length(Cols)), Cols)],
-    column_map(Tables, Columns, Tindex+1, L++Lookup, Acc);
-column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Acc) ->
-    Cmaps = [ Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, name=N} || {Ti, Ci, S, T, N, #ddColumn{type=Type, length=Len, precision=P}} <- Lookup],
-    column_map([], Cmaps ++ Columns, Tindex, Lookup, Acc);
-column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Acc) ->
-    column_map([], [Cmap0#ddColMap{schema=schema()}|Columns], Tindex, Lookup, Acc);
-column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Acc) ->
-    Cmaps = [ Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, name=N} || {Ti, Ci, S, T, N, #ddColumn{type=Type, length=Len, precision=P}} <- Lookup, S==Schema, T==Table],
-    column_map([], Cmaps ++ Columns, Tindex, Lookup, Acc);
-column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Acc) ->
-    Pred = fun(L) ->
-        (Name == element(5, L)) andalso
-        ((Table == undefined) or (Table == element(4, L))) andalso
-        ((Schema == undefined) or (Schema == element(3, L)))
-    end,
-    Lmatch = lists:filter(Pred, Lookup),
-    Tcount = length(lists:usort([{element(3, X), element(4, X)} || X <- Lmatch])),
-    MetaField = meta_field(Name),
-    if 
-        (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined) andalso MetaField ->
-            #ddColumn{type=Type, length=Len, precision=P} = meta_field_info(Name),
-            Cmap1 = Cmap0#ddColMap{tind=0, cind=0, type=Type, length=Len, precision=P},
-            column_map([], Columns, Tindex, Lookup, [Cmap1|Acc]);                          
-        (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined)->  
-            ?ClientError({"Unknown column name", Name});
-        (Tcount==0) andalso (Schema==undefined)->  
-            ?ClientError({"Unknown column name", {Table, Name}});
-        (Tcount==0) ->  
-            ?ClientError({"Unknown column name", {Schema, Table, Name}});
-        (Tcount > 1) andalso (Schema==undefined) andalso (Table==undefined)-> 
-            ?ClientError({"Ambiguous column name", Name});
-        (Tcount > 1) andalso (Schema==undefined) -> 
-            ?ClientError({"Ambiguous column name", {Table, Name}});
-        (Tcount > 1) -> 
-            ?ClientError({"Ambiguous column name", {Schema, Table, Name}});
-        true ->         
-            {Ti, Ci, S, T, Name, #ddColumn{type=Type, length=Len, precision=P}} = hd(Lmatch),
-            Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P},
-            column_map([], Columns, Tindex, Lookup, [Cmap1|Acc])
-    end;
-column_map([], [], _Tindex, _Lookup, Acc) ->
-    lists:reverse(Acc);
-column_map(Tables, Columns, Tmax, Lookup, Acc) ->
-    io:format(user, "column_map error Tables ~p~n", [Tables]),
-    io:format(user, "column_map error Columns ~p~n", [Columns]),
-    io:format(user, "column_map error Tmax ~p~n", [Tmax]),
-    io:format(user, "column_map error Lookup ~p~n", [Lookup]),
-    io:format(user, "column_map error Acc ~p~n", [Acc]),
-    ?ClientError({"Column map invalid parameter",{Tables,Columns}}).
-
 column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
@@ -491,7 +395,7 @@ db_test_() ->
 
 meta_operations(_) ->
     try 
-        ClEr = 'ClientError',
+        %% ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
@@ -515,81 +419,6 @@ meta_operations(_) ->
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,nil],[date,nil],{meta_table_3,undefined,undefined}}, [])),
         io:format(user, "success ~p~n", [create_tables]),
-
-        Table1 =    {'Imem', meta_table_1, undefined},
-        Table2 =    {undefined, meta_table_2, undefined},
-        Table3 =    {undefined, meta_table_3, undefined},
-        TableX =    {undefined,meta_table_x, undefined},
-
-        Alias1 =    {undefined, meta_table_1, alias1},
-        Alias2 =    {'Imem', meta_table_1, alias2},
-
-        ?assertException(throw, {ClEr, {"Table does not exist", {'Imem', meta_table_x}}}, column_map([TableX], [])),
-        io:format(user, "success ~p~n", [table_no_exists]),
-
-        ColsE1=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
-                    , #ddColMap{tag="A2", name=x}
-                    , #ddColMap{tag="A3", name=c1}
-                    ],
-
-        ?assertException(throw, {ClEr,{"Unknown column name", x}}, column_map([Table1], ColsE1)),
-        io:format(user, "success ~p~n", [unknown_column_name_1]),
-
-        ColsE2=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
-                    , #ddColMap{tag="A2", table=meta_table_x, name=b1}
-                    , #ddColMap{tag="A3", name=c1}
-                    ],
-
-        ?assertException(throw, {ClEr,{"Unknown column name", {meta_table_x,b1}}}, column_map([Table1, Table2], ColsE2)),
-        io:format(user, "success ~p~n", [unknown_column_name_2]),
-
-        ?assertMatch([_,_,_], column_map([Table1], [])),
-        io:format(user, "success ~p~n", [empty_select_columns]),
-
-
-        ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
-                    , #ddColMap{tag="A2", table=meta_table_1, name=b1}
-                    , #ddColMap{tag="A3", name=c1}
-                    ],
-
-        ?assertException(throw, {ClEr,{"Empty table list", _}}, column_map([], ColsA)),
-        io:format(user, "success ~p~n", [empty_table_list]),
-
-        ?assertException(throw, {ClEr,{"Ambiguous column name", a}}, column_map([Table1, Table3], [#ddColMap{name=a}])),
-        io:format(user, "success ~p~n", [columns_ambiguous]),
-
-        ?assertMatch([_,_,_], column_map([Table1], ColsA)),
-        io:format(user, "success ~p~n", [columns_A]),
-
-        ?assertMatch([_,_,_], column_map([Table1, Table3], ColsA)),
-        io:format(user, "success ~p~n", [columns_A_join]),
-
-        ?assertMatch([_,_,_,_,_], column_map([Table1, Table3], [#ddColMap{name='*'}])),
-        io:format(user, "success ~p~n", [columns_13_join]),
-
-        ?assertMatch([_,_,_,_,_,_,_], column_map([Table1, Table2, Table3], [#ddColMap{name='*'}])),
-        io:format(user, "success ~p~n", [columns_123_join]),
-
-        ?assertMatch([_,_,_,_,_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{name='*'}])),
-        io:format(user, "success ~p~n", [alias_113_join]),
-
-        ?assertMatch([_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=meta_table_3, name='*'}])),
-        io:format(user, "success ~p~n", [columns_113_star1]),
-
-        ?assertMatch([_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name='*'},#ddColMap{table=meta_table_3, name='a'}])),
-        io:format(user, "success ~p~n", [columns_alias_1]),
-
-        ?assertMatch([_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name=a},#ddColMap{table=alias2, name='a'}])),
-        io:format(user, "success ~p~n", [columns_alias_2]),
-
-        ?assertMatch([_,_], column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=sysdate}])),
-        io:format(user, "success ~p~n", [sysdate]),
-
-        ?assertException(throw, {ClEr,{"Unknown column name", {any,sysdate}}}, column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{table=any, name=sysdate}])),
-        io:format(user, "success ~p~n", [sysdate_reject]),
-
-        ?assertEqual(["'Imem'.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}]),qname)),
-        io:format(user, "success ~p~n", [user]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),

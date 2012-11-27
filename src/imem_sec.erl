@@ -133,13 +133,13 @@ meta_field_value(SKey, Name) ->
     if_meta_field_value(SKey, Name).
 
 column_map(_SKey, Tables, Columns) ->
-    imem_meta:columns_map(Tables, Columns).
+    imem_sql:columns_map(Tables, Columns).
 
 column_info_items(_SKey, Info, Item) ->
-    imem_meta:column_map_items(Info, Item).
+    imem_sql:column_map_items(Info, Item).
 
 column_map_items(_SKey, Map, Item) ->
-    imem_meta:column_map_items(Map, Item).
+    imem_sql:column_map_items(Map, Item).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),

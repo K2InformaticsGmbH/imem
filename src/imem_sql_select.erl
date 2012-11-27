@@ -12,13 +12,9 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
     end,
     ColMap = case lists:keyfind(fields, 1, ParseTree) of
         false -> 
-            imem_meta:column_map(Tables,[]);
-        {_, CNames} -> 
-            QNames = [{C, imem_sql:field_qname(C)} || C <- CNames],
-            imem_meta:column_map(
-                Tables,
-                [#ddColMap{tag=Tag, oname=O, schema=S, table=T, name=N} || {Tag,{O,{S,T,N}}} <- lists:zip(lists:seq(1,length(QNames)), QNames)]
-                );
+            imem_sql:column_map(Tables,[]);
+        {_, FieldList} -> 
+            imem_sql:column_map(Tables, FieldList);
         CError ->        
             ?ClientError({"Invalid field name", CError})
     end,
@@ -27,14 +23,15 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
     %         [];
     %     {_, BoolTree} -> 
     %         QNames = [{C, imem_sql:field_qname(C)} || C <- CNames],
-    %         imem_meta:column_map(
+    %         imem_sql:column_map(
     %             Tables,
     %             [#ddColMap{tag=Tag, oname=O, schema=S, table=T, name=N} || {Tag,{O,{S,T,N}}} <- lists:zip(lists:seq(1,length(QNames)), QNames)]
     %             );
     %     CError ->        
     %         ?ClientError({"Invalid field name", CError})
     % end,
-    RowFun = fun({X}) -> lists:nthtail(1,tuple_to_list(X)) end,
+    ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
+    RowFun = fun(X) -> [element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers] end,
    
     MatchHead = '$1',
     Guards = [],    
@@ -57,13 +54,13 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
     {ok, ColMap, RowFun, StmtRef}.
 
 
-exec_tree(ParseTree) ->
-    exec_tree(ParseTree, []).
+% exec_tree(ParseTree) ->
+%     exec_tree(ParseTree, []).
 
-exec_tree([], ExecTree) ->
-    ExecTree;
-exec_tree({select, Sections}, ExecTree) ->
-    ok.
+% exec_tree([], ExecTree) ->
+%     ExecTree;
+% exec_tree({select, Sections}, ExecTree) ->
+%     ok.
 
 
 

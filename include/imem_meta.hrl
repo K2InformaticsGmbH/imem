@@ -35,7 +35,8 @@
                   , oname                   ::binary()    %% original name
                   , schema                  ::atom()
                   , table                   ::atom()
-                  , name                    ::atom()    
+                  , name                    ::atom()
+                  , alias                   ::atom()    
                   , tind = 0                ::integer()               
                   , cind = 0                ::integer()               
                   , type                    ::ddType()
