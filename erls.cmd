@@ -20,5 +20,5 @@ set Opts= -pa deps\sqlparse\ebin -setcookie imem -env ERL_MAX_ETS_TABLES 10000 -
 
 start werl.exe -name A@%1 -pa %Pa% %Opts% -imem mnesia_node_type disc
 start werl.exe -name B@%1 -pa %Pa% %Opts% -imem mnesia_node_type disc
-::start werl.exe -name C@%1 -pa %Pa% %Opts% -imem node_type disc
-::start werl.exe -name D@%1 -pa %Pa% %Opts% -imem node_type ram
+::start werl.exe -name C@%1 -pa %Pa% %Opts% -imem mnesia_node_type disc
+::start werl.exe -name D@%1 -pa %Pa% %Opts% -imem mnesia_node_type ram
