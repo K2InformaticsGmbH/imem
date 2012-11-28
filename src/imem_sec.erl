@@ -13,28 +13,39 @@
         , all_tables/1
         , table_columns/2
         , table_size/2
+        , check_table/2
+        , check_table_record/3
+        , check_table_columns/3
         , system_table/2
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
+        , column_info_items/3        
+        , column_map/3
+        , column_map_items/3        
         , subscribe/2
         , unsubscribe/2
         ]).
 
 -export([ update_opts/3
         , add_attribute/3
+        , localTimeToSysDate/2
+        , nowToSysTimeStamp/2
         ]).
 
 -export([ authenticate/4
         , login/1
         , change_credentials/3
         , logout/1
+        , clone_seco/2
         ]).
 
 -export([ create_table/4
 		, drop_table/2
         , read/2
         , read/3
+        , exec/4
+        , fetch_recs/3
         , read_block/4                 
         , select/2
         , select/3
@@ -43,6 +54,7 @@
         , write/3
         , delete/3
         , truncate/2
+        , admin_exec/4
 		]).
 
 -export([ have_table_permission/3   %% includes table ownership and readonly
@@ -62,7 +74,10 @@ change_credentials(SKey, OldCred, NewCred) ->
 logout(SKey) ->
     imem_seco:logout(SKey).
 
-%% one to one from imme_if -------------- HELPER FUNCTIONS ------
+clone_seco(SKey, Pid) ->
+    imem_seco:clone_seco(SKey, Pid).
+
+%% from imem_meta --- HELPER FUNCTIONS do not export!! --------
 
 if_read(_SKey, Table, Key) -> 
     imem_meta:read(Table, Key).
@@ -79,8 +94,6 @@ if_meta_field(_SKey, Name) ->
         false ->    imem_meta:meta_field(Name)
     end.
 
-if_meta_field_info(_SKey, user) ->
-    #ddColumn{name=user, type='string', length=40, precision=0};
 if_meta_field_info(_SKey, Name) ->
     imem_meta:meta_field_info(Name).
 
@@ -97,6 +110,11 @@ add_attribute(_SKey, A, Opts) ->
 update_opts(_SKey, T, Opts) ->
     imem_meta:update_opts(T, Opts).
 
+localTimeToSysDate(_SKey, LTime) -> 
+    imem_meta:localTimeToSysDate(LTime).
+
+nowToSysTimeStamp(_SKey, Now) -> 
+    imem_meta:nowToSysTimeStamp(Now).
 
 %% imem_if but security context added --- META INFORMATION ------
 
@@ -120,6 +138,15 @@ meta_field_info(SKey, Name) ->
 
 meta_field_value(SKey, Name) ->
     if_meta_field_value(SKey, Name).
+
+column_map(_SKey, Tables, Columns) ->
+    imem_sql:columns_map(Tables, Columns).
+
+column_info_items(_SKey, Info, Item) ->
+    imem_sql:column_map_items(Info, Item).
+
+column_map_items(_SKey, Map, Item) ->
+    imem_sql:column_map_items(Map, Item).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),
@@ -148,6 +175,15 @@ table_size(SKey, Table) ->
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
+check_table(_SKey, Table) ->
+    imem_meta:check_table(Table).
+
+check_table_record(_SKey, Table, ColumnNames) ->
+    imem_meta:check_table_record(Table, ColumnNames).
+
+check_table_columns(_SKey, Table, ColumnInfo) ->
+    imem_meta:check_table_columns(Table, ColumnInfo).
+
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
@@ -162,6 +198,7 @@ unsubscribe(_Skey, EventCategory) ->
 
 
 %% imem_if but security context added --- DATA DEFINITIONimem_meta--
+
 
 create_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
@@ -231,6 +268,12 @@ read(SKey, Table, Key) ->
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
+exec(SKey, Statement, BlockSize, Schema) ->
+    imem_sql:exec(SKey, Statement, BlockSize, Schema, true).   
+
+fetch_recs(SKey, Pid, Sock) ->
+    imem_statement:fetch_recs(SKey, Pid, Sock, true).
+
 read_block(SKey, Table, Key, BlockSize) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:read_block(Table, Key, BlockSize);
@@ -255,26 +298,97 @@ truncate(SKey, Table) ->
         false ->    ?SecurityException({"Truncate unauthorized", SKey})
     end.
 
+
+select_filter_all(_SKey, [], Acc) ->    Acc;
+select_filter_all(SKey, [#ddTable{qname=TableQN}=H|Tail], Acc0) ->
+    Acc1 = case have_table_permission(SKey, TableQN, select) of
+        true ->     [H|Acc0];
+        false ->    Acc0
+    end,  
+    select_filter_all(SKey, Tail, Acc1);
+select_filter_all(SKey, [TableQN|Tail], Acc0) ->
+    Acc1 = case have_table_permission(SKey, TableQN, select) of
+        true ->     [TableQN|Acc0];
+        false ->    Acc0
+    end,  
+    select_filter_all(SKey, Tail, Acc1).
+
+select_filter_user(_SKey, [], Acc) ->   Acc;
+select_filter_user(SKey, [#ddTable{qname=TableQN}=H|Tail], Acc0) ->
+    Acc1 = case have_table_ownership(SKey, TableQN) of
+        true ->     [H|Acc0];
+        false ->    Acc0
+    end,  
+    select_filter_user(SKey, Tail, Acc1);
+select_filter_user(SKey, [TableQN|Tail], Acc0) ->
+    Acc1 = case have_table_ownership(SKey, TableQN) of
+        true ->     [TableQN|Acc0];
+        false ->    Acc0
+    end,  
+    select_filter_user(SKey, Tail, Acc1).
+
+
 select(_SKey, Continuation) ->
         imem_meta:select(Continuation).
 
-select(_SKey, all_tables, _MatchSpec) ->
-    ?UnimplementedException({"Select metadata unimplemented"});
+select(SKey, dba_tables, MatchSpec) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            imem_meta:select(ddTable, MatchSpec);
+        false ->
+            ?SecurityException({"Select unauthorized", SKey})
+    end;
+select(SKey, user_tables, MatchSpec) ->
+    seco_authorized(SKey),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec),
+    {select_filter_user(SKey, RList, []), true};
+select(SKey, all_tables, MatchSpec) ->
+    seco_authorized(SKey),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec),
+    {select_filter_all(SKey, RList, []), true};
 select(SKey, Table, MatchSpec) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:select(Table, MatchSpec) ;
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
-select(_SKey, all_tables, _MatchSpec, _Limit) ->
-    ?UnimplementedException({"Select metadata unimplemented"});
+select(SKey, Table, MatchSpec, 0) ->
+    select(SKey, Table, MatchSpec);
+select(SKey, dba_tables, MatchSpec, Limit) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            imem_meta:select(ddTable, MatchSpec, Limit);
+        false ->
+            ?SecurityException({"Select unauthorized", SKey})
+    end;
+select(SKey, user_tables, MatchSpec, Limit) ->
+    seco_authorized(SKey),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec, Limit),
+    {select_filter_user(SKey, RList, []), true};
+select(SKey, all_tables, MatchSpec, Limit) ->
+    seco_authorized(SKey),
+    {RList,true} = imem_meta:select(ddTable, MatchSpec, Limit),
+    {select_filter_all(SKey, RList, []), true};
 select(SKey, Table, MatchSpec, Limit) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:select(Table, MatchSpec, Limit) ;
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
 
+admin_exec(SKey, imem_account, Function, Params) ->
+    admin_apply(SKey, imem_account, Function, Params, [manage_accounts, manage_system]);
+admin_exec(SKey, imem_role, Function, Params) ->
+    admin_apply(SKey, imem_role, Function, Params, [manage_accounts, manage_system]);
+admin_exec(SKey, Module, Function, Params) ->
+    admin_apply(SKey, Module, Function, Params, [manage_system]).
 
+admin_apply(SKey, Module, Function, Params, Permissions) ->
+    case imem_seco:have_permission(SKey, Permissions) of
+        true ->     
+            apply(Module, Function, Params);
+        false ->
+            ?SecurityException({"Admin execute unauthorized", {SKey, Module, Function, Params}})
+    end.
 
 %% ------- security extension for sql and tables (exported) ---------------------------------
 
@@ -294,8 +408,8 @@ seco_authorized(SKey) ->
     case imem_meta:read(ddSeCo, SKey) of
         [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> 
             SeCo;
-        [#ddSeCo{}] ->      
-            ?SecurityViolation({"Not logged in", SKey});
+        [#ddSeCo{pid=Pid}] ->      
+            ?SecurityViolation({"Not logged in", {SKey,Pid}});
         [] ->               
             ?SecurityException({"Not logged in", SKey})
     end.   
@@ -344,5 +458,158 @@ get_permission_cache(SKey, Permission) ->
         [#ddPerm{value=Value}] -> Value;
         [] -> no_exists 
     end.
+
+
+%% ----- TESTS ------------------------------------------------
+
+setup() -> 
+    ?imem_test_setup().
+
+teardown(_) -> 
+    SKey=?imem_test_admin_login(),
+    catch imem_account:delete(SKey, <<"test_user_123">>),
+    catch imem_role:delete(SKey, table_creator),
+    catch imem_role:delete(SKey, test_role),
+    catch imem_seco:logout(SKey),
+    catch imem_meta:drop_table(user_table_123),
+    ?imem_test_teardown().
+
+db_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+            fun test/1
+        ]}}.    
+
+    
+test(_) ->
+    try
+        ClEr = 'ClientError',
+        SeEx = 'SecurityException',
+
+        % CoEx = 'ConcurrencyException',
+        % SeEx = 'SecurityException',
+        % SeVi = 'SecurityViolation',
+        % SyEx = 'SystemException',          %% cannot easily test that
+
+        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+
+        ?assertEqual('Imem', imem_meta:schema()),
+        io:format(user, "success ~p~n", [schema]),
+        ?assertEqual([{'Imem',node()}], imem_meta:data_nodes()),
+        io:format(user, "success ~p~n", [data_nodes]),
+
+        io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
+
+        SeCoAdmin=?imem_test_admin_login(),
+        io:format(user, "success ~p~n", [admin_login]),
+        ?assert(1 =< table_size(SeCoAdmin, ddSeCo)),
+        io:format(user, "success ~p~n", [seco_table_size]), 
+        AllTablesAdmin = all_tables(SeCoAdmin),
+        ?assertEqual(true, lists:member(ddAccount,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddPerm,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddQuota,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddRole,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddSeCo,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(ddTable,AllTablesAdmin)),
+        io:format(user, "success ~p~n", [all_tables_admin]), 
+
+        io:format(user, "----TEST--~p:test_admin_exec~n", [?MODULE]),
+
+        io:format(user, "accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [SeCoAdmin, user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
+        io:format(user, "success ~p~n", [account_create_user]),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [SeCoAdmin, <<"test_user_123">>, create_table])),
+        io:format(user, "success ~p~n", [create_test_admin_permissions]), 
+     
+        io:format(user, "----TEST--~p:test_user_login~n", [?MODULE]),
+
+        SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}),
+        ?assertEqual(true, is_integer(SeCoUser0)),
+        io:format(user, "success ~p~n", [user_authentication]), 
+        ?assertException(throw,{SeEx,{?PasswordChangeNeeded, _}}, login(SeCoUser0)),
+        io:format(user, "success ~p~n", [password_expired]), 
+        SeCoUser=authenticate(none, someSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}), 
+        ?assertEqual(true, is_integer(SeCoUser)),
+        io:format(user, "success ~p~n", [user_authentication]), 
+        ?assertEqual(SeCoUser, change_credentials(SeCoUser, {pwdmd5,"PasswordMd5"}, {pwdmd5,"NewPasswordMd5"})),
+        io:format(user, "success ~p~n", [password_changed]), 
+
+        ?assertEqual(ok, create_table(SeCoUser, user_table_123, [a,b,c], [])),
+        io:format(user, "success ~p~n", [create_user_table]),
+        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, [a,b,c], [])),
+        io:format(user, "success ~p~n", [create_user_table]),
+        ?assertEqual(0, table_size(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [own_table_size]),
+
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
+        io:format(user, "success ~p~n", [permissions_own_table]), 
+
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, revoke_role, [SeCoAdmin, <<"test_user_123">>, create_table])),
+        io:format(user, "success ~p~n", [role_revoke_role]),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, drop)),
+        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, alter)),
+        io:format(user, "success ~p~n", [permissions_own_table]),
+
+        ?assertException(throw, {SeEx,{"Select unauthorized", SeCoUser}}, select(SeCoUser, dba_tables, ?MatchAllKeys)),
+        io:format(user, "success ~p~n", [dba_tables_unauthorized]),
+        {DbaTables, true} = select(SeCoAdmin, dba_tables, ?MatchAllKeys),
+        ?assertEqual(true, lists:member({'Imem',ddAccount}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddPerm}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddQuota}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddRole}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddSeCo}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',ddTable}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',user_table_123}, DbaTables)),
+        io:format(user, "success ~p~n", [dba_tables]),
+
+        {AdminTables, true} = select(SeCoAdmin, user_tables, ?MatchAllKeys),
+        ?assertEqual(false, lists:member({'Imem',ddAccount}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddPerm}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddQuota}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddRole}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddSeCo}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',ddTable}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',user_table_123}, AdminTables)),
+        io:format(user, "success ~p~n", [admin_tables]),
+
+        {UserTables, true} = select(SeCoUser, user_tables, ?MatchAllKeys),
+        ?assertEqual(false, lists:member({'Imem',ddAccount}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddPerm}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddQuota}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddRole}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddSeCo}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddTable}, UserTables)),
+        ?assertEqual(true, lists:member({'Imem',user_table_123}, UserTables)),
+        io:format(user, "success ~p~n", [user_tables]),
+
+        ?assertEqual(ok, insert(SeCoUser, user_table_123, {"A","B","C"})),
+        ?assertEqual(1, table_size(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [insert_own_table]),
+        ?assertEqual(ok, insert(SeCoUser, user_table_123, {"AA","BB","CC"})),
+        ?assertEqual(2, table_size(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [insert_own_table]),
+        ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),
+        io:format(user, "success ~p~n", [drop_own_table]),
+        ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
+        io:format(user, "success ~p~n", [drop_own_table_no_exists]),
+
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [SeCoAdmin, <<"test_user_123">>])),
+        io:format(user, "success ~p~n", [account_create_user])
+
+    catch
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        ?assert( true == "all tests completed")
+    end,
+    ok.
 
 

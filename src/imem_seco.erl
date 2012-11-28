@@ -37,6 +37,7 @@
         , login/1
         , change_credentials/3
         , logout/1
+        , clone_seco/2
         ]).
 
 -export([ has_role/3
@@ -57,17 +58,27 @@ start_link(Params) ->
 init(_Args) ->
     io:format(user, "~p starting...~n", [?MODULE]),
     Result = try %% try creating system tables, may fail if they exist, then check existence 
-        if_table_size(none, ddTable),
-        catch if_create_table(none, ddAccount, record_info(fields, ddAccount),[], system),
-        if_table_size(none, ddAccount),
-        catch if_create_table(none, ddRole, record_info(fields, ddRole),[], system),          
-        if_table_size(none, ddRole),
-        catch if_create_table(none, ddSeCo, record_info(fields, ddSeCo),[local, {local_content,true}], system),     
-        if_table_size(none, ddSeCo),
-        catch if_create_table(none, ddPerm, record_info(fields, ddPerm),[local, {local_content,true}], system),     
-        if_table_size(none, ddPerm),
-        catch if_create_table(none, ddQuota, record_info(fields, ddQuota),[local, {local_content,true}], system),     
-        if_table_size(none, ddQuota),
+        if_check_table(none, ddTable),
+        ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
+        catch if_create_table(none, ddAccount, ADef ,[], system),
+        if_check_table(none, ddAccount),
+        if_check_table_record(none, ddAccount, ADef),
+        RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
+        catch if_create_table(none, ddRole, RDef,[], system),          
+        if_check_table(none, ddRole),
+        if_check_table_record(none, ddRole, RDef),
+        SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
+        catch if_create_table(none, ddSeCo, SDef,[local, {local_content,true}], system),     
+        if_check_table(none, ddSeCo),
+        if_check_table_record(none, ddSeCo, SDef),
+        PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
+        catch if_create_table(none, ddPerm, PDef,[local, {local_content,true}], system),     
+        if_check_table(none, ddPerm),
+        if_check_table_record(none, ddPerm, PDef),
+        QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
+        catch if_create_table(none, ddQuota, QDef,[local, {local_content,true}], system),     
+        if_check_table(none, ddQuota),
+        if_check_table_record(none, ddQuota, QDef),
         UserName= <<"admin">>,
         case if_select_account_by_name(none, UserName) of
             {[],true} ->  
@@ -76,7 +87,7 @@ init(_Args) ->
                     User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
                                         ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
                     if_write(none, ddAccount, User),                    
-                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_accounts, manage_system_tables, manage_user_tables]});
+                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
         end,        
         io:format(user, "~p started!~n", [?MODULE]),
@@ -136,8 +147,11 @@ if_select_account_by_name(SKey, Name) ->
     Result = '$_',
     if_select(SKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
 
-if_table_size(_SeKey, Table) ->
-    imem_meta:table_size(Table).
+if_check_table(_SeKey, Table) ->
+    imem_meta:check_table(Table).
+
+if_check_table_record(_SeKey, Table, ColumnNames) ->
+    imem_meta:check_table_record(Table, ColumnNames).
 
 %% --Interface functions  (calling imem_meta) ----------------------------------
 
@@ -225,7 +239,7 @@ create_credentials(Password) ->
 create_credentials(Type, Password) when is_list(Password) ->
     create_credentials(Type, list_to_binary(Password));
 create_credentials(Type, Password) when is_integer(Password) ->
-    create_credentials(Type, integer_to_list(list_to_binary(Password)));
+    create_credentials(Type, list_to_binary(integer_to_list(Password)));
 create_credentials(pwdmd5, Password) ->
     {pwdmd5, erlang:md5(Password)}.
 
@@ -266,7 +280,7 @@ seco_create(SessionId, Name, {AuthMethod,_}) ->
 seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AccountId) when Pid == self() -> 
     if_write(SKey, ddSeCo, SeCo#ddSeCo{accountId=AccountId}),
     case if_select_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
-        {[],true} ->    imem_monitor:monitor(Pid);
+        {[],true} ->    monitor(Pid);
         _ ->            ok
     end,
     SKey.    %% hash is returned back to caller
@@ -371,10 +385,10 @@ login(SKey) ->
     case {if_read(SKey, ddAccount, AccountId), AuthenticationMethod} of
         {[#ddAccount{lastPasswordChangeTime=undefined}], pwdmd5} -> 
             logout(SKey),
-            ?SecurityException({"Password expired. Please change it", AccountId});
+            ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{lastPasswordChangeTime=LastChange}], pwdmd5} when LastChange < PwdExpireDate -> 
             logout(SKey),
-            ?SecurityException({"Password expired. Please change it", AccountId});
+            ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{}=Account], _} ->
             ok = seco_update(SeCo, SeCo#ddSeCo{state=authorized}),
             if_write(SKey, ddAccount, Account#ddAccount{lastLoginTime=calendar:local_time()}),
@@ -398,4 +412,15 @@ change_credentials(SKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
 
 logout(SKey) ->
     seco_delete(SKey, SKey).
+
+
+clone_seco(SKeyParent, Pid) ->
+    SeCoParent = seco_authenticated(SKeyParent),
+    SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
+    SKey = erlang:phash2(SeCo), 
+    if_write(SKeyParent, ddSeCo, SeCo#ddSeCo{skey=SKey}),
+    monitor(Pid),
+    SKey.
+
+
 

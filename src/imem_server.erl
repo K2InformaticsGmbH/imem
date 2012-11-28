@@ -69,9 +69,9 @@ handle_cast(_Msg, State) ->
 handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=Mod, is_secure=IsSec}=State) ->
     ok = inet:setopts(Sock, [{active, once}]),
     NewBuf = <<Buf/binary, Data/binary>>,
-    case (catch binary_to_term(NewBuf, [safe])) of
+    case (catch binary_to_term(NewBuf)) of
         {'EXIT', _} ->
-            io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(Data)]),
+            io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
             {noreply, State#state{buf=NewBuf}};
         D ->
             process_cmd(D, Sock, Mod, IsSec),
@@ -95,13 +95,13 @@ code_change(_OldVsn, State, _Extra) ->
 process_cmd(Cmd, Sock, Module, IsSec) when is_tuple(Cmd), is_atom(Module) ->
     Fun = element(1, Cmd),
     Args = lists:nthtail(1, tuple_to_list(Cmd)),
-    Resp = exec_fun_in_module(Module, Fun, Args, Sock, IsSec),
+    Resp = try
+        exec_fun_in_module(Module, Fun, Args, Sock, IsSec)
+    catch
+        _Class:Result -> {error, Result}
+    end,
     if Fun =/= read_block -> send_resp(Resp, Sock); true -> ok end.
 
-exec_fun_in_module(_Module, Fun, Args, Sock, IsSec) when Fun =:= read_block ->
-    apply(imem_statement, Fun, Args ++ [Sock, IsSec]);
-exec_fun_in_module(_Module, Fun, Args, _Sock, IsSec) when Fun =:= exec ->
-    apply(imem_statement, Fun, Args ++ [IsSec]);
 exec_fun_in_module(Module, Fun, Args, _Sock, _IsSec) ->
     ArgsLen = length(Args),
     case code:ensure_loaded(Module) of
@@ -117,55 +117,6 @@ exec_fun_in_module(Module, Fun, Args, _Sock, _IsSec) ->
         _ -> {error, "Module "++ atom_to_list(Module) ++" doesn't exists"}
     end.
 
-%% process_cmd({find_imem_nodes, Schema},                          Sock) -> send_resp(imem_if:find_imem_nodes(Schema), Sock);
-%% process_cmd({all_tables},                                       Sock) -> send_resp(imem_if:all_tables(), Sock);
-%% process_cmd({columns, TableName},                               Sock) -> send_resp(imem_if:columns(TableName), Sock);
-%% process_cmd({read, TableName, Key},                             Sock) -> send_resp(imem_if:read(TableName, Key), Sock);
-%% process_cmd({write, TableName, Row},                            Sock) -> send_resp(imem_if:write(TableName, Row), Sock);
-%% process_cmd({delete, TableName, Key},                           Sock) -> send_resp(imem_if:delete(TableName, Key), Sock);
-%% process_cmd({add_attribute, A, Opts},                           Sock) -> send_resp(imem_if:add_attribute(A, Opts), Sock);
-%% process_cmd({delete_table, TableName},                          Sock) -> send_resp(imem_if:drop_table(TableName), Sock);
-%% process_cmd({update_opts, Tuple, Opts},                         Sock) -> send_resp(imem_if:update_opts(Tuple, Opts), Sock);
-%% process_cmd({read_all_rows, TableName},                         Sock) -> send_resp(imem_if:read_all(TableName), Sock);
-%% process_cmd({create_table, TableName, Columns},                 Sock) -> send_resp(imem_if:create_table(TableName, Columns), Sock);
-%% process_cmd({create_table, TableName, Columns, Opts},           Sock) -> send_resp(imem_if:create_table(TableName, Columns, Opts), Sock);
-%% process_cmd({create_local_table, TableName, Columns, Opts},     Sock) -> send_resp(imem_if:create_local_table(TableName, Columns, Opts), Sock);
-%% process_cmd({select, TableName, MatchSpec},                     Sock) -> send_resp(imem_if:select(TableName, MatchSpec), Sock);
-%% process_cmd({insert, TableName, Row},                           Sock) -> send_resp(imem_if:insert(TableName, Row), Sock);
-%% process_cmd({exec, Statement, BlockSize, Schema},               Sock) -> send_resp(imem_statement:exec(Statement, BlockSize, Schema), Sock);
-%% process_cmd({read_block, StmtRef},                              Sock) -> imem_statement:read_block(StmtRef, Sock).
-
 send_resp(Resp, Sock) ->
     RespBin = term_to_binary(Resp),
     gen_tcp:send(Sock, RespBin).
-
-%% EXAMPLE1: create a table and add data to it
-% rd(table1, {a,b,c}).
-% Opts = imem_if:add_ram_copies(imem_if:find_imem_nodes(imem), []).
-% Opts1 = imem_if:add_attribute(record_info(fields, table1), Opts).
-% imem_if:create_table(table1, Opts1).
-% mnesia:dirty_write(table1, #table1{a='change_count', b=0}).
-% mnesia:dirty_write(table1, {table1, 'change_county', 3, undefined}).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%    rr("D:/Work/Git/imem/include/imem_records.hrl").
-%    Opts = imem_if:add_ram_copies(imem_if:find_imem_nodes(imem), []).
-%    %imem_if:add_disc_copies(Ns, Opts).
-%    Opts1 = imem_if:add_attribute(record_info(fields, sub_counter), Opts).
-%    imem_if:create_table(sub_counter, Opts1).
-%    imem_if:create_table(subscriber, Opts1).
-%    imem_if:create_table(syncinfo, Opts1).
-%	case mnesia:create_table(syncinfo, [{ram_copies, NodeList}, {attributes, record_info(fields, syncinfo)}]) of
-%		{aborted, _} ->
-%			io:format("copying 'syncinfo' table...~n", []),
-%			mnesia:wait_for_tables([syncinfo], 30000),
-%			mnesia:add_table_copy(syncinfo, node(), ram_copies);
-%		_ ->
-%			io:format("table syncinfo created...~n", []),
-%			mnesia:clear_table(syncinfo),
-%			mnesia:dirty_write(syncinfo, #syncinfo{key='change_count', val=0}),
-%			mnesia:dirty_write(syncinfo, #syncinfo{key='sync_time', val=get_datetime_stamp()}),
-%			mnesia:dirty_write(syncinfo, #syncinfo{key='update_time', val=get_datetime_stamp()}),
-%			mnesia:dirty_write(syncinfo, #syncinfo{key='record_count', val=0})
-%	end,
-%	mnesia:wait_for_tables([subscriber, syncinfo], Timeout),

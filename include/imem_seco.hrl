@@ -1,8 +1,6 @@
 
 -include("imem_meta.hrl").
 
--type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
--type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 -type ddIdentity() :: binary().                 %% Account name
 -type ddCredential() :: {pwdmd5, binary()}.     %% {pwdmd5, md5(password)} for now
 -type ddPermission() :: atom() | tuple().       %% e.g. manage_accounts, {table,ddSeCo,select}
@@ -21,6 +19,7 @@
                   , locked='false'          ::'true' | 'false'
                   }
        ).
+-define(ddAccount, [any,binary,atom,list,binary,ddDatetime,ddDatetime,ddDatetime,boolean]).
 
 -record(ddRole,                             %% hierarchy of roles with permissions and access privileges to connections and commands  
                   { id                      ::ddEntityId()            %% lookup starts with ddAccount.id, other roles are atoms
@@ -29,6 +28,7 @@
                   , quotas=[]               ::[ddQuota()]             %% granted quotas
                   }
        ). 
+-define(ddRole, [any,list,list,list]).
 
 -record(ddSeCo,                             %% security context              
                   { skey                    :: ddSeCoKey()        %% random hash value
@@ -41,6 +41,7 @@
                   , state                   :: any()              %% authentication state
                   }     
        ). 
+-define(ddSeCo, [integer,pid,integer,binary,ref,atom,ddTimestamp,any]).
 
 -record(ddPerm,                             %% acquired permission cache bag table             
                   { pkey                    :: {ddSeCoKey(), ddPermission()}  %% permission key
@@ -49,6 +50,7 @@
                   , value                   :: 'true' | 'false'
                   }
        ). 
+-define(ddPerm, [tuple,integer,pid,boolean]).
 
 -record(ddQuota,                            %% security context              
                   { qkey                    :: {ddSeCoKey(),atom()}           %% quota key
@@ -57,6 +59,20 @@
                   , value                   :: any()                          %% granted quota
                   }
        ). 
+-define(ddQuota, [tuple,integer,pid,any]).
 
 -define(SecurityException(Reason), throw({'SecurityException',Reason})).
 -define(SecurityViolation(Reason), exit({'SecurityViolation',Reason})).
+
+-define(PasswordChangeNeeded, "Password expired. Please change it").
+
+-define(imem_test_admin_login, fun() -> MatchHead = #ddAccount{name='$1', _='_'},
+      Guard = {'==', '$1', <<"admin">>},
+      Result = '$_',
+      {[#ddAccount{credentials=[AdminCred|_]}],true} = imem_meta:select(ddAccount, [{MatchHead, [Guard], [Result]}]),    
+      SKey = imem_seco:authenticate(adminSessionId, <<"admin">>, AdminCred),
+      imem_seco:login(SKey)
+    end 
+    ).
+
+-define(imem_logout, fun(X) -> imem_seco:logout(X) end).

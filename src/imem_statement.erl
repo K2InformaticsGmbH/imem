@@ -1,5 +1,7 @@
 -module(imem_statement).
 
+-include("imem_seco.hrl").
+
 %% gen_server
 -behaviour(gen_server).
 -export([
@@ -10,127 +12,186 @@
     terminate/2,
     code_change/3]).
 
--export([ exec/5
-        , read_block/4
+-export([ create_stmt/3
+        , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_recs_async/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
+%        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
         ]).
 
--record(state, {
-    statement
-}).
+-record(fetchCtx,           %% state for fetch process
+                { 
+                  pid       ::pid()
+                , monref    ::any()     %% fetch monitor ref
+                , status    ::atom()
+                , metarec   ::tuple()
+                , remaining ::integer() %% rows remaining to be fetched. initialized to Limit and decremented
+                }
+        ).
 
--record(statement, {
-        table = undefined
-        , block_size = 0
-        , key = '$start_of_table'
-        , stmt_str = ""
-        , stmt_parse = undefined
-        , cols = []
-    }).
+-record(state, { statement
+               , seco
+               , fetchCtx = #fetchCtx{}    
+               , reply                  %% TCP socket or Pid
+               }).
 
-exec(SeCo, Statement, BlockSize, Schema, IsSec) when is_list(Statement) ->
-    Sql =
-    case [lists:last(string:strip(Statement))] of
-        ";" -> Statement;
-        _ -> Statement ++ ";"
-    end,
-    case (catch sql_lex:string(Sql)) of
-        {ok, Tokens, _} ->
-            case (catch sql_parse:parse(Tokens)) of
-                {ok, [ParseTree|_]} -> exec(SeCo, ParseTree, #statement{stmt_str=Statement
-                                                                , stmt_parse=ParseTree
-                                                                , block_size=BlockSize}, Schema, IsSec);
-                {'EXIT', Error} -> {error, Error};
-                Error -> {error, Error}
-            end;
-        {'EXIT', Error} -> {error, Error}
-    end;
+% statement has its own SKey
+fetch_recs(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
+   gen_server:cast(Pid, {fetch_recs, Sock, IsSec}).
 
-exec(SeCo, {create_table, TableName, Columns}, _Stmt, _Schema, IsSec) ->
-    Tab = binary_to_atom(TableName),
-    Cols = [binary_to_atom(X) || {X, _} <- Columns],
-    io:format(user,"create ~p columns ~p~n", [Tab, Cols]),
-    call_mfa(IsSec,create_table,[SeCo,Tab,Cols,[local]]);
+fetch_recs_async(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs_async, Sock, IsSec}).
 
-exec(SeCo, {insert, TableName, {_, Columns}, {_, Values}}, _Stmt, _Schema, IsSec) ->
-    Tab = binary_to_atom(TableName),
-    io:format(user,"insert ~p ~p in ~p~n", [Columns, Values, Tab]),
-    Vs = [binary_to_list(V) || V <- Values],
-    call_mfa(IsSec,insert,[SeCo,Tab, Vs]);
-
-exec(SeCo, {drop_table, {tables, TableNames}, _, _}, _Stmt, _Schema, IsSec) ->
-    Tabs = [binary_to_atom(T) || T <- TableNames],
-    io:format(user,"drop_table ~p~n", [Tabs]),
-    [call_mfa(IsSec,drop_table,[SeCo,Tab]) || Tab <- Tabs],
-    ok;
-
-exec(SeCo, {select, Params}, Stmt, _Schema, IsSec) ->
-    Columns = case lists:keyfind(fields, 1, Params) of
-        false -> [];
-        {_, Cols} -> Cols
-    end,
-    TableName = case lists:keyfind(from, 1, Params) of
-        {_, Tabs} when length(Tabs) == 1 -> binary_to_atom(lists:nth(1, Tabs));
-        _ -> undefined
-    end,
-    case TableName of
-        undefined -> {error, "Only single valid names are supported"};
-        _ ->
-            Clms = case Columns of
-                [<<"*">>] -> call_mfa(IsSec,table_columns,[SeCo,TableName]);
-                _ -> Columns
-            end,
-            Statement = Stmt#statement {
-                table = TableName
-                , cols = Clms
-            },
-            {ok, StmtRef} = create_stmt(Statement),
-            io:format(user,"select params ~p in ~p~n", [{Columns, Clms}, TableName]),
-            {ok, Clms, StmtRef}
+%% gen_server
+create_stmt(Statement, SKey, IsSec) ->
+    case IsSec of
+        false -> 
+            gen_server:start(?MODULE, [Statement], []);
+        true ->
+            {ok, Pid} = gen_server:start(?MODULE, [Statement], []),            
+            NewSKey = imem_sec:clone_seco(SKey, Pid),
+            ok = gen_server:call(Pid, {set_seco, NewSKey}),
+            {ok, Pid}
     end.
 
-read_block(SeCo, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {read_block, Sock, SeCo, IsSec}).
 
-binary_to_atom(Bin) when is_binary(Bin) -> list_to_atom(binary_to_list(Bin)).
+init([Statement]) ->
+    {ok, #state{statement=Statement}}.
 
-call_mfa(IsSec,Fun,Args) ->
+handle_call({set_seco, SKey}, _From, State) ->    
+    {reply,ok,State#state{seco=SKey}}.
+
+handle_cast({fetch_recs, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
+    case length(Stmt#statement.tables) of
+        1 ->    fetch_recs_single(hd(Stmt#statement.tables), Sock, IsSec, Stmt, SKey, State);
+        _ ->    fetch_recs_join(Stmt#statement.tables, Sock, IsSec, Stmt, SKey, State)
+    end;
+handle_cast({fetch_recs_async, Sock, _IsSec}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
+    Result = term_to_binary({error,"Fetch aborted"}),
+    send_reply_to_client(Sock, Result),
+    {noreply, State}; 
+handle_cast({fetch_recs_async, Sock, IsSec}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
+    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec=MatchSpec, meta=MetaMap, limit=Limit} = Stmt,
+    MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [N]) || N <- MetaMap]),
+    NewTransCtx = case Pid of
+        undefined ->
+            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
+                TransPid when is_pid(TransPid) ->
+                    MonitorRef = erlang:monitor(process, TransPid), 
+                    TransPid ! next,
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, remaining=Limit};
+                Error ->    
+                    ?SystemException({"Cannot spawn async fetch process",Error})
+            end;
+        Pid ->
+            Pid ! next,
+            #fetchCtx{metarec=MetaRec};
+    end,
+    {noreply, State#state{reply=Sock,fetchCtx=NewTransCtx}};  
+handle_cast({'DOWN', Ref, process, Pid, Reason}, #state{reply=undefined}=State) ->
+    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {noreply, State};
+handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
+    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {noreply, State#state{fetchCtx={undefined,undefined,aborted}}};
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info({row, ?eot}, State) ->
+    {noreply, State#state{fetchCtx=#fetchCtx{}, reply=undefined}};
+handle_info({row, Rows}, #state{reply=Sock, seco=SKey, fetchCtx=FetchCtx, stmt=Stmt}=State) ->
+    #fetchCtx{metarec=MetaRec, remaining=Remaining}=FetchCtx,
+    io:format(user, "received rows ~p~n", Rows),
+    Result = case length(Stmt#statement.tables) of
+        1 ->    Wrap = fun(X) -> {X, MetaRec} end,
+                term_to_binary({lists:map(Wrap, Rows), false});
+        _ ->    ?UnsupportedException({"Joins not supported",Stmt#statement.tables})
+    end;
+    send_reply_to_client(Sock, Result),
+    {noreply, State};
+handle_info(Info, State) ->
+    io:format(user, "imem_statement handle_info shouldn't come here ~p~n", [Info]),
+    {noreply, State}.
+
+terminate(_Reason, #state{fetchCtx={undefined,undefined,undefined}} = State) -> ok;
+terminate(_Reason, #state{fetchCtx={Pid,MonitorRef,_}} = State) ->
+    erlang:demonitor(MonitorRef),
+    Pid ! abort, 
+    ok.
+
+code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+send_reply_to_client(SockOrPid, Result) ->
+    case SockOrPid of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end.
+
+fetch_recs_single({_Schema,Table,_Alias}, Sock, IsSec, Stmt, SKey, State) ->
+    #statement{limit=Limit, matchspec=MatchSpec, meta=MetaMap} = Stmt,
+    {Result, NewState} =
+    try
+        MetaRec = case IsSec of
+            false ->    list_to_tuple([imem_meta:meta_field_value(N) || N <- MetaMap]);
+            true ->     list_to_tuple([imem_sec:meta_field_value(SKey, N) || N <- MetaMap])
+        end,
+        Wrap = fun(X) -> {X, MetaRec} end,
+        {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
+        {term_to_binary({lists:map(Wrap, Rows), Complete}), State}
+    catch
+        Class:Reason -> {term_to_binary({Class, Reason}),State}
+    end,
+    case Sock of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end,
+    {noreply, NewState}.
+
+fetch_recs_join([{_Schema,Table,_Alias}|Tables], Sock, IsSec, Stmt, SKey, State) ->
+    #statement{limit=Limit, matchspec=MatchSpec, joinspec=JoinSpec} = Stmt,
+    {Result, NewState} =
+    try
+        {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
+        JoinedRecs = fetch_rec_join_run(Rows,Tables,JoinSpec),
+        {term_to_binary({JoinedRecs, Complete}), State}
+    catch
+        Class:Reason -> {term_to_binary({Class, Reason}),State}
+    end,
+    case Sock of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end,
+    {noreply, NewState}.
+
+fetch_rec_join_run(Rows, Tables, JoinSpec) ->
+    fetch_rec_join_run(Rows, Tables, JoinSpec, Tables, JoinSpec, [], []).
+
+fetch_rec_join_run([], _Tables, _JoinSpec, _TS, _JS, FAcc, _RAcc) ->
+    FAcc;
+fetch_rec_join_run([_|Rows], Tables, Joinspec, [], [], FAcc, RAcc) ->
+    fetch_rec_join_run(Rows, Tables, Joinspec, Tables, Joinspec, [list_to_tuple(lists:reverse(RAcc))|FAcc], []);
+fetch_rec_join_run([Row|Rows], Tables, JoinSpec, [_Tab|Tabs], [_JS|JSs], FAcc, RAcc) ->
+    ?UnimplementedException({"Joins not supported",Tables}),
+    fetch_rec_join_run([Row|Rows], Tables, JoinSpec, Tabs, JSs, FAcc, RAcc).
+
+
+
+%% --Interface functions  (calling imem_if for now, not exported) ---------
+
+if_call_mfa(IsSec,Fun,Args) ->
     case IsSec of
         true -> apply(imem_sec,Fun,Args);
         _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
     end.
 
-%% gen_server
-create_stmt(Statement) ->
-    gen_server:start(?MODULE, [Statement], []).
-
-init([Statement]) ->
-    {ok, #state{statement=Statement}}.
-
-handle_call(_Msg, _From, State) ->
-    {reply,ok,State}.
-
-handle_cast({read_block, Sock, SeCo, IsSec}, #state{statement=Stmt}=State) ->
-    #statement{table=TableName,key=Key,block_size=BlockSize} = Stmt,
-    {NewKey, Rows} = call_mfa(IsSec,read_block,[SeCo,TableName, Key, BlockSize]),
-    gen_tcp:send(Sock, term_to_binary({ok, Rows})),
-    {noreply,State#state{statement=Stmt#statement{key=NewKey}}};
-handle_cast(_Request, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) -> ok.
-
-code_change(_OldVsn, State, _Extra) -> {ok, State}.
-
-
-% EUnit tests --
+%% TESTS ------------------------------------------------------------------
 
 -include_lib("eunit/include/eunit.hrl").
 
-setup() -> imem:start().
-teardown(_) -> imem:stop().
+setup() -> 
+    ?imem_test_setup().
+
+teardown(_) -> 
+    ?imem_test_teardown().
 
 db_test_() ->
     {
@@ -138,33 +199,25 @@ db_test_() ->
         fun setup/0,
         fun teardown/1,
         {with, [
-              fun test_with_sec/1
-            , fun test_without_sec/1
+              fun test_without_sec/1
+            , fun test_with_sec/1
         ]}
     }.
     
-test_with_sec(_) ->
-    SeCo = imem_seco:authenticate(adminSessionId, <<"admin">>, imem_seco:create_credentials(<<"change_on_install">>)),
-    IsSec = false,
-    io:format(user, "-------- create,insert,select (with security) --------~n", []),
-    ?assertEqual(true, is_integer(SeCo)),
-    ?assertEqual(SeCo, imem_seco:login(SeCo)),
-    ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
-    ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
-    {ok, _Clm, _StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
-    ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
+test_without_sec(SKey) -> 
+    test_with_or_without_sec(SKey, false).
 
-test_without_sec(_) ->
-    SeCo = {},
-    IsSec = false,
-    io:format(user, "-------- create,insert,select (without security) --------~n", []),
-    ?assertEqual(ok, exec(SeCo, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
-    ?assertEqual(ok, insert_range(SeCo, 10, "def", "Imem", IsSec)),
-    {ok, _Clm, StmtRef} = exec(SeCo, "select * from def;", 100, "Imem", IsSec),
-    io:format(user, "select ~p~n", [StmtRef]),
-    ?assertEqual(ok, exec(SeCo, "drop table def;", 0, "Imem", IsSec)).
+test_with_sec(SKey) ->
+    test_with_or_without_sec(SKey, true).
 
-insert_range(_SeCo, 0, _TableName, _Schema, _IsSec) -> ok;
-insert_range(SeCo, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
-    exec(SeCo, "insert into " ++ TableName ++ " values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
-    insert_range(SeCo, N-1, TableName, Schema, IsSec).
+test_with_or_without_sec(_SKey, IsSec) ->
+    try
+        % ClEr = 'ClientError',
+        % SeEx = 'SecurityException',
+        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec])
+    catch
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        ?assert( true == "all tests completed")
+    end,
+    ok. 
+
