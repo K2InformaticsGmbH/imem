@@ -46,7 +46,8 @@
         , read/3
         , exec/4
         , fetch_recs/3
-        , read_block/4                 
+        , fetch_recs_async/3
+        , fetch_start/5
         , select/2
         , select/3
         , select/4
@@ -274,11 +275,25 @@ exec(SKey, Statement, BlockSize, Schema) ->
 fetch_recs(SKey, Pid, Sock) ->
     imem_statement:fetch_recs(SKey, Pid, Sock, true).
 
-read_block(SKey, Table, Key, BlockSize) ->
-    case have_table_permission(SKey, Table, select) of
-        true ->     imem_meta:read_block(Table, Key, BlockSize);
-        false ->    ?SecurityException({"Select unauthorized", SKey})
-    end.
+fetch_recs_async(SKey, Pid, Sock) ->
+    imem_statement:fetch_recs_async(SKey, Pid, Sock, true).
+
+fetch_start(SKey, Pid, dba_tables, MatchSpec, BlockSize) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            imem_meta:fetch_start(Pid, dba_tables, MatchSpec, BlockSize);
+        false ->
+            ?SecurityException({"Select unauthorized", SKey})
+    end;
+fetch_start(SKey, Pid, user_tables, MatchSpec, BlockSize) ->
+    seco_authorized(SKey),
+    imem_meta:fetch_start(Pid, dba_tables, MatchSpec, BlockSize);  %% ToDo: {select_filter_user(SKey, RList, []), true};
+fetch_start(SKey, Pid, all_tables, MatchSpec, BlockSize) ->
+    seco_authorized(SKey),
+    imem_meta:fetch_start(Pid, all_tables, MatchSpec, BlockSize);  %% {select_filter_all(SKey, RList, []), true};
+fetch_start(SKey, Pid, Table, MatchSpec, BlockSize) ->
+    seco_authorized(SKey),
+    imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize).
 
 write(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of

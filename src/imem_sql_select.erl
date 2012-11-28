@@ -8,7 +8,7 @@
 exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     Tables = case lists:keyfind(from, 1, SelectSections) of
         {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
-        TError ->       ?ClientError({"Invalid table name", TError})
+        TError ->       ?ClientError({"Invalid select structure", TError})
     end,
     ColMap = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
@@ -16,7 +16,7 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         {_, FieldList} -> 
             imem_sql:column_map(Tables, FieldList);
         CError ->        
-            ?ClientError({"Invalid field name", CError})
+            ?ClientError({"Invalid select structure", CError})
     end,
     % WhereMap = case lists:keyfind(where, 1, SelectSections) of
     %     false -> 
@@ -91,8 +91,8 @@ db_test_() ->
         fun setup/0,
         fun teardown/1,
         {with, [
-              fun test_without_sec/1
-            , fun test_with_sec/1
+%              fun test_without_sec/1
+             fun test_with_sec/1
         ]}
     }.
     
@@ -125,7 +125,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
  
-        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, user, sysdate from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
+        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, user from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef2, self(), IsSec)),
         Result2 = receive 
             R2 ->    binary_to_term(R2)
@@ -133,7 +133,16 @@ test_with_or_without_sec(IsSec) ->
         {List2, true} = Result2,
         io:format(user, "fetch_recs result~n~p~n", [lists:map(RowFun2,List2)]),
         ?assertEqual(10, length(List2)),            %% ToDo: 4
-        {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
+        Result2a = receive 
+            R2a ->    binary_to_term(R2a)
+        end,
+        {List2a, _} = Result2a,
+        io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun2,List2a)]),
+        ?assertEqual(Result2, Result2a),           
+        %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
+
+        {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from ddTable;", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    binary_to_term(R3)
@@ -141,8 +150,18 @@ test_with_or_without_sec(IsSec) ->
         {List3, true} = Result3,
         io:format(user, "fetch_recs result~n~p~n", [lists:map(RowFun3,List3)]),
         ?assertEqual(AllTableCount, length(List3)),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        Result3a = receive 
+            R3a ->    binary_to_term(R3a)
+        end,
+        {List3a, _} = Result3a,
+        io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun3,List3a)]),
+        ?assertEqual(Result3, Result3a),           
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
+        ?assertEqual(ok, imem_statement:close(SKey, StmtRef3, self())),
+
+        %% ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
 
         case IsSec of
             true ->     ?imem_logout(SKey);

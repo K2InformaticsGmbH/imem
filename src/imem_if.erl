@@ -49,7 +49,6 @@
         , select_sort/3
         , read/1
         , read/2                 
-        , read_block/3
         , fetch_start/4
         , write/2
         , insert/2    
@@ -411,16 +410,6 @@ select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-read_block(Table, Key, BlockSize)                       -> read_block(Table, Key, BlockSize, []).
-read_block(_, '$end_of_table' = Key, _, Acc)            -> {Acc, Key};
-read_block(_, Key, BlockSize, Acc) when BlockSize =< 0  -> {Acc, Key};
-read_block(Table, '$start_of_table', BlockSize, Acc)    -> read_block(Table, mnesia:dirty_first(Table), BlockSize, Acc);
-read_block(Table, Key, BlockSize, Acc) ->
-    Rows = mnesia:dirty_read(Table, Key),
-    read_block(Table, mnesia:dirty_next(Table, Key), BlockSize - length(Rows), Acc ++ Rows).
-
-
-% [{'$1', [], ['$_']}]
 fetch_start(Pid, Table, MatchSpec, BlockSize) ->
     F =
     fun(F,Contd0) ->
@@ -429,13 +418,17 @@ fetch_start(Pid, Table, MatchSpec, BlockSize) ->
                 io:format("Abort~n", []);
             next ->
                 case (case Contd0 of
-                      undefined -> mnesia:select(Table, MatchSpec, BlockSize, read);
-                      Contd0 -> mnesia:select(Contd0)
+                        undefined ->    mnesia:select(Table, MatchSpec, BlockSize, read);
+                        Contd0 ->       mnesia:select(Contd0)
                       end) of
-                {Rows, Contd1} ->
-                    Pid ! {row, Rows},
-                    F(F,Contd1);
-                '$end_of_table' -> Pid ! {row, ?eot}
+                    '$end_of_table' -> 
+                        Pid ! {row, '$end_of_table'};
+                    {Rows,'$end_of_table'} ->
+                        Pid ! {row, Rows},
+                        Pid ! {row, '$end_of_table'};
+                    {Rows, Contd1} ->
+                        Pid ! {row, Rows},
+                        F(F,Contd1)
                 end
         end
     end,

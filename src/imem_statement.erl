@@ -16,32 +16,27 @@
         , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
         , fetch_recs_async/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
 %        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
+        , close/3
         ]).
 
--record(fetchCtx,           %% state for fetch process
-                { 
-                  pid       ::pid()
-                , monref    ::any()     %% fetch monitor ref
-                , status    ::atom()
-                , metarec   ::tuple()
-                , remaining ::integer() %% rows remaining to be fetched. initialized to Limit and decremented
-                }
-        ).
+-record(fetchCtx,               %% state for fetch process
+                    { pid       ::pid()
+                    , monref    ::any()             %% fetch monitor ref
+                    , status    ::atom()            %% undefined | running | aborted
+                    , metarec   ::tuple()
+                    , blockSize=100 ::integer()     %% could be adaptive
+                    , remaining ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
+                    }).
 
--record(state, { statement
-               , seco
-               , fetchCtx = #fetchCtx{}    
-               , reply                  %% TCP socket or Pid
-               }).
+-record(state,                  %% state for statment process, including fetch subprocess
+                    { statement
+                    , seco=none
+                    , fetchCtx=#fetchCtx{}    
+                    , reply                  %% TCP socket or Pid
+                    }).
 
-% statement has its own SKey
-fetch_recs(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
-   gen_server:cast(Pid, {fetch_recs, Sock, IsSec}).
+%% gen_server -----------------------------------------------------
 
-fetch_recs_async(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs_async, Sock, IsSec}).
-
-%% gen_server
 create_stmt(Statement, SKey, IsSec) ->
     case IsSec of
         false -> 
@@ -53,6 +48,14 @@ create_stmt(Statement, SKey, IsSec) ->
             {ok, Pid}
     end.
 
+fetch_recs(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs, Sock, IsSec, SKey}).
+
+fetch_recs_async(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs_async, Sock, IsSec, SKey}).
+
+close(SKey, Pid, Sock) when is_pid(Pid) ->
+    gen_server:cast(Pid, {close, Sock, SKey}).
 
 init([Statement]) ->
     {ok, #state{statement=Statement}}.
@@ -60,62 +63,91 @@ init([Statement]) ->
 handle_call({set_seco, SKey}, _From, State) ->    
     {reply,ok,State#state{seco=SKey}}.
 
-handle_cast({fetch_recs, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
+handle_cast({fetch_recs, Sock, IsSec, _SKey}, #state{statement=Stmt, seco=SKey}=State) ->
     case length(Stmt#statement.tables) of
-        1 ->    fetch_recs_single(hd(Stmt#statement.tables), Sock, IsSec, Stmt, SKey, State);
-        _ ->    fetch_recs_join(Stmt#statement.tables, Sock, IsSec, Stmt, SKey, State)
+        1 ->    fetch_recs_single(hd(Stmt#statement.tables), Sock, IsSec, Stmt, SKey, State);        
+        _ ->    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
     end;
-handle_cast({fetch_recs_async, Sock, _IsSec}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
+handle_cast({fetch_recs_async, Sock, _IsSec, _SKey}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
     Result = term_to_binary({error,"Fetch aborted"}),
     send_reply_to_client(Sock, Result),
     {noreply, State}; 
-handle_cast({fetch_recs_async, Sock, IsSec}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
+handle_cast({fetch_recs_async, Sock, IsSec, _SKey}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec=MatchSpec, meta=MetaMap, limit=Limit} = Stmt,
-    MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [N]) || N <- MetaMap]),
+    MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaMap]),
     NewTransCtx = case Pid of
         undefined ->
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid), 
                     TransPid ! next,
-                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, remaining=Limit};
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, blockSize=BlockSize, remaining=Limit};
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
         Pid ->
             Pid ! next,
-            #fetchCtx{metarec=MetaRec};
+            #fetchCtx{metarec=MetaRec}
     end,
     {noreply, State#state{reply=Sock,fetchCtx=NewTransCtx}};  
+handle_cast({close, _Sock, _SKey}, State) ->
+    io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
+    {stop, normal, State}; 
 handle_cast({'DOWN', Ref, process, Pid, Reason}, #state{reply=undefined}=State) ->
-    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
-    {noreply, State};
+    io:format(user, "~p - received expected exit cast for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {stop, normal, State}; 
 handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
-    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
-    {noreply, State#state{fetchCtx={undefined,undefined,aborted}}};
-handle_cast(_Request, State) ->
+    io:format(user, "~p - received unexpected exit cast for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {noreply, State#state{fetchCtx=#fetchCtx{status=aborted}}};
+handle_cast(Request, State) ->
+    io:format(user, "~p - received unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     {noreply, State}.
 
 handle_info({row, ?eot}, State) ->
+    io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
     {noreply, State#state{fetchCtx=#fetchCtx{}, reply=undefined}};
-handle_info({row, Rows}, #state{reply=Sock, seco=SKey, fetchCtx=FetchCtx, stmt=Stmt}=State) ->
-    #fetchCtx{metarec=MetaRec, remaining=Remaining}=FetchCtx,
-    io:format(user, "received rows ~p~n", Rows),
-    Result = case length(Stmt#statement.tables) of
+handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
+    #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
+    io:format(user, "received rows ~p~n", [Rows]),
+    RowsRead=length(Rows),
+    {Result, Sent} = case length(Stmt#statement.tables) of
         1 ->    Wrap = fun(X) -> {X, MetaRec} end,
-                term_to_binary({lists:map(Wrap, Rows), false});
-        _ ->    ?UnsupportedException({"Joins not supported",Stmt#statement.tables})
-    end;
-    send_reply_to_client(Sock, Result),
-    {noreply, State};
+                if  
+                    ((RowsRead < Remaining0) andalso (RowsRead < BlockSize)) ->
+                        {{lists:map(Wrap, Rows), true}, RowsRead};
+                    RowsRead < Remaining0 ->
+                        {{lists:map(Wrap, Rows), false}, RowsRead};
+                    RowsRead == Remaining0 ->
+                        {{lists:map(Wrap, Rows), true}, RowsRead};
+                    Remaining0 > 0 ->
+                        {ResultRows,Rest} = lists:split(Remaining0, Rows),
+                        LastKey = lists:nthtail(length(ResultRows)-1, ResultRows),
+                        Pred = fun(X) -> (X==LastKey) end,
+                        ResultTail = lists:takewhile(Pred, Rest),
+                        {{lists:map(Wrap, ResultRows ++ ResultTail), true}, length(ResultRows) + length(ResultTail)};
+                    Remaining0 =< 0 ->
+                        {{[], true}, 0}
+                end;
+        _ ->    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
+    end,
+    io:format(user, "sending rows ~p~n", [Result]),
+    send_reply_to_client(Sock, term_to_binary(Result)),
+    FetchCtx1=FetchCtx0#fetchCtx{remaining=Remaining0-Sent},
+    {noreply, State#state{fetchCtx=FetchCtx1}};
+handle_info({'DOWN', Ref, process, Pid, Reason}, #state{reply=undefined}=State) ->
+    io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {stop, normal, State}; 
+handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
+    io:format(user, "~p - received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {noreply, State#state{fetchCtx=#fetchCtx{status=aborted}}};
 handle_info(Info, State) ->
-    io:format(user, "imem_statement handle_info shouldn't come here ~p~n", [Info]),
+    io:format(user, "~p - received unsolicited info ~p~nin state ~p~n", [?MODULE, Info, State]),
     {noreply, State}.
 
-terminate(_Reason, #state{fetchCtx={undefined,undefined,undefined}} = State) -> ok;
-terminate(_Reason, #state{fetchCtx={Pid,MonitorRef,_}} = State) ->
-    erlang:demonitor(MonitorRef),
-    Pid ! abort, 
+terminate(_Reason, #state{fetchCtx=#fetchCtx{monref=undefined}}) -> ok;
+terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
+    %% erlang:demonitor(MonitorRef, [flush]),
+    %% Pid ! abort, 
     ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
@@ -146,32 +178,33 @@ fetch_recs_single({_Schema,Table,_Alias}, Sock, IsSec, Stmt, SKey, State) ->
     end,
     {noreply, NewState}.
 
-fetch_recs_join([{_Schema,Table,_Alias}|Tables], Sock, IsSec, Stmt, SKey, State) ->
-    #statement{limit=Limit, matchspec=MatchSpec, joinspec=JoinSpec} = Stmt,
-    {Result, NewState} =
-    try
-        {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
-        JoinedRecs = fetch_rec_join_run(Rows,Tables,JoinSpec),
-        {term_to_binary({JoinedRecs, Complete}), State}
-    catch
-        Class:Reason -> {term_to_binary({Class, Reason}),State}
-    end,
-    case Sock of
-        Pid when is_pid(Pid)    -> Pid ! Result;
-        Sock                    -> gen_tcp:send(Sock, Result)
-    end,
-    {noreply, NewState}.
 
-fetch_rec_join_run(Rows, Tables, JoinSpec) ->
-    fetch_rec_join_run(Rows, Tables, JoinSpec, Tables, JoinSpec, [], []).
+% fetch_recs_join([{_Schema,Table,_Alias}|Tables], Sock, IsSec, Stmt, SKey, State) ->
+%     #statement{limit=Limit, matchspec=MatchSpec, joinspec=JoinSpec} = Stmt,
+%     {Result, NewState} =
+%     try
+%         {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
+%         JoinedRecs = fetch_rec_join_run(Rows,Tables,JoinSpec),
+%         {term_to_binary({JoinedRecs, Complete}), State}
+%     catch
+%         Class:Reason -> {term_to_binary({Class, Reason}),State}
+%     end,
+%     case Sock of
+%         Pid when is_pid(Pid)    -> Pid ! Result;
+%         Sock                    -> gen_tcp:send(Sock, Result)
+%     end,
+%     {noreply, NewState}.
 
-fetch_rec_join_run([], _Tables, _JoinSpec, _TS, _JS, FAcc, _RAcc) ->
-    FAcc;
-fetch_rec_join_run([_|Rows], Tables, Joinspec, [], [], FAcc, RAcc) ->
-    fetch_rec_join_run(Rows, Tables, Joinspec, Tables, Joinspec, [list_to_tuple(lists:reverse(RAcc))|FAcc], []);
-fetch_rec_join_run([Row|Rows], Tables, JoinSpec, [_Tab|Tabs], [_JS|JSs], FAcc, RAcc) ->
-    ?UnimplementedException({"Joins not supported",Tables}),
-    fetch_rec_join_run([Row|Rows], Tables, JoinSpec, Tabs, JSs, FAcc, RAcc).
+% fetch_rec_join_run(Rows, Tables, JoinSpec) ->
+%     fetch_rec_join_run(Rows, Tables, JoinSpec, Tables, JoinSpec, [], []).
+
+% fetch_rec_join_run([], _Tables, _JoinSpec, _TS, _JS, FAcc, _RAcc) ->
+%     FAcc;
+% fetch_rec_join_run([_|Rows], Tables, Joinspec, [], [], FAcc, RAcc) ->
+%     fetch_rec_join_run(Rows, Tables, Joinspec, Tables, Joinspec, [list_to_tuple(lists:reverse(RAcc))|FAcc], []);
+% fetch_rec_join_run([Row|Rows], Tables, JoinSpec, [_Tab|Tabs], [_JS|JSs], FAcc, RAcc) ->
+%     ?UnimplementedException({"Joins not supported",Tables}),
+%     fetch_rec_join_run([Row|Rows], Tables, JoinSpec, Tabs, JSs, FAcc, RAcc).
 
 
 

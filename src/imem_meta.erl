@@ -60,7 +60,6 @@
 		, drop_table/1
         , read/1            %% read whole table, only use for small tables 
         , read/2            %% read by key
-        , read_block/3      %% read numer of rows after key x      
         , select/1          %% contiunation block read
         , select/2          %% select without limit, only use for small result sets
         , select/3          %% select with limit
@@ -70,6 +69,7 @@
         , truncate/1        %% truncate table
         , exec/3
         , fetch_recs/2
+        , fetch_start/4
 		]).
 
 
@@ -321,7 +321,11 @@ data_nodes() ->
 all_tables() ->
     imem_if:all_tables().
 
+table_columns(dba_tables) ->
+    table_columns(ddTable);
 table_columns(all_tables) ->
+    table_columns(ddTable);
+table_columns(user_tables) ->
     table_columns(ddTable);
 table_columns(Table) ->
     imem_if:table_columns(Table).
@@ -335,17 +339,20 @@ exec(Statement, BlockSize, Schema) ->
 fetch_recs(Pid, Sock) ->
     imem_statement:fetch_recs(none, Pid, Sock, false).
 
+fetch_start(Pid, dba_tables, MatchSpec, BlockSize) ->
+    fetch_start(Pid, ddTable, MatchSpec, BlockSize);
+fetch_start(Pid, all_tables, MatchSpec, BlockSize) ->
+    fetch_start(Pid, ddTable, MatchSpec, BlockSize);
+fetch_start(Pid, user_tables, MatchSpec, BlockSize) ->
+    fetch_start(Pid, ddTable, MatchSpec, BlockSize);
+fetch_start(Pid, Table, MatchSpec, BlockSize) ->
+    imem_if:fetch_start(Pid, Table, MatchSpec, BlockSize).
+
 read(Table) -> 
     imem_if:read(Table).
 
 read(Table, Key) -> 
     imem_if:read(Table, Key).
-
-read_block(all_tables, AfterKey, BlockSize) ->
-    imem_if:read_block(ddTable, AfterKey, BlockSize);
-
-read_block(Table, AfterKey, BlockSize) ->
-    imem_if:read_block(Table, AfterKey, BlockSize).    
 
 select(dba_tables, MatchSpec) ->
     select(ddTable, MatchSpec);
@@ -358,7 +365,11 @@ select(Table, MatchSpec) ->
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
+select(dba_tables, MatchSpec, Limit) ->
+    select(ddTable, MatchSpec, Limit);
 select(all_tables, MatchSpec, Limit) ->
+    select(ddTable, MatchSpec, Limit);
+select(user_tables, MatchSpec, Limit) ->
     select(ddTable, MatchSpec, Limit);
 select(Table, MatchSpec, Limit) ->
     imem_if:select(Table, MatchSpec, Limit).
