@@ -32,6 +32,8 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
     % end,
     ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
     RowFun = fun(X) -> [element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers] end,
+    MetaIdx = length(Tables) + 1,
+    MetaMap = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMap, C#ddColMap.tind==MetaIdx])],
    
     MatchHead = '$1',
     Guards = [],    
@@ -41,7 +43,7 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
     JoinSpec = [],                      %% ToDo: e.g. {join type (inner|outer|self, join field element number, matchspec joined table} per join
     Statement = Stmt#statement{
                     stmt_str=Stmt, stmt_parse=ParseTree, 
-                    tables=Tables, cols=ColMap, rowfun=RowFun,
+                    tables=Tables, cols=ColMap, meta=MetaMap, rowfun=RowFun,
                     matchspec=MatchSpec, joinspec=JoinSpec
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
@@ -124,7 +126,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
  
-        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1 from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
+        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, sysdate from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef2, self(), IsSec)),
         Result2 = receive 
             R2 ->    binary_to_term(R2)

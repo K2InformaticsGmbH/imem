@@ -84,14 +84,14 @@ terminate(_Reason, _State) -> ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
-wrap(X) -> {X}.
-
 fetch_recs_single({_Schema,Table,_Alias}, Sock, IsSec, Stmt, SKey, State) ->
-    #statement{limit=Limit, matchspec=MatchSpec} = Stmt,
+    #statement{limit=Limit, matchspec=MatchSpec, meta=MetaMap} = Stmt,
     {Result, NewState} =
     try
+        MetaRec = list_to_tuple([imem_meta:meta_value(N) || N <- MetaMap]),
+        Wrap = fun(X) -> {X, MetaRec} end,
         {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
-        {term_to_binary({lists:map(fun wrap/1, Rows), Complete}), State}
+        {term_to_binary({lists:map(Wrap, Rows), Complete}), State}
     catch
         Class:Reason -> {term_to_binary({Class, Reason}),State}
     end,
