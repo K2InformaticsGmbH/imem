@@ -5,12 +5,12 @@
 -export([ exec/5
         ]).
 
-exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
-    Tables = case lists:keyfind(from, 1, ParseTree) of
+exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
+    Tables = case lists:keyfind(from, 1, SelectSections) of
         {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
         TError ->       ?ClientError({"Invalid table name", TError})
     end,
-    ColMap = case lists:keyfind(fields, 1, ParseTree) of
+    ColMap = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql:column_map(Tables,[]);
         {_, FieldList} -> 
@@ -18,7 +18,7 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid field name", CError})
     end,
-    % WhereMap = case lists:keyfind(where, 1, ParseTree) of
+    % WhereMap = case lists:keyfind(where, 1, SelectSections) of
     %     false -> 
     %         [];
     %     {_, BoolTree} -> 
@@ -42,15 +42,14 @@ exec(SeCo, {select, ParseTree}, Stmt, _Schema, IsSec) ->
     MatchSpec = [{MatchHead, Guards, [Result]}],
     JoinSpec = [],                      %% ToDo: e.g. {join type (inner|outer|self, join field element number, matchspec joined table} per join
     Statement = Stmt#statement{
-                    stmt_str=Stmt, stmt_parse=ParseTree, 
                     tables=Tables, cols=ColMap, meta=MetaMap, rowfun=RowFun,
                     matchspec=MatchSpec, joinspec=JoinSpec
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
     io:format(user,"Statement : ~p~n", [Stmt]),
-    io:format(user,"Parse tree: ~p~n", [ParseTree]),
     io:format(user,"Tables: ~p~n", [Tables]),
     io:format(user,"Column map: ~p~n", [ColMap]),
+    io:format(user,"Meta map: ~p~n", [MetaMap]),
     io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
     io:format(user,"JoinSpec: ~p~n", [JoinSpec]),
     {ok, ColMap, RowFun, StmtRef}.
@@ -93,7 +92,7 @@ db_test_() ->
         fun teardown/1,
         {with, [
               fun test_without_sec/1
-%%            , fun test_with_sec/1
+            , fun test_with_sec/1
         ]}
     }.
     
@@ -126,7 +125,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
  
-        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, sysdate from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
+        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, user, sysdate from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef2, self(), IsSec)),
         Result2 = receive 
             R2 ->    binary_to_term(R2)

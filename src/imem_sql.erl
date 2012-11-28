@@ -68,12 +68,6 @@ exec(SKey, Command, _ParseTree, _Stmt, _Schema, _IsSec) ->
     ?UnimplementedException({"SQL command unimplemented", {SKey, Command}}).
 
 
-% field_qname(A) when is_atom(A) ->
-%     {undefined, undefined, A};
-% field_qname({T, A}) when is_atom(T), is_atom(A) ->
-%     {undefined, T, A};
-% field_qname({S, T, A}) when is_atom(S), is_atom(T), is_atom(A) ->
-%     {S, T, A};
 field_qname(B) when is_binary(B) ->
     field_qname(binary_to_list(B));
 field_qname(Str) when is_list(Str) ->
@@ -89,10 +83,10 @@ field_qname(S) ->
 table_qname(B) when is_binary(B) ->
     table_qname(binary_to_list(B));
 table_qname(T) when is_atom(T) ->
-    {undefined, T, T};
+    {imem_meta:schema(), T, T};
 table_qname(Str) when is_list(Str) ->
     case string:tokens(Str, ".") of
-        [T] ->      {undefined, list_to_atom(T), list_to_atom(T)};
+        [T] ->      {imem_meta:schema(), list_to_atom(T), list_to_atom(T)};
         [S,T] ->    {list_to_atom(S), list_to_atom(T), list_to_atom(T)};
         _ ->        ?ClientError({"Invalid table name", Str})
     end;
@@ -106,14 +100,14 @@ table_qname(Table, Alias) when is_binary(Alias) ->
 table_qname(Table, Alias) when is_list(Alias) ->    
     table_qname(Table, list_to_atom(Alias));
 table_qname(T, A) when is_atom(T), is_atom(A) ->
-    {undefined, T, A};
+    {imem_meta:schema(), T, A};
 table_qname({S, T}, A) when is_atom(S), is_atom(T), is_atom(A) ->
     {S, T, A};
 table_qname(B , A) when is_binary(B), is_atom(A) ->
     table_qname(binary_to_list(B), A);
 table_qname(Str, A) when is_list(Str), is_atom(A) ->
     case string:tokens(Str, ".") of
-        [T] ->      {undefined, list_to_atom(T), A};
+        [T] ->      {imem_meta:schema(), list_to_atom(T), A};
         [S,T] ->    {list_to_atom(S), list_to_atom(T), A};
         _ ->        ?ClientError({"Invalid table name", Str})
     end;
@@ -192,7 +186,7 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
                 Index ->    {Index, Meta}
             end, 
             #ddColumn{type=Type, length=Len, precision=P} = imem_meta:meta_field_info(Name),
-            Cmap1 = Cmap0#ddColMap{tind=Tindex+1, cind=Cindex, type=Type, length=Len, precision=P},
+            Cmap1 = Cmap0#ddColMap{tind=Tindex, cind=Cindex, type=Type, length=Len, precision=P},
             column_map([], Columns, Tindex, Lookup, Meta1, [Cmap1|Acc]);                          
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined)->  
             ?ClientError({"Unknown column name", Name});

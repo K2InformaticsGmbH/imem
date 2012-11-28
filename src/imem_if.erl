@@ -27,13 +27,15 @@
         , check_table_record/2
         , check_table_columns/2
         , system_table/1
-        , meta_value/1        
+        , meta_field_value/1        
         , subscribe/1
         , unsubscribe/1
         ]).
 
 -export([ add_attribute/2
         , update_opts/2
+        , localTimeToSysDate/1
+        , nowToSysTimeStamp/1
         ]).
         
 -export([ create_table/3
@@ -48,7 +50,7 @@
         , read/1
         , read/2                 
         , read_block/3
-        , start_trans/4
+        , fetch_start/4
         , write/2
         , insert/2    
         , delete/2
@@ -170,11 +172,18 @@ transaction(Fun, Args, Retries) when is_function(Fun)->
 
 %% ---------- HELPER FUNCTIONS ------ exported -------------------------------
 
-meta_value(node) -> node();
-meta_value(schema) -> schema();
-meta_value(sysdate) -> erlang:now();            %% ToDo: convert to oracle 7 bit date
-meta_value(systimestamp) -> erlang:now();       %% ToDo: convert to oracle 20 bit timestamp
-meta_value(Name) -> ?ClientError({"Undefined meta value",Name}).
+localTimeToSysDate(LTime) -> LTime. %% ToDo: convert to oracle 7 bit date
+
+nowToSysTimeStamp(Now) -> Now.      %% ToDo: convert to oracle 20 bit timestamp
+
+meta_field_value(node) -> node();
+meta_field_value(user) -> <<"unknown">>;
+meta_field_value(schema) -> schema();
+meta_field_value(localtime) -> calendar:local_time();            
+meta_field_value(now) -> erlang:now();            
+meta_field_value(sysdate) -> localTimeToSysDate(calendar:local_time());    
+meta_field_value(systimestamp) -> nowToSysTimeStamp(erlang:now());         
+meta_field_value(Name) -> ?ClientError({"Undefined meta value",Name}).
 
 schema() ->
     %% schema identifier of local imem node
@@ -412,7 +421,7 @@ read_block(Table, Key, BlockSize, Acc) ->
 
 
 % [{'$1', [], ['$_']}]
-start_trans(Pid, Table, MatchSpec, Limit) ->
+fetch_start(Pid, Table, MatchSpec, BlockSize) ->
     F =
     fun(F,Contd0) ->
         receive
@@ -420,13 +429,13 @@ start_trans(Pid, Table, MatchSpec, Limit) ->
                 io:format("Abort~n", []);
             next ->
                 case (case Contd0 of
-                      undefined -> mnesia:select(Table, MatchSpec, Limit, read);
+                      undefined -> mnesia:select(Table, MatchSpec, BlockSize, read);
                       Contd0 -> mnesia:select(Contd0)
                       end) of
                 {Rows, Contd1} ->
                     Pid ! {row, Rows},
                     F(F,Contd1);
-                '$end_of_table' -> Pid ! {row, eot}
+                '$end_of_table' -> Pid ! {row, ?eot}
                 end
         end
     end,

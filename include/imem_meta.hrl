@@ -39,11 +39,10 @@
                     , stmt_parse = undefined        ::any()             %% SQL parse tree
                     , cols = []                     ::list(#ddColMap{}) %% column map 
                     , meta = []                     ::list(atom())      %% list of meta_field names needed by RowFun
-                    , rowfun                        ::fun()             %% rendering fun for row {rable recs} -> [field values]
+                    , rowfun                        ::fun()             %% rendering fun for row {table recs} -> [field values]
+                    , joinfun                       ::fun()             %% fun for merging rows for joined tables [] -> {table recs} -> [field values]
                     , matchspec = undefined         ::list()            %% how to find master records
                     , joinspec = []                 ::list()            %% how to find joined records
-                    , cont = undefined              ::any()             %% traversal state continuation
-                    , key = ?sot                    ::any()
                     }).
 
 -record(ddTable,                            %% table    

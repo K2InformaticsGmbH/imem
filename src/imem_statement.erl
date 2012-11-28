@@ -16,21 +16,27 @@
         , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
         , fetch_recs_async/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
 %        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
-        , read_block/4      %% ToDo: remove
         ]).
+
+-record(fetchCtx,           %% state for fetch process
+                { 
+                  pid       ::pid()
+                , monref    ::any()     %% fetch monitor ref
+                , status    ::atom()
+                , metarec   ::tuple()
+                , remaining ::integer() %% rows remaining to be fetched. initialized to Limit and decremented
+                }
+        ).
 
 -record(state, { statement
                , seco
-               , trans_pid
-               , reply % TCP socket or Pid
+               , fetchCtx = #fetchCtx{}    
+               , reply                  %% TCP socket or Pid
                }).
 
 % statement has its own SKey
 fetch_recs(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
    gen_server:cast(Pid, {fetch_recs, Sock, IsSec}).
-
-read_block(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {read_block, Sock, IsSec}).
 
 fetch_recs_async(_SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, Sock, IsSec}).
@@ -59,59 +65,75 @@ handle_cast({fetch_recs, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) 
         1 ->    fetch_recs_single(hd(Stmt#statement.tables), Sock, IsSec, Stmt, SKey, State);
         _ ->    fetch_recs_join(Stmt#statement.tables, Sock, IsSec, Stmt, SKey, State)
     end;
-handle_cast({read_block, Sock, IsSec}, #state{statement=Stmt, seco=SKey}=State) ->
-    #statement{tables=[{_Schema,Table,_Alias}|_], key=Key, block_size=BlockSize} = Stmt,
-    {Result, NewState} = 
-    try
-        case if_call_mfa(IsSec, read_block, [SKey, Table, Key, BlockSize]) of
-            {Rows, ?eot} ->   {term_to_binary({Rows, true}), State#state{statement=Stmt#statement{key=?eot}}};  
-            {Rows, NewKey} -> {term_to_binary({Rows, false}), State#state{statement=Stmt#statement{key=NewKey}}}
-        end
-    catch
-        Class:Reason -> {term_to_binary({Class, Reason}),State}
-    end,
-    case Sock of
-        Pid when is_pid(Pid)    -> Pid ! Result;
-        Sock                    -> gen_tcp:send(Sock, Result)
-    end,
-    {noreply, NewState};  
-handle_cast({fetch_recs_async, Sock, _IsSec}, #state{statement=Stmt, seco=_SKey, trans_pid=Pid}=State) ->
-    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize} = Stmt,
-    NewTransPid = case Pid of
+handle_cast({fetch_recs_async, Sock, _IsSec}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
+    Result = term_to_binary({error,"Fetch aborted"}),
+    send_reply_to_client(Sock, Result),
+    {noreply, State}; 
+handle_cast({fetch_recs_async, Sock, IsSec}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
+    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec=MatchSpec, meta=MetaMap, limit=Limit} = Stmt,
+    MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [N]) || N <- MetaMap]),
+    NewTransCtx = case Pid of
         undefined ->
-            TransPid = imem_if:start_trans(self(), Table, [{'$1', [], ['$_']}], BlockSize),
-            TransPid ! next,
-            TransPid;
+            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
+                TransPid when is_pid(TransPid) ->
+                    MonitorRef = erlang:monitor(process, TransPid), 
+                    TransPid ! next,
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, remaining=Limit};
+                Error ->    
+                    ?SystemException({"Cannot spawn async fetch process",Error})
+            end;
         Pid ->
             Pid ! next,
-            Pid
+            #fetchCtx{metarec=MetaRec};
     end,
-    {noreply, State#state{reply=Sock,trans_pid=NewTransPid}};  
+    {noreply, State#state{reply=Sock,fetchCtx=NewTransCtx}};  
+handle_cast({'DOWN', Ref, process, Pid, Reason}, #state{reply=undefined}=State) ->
+    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {noreply, State};
+handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
+    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    {noreply, State#state{fetchCtx={undefined,undefined,aborted}}};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info({row, eot}, State) ->
-    {noreply, State#state{trans_pid=undefined, reply=undefined}};
-handle_info({row, Rows}, #state{trans_pid=Pid, reply=Sock, seco=_SKey}=State) ->
+handle_info({row, ?eot}, State) ->
+    {noreply, State#state{fetchCtx=#fetchCtx{}, reply=undefined}};
+handle_info({row, Rows}, #state{reply=Sock, seco=SKey, fetchCtx=FetchCtx, stmt=Stmt}=State) ->
+    #fetchCtx{metarec=MetaRec, remaining=Remaining}=FetchCtx,
     io:format(user, "received rows ~p~n", Rows),
-    case Sock of
-        Pid when is_pid(Pid)    -> Pid ! Rows;
-        Sock                    -> gen_tcp:send(Sock, Rows)
-    end,
+    Result = case length(Stmt#statement.tables) of
+        1 ->    Wrap = fun(X) -> {X, MetaRec} end,
+                term_to_binary({lists:map(Wrap, Rows), false});
+        _ ->    ?UnsupportedException({"Joins not supported",Stmt#statement.tables})
+    end;
+    send_reply_to_client(Sock, Result),
     {noreply, State};
 handle_info(Info, State) ->
     io:format(user, "imem_statement handle_info shouldn't come here ~p~n", [Info]),
     {noreply, State}.
 
-terminate(_Reason, _State) -> ok.
+terminate(_Reason, #state{fetchCtx={undefined,undefined,undefined}} = State) -> ok;
+terminate(_Reason, #state{fetchCtx={Pid,MonitorRef,_}} = State) ->
+    erlang:demonitor(MonitorRef),
+    Pid ! abort, 
+    ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+send_reply_to_client(SockOrPid, Result) ->
+    case SockOrPid of
+        Pid when is_pid(Pid)    -> Pid ! Result;
+        Sock                    -> gen_tcp:send(Sock, Result)
+    end.
 
 fetch_recs_single({_Schema,Table,_Alias}, Sock, IsSec, Stmt, SKey, State) ->
     #statement{limit=Limit, matchspec=MatchSpec, meta=MetaMap} = Stmt,
     {Result, NewState} =
     try
-        MetaRec = list_to_tuple([imem_meta:meta_value(N) || N <- MetaMap]),
+        MetaRec = case IsSec of
+            false ->    list_to_tuple([imem_meta:meta_field_value(N) || N <- MetaMap]);
+            true ->     list_to_tuple([imem_sec:meta_field_value(SKey, N) || N <- MetaMap])
+        end,
         Wrap = fun(X) -> {X, MetaRec} end,
         {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
         {term_to_binary({lists:map(Wrap, Rows), Complete}), State}

@@ -51,6 +51,8 @@
 
 -export([ add_attribute/2
         , update_opts/2
+        , localTimeToSysDate/1
+        , nowToSysTimeStamp/1
         ]).
 
 -export([ create_table/4
@@ -215,16 +217,20 @@ meta_field_info(sysdate) ->
 meta_field_info(systimestamp) ->
     #ddColumn{name=systimestamp, type='timestamp', length=20, precision=0};
 meta_field_info(schema) ->
-    #ddColumn{name=schema, type='string', length=40, precision=0};
+    #ddColumn{name=schema, type='eatom', length=10, precision=0};
 meta_field_info(node) ->
-    #ddColumn{name=node, type='string', length=40, precision=0};
+    #ddColumn{name=node, type='eatom', length=30, precision=0};
 meta_field_info(user) ->
-    #ddColumn{name=user, type='string', length=40, precision=0};
+    #ddColumn{name=user, type='ebinstr', length=20, precision=0};
+meta_field_info(localtime) ->
+    #ddColumn{name=localtime, type='edatetime', length=20, precision=0};
+meta_field_info(now) ->
+    #ddColumn{name=now, type='etimestamp', length=20, precision=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 
 meta_field_value(user) ->
-    "unknown"; 
+    <<"unknown">>; 
 meta_field_value(Name) ->
     imem_if:meta_field_value(Name). 
 
@@ -299,6 +305,13 @@ add_attribute(A, Opts) ->
 
 update_opts(T, Opts) ->
     imem_if:update_opts(T, Opts).
+
+localTimeToSysDate(LTime) -> 
+    imem_if:localTimeToSysDate(LTime).
+
+nowToSysTimeStamp(Now) -> 
+    imem_if:nowToSysTimeStamp(Now).
+
 
 %% imem_if but security context added --- META INFORMATION ------
 

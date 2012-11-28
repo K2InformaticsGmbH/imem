@@ -29,6 +29,8 @@
 
 -export([ update_opts/3
         , add_attribute/3
+        , localTimeToSysDate/2
+        , nowToSysTimeStamp/2
         ]).
 
 -export([ authenticate/4
@@ -108,6 +110,11 @@ add_attribute(_SKey, A, Opts) ->
 update_opts(_SKey, T, Opts) ->
     imem_meta:update_opts(T, Opts).
 
+localTimeToSysDate(_SKey, LTime) -> 
+    imem_meta:localTimeToSysDate(LTime).
+
+nowToSysTimeStamp(_SKey, Now) -> 
+    imem_meta:nowToSysTimeStamp(Now).
 
 %% imem_if but security context added --- META INFORMATION ------
 
