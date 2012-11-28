@@ -48,6 +48,7 @@
         , read/1
         , read/2                 
         , read_block/3
+        , start_trans/4
         , write/2
         , insert/2    
         , delete/2
@@ -409,6 +410,27 @@ read_block(Table, Key, BlockSize, Acc) ->
     Rows = mnesia:dirty_read(Table, Key),
     read_block(Table, mnesia:dirty_next(Table, Key), BlockSize - length(Rows), Acc ++ Rows).
 
+
+% [{'$1', [], ['$_']}]
+start_trans(Pid, Table, MatchSpec, Limit) ->
+    F =
+    fun(F,Contd0) ->
+        receive
+            abort ->
+                io:format("Abort~n", []);
+            next ->
+                case (case Contd0 of
+                      undefined -> mnesia:select(Table, MatchSpec, Limit, read);
+                      Contd0 -> mnesia:select(Contd0)
+                      end) of
+                {Rows, Contd1} ->
+                    Pid ! {row, Rows},
+                    F(F,Contd1);
+                '$end_of_table' -> Pid ! {row, eot}
+                end
+        end
+    end,
+    spawn(mnesia, transaction, [F, [F,undefined]]).
 
 subscribe({table, Tab, simple}) ->
 mnesia:subscribe({table, Tab, simple});
