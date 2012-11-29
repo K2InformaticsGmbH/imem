@@ -31,7 +31,7 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     %         ?ClientError({"Invalid field name", CError})
     % end,
     ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
-    RowFun = fun(X) -> [element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers] end,
+    RowFun = fun(X) -> [X|[element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers]] end,
     MetaIdx = length(Tables) + 1,
     MetaMap = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMap, C#ddColMap.tind==MetaIdx])],
    
