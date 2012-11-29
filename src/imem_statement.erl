@@ -16,7 +16,7 @@
         , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
         , fetch_recs_async/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
 %        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
-        , close/3
+        , close/2
         ]).
 
 -record(fetchCtx,               %% state for fetch process
@@ -54,8 +54,8 @@ fetch_recs(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
 fetch_recs_async(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, Sock, IsSec, SKey}).
 
-close(SKey, Pid, Sock) when is_pid(Pid) ->
-    gen_server:cast(Pid, {close, Sock, SKey}).
+close(SKey, Pid) when is_pid(Pid) ->
+    gen_server:cast(Pid, {close, SKey}).
 
 init([Statement]) ->
     {ok, #state{statement=Statement}}.
@@ -90,7 +90,7 @@ handle_cast({fetch_recs_async, Sock, IsSec, _SKey}, #state{statement=Stmt, seco=
             #fetchCtx{metarec=MetaRec}
     end,
     {noreply, State#state{reply=Sock,fetchCtx=NewTransCtx}};  
-handle_cast({close, _Sock, _SKey}, State) ->
+handle_cast({close, _SKey}, State) ->
     % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
@@ -130,20 +130,20 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
     {noreply, State#state{fetchCtx=FetchCtx1}};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
     % io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
-    {stop, normal, State}; 
+    {noreply, State#state{fetchCtx=#fetchCtx{}}}; 
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
     io:format(user, "~p - received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
-    {noreply, State#state{fetchCtx=#fetchCtx{status=aborted}}};
+    {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(Info, State) ->
     io:format(user, "~p - received unsolicited info ~p~nin state ~p~n", [?MODULE, Info, State]),
     {noreply, State}.
 
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) -> 
-    % io:format(user, "~p - terminate called~nin state ~p~n", [?MODULE, State]),
+    io:format(user, "~p - terminating monitor not found~n", [?MODULE]),
     catch Pid ! abort, 
     ok;
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
-    % io:format(user, "~p - terminate called~nin state ~p~n", [?MODULE, State]),
+    io:format(user, "~p - terminating after demonitor~n", [?MODULE]),
     erlang:demonitor(MonitorRef, [flush]),
     catch Pid ! abort, 
     ok.

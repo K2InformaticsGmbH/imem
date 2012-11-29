@@ -52,6 +52,7 @@
         , select/3
         , select/4
         , insert/3    
+        , close/2
         , write/3
         , delete/3
         , truncate/2
@@ -277,6 +278,9 @@ fetch_recs(SKey, Pid, Sock) ->
 
 fetch_recs_async(SKey, Pid, Sock) ->
     imem_statement:fetch_recs_async(SKey, Pid, Sock, true).
+
+close(SKey, Pid) ->
+    imem_statement:close(SKey, Pid).
 
 fetch_start(SKey, Pid, dba_tables, MatchSpec, BlockSize) ->
     case imem_seco:have_permission(SKey, [manage_system_tables]) of

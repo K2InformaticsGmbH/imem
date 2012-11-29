@@ -37,8 +37,10 @@
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
-    {ok, CMNode} = application:get_env(erl_cluster_mgr),
-    %% pong = net_adm:ping(CMNode),
+    case application:get_env(erl_cluster_mgr) of
+        {ok, undefined} -> ok;
+        {ok, CMNode} -> pong = net_adm:ping(CMNode)
+    end,
     case imem_sup:start_link(StartArgs) of
     	{ok, Pid} ->
     		{ok, Pid};

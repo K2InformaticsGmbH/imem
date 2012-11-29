@@ -69,7 +69,9 @@
         , truncate/1        %% truncate table
         , exec/3
         , fetch_recs/2
+        , fetch_recs_async/2
         , fetch_start/4
+        , close/1
 		]).
 
 
@@ -332,6 +334,12 @@ exec(Statement, BlockSize, Schema) ->
 
 fetch_recs(Pid, Sock) ->
     imem_statement:fetch_recs(none, Pid, Sock, false).
+
+fetch_recs_async(Pid, Sock) ->
+    imem_statement:fetch_recs_async(none, Pid, Sock, false).
+
+close(Pid) ->
+    imem_statement:close(none, Pid).
 
 fetch_start(Pid, dba_tables, MatchSpec, BlockSize) ->
     fetch_start(Pid, ddTable, MatchSpec, BlockSize);
