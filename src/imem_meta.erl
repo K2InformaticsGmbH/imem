@@ -72,8 +72,17 @@
         , fetch_recs_async/2
         , fetch_start/4
         , close/1
-		]).
+        , update_xt/3  
+        ]).
 
+
+-export([ transaction/1
+        , transaction/2
+        , transaction/3
+        , return_atomic_list/1
+        , return_atomic_ok/1
+        , return_atomic/1
+        ]).
 
 start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
@@ -396,6 +405,36 @@ subscribe(EventCategory) ->
 
 unsubscribe(EventCategory) ->
     imem_if:unsubscribe(EventCategory).
+
+
+update_xt(dba_tables, Old, New) ->
+    imem_if:update_xt(ddTable, Old, New);
+update_xt(all_tables, Old, New) ->
+    imem_if:update_xt(ddTable, Old, New);
+update_xt(user_tables, Old, New) ->
+    imem_if:update_xt(ddTable, Old, New);
+update_xt(Table, Old, New) ->
+    imem_if:update_xt(Table, Old, New).
+
+
+transaction(Function) ->
+    imem_if:transaction(Function).
+
+transaction(Function, Args) ->
+    imem_if:transaction(Function, Args).
+
+transaction(Function, Args, Retries) ->
+    imem_if:transaction(Function, Args, Retries).
+
+return_atomic_list(Result) ->
+    imem_if:return_atomic_list(Result). 
+
+return_atomic_ok(Result) -> 
+    imem_if:return_atomic_ok(Result).
+
+return_atomic(Result) -> 
+    imem_if:return_atomic(Result).
+
 
 %% ----- TESTS ------------------------------------------------
 

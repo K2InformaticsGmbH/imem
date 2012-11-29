@@ -53,6 +53,7 @@
         , write/2
         , insert/2    
         , delete/2
+        , update_xt/3           %% update / insert / delete single key with external wrapping transaction
         ]).
 
 -export([ transaction/1
@@ -60,6 +61,7 @@
         , transaction/3
         , return_atomic_list/1
         , return_atomic_ok/1
+        , return_atomic/1
         ]).
 
 %% gen_server
@@ -139,10 +141,26 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
 return_atomic_list({atomic, L}) when is_list(L) -> L;
+return_atomic_list({aborted,{throw,{Exception,Reason}}}) -> 
+    throw({Exception,Reason});
+return_atomic_list({aborted,{exit,{Exception,Reason}}}) -> 
+    exit({Exception,Reason});
 return_atomic_list(Error) -> ?SystemException(Error).
 
 return_atomic_ok({atomic, ok}) -> ok;
-return_atomic_ok(Error)        -> ?SystemException(Error).
+return_atomic_ok({aborted,{throw,{Exception,Reason}}}) -> 
+    throw({Exception,Reason});
+return_atomic_ok({aborted,{exit,{Exception,Reason}}}) -> 
+    exit({Exception,Reason});
+return_atomic_ok(Error) -> 
+    ?SystemException(Error).
+
+return_atomic({atomic, Result}) -> Result;
+return_atomic({aborted, {throw,{Exception, Reason}}}) -> 
+    throw({Exception, Reason});
+return_atomic({aborted, {exit, {Exception, Reason}}}) -> 
+    exit({Exception, Reason});
+return_atomic(Error) ->  ?SystemException(Error).
 
 
 transaction(Function) when is_atom(Function)->
@@ -264,12 +282,12 @@ create_table(Table,Columns,Opts) ->
 
 system_table(_) -> false.
 
-create_local_table(Table,Columns,Opts) ->
+create_local_table(Table,Columns,Opts) when is_atom(Table) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
     CompleteOpts = add_attribute(Cols, Opts),
     create_table(Table, CompleteOpts).
 
-create_cluster_table(Table,Columns,Opts) ->
+create_cluster_table(Table,Columns,Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     create_local_table(Table,Columns,[{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts]).
@@ -301,7 +319,7 @@ drop_table(Table) when is_atom(Table) ->
         Error ->                        ?SystemException(Error)
     end.
 
-create_index(Table, Column) ->
+create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
             ?ClientError({"Table does not exist", Table});
@@ -310,7 +328,7 @@ create_index(Table, Column) ->
         Result -> return_atomic_ok(Result)
     end.
 
-drop_index(Table, Column) ->
+drop_index(Table, Column) when is_atom(Table) ->
     case mnesia:del_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
             ?ClientError({"Table does not exist", Table});
@@ -338,7 +356,7 @@ insert(Table, Row) when is_atom(Table), is_list(Row) ->
         _ ->        ?ClientError({"Wrong number of columns",RowLen})
     end.
 
-read(Table) ->
+read(Table) when is_atom(Table) ->
     Trans = fun() ->      
         Keys = mnesia:all_keys(Table), 
         [lists:nth(1, mnesia:read(Table, X)) || X <- Keys]
@@ -349,7 +367,7 @@ read(Table) ->
         Error ->                    ?SystemException(Error)
     end.
 
-read(Table, Key) ->
+read(Table, Key) when is_atom(Table) ->
     Result = case transaction(read,[Table, Key]) of
         {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
         Res ->                      Res 
@@ -363,14 +381,14 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     end,
     return_atomic_ok(Result).
 
-delete(Table, Key) ->
+delete(Table, Key) when is_atom(Table) ->
     Result = case transaction(delete,[{Table, Key}]) of
         {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
         Res ->                      Res 
     end,
     return_atomic_ok(Result).
 
-select(Table, MatchSpec) ->
+select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of
         {atomic, L}     ->              {L, true};
         {aborted,{no_exists,_}} ->      ?ClientError({"Table does not exist",Table});    
@@ -381,7 +399,7 @@ select_sort(Table, MatchSpec) ->
     {L, true} = select(Table, MatchSpec),
     {lists:sort(L), true}.
 
-select(Table, MatchSpec, Limit) ->
+select(Table, MatchSpec, Limit) when is_atom(Table) ->
     Start = fun(N) ->
         case mnesia:select(Table, MatchSpec, Limit, read) of
             '$end_of_table' ->              {[], true};
@@ -436,6 +454,58 @@ fetch_start(Pid, Table, MatchSpec, BlockSize) ->
     end,
     spawn(mnesia, transaction, [F, [F,undefined]]).
 
+update_xt(_Table, [], []) ->
+    ok;
+update_xt(Table, [Old|_], []) when is_atom(Table) ->
+    mnesia:delete(Table, element(2, Old), write);
+update_xt(Table, [], New) when is_atom(Table), is_list(New) ->
+    [mnesia:write(N) || N <- New] ;
+update_xt(Table, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
+    if
+        element(2,O) /= element(2,N) ->
+            ?ClientError({"Key update not allowed", {Table, element(2,O), element(2,N)}});
+        true ->
+            Current = read(Table, element(2,O)),
+            io:format(user, "current ~p~n", [Current]),
+            io:format(user, "old ~p~n", [Old]),
+            if  
+                Current == Old ->   
+                    ok;
+                true ->             
+                    CurrentSorted = lists:sort(Current),
+                    OldSorted = lists:sort(Old),
+                    if  
+                        CurrentSorted == OldSorted ->    
+                            ok;
+                        true -> 
+                            ?ConcurrencyException({"Data is modified by someone else", {OldSorted, CurrentSorted}})
+                    end
+            end
+    end,
+    io:format(user, "delete ~p~n", [element(2,O)]),
+    mnesia:delete({Table, element(2,O)}), 
+    io:format(user, "write ~p~n", [New]),
+    [mnesia:write(Y) || Y <- New];
+update_xt(_Table, {}, {}) ->
+    ok;
+update_xt(Table, Old, {}) when is_atom(Table), is_tuple(Old) ->
+    mnesia:delete(Table, element(2, Old), write);
+update_xt(Table, {}, New) when is_atom(Table), is_tuple(New) ->
+    mnesia:write(New);
+update_xt(Table, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
+    if
+        element(2,Old) /= element(2,New) ->
+            ?ClientError({"Key update not allowed", {Table, element(2,Old), element(2,New)}});
+        true ->
+            case read(Table, element(2,Old)) of
+                [Old] ->    ok;
+                [] ->       ?ConcurrencyException({"Data is deleted by someone else", Old});
+                Current ->  ?ConcurrencyException({"Data is modified by someone else", {Old, Current}})
+            end
+    end,
+    mnesia:write(New).
+
+
 subscribe({table, Tab, simple}) ->
 mnesia:subscribe({table, Tab, simple});
 subscribe({table, Tab, detailed}) ->
@@ -482,6 +552,7 @@ table_operations(_) ->
     try
         ClEr = 'ClientError',
         SyEx = 'SystemException',
+        CoEx = 'ConcurrencyException',
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
@@ -555,6 +626,56 @@ table_operations(_) ->
         io:format(user, "success ~p~n", [select_some_data3]),
 
         io:format(user, "----TEST--~p:test_transactions~n", [?MODULE]),
+
+        io:format(user, "data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
+    
+        Update1 = fun(X) ->
+            update_xt(imem_table_123, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X}),
+            update_xt(imem_table_123, {}, {imem_table_123, "XXX","11","22"}),
+            update_xt(imem_table_123, {imem_table_123, "AA","BB","cc"}, {}),
+            lists:sort(read(imem_table_123))
+        end,
+        UR1 = return_atomic(transaction(Update1, ["99"])),
+        io:format(user, "updated data in table ~p~n~p~n", [imem_table_123, UR1]),
+        ?assertEqual(UR1, [{imem_table_123,"A","B","C"},{imem_table_123,"AAA","11","99"},{imem_table_123,"XXX","11","22"}]),
+        
+        ?assertEqual(ok, drop_table(imem_table_123)),
+        io:format(user, "success ~p~n", [drop_table]),
+
+        ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [{type, bag}])),
+        io:format(user, "success ~p~n", [create_bag_table]),
+
+        ?assertEqual(ok, insert(imem_table_123, {"A","B","C"})),
+        ?assertEqual(1, table_size(imem_table_123)),
+        ?assertEqual(ok, insert(imem_table_123, {"AA","BB","CC"})),
+        ?assertEqual(2, table_size(imem_table_123)),
+        ?assertEqual(ok, insert(imem_table_123, {"AA","BB","cc"})),
+        ?assertEqual(3, table_size(imem_table_123)),
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
+        ?assertEqual(4, table_size(imem_table_123)),
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
+        ?assertEqual(4, table_size(imem_table_123)),
+        io:format(user, "success ~p~n", [write_table]),
+
+        Update2 = fun(X) ->
+            update_xt(imem_table_123, [{imem_table_123, "AA","BB","cc"},{imem_table_123, "AA","BB","CC"}], [{imem_table_123, "AA","11",X}]),
+            update_xt(imem_table_123, [], [{imem_table_123, "XXX","11","22"}]),
+            update_xt(imem_table_123, [{imem_table_123, "A","B","C"}], []),
+            lists:sort(read(imem_table_123))
+        end,
+        UR2 = return_atomic(transaction(Update2, ["99"])),
+        io:format(user, "updated data in table ~p~n~p~n", [imem_table_123, UR2]),
+        ?assertEqual([{imem_table_123,"AA","11","99"},{imem_table_123,"AAA","BB","CC"},{imem_table_123,"XXX","11","22"}], UR2),
+
+        Update3 = fun() ->
+            update_xt(imem_table_123, [{imem_table_123, "AA","BB","cc"}], [{imem_table_123, "AA","11","11"}])
+        end,
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", {[{imem_table_123, "AA","BB","cc"}], [{imem_table_123,"AA","11","99"}]}}}, return_atomic(transaction(Update3))),
+
+        Update4 = fun() ->
+            update_xt(imem_table_123, [{imem_table_123,"AA","11","99"}], [{imem_table_123, "AB","11","11"}])
+        end,
+        ?assertException(throw, {ClEr, {"Key update not allowed", {imem_table_123, "AA", "AB"}}}, return_atomic(transaction(Update4))),
 
         ?assertEqual(ok, drop_table(imem_table_123)),
         io:format(user, "success ~p~n", [drop_table])

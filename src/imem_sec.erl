@@ -57,7 +57,18 @@
         , delete/3
         , truncate/2
         , admin_exec/4
-		]).
+        , update_xt/4  
+        ]).
+
+
+-export([ transaction/2
+        , transaction/3
+        , transaction/4
+        , return_atomic_list/2
+        , return_atomic_ok/2
+        , return_atomic/2
+        ]).
+
 
 -export([ have_table_permission/3   %% includes table ownership and readonly
         ]).
@@ -198,6 +209,33 @@ unsubscribe(_Skey, EventCategory) ->
     imem_meta:unsubscribe(EventCategory).
 
 
+update_xt(_SKey, dba_tables, Old, New) ->
+    imem_meta:update_xt(ddTable, Old, New);
+update_xt(_SKey, all_tables, Old, New) ->
+    imem_meta:update_xt(ddTable, Old, New);
+update_xt(_SKey, user_tables, Old, New) ->
+    imem_meta:update_xt(ddTable, Old, New);
+update_xt(_SKey, Table, Old, New) ->
+    imem_meta:update_xt(Table, Old, New).
+
+
+transaction(_SKey, Function) ->
+    imem_meta:transaction(Function).
+
+transaction(_SKey, Function, Args) ->
+    imem_meta:transaction(Function, Args).
+
+transaction(_SKey, Function, Args, Retries) ->
+    imem_meta:transaction(Function, Args, Retries).
+
+return_atomic_list(_SKey, Result) ->
+    imem_meta:return_atomic_list(Result). 
+
+return_atomic_ok(_SKey, Result) -> 
+    imem_meta:return_atomic_ok(Result).
+
+return_atomic(_SKey, Result) -> 
+    imem_meta:return_atomic(Result).
 
 %% imem_if but security context added --- DATA DEFINITIONimem_meta--
 

@@ -142,7 +142,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(Result2, Result2a),           
         %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
 
-        {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from ddTable;", 100, "Imem", IsSec),  %% all_tables
+        {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from Imem.ddTable;", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    binary_to_term(R3)
