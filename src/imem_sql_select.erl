@@ -46,12 +46,12 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
                     matchspec=MatchSpec, joinspec=JoinSpec
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
-    io:format(user,"Statement : ~p~n", [Stmt]),
-    io:format(user,"Tables: ~p~n", [Tables]),
-    io:format(user,"Column map: ~p~n", [ColMap]),
-    io:format(user,"Meta map: ~p~n", [MetaMap]),
-    io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
-    io:format(user,"JoinSpec: ~p~n", [JoinSpec]),
+    % io:format(user,"Statement : ~p~n", [Stmt]),
+    % io:format(user,"Tables: ~p~n", [Tables]),
+    % io:format(user,"Column map: ~p~n", [ColMap]),
+    % io:format(user,"Meta map: ~p~n", [MetaMap]),
+    % io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
+    % io:format(user,"JoinSpec: ~p~n", [JoinSpec]),
     {ok, ColMap, RowFun, StmtRef}.
 
 
@@ -158,8 +158,8 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun3,List3a)]),
         ?assertEqual(Result3, Result3a),           
 
-        ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
-        ?assertEqual(ok, imem_statement:close(SKey, StmtRef3, self())),
+        %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
+        %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef3, self())),
 
         %% ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
 

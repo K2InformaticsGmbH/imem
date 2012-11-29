@@ -60,7 +60,7 @@ test_with_or_without_sec(IsSec) ->
         SKey=?imem_test_admin_login(),
         ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
-        {ok, _Clm, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, "Imem", IsSec),
+        {ok, _Clm, _RowFun, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, "Imem", IsSec),
         Result0 = if_call_mfa(IsSec,select,[SKey,ddTable,?MatchAllKeys]),
         ?assertMatch({_,true}, Result0),
         io:format(user, "~n~p~n", [Result0]),

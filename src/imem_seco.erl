@@ -99,20 +99,20 @@ init(_Args) ->
     Result.
 
 handle_call({monitor, Pid}, _From, State) ->
-    io:format(user, "~p - started monitoring pid ~p~n", [?MODULE, Pid]),
+    % io:format(user, "~p - started monitoring pid ~p~n", [?MODULE, Pid]),
     {reply, erlang:monitor(process, Pid), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
-    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
-    cleanup_pid(Pid),
-    {noreply, State};
 % handle_cast({stop, Reason}, State) ->
 %     {stop,{shutdown,Reason},State};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
+    % io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    cleanup_pid(Pid),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 

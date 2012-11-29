@@ -415,20 +415,22 @@ fetch_start(Pid, Table, MatchSpec, BlockSize) ->
     fun(F,Contd0) ->
         receive
             abort ->
-                io:format("Abort~n", []);
+                io:format(user, "Abort fetch on table ~p~n", [Table]);
             next ->
                 case (case Contd0 of
                         undefined ->    mnesia:select(Table, MatchSpec, BlockSize, read);
                         Contd0 ->       mnesia:select(Contd0)
                       end) of
                     '$end_of_table' -> 
-                        Pid ! {row, '$end_of_table'};
-                    {Rows,'$end_of_table'} ->
-                        Pid ! {row, Rows},
-                        Pid ! {row, '$end_of_table'};
+                        Pid ! {row, ?eot};
                     {Rows, Contd1} ->
                         Pid ! {row, Rows},
-                        F(F,Contd1)
+                        Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
+                        if  Eot ->
+                                Pid ! {row, ?eot};
+                            true ->
+                                F(F,Contd1)
+                        end
                 end
         end
     end,

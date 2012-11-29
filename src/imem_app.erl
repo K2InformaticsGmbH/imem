@@ -38,7 +38,7 @@
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
     {ok, CMNode} = application:get_env(erl_cluster_mgr),
-    pong = net_adm:ping(CMNode),
+    %% pong = net_adm:ping(CMNode),
     case imem_sup:start_link(StartArgs) of
     	{ok, Pid} ->
     		{ok, Pid};

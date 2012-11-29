@@ -91,24 +91,18 @@ handle_cast({fetch_recs_async, Sock, IsSec, _SKey}, #state{statement=Stmt, seco=
     end,
     {noreply, State#state{reply=Sock,fetchCtx=NewTransCtx}};  
 handle_cast({close, _Sock, _SKey}, State) ->
-    io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
+    % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
-handle_cast({'DOWN', Ref, process, Pid, Reason}, #state{reply=undefined}=State) ->
-    io:format(user, "~p - received expected exit cast for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
-    {stop, normal, State}; 
-handle_cast({'DOWN', Ref, process, Pid, Reason}, State) ->
-    io:format(user, "~p - received unexpected exit cast for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
-    {noreply, State#state{fetchCtx=#fetchCtx{status=aborted}}};
 handle_cast(Request, State) ->
     io:format(user, "~p - received unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     {noreply, State}.
 
 handle_info({row, ?eot}, State) ->
-    io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
+    % io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
     {noreply, State#state{fetchCtx=#fetchCtx{}, reply=undefined}};
 handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
-    io:format(user, "received rows ~p~n", [Rows]),
+    % io:format(user, "received rows ~p~n", [Rows]),
     RowsRead=length(Rows),
     {Result, Sent} = case length(Stmt#statement.tables) of
         1 ->    Wrap = fun(X) -> {X, MetaRec} end,
@@ -130,12 +124,12 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
                 end;
         _ ->    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
     end,
-    io:format(user, "sending rows ~p~n", [Result]),
+    % io:format(user, "sending rows ~p~n", [Result]),
     send_reply_to_client(Sock, term_to_binary(Result)),
     FetchCtx1=FetchCtx0#fetchCtx{remaining=Remaining0-Sent},
     {noreply, State#state{fetchCtx=FetchCtx1}};
-handle_info({'DOWN', Ref, process, Pid, Reason}, #state{reply=undefined}=State) ->
-    io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
+    % io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     {stop, normal, State}; 
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
     io:format(user, "~p - received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
@@ -144,10 +138,14 @@ handle_info(Info, State) ->
     io:format(user, "~p - received unsolicited info ~p~nin state ~p~n", [?MODULE, Info, State]),
     {noreply, State}.
 
-terminate(_Reason, #state{fetchCtx=#fetchCtx{monref=undefined}}) -> ok;
+terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) -> 
+    % io:format(user, "~p - terminate called~nin state ~p~n", [?MODULE, State]),
+    catch Pid ! abort, 
+    ok;
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
-    %% erlang:demonitor(MonitorRef, [flush]),
-    %% Pid ! abort, 
+    % io:format(user, "~p - terminate called~nin state ~p~n", [?MODULE, State]),
+    erlang:demonitor(MonitorRef, [flush]),
+    catch Pid ! abort, 
     ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.

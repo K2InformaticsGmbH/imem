@@ -116,16 +116,21 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ------ META implementation -------------------------------------------------------
 
-system_table(Table) ->
+system_table(Table) when is_atom(Table) ->
+    case lists:member(Table,?META_TABLES) of
+        true ->     true;
+        false ->    imem_if:system_table(Table) 
+    end;
+system_table({_,Table}) when is_atom(Table) ->
     case lists:member(Table,?META_TABLES) of
         true ->     true;
         false ->    imem_if:system_table(Table) 
     end.
 
-check_table(Table) ->
+check_table(Table) when is_atom(Table) ->
     imem_if:table_size(Table).
 
-check_table_record(Table, {Names, Types, DefaultRecord}) ->
+check_table_record(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     [Table|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
     TableColumns = table_columns(Table),    
@@ -147,7 +152,7 @@ check_table_record(Table, {Names, Types, DefaultRecord}) ->
         true ->                 
             ?SystemException({"Record field names do not match table structure",Table})             
     end;
-check_table_record(Table, ColumnNames) ->
+check_table_record(Table, ColumnNames) when is_atom(Table) ->
     TableColumns = table_columns(Table),    
     if
         ColumnNames =:= TableColumns ->
@@ -166,44 +171,28 @@ check_table_record(Table, ColumnNames) ->
             ?SystemException({"Record field names do not match table structure",Table})             
     end.
 
-check_table_columns(Table, {Names, Types, DefaultRecord}) ->
+check_table_columns(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     [Table|Defaults] = tuple_to_list(DefaultRecord),
-    ColumnInfos = column_infos(Names, Types, Defaults),
+    ColumnInfo = column_infos(Names, Types, Defaults),
     TableColumns = table_columns(Table),    
+    MetaInfo = column_infos(Table),    
     if
-        Names =:= TableColumns ->
-            case imem_if:read(ddTable,{schema(), Table}) of
-                [] ->   
-                    ?SystemException({"Missing table metadata",Table}); 
-                [#ddTable{columns=CI}] ->
-                    if
-                        CI =:= ColumnInfos ->    
-                            ok;
-                        true ->                 
-                            ?SystemException({"Column info does not match table metadata",Table})
-                    end          
-            end;  
-        true ->                 
-            ?SystemException({"Column info does not match table structure",Table})             
+        Names /= TableColumns ->
+            ?SystemException({"Column names do not match table structure",Table});             
+        ColumnInfo /= MetaInfo ->
+            ?SystemException({"Column info does not match table metadata",Table});
+        true ->     ok
     end;
-check_table_columns(Table, ColumnInfo) ->
+check_table_columns(Table, ColumnInfo) when is_atom(Table) ->
     ColumnNames = column_info_items(ColumnInfo, name),
-    TableColumns = table_columns(Table),    
+    TableColumns = table_columns(Table),
+    MetaInfo = column_infos(Table),    
     if
-        ColumnNames =:= TableColumns ->
-            case imem_if:read(ddTable,{schema(), Table}) of
-                [] ->   
-                    ?SystemException({"Missing table metadata",Table}); 
-                [#ddTable{columns=CI}] ->
-                    if
-                        CI =:= ColumnInfo ->    
-                            ok;
-                        true ->                 
-                            ?SystemException({"Column info does not match table metadata",Table})
-                    end          
-            end;  
-        true ->                 
-            ?SystemException({"Column info does not match table structure",Table})             
+        ColumnNames /= TableColumns ->
+            ?SystemException({"Column info does not match table structure",Table}) ;
+        ColumnInfo /= MetaInfo ->
+            ?SystemException({"Column info does not match table metadata",Table});
+        true ->     ok                           
     end.
 
 drop_meta_tables() ->
@@ -252,7 +241,12 @@ column_info_items(_Info, Item) ->
 column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
-column_infos(Names)->
+column_infos(Table) when is_atom(Table)->
+            case imem_if:read(ddTable,{schema(), Table}) of
+                [] ->                       ?SystemException({"Missing table metadata",Table}); 
+                [#ddTable{columns=CI}] ->   CI
+            end;  
+column_infos(Names) when is_list(Names)->
     [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N])))} || N <- Names].
 
 column_infos(Names, Types, Defaults)->

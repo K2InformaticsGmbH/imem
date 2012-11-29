@@ -286,15 +286,15 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual({schema,table,field}, field_qname(<<"schema.table.field">>)),
 
         % table names without alias
-        ?assertEqual({undefined,table,table}, table_qname(<<"table">>)),
+        ?assertEqual({'Imem',table,table}, table_qname(<<"table">>)),
         ?assertEqual({schema,table,table}, table_qname(<<"schema.table">>)),
         ?assertEqual({schema,table,alias}, table_qname(<<"schema.table">>, <<"alias">>)),
         ?assertEqual({schema,table,alias}, table_qname(<<"schema.table">>, "alias")),
 
         % table names with alias
-        ?assertEqual({undefined,table,alias}, table_qname({<<"table">>,"alias"})),
+        ?assertEqual({'Imem',table,alias}, table_qname({<<"table">>,"alias"})),
         ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, "alias"})),
-        ?assertEqual({undefined,table,alias}, table_qname({<<"table">>,<<"alias">>})),
+        ?assertEqual({'Imem',table,alias}, table_qname({<<"table">>,<<"alias">>})),
         ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, <<"alias">>})),
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
