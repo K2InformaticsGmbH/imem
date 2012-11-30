@@ -44,6 +44,7 @@
         , meta_field/1
         , meta_field_info/1
         , meta_field_value/1
+        , column_infos/1
         , column_info_items/2
         , subscribe/1
         , unsubscribe/1
@@ -72,7 +73,7 @@
         , fetch_recs_async/2
         , fetch_start/4
         , close/1
-        , update_xt/3  
+        , update_xt/4  
         ]).
 
 
@@ -407,14 +408,14 @@ unsubscribe(EventCategory) ->
     imem_if:unsubscribe(EventCategory).
 
 
-update_xt(dba_tables, Old, New) ->
-    imem_if:update_xt(ddTable, Old, New);
-update_xt(all_tables, Old, New) ->
-    imem_if:update_xt(ddTable, Old, New);
-update_xt(user_tables, Old, New) ->
-    imem_if:update_xt(ddTable, Old, New);
-update_xt(Table, Old, New) ->
-    imem_if:update_xt(Table, Old, New).
+update_xt(dba_tables, Item, Old, New) ->
+    imem_if:update_xt(ddTable, Item, Old, New);
+update_xt(all_tables, Item, Old, New) ->
+    imem_if:update_xt(ddTable, Item, Old, New);
+update_xt(user_tables, Item, Old, New) ->
+    imem_if:update_xt(ddTable, Item, Old, New);
+update_xt(Table, Item, Old, New) ->
+    imem_if:update_xt(Table, Item, Old, New).
 
 
 transaction(Function) ->

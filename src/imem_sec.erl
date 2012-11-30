@@ -20,9 +20,9 @@
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
+        , column_infos/2
         , column_info_items/3        
         , column_map/3
-        , column_map_items/3        
         , subscribe/2
         , unsubscribe/2
         ]).
@@ -57,7 +57,7 @@
         , delete/3
         , truncate/2
         , admin_exec/4
-        , update_xt/4  
+        , update_xt/5  
         ]).
 
 
@@ -155,11 +155,11 @@ meta_field_value(SKey, Name) ->
 column_map(_SKey, Tables, Columns) ->
     imem_sql:columns_map(Tables, Columns).
 
-column_info_items(_SKey, Info, Item) ->
-    imem_sql:column_map_items(Info, Item).
+column_infos(_SKey, Table) ->
+    imem_meta:column_infos(Table).
 
-column_map_items(_SKey, Map, Item) ->
-    imem_sql:column_map_items(Map, Item).
+column_info_items(_SKey, Info, Item) ->
+    imem_meta:column_info_items(Info, Item).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),
@@ -209,14 +209,14 @@ unsubscribe(_Skey, EventCategory) ->
     imem_meta:unsubscribe(EventCategory).
 
 
-update_xt(_SKey, dba_tables, Old, New) ->
-    imem_meta:update_xt(ddTable, Old, New);
-update_xt(_SKey, all_tables, Old, New) ->
-    imem_meta:update_xt(ddTable, Old, New);
-update_xt(_SKey, user_tables, Old, New) ->
-    imem_meta:update_xt(ddTable, Old, New);
-update_xt(_SKey, Table, Old, New) ->
-    imem_meta:update_xt(Table, Old, New).
+update_xt(_SKey, dba_tables, Item, Old, New) ->
+    imem_meta:update_xt(ddTable, Item, Old, New);
+update_xt(_SKey, all_tables, Item, Old, New) ->
+    imem_meta:update_xt(ddTable, Item, Old, New);
+update_xt(_SKey, user_tables, Item, Old, New) ->
+    imem_meta:update_xt(ddTable, Item, Old, New);
+update_xt(_SKey, Table, Item, Old, New) ->
+    imem_meta:update_xt(Table, Item, Old, New).
 
 
 transaction(_SKey, Function) ->

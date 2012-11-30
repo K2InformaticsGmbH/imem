@@ -13,10 +13,10 @@
     code_change/3]).
 
 -export([ create_stmt/3
-        , fetch_recs/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
-        , fetch_recs_async/4      %% ToDo: implement proper return of RowFun(), match conditions and joins
-%        , fetch/4          %% ToDo: implement plain mnesia fetch for columns in select fields (or in matchspec)
+        , fetch_recs/4          %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_recs_async/4    %% ToDo: implement proper return of RowFun(), match conditions and joins
         , close/2
+        , update_cursor/4       %% take change list and apply in one transaction
         ]).
 
 -record(fetchCtx,               %% state for fetch process
@@ -54,6 +54,9 @@ fetch_recs(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
 fetch_recs_async(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, Sock, IsSec, SKey}).
 
+update_cursor(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
+    gen_server:call(Pid, {update_cursor, IsSec, SKey, ChangeList}).
+
 close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
@@ -61,7 +64,71 @@ init([Statement]) ->
     {ok, #state{statement=Statement}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
-    {reply,ok,State#state{seco=SKey}}.
+    {reply,ok,State#state{seco=SKey}};
+handle_call({update_cursor, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx}=State) ->
+    #statement{tables=[{_Schema,Table,_Alias}|_], cols=ColMap} = Stmt,
+    case FetchCtx#fetchCtx.monref of
+        undefined ->    ok;
+        MonitorRef ->   catch erlang:demonitor(MonitorRef, [flush]),
+                        catch FetchCtx#fetchCtx.pid ! abort
+    end, 
+    io:format(user, "~p - received change list~n~p~n", [?MODULE, ChangeList]),
+    % [nop,1,{{def,"2","'2'"},{}},"2"],       %% no operation on this line
+    % [ins,5,{},"99"],                        %% insert {def,"99", undefined}
+    % [del,3,{{def,"5","'5'"},{}},"5"],       %% delete {def,"5","'5'"}
+    % [upd,4,{{def,"12","'12'"},{}},"112"]    %% update {def,"12","'12'"} to {def,"112","'12'"}
+    Update = fun() ->
+        update_set(IsSec, SKey, Table, ColMap, ChangeList) 
+    end,
+    Result = case if_call_mfa(IsSec,transaction,[SKey, Update]) of
+        {atomic, ok}                                -> ok;
+        {aborted,{throw,{Exception,Reason}}} ->     {Exception,Reason};
+        {aborted,{exit,{Exception,Reason}}} ->      {Exception,Reason};
+        Error ->                                    Error
+    end,
+    io:format(user, "~p - update_cursor result ~p~n", [?MODULE, Result]),
+    NewFetchCtx = FetchCtx#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
+    {reply, Result, State#state{fetchCtx=NewFetchCtx}}.  
+
+update_set(_IsSec, _SKey, _Table, _ColMap, []) -> ok;
+update_set(IsSec, SKey, Table, ColMap, [[nop,Item,Recs|_]|CList]) ->
+    if_call_mfa(IsSec,update_xt,[SKey, Table, Item, element(1,Recs), element(1,Recs)]), 
+    update_set(IsSec, SKey, Table, ColMap, CList);
+update_set(IsSec, SKey, Table, ColMap, [[del,Item,Recs|_]|CList]) ->
+    if_call_mfa(IsSec,update_xt,[SKey, Table, Item, element(1,Recs), {}]), 
+    update_set(IsSec, SKey, Table, ColMap, CList);
+update_set(IsSec, SKey, Table, ColMap, [[upd,Item,Recs|Values]|CList]) ->
+    ValMap = lists:usort([{Ci,Value} || {#ddColMap{tind=Ti, cind=Ci},Value} <- lists:zip(ColMap,Values), Ti==1]),
+    IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
+    if 
+        length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});
+        true ->                                 ok
+    end,        
+    NewRec = lists:foldl(fun({Ci,Value},Rec) -> setelement(Ci,Rec,Value) end, element(1,Recs), ValMap),
+    if_call_mfa(IsSec,update_xt,[SKey, Table, Item, element(1,Recs), NewRec]), 
+    update_set(IsSec, SKey, Table, ColMap, CList);
+update_set(IsSec, SKey, Table, ColMap, ChangeList) ->
+    ColInfo = if_call_mfa(IsSec,column_infos, [SKey, Table]),
+    DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),
+    io:format(user, "~p - default record ~p~n", [?MODULE, DefRec]), 
+    update_set(IsSec, SKey, Table, ColMap, DefRec, ChangeList).
+
+
+update_set(IsSec, SKey, Table, ColMap, DefRec, [[ins,Item,_|Values]|CList]) ->
+    ValMap = lists:usort([{Ci,Value} || {#ddColMap{tind=Ti, cind=Ci},Value} <- lists:zip(ColMap,Values), Ti==1]),
+    IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
+    HasKey = lists:member(2,IndMap),
+    if 
+        length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column insert",{Item,ValMap}});
+        HasKey /= true  ->                      ?ClientError({"Missing key column",{Item,ValMap}});
+        true ->                                 ok
+    end,
+    Rec = lists:foldl(fun({Ci,Value},Rec) -> setelement(Ci,Rec,Value) end, DefRec, ValMap),
+    if_call_mfa(IsSec,update_xt,[SKey, Table, Item, {}, Rec]), 
+    update_set(IsSec, SKey, Table, ColMap, CList).
+
+% update_bag(IsSec, SKey, Table, ColMap, [C|CList]) ->
+%     ?UnimplementedException({"Cursor update not supported for bag tables",Table}).
 
 handle_cast({fetch_recs, Sock, IsSec, _SKey}, #state{statement=Stmt, seco=SKey}=State) ->
     case length(Stmt#statement.tables) of
@@ -75,7 +142,7 @@ handle_cast({fetch_recs_async, Sock, _IsSec, _SKey}, #state{fetchCtx=#fetchCtx{s
 handle_cast({fetch_recs_async, Sock, IsSec, _SKey}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec=MatchSpec, meta=MetaMap, limit=Limit} = Stmt,
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaMap]),
-    NewTransCtx = case Pid of
+    NewFetchCtx = case Pid of
         undefined ->
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
                 TransPid when is_pid(TransPid) ->
@@ -89,7 +156,7 @@ handle_cast({fetch_recs_async, Sock, IsSec, _SKey}, #state{statement=Stmt, seco=
             Pid ! next,
             #fetchCtx{metarec=MetaRec}
     end,
-    {noreply, State#state{reply=Sock,fetchCtx=NewTransCtx}};  
+    {noreply, State#state{reply=Sock,fetchCtx=NewFetchCtx}};  
 handle_cast({close, _SKey}, State) ->
     % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
@@ -139,7 +206,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) -> 
-    io:format(user, "~p - terminating monitor not found~n", [?MODULE]),
+    % io:format(user, "~p - terminating monitor not found~n", [?MODULE]),
     catch Pid ! abort, 
     ok;
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
@@ -221,7 +288,8 @@ if_call_mfa(IsSec,Fun,Args) ->
 setup() -> 
     ?imem_test_setup().
 
-teardown(_) -> 
+teardown(_SKey) -> 
+    catch imem_meta:drop_table(def),
     ?imem_test_teardown().
 
 db_test_() ->
@@ -235,20 +303,84 @@ db_test_() ->
         ]}
     }.
     
-test_without_sec(SKey) -> 
-    test_with_or_without_sec(SKey, false).
+test_without_sec(_) -> 
+    test_with_or_without_sec(false).
 
-test_with_sec(SKey) ->
-    test_with_or_without_sec(SKey, true).
+test_with_sec(_) ->
+    test_with_or_without_sec(true).
 
-test_with_or_without_sec(_SKey, IsSec) ->
+test_with_or_without_sec(IsSec) ->
     try
-        % ClEr = 'ClientError',
+        ClEr = 'ClientError',
         % SeEx = 'SecurityException',
-        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec])
+        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        SKey=case IsSec of
+            true ->     ?imem_test_admin_login();
+            false ->    none
+        end,
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar2(10), col2 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 15, "def", "Imem", IsSec)),
+        TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
+        io:format(user, "original table~n~p~n", [TableRows1]),
+
+        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1 from def;", 4, "Imem", IsSec),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
+        Result2a = receive 
+            R2a ->    binary_to_term(R2a)
+        end,
+        {List2a, false} = Result2a,
+        ?assertEqual(4, length(List2a)),           
+        %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
+        %% io:format(user, "change list~n~p~n", [ChangeList2]),
+        ChangeList2 = [
+        [nop,1,{{def,"2","'2'"},{}},"2"],       %% no operation on this line
+        [ins,5,{},"99"],                        %% insert {def,"99", undefined}
+        [del,3,{{def,"5","'5'"},{}},"5"],       %% delete {def,"5","'5'"}
+        [upd,4,{{def,"12","'12'"},{}},"112"]    %% update {def,"12","'12'"} to {def,"112","'12'"}
+        ],
+        ?assertEqual({ClEr,{"Key update not allowed",{4,{"12","112"}}}}, update_cursor(SKey, StmtRef2, IsSec, ChangeList2)),
+        TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
+        io:format(user, "unchanged table~n~p~n", [TableRows2]),
+        ?assertEqual(TableRows1, TableRows2),
+
+        ChangeList3 = [
+        [nop,1,{{def,"2","'2'"},{}},"2"],       %% no operation on this line
+        [ins,5,{},"99"],                        %% insert {def,"99", undefined}
+        [del,3,{{def,"5","'5'"},{}},"5"],       %% delete {def,"5","'5'"}
+        [upd,4,{{def,"12","'12'"},{}},"12"]     %% nop update {def,"12","'12'"}
+        ],
+        ExpectedRows3 = [
+        {def,"2","'2'"},                        %% no operation on this line
+        {def,"99",undefined},                   %% insert {def,"99", undefined}
+        {def,"12","'12'"}                       %% nop update {def,"12","'12'"}
+        ],
+        RemovedRows3 = [
+        {def,"5","'5'"}                         %% delete {def,"5","'5'"}
+        ],
+
+        ?assertEqual(ok, update_cursor(SKey, StmtRef2, IsSec, ChangeList3)),
+        TableRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
+        io:format(user, "changed table~n~p~n", [TableRows3]),
+        [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
+        [?assertNot(lists:member(R,TableRows3)) || R <- RemovedRows3],
+
+        ?assertEqual(ok, close(SKey, StmtRef2)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
+
+        case IsSec of
+            true ->     ?imem_logout(SKey);
+            false ->    ok
+        end
+
     catch
         Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
 
+
+insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
+insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
+    imem_sql:exec(SKey, "insert into " ++ TableName ++ " values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
+    insert_range(SKey, N-1, TableName, Schema, IsSec).

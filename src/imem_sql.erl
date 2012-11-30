@@ -201,8 +201,9 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
         (Tcount > 1) -> 
             ?ClientError({"Ambiguous column name", {Schema, Table, Name}});
         true ->         
-            {Ti, Ci, S, T, Name, #ddColumn{type=Type, length=Len, precision=P}} = hd(Lmatch),
-            Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P},
+            {Ti, Ci, S, T, Name, #ddColumn{type=Type, length=Len, precision=P, default=D}} = hd(Lmatch),
+            R = ((Ti > 1) or (Ci < 3)),
+            Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, default=D, readonly=R},
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
 column_map([], [{as, Name, BAlias}|Columns], Tindex, Lookup, Meta, Acc) ->

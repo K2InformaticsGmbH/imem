@@ -91,8 +91,8 @@ db_test_() ->
         fun setup/0,
         fun teardown/1,
         {with, [
-%              fun test_without_sec/1
-             fun test_with_sec/1
+              fun test_without_sec/1
+            , fun test_with_sec/1
         ]}
     }.
     
@@ -158,10 +158,10 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun3,List3a)]),
         ?assertEqual(Result3, Result3a),           
 
-        %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
-        %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef3, self())),
+        ?assertEqual(ok, imem_statement:close(SKey, StmtRef2)),
+        ?assertEqual(ok, imem_statement:close(SKey, StmtRef3)),
 
-        %% ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
 
         case IsSec of
             true ->     ?imem_logout(SKey);
