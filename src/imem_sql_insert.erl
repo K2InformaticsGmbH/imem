@@ -16,6 +16,22 @@ exec(SeCo, {insert, Table, {_, Columns}, {_, Values}} , _Stmt, _Schema, IsSec) -
     Vs = [binary_to_list(V) || V <- Values],    %% ToDo: convert to column type
     if_call_mfa(IsSec,insert,[SeCo, Tab, Vs]).  %% ToDo: set default column values
 
+
+    % Tables = case lists:keyfind(from, 1, SelectSections) of
+    %     {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
+    %     TError ->       ?ClientError({"Invalid select structure", TError})
+    % end,
+    % ColMap = case lists:keyfind(fields, 1, SelectSections) of
+    %     false -> 
+    %         imem_sql:column_map(Tables,[]);
+    %     {_, FieldList} -> 
+    %         imem_sql:column_map(Tables, FieldList);
+    %     CError ->        
+    %         ?ClientError({"Invalid select structure", CError})
+    % end,
+    % ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
+
+
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
 if_call_mfa(IsSec,Fun,Args) ->
@@ -58,7 +74,7 @@ test_with_or_without_sec(IsSec) ->
         % SeEx = 'SecurityException',
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
         SKey=?imem_test_admin_login(),
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 int, col2 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 string, col2 integer);", 0, "Imem", IsSec)),
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
         {ok, _Clm, _RowFun, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, "Imem", IsSec),
         Result0 = if_call_mfa(IsSec,select,[SKey,ddTable,?MatchAllKeys]),
@@ -77,5 +93,5 @@ test_with_or_without_sec(IsSec) ->
 
 insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
-    imem_sql:exec(SKey, "insert into " ++ TableName ++ " values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
+    imem_sql:exec(SKey, "insert into " ++ TableName ++ " values ('" ++ integer_to_list(N) ++ "', " ++ integer_to_list(N) ++ ");", 0, Schema, IsSec),
     insert_range(SKey, N-1, TableName, Schema, IsSec).
