@@ -51,6 +51,8 @@
         , fetch_recs_async/3
         , fetch_start/5
         , fetch_close/2
+        , update_cursor_prepare/3   %% take change list and generate update plan (stored in state)
+        , update_cursor_execute/3   %% take update plan from state and execute it (fetch aborted first)        
         , select/2
         , select/3
         , select/4
@@ -89,7 +91,7 @@
         , string_to_integer/4
         , string_to_number/4
         , string_to_set/3
-        , string_to_time/3
+        , string_to_time/2
         , string_to_timestamp/3
         , string_to_year/2
         ]).
@@ -262,7 +264,7 @@ string_to_set(_SKey,Val,Len) -> imem_meta:string_to_set(Val,Len).
 string_to_enum(_SKey,Val,Len) -> imem_meta:string_to_enum(Val,Len).
 string_to_fun(_SKey,Val,Len) -> imem_meta:string_to_fun(Val,Len).
 string_to_date(_SKey,Val) -> imem_meta:string_to_date(Val).
-string_to_time(_SKey,Val,Prec) -> imem_meta:string_to_time(Val,Prec).
+string_to_time(_SKey,Val) -> imem_meta:string_to_time(Val).
 string_to_timestamp(_SKey,Val,Prec) -> imem_meta:string_to_timestamp(Val,Prec).
 string_to_year(_SKey,Val) -> imem_meta:string_to_year(Val).
 string_to_eterm(_SKey,Val) -> imem_meta:string_to_eterm(Val).
@@ -388,6 +390,12 @@ fetch_start(SKey, Pid, Table, MatchSpec, BlockSize) ->
 
 fetch_close(SKey, Pid) ->
     imem_statement:fetch_close(SKey, Pid, false).
+
+update_cursor_prepare(SKey, Pid, ChangeList) ->
+    imem_statement:update_cursor_prepare(SKey,  Pid, true, ChangeList).
+
+update_cursor_execute(SKey, Pid, Lock) ->
+    imem_statement:update_cursor_execute(SKey,  Pid, true, Lock).
 
 write(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of

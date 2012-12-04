@@ -214,18 +214,18 @@ send_reply_to_client(SockOrPid, Result) ->
         Sock                    -> gen_tcp:send(Sock, Result)
     end.
 
-update_c_prepare(IsSec, SKey, Tables,ColMap, ChangeList) ->
+update_c_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     % io:format(user, "~p - received change list~n~p~n", [?MODULE, ChangeList]),
     %% transform a ChangeList
-        % [nop,1,{{def,"2","'2'"},{}},"2"],                     %% no operation on this line
-        % [ins,5,{},"99"],                                      %% insert {def,"99", undefined}
-        % [del,3,{{def,"5","'5'"},{}},"5"],                     %% delete {def,"5","'5'"}
-        % [upd,4,{{def,"12","'12'"},{}},"112"]                  %% update {def,"12","'12'"} to {def,"112","'12'"}
+        % [1,nop,{{def,"2","'2'"},{}},"2"],                     %% no operation on this line
+        % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
+        % [3,del,{{def,"5","'5'"},{}},"5"],                     %% delete {def,"5","'5'"}
+        % [4,upd,{{def,"12","'12'"},{}},"112"]                  %% update {def,"12","'12'"} to {def,"112","'12'"}
     %% into an UpdatePlan                                       {table} = {Schema,Table,Type}
-        % [{table},1,{def,"2","'2'"},{def,"2","'2'"}],          %% no operation on this line
-        % [{table},5,{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
-        % [{table},3,{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
-        % [{table},4,{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
+        % [1,{table},{def,"2","'2'"},{def,"2","'2'"}],          %% no operation on this line
+        % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
+        % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
+        % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_c_prepare(IsSec, SKey, Tables, ColMap, ChangeList, []),
     %io:format(user, "~p - prepared table changes~n~p~n", [?MODULE, UpdPlan]),
     UpdPlan.
@@ -233,13 +233,13 @@ update_c_prepare(IsSec, SKey, Tables,ColMap, ChangeList) ->
 update_c_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
 update_c_prepare(_IsSec, _SKey, [{Schema,Table,bag}|_], _ColMap, _CList, _Acc) ->
     ?UnimplementedException({"Bag table cursor update not supported", {Schema,Table}});
-update_c_prepare(IsSec, SKey, Tables, ColMap, [[nop,Item,Recs|_]|CList], Acc) ->
+update_c_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), element(1,Recs)],     
     update_c_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_c_prepare(IsSec, SKey, Tables, ColMap, [[del,Item,Recs|_]|CList], Acc) ->
+update_c_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), {}],     
     update_c_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_c_prepare(IsSec, SKey, Tables, ColMap, [[upd,Item,Recs|Values]|CList], Acc) ->
+update_c_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
     % io:format(user, "~p - ColMap~n~p~n", [?MODULE, ColMap]),
     ValMap = lists:usort(
         [{Ci,imem_meta:value_cast(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
@@ -248,13 +248,11 @@ update_c_prepare(IsSec, SKey, Tables, ColMap, [[upd,Item,Recs|Values]|CList], Ac
     % io:format(user, "~p - value map~n~p~n", [?MODULE, ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
     % io:format(user, "~p - ind map~n~p~n", [?MODULE, IndMap]),
-    KeyChg = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, Ci==2, element(Ci,element(1,Recs)) /= NewVal],   
-    % io:format(user, "~p - key change~n~p~n", [?MODULE, KeyChg]),
-    ROVial = lists:keyfind(true,3,ValMap),
+    ROViol = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
+    % io:format(user, "~p - key change~n~p~n", [?MODULE, ROViol]),
     if  
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});        
-        length(KeyChg) /= 0 ->                  ?ClientError({"Key update not allowed",{Item,hd(KeyChg)}});        
-        length(ROVial) /= 0 ->                  ?ClientError({"Key update readonly field",{Item,hd(ROVial)}});        
+        length(ROViol) /= 0 ->                  ?ClientError({"Cannot update readonly field",{Item,hd(ROViol)}});        
         true ->                                 ok    
     end,            
     NewRec = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(1,Recs), ValMap),    
@@ -263,13 +261,16 @@ update_c_prepare(IsSec, SKey, Tables, ColMap, [[upd,Item,Recs|Values]|CList], Ac
 update_c_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
     DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    % io:format(user, "~p - default record ~p~n", [?MODULE, DefRec]),     
+    io:format(user, "~p - default record ~p~n", [?MODULE, DefRec]),     
     update_c_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
 update_c_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
 
-update_c_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[ins,Item,_|Values]|CList], Acc) ->
-    ValMap = lists:usort([{Ci,Value} || {#ddColMap{tind=Ti, cind=Ci},Value} <- lists:zip(ColMap,Values), Ti==1]),
+update_c_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
+    ValMap = lists:usort(
+        [{Ci,imem_meta:value_cast(Item,imem_nil,T,L,P,D,false,Value)} || 
+            {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D},Value} 
+            <- lists:zip(ColMap,Values), Ti==1]),    
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
     HasKey = lists:member(2,IndMap),
     if 
@@ -277,7 +278,16 @@ update_c_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[ins,Item,_|Values]|CList
         HasKey /= true  ->                      ?ClientError({"Missing key column",{Item,ValMap}});
         true ->                                 ok
     end,
-    Rec = lists:foldl(fun({Ci,Value},Rec) -> setelement(Ci,Rec,Value) end, DefRec, ValMap),
+    Rec = lists:foldl(
+            fun({Ci,Value},Rec) ->
+                if 
+                    erlang:is_function(Value,0) -> 
+                        setelement(Ci,Rec,Value());
+                    true ->                 
+                        setelement(Ci,Rec,Value)
+                end
+            end, 
+            DefRec, ValMap),
     Action = [hd(Tables), Item, {}, Rec],     
     update_c_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]).
 
@@ -334,9 +344,11 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar2(10), col2 integer);", 0, "Imem", IsSec)),
         ?assertEqual(ok, insert_range(SKey, 15, def, "Imem", IsSec)),
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
+        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),
+        io:format(user, "Meta table~n~p~n", [Meta]),
         io:format(user, "original table~n~p~n", [TableRows1]),
 
-        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1 from def;", 4, "Imem", IsSec),
+        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, col2 from def;", 4, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
         Result2a = receive 
             R2a ->    binary_to_term(R2a)
@@ -346,25 +358,27 @@ test_with_or_without_sec(IsSec) ->
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
         %% io:format(user, "change list~n~p~n", [ChangeList2]),
         ChangeList2 = [
-        [nop,1,{{def,"2",2},{}},"2"],           %% no operation on this line
-        [ins,5,{},"99"],                        %% insert {def,"99", undefined}
-        [del,3,{{def,"5",5},{}},"5"],           %% delete {def,"5","'5'"}
-        [upd,4,{{def,"12",12},{}},"112"]        %% update {def,"12","'12'"} to {def,"112","'12'"}
+        [1,nop,{{def,"2",2},{}},"2",2],         %% no operation on this line
+        [5,ins,{},"99","undefined"],            %% insert {def,"99", undefined}
+        [3,del,{{def,"5",5},{}},"5",5],         %% delete {def,"5","'5'"}
+        [4,upd,{{def,"12",12},{}},"112",12]     %% update {def,"12","'12'"} to {def,"112","'12'"}
         ],
-        ?assertEqual({ClEr,{"Key update not allowed",{4,{"12","112"}}}}, update_cursor_prepare(SKey, StmtRef2, IsSec, ChangeList2)),
+        ?assertEqual({ClEr,{"Cannot update readonly field",{4,{"12","112"}}}}, update_cursor_prepare(SKey, StmtRef2, IsSec, ChangeList2)),
         TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         io:format(user, "unchanged table~n~p~n", [TableRows2]),
         ?assertEqual(TableRows1, TableRows2),
 
         ChangeList3 = [
-        [nop,1,{{def,"2",2},{}},"2"],           %% no operation on this line
-        [ins,5,{},"99"],                        %% insert {def,"99", undefined}
-        [del,3,{{def,"5",5},{}},"5"],           %% delete {def,"5",5}
-        [upd,4,{{def,"12",12},{}},"12"]         %% nop update {def,"12",12}
+        [1,nop,{{def,"2",2},{}},"2",2],         %% no operation on this line
+        [5,ins,{},"99", "undefined"],           %% insert {def,"99", undefined}
+        [3,del,{{def,"5",5},{}},"5",5],         %% delete {def,"5",5}
+        [4,upd,{{def,"12",12},{}},"12",12],     %% nop update {def,"12",12}
+        [6,upd,{{def,"10",10},{}},"10","110"]   %% update {def,"10",10} to {def,"10",110}
         ],
         ExpectedRows3 = [
         {def,"2",2},                            %% no operation on this line
         {def,"99",undefined},                   %% insert {def,"99", undefined}
+        {def,"10",110},                         %% update {def,"10",10} to {def,"10",110}
         {def,"12",12}                           %% nop update {def,"12",12}
         ],
         RemovedRows3 = [

@@ -76,6 +76,8 @@
         , fetch_start/4
         , fetch_close/1
         , close/1
+        , update_cursor_prepare/2   %% take change list and generate update plan (stored in state)
+        , update_cursor_execute/2   %% take update plan from state and execute it (fetch aborted first)
         , update_tables/2  
         ]).
 
@@ -105,7 +107,7 @@
         , string_to_integer/3
         , string_to_number/3
         , string_to_set/2
-        , string_to_time/2
+        , string_to_time/1
         , string_to_timestamp/2
         , string_to_year/1
         ]).
@@ -394,6 +396,12 @@ fetch_recs_async(Pid, Sock) ->
 fetch_close(Pid) ->
     imem_statement:fetch_close(none, Pid, false).
 
+update_cursor_prepare(Pid, ChangeList) ->
+    imem_statement:update_cursor_prepare(none, Pid, false, ChangeList).
+
+update_cursor_execute(Pid, Lock) ->
+    imem_statement:update_cursor_execute(none, Pid, false, Lock).
+
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize);          %% ToDo: may depend on schema
 fetch_start(Pid, dba_tables, MatchSpec, BlockSize) ->
@@ -568,7 +576,7 @@ value_cast(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
                     (Type == set) ->        string_to_set(Val,Len);
                     (Type == smallint) ->   string_to_integer(Val,Len,Prec);
                     (Type == text) ->       string_to_list(Val,map(Len,0,65535));
-                    (Type == time) ->       string_to_time(Val,Prec);
+                    (Type == time) ->       string_to_time(Val);
                     (Type == timestamp) ->  string_to_timestamp(Val,Prec);
                     (Type == tinyint) ->    string_to_integer(Val,Len,Prec);
                     (Type == tinytext) ->   string_to_list(Val,map(Len,0,255));
@@ -648,29 +656,201 @@ string_to_enum(_Val,_Len) -> ?UnimplementedException({}).
 string_to_double(_Val,_Prec) -> ?UnimplementedException({}).  %% not in erlang:math ??
 string_to_ebinary(_Val,_Len) -> ?UnimplementedException({}).
 
-string_to_date(_Val) -> ?UnimplementedException({}).
-string_to_time(_Val,_Prec) -> ?UnimplementedException({}).
-string_to_timestamp(_Val,_Val) -> ?UnimplementedException({}).
+string_to_date(Val) -> 
+    string_to_edatetime(Val).
 
-string_to_edatetime(_Val) ->
-    % Result = try 
-    %     [ip_item(Item) || Item <- string:tokens(Val, ".")]
-    % catch
-    %     _:_ -> ?ClientError({"Data conversion format error",{eIpaddr,Len,Val}})
-    % end,
-    % RLen = length(lists:flatten(Result)),
-    % if 
-    %     Len == 0 andalso RLen == 4 ->   list_to_tuple(Result);
-    %     Len == 0 andalso RLen == 6 ->   list_to_tuple(Result);
-    %     Len == 0 andalso RLen == 8 ->   list_to_tuple(Result);
-    %     RLen /= Len ->                  ?ClientError({"Data conversion format error",{eIpaddr,Len,Val}});
-    %     true ->                         list_to_tuple(Result)
-    % end.
-    ok.
+string_to_time("systime") ->
+    string_to_time("localtime");
+string_to_time("sysdate") ->
+    string_to_time("localtime");
+string_to_time("now") ->
+    string_to_time("localtime");
+string_to_time("localtime") -> 
+    {_,Time} = string_to_edatetime("localtime"),
+    Time;
+string_to_time(Val) -> 
+    try
+        parse_time(Val)
+    catch
+        _:_ ->  ?ClientError({"Data conversion format error",{eTime,Val}})
+    end.
 
+string_to_timestamp("systime",Prec) ->
+    string_to_timestamp("now",Prec);
+string_to_timestamp("sysdate",Prec) ->
+    string_to_timestamp("now",Prec);
+string_to_timestamp("now",Prec) ->
+    {Megas,Secs,Micros} = erlang:now(),    
+    {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};  
+string_to_timestamp(Val,6) ->
+    string_to_etimestamp(Val); 
+string_to_timestamp(Val,0) ->
+    {Megas,Secs,_} = string_to_etimestamp(Val),
+    {Megas,Secs,0};
+string_to_timestamp(Val,Prec) when Prec > 0 ->
+    {Megas,Secs,Micros} = string_to_etimestamp(Val),
+    {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
+string_to_timestamp(Val,Prec) when Prec < 0 ->
+    {Megas,Secs,_} = string_to_etimestamp(Val),
+    {Megas,erlang:round(erlang:round(math:pow(10, -Prec) * Secs) * erlang:round(math:pow(10,Prec))),0}.  
 
+string_to_edatetime("today") ->
+    {Date,_} = string_to_edatetime("localtime"),
+    {Date,{0,0,0}}; 
+string_to_edatetime("systime") ->
+    string_to_edatetime("localtime"); 
+string_to_edatetime("sysdate") ->
+    string_to_edatetime("localtime"); 
+string_to_edatetime("now") ->
+    string_to_edatetime("localtime"); 
+string_to_edatetime("localtime") ->
+    erlang:localtime(); 
+string_to_edatetime(Val) ->
+    try 
+        case re:run(Val,"[\/\.\-]+",[{capture,all,list}]) of
+            {match,["."]} ->    
+                case string:tokens(Val, " ") of
+                    [Date,Time] ->              {parse_date_eu(Date),parse_time(Time)};
+                    [Date] ->                   {parse_date_eu(Date),{0,0,0}}
+                end;
+            {match,["/"]} ->    
+                case string:tokens(Val, " ") of
+                    [Date,Time] ->              {parse_date_us(Date),parse_time(Time)};
+                    [Date] ->                   {parse_date_us(Date),{0,0,0}}
+                end;
+            {match,["-"]} ->    
+                case string:tokens(Val, " ") of
+                    [Date,Time] ->              {parse_date_int(Date),parse_time(Time)};
+                    [Date] ->                   {parse_date_int(Date),{0,0,0}}
+                end;
+            _ ->
+                case string:tokens(Val, " ") of
+                    [Date,Time] ->              {parse_date_raw(Date),parse_time(Time)};
+                    [DT] when length(DT) > 8 -> {Date,Time} = lists:split(8,DT),
+                                                {parse_date_raw(Date),parse_time(Time)};
+                    [Date] ->                   {parse_date_raw(Date),{0,0,0}}
+                end
+        end
+    catch
+        _:_ ->  ?ClientError({"Data conversion format error",{eDatetime,Val}})
+    end.    
 
-string_to_etimestamp(_Val) -> ?UnimplementedException({}).
+parse_date_eu(Val) ->
+    case string:tokens(Val, ".") of
+        [Day,Month,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
+        _ ->                    ?ClientError({})
+    end.    
+
+parse_date_us(Val) ->
+    case string:tokens(Val, "/") of
+        [Month,Day,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
+        _ ->                    ?ClientError({})
+    end.    
+
+parse_date_int(Val) ->
+    case string:tokens(Val, "-") of
+        [Year,Month,Day] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
+        _ ->                    ?ClientError({})
+    end.    
+
+parse_date_raw(Val) ->
+    case length(Val) of
+        8 ->    validate_date({parse_year(lists:sublist(Val,1,4)),parse_month(lists:sublist(Val,5,2)),parse_day(lists:sublist(Val,7,2))});
+        6 ->    Year2 = parse_year(lists:sublist(Val,1,2)),
+                Year = if 
+                   Year2 < 40 ->    2000+Year2;
+                   true ->          1900+Year2
+                end,     
+                validate_date({Year,parse_month(lists:sublist(Val,3,2)),parse_day(lists:sublist(Val,5,2))});
+        _ ->    ?ClientError({})
+    end.    
+
+parse_year(Val) ->
+    case length(Val) of
+        4 ->    list_to_integer(Val);
+        2 ->    Year2 = parse_year(lists:sublist(Val,1,2)),
+                if 
+                   Year2 < 40 ->    2000+Year2;
+                   true ->          1900+Year2
+                end;   
+        _ ->    ?ClientError({})
+    end.    
+
+parse_month(Val) ->
+    case length(Val) of
+        1 ->                    list_to_integer(Val);
+        2 ->                    list_to_integer(Val);
+        _ ->                    ?ClientError({})
+    end.    
+
+parse_day(Val) ->
+    case length(Val) of
+        1 ->                    list_to_integer(Val);
+        2 ->                    list_to_integer(Val);
+        _ ->                    ?ClientError({})
+    end.    
+
+parse_time(Val) ->
+    case string:tokens(Val, ":") of
+        [H,M,S] ->      {parse_hour(H),parse_minute(M),parse_second(S)};
+        [H,M] ->        {parse_hour(H),parse_minute(M),0};
+        _ ->            
+            case length(Val) of
+                6 ->    {parse_hour(lists:sublist(Val,1,2)),parse_minute(lists:sublist(Val,3,2)),parse_minute(lists:sublist(Val,5,2))};
+                4 ->    {parse_hour(lists:sublist(Val,1,2)),parse_minute(lists:sublist(Val,3,2)),0};
+                2 ->    {parse_hour(lists:sublist(Val,1,2)),0,0};
+                0 ->    {0,0,0};
+                _ ->    ?ClientError({})
+            end
+    end.    
+
+parse_hour(Val) ->
+    H = list_to_integer(Val),
+    if
+        H >= 0 andalso H < 25 ->    H;
+        true ->                     ?ClientError({})
+    end.
+
+parse_minute(Val) ->
+    M = list_to_integer(Val),
+    if
+        M >= 0 andalso M < 60 ->    M;
+        true ->                     ?ClientError({})
+    end.
+
+parse_second(Val) ->
+    S = list_to_integer(Val),
+    if
+        S >= 0 andalso S < 60 ->    S;
+        true ->                     ?ClientError({})
+    end.
+
+validate_date(Date) ->
+    case calendar:valid_date(Date) of
+        true ->     Date;
+        false ->    ?ClientError({})
+    end.    
+
+string_to_year(Val) -> 
+    try     
+        parse_year(Val)
+    catch
+        _:_ ->  ?ClientError({"Data conversion format error",{year,Val}})
+    end.    
+
+string_to_etimestamp("sysdate") ->
+    erlang:now();
+string_to_etimestamp("now") ->
+    erlang:now();
+string_to_etimestamp(Val) ->
+    try     
+        case string:tokens(Val, ":") of
+            [Megas,Secs,Micros] ->  {list_to_integer(Megas),list_to_integer(Secs),list_to_integer(Micros)};
+            _ ->                    ?ClientError({})
+        end
+    catch
+        _:_ ->  ?ClientError({"Data conversion format error",{eTimestamp,Val}})
+    end.    
 
 string_to_eipaddr(Val,Len) ->
     Result = try 
@@ -708,9 +888,6 @@ string_to_decimal(Val,Len,Prec) when Prec > 0 ->
     end;
 string_to_decimal(Val,Len,Prec) ->
     ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}}).
-
-string_to_year(Val) -> 
-    string_to_integer(Val,5,0).
 
 string_to_elist(Val, 0) -> 
     case string_to_eterm(Val) of
@@ -776,26 +953,6 @@ string_to_fun(Val,Len) ->
             ?ClientError({"Data conversion format error",{eFun,Len,Val}})
     end.
 
-
-% erl({Str, SymbolTable}) ->    
-%     String = "fun() ->\n"    
-%     ++    
-%     Str    
-%     ++"\nend.",
-%     % io:format(user, "Fun "++String++"~nBindings ~p~n", [SymbolTable]),    
-%     {ok,ErlTokens,_}=erl_scan:string(String),    
-%     {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
-%     Bindings=bind(SymbolTable, erl_eval:new_bindings()),    
-%     {value,Fun,_}=erl_eval:exprs(ErlAbsForm,Bindings),    
-%     Fun.
-
-% bind([], Binds) -> Binds;
-
-% bind([{Var,_,Val}|ST], Binds) ->    
-%     NewBinds=erl_eval:add_binding(Var,Val,Binds),    
-%     bind(ST, NewBinds).
-
-
 %% ----- TESTS ------------------------------------------------
 
 -include_lib("eunit/include/eunit.hrl").
@@ -826,6 +983,33 @@ data_types(_) ->
         %% SyEx = 'SystemException',    %% difficult to test
 
         io:format(user, "----TEST--~p:test_data_types~n", [?MODULE]),
+
+        LocalTime = erlang:localtime(),
+        {Date,Time} = LocalTime,
+        ?assertEqual({{2004,3,1},{0,0,0}}, string_to_edatetime("1.3.2004")),
+        ?assertEqual({{2004,3,1},{3,45,0}}, string_to_edatetime("1.3.2004 3:45")),
+        ?assertEqual({Date,{0,0,0}}, string_to_edatetime("today")),
+        ?assertEqual(LocalTime, string_to_edatetime("sysdate")),
+        ?assertEqual(LocalTime, string_to_edatetime("systime")),
+        ?assertEqual(LocalTime, string_to_edatetime("now")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("18.8.1888 1:23:59")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("1888-08-18 1:23:59")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("8/18/1888 1:23:59")),
+        ?assertEqual({1,23,59}, parse_time("01:23:59")),        
+        ?assertEqual({1,23,59}, parse_time("1:23:59")),        
+        ?assertEqual({1,23,0}, parse_time("01:23")),        
+        ?assertEqual({1,23,59}, parse_time("012359")),        
+        ?assertEqual({1,23,0}, parse_time("0123")),        
+        ?assertEqual({1,0,0}, parse_time("01")),        
+        ?assertEqual({0,0,0}, parse_time("")),        
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("18880818012359")),
+        ?assertEqual(Time, string_to_time("systime")),
+        ?assertEqual(Time, string_to_time("sysdate")),
+        ?assertEqual(Time, string_to_time("now")),
+        ?assertEqual(Time, string_to_time("localtime")),
+        ?assertEqual({12,13,14}, string_to_time("12:13:14")),
+        ?assertEqual({0,1,11}, string_to_time("0:1:11")),
+
         Item = 0,
         OldString = "OldString",
         StringType = estring,

@@ -476,40 +476,15 @@ update_tables(UpdatePlan, Lock) ->
     end,
     return_atomic_ok(transaction(Update)).
 
-update_xt({Table,bag}, _Item, _Lock, {}, {}) ->
-    ?UnimplementedException({"Bag table cursor update not supported", Table});
-update_xt(_Table, _Item, _Lock, {}, {}) ->
+update_xt({_Table,bag}, _Item, _Lock, [], []) ->
     ok;
-update_xt({Table,_}, _Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
+update_xt({Table,bag}, _Item, _Lock, [Old|_], []) when is_atom(Table) ->
     mnesia:delete(Table, element(2, Old), write);
-update_xt({Table,_}, _Item, _Lock, {}, New) when is_atom(Table), is_tuple(New) ->
-    mnesia:write(New);
-update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
-    case read(Table, element(2,Old)) of
-        [Old] ->    ok;
-        [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
-        Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
-    end;
-update_xt({Table,_}, Item, _Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
-    if
-        element(2,Old) /= element(2,New) ->
-            ?ClientError({"Key update not allowed", {Item, {element(2,Old), element(2,New)}}});
-        true ->
-            case read(Table, element(2,Old)) of
-                [Old] ->    ok;
-                [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
-                Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
-            end
-    end,
-    mnesia:write(New);
-
-update_xt(_Table, _Item, _Lock, [], []) ->
-    ok;
-update_xt(Table, _Item, _Lock, [Old|_], []) when is_atom(Table) ->
-    mnesia:delete(Table, element(2, Old), write);
-update_xt(Table, _Item, _Lock, [], New) when is_atom(Table), is_list(New) ->
+update_xt({Table,bag}, _Item, _Lock, [], New) when is_atom(Table), is_list(New) ->
     [mnesia:write(N) || N <- New] ;
-update_xt(Table, Item, _Lock, [O|_]=Old, Old) when is_atom(Table), is_list(Old) ->
+update_xt({Table,bag}, _Item, none, Old, Old) when is_atom(Table), is_list(Old) ->
+    ok;
+update_xt({Table,bag}, Item, _Lock, [O|_]=Old, Old) when is_atom(Table), is_list(Old) ->
     Current = read(Table, element(2,O)),
     if  
         Current == Old ->   
@@ -524,10 +499,12 @@ update_xt(Table, Item, _Lock, [O|_]=Old, Old) when is_atom(Table), is_list(Old) 
                     ?ConcurrencyException({"Data is modified by someone else", {Item, {OldSorted, CurrentSorted}}})
             end
     end;
-update_xt(Table, Item, _Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
+update_xt({Table,bag}, Item, Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
     if
         element(2,O) /= element(2,N) ->
             ?ClientError({"Key update not allowed", {Item, {element(2,O), element(2,N)}}});
+        Lock == none ->
+            ok;
         true ->
             Current = read(Table, element(2,O)),
             % io:format(user, "current ~p~n", [Current]),
@@ -546,12 +523,39 @@ update_xt(Table, Item, _Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
                     end
             end
     end,
-    io:format(user, "delete ~p~n", [element(2,O)]),
+    % io:format(user, "delete ~p~n", [element(2,O)]),
     mnesia:delete({Table, element(2,O)}), 
-    io:format(user, "write ~p~n", [New]),
-    [mnesia:write(Y) || Y <- New].
+    % io:format(user, "write ~p~n", [New]),
+    [mnesia:write(Y) || Y <- New];
 
-
+update_xt(_Table, _Item, _Lock, {}, {}) ->
+    ok;
+update_xt({Table,_}, _Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
+    mnesia:delete(Table, element(2, Old), write);
+update_xt({Table,_}, _Item, _Lock, {}, New) when is_atom(Table), is_tuple(New) ->
+    mnesia:write(New);
+update_xt({Table,_}, _Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
+    ok;    
+update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
+    case read(Table, element(2,Old)) of
+        [Old] ->    ok;
+        [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
+        Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
+    end;
+update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
+    if
+        element(2,Old) /= element(2,New) ->
+            ?ClientError({"Key update not allowed", {Item, {element(2,Old), element(2,New)}}});
+        Lock == none ->
+            ok;
+        true ->
+            case read(Table, element(2,Old)) of
+                [Old] ->    ok;
+                [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
+                Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
+            end
+    end,
+    mnesia:write(New).
 
 
 subscribe({table, Tab, simple}) ->
@@ -678,9 +682,9 @@ table_operations(_) ->
         io:format(user, "data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
     
         Update1 = fun(X) ->
-            update_xt(imem_table_123, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X}),
-            update_xt(imem_table_123, 2, optimistic, {}, {imem_table_123, "XXX","11","22"}),
-            update_xt(imem_table_123, 3, optimistic, {imem_table_123, "AA","BB","cc"}, {}),
+            update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X}),
+            update_xt({imem_table_123,set}, 2, optimistic, {}, {imem_table_123, "XXX","11","22"}),
+            update_xt({imem_table_123,set}, 3, optimistic, {imem_table_123, "AA","BB","cc"}, {}),
             lists:sort(read(imem_table_123))
         end,
         UR1 = return_atomic(transaction(Update1, ["99"])),
@@ -706,9 +710,9 @@ table_operations(_) ->
         io:format(user, "success ~p~n", [write_table]),
 
         Update2 = fun(X) ->
-            update_xt(imem_table_123, 1, optimistic, [{imem_table_123, "AA","BB","cc"},{imem_table_123, "AA","BB","CC"}], [{imem_table_123, "AA","11",X}]),
-            update_xt(imem_table_123, 2, optimistic, [], [{imem_table_123, "XXX","11","22"}]),
-            update_xt(imem_table_123, 3, optimistic, [{imem_table_123, "A","B","C"}], []),
+            update_xt({imem_table_123,bag}, 1, optimistic, [{imem_table_123, "AA","BB","cc"},{imem_table_123, "AA","BB","CC"}], [{imem_table_123, "AA","11",X}]),
+            update_xt({imem_table_123,bag}, 2, optimistic, [], [{imem_table_123, "XXX","11","22"}]),
+            update_xt({imem_table_123,bag}, 3, optimistic, [{imem_table_123, "A","B","C"}], []),
             lists:sort(read(imem_table_123))
         end,
         UR2 = return_atomic(transaction(Update2, ["99"])),
@@ -716,12 +720,12 @@ table_operations(_) ->
         ?assertEqual([{imem_table_123,"AA","11","99"},{imem_table_123,"AAA","BB","CC"},{imem_table_123,"XXX","11","22"}], UR2),
 
         Update3 = fun() ->
-            update_xt(imem_table_123, 1, optimistic, [{imem_table_123, "AA","BB","cc"}], [{imem_table_123, "AA","11","11"}])
+            update_xt({imem_table_123,bag}, 1, optimistic, [{imem_table_123, "AA","BB","cc"}], [{imem_table_123, "AA","11","11"}])
         end,
         ?assertException(throw, {CoEx, {"Data is modified by someone else", {1, {[{imem_table_123, "AA","BB","cc"}], [{imem_table_123,"AA","11","99"}]}}}}, return_atomic(transaction(Update3))),
 
         Update4 = fun() ->
-            update_xt(imem_table_123, 1, optimistic, [{imem_table_123,"AA","11","99"}], [{imem_table_123, "AB","11","11"}])
+            update_xt({imem_table_123,bag}, 1, optimistic, [{imem_table_123,"AA","11","99"}], [{imem_table_123, "AB","11","11"}])
         end,
         ?assertException(throw, {ClEr, {"Key update not allowed", {1, {"AA", "AB"}}}}, return_atomic(transaction(Update4))),
 
