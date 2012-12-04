@@ -646,13 +646,31 @@ string_to_float(Val,Prec) ->
 string_to_set(_Val,_Len) -> ?UnimplementedException({}).
 string_to_enum(_Val,_Len) -> ?UnimplementedException({}).
 string_to_double(_Val,_Prec) -> ?UnimplementedException({}).  %% not in erlang:math ??
-string_to_edatetime(_Val) -> ?UnimplementedException({}).
-string_to_etimestamp(_Val) -> ?UnimplementedException({}).
-string_to_timestamp(_Val,_Val) -> ?UnimplementedException({}).
 string_to_ebinary(_Val,_Len) -> ?UnimplementedException({}).
 
 string_to_date(_Val) -> ?UnimplementedException({}).
 string_to_time(_Val,_Prec) -> ?UnimplementedException({}).
+string_to_timestamp(_Val,_Val) -> ?UnimplementedException({}).
+
+string_to_edatetime(_Val) ->
+    % Result = try 
+    %     [ip_item(Item) || Item <- string:tokens(Val, ".")]
+    % catch
+    %     _:_ -> ?ClientError({"Data conversion format error",{eIpaddr,Len,Val}})
+    % end,
+    % RLen = length(lists:flatten(Result)),
+    % if 
+    %     Len == 0 andalso RLen == 4 ->   list_to_tuple(Result);
+    %     Len == 0 andalso RLen == 6 ->   list_to_tuple(Result);
+    %     Len == 0 andalso RLen == 8 ->   list_to_tuple(Result);
+    %     RLen /= Len ->                  ?ClientError({"Data conversion format error",{eIpaddr,Len,Val}});
+    %     true ->                         list_to_tuple(Result)
+    % end.
+    ok.
+
+
+
+string_to_etimestamp(_Val) -> ?UnimplementedException({}).
 
 string_to_eipaddr(Val,Len) ->
     Result = try 
