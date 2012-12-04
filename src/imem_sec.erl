@@ -46,25 +46,29 @@
 		, drop_table/2
         , read/2
         , read/3
-        , exec/4
-        , fetch_recs/3
-        , fetch_recs_async/3
-        , fetch_start/5
-        , fetch_close/2
-        , update_cursor_prepare/3   %% take change list and generate update plan (stored in state)
-        , update_cursor_execute/3   %% take update plan from state and execute it (fetch aborted first)        
         , select/2
         , select/3
         , select/4
         , insert/3    
-        , close/2
         , write/3
         , delete/3
         , truncate/2
         , admin_exec/4
-        , update_tables/3  
         ]).
 
+
+-export([ update_prepare/4          %% stateless creation of update plan from change list
+        , update_cursor_prepare/3   %% stateful creation of update plan (stored in state)
+        , update_cursor_execute/3   %% stateful execution of update plan (fetch aborted first)
+        , fetch_recs_async/3        %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_close/2
+        , exec/4
+        , close/2
+        ]).
+
+-export([ fetch_start/5
+        , update_tables/3  
+        ]).
 
 -export([ transaction/2
         , transaction/3
@@ -390,6 +394,9 @@ fetch_start(SKey, Pid, Table, MatchSpec, BlockSize) ->
 
 fetch_close(SKey, Pid) ->
     imem_statement:fetch_close(SKey, Pid, false).
+
+update_prepare(SKey, Tables, ColMap, ChangeList) ->
+    imem_statement:update_prepare(true, SKey, Tables, ColMap, ChangeList).
 
 update_cursor_prepare(SKey, Pid, ChangeList) ->
     imem_statement:update_cursor_prepare(SKey,  Pid, true, ChangeList).

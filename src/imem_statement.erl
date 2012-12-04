@@ -4,21 +4,23 @@
 
 %% gen_server
 -behaviour(gen_server).
--export([
-    init/1,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2,
-    terminate/2,
-    code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
--export([ create_stmt/3
-        , fetch_recs/4          %% ToDo: implement proper return of RowFun(), match conditions and joins
-        , fetch_recs_async/4    %% ToDo: implement proper return of RowFun(), match conditions and joins
+-export([ update_prepare/5          %% stateless creation of update plan from change list
+        , update_cursor_prepare/4   %% stateful creation of update plan (stored in state)
+        , update_cursor_execute/4   %% stateful execution of update plan (fetch aborted first)
+        , fetch_recs_async/4        %% ToDo: implement proper return of RowFun(), match conditions and joins
         , fetch_close/3
         , close/2
-        , update_cursor_prepare/4   %% take change list and generate update plan (stored in state)
-        , update_cursor_execute/4   %% take update plan from state and execute it (fetch aborted first)
+        ]).
+
+-export([ create_stmt/3
         ]).
 
 -record(fetchCtx,               %% state for fetch process
@@ -51,9 +53,6 @@ create_stmt(Statement, SKey, IsSec) ->
             {ok, Pid}
     end.
 
-fetch_recs(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs, IsSec, SKey, Sock}).
-
 fetch_recs_async(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock}).
 
@@ -78,8 +77,7 @@ handle_call({set_seco, SKey}, _From, State) ->
     {reply,ok,State#state{seco=SKey}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
     {Reply, UpdatePlan1} = try
-        Tables = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table,_Alias} <- Stmt#statement.tables],
-        {ok, update_c_prepare(IsSec, SKey, Tables, Stmt#statement.cols, ChangeList)}
+        {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.cols, ChangeList)}
     catch
         _:Reason ->  {Reason, []}
     end,
@@ -105,27 +103,6 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=P
     catch Pid ! abort, 
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.
 
-handle_cast({fetch_recs, IsSec, _SKey, Sock}, #state{statement=Stmt, seco=SKey}=State) ->
-    case length(Stmt#statement.tables) of
-        1 ->    #statement{tables={_Schema,Table,_Alias}, limit=Limit, matchspec=MatchSpec, meta=MetaMap} = Stmt,
-                {Result, NewState} = try
-                    MetaRec = case IsSec of
-                        false ->    list_to_tuple([imem_meta:meta_field_value(N) || N <- MetaMap]);
-                        true ->     list_to_tuple([imem_sec:meta_field_value(SKey, N) || N <- MetaMap])
-                    end,
-                    Wrap = fun(X) -> {X, MetaRec} end,
-                    {Rows, Complete} = if_call_mfa(IsSec, select, [SKey, Table, MatchSpec, Limit]),
-                    {term_to_binary({lists:map(Wrap, Rows), Complete}), State}
-                catch
-                    Class:Reason -> {term_to_binary({Class, Reason}),State}
-                end,
-                case Sock of
-                    Pid when is_pid(Pid)    -> Pid ! Result;
-                    Sock                    -> gen_tcp:send(Sock, Result)
-                end,
-                {noreply, NewState};
-        _ ->    ?UnimplementedException({"Joins not supported in synchronous fetch",Stmt#statement.tables})
-    end;
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
     Result = term_to_binary({error,"Fetch aborted, execute fetch_close before refetch"}),
     send_reply_to_client(Sock, Result),
@@ -214,7 +191,8 @@ send_reply_to_client(SockOrPid, Result) ->
         Sock                    -> gen_tcp:send(Sock, Result)
     end.
 
-update_c_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
+update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
+    TableTypes = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table,_Alias} <- Tables],
     % io:format(user, "~p - received change list~n~p~n", [?MODULE, ChangeList]),
     %% transform a ChangeList
         % [1,nop,{{def,"2","'2'"},{}},"2"],                     %% no operation on this line
@@ -226,21 +204,26 @@ update_c_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
         % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
-    UpdPlan = update_c_prepare(IsSec, SKey, Tables, ColMap, ChangeList, []),
+    UpdPlan = update_prepare(IsSec, SKey, TableTypes, ColMap, ChangeList, []),
     %io:format(user, "~p - prepared table changes~n~p~n", [?MODULE, UpdPlan]),
     UpdPlan.
 
-update_c_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
-update_c_prepare(_IsSec, _SKey, [{Schema,Table,bag}|_], _ColMap, _CList, _Acc) ->
+update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
+update_prepare(_IsSec, _SKey, [{Schema,Table,bag}|_], _ColMap, _CList, _Acc) ->
     ?UnimplementedException({"Bag table cursor update not supported", {Schema,Table}});
-update_c_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
+update_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), element(1,Recs)],     
-    update_c_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_c_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
+    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
+update_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), {}],     
-    update_c_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_c_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
+    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
+update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
     % io:format(user, "~p - ColMap~n~p~n", [?MODULE, ColMap]),
+    if  
+        length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
+        length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
+        true ->                                 ok    
+    end,            
     ValMap = lists:usort(
         [{Ci,imem_meta:value_cast(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D, readonly=R},Value} 
@@ -257,16 +240,21 @@ update_c_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Ac
     end,            
     NewRec = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(1,Recs), ValMap),    
     Action = [hd(Tables), Item, element(1,Recs), NewRec],     
-    update_c_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_c_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
+    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
+update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
     DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    io:format(user, "~p - default record ~p~n", [?MODULE, DefRec]),     
-    update_c_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
-update_c_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
+    % io:format(user, "~p - default record ~p~n", [?MODULE, DefRec]),     
+    update_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
+update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
 
-update_c_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
+update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
+    if  
+        length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
+        length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
+        true ->                                 ok    
+    end,            
     ValMap = lists:usort(
         [{Ci,imem_meta:value_cast(Item,imem_nil,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D},Value} 
@@ -289,7 +277,7 @@ update_c_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList
             end, 
             DefRec, ValMap),
     Action = [hd(Tables), Item, {}, Rec],     
-    update_c_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]).
+    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]).
 
 % update_bag(IsSec, SKey, Table, ColMap, [C|CList]) ->
 %     ?UnimplementedException({"Cursor update not supported for bag tables",Table}).

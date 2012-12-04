@@ -125,8 +125,8 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
  
-        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, user from def where col1 > 5 and col2 <> '8';", 100, "Imem", IsSec),
-        ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef2, self(), IsSec)),
+        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, user from def", 100, "Imem", IsSec),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
         Result2 = receive 
             R2 ->    binary_to_term(R2)
         end,
@@ -143,7 +143,7 @@ test_with_or_without_sec(IsSec) ->
         %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
 
         {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from Imem.ddTable;", 100, "Imem", IsSec),  %% all_tables
-        ?assertEqual(ok, imem_statement:fetch_recs(SKey, StmtRef3, self(), IsSec)),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    binary_to_term(R3)
         end,
@@ -157,6 +157,15 @@ test_with_or_without_sec(IsSec) ->
         {List3a, _} = Result3a,
         io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun3,List3a)]),
         ?assertEqual(Result3, Result3a),           
+
+        {ok, _Clm4, RowFun4, StmtRef4} = imem_sql:exec(SKey, "select * from all_tables;", 100, "Imem", IsSec),  %% all_tables
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
+        Result4 = receive 
+            R4 ->    binary_to_term(R4)
+        end,
+        {List4, true} = Result4,
+        io:format(user, "all_tables result~n~p~n", [List4]),
+        ?assertEqual(AllTableCount, length(List4)),
 
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef2)),
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef3)),

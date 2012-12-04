@@ -70,14 +70,18 @@
         , write/2           %% write single key
         , delete/2          %% delete rows by key
         , truncate/1        %% truncate table
-        , exec/3
-        , fetch_recs/2
-        , fetch_recs_async/2
-        , fetch_start/4
-        , fetch_close/1
-        , close/1
+        ]).
+
+-export([ update_prepare/3          %% stateless creation of update plan from change list
         , update_cursor_prepare/2   %% take change list and generate update plan (stored in state)
         , update_cursor_execute/2   %% take update plan from state and execute it (fetch aborted first)
+        , fetch_recs_async/2        %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_close/1
+        , exec/3
+        , close/1
+        ]).
+
+-export([ fetch_start/4
         , update_tables/2  
         ]).
 
@@ -387,14 +391,14 @@ table_size(Table) ->
 exec(Statement, BlockSize, Schema) ->
     imem_sql:exec(none, Statement, BlockSize, Schema, false).   
 
-fetch_recs(Pid, Sock) ->
-    imem_statement:fetch_recs(none, Pid, Sock, false).
-
 fetch_recs_async(Pid, Sock) ->
     imem_statement:fetch_recs_async(none, Pid, Sock, false).
 
 fetch_close(Pid) ->
     imem_statement:fetch_close(none, Pid, false).
+
+update_prepare(Tables, ColMap, ChangeList) ->
+    imem_statement:update_prepare(false, none, Tables, ColMap, ChangeList).
 
 update_cursor_prepare(Pid, ChangeList) ->
     imem_statement:update_cursor_prepare(none, Pid, false, ChangeList).
@@ -995,6 +999,11 @@ data_types(_) ->
         ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("18.8.1888 1:23:59")),
         ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("1888-08-18 1:23:59")),
         ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("8/18/1888 1:23:59")),
+        ?assertEqual({{1888,8,18},{1,23,0}}, string_to_edatetime("8/18/1888 1:23")),
+        ?assertEqual({{1888,8,18},{1,0,0}}, string_to_edatetime("8/18/1888 01")),
+        ?assertException(throw,{ClEr,{"Data conversion format error",{eDatetime,"8/18/1888 1"}}}, string_to_edatetime("8/18/1888 1")),
+        ?assertEqual({{1888,8,18},{0,0,0}}, string_to_edatetime("8/18/1888 ")),
+        ?assertEqual({{1888,8,18},{0,0,0}}, string_to_edatetime("8/18/1888")),
         ?assertEqual({1,23,59}, parse_time("01:23:59")),        
         ?assertEqual({1,23,59}, parse_time("1:23:59")),        
         ?assertEqual({1,23,0}, parse_time("01:23")),        

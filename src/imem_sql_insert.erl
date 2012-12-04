@@ -5,32 +5,26 @@
 -export([ exec/5
         ]).
 
-exec(SeCo, {insert, Table, {_, []}, {_, Values}} , _Stmt, _Schema, IsSec) ->
-    Tab = ?binary_to_existing_atom(Table),
-    io:format(user,"insert ~p ~p into ~p~n", [[], Values, Tab]),
-    Vs = [binary_to_list(V) || V <- Values],    %% ToDo: convert to column type
-    if_call_mfa(IsSec,insert,[SeCo, Tab, Vs]);  
-exec(SeCo, {insert, Table, {_, Columns}, {_, Values}} , _Stmt, _Schema, IsSec) ->
-    Tab = ?binary_to_existing_atom(Table),
-    io:format(user,"insert ~p ~p into ~p~n", [Columns, Values, Tab]),
-    Vs = [binary_to_list(V) || V <- Values],    %% ToDo: convert to column type
-    if_call_mfa(IsSec,insert,[SeCo, Tab, Vs]).  %% ToDo: set default column values
+exec(SKey, {insert, TableName, {_, Columns}, {_, Values}} , _Stmt, _Schema, IsSec) ->
+    Table = imem_sql:table_qname(TableName),
+    % io:format(user,"insert ~p values ~p into ~p~n", [Columns, Values, Table]),
+    ColMap = imem_sql:column_map([Table], Columns),
+    Vs = [strip_quotes(binary_to_list(V)) || V <- Values],
+    %% create a change list  similar to:  [1,ins,{},"99", 11, 12, undefined],                                      
+    ChangeList = [[1,ins,{}|Vs]],
+    % io:format(user, "~p - generated change list~n~p~n", [?MODULE, ChangeList]),
+    UpdatePlan = if_call_mfa(IsSec,update_prepare,[SKey, [Table], ColMap, ChangeList]),
+    if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, optimistic]).
 
-
-    % Tables = case lists:keyfind(from, 1, SelectSections) of
-    %     {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
-    %     TError ->       ?ClientError({"Invalid select structure", TError})
-    % end,
-    % ColMap = case lists:keyfind(fields, 1, SelectSections) of
-    %     false -> 
-    %         imem_sql:column_map(Tables,[]);
-    %     {_, FieldList} -> 
-    %         imem_sql:column_map(Tables, FieldList);
-    %     CError ->        
-    %         ?ClientError({"Invalid select structure", CError})
-    % end,
-    % ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
-
+strip_quotes([]) -> [];
+strip_quotes([H]) -> [H];
+strip_quotes([H|T]=Str) ->
+    L = lists:last(T),
+    if 
+        H == $" andalso L == $" ->  lists:sublist(T, length(T)-1);
+        H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
+        true ->                     Str
+    end.
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -70,19 +64,28 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        % ClEr = 'ClientError',
+        ClEr = 'ClientError',
         % SeEx = 'SecurityException',
+        CoEx = 'ConcurrencyException',
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
         SKey=?imem_test_admin_login(),
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 string, col2 integer);", 0, "Imem", IsSec)),
-        ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
-        {ok, _Clm, _RowFun, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, "Imem", IsSec),
-        Result0 = if_call_mfa(IsSec,select,[SKey,ddTable,?MatchAllKeys]),
-        ?assertMatch({_,true}, Result0),
-        io:format(user, "~n~p~n", [Result0]),
-        Result1 = if_call_mfa(IsSec,select,[SKey,all_tables,?MatchAllKeys]),
-        ?assertMatch({_,true}, Result1),
-        io:format(user, "~n~p~n", [Result1]),
+        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar, col2 integer);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 3, "def", "Imem", IsSec)),
+        {ok, _Clm, _RowFun, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, "Imem", IsSec),         
+        {List1, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords]),
+        io:format(user, "table def 1~n~p~n", [lists:sort(List1)]),
+        ?assertEqual(3, length(List1)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1) values ('A');", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1,col2) values ('B', 'undefined');", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1,col2) values ('C', 5);", 0, "Imem", IsSec)),
+        {List2, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords]),
+        io:format(user, "table def 2~n~p~n", [lists:sort(List2)]),
+        ?assertEqual(6, length(List2)),
+
+        ?assertException(throw,{ClEr,{"Too many values",{1,["C","5"]}}}, imem_sql:exec(SKey, "insert into def (col1) values ('C', 5);", 0, "Imem", IsSec)),
+        ?assertException(throw,{CoEx,{"Key violation",{1,{[{def,"C",5}],{def,"C",undefined}}}}}, imem_sql:exec(SKey, "insert into def (col1) values ('C');", 0, "Imem", IsSec)),
+        ?assertException(throw,{ClEr,{"Missing key column",{1,[{3,8}]}}}, imem_sql:exec(SKey, "insert into def (col2) values (8);", 0, "Imem", IsSec)),
+
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec))
     catch
         Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),

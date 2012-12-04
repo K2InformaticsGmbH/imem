@@ -532,7 +532,17 @@ update_xt(_Table, _Item, _Lock, {}, {}) ->
     ok;
 update_xt({Table,_}, _Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
     mnesia:delete(Table, element(2, Old), write);
-update_xt({Table,_}, _Item, _Lock, {}, New) when is_atom(Table), is_tuple(New) ->
+update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
+    if
+        Lock == none ->
+            ok;
+        true ->
+            case read(Table, element(2,New)) of
+                [New] ->    ok;
+                [] ->       ok;
+                Current ->  ?ConcurrencyException({"Key violation", {Item,{Current, New}}})
+            end
+    end,
     mnesia:write(New);
 update_xt({Table,_}, _Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
     ok;    
