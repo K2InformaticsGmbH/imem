@@ -11,6 +11,7 @@
         , schema/2
         , data_nodes/1
         , all_tables/1
+        , table_type/2
         , table_columns/2
         , table_size/2
         , check_table/2
@@ -20,9 +21,9 @@
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
+        , column_infos/2
         , column_info_items/3        
         , column_map/3
-        , column_map_items/3        
         , subscribe/2
         , unsubscribe/2
         ]).
@@ -31,6 +32,7 @@
         , add_attribute/3
         , localTimeToSysDate/2
         , nowToSysTimeStamp/2
+        , value_cast/9
         ]).
 
 -export([ authenticate/4
@@ -44,22 +46,29 @@
 		, drop_table/2
         , read/2
         , read/3
-        , exec/4
-        , fetch_recs/3
-        , fetch_recs_async/3
-        , fetch_start/5
         , select/2
         , select/3
         , select/4
         , insert/3    
-        , close/2
         , write/3
         , delete/3
         , truncate/2
         , admin_exec/4
-        , update_xt/4  
         ]).
 
+
+-export([ update_prepare/4          %% stateless creation of update plan from change list
+        , update_cursor_prepare/3   %% stateful creation of update plan (stored in state)
+        , update_cursor_execute/3   %% stateful execution of update plan (fetch aborted first)
+        , fetch_recs_async/3        %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_close/2
+        , exec/4
+        , close/2
+        ]).
+
+-export([ fetch_start/5
+        , update_tables/3  
+        ]).
 
 -export([ transaction/2
         , transaction/3
@@ -69,6 +78,27 @@
         , return_atomic/2
         ]).
 
+-export([ pretty_type/2
+        , string_to_date/2
+        , string_to_decimal/4
+        , string_to_double/3
+        , string_to_ebinary/3
+        , string_to_edatetime/2
+        , string_to_eipaddr/3
+        , string_to_elist/3
+        , string_to_enum/3
+        , string_to_eterm/2
+        , string_to_etimestamp/2
+        , string_to_etuple/3
+        , string_to_float/3
+        , string_to_fun/3
+        , string_to_integer/4
+        , string_to_number/4
+        , string_to_set/3
+        , string_to_time/2
+        , string_to_timestamp/3
+        , string_to_year/2
+        ]).
 
 -export([ have_table_permission/3   %% includes table ownership and readonly
         ]).
@@ -129,6 +159,9 @@ localTimeToSysDate(_SKey, LTime) ->
 nowToSysTimeStamp(_SKey, Now) -> 
     imem_meta:nowToSysTimeStamp(Now).
 
+value_cast(_SKey,Item,Old,Type,Len,Prec,Def,RO,Val) ->
+    imem_meta:value_cast(Item,Old,Type,Len,Prec,Def,RO,Val).
+
 %% imem_if but security context added --- META INFORMATION ------
 
 schema(SKey) ->
@@ -155,11 +188,11 @@ meta_field_value(SKey, Name) ->
 column_map(_SKey, Tables, Columns) ->
     imem_sql:columns_map(Tables, Columns).
 
-column_info_items(_SKey, Info, Item) ->
-    imem_sql:column_map_items(Info, Item).
+column_infos(_SKey, Table) ->
+    imem_meta:column_infos(Table).
 
-column_map_items(_SKey, Map, Item) ->
-    imem_sql:column_map_items(Map, Item).
+column_info_items(_SKey, Info, Item) ->
+    imem_meta:column_info_items(Info, Item).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),
@@ -175,6 +208,12 @@ all_selectable_tables(SKey, [Table|Rest], Acc0) ->
         true ->     [Table|Acc0]
     end,
     all_selectable_tables(SKey, Rest, Acc1).
+
+table_type(SKey, Table) ->
+    case have_table_permission(SKey, Table, select) of
+        true ->     imem_meta:table_type(Table);
+        false ->    ?SecurityException({"Select unauthorized", SKey})
+    end.
 
 table_columns(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
@@ -205,18 +244,34 @@ subscribe(SKey, {table, Table, Level}) ->
 subscribe(_SKey, EventCategory) ->
     ?SecurityException({"Unsupported event category", EventCategory}).
 
-unsubscribe(_Skey, EventCategory) ->
+unsubscribe(_SKey, EventCategory) ->
     imem_meta:unsubscribe(EventCategory).
 
+update_tables(_SKey, UpdatePlan, Lock) ->
+    %% ToDo: Plan must be checked against permissions
+    imem_meta:update_tables(UpdatePlan, Lock).
 
-update_xt(_SKey, dba_tables, Old, New) ->
-    imem_meta:update_xt(ddTable, Old, New);
-update_xt(_SKey, all_tables, Old, New) ->
-    imem_meta:update_xt(ddTable, Old, New);
-update_xt(_SKey, user_tables, Old, New) ->
-    imem_meta:update_xt(ddTable, Old, New);
-update_xt(_SKey, Table, Old, New) ->
-    imem_meta:update_xt(Table, Old, New).
+
+pretty_type(_SKey,Type) -> imem_meta:pretty_type(Type).
+string_to_integer(_SKey,Val,Len,Prec) -> imem_meta:string_to_integer(Val,Len,Prec).
+string_to_float(_SKey,Val,Prec) -> imem_meta:string_to_float(Val,Prec).
+string_to_double(_SKey,Val,Prec) -> imem_meta:string_to_double(Val,Prec).
+string_to_edatetime(_SKey,Val) -> imem_meta:string_to_edatetime(Val).
+string_to_etimestamp(_SKey,Val) -> imem_meta:string_to_etimestamp(Val).
+string_to_eipaddr(_SKey,Val,Len) -> imem_meta:string_to_eipaddr(Val,Len).
+string_to_elist(_SKey,Val,Len) -> imem_meta:string_to_elist(Val,Len).
+string_to_ebinary(_SKey,Val,Len) -> imem_meta:string_to_ebinary(Val,Len).
+string_to_etuple(_SKey,Val,Len) -> imem_meta:string_to_etuple(Val,Len).
+string_to_number(_SKey,Val,Len,Prec) -> imem_meta:string_to_number(Val,Len,Prec).
+string_to_decimal(_SKey,Val,Len,Prec) -> imem_meta:string_to_decimal(Val,Len,Prec).
+string_to_set(_SKey,Val,Len) -> imem_meta:string_to_set(Val,Len).
+string_to_enum(_SKey,Val,Len) -> imem_meta:string_to_enum(Val,Len).
+string_to_fun(_SKey,Val,Len) -> imem_meta:string_to_fun(Val,Len).
+string_to_date(_SKey,Val) -> imem_meta:string_to_date(Val).
+string_to_time(_SKey,Val) -> imem_meta:string_to_time(Val).
+string_to_timestamp(_SKey,Val,Prec) -> imem_meta:string_to_timestamp(Val,Prec).
+string_to_year(_SKey,Val) -> imem_meta:string_to_year(Val).
+string_to_eterm(_SKey,Val) -> imem_meta:string_to_eterm(Val).
 
 
 transaction(_SKey, Function) ->
@@ -336,6 +391,18 @@ fetch_start(SKey, Pid, all_tables, MatchSpec, BlockSize) ->
 fetch_start(SKey, Pid, Table, MatchSpec, BlockSize) ->
     seco_authorized(SKey),
     imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize).
+
+fetch_close(SKey, Pid) ->
+    imem_statement:fetch_close(SKey, Pid, false).
+
+update_prepare(SKey, Tables, ColMap, ChangeList) ->
+    imem_statement:update_prepare(true, SKey, Tables, ColMap, ChangeList).
+
+update_cursor_prepare(SKey, Pid, ChangeList) ->
+    imem_statement:update_cursor_prepare(SKey,  Pid, true, ChangeList).
+
+update_cursor_execute(SKey, Pid, Lock) ->
+    imem_statement:update_cursor_execute(SKey,  Pid, true, Lock).
 
 write(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of

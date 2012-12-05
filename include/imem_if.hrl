@@ -23,13 +23,19 @@
     ).
 
 -define(imem_test_setup, fun() ->
-      application:load(imem),
-      {ok, Schema} = application:get_env(imem, mnesia_schema_name),
-      {ok, Cwd} = file:get_cwd(),
-      NewSchema = Cwd ++ "/../" ++ Schema,
-      application:set_env(imem, mnesia_schema_name, NewSchema),
-      application:set_env(imem, mnesia_node_type, disc),
-      application:start(imem)
+      Applist = lists:keymember(imem,1,application:which_applications()),
+      if 
+        Applist  -> 
+          ok;
+        true ->
+          application:load(imem),
+          {ok, Schema} = application:get_env(imem, mnesia_schema_name),
+          {ok, Cwd} = file:get_cwd(),
+          NewSchema = Cwd ++ "/../" ++ Schema,
+          application:set_env(imem, mnesia_schema_name, NewSchema),
+          application:set_env(imem, mnesia_node_type, disc),
+          application:start(imem)
+      end
     end
     ).
 

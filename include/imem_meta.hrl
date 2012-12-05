@@ -28,6 +28,8 @@
                   , type                    ::ddType()
                   , length                  ::integer()
                   , precision               ::integer()
+                  , default                 ::any()
+                  , readonly                ::true|false      
                   }                  
        ).
 
