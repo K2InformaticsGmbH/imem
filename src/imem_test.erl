@@ -41,8 +41,9 @@ test(_) ->
 
         ?assertEqual('Imem', imem_meta:schema()),
         io:format(user, "success ~p~n", [schema]),
-        ?assertEqual([{'Imem',node()}], imem_meta:data_nodes()),
-        io:format(user, "success ~p~n", [data_nodes]),
+        DataNodes = imem_meta:data_nodes(),
+        ?assert(lists:member({'Imem',node()},DataNodes)),
+        io:format(user, "success ~p~n ~p~n", [data_nodes, DataNodes]),
 
         io:format(user, "----TEST--~p:test_database~n", [?MODULE]),
 

@@ -158,7 +158,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun3,List3a)]),
         ?assertEqual(Result3, Result3a),           
 
-        {ok, _Clm4, RowFun4, StmtRef4} = imem_sql:exec(SKey, "select * from all_tables;", 100, "Imem", IsSec),  %% all_tables
+        {ok, _Clm4, RowFun4, StmtRef4} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
         Result4 = receive 
             R4 ->    binary_to_term(R4)

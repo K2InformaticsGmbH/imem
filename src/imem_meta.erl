@@ -116,6 +116,20 @@
         , string_to_year/1
         ]).
 
+-export([ date_to_string/1
+        , date_to_string/2
+        , decimal_to_string/2
+        , ebinary_to_string/1
+        , edatetime_to_string/1
+        , edatetime_to_string/2
+        , eipaddr_to_string/1
+        , etimestamp_to_string/1
+        , number_to_string/2
+        , time_to_string/1
+        , timestamp_to_string/1
+        , year_to_string/1
+        ]).
+
 
 start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
@@ -938,7 +952,7 @@ string_to_eterm(Val) ->
         _:_ -> ?ClientError({})
     end.
 
-erl_value(Val) ->    
+erl_value(Val) -> 
     Code = case [lists:last(string:strip(Val))] of
         "." -> Val;
         _ -> Val ++ "."
@@ -956,6 +970,72 @@ string_to_fun(Val,Len) ->
         true ->                 
             ?ClientError({"Data conversion format error",{eFun,Len,Val}})
     end.
+
+date_to_string(Datetime) ->
+    date_to_string(Datetime, eu).
+
+date_to_string({{Year,Month,Day},{Hour,Min,Sec}},raw) ->
+    io_lib:format("~4.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
+        [Year, Month, Day, Hour, Min, Sec]);
+date_to_string({{Year,Month,Day},{Hour,Min,Sec}},iso) ->
+    io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [Year, Month, Day, Hour, Min, Sec]);
+date_to_string({{Year,Month,Day},{Hour,Min,Sec}},iso) ->
+    io_lib:format("~2.10.0B/~2.10.0B/~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [Month, Day, Year, Hour, Min, Sec]);
+date_to_string({{Year,Month,Day},{Hour,Min,Sec}},eu) ->
+    io_lib:format("~2.10.0B.~2.10.0B.~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [Day, Month, Year, Hour, Min, Sec]);
+date_to_string(Datetime, Fmt) ->
+    ?ClientError({"Data conversion format error",{eDatetime,Fmt,Datetime}}).
+
+
+decimal_to_string(Val,0) ->
+    integer_to_list(Val);
+decimal_to_string(Val,Prec) when Val < 0 ->
+    lists:concat(["-",decimal_to_string(-Val,Prec)]);
+decimal_to_string(Val,Prec) when Prec > 0 ->
+    Str = integer_to_list(Val),
+    Len = length(Str),
+    if 
+        Prec-Len+1 > 0 -> 
+            {Whole,Frac} = lists:split(1,lists:duplicate(Prec-Len+1,$0) ++ Str),
+            lists:concat([Whole,".",Frac]);
+        true ->
+            {Whole,Frac} = lists:split(Len-Prec,Str),
+            lists:concat([Whole,".",Frac])
+    end;
+decimal_to_string(Val,Prec) ->
+    lists:concat([integer_to_list(Val),lists:duplicate(-Prec,$0)]).
+
+
+ebinary_to_string(_Val) -> ?UnimplementedException({}).
+
+edatetime_to_string(Val) ->
+    date_to_string(Val).
+
+edatetime_to_string(Val,Fmt) ->
+    date_to_string(Val,Fmt).
+
+eipaddr_to_string({A,B,C,D}) ->
+    lists:concat([integer_to_list(A),".",integer_to_list(B),".",integer_to_list(C),".",integer_to_list(D)]);
+eipaddr_to_string(_IpAddr) -> ?UnimplementedException({}).
+
+
+etimestamp_to_string({Megas,Secs,Micros}) ->
+    lists:concat([integer_to_list(Megas),":",integer_to_list(Secs),":",integer_to_list(Micros)]).    
+
+number_to_string(Val,Prec)->
+    decimal_to_string(Val,Prec).
+
+time_to_string(_Val) -> ?UnimplementedException({}).
+
+timestamp_to_string(Timestamp) ->
+    etimestamp_to_string(Timestamp).
+
+year_to_string(Year) ->
+    integer_to_list(Year).
+
 
 %% ----- TESTS ------------------------------------------------
 
@@ -987,6 +1067,24 @@ data_types(_) ->
         %% SyEx = 'SystemException',    %% difficult to test
 
         io:format(user, "----TEST--~p:test_data_types~n", [?MODULE]),
+
+        ?assertEqual("123", decimal_to_string(123,0)),
+        ?assertEqual("-123", decimal_to_string(-123,0)),
+        ?assertEqual("12.3", decimal_to_string(123,1)),
+        ?assertEqual("-12.3", decimal_to_string(-123,1)),
+        ?assertEqual("0.123", decimal_to_string(123,3)),
+        ?assertEqual("-0.123", decimal_to_string(-123,3)),
+        ?assertEqual("0.00123", decimal_to_string(123,5)),
+        ?assertEqual("-0.00123", decimal_to_string(-123,5)),
+
+        ?assertEqual("0.0.0.0", eipaddr_to_string({0,0,0,0})),
+        ?assertEqual("1.2.3.4", eipaddr_to_string({1,2,3,4})),
+
+        ?assertEqual("1:2:3", etimestamp_to_string({1,2,3})),
+
+        ?assertEqual("-0.00123", number_to_string(-123,5)),
+        ?assertEqual("12300000", number_to_string(123,-5)),
+        ?assertEqual("-12300000", number_to_string(-123,-5)),
 
         LocalTime = erlang:localtime(),
         {Date,Time} = LocalTime,
