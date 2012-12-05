@@ -99,7 +99,7 @@ init(_Args) ->
     Result.
 
 handle_call({monitor, Pid}, _From, State) ->
-    % io:format(user, "~p - started monitoring pid ~p~n", [?MODULE, Pid]),
+    io:format(user, "~p - started monitoring pid ~p~n", [?MODULE, Pid]),
     {reply, erlang:monitor(process, Pid), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -110,7 +110,7 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
-    % io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info(_Info, State) ->
@@ -421,6 +421,88 @@ clone_seco(SKeyParent, Pid) ->
     if_write(SKeyParent, ddSeCo, SeCo#ddSeCo{skey=SKey}),
     monitor(Pid),
     SKey.
+
+%% ----- TESTS ------------------------------------------------
+
+-include_lib("eunit/include/eunit.hrl").
+
+setup() ->
+    ?imem_test_setup().
+
+teardown(_) ->
+    SKey = ?imem_test_admin_login(),
+    catch imem_account:delete(SKey, <<"test">>),
+    catch imem_account:delete(SKey, <<"test_admin">>),
+    catch imem_role:delete(SKey, table_creator),
+    catch imem_role:delete(SKey, test_role),
+    catch imem_seco:logout(SKey),
+    catch imem_meta:drop_table(user_table_123),
+    ?imem_test_teardown().
+
+db_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+            fun test/1
+        ]}}.    
+
+    
+test(_) ->
+    try
+        % ClEr = 'ClientError',
+        % CoEx = 'ConcurrencyException',
+        % SeEx = 'SecurityException',
+        % SeVi = 'SecurityViolation',
+        % SyEx = 'SystemException',          %% cannot easily test that
+
+        io:format(user, "----TEST--~p~n", [?MODULE]),
+
+        ?assertEqual('Imem', imem_meta:schema()),
+        io:format(user, "success ~p~n", [schema]),
+        DataNodes = imem_meta:data_nodes(),
+        ?assert(lists:member({'Imem',node()},DataNodes)),
+        io:format(user, "success ~p~n ~p~n", [data_nodes, DataNodes]),
+
+        io:format(user, "----TEST--~p:test_database~n", [?MODULE]),
+
+        Seco0 = imem_meta:table_size(ddSeCo),
+        Perm0 = imem_meta:table_size(ddPerm),
+        ?assert(0 =< imem_meta:table_size(ddSeCo)),
+        ?assert(0 =< imem_meta:table_size(ddPerm)),
+        io:format(user, "success ~p~n", [minimum_table_sizes]),
+
+        io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
+
+        UserId = make_ref(),
+        UserName= <<"test_admin">>,
+        UserCred={pwdmd5, erlang:md5(<<"t1e2s3t4_5a6d7m8i9n">>)},
+        UserCredNew={pwdmd5, erlang:md5(<<"test_5a6d7m8i9n">>)},
+        User = #ddAccount{id=UserId,name=UserName,credentials=[UserCred],fullName = <<"TestAdmin">>},
+
+        SeCoAdmin0=?imem_test_admin_login(),
+        io:format(user, "success ~p~n", [test_admin_login]),
+
+        Seco1 = imem_meta:table_size(ddSeCo),
+        Perm1 = imem_meta:table_size(ddPerm),
+        ?assertEqual(Seco0+1,Seco1),
+        ?assertEqual(Perm0+1,Perm1),        
+        io:format(user, "success ~p~n", [status1]),
+        imem_seco ! {'DOWN', simulated_reference, process, self(), simulated_exit},
+        timer:sleep(2000),
+        Seco2 = imem_meta:table_size(ddSeCo),
+        Perm2 = imem_meta:table_size(ddPerm),
+        ?assertEqual(Seco0,Seco2),
+        ?assertEqual(Perm0,Perm2),        
+        io:format(user, "success ~p~n", [status2]),
+
+        io:format(user, "----TEST--~p:test_imem_seco~n", [?MODULE])
+    catch
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        throw ({Class, Reason})
+    end,
+    ok.
 
 
 

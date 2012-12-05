@@ -36,18 +36,18 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
                 {match,[Body]} ->
                     try 
                         io:format(user,"body ~p~n", [Body]),
-                        if_call_mfa(IsSec, string_to_eterm, [SKey,Body])
+                        imem_datatype:string_to_eterm(Body)
                     catch
                         _:_ ->  try
                                     io:format(user,"str ~p~n", [Str]),
-                                    Fun = if_call_mfa(IsSec, string_to_fun, [SKey,Str,0]),
+                                    Fun = imem_datatype:string_to_fun(Str,0),
                                     Fun()
                                 catch
                                     _:Reason -> ?ClientError({"Default evaluation fails",{Str,Reason}})
                                 end
                     end;
                 nomatch ->  
-                    if_call_mfa(IsSec, string_to_eterm, [SKey,Str])
+                    imem_datatype:string_to_eterm(Str)
             end
     end,
     C = #ddColumn{  name=?binary_to_atom(Name)

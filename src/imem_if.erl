@@ -35,8 +35,6 @@
 
 -export([ add_attribute/2
         , update_opts/2
-        , localTimeToSysDate/1
-        , nowToSysTimeStamp/1
         ]).
         
 -export([ create_table/3
@@ -190,17 +188,13 @@ transaction(Fun, Args, Retries) when is_function(Fun)->
 
 %% ---------- HELPER FUNCTIONS ------ exported -------------------------------
 
-localTimeToSysDate(LTime) -> LTime. %% ToDo: convert to oracle 7 bit date
-
-nowToSysTimeStamp(Now) -> Now.      %% ToDo: convert to oracle 20 bit timestamp
-
 meta_field_value(node) -> node();
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(schema) -> schema();
 meta_field_value(localtime) -> calendar:local_time();            
 meta_field_value(now) -> erlang:now();            
-meta_field_value(sysdate) -> localTimeToSysDate(calendar:local_time());    
-meta_field_value(systimestamp) -> nowToSysTimeStamp(erlang:now());         
+meta_field_value(sysdate) -> calendar:local_time();    
+meta_field_value(systimestamp) -> erlang:now();         
 meta_field_value(Name) -> ?ClientError({"Undefined meta value",Name}).
 
 schema() ->
