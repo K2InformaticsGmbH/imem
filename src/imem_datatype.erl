@@ -4,7 +4,8 @@
 
 -include("imem_meta.hrl").
 
--export([ value_cast/8
+-export([ value_to_db/8
+        , db_to_string/4
         ]).
 
 -export([ pretty_type/1
@@ -49,6 +50,28 @@
         , map/3
         ]).
 
+
+-export([ select_rowfun_raw/1
+        , select_rowfun_str/1
+        ]).
+
+
+select_rowfun_raw(ColMap) ->
+    ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
+    fun(X) -> 
+        [X|[element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers]] 
+    end.
+
+select_rowfun_str(ColMap) ->
+    fun(X) -> 
+        select_rowfun_str_(ColMap, []) 
+    end.
+
+select_rowfun_str_([#ddColMap{type=T,length=L,precision=P,tind=Ti,cind=Ci}|ColMap], Acc) ->
+    
+ok.
+
+
 %% ----- DATA TYPES  with CamelCase  --------------------------------
 
 pretty_type(etuple) -> eTuple;
@@ -69,14 +92,14 @@ pretty_type(Type) -> Type.
 
 %% ----- CAST Data to become compatible with DB  ------------------
 
-value_cast(_Item,Old,_Type,_Len,_Prec,_Def,true,_) -> Old;
-value_cast(_Item,Old,_Type,_Len,_Prec,_Def,_RO, Old) -> Old;
-value_cast(_Item,_Old,_Type,_Len,_Prec,Def,_RO, Def) -> Def;
-value_cast(_Item,_Old,_Type,_Len,_Prec,[],_RO, "[]") -> [];
-value_cast(_Item,[],_Type,_Len,_Prec,_Def,_RO, "[]") -> [];
-value_cast(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_function(Def,0) ->
-    value_cast(Item,Old,Type,Len,Prec,Def(),_RO,Val);
-value_cast(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
+value_to_db(_Item,Old,_Type,_Len,_Prec,_Def,true,_) -> Old;
+value_to_db(_Item,Old,_Type,_Len,_Prec,_Def,_RO, Old) -> Old;
+value_to_db(_Item,_Old,_Type,_Len,_Prec,Def,_RO, Def) -> Def;
+value_to_db(_Item,_Old,_Type,_Len,_Prec,[],_RO, "[]") -> [];
+value_to_db(_Item,[],_Type,_Len,_Prec,_Def,_RO, "[]") -> [];
+value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_function(Def,0) ->
+    value_to_db(Item,Old,Type,Len,Prec,Def(),_RO,Val);
+value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
     try
         IsString = io_lib:printable_unicode_list(Val),
         if 
@@ -133,7 +156,7 @@ value_cast(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
         _:{'ClientError', {Text, Reason}} ->    ?ClientError({Text, {Item,Reason}});
         _:_ ->                                  ?ClientError({"Data conversion format error",{Item,{pretty_type(Type),Val}}})
     end;
-value_cast(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.    
+value_to_db(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.    
 
 
 string_to_list(Val,Len) ->
@@ -477,6 +500,48 @@ string_to_fun(Val,Len) ->
 
 %% ----- CAST Data from DB to string ------------------
 
+db_to_string(Type, Len, Prec, Val) ->
+    if 
+        (Type == bigint) ->     integer_to_list(Val);
+%       (Type == blob) ->       string_to_ebinary(Val,Len);
+        (Type == character) ->  Val;
+        (Type == decimal) ->    decimal_to_string(Val,Prec);
+        (Type == date) ->       date_to_string(Val);
+        (Type == double) ->     string_to_double(Val,Prec);
+        (Type == eatom) ->      list_to_atom(Val);
+        (Type == ebinary) ->    string_to_ebinary(Val,Len);
+        (Type == ebinstr) ->    list_to_binary(Val);
+        (Type == edatetime) ->  string_to_edatetime(Val);
+        (Type == efun) ->       string_to_fun(Val,Len);
+        (Type == eipaddr) ->    string_to_eipaddr(Val,Len);
+        (Type == elist) ->      string_to_elist(Val,Len);
+        (Type == enum) ->       string_to_enum(Val,Len);
+        (Type == epid) ->       list_to_pid(Val);
+        (Type == estring) ->    string_to_list(Val,Len);
+        (Type == etimestamp) -> string_to_etimestamp(Val); 
+        (Type == etuple) ->     string_to_etuple(Val,Len);
+        (Type == float) ->      string_to_float(Val,Prec);
+        (Type == int) ->        string_to_integer(Val,Len,Prec);
+        (Type == integer) ->    string_to_integer(Val,Len,Prec);
+        (Type == longblob) ->   string_to_ebinary(Val,Len);
+        (Type == longtext) ->   string_to_list(Val,map(Len,0,4294967295));
+        (Type == mediumint) ->  string_to_integer(Val,Len,Prec);
+        (Type == mediumtext) -> string_to_list(Val,map(Len,0,16777215));
+        (Type == number) ->     string_to_number(Val,Len,Prec);
+        (Type == numeric) ->    string_to_number(Val,Len,Prec);
+        (Type == set) ->        string_to_set(Val,Len);
+        (Type == smallint) ->   string_to_integer(Val,Len,Prec);
+        (Type == text) ->       string_to_list(Val,map(Len,0,65535));
+        (Type == time) ->       string_to_time(Val);
+        (Type == timestamp) ->  string_to_timestamp(Val,Prec);
+        (Type == tinyint) ->    string_to_integer(Val,Len,Prec);
+        (Type == tinytext) ->   string_to_list(Val,map(Len,0,255));
+        (Type == varchar) ->    string_to_list(Val,map(Len,0,255));
+        (Type == varchar2) ->   string_to_list(Val,map(Len,0,4000));
+        (Type == year) ->       string_to_year(Val);                    
+        true ->                 string_to_eterm(Val)   
+    end.
+
 date_to_string(Datetime) ->
     date_to_string(Datetime, eu).
 
@@ -642,117 +707,117 @@ data_types(_) ->
         RO = true,
         RW = false,
         DefFun = fun() -> [{},{}] end,
-        ?assertEqual(OldString, value_cast(Item,OldString,StringType,Len,Prec,Def,RO,"NewVal")),
+        ?assertEqual(OldString, value_to_db(Item,OldString,StringType,Len,Prec,Def,RO,"NewVal")),
 
-        ?assertEqual(<<"NewVal">>, value_cast(Item,OldString,StringType,Len,Prec,Def,RW,<<"NewVal">>)),
-        ?assertEqual([], value_cast(Item,OldString,StringType,Len,Prec,Def,RW,"")),
-        ?assertEqual({}, value_cast(Item,OldString,StringType,Len,Prec,Def,RW,{})),
-        ?assertEqual([atom,atom], value_cast(Item,OldString,StringType,Len,Prec,Def,RW,[atom,atom])),
-        ?assertEqual(12, value_cast(Item,OldString,StringType,Len,Prec,Def,RW,12)),
-        ?assertEqual(-3.14, value_cast(Item,OldString,StringType,Len,Prec,Def,RW,-3.14)),
+        ?assertEqual(<<"NewVal">>, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,<<"NewVal">>)),
+        ?assertEqual([], value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"")),
+        ?assertEqual({}, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,{})),
+        ?assertEqual([atom,atom], value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,[atom,atom])),
+        ?assertEqual(12, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,12)),
+        ?assertEqual(-3.14, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,-3.14)),
 
-        ?assertEqual(OldString, value_cast(Item,OldString,StringType,Len,Prec,Def,RW,OldString)),
-        ?assertException(throw,{ClEr,{"Data conversion format error",{0,{string,3,"NewVal"}}}}, value_cast(Item,OldString,StringType,Len,Prec,Def,RW,"NewVal")),
-        ?assertEqual("NewVal", value_cast(Item,OldString,StringType,6,Prec,Def,RW,"NewVal")),
-        ?assertEqual("[NewVal]", value_cast(Item,OldString,StringType,8,Prec,Def,RW,"[NewVal]")),
-        ?assertEqual(default, value_cast(Item,OldString,StringType,Len,Prec,Def,RW,"default")),
+        ?assertEqual(OldString, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,OldString)),
+        ?assertException(throw,{ClEr,{"Data conversion format error",{0,{string,3,"NewVal"}}}}, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"NewVal")),
+        ?assertEqual("NewVal", value_to_db(Item,OldString,StringType,6,Prec,Def,RW,"NewVal")),
+        ?assertEqual("[NewVal]", value_to_db(Item,OldString,StringType,8,Prec,Def,RW,"[NewVal]")),
+        ?assertEqual(default, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"default")),
 
-        ?assertEqual([{},{}], value_cast(Item,OldString,StringType,Len,Prec,DefFun,RW,"[{},{}]")),
+        ?assertEqual([{},{}], value_to_db(Item,OldString,StringType,Len,Prec,DefFun,RW,"[{},{}]")),
 
-        ?assertEqual(oldValue, value_cast(Item,oldValue,StringType,Len,Prec,Def,RW,"oldValue")),
-        ?assertEqual('OldValue', value_cast(Item,'OldValue',StringType,Len,Prec,Def,RW,"'OldValue'")),
-        ?assertEqual(-15, value_cast(Item,-15,StringType,Len,Prec,Def,RW,"-15")),
+        ?assertEqual(oldValue, value_to_db(Item,oldValue,StringType,Len,Prec,Def,RW,"oldValue")),
+        ?assertEqual('OldValue', value_to_db(Item,'OldValue',StringType,Len,Prec,Def,RW,"'OldValue'")),
+        ?assertEqual(-15, value_to_db(Item,-15,StringType,Len,Prec,Def,RW,"-15")),
 
         IntegerType = integer,
         OldInteger = 17,
-        ?assertEqual(OldString, value_cast(Item,OldString,IntegerType,Len,Prec,Def,RW,"OldString")),
-        ?assertEqual(OldInteger, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"17")),
-        ?assertEqual(default, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"default")),
-        ?assertEqual(18, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"18")),
-        ?assertEqual(-18, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-18")),
-        ?assertEqual(100, value_cast(Item,OldInteger,IntegerType,Len,-2,Def,RW,"149")),
-        ?assertEqual(200, value_cast(Item,OldInteger,IntegerType,Len,-2,Def,RW,"150")),
-        ?assertEqual(-100, value_cast(Item,OldInteger,IntegerType,4,-2,Def,RW,"-149")),
-        ?assertEqual(-200, value_cast(Item,OldInteger,IntegerType,4,-2,Def,RW,"-150")),
-        ?assertEqual(-200, value_cast(Item,OldInteger,IntegerType,100,0,Def,RW,"300-500")),
-        ?assertEqual(12, value_cast(Item,OldInteger,IntegerType,20,0,Def,RW,"120/10.0")),
-        ?assertEqual(12, value_cast(Item,OldInteger,IntegerType,20,0,Def,RW,"120/10.0001")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"1234"}}}}, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"1234")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,"-"}}}}, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,""}}}}, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"-100"}}}}, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-100")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"9999"}}}}, value_cast(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"9999")),
+        ?assertEqual(OldString, value_to_db(Item,OldString,IntegerType,Len,Prec,Def,RW,"OldString")),
+        ?assertEqual(OldInteger, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"17")),
+        ?assertEqual(default, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"default")),
+        ?assertEqual(18, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"18")),
+        ?assertEqual(-18, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-18")),
+        ?assertEqual(100, value_to_db(Item,OldInteger,IntegerType,Len,-2,Def,RW,"149")),
+        ?assertEqual(200, value_to_db(Item,OldInteger,IntegerType,Len,-2,Def,RW,"150")),
+        ?assertEqual(-100, value_to_db(Item,OldInteger,IntegerType,4,-2,Def,RW,"-149")),
+        ?assertEqual(-200, value_to_db(Item,OldInteger,IntegerType,4,-2,Def,RW,"-150")),
+        ?assertEqual(-200, value_to_db(Item,OldInteger,IntegerType,100,0,Def,RW,"300-500")),
+        ?assertEqual(12, value_to_db(Item,OldInteger,IntegerType,20,0,Def,RW,"120/10.0")),
+        ?assertEqual(12, value_to_db(Item,OldInteger,IntegerType,20,0,Def,RW,"120/10.0001")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"1234"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"1234")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,"-"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,""}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"-100"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-100")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"9999"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"9999")),
 
         FloatType = float,
         OldFloat = -1.2,
-        ?assertEqual(8.1, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"8.1")),
-        ?assertEqual(18.0, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"18")),
-        ?assertEqual(1.1, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1.12")),
-        ?assertEqual(-1.1, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"-1.14")),
-        ?assertEqual(-1.1, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"-1.1234567")),
-        ?assertEqual(-1.12, value_cast(Item,OldFloat,FloatType,Len,2,Def,RW,"-1.1234567")),
-        ?assertEqual(-1.123, value_cast(Item,OldFloat,FloatType,Len,3,Def,RW,"-1.1234567")),
-        ?assertEqual(-1.1235, value_cast(Item,OldFloat,FloatType,Len,4,Def,RW,"-1.1234567")),
-        %% ?assertEqual(-1.12346, value_cast(Item,OldFloat,FloatType,Len,5,Def,RW,"-1.1234567")),  %% fails due to single precision math
-        %% ?assertEqual(-1.123457, value_cast(Item,OldFloat,FloatType,Len,6,Def,RW,"-1.1234567")), %% fails due to single precision math
-        ?assertEqual(100.0, value_cast(Item,OldFloat,FloatType,Len,-2,Def,RW,"149")),
-        ?assertEqual(-100.0, value_cast(Item,OldFloat,FloatType,Len,-2,Def,RW,"-149")),
-        ?assertEqual(-200.0, value_cast(Item,OldFloat,FloatType,Len,-2,Def,RW,"-150")),
-        %% ?assertEqual(0.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.56")),
-        %% ?assertEqual(0.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.5678")),
-        %% ?assertEqual(0.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.5678910111")),
-        %% ?assertEqual(0.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.56789101112131415")),
-        ?assertEqual(1234.5, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5")),
-        %% ?assertEqual(1234.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.56")),
-        %% ?assertEqual(1234.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5678")),
-        %% ?assertEqual(1234.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5678910111")),
-        %% ?assertEqual(1234.6, value_cast(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.56789101112131415")),
+        ?assertEqual(8.1, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"8.1")),
+        ?assertEqual(18.0, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"18")),
+        ?assertEqual(1.1, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1.12")),
+        ?assertEqual(-1.1, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"-1.14")),
+        ?assertEqual(-1.1, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"-1.1234567")),
+        ?assertEqual(-1.12, value_to_db(Item,OldFloat,FloatType,Len,2,Def,RW,"-1.1234567")),
+        ?assertEqual(-1.123, value_to_db(Item,OldFloat,FloatType,Len,3,Def,RW,"-1.1234567")),
+        ?assertEqual(-1.1235, value_to_db(Item,OldFloat,FloatType,Len,4,Def,RW,"-1.1234567")),
+        %% ?assertEqual(-1.12346, value_to_db(Item,OldFloat,FloatType,Len,5,Def,RW,"-1.1234567")),  %% fails due to single precision math
+        %% ?assertEqual(-1.123457, value_to_db(Item,OldFloat,FloatType,Len,6,Def,RW,"-1.1234567")), %% fails due to single precision math
+        ?assertEqual(100.0, value_to_db(Item,OldFloat,FloatType,Len,-2,Def,RW,"149")),
+        ?assertEqual(-100.0, value_to_db(Item,OldFloat,FloatType,Len,-2,Def,RW,"-149")),
+        ?assertEqual(-200.0, value_to_db(Item,OldFloat,FloatType,Len,-2,Def,RW,"-150")),
+        %% ?assertEqual(0.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.56")),
+        %% ?assertEqual(0.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.5678")),
+        %% ?assertEqual(0.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.5678910111")),
+        %% ?assertEqual(0.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"0.56789101112131415")),
+        ?assertEqual(1234.5, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5")),
+        %% ?assertEqual(1234.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.56")),
+        %% ?assertEqual(1234.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5678")),
+        %% ?assertEqual(1234.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5678910111")),
+        %% ?assertEqual(1234.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.56789101112131415")),
 
         DecimalType = decimal,
         OldDecimal = -123,
-        ?assertEqual(81, value_cast(Item,OldDecimal,DecimalType,Len,Prec,Def,RW,"8.1")),
-        ?assertEqual(180, value_cast(Item,OldDecimal,DecimalType,Len,Prec,Def,RW,"18.001")),
-        ?assertEqual(1, value_cast(Item,OldDecimal,DecimalType,1,0,Def,RW,"1.12")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,5,"-1.123"}}}}, value_cast(Item,OldDecimal,DecimalType,5,5,Def,RW,"-1.123")),
-        ?assertEqual(-112300, value_cast(Item,OldDecimal,DecimalType,7,5,Def,RW,"-1.123")),
-        ?assertEqual(-112346, value_cast(Item,OldDecimal,DecimalType,7,5,Def,RW,"-1.1234567")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,Prec,"1234567.89"}}}}, value_cast(Item,OldDecimal,DecimalType,5,Prec,Def,RW,"1234567.89")),
+        ?assertEqual(81, value_to_db(Item,OldDecimal,DecimalType,Len,Prec,Def,RW,"8.1")),
+        ?assertEqual(180, value_to_db(Item,OldDecimal,DecimalType,Len,Prec,Def,RW,"18.001")),
+        ?assertEqual(1, value_to_db(Item,OldDecimal,DecimalType,1,0,Def,RW,"1.12")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,5,"-1.123"}}}}, value_to_db(Item,OldDecimal,DecimalType,5,5,Def,RW,"-1.123")),
+        ?assertEqual(-112300, value_to_db(Item,OldDecimal,DecimalType,7,5,Def,RW,"-1.123")),
+        ?assertEqual(-112346, value_to_db(Item,OldDecimal,DecimalType,7,5,Def,RW,"-1.1234567")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,Prec,"1234567.89"}}}}, value_to_db(Item,OldDecimal,DecimalType,5,Prec,Def,RW,"1234567.89")),
 
         ETermType = eterm,
         OldETerm = {-1.2,[a,b,c]},
-        ?assertEqual(OldETerm, value_cast(Item,OldETerm,ETermType,Len,Prec,Def,RW,OldETerm)),
-        ?assertEqual(default, value_cast(Item,OldETerm,ETermType,Len,Prec,Def,RW,"default")),
-        ?assertEqual([a,b], value_cast(Item,OldETerm,ETermType,Len,Prec,Def,RW,"[a,b]")),
-        ?assertEqual(-1.1234567, value_cast(Item,OldETerm,ETermType,Len,Prec,Def,RW,"-1.1234567")),
-        ?assertEqual({[1,2,3]}, value_cast(Item,OldETerm,ETermType,Len,Prec,Def,RW,"{[1,2,3]}")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTerm,"[a|]"}}}}, value_cast(Item,OldETerm,ETermType,Len,Prec,Def,RW,"[a|]")),
+        ?assertEqual(OldETerm, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,OldETerm)),
+        ?assertEqual(default, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"default")),
+        ?assertEqual([a,b], value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"[a,b]")),
+        ?assertEqual(-1.1234567, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"-1.1234567")),
+        ?assertEqual({[1,2,3]}, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"{[1,2,3]}")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTerm,"[a|]"}}}}, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"[a|]")),
 
-        ?assertEqual({1,2,3}, value_cast(Item,OldETerm,eTuple,Len,Prec,Def,RW,"{1,2,3}")),
-        ?assertEqual({}, value_cast(Item,OldETerm,eTuple,0,Prec,Def,RW,"{}")),
-        ?assertEqual({1}, value_cast(Item,OldETerm,eTuple,0,Prec,Def,RW,"{1}")),
-        ?assertEqual({1,2}, value_cast(Item,OldETerm,eTuple,0,Prec,Def,RW,"{1,2}")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTuple,Len,"[a]"}}}}, value_cast(Item,OldETerm,etuple,Len,Prec,Def,RW,"[a]")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTuple,Len,"{a}"}}}}, value_cast(Item,OldETerm,etuple,Len,Prec,Def,RW,"{a}")),
+        ?assertEqual({1,2,3}, value_to_db(Item,OldETerm,eTuple,Len,Prec,Def,RW,"{1,2,3}")),
+        ?assertEqual({}, value_to_db(Item,OldETerm,eTuple,0,Prec,Def,RW,"{}")),
+        ?assertEqual({1}, value_to_db(Item,OldETerm,eTuple,0,Prec,Def,RW,"{1}")),
+        ?assertEqual({1,2}, value_to_db(Item,OldETerm,eTuple,0,Prec,Def,RW,"{1,2}")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTuple,Len,"[a]"}}}}, value_to_db(Item,OldETerm,etuple,Len,Prec,Def,RW,"[a]")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTuple,Len,"{a}"}}}}, value_to_db(Item,OldETerm,etuple,Len,Prec,Def,RW,"{a}")),
 
-        ?assertEqual([a,b,c], value_cast(Item,OldETerm,elist,Len,Prec,Def,RW,"[a,b,c]")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eList,Len,"[a]"}}}}, value_cast(Item,OldETerm,elist,Len,Prec,Def,RW,"[a]")),
-        ?assertEqual([], value_cast(Item,[],eList,Len,Prec,Def,RW,"[]")),
-        ?assertEqual([], value_cast(Item,OldETerm,eList,Len,Prec,[],RW,"[]")),
-        ?assertEqual([], value_cast(Item,OldETerm,eList,0,Prec,Def,RW,"[]")),
-        ?assertEqual([a], value_cast(Item,OldETerm,eList,0,Prec,Def,RW,"[a]")),
-        ?assertEqual([a,b], value_cast(Item,OldETerm,eList,0,Prec,Def,RW,"[a,b]")),
+        ?assertEqual([a,b,c], value_to_db(Item,OldETerm,elist,Len,Prec,Def,RW,"[a,b,c]")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eList,Len,"[a]"}}}}, value_to_db(Item,OldETerm,elist,Len,Prec,Def,RW,"[a]")),
+        ?assertEqual([], value_to_db(Item,[],eList,Len,Prec,Def,RW,"[]")),
+        ?assertEqual([], value_to_db(Item,OldETerm,eList,Len,Prec,[],RW,"[]")),
+        ?assertEqual([], value_to_db(Item,OldETerm,eList,0,Prec,Def,RW,"[]")),
+        ?assertEqual([a], value_to_db(Item,OldETerm,eList,0,Prec,Def,RW,"[a]")),
+        ?assertEqual([a,b], value_to_db(Item,OldETerm,eList,0,Prec,Def,RW,"[a,b]")),
 
-        ?assertEqual({10,132,7,92}, value_cast(Item,OldETerm,eipaddr,0,Prec,Def,RW,"10.132.7.92")),
-        ?assertEqual({0,0,0,0}, value_cast(Item,OldETerm,eipaddr,4,Prec,Def,RW,"0.0.0.0")),
-        ?assertEqual({255,255,255,255}, value_cast(Item,OldETerm,eipaddr,4,Prec,Def,RW,"255.255.255.255")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,0,"1.2.3.4.5"}}}}, value_cast(Item,OldETerm,eipaddr,0,0,Def,RW,"1.2.3.4.5")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,4,"1.2.-1.4"}}}}, value_cast(Item,OldETerm,eipaddr,4,0,Def,RW,"1.2.-1.4")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,6,"1.256.1.4"}}}}, value_cast(Item,OldETerm,eipaddr,6,0,Def,RW,"1.256.1.4")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,8,"1.2.1.4"}}}}, value_cast(Item,OldETerm,eipaddr,8,0,Def,RW,"1.2.1.4")),
+        ?assertEqual({10,132,7,92}, value_to_db(Item,OldETerm,eipaddr,0,Prec,Def,RW,"10.132.7.92")),
+        ?assertEqual({0,0,0,0}, value_to_db(Item,OldETerm,eipaddr,4,Prec,Def,RW,"0.0.0.0")),
+        ?assertEqual({255,255,255,255}, value_to_db(Item,OldETerm,eipaddr,4,Prec,Def,RW,"255.255.255.255")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,0,"1.2.3.4.5"}}}}, value_to_db(Item,OldETerm,eipaddr,0,0,Def,RW,"1.2.3.4.5")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,4,"1.2.-1.4"}}}}, value_to_db(Item,OldETerm,eipaddr,4,0,Def,RW,"1.2.-1.4")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,6,"1.256.1.4"}}}}, value_to_db(Item,OldETerm,eipaddr,6,0,Def,RW,"1.256.1.4")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,8,"1.2.1.4"}}}}, value_to_db(Item,OldETerm,eipaddr,8,0,Def,RW,"1.2.1.4")),
 
         Fun = fun(X) -> X*X end,
         io:format(user, "Fun ~p~n", [Fun]),
-        Res = value_cast(Item,OldETerm,efun,1,Prec,Def,RW,"fun(X) -> X*X end"),
+        Res = value_to_db(Item,OldETerm,efun,1,Prec,Def,RW,"fun(X) -> X*X end"),
         io:format(user, "Run ~p~n", [Res]),
         ?assertEqual(Fun(4), Res(4)),
 
