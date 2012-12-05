@@ -63,80 +63,17 @@
         , return_atomic/1
         ]).
 
-%% gen_server
-start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
-
-init(Params) ->
-    {_, NodeType} = lists:keyfind(node_type,1,Params),
-    {_, SchemaName} = lists:keyfind(schema_name,1,Params),
-    SchemaDir = SchemaName ++ "." ++ atom_to_list(node()),
-    {A1,A2,A3} = now(),
-    random:seed(A1, A2, A3),
-    SleepTime = random:uniform(1000),
-    io:format(user, "~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
-    timer:sleep(SleepTime),
-    application:set_env(mnesia, dir, SchemaDir),
-    ok = mnesia:start(),
-    case disc_schema_nodes(SchemaName) of
-        [] -> ok;
-        [DiscSchemaNode|_] ->
-            io:format(user, "~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
-            {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config, [extra_db_nodes, [node()]])
-    end,
-    case NodeType of
-        disc -> mnesia:change_table_copy_type(schema, node(), disc_copies);
-        _ -> ok
-    end,
-    mnesia:subscribe(system),
-    io:format("~p started as ~p!~n", [?MODULE, NodeType]),
-    {ok,#state{}}.
-
-disc_schema_nodes(Schema) ->
+disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
             fun(N, Acc) ->
-                    case lists:keyfind(mnesia, 1, rpc:call(N, application, which_applications, [])) of
-                        false -> Acc;
-                        _ ->
-                            case rpc:call(N,mnesia,table_info,[schema, disc_copies]) of
-                                Nodes when length(Nodes) > 0 ->
-                                    case schema(N) of
-                                        Schema -> [N|Acc];
-                                        _ -> Acc
-                                    end;
-                                _ -> Acc
-                            end
-                    end
+                case schema(N) of
+                    Schema -> [N|Acc];
+                    _ -> Acc
+                end
             end
             , []
-            , nodes())]).
+            , mnesia:system_info(running_db_nodes) -- [node()])]).
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
-
-handle_cast(_Request, State) ->
-    {noreply, State}.
-
-handle_info(Info, State) ->
-    case Info of
-        {mnesia_system_event,{mnesia_overload,Details}} ->
-            BulkSleepTime0 = get(mnesia_bulk_sleep_time),
-            BulkSleepTime = trunc(1.1 * BulkSleepTime0),
-            put(mnesia_bulk_sleep_time, BulkSleepTime),
-            io:format("Mnesia overload : ~p!~n",[Details]);
-        {mnesia_system_event,{Event,Node}} ->
-            io:format("Mnesia event ~p from Node ~p!~n",[Event, Node]);
-        Error ->
-            io:format("Mnesia error : ~p~n",[Error])
-    end,
-    {noreply, State}.
-
-terminate(_Reson, _State) -> ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
 return_atomic_list({atomic, L}) when is_list(L) -> L;
@@ -215,16 +152,7 @@ update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 column_names(ColumnInfos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [element(2,C)]))) || C <- ColumnInfos].
 
-data_nodes() ->
-    lists:flatten([lists:foldl(
-            fun(N, Acc) ->
-                    case lists:keyfind(imem, 1, rpc:call(N, application, which_applications, [])) of
-                        false ->    Acc;
-                        _ ->        [{schema(N),N}|Acc]
-                    end
-            end
-            , []
-            , [node() | nodes()])]).
+data_nodes() -> [{schema(N),N} || N <- mnesia:system_info(running_db_nodes)].
 
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
@@ -306,20 +234,31 @@ create_table(Table, Opts) when is_list(Table) ->
 create_table(Table, Opts) when is_atom(Table) ->
    	case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
-            ?ClientError({"Table already exists", Table});
-        {aborted, {already_exists, Table, _}} ->
-            %% table exists on remote node(s)
-            %% io:format(user, "waiting for remote table ~p '~p' ...~n", [erlang:now(), Table]),
-            mnesia:wait_for_tables([Table], 30000),
-            %% io:format(user, "copying table '~p' ...~n", [Table]),
-            %% io:format(user, "table copied ~p '~p' ...~n", [erlang:now(), Table]),
-            return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
+            io:format(user, "table ~p locally exists~n", [Table]),
+            wait_table_tries([Table], 30);
+        {aborted, {already_exists, Table, Node}} ->
+            io:format(user, "table ~p exists at ~p~n", [Table, Node]),
+            case mnesia:force_load_table(Table) of
+                yes -> ok;
+                Error -> ?ClientError({"Loading table(s) timeout~p", Error})
+            end;
+            %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result -> 
-            %% io:format(user, "waiting for created table ~p '~p' ...~n", [erlang:now(), Table]),
-            mnesia:wait_for_tables([Table], 30000),
-            %% io:format(user, "table ready ~p '~p' ...~n", [erlang:now(), Table]),
+            io:format(user, "create_table ~p for ~p~n", [Result, Table]),
+            wait_table_tries([Table], 30),
             return_atomic_ok(Result)
 	end.
+
+wait_table_tries(Tables, 0) ->
+    ?ClientError({"Loading table(s) timeout~p", Tables});
+wait_table_tries(Tables, Count) when is_list(Tables) ->
+    case mnesia:wait_for_tables(Tables, 30000) of
+        ok -> ok;
+        {timeout, BadTabList} ->
+            io:format(user, "table ~p load time out attempt ~p~n", [BadTabList, Count]),
+            wait_table_tries(Tables, Count-1);
+        {error, Reason} -> ?ClientError({"Error loading table~p", Reason})
+    end.
 
 drop_table(Table) when is_atom(Table) ->
     case mnesia:delete_table(Table) of
@@ -576,6 +515,62 @@ mnesia:unsubscribe({table, Tab, detailed});
 unsubscribe(EventCategory) ->
     ?ClientError({"Unsupported event category", EventCategory}).
 
+
+%% ----- gen_server -------------------------------------------
+
+start_link(Params) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+
+init(Params) ->
+    {_, NodeType} = lists:keyfind(node_type,1,Params),
+    {_, SchemaName} = lists:keyfind(schema_name,1,Params),
+    SchemaDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
+    random:seed(now()),
+    SleepTime = random:uniform(1000),
+    io:format(user, "~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
+    timer:sleep(SleepTime),
+    application:set_env(mnesia, dir, SchemaDir),
+    ok = mnesia:start(),
+    case disc_schema_nodes(SchemaName) of
+        [] -> io:format(user, "~p no node found at ~p for schema ~p in erlang cluster ~p~n", [?MODULE, node(), SchemaName, erlang:get_cookie()]);
+        [DiscSchemaNode|_] ->
+            io:format(user, "~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
+            {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config, [extra_db_nodes, [node()]])
+    end,
+    case NodeType of
+        disc -> mnesia:change_table_copy_type(schema, node(), disc_copies);
+        _ -> ok
+    end,
+    mnesia:subscribe(system),
+    io:format("~p started as ~p!~n", [?MODULE, NodeType]),
+    {ok,#state{}}.
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast(_Request, State) ->
+    {noreply, State}.
+
+handle_info(Info, State) ->
+    case Info of
+        {mnesia_system_event,{mnesia_overload,Details}} ->
+            BulkSleepTime0 = get(mnesia_bulk_sleep_time),
+            BulkSleepTime = trunc(1.1 * BulkSleepTime0),
+            put(mnesia_bulk_sleep_time, BulkSleepTime),
+            io:format("Mnesia overload : ~p!~n",[Details]);
+        {mnesia_system_event,{Event,Node}} ->
+            io:format("Mnesia event ~p from Node ~p!~n",[Event, Node]);
+        Error ->
+            io:format("Mnesia error : ~p~n",[Error])
+    end,
+    {noreply, State}.
+
+terminate(_Reson, _State) -> ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ----- TESTS ------------------------------------------------
 
