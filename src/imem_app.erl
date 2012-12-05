@@ -38,8 +38,12 @@
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
     case application:get_env(erl_cluster_mgr) of
-        {ok, undefined} -> ok;
-        {ok, CMNode} -> pong = net_adm:ping(CMNode)
+        {ok, undefined} -> io:format(user, "~p - CM not defined!~n", [?MODULE]);
+        {ok, CMNode} ->
+            case net_adm:ping(CMNode) of
+            pong -> io:format(user, "~p - ~p is CM~n", [?MODULE, CMNode]);
+            pang -> io:format(user, "~p - CM ~p is not reachable!~n", [?MODULE, CMNode])
+            end
     end,
     case imem_sup:start_link(StartArgs) of
     	{ok, Pid} ->
