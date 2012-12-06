@@ -26,7 +26,7 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap);
         str ->  imem_datatype:select_rowfun_str(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
-        gui ->  imem_datatype:select_rowfun_str(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
+        gui ->  imem_datatype:select_rowfun_gui(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
     end,
     MetaIdx = length(Tables) + 1,
     MetaMap = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMap, C#ddColMap.tind==MetaIdx])],
@@ -127,63 +127,67 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 integer, col2 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "
+                create table def (
+                    col1 integer, 
+                    col2 char(2), 
+                    col3 date default fun() -> calendar:local_time() end.
+                );", 0, "Imem", IsSec)),
 
         Result0 = if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 1000]),
-        %io:format(user, "ddTable result~n~p~n", [Result0]),
         {List0, true} = Result0,
+        io:format(user, "ddTable MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List0),hd(List0),lists:last(List0)]),
         AllTableCount = length(List0),
+
         Result1 = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
-        io:format(user, "all_tables result~n~p~n", [Result1]),
         {List1, true} = Result1,
+        io:format(user, "all_tables MatchAllKeys (~p)~n~p~n", [length(List1),List1]),
         ?assertEqual(AllTableCount, length(List1)),
 
         ?assertEqual(ok, insert_range(SKey, 10, "def", "Imem", IsSec)),
- 
-        {ok, _Clm2, RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, user from def", 100, "Imem", IsSec),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
-        Result2 = receive 
-            R2 ->    binary_to_term(R2)
-        end,
-        {List2, true} = Result2,
-        io:format(user, "fetch_recs result~n~p~n", [lists:map(RowFun2,List2)]),
-        ?assertEqual(10, length(List2)),            %% ToDo: 4
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
-        Result2a = receive 
-            R2a ->    binary_to_term(R2a)
-        end,
-        {List2a, _} = Result2a,
-        io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun2,List2a)]),
-        ?assertEqual(Result2, Result2a),           
-        %% ?assertEqual(ok, imem_statement:close(SKey, StmtRef2, self())),
 
+        Result2 = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
+        {List2, true} = Result2,
+        io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List2),hd(List2),lists:last(List2)]),
+ 
         {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from Imem.ddTable;", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    binary_to_term(R3)
         end,
         {List3, true} = Result3,
-        io:format(user, "fetch_recs result~n~p~n", [lists:map(RowFun3,List3)]),
+        io:format(user, "select qname from Imem.ddTable (~p)~n~p~n...~n~p~n", [length(List3),hd(lists:map(RowFun3,List3)),lists:last(lists:map(RowFun3,List3))]),
         ?assertEqual(AllTableCount, length(List3)),
+
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         Result3a = receive 
             R3a ->    binary_to_term(R3a)
         end,
-        {List3a, _} = Result3a,
-        io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun3,List3a)]),
-        ?assertEqual(Result3, Result3a),           
+        {List3a, true} = Result3a,
+        io:format(user, "select qname from Imem.ddTable (reread ~p)~n~p~n...~n~p~n", [length(List3a),hd(lists:map(RowFun3,List3a)),lists:last(lists:map(RowFun3,List3a))]),
+        ?assertEqual(AllTableCount, length(List3a)),
 
-        {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),  %% all_tables
+        {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, "select qname from all_tables", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
         Result4 = receive 
             R4 ->    binary_to_term(R4)
         end,
         {List4, true} = Result4,
-        io:format(user, "all_tables result~n~p~n", [List4]),
+        io:format(user, "select qname from all_tables (~p)~n~p~n...~n~p~n", [length(List4),hd(List4),lists:last(List4)]),
         ?assertEqual(AllTableCount, length(List4)),
 
-        ?assertEqual(ok, imem_statement:close(SKey, StmtRef2)),
+        {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, "select col1, col2, col3, user from def", 100, "Imem", IsSec),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
+        Result5 = receive 
+            R5 ->    binary_to_term(R5)
+        end,
+        {List5, true} = Result5,
+        io:format(user, "select col1, col2, col3, user from def (~p)~n~p~n", [length(List5),lists:map(RowFun5,List5)]),
+        ?assertEqual(10, length(List5)),            
+
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef3)),
+        ?assertEqual(ok, imem_statement:close(SKey, StmtRef4)),
+        ?assertEqual(ok, imem_statement:close(SKey, StmtRef5)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
 
@@ -202,5 +206,5 @@ test_with_or_without_sec(IsSec) ->
 
 insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
-    imem_sql:exec(SKey, "insert into " ++ TableName ++ " values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
+    imem_sql:exec(SKey, "insert into " ++ TableName ++ " (col1, col2) values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
     insert_range(SKey, N-1, TableName, Schema, IsSec).

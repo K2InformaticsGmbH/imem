@@ -47,6 +47,8 @@
         , ebinstr_to_string/2
         , enum_to_string/1
         , estring_to_string/2
+        , integer_to_string/2
+        , eatom_to_string/1
         ]).
 
 
@@ -71,8 +73,8 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
         select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, []) 
     end.
 
-select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
-    lists:reverse(Acc);
+select_rowfun_str(Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
+    [Recs|lists:reverse(Acc)];
 select_rowfun_str(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_string(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
     select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
@@ -82,8 +84,8 @@ select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
         select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, []) 
     end.
 
-select_rowfun_gui(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
-    lists:reverse(Acc);
+select_rowfun_gui(Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
+    [Recs|lists:reverse(Acc)];
 select_rowfun_gui(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_gui(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
     select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
@@ -161,6 +163,7 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
                     (Type == timestamp) ->  string_to_timestamp(Val,Prec);
                     (Type == tinyint) ->    string_to_integer(Val,Len,Prec);
                     (Type == tinytext) ->   string_to_list(Val,map(Len,0,255));
+                    (Type == char) ->       string_to_list(Val,map(Len,0,1));
                     (Type == varchar) ->    string_to_list(Val,map(Len,0,255));
                     (Type == varchar2) ->   string_to_list(Val,map(Len,0,4000));
                     (Type == year) ->       string_to_year(Val);                    
@@ -517,106 +520,130 @@ string_to_fun(Val,Len) ->
 
 %% ----- CAST Data from DB to string ------------------
 
-db_to_gui(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
+db_to_gui(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
     try
         if 
-            (Type == blob) ->       ebinary_to_string(Val);
-            (Type == longblob) ->   ebinary_to_string(Val);
-            (Type == ebinary) ->    ebinary_to_string(Val);
-            (Type == date) ->       edatetime_to_string(Val,DateFmt);
-            (Type == edatetime) ->  edatetime_to_string(Val,DateFmt);
-            (Type == time) ->       time_to_string(Val);
-            (Type == timestamp) ->  etimestamp_to_string(Val,Prec);
-            (Type == etimestamp) -> etimestamp_to_string(Val,Prec); 
-            (Type == eipaddr) ->    eipaddr_to_string(Val);
-            (Type == enum) ->       enum_to_string(Val);
-            (Type == decimal) ->    decimal_to_string(Val,Prec);
-            (Type == number) ->     decimal_to_string(Val,Prec);
-            (Type == numeric) ->    decimal_to_string(Val,Prec);
-            (Type == float) ->      float_to_string(Val,Prec,NumFmt);
-            (Type == double) ->     double_to_string(Val,Prec,NumFmt);
-            true ->                 Val   
+            (Type == blob) andalso is_binary(Val) ->        ebinary_to_string(Val);
+            (Type == longblob) andalso is_binary(Val) ->    ebinary_to_string(Val);
+            (Type == ebinary) andalso is_binary(Val) ->     ebinary_to_string(Val);
+            (Type == date) andalso is_tuple(Val) ->         edatetime_to_string(Val,DateFmt);
+            (Type == edatetime) andalso is_tuple(Val)->     edatetime_to_string(Val,DateFmt);
+            (Type == time) andalso is_tuple(Val)->          time_to_string(Val);
+            (Type == timestamp) andalso is_tuple(Val) ->    etimestamp_to_string(Val,Prec);
+            (Type == etimestamp) andalso is_tuple(Val) ->   etimestamp_to_string(Val,Prec); 
+            (Type == eipaddr) andalso is_tuple(Val) ->      eipaddr_to_string(Val);
+            (Type == decimal) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
+            (Type == number) andalso is_integer(Val) ->     decimal_to_string(Val,Prec);
+            (Type == numeric) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
+            (Type == float) andalso is_float(Val) ->        float_to_string(Val,Prec,NumFmt);
+            (Type == double) ->                             double_to_string(Val,Prec,NumFmt);
+
+            % (Type == enum) ->       enum_to_string(Val);
+            % (Type == eatom) ->      eatom_to_string(Val);
             % (Type == estring) ->    estring_to_string(Val,StringFmt);
             % (Type == ebinstr) ->    ebinstr_to_string(Val,StringFmt);
             % (Type == text) ->       estring_to_string(Val,StringFmt);
             % (Type == tinytext) ->   estring_to_string(Val,StringFmt);
             % (Type == mediumtext) -> estring_to_string(Val,StringFmt);
             % (Type == longtext) ->   estring_to_string(Val,StringFmt);
+            % (Type == char) ->       estring_to_string(Val,StringFmt);
             % (Type == varchar) ->    estring_to_string(Val,StringFmt);
             % (Type == varchar2) ->   estring_to_string(Val,StringFmt);
+
+            % (Type == integer) ->    integer_to_string(Val,StringFmt);
+            % (Type == int) ->        integer_to_string(Val,StringFmt);
+            % (Type == tinyint) ->    integer_to_string(Val,StringFmt);
+            % (Type == smallint) ->   integer_to_string(Val,StringFmt);
+            % (Type == mediumint) ->  integer_to_string(Val,StringFmt);
+            % (Type == bigint) ->     integer_to_string(Val,StringFmt);
+            % (Type == year) ->       integer_to_string(Val,StringFmt);
+
+            true ->                 Val   
         end
     catch
         _:_ -> Val
     end.
 
-db_to_string(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
+db_to_string(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
     try
         if 
-            (Type == blob) ->       ebinary_to_string(Val);
-            (Type == ebinary) ->    ebinary_to_string(Val);
-            (Type == longblob) ->   ebinary_to_string(Val);
-            (Type == date) ->       date_to_string(Val,DateFmt);
-            (Type == edatetime) ->  edatetime_to_string(Val,DateFmt);
-            (Type == time) ->       string_to_time(Val);
-            (Type == timestamp) ->  string_to_timestamp(Val,Prec);
-            (Type == eipaddr) ->    eipaddr_to_string(Val);
-            (Type == enum) ->       enum_to_string(Val);
-            (Type == etimestamp) -> etimestamp_to_string(Val,Prec); 
-            (Type == decimal) ->    decimal_to_string(Val,Prec);
-            (Type == number) ->     decimal_to_string(Val,Prec);
-            (Type == numeric) ->    decimal_to_string(Val,Prec);
-            (Type == float) ->      float_to_string(Val,Prec,NumFmt);
-            (Type == double) ->     double_to_string(Val,Prec,NumFmt);
-            true ->                 io_lib:format("~p",[Val])   
-            % (Type == estring) ->    estring_to_string(Val,StringFmt);
-            % (Type == ebinstr) ->    ebinstr_to_string(Val,StringFmt);
-            % (Type == text) ->       estring_to_string(Val,StringFmt);
-            % (Type == tinytext) ->   estring_to_string(Val,StringFmt);
-            % (Type == mediumtext) -> estring_to_string(Val,StringFmt);
-            % (Type == longtext) ->   estring_to_string(Val,StringFmt);
-            % (Type == varchar) ->    estring_to_string(Val,StringFmt);
-            % (Type == varchar2) ->   estring_to_string(Val,StringFmt);
+            (Type == blob) andalso is_binary(Val) ->        ebinary_to_string(Val);
+            (Type == ebinary) andalso is_binary(Val) ->     ebinary_to_string(Val);
+            (Type == longblob) andalso is_binary(Val) ->    ebinary_to_string(Val);
+            (Type == date) andalso is_tuple(Val) ->         date_to_string(Val,DateFmt);
+            (Type == edatetime) andalso is_tuple(Val) ->    edatetime_to_string(Val,DateFmt);
+            (Type == time) andalso is_tuple(Val) ->         string_to_time(Val);
+            (Type == timestamp) andalso is_tuple(Val) ->    string_to_timestamp(Val,Prec);
+            (Type == eipaddr) andalso is_tuple(Val) ->      eipaddr_to_string(Val);
+            (Type == eatom) andalso is_atom(Val) ->         eatom_to_string(Val);
+            (Type == etimestamp) andalso is_tuple(Val) ->   etimestamp_to_string(Val,Prec); 
+            (Type == decimal) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
+            (Type == number) andalso is_integer(Val) ->     decimal_to_string(Val,Prec);
+            (Type == numeric) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
+            (Type == float) andalso is_float(Val) ->        float_to_string(Val,Prec,NumFmt);
+            (Type == double) ->                             double_to_string(Val,Prec,NumFmt);
+            (Type == estring) andalso is_list(Val) ->       estring_to_string(Val,StringFmt);
+            (Type == ebinstr) andalso is_binary(Val) ->     ebinstr_to_string(Val,StringFmt);
+            (Type == text) andalso is_list(Val) ->          estring_to_string(Val,StringFmt);
+            (Type == tinytext) andalso is_list(Val) ->      estring_to_string(Val,StringFmt);
+            (Type == mediumtext) andalso is_list(Val) ->    estring_to_string(Val,StringFmt);
+            (Type == longtext) andalso is_list(Val) ->      estring_to_string(Val,StringFmt);
+            (Type == char) andalso is_list(Val) ->          estring_to_string(Val,StringFmt);
+            (Type == varchar) andalso is_list(Val) ->       estring_to_string(Val,StringFmt);
+            (Type == varchar2) andalso is_list(Val) ->      estring_to_string(Val,StringFmt);
+            (Type == integer) andalso is_integer(Val) ->    integer_to_string(Val,StringFmt);
+            (Type == int) andalso is_integer(Val) ->        integer_to_string(Val,StringFmt);
+            (Type == tinyint) andalso is_integer(Val) ->    integer_to_string(Val,StringFmt);
+            (Type == smallint) andalso is_integer(Val) ->   integer_to_string(Val,StringFmt);
+            (Type == mediumint) andalso is_integer(Val) ->  integer_to_string(Val,StringFmt);
+            (Type == bigint) andalso is_integer(Val) ->     integer_to_string(Val,StringFmt);
+            (Type == year) andalso is_integer(Val) ->       integer_to_string(Val,StringFmt);
+
+            true -> lists:flatten(io_lib:format("~p",[Val]))   
         end
     catch
-        _:_ -> io_lib:format("~p",[Val]) 
+        _:_ -> lists:flatten(io_lib:format("~p",[Val])) 
     end.
+
+eatom_to_string(Val) ->
+    lists:flatten(io_lib:format("~p",[Val])).
 
 date_to_string(Datetime) ->
     date_to_string(Datetime, eu).
 
 date_to_string({{Year,Month,Day},{Hour,Min,Sec}},eu) ->
-    io_lib:format("~2.10.0B.~2.10.0B.~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
-        [Day, Month, Year, Hour, Min, Sec]);
+    lists:flatten(io_lib:format("~2.10.0B.~2.10.0B.~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [Day, Month, Year, Hour, Min, Sec]));
 date_to_string({{Year,Month,Day},{Hour,Min,Sec}},raw) ->
-    io_lib:format("~4.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
-        [Year, Month, Day, Hour, Min, Sec]);
+    lists:flatten(io_lib:format("~4.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
+        [Year, Month, Day, Hour, Min, Sec]));
 date_to_string({{Year,Month,Day},{Hour,Min,Sec}},iso) ->
-    io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
-        [Year, Month, Day, Hour, Min, Sec]);
+    lists:flatten(io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [Year, Month, Day, Hour, Min, Sec]));
 date_to_string({{Year,Month,Day},{Hour,Min,Sec}},us) ->
-    io_lib:format("~2.10.0B/~2.10.0B/~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
-        [Month, Day, Year, Hour, Min, Sec]);
+    lists:flatten(io_lib:format("~2.10.0B/~2.10.0B/~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [Month, Day, Year, Hour, Min, Sec]));
 date_to_string(Datetime, Fmt) ->
     ?ClientError({"Data conversion format error",{eDatetime,Fmt,Datetime}}).
 
 
 decimal_to_string(Val,0) ->
-    integer_to_list(Val);
+    lists:flatten(io_lib:format("~p",[Val]));   
 decimal_to_string(Val,Prec) when Val < 0 ->
-    lists:concat(["-",decimal_to_string(-Val,Prec)]);
+    lists:flatten(lists:concat(["-",decimal_to_string(-Val,Prec)]));
 decimal_to_string(Val,Prec) when Prec > 0 ->
     Str = integer_to_list(Val),
     Len = length(Str),
     if 
         Prec-Len+1 > 0 -> 
             {Whole,Frac} = lists:split(1,lists:duplicate(Prec-Len+1,$0) ++ Str),
-            lists:concat([Whole,".",Frac]);
+            lists:flatten(lists:concat([Whole,".",Frac]));
         true ->
             {Whole,Frac} = lists:split(Len-Prec,Str),
-            lists:concat([Whole,".",Frac])
+            lists:flatten(lists:concat([Whole,".",Frac]))
     end;
 decimal_to_string(Val,Prec) ->
-    lists:concat([integer_to_list(Val),lists:duplicate(-Prec,$0)]).
+    lists:flatten(lists:concat([integer_to_list(Val),lists:duplicate(-Prec,$0)])).
 
 
 ebinary_to_string(_Val) -> ?UnimplementedException({}).
@@ -652,12 +679,20 @@ time_to_string(_Val) -> ?UnimplementedException({}).
 year_to_string(Year) ->
     integer_to_list(Year).
 
-ebinstr_to_string(Val, _StringFmt) ->
-    Val.                                    %% ToDo: handle escaping and quoting etc.
-
+ebinstr_to_string(Val, StringFmt) ->
+    estring_to_string(binary_to_list(Val), StringFmt).      %% ToDo: handle escaping and quoting etc.
+    
+estring_to_string(Val, _StringFmt) when is_list(Val) ->
+    IsString = io_lib:printable_unicode_list(Val),
+    if 
+        IsString ->     lists:flatten(io_lib:format("~s",[Val]));          %% ToDo: handle escaping and quoting etc.
+        true ->         io_lib:format("~p",[Val])
+    end;                                    
 estring_to_string(Val, _StringFmt) ->
-    Val.                                    %% ToDo: handle escaping and quoting etc.
+    lists:flatten(io_lib:format("~p",[Val])).
 
+integer_to_string(Val, _StringFmt) ->
+    lists:flatten(io_lib:format("~p",[Val])).
 
 %% ----- Helper Functions ---------------------------------------------
 

@@ -252,7 +252,7 @@ update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
 update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
-        length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
+        length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        
         true ->                                 ok    
     end,            
     ValMap = lists:usort(

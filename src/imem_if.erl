@@ -165,7 +165,7 @@ table_columns(Table) ->
 
 table_size(Table) ->
     try
-        mnesia:wait_for_tables([Table], 2000),
+        % mnesia:wait_for_tables([Table], 2000),
         mnesia:table_info(Table, all),
         mnesia:table_info(Table, size)
     catch

@@ -660,7 +660,7 @@ test(_) ->
 
         ?assertEqual(ok, create_table(SeCoUser, user_table_123, [a,b,c], [])),
         io:format(user, "success ~p~n", [create_user_table]),
-        ?assertEqual(ok, create_table(SeCoUser, user_table_123, [a,b,c], [])),
+        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, [a,b,a], [])),
         ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, [a,b,x], [])),
         io:format(user, "success ~p~n", [create_user_table]),
         ?assertEqual(0, table_size(SeCoUser, user_table_123)),
