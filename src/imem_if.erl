@@ -66,13 +66,17 @@
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
             fun(N, Acc) ->
-                case schema(N) of
-                    Schema -> [N|Acc];
-                    _ -> Acc
-                end
+                    case lists:keyfind(imem, 1, rpc:call(N, application, which_applications, [])) of
+                        false -> Acc;
+                        _ ->
+                            case schema(N) of
+                                Schema -> [N|Acc];
+                                _ -> Acc
+                            end
+                    end
             end
             , []
-            , mnesia:system_info(running_db_nodes) -- [node()])]).
+            , nodes() -- mnesia:system_info(running_db_nodes) -- [node()])]).
 
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
