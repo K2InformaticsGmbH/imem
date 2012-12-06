@@ -580,8 +580,8 @@ setup() ->
     application:load(imem),
     {ok, Schema} = application:get_env(imem, mnesia_schema_name),
     {ok, Cwd} = file:get_cwd(),
-    NewSchema = Cwd ++ "/../" ++ Schema,
-    application:set_env(imem, mnesia_schema_name, NewSchema),
+    NewSchema = Cwd ++ "/../" ++ atom_to_list(Schema),
+    application:set_env(mnesia, dir, NewSchema),
     application:set_env(imem, mnesia_node_type, disc),
     application:start(imem).
 
