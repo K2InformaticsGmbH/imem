@@ -225,7 +225,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         true ->                                 ok    
     end,            
     ValMap = lists:usort(
-        [{Ci,imem_datatype:value_cast(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
+        [{Ci,imem_datatype:value_to_db(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D, readonly=R},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
     % io:format(user, "~p - value map~n~p~n", [?MODULE, ValMap]),
@@ -256,7 +256,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         true ->                                 ok    
     end,            
     ValMap = lists:usort(
-        [{Ci,imem_datatype:value_cast(Item,imem_nil,T,L,P,D,false,Value)} || 
+        [{Ci,imem_datatype:value_to_db(Item,imem_nil,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
@@ -324,6 +324,12 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none

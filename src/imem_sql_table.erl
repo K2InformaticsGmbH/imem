@@ -100,6 +100,12 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
         io:format(user, "----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
         SKey=?imem_test_admin_login(),
         Sql1 = "create table def (col1 varchar2(10), col2 integer default 12, col3 elist default fun() -> [] end.);",
         Expected = 

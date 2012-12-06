@@ -44,6 +44,7 @@
 
 -export([ create_table/4
 		, drop_table/2
+        , truncate_table/2
         , read/2
         , read/3
         , select/2
@@ -52,7 +53,6 @@
         , insert/3    
         , write/3
         , delete/3
-        , truncate/2
         , admin_exec/4
         ]).
 
@@ -366,9 +366,6 @@ read(SKey, Table, Key) ->
 exec(SKey, Statement, BlockSize, Schema) ->
     imem_sql:exec(SKey, Statement, BlockSize, Schema, true).   
 
-fetch_recs(SKey, Pid, Sock) ->
-    imem_statement:fetch_recs(SKey, Pid, Sock, true).
-
 fetch_recs_async(SKey, Pid, Sock) ->
     imem_statement:fetch_recs_async(SKey, Pid, Sock, true).
 
@@ -416,9 +413,9 @@ delete(SKey, Table, Key) ->
         false ->    ?SecurityException({"Delete unauthorized", SKey})
     end.
 
-truncate(SKey, Table) ->
+truncate_table(SKey, Table) ->
     case have_table_permission(SKey, Table, delete) of
-        true ->     imem_meta:truncate(Table);
+        true ->     imem_meta:truncate_table(Table);
         false ->    ?SecurityException({"Truncate unauthorized", SKey})
     end.
 
@@ -620,10 +617,10 @@ test(_) ->
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
-        ?assertEqual('Imem', imem_meta:schema()),
-        io:format(user, "success ~p~n", [schema]),
-        ?assertEqual([{'Imem',node()}], imem_meta:data_nodes()),
-        io:format(user, "success ~p~n", [data_nodes]),
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
 
@@ -663,7 +660,8 @@ test(_) ->
 
         ?assertEqual(ok, create_table(SeCoUser, user_table_123, [a,b,c], [])),
         io:format(user, "success ~p~n", [create_user_table]),
-        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, [a,b,c], [])),
+        ?assertEqual(ok, create_table(SeCoUser, user_table_123, [a,b,c], [])),
+        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, [a,b,x], [])),
         io:format(user, "success ~p~n", [create_user_table]),
         ?assertEqual(0, table_size(SeCoUser, user_table_123)),
         io:format(user, "success ~p~n", [own_table_size]),

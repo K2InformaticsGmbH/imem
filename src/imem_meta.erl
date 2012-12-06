@@ -56,6 +56,7 @@
 -export([ create_table/4
         , create_table/3
 		, drop_table/1
+        , truncate_table/1  %% truncate table
         , read/1            %% read whole table, only use for small tables 
         , read/2            %% read by key
         , select/1          %% contiunation block read
@@ -64,7 +65,6 @@
         , insert/2    
         , write/2           %% write single key
         , delete/2          %% delete rows by key
-        , truncate/1        %% truncate table
         ]).
 
 -export([ update_prepare/3          %% stateless creation of update plan from change list
@@ -452,10 +452,10 @@ delete({_Schema,Table}, Key) ->
 delete(Table, Key) ->
     imem_if:delete(Table, Key).
 
-truncate({_Schema,Table}) ->
-    truncate(Table);                %% ToDo: may depend on schema
-truncate(Table) ->
-    imem_if:truncate(Table).
+truncate_table({_Schema,Table}) ->
+    truncate_table(Table);                %% ToDo: may depend on schema
+truncate_table(Table) ->
+    imem_if:truncate_table(Table).
 
 subscribe(EventCategory) ->
     imem_if:subscribe(EventCategory).
@@ -530,10 +530,10 @@ meta_operations(_) ->
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        io:format(user, "success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        io:format(user, "success ~p~n", [data_nodes]),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=estring, length=10}     %% key

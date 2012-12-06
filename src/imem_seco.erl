@@ -90,6 +90,8 @@ init(_Args) ->
                     if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
         end,        
+        if_truncate_table(none,ddSeCo),
+        if_truncate_table(none,ddPerm),
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
@@ -161,6 +163,9 @@ if_create_table(_SKey, Table, RecordInfo, Opts, Owner) ->
 
 if_drop_table(_SKey, Table) -> 
     imem_meta:drop_table(Table).
+
+if_truncate_table(_SKey, Table) -> 
+    imem_meta:truncate_table(Table).
 
 if_write(_SKey, Table, Record) -> 
     imem_meta:write(Table, Record).
@@ -459,11 +464,10 @@ test(_) ->
 
         io:format(user, "----TEST--~p~n", [?MODULE]),
 
-        ?assertEqual('Imem', imem_meta:schema()),
-        io:format(user, "success ~p~n", [schema]),
-        DataNodes = imem_meta:data_nodes(),
-        ?assert(lists:member({'Imem',node()},DataNodes)),
-        io:format(user, "success ~p~n ~p~n", [data_nodes, DataNodes]),
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         io:format(user, "----TEST--~p:test_database~n", [?MODULE]),
 
@@ -475,26 +479,26 @@ test(_) ->
 
         io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
 
-        UserId = make_ref(),
-        UserName= <<"test_admin">>,
-        UserCred={pwdmd5, erlang:md5(<<"t1e2s3t4_5a6d7m8i9n">>)},
-        UserCredNew={pwdmd5, erlang:md5(<<"test_5a6d7m8i9n">>)},
-        User = #ddAccount{id=UserId,name=UserName,credentials=[UserCred],fullName = <<"TestAdmin">>},
-
         SeCoAdmin0=?imem_test_admin_login(),
         io:format(user, "success ~p~n", [test_admin_login]),
 
         Seco1 = imem_meta:table_size(ddSeCo),
         Perm1 = imem_meta:table_size(ddPerm),
         ?assertEqual(Seco0+1,Seco1),
-        ?assertEqual(Perm0+1,Perm1),        
+        ?assertEqual(Perm0,Perm1),        
         io:format(user, "success ~p~n", [status1]),
+        Seco2 = imem_sec:table_size(SeCoAdmin0, ddSeCo),
+        Perm2 = imem_sec:table_size(SeCoAdmin0, ddPerm),
+        ?assertEqual(Seco0+1,Seco2),
+        ?assertEqual(Perm0+2,Perm2),        
+        io:format(user, "success ~p~n", [status1]),
+
         imem_seco ! {'DOWN', simulated_reference, process, self(), simulated_exit},
         timer:sleep(2000),
-        Seco2 = imem_meta:table_size(ddSeCo),
-        Perm2 = imem_meta:table_size(ddPerm),
-        ?assertEqual(Seco0,Seco2),
-        ?assertEqual(Perm0,Perm2),        
+        Seco3 = imem_meta:table_size(ddSeCo),
+        Perm3 = imem_meta:table_size(ddPerm),
+        ?assertEqual(Seco0,Seco3),
+        ?assertEqual(Perm0,Perm3),        
         io:format(user, "success ~p~n", [status2]),
 
         io:format(user, "----TEST--~p:test_imem_seco~n", [?MODULE])

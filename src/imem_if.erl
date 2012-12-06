@@ -41,7 +41,7 @@
 		, drop_table/1
         , create_index/2
         , drop_index/2
-        , truncate/1
+        , truncate_table/1
         , select/2
         , select/3
         , select_sort/2
@@ -285,7 +285,7 @@ drop_index(Table, Column) when is_atom(Table) ->
         Result -> return_atomic_ok(Result)
     end.
 
-truncate(Table) when is_atom(Table) ->
+truncate_table(Table) when is_atom(Table) ->
     return_atomic_ok(mnesia:clear_table(Table)).
 
 insert(Table, Row) when is_atom(Table), is_tuple(Row) ->
@@ -577,13 +577,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
-    application:load(imem),
-    {ok, Schema} = application:get_env(imem, mnesia_schema_name),
-    {ok, Cwd} = file:get_cwd(),
-    NewSchema = Cwd ++ "/../" ++ atom_to_list(Schema),
-    application:set_env(mnesia, dir, NewSchema),
-    application:set_env(imem, mnesia_node_type, disc),
-    application:start(imem).
+    ?imem_test_setup().
 
 teardown(_) ->
     catch drop_table(imem_table_123),
@@ -607,10 +601,10 @@ table_operations(_) ->
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
 
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        io:format(user, "success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        io:format(user, "success ~p~n", [data_nodes]),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
 

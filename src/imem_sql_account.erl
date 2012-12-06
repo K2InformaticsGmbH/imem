@@ -78,6 +78,12 @@ test_with_or_without_sec(IsSec) ->
         UiEx = 'UnimplementedException',
         % SeEx = 'SecurityException',
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
         SKey=?imem_test_admin_login(),
         ?assertEqual(ok, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "Imem", IsSec)),
         ?assertException(throw, {ClEr,{"Account already exists", <<"test_user_1">>}}, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "Imem", IsSec)),

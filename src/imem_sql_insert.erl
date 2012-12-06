@@ -68,6 +68,12 @@ test_with_or_without_sec(IsSec) ->
         % SeEx = 'SecurityException',
         CoEx = 'ConcurrencyException',
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
         SKey=?imem_test_admin_login(),
         ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar, col2 integer);", 0, "Imem", IsSec)),
         ?assertEqual(ok, insert_range(SKey, 3, "def", "Imem", IsSec)),

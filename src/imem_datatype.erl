@@ -5,7 +5,8 @@
 -include("imem_meta.hrl").
 
 -export([ value_to_db/8
-        , db_to_string/4
+        , db_to_string/6
+        , db_to_gui/6
         ]).
 
 -export([ pretty_type/1
@@ -37,22 +38,25 @@
         , edatetime_to_string/1
         , edatetime_to_string/2
         , eipaddr_to_string/1
-        , etimestamp_to_string/1
+        , etimestamp_to_string/2
         , number_to_string/2
         , time_to_string/1
-        , timestamp_to_string/1
         , year_to_string/1
+        , float_to_string/3
+        , double_to_string/3
+        , ebinstr_to_string/2
+        , enum_to_string/1
+        , estring_to_string/2
         ]).
 
 
--export([ localTimeToSysDate/1
-        , nowToSysTimeStamp/1
-        , map/3
+-export([ map/3
         ]).
 
 
--export([ select_rowfun_raw/1
-        , select_rowfun_str/1
+-export([ select_rowfun_raw/1   %% return rows in raw erlang db format
+        , select_rowfun_str/4   %% convert all rows to string
+        , select_rowfun_gui/4   %% convert rows to string when necessary (where io_lib(~p) will not do)
         ]).
 
 
@@ -62,14 +66,27 @@ select_rowfun_raw(ColMap) ->
         [X|[element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers]] 
     end.
 
-select_rowfun_str(ColMap) ->
-    fun(X) -> 
-        select_rowfun_str_(ColMap, []) 
+select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
+    fun(Recs) -> 
+        select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, []) 
     end.
 
-select_rowfun_str_([#ddColMap{type=T,length=L,precision=P,tind=Ti,cind=Ci}|ColMap], Acc) ->
-    
-ok.
+select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
+    lists:reverse(Acc);
+select_rowfun_str(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+    Str = db_to_string(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
+    select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
+
+select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
+    fun(Recs) -> 
+        select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, []) 
+    end.
+
+select_rowfun_gui(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
+    lists:reverse(Acc);
+select_rowfun_gui(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+    Str = db_to_gui(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
+    select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
 
 
 %% ----- DATA TYPES  with CamelCase  --------------------------------
@@ -500,46 +517,68 @@ string_to_fun(Val,Len) ->
 
 %% ----- CAST Data from DB to string ------------------
 
-db_to_string(Type, Len, Prec, Val) ->
-    if 
-        (Type == bigint) ->     integer_to_list(Val);
-%       (Type == blob) ->       string_to_ebinary(Val,Len);
-        (Type == character) ->  Val;
-        (Type == decimal) ->    decimal_to_string(Val,Prec);
-        (Type == date) ->       date_to_string(Val);
-        (Type == double) ->     string_to_double(Val,Prec);
-        (Type == eatom) ->      list_to_atom(Val);
-        (Type == ebinary) ->    string_to_ebinary(Val,Len);
-        (Type == ebinstr) ->    list_to_binary(Val);
-        (Type == edatetime) ->  string_to_edatetime(Val);
-        (Type == efun) ->       string_to_fun(Val,Len);
-        (Type == eipaddr) ->    string_to_eipaddr(Val,Len);
-        (Type == elist) ->      string_to_elist(Val,Len);
-        (Type == enum) ->       string_to_enum(Val,Len);
-        (Type == epid) ->       list_to_pid(Val);
-        (Type == estring) ->    string_to_list(Val,Len);
-        (Type == etimestamp) -> string_to_etimestamp(Val); 
-        (Type == etuple) ->     string_to_etuple(Val,Len);
-        (Type == float) ->      string_to_float(Val,Prec);
-        (Type == int) ->        string_to_integer(Val,Len,Prec);
-        (Type == integer) ->    string_to_integer(Val,Len,Prec);
-        (Type == longblob) ->   string_to_ebinary(Val,Len);
-        (Type == longtext) ->   string_to_list(Val,map(Len,0,4294967295));
-        (Type == mediumint) ->  string_to_integer(Val,Len,Prec);
-        (Type == mediumtext) -> string_to_list(Val,map(Len,0,16777215));
-        (Type == number) ->     string_to_number(Val,Len,Prec);
-        (Type == numeric) ->    string_to_number(Val,Len,Prec);
-        (Type == set) ->        string_to_set(Val,Len);
-        (Type == smallint) ->   string_to_integer(Val,Len,Prec);
-        (Type == text) ->       string_to_list(Val,map(Len,0,65535));
-        (Type == time) ->       string_to_time(Val);
-        (Type == timestamp) ->  string_to_timestamp(Val,Prec);
-        (Type == tinyint) ->    string_to_integer(Val,Len,Prec);
-        (Type == tinytext) ->   string_to_list(Val,map(Len,0,255));
-        (Type == varchar) ->    string_to_list(Val,map(Len,0,255));
-        (Type == varchar2) ->   string_to_list(Val,map(Len,0,4000));
-        (Type == year) ->       string_to_year(Val);                    
-        true ->                 string_to_eterm(Val)   
+db_to_gui(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
+    try
+        if 
+            (Type == blob) ->       ebinary_to_string(Val);
+            (Type == longblob) ->   ebinary_to_string(Val);
+            (Type == ebinary) ->    ebinary_to_string(Val);
+            (Type == date) ->       edatetime_to_string(Val,DateFmt);
+            (Type == edatetime) ->  edatetime_to_string(Val,DateFmt);
+            (Type == time) ->       time_to_string(Val);
+            (Type == timestamp) ->  etimestamp_to_string(Val,Prec);
+            (Type == etimestamp) -> etimestamp_to_string(Val,Prec); 
+            (Type == eipaddr) ->    eipaddr_to_string(Val);
+            (Type == enum) ->       enum_to_string(Val);
+            (Type == decimal) ->    decimal_to_string(Val,Prec);
+            (Type == number) ->     decimal_to_string(Val,Prec);
+            (Type == numeric) ->    decimal_to_string(Val,Prec);
+            (Type == float) ->      float_to_string(Val,Prec,NumFmt);
+            (Type == double) ->     double_to_string(Val,Prec,NumFmt);
+            true ->                 Val   
+            % (Type == estring) ->    estring_to_string(Val,StringFmt);
+            % (Type == ebinstr) ->    ebinstr_to_string(Val,StringFmt);
+            % (Type == text) ->       estring_to_string(Val,StringFmt);
+            % (Type == tinytext) ->   estring_to_string(Val,StringFmt);
+            % (Type == mediumtext) -> estring_to_string(Val,StringFmt);
+            % (Type == longtext) ->   estring_to_string(Val,StringFmt);
+            % (Type == varchar) ->    estring_to_string(Val,StringFmt);
+            % (Type == varchar2) ->   estring_to_string(Val,StringFmt);
+        end
+    catch
+        _:_ -> Val
+    end.
+
+db_to_string(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
+    try
+        if 
+            (Type == blob) ->       ebinary_to_string(Val);
+            (Type == ebinary) ->    ebinary_to_string(Val);
+            (Type == longblob) ->   ebinary_to_string(Val);
+            (Type == date) ->       date_to_string(Val,DateFmt);
+            (Type == edatetime) ->  edatetime_to_string(Val,DateFmt);
+            (Type == time) ->       string_to_time(Val);
+            (Type == timestamp) ->  string_to_timestamp(Val,Prec);
+            (Type == eipaddr) ->    eipaddr_to_string(Val);
+            (Type == enum) ->       enum_to_string(Val);
+            (Type == etimestamp) -> etimestamp_to_string(Val,Prec); 
+            (Type == decimal) ->    decimal_to_string(Val,Prec);
+            (Type == number) ->     decimal_to_string(Val,Prec);
+            (Type == numeric) ->    decimal_to_string(Val,Prec);
+            (Type == float) ->      float_to_string(Val,Prec,NumFmt);
+            (Type == double) ->     double_to_string(Val,Prec,NumFmt);
+            true ->                 io_lib:format("~p",[Val])   
+            % (Type == estring) ->    estring_to_string(Val,StringFmt);
+            % (Type == ebinstr) ->    ebinstr_to_string(Val,StringFmt);
+            % (Type == text) ->       estring_to_string(Val,StringFmt);
+            % (Type == tinytext) ->   estring_to_string(Val,StringFmt);
+            % (Type == mediumtext) -> estring_to_string(Val,StringFmt);
+            % (Type == longtext) ->   estring_to_string(Val,StringFmt);
+            % (Type == varchar) ->    estring_to_string(Val,StringFmt);
+            % (Type == varchar2) ->   estring_to_string(Val,StringFmt);
+        end
+    catch
+        _:_ -> io_lib:format("~p",[Val]) 
     end.
 
 date_to_string(Datetime) ->
@@ -593,25 +632,31 @@ eipaddr_to_string({A,B,C,D}) ->
 eipaddr_to_string(_IpAddr) -> ?UnimplementedException({}).
 
 
-etimestamp_to_string({Megas,Secs,Micros}) ->
+etimestamp_to_string({Megas,Secs,Micros},_Prec) ->
     lists:concat([integer_to_list(Megas),":",integer_to_list(Secs),":",integer_to_list(Micros)]).    
 
 number_to_string(Val,Prec)->
     decimal_to_string(Val,Prec).
 
-time_to_string(_Val) -> ?UnimplementedException({}).
+float_to_string(Val,_Prec,_NumFmt) ->
+    float_to_list(Val).                     %% ToDo: implement rounding to db precision
 
-timestamp_to_string(Timestamp) ->
-    etimestamp_to_string(Timestamp).
+double_to_string(_Val,_Prec,_NumFmt) ->
+    ?UnimplementedException({"Double precision not implemented"}).
+
+enum_to_string(_Val) ->
+    ?UnimplementedException({"Enum not implemented"}).
+
+time_to_string(_Val) -> ?UnimplementedException({}).
 
 year_to_string(Year) ->
     integer_to_list(Year).
 
-%% ----- Data Type Conversions ----------------------------------------
+ebinstr_to_string(Val, _StringFmt) ->
+    Val.                                    %% ToDo: handle escaping and quoting etc.
 
-localTimeToSysDate(LTime) -> LTime. %% ToDo: convert to oracle 7 bit date
-
-nowToSysTimeStamp(Now) -> Now.      %% ToDo: convert to oracle 20 bit timestamp
+estring_to_string(Val, _StringFmt) ->
+    Val.                                    %% ToDo: handle escaping and quoting etc.
 
 
 %% ----- Helper Functions ---------------------------------------------
@@ -661,7 +706,7 @@ data_types(_) ->
         ?assertEqual("0.0.0.0", eipaddr_to_string({0,0,0,0})),
         ?assertEqual("1.2.3.4", eipaddr_to_string({1,2,3,4})),
 
-        ?assertEqual("1:2:3", etimestamp_to_string({1,2,3})),
+        ?assertEqual("1:2:3", etimestamp_to_string({1,2,3},0)),
 
         ?assertEqual("-0.00123", number_to_string(-123,5)),
         ?assertEqual("12300000", number_to_string(123,-5)),

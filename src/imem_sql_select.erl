@@ -2,6 +2,11 @@
 
 -include("imem_seco.hrl").
 
+-define(DefaultRendering, gui ).         %% gui (strings when necessary) | str (strings) | raw (erlang terms)
+-define(DefaultDateFormat, eu ).         %% eu | us | iso | raw
+-define(DefaultStrFormat, []).           %% escaping not implemented
+-define(DefaultNumFormat, [{prec,2}]).   %% precision, no 
+
 -export([ exec/5
         ]).
 
@@ -18,6 +23,14 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid select structure", CError})
     end,
+    RowFun = case ?DefaultRendering of
+        raw ->  imem_datatype:select_rowfun_raw(ColMap);
+        str ->  imem_datatype:select_rowfun_str(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
+        gui ->  imem_datatype:select_rowfun_str(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
+    end,
+    MetaIdx = length(Tables) + 1,
+    MetaMap = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMap, C#ddColMap.tind==MetaIdx])],
+
     % WhereMap = case lists:keyfind(where, 1, SelectSections) of
     %     false -> 
     %         [];
@@ -30,10 +43,6 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     %     CError ->        
     %         ?ClientError({"Invalid field name", CError})
     % end,
-    ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
-    RowFun = fun(X) -> [X|[element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers]] end,
-    MetaIdx = length(Tables) + 1,
-    MetaMap = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMap, C#ddColMap.tind==MetaIdx])],
    
     MatchHead = '$1',
     Guards = [],    
@@ -107,6 +116,12 @@ test_with_or_without_sec(IsSec) ->
         % ClEr = 'ClientError',
         % SeEx = 'SecurityException',
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none
@@ -158,7 +173,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "fetch_recs_async result~n~p~n", [lists:map(RowFun3,List3a)]),
         ?assertEqual(Result3, Result3a),           
 
-        {ok, _Clm4, RowFun4, StmtRef4} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),  %% all_tables
+        {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, "select qname from all_tables;", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
         Result4 = receive 
             R4 ->    binary_to_term(R4)
