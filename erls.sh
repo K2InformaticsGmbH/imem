@@ -2,24 +2,25 @@
 Pa=ebin
 cmNode=$1
 CMErlCmd=""
+ErlCookie=zt4Rw67f3
 
 if [ $# == 2 ]; then
      cmNode=$2
      if [ $1 == $2 ]; then
-         CMErlCmd="erl -name CM@$2 -pa $Pa -setcookie imem -kernel inet_dist_listen_min 9000 inet_dist_listen_max 9020 -detached"
+         CMErlCmd="erl -name CM@$2 -pa $Pa -setcookie $ErlCookie -detached"
          eval $CMErlCmd
      fi
  else
      echo "Starting CM on same machine"
-     CMErlCmd="erl -name CM@$1 -pa $Pa -setcookie imem -kernel inet_dist_listen_min 9000 inet_dist_listen_max 9020 -detached"
+     CMErlCmd="erl -name CM@$1 -pa $Pa -setcookie $ErlCookie -detached"
      eval $CMErlCmd
  fi
 
 echo "CM on $cmNode"
 
-Opts="-pa deps/*/ebin -setcookie imem -env ERL_MAX_ETS_TABLES 10000 -kernel inet_dist_listen_min 9000 inet_dist_listen_max 9020 -s imem start -imem start_monitor true -imem erl_cluster_mgr 'CM@$cmNode'"
+Opts="-pa deps/*/ebin -setcookie $ErlCookie -env ERL_MAX_ETS_TABLES 10000 -s imem start -imem start_monitor true -imem erl_cluster_mgr 'CM@$cmNode'"
 
-erl -name A@$1 -pa $Pa $Opts -imem mnesia_node_type disc
+erl -name CM@$1 -pa $Pa $Opts
 
 # Cmd="gnome-terminal \
 #     --tab -e \"$CMErlCmd\" \
