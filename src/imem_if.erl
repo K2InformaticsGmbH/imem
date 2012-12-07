@@ -236,11 +236,13 @@ create_cluster_table(Table,Columns,Opts) when is_atom(Table) ->
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    
 create_table(Table, Opts) when is_atom(Table) ->
+    {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
    	case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
             io:format(user, "table ~p locally exists~n", [Table]),
-            wait_table_tries([Table], 30),
-            ?ClientError({"Table already exists", Table});
+            mnesia:add_table_copy(Table, node(), ram_copies),
+            yes = mnesia:force_load_table(Table),
+            wait_table_tries([Table], Conf);
         {aborted, {already_exists, Table, Node}} ->
             io:format(user, "table ~p exists at ~p~n", [Table, Node]),
             case mnesia:force_load_table(Table) of
@@ -251,18 +253,18 @@ create_table(Table, Opts) when is_atom(Table) ->
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result -> 
             io:format(user, "create_table ~p for ~p~n", [Result, Table]),
-            wait_table_tries([Table], 30),
+            wait_table_tries([Table], Conf),
             return_atomic_ok(Result)
 	end.
 
-wait_table_tries(Tables, 0) ->
+wait_table_tries(Tables, {0, _}) ->
     ?ClientError({"Loading table(s) timeout~p", Tables});
-wait_table_tries(Tables, Count) when is_list(Tables) ->
-    case mnesia:wait_for_tables(Tables, 30000) of
+wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
+    case mnesia:wait_for_tables(Tables, Timeout) of
         ok -> ok;
         {timeout, BadTabList} ->
             io:format(user, "table ~p load time out attempt ~p~n", [BadTabList, Count]),
-            wait_table_tries(Tables, Count-1);
+            wait_table_tries(Tables, {Count-1,Timeout});
         {error, Reason} -> ?ClientError({"Error loading table~p", Reason})
     end.
 

@@ -11,6 +11,7 @@
   {env, [
          {erl_cluster_mgr, undefined},
          {mnesia_schema_name, 'Imem'},
+         {mnesia_wait_table_config, {30, 30000}},
          {mnesia_node_type, undefined},
          {mnesia_timeout, 30000},
          {mnesia_bulk_sleep_time, 501},
