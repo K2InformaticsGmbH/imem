@@ -16,9 +16,10 @@ if %argC% EQU 2 (
 
 echo "%cmNode%"
 
-set Opts= -pa deps\sqlparse\ebin -setcookie imem -env ERL_MAX_ETS_TABLES 10000 -s imem start -imem start_monitor true -imem erl_cluster_mgr 'CM@%cmNode%'
+set Opts= -pa deps\sqlparse\ebin -setcookie imem -env ERL_MAX_ETS_TABLES 10000
+set ImemOpts= -s imem start -imem start_monitor true -imem erl_cluster_mgr 'CM@%cmNode%' -imem mnesia_node_type disc
 
-start werl.exe -name CM@%1 -pa %Pa% %Opts% -imem mnesia_node_type disc
-::start werl.exe -name B@%1 -pa %Pa% %Opts% -imem mnesia_node_type disc
+::start werl.exe -name A@%1 -pa %Pa% %Opts% %ImemOpts%
+start werl.exe -name B@%1 -pa %Pa% %Opts% %ImemOpts%
 ::start werl.exe -name C@%1 -pa %Pa% %Opts% -imem mnesia_node_type disc
 ::start werl.exe -name D@%1 -pa %Pa% %Opts% -imem mnesia_node_type ram

@@ -20,7 +20,7 @@ echo "CM on $cmNode"
 
 Opts="-pa deps/*/ebin -setcookie $ErlCookie -env ERL_MAX_ETS_TABLES 10000 -s imem start -imem start_monitor true -imem erl_cluster_mgr 'CM@$cmNode'"
 
-erl -name CM@$1 -pa $Pa $Opts
+erl -name M@$1 -pa $Pa $Opts
 
 # Cmd="gnome-terminal \
 #     --tab -e \"$CMErlCmd\" \

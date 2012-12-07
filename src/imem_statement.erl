@@ -104,8 +104,7 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=P
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.
 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
-    Result = term_to_binary({error,"Fetch aborted, execute fetch_close before refetch"}),
-    send_reply_to_client(Sock, Result),
+    send_reply_to_client(Sock, {error,"Fetch aborted, execute fetch_close before refetch"}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec=MatchSpec, meta=MetaMap, limit=Limit} = Stmt,
@@ -160,7 +159,7 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
         _ ->    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
     end,
     % io:format(user, "sending rows ~p~n", [Result]),
-    send_reply_to_client(Sock, term_to_binary(Result)),
+    send_reply_to_client(Sock, Result),
     FetchCtx1=FetchCtx0#fetchCtx{remaining=Remaining0-Sent},
     {noreply, State#state{fetchCtx=FetchCtx1}};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
@@ -188,7 +187,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 send_reply_to_client(SockOrPid, Result) ->
     case SockOrPid of
         Pid when is_pid(Pid)    -> Pid ! Result;
-        Sock                    -> gen_tcp:send(Sock, Result)
+        Sock                    -> imem_server:send_resp(Result, Sock)
     end.
 
 update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->

@@ -16,6 +16,7 @@
 		, handle_info/2
 		, terminate/2
 		, code_change/3
+        , send_resp/2
 		]).
 
 start_link(Params) ->
@@ -66,15 +67,26 @@ handle_cast(_Msg, State) ->
     io:format(user, "handle_cast ~p~n", [_Msg]),
 	{noreply, State}.
 
-handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=Mod, is_secure=IsSec}=State) ->
+handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=_Mod, is_secure=_IsSec}=State) ->
     ok = inet:setopts(Sock, [{active, once}]),
     NewBuf = <<Buf/binary, Data/binary>>,
-    case (catch binary_to_term(NewBuf)) of
+    Res = (catch binary_to_term(NewBuf)),
+    case Res  of
         {'EXIT', _} ->
             io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
             {noreply, State#state{buf=NewBuf}};
-        D ->
-            process_cmd(D, Sock, Mod, IsSec),
+        [Mod,Fun|Args] ->
+            % replace penultimate pid wih socket (if present)
+            case Fun of
+                fetch_recs_async ->
+                    NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
+                    %io:format(user, "call ~p:~p(~p)~n", [Mod,Fun,NewArgs]),
+                    catch apply(Mod,Fun,NewArgs);
+                _ ->
+                    %io:format(user, "call ~p:~p(~p)~n", [Mod,Fun,Args]),
+                    send_resp(catch apply(Mod,Fun,Args), Sock)
+            end,
+            %send_resp(catch apply(Mod,Fun,NewArgs), Sock),
             {noreply, State#state{buf= <<>>}}
     end;
 handle_info({tcp_closed, Sock}, State) ->
@@ -91,31 +103,6 @@ terminate(_Reason, #state{csock=Sock}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-process_cmd(Cmd, Sock, Module, IsSec) when is_tuple(Cmd), is_atom(Module) ->
-    Fun = element(1, Cmd),
-    Args = lists:nthtail(1, tuple_to_list(Cmd)),
-    Resp = try
-        exec_fun_in_module(Module, Fun, Args, Sock, IsSec)
-    catch
-        _Class:Result -> {error, Result}
-    end,
-    if Fun =/= read_block -> send_resp(Resp, Sock); true -> ok end.
-
-exec_fun_in_module(Module, Fun, Args, _Sock, _IsSec) ->
-    ArgsLen = length(Args),
-    case code:ensure_loaded(Module) of
-        {_,Module} ->
-            case lists:keyfind(Fun, 1, Module:module_info(exports)) of
-                {_, Arity} when ArgsLen >= Arity ->
-                    if ArgsLen > Arity -> apply(Module, Fun, lists:nthtail(1, Args));
-                        true ->           apply(Module, Fun, Args)
-                    end;
-                false -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" doesn't exists or exported"};
-                {_, Arity} -> {error, atom_to_list(Module)++":"++atom_to_list(Fun)++" wrong number of arguments", ArgsLen, Arity}
-            end;
-        _ -> {error, "Module "++ atom_to_list(Module) ++" doesn't exists"}
-    end.
 
 send_resp(Resp, Sock) ->
     RespBin = term_to_binary(Resp),
