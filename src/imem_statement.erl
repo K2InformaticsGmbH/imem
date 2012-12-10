@@ -140,10 +140,13 @@ handle_cast(Request, State) ->
     io:format(user, "~p - received unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     {noreply, State}.
 
-handle_info({row, ?eot}, #state{reply=Sock}=State) ->
+handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=#fetchCtx{status=running}}=State) ->
     % io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
     send_reply_to_client(Sock, {[], true}),
     {noreply, State#state{fetchCtx=#fetchCtx{}, reply=undefined}};
+handle_info({row, ?eot}, State) ->
+    % io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
+    {noreply, State};
 handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{pid=Pid, monref=MonitorRef, metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     % io:format(user, "received rows ~p~n", [Rows]),
