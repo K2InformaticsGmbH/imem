@@ -242,7 +242,8 @@ create_table(Table, Opts) when is_atom(Table) ->
             io:format(user, "table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
-            wait_table_tries([Table], Conf);
+            wait_table_tries([Table], Conf),
+            ?ClientError({"Table already exists", Table});
         {aborted, {already_exists, Table, Node}} ->
             io:format(user, "table ~p exists at ~p~n", [Table, Node]),
             case mnesia:force_load_table(Table) of
