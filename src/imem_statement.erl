@@ -140,11 +140,12 @@ handle_cast(Request, State) ->
     io:format(user, "~p - received unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     {noreply, State}.
 
-handle_info({row, ?eot}, State) ->
+handle_info({row, ?eot}, #state{reply=Sock}=State) ->
     % io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
+    send_reply_to_client(Sock, {[], true}),
     {noreply, State#state{fetchCtx=#fetchCtx{}, reply=undefined}};
 handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
+    #fetchCtx{pid=Pid, monref=MonitorRef, metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     % io:format(user, "received rows ~p~n", [Rows]),
     RowsRead=length(Rows),
     {Result, Sent} = case length(Stmt#statement.tables) of
@@ -169,7 +170,12 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
     end,
     % io:format(user, "sending rows ~p~n", [Result]),
     send_reply_to_client(Sock, Result),
-    FetchCtx1=FetchCtx0#fetchCtx{remaining=Remaining0-Sent},
+    FetchCtx1 = case Result of
+        {_,true} -> catch erlang:demonitor(MonitorRef, [flush]),
+                    catch Pid ! abort, 
+                    #fetchCtx{};
+        _ ->        FetchCtx0#fetchCtx{remaining=Remaining0-Sent}
+    end,
     {noreply, State#state{fetchCtx=FetchCtx1}};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
     % io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
