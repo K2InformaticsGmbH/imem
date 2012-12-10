@@ -5,17 +5,17 @@
 -export([ exec/5
         ]).
     
-exec(_SKey, {drop_table, {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
-exec(SKey, {drop_table, {tables, [Table|Tables]}, Exists, RestrictCascade}, Stmt, Schema, IsSec) ->
+exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
+exec(SKey, {'drop table', {tables, [Table|Tables]}, Exists, RestrictCascade}, Stmt, Schema, IsSec) ->
     Tab = ?binary_to_existing_atom(Table),
     io:format(user,"drop_table ~p~n", [Tab]),
-    if_call_mfa(IsSec, drop_table, [SKey,Tab]),
-    exec(SKey, {drop_table, {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
-exec(SKey, {create_table, TableName, Columns, TOpts}, _Stmt, _Schema, IsSec) ->
+    if_call_mfa(IsSec, 'drop_table', [SKey,Tab]),
+    exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
+exec(SKey, {'create table', TableName, Columns, TOpts}, _Stmt, _Schema, IsSec) ->
     create_table(SKey, ?binary_to_atom(TableName), TOpts, Columns, IsSec, []).
 
 create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
-    if_call_mfa(IsSec, create_table, [SKey, Table, lists:reverse(ColMap), TOpts]);
+    if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) ->
     {T,L,P} = case Type of
         A when is_atom(A) ->        {A,0,0};

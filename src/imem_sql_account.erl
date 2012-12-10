@@ -5,7 +5,7 @@
 -export([ exec/5
         ]).
 
-exec(SKey, {create_user, Name, {identified_by, Password}, Opts}, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _Schema, IsSec) ->
     if_call_mfa(IsSec, admin_exec, [SKey, imem_account, create, [SKey, user, Name, Name, Password]]),
     case lists:member({account,lock}, Opts) of 
         true -> if_call_mfa(IsSec, admin_exec, [SKey, imem_account, lock, [SKey, Name]]);
@@ -16,7 +16,7 @@ exec(SKey, {create_user, Name, {identified_by, Password}, Opts}, _Stmt, _Schema,
         false -> if_call_mfa(IsSec, admin_exec, [SKey, imem_account, renew, [SKey, Name]])
     end;
 
-exec(SKey, {alter_user, Name, {spec, Specs}}, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _Schema, IsSec) ->
     case lists:member({account,unlock}, Specs) of 
         true -> if_call_mfa(IsSec, admin_exec, [SKey, imem_account, unlock, [SKey, Name]]);
         false -> ok
@@ -35,7 +35,7 @@ exec(SKey, {alter_user, Name, {spec, Specs}}, _Stmt, _Schema, IsSec) ->
         false -> ok
     end;
 
-exec(SKey, {drop_user, Name, Specs}, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'drop user', Name, Specs}, _Stmt, _Schema, IsSec) ->
     if_call_mfa(IsSec, admin_exec, [SKey, imem_account, delete, [SKey, Name, Specs]]).
 
 

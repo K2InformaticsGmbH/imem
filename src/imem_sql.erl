@@ -54,15 +54,15 @@ exec(SKey, select, ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_select:exec(SKey, ParseTree, Stmt, Schema, IsSec);
 exec(SKey, insert, ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_insert:exec(SKey, ParseTree, Stmt, Schema, IsSec);
-exec(SKey, create_user, ParseTree, Stmt, Schema, IsSec) ->
+exec(SKey, 'create user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
-exec(SKey, alter_user, ParseTree, Stmt, Schema, IsSec) ->
+exec(SKey, 'alter user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
-exec(SKey, drop_user, ParseTree, Stmt, Schema, IsSec) ->
+exec(SKey, 'drop user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
-exec(SKey, create_table, ParseTree, Stmt, Schema, IsSec) ->
+exec(SKey, 'create table', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_table:exec(SKey, ParseTree, Stmt, Schema, IsSec);
-exec(SKey, drop_table, ParseTree, Stmt, Schema, IsSec) ->
+exec(SKey, 'drop table', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_table:exec(SKey, ParseTree, Stmt, Schema, IsSec);
 exec(SKey, Command, _ParseTree, _Stmt, _Schema, _IsSec) ->
     ?UnimplementedException({"SQL command unimplemented", {SKey, Command}}).
