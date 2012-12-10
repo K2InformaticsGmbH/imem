@@ -60,12 +60,21 @@ fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {fetch_close, IsSec, SKey}).
 
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
-    gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList}).
+    case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList}) of
+        ok ->   ok;
+        Error-> throw(Error)
+    end.
 
 update_cursor_execute(SKey, Pid, IsSec, none) when is_pid(Pid) ->
-    gen_server:call(Pid, {update_cursor_excute, IsSec, SKey, none});
+    case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, none}) of
+        ok ->       ok;
+        Error ->    throw(Error)
+    end; 
 update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
-    gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}).
+    case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}) of
+        ok ->       ok;
+        Error ->    throw(Error)
+    end.
 
 close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
@@ -344,7 +353,7 @@ test_with_or_without_sec(IsSec) ->
         {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, col2 from def;", 4, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
         Result2a = receive 
-            R2a ->    binary_to_term(R2a)
+            R2a ->    R2a
         end,
         {List2a, false} = Result2a,
         ?assertEqual(4, length(List2a)),           
@@ -356,7 +365,7 @@ test_with_or_without_sec(IsSec) ->
         [3,del,{{def,"5",5},{}},"5",5],         %% delete {def,"5","'5'"}
         [4,upd,{{def,"12",12},{}},"112",12]     %% update {def,"12","'12'"} to {def,"112","'12'"}
         ],
-        ?assertEqual({ClEr,{"Cannot update readonly field",{4,{"12","112"}}}}, update_cursor_prepare(SKey, StmtRef2, IsSec, ChangeList2)),
+        ?assertException(throw,{ClEr,{"Cannot update readonly field",{4,{"12","112"}}}}, update_cursor_prepare(SKey, StmtRef2, IsSec, ChangeList2)),
         TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         io:format(user, "unchanged table~n~p~n", [TableRows2]),
         ?assertEqual(TableRows1, TableRows2),

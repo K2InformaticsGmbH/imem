@@ -153,7 +153,7 @@ test_with_or_without_sec(IsSec) ->
         {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, "select qname from Imem.ddTable;", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
-            R3 ->    binary_to_term(R3)
+            R3 ->    R3
         end,
         {List3, true} = Result3,
         io:format(user, "select qname from Imem.ddTable (~p)~n~p~n...~n~p~n", [length(List3),hd(lists:map(RowFun3,List3)),lists:last(lists:map(RowFun3,List3))]),
@@ -161,7 +161,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         Result3a = receive 
-            R3a ->    binary_to_term(R3a)
+            R3a ->    R3a
         end,
         {List3a, true} = Result3a,
         io:format(user, "select qname from Imem.ddTable (reread ~p)~n~p~n...~n~p~n", [length(List3a),hd(lists:map(RowFun3,List3a)),lists:last(lists:map(RowFun3,List3a))]),
@@ -170,7 +170,7 @@ test_with_or_without_sec(IsSec) ->
         {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, "select qname from all_tables", 100, "Imem", IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
         Result4 = receive 
-            R4 ->    binary_to_term(R4)
+            R4 ->    R4
         end,
         {List4, true} = Result4,
         io:format(user, "select qname from all_tables (~p)~n~p~n...~n~p~n", [length(List4),hd(List4),lists:last(List4)]),
@@ -179,7 +179,7 @@ test_with_or_without_sec(IsSec) ->
         {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, "select col1, col2, col3, user from def", 100, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
         Result5 = receive 
-            R5 ->    binary_to_term(R5)
+            R5 ->    R5
         end,
         {List5, true} = Result5,
         io:format(user, "select col1, col2, col3, user from def (~p)~n~p~n", [length(List5),lists:map(RowFun5,List5)]),
