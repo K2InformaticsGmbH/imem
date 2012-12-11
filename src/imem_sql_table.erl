@@ -8,7 +8,7 @@
 exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
 exec(SKey, {'drop table', {tables, [Table|Tables]}, Exists, RestrictCascade}, Stmt, Schema, IsSec) ->
     Tab = ?binary_to_existing_atom(Table),
-    io:format(user,"drop_table ~p~n", [Tab]),
+    % io:format(user,"drop_table ~p~n", [Tab]),
     if_call_mfa(IsSec, 'drop_table', [SKey,Tab]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
 exec(SKey, {'create table', TableName, Columns, TOpts}, _Stmt, _Schema, IsSec) ->
@@ -35,11 +35,11 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
             case re:run(Str, "fun[ \(\)\-\>]*(.*)end[ ]*.", [global, {capture, [1], list}]) of
                 {match,[Body]} ->
                     try 
-                        io:format(user,"body ~p~n", [Body]),
+                        % io:format(user,"body ~p~n", [Body]),
                         imem_datatype:string_to_eterm(Body)
                     catch
                         _:_ ->  try
-                                    io:format(user,"str ~p~n", [Str]),
+                                    % io:format(user,"str ~p~n", [Str]),
                                     Fun = imem_datatype:string_to_fun(Str,0),
                                     Fun()
                                 catch

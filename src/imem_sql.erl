@@ -11,6 +11,7 @@
         , table_qname/2
         , column_map_items/2
         , column_map/2
+        , strip_quotes/1
         ]).
 
 parse(Statement) when is_list(Statement) ->
@@ -52,14 +53,25 @@ exec(SKey, Statement, BlockSize, Schema, IsSec) when is_list(Statement) ->
 
 exec(SKey, select, ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_select:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+exec(SKey, union, ParseTree, Stmt, Schema, IsSec) ->
+    imem_sql_select:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+exec(SKey, 'union all', ParseTree, Stmt, Schema, IsSec) ->
+    imem_sql_select:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+exec(SKey, minus, ParseTree, Stmt, Schema, IsSec) ->
+    imem_sql_select:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+exec(SKey, intersect, ParseTree, Stmt, Schema, IsSec) ->
+    imem_sql_select:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+
 exec(SKey, insert, ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_insert:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+
 exec(SKey, 'create user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
 exec(SKey, 'alter user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
 exec(SKey, 'drop user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+    
 exec(SKey, 'create table', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_table:exec(SKey, ParseTree, Stmt, Schema, IsSec);
 exec(SKey, 'drop table', ParseTree, Stmt, Schema, IsSec) ->
@@ -232,6 +244,17 @@ index_of(Item, List) -> index_of(Item, List, 1).
 index_of(_, [], _)  -> false;
 index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
+
+strip_quotes([]) -> [];
+strip_quotes([H]) -> [H];
+strip_quotes([H|T]=Str) ->
+    L = lists:last(T),
+    if 
+        H == $" andalso L == $" ->  lists:sublist(T, length(T)-1);
+        H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
+        true ->                     Str
+    end.
+
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

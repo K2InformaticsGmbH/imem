@@ -253,7 +253,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             ?ClientError({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result -> 
-            io:format(user, "create_table ~p for ~p~n", [Result, Table]),
+            % io:format(user, "create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
             return_atomic_ok(Result)
 	end.

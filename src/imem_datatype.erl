@@ -10,6 +10,7 @@
         ]).
 
 -export([ pretty_type/1
+        , raw_type/1
         , string_to_date/1
         , string_to_decimal/3
         , string_to_double/2
@@ -92,6 +93,24 @@ select_rowfun_gui(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci}|ColMap], 
 
 
 %% ----- DATA TYPES  with CamelCase  --------------------------------
+
+raw_type(integer) -> integer;
+raw_type(int) -> integer;
+raw_type(float) -> float;
+raw_type(decimal) -> integer;
+raw_type(number) -> integer;
+raw_type(varchar) -> eString;
+raw_type(varchar2) -> eString;
+raw_type(blob) -> eBinary;
+raw_type(date) -> eDatetime;
+raw_type(time) -> eTuple;
+raw_type(year) -> integer;
+raw_type(timestamp) -> eTimestamp;
+raw_type(text) -> eString;
+raw_type(char) -> eString;
+raw_type(character) -> eString;
+raw_type(double) -> float;
+raw_type(Type) -> pretty_type(Type).
 
 pretty_type(etuple) -> eTuple;
 pretty_type(efun) -> eFun;
@@ -487,13 +506,14 @@ string_to_etuple(Val,Len) ->
 
 string_to_eterm(Val) -> 
     try
-        F = erl_value(Val),
-        if 
-            is_function(F,0) ->
-                ?ClientError({"Data conversion format error",{eTerm,Val}}); 
-            true ->                 
-                F
-        end
+        F = erl_value(Val)
+        % ,
+        % if 
+        %     is_function(F,0) ->
+        %         ?ClientError({"Data conversion format error",{eTerm,Val}}); 
+        %     true ->                 
+        %         F
+        % end
     catch
         _:_ -> ?ClientError({})
     end.
@@ -520,7 +540,7 @@ string_to_fun(Val,Len) ->
 
 %% ----- CAST Data from DB to string ------------------
 
-db_to_gui(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
+db_to_gui(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
     try
         if 
             (Type == blob) andalso is_binary(Val) ->        ebinary_to_string(Val);
