@@ -60,6 +60,8 @@
 -export([ update_prepare/4          %% stateless creation of update plan from change list
         , update_cursor_prepare/3   %% stateful creation of update plan (stored in state)
         , update_cursor_execute/3   %% stateful execution of update plan (fetch aborted first)
+        , fetch_recs/4
+        , fetch_recs_sort/4
         , fetch_recs_async/3        %% ToDo: implement proper return of RowFun(), match conditions and joins
         , fetch_close/2
         , exec/4
@@ -365,6 +367,12 @@ read(SKey, Table, Key) ->
 
 exec(SKey, Statement, BlockSize, Schema) ->
     imem_sql:exec(SKey, Statement, BlockSize, Schema, true).   
+
+fetch_recs(SKey, Pid, Sock, Timeout) ->
+    imem_statement:fetch_recs(SKey, Pid, Sock, Timeout, true).
+
+fetch_recs_sort(SKey, Pid, Sock, Timeout) ->
+    imem_statement:fetch_recs_sort(SKey, Pid, Sock, Timeout, true).
 
 fetch_recs_async(SKey, Pid, Sock) ->
     imem_statement:fetch_recs_async(SKey, Pid, Sock, true).

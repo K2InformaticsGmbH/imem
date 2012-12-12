@@ -15,7 +15,9 @@
 -export([ update_prepare/5          %% stateless creation of update plan from change list
         , update_cursor_prepare/4   %% stateful creation of update plan (stored in state)
         , update_cursor_execute/4   %% stateful execution of update plan (fetch aborted first)
-        , fetch_recs_async/4        %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_recs/5              %% simulation of synchronous fetch
+        , fetch_recs_sort/5         %% simulation of synchronous fetch followed by a lists:sort
+        , fetch_recs_async/4        %% async streaming fetch
         , fetch_close/3
         , close/2
         ]).
@@ -52,6 +54,25 @@ create_stmt(Statement, SKey, IsSec) ->
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
             {ok, Pid}
     end.
+
+fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock}),
+    Result = try
+        case receive 
+            R ->    R
+        after Timeout -> ?ClientError({"Fetch timeout, increase timeout and retry",Timeout})
+        end of
+            {Pid,{List, true}} ->   List;
+            {Pid,{List, false}} ->  ?ClientError({"Too much data, increase block size or receive in streaming mode",List});
+            Error ->                ?SystemException({"Bad async receive",Error})            
+        end
+    after
+        gen_server:call(Pid, {fetch_close, IsSec, SKey})
+    end,
+    Result.
+
+fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
+    lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
 
 fetch_recs_async(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock}).
@@ -203,9 +224,10 @@ terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 send_reply_to_client(SockOrPid, Result) ->
+    NewResult = {self(),Result},
     case SockOrPid of
-        Pid when is_pid(Pid)    -> Pid ! Result;
-        Sock                    -> imem_server:send_resp(Result, Sock)
+        Pid when is_pid(Pid)    -> Pid ! NewResult;
+        Sock                    -> imem_server:send_resp(NewResult, Sock)
     end.
 
 update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
@@ -299,7 +321,6 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
 % update_bag(IsSec, SKey, Table, ColMap, [C|CList]) ->
 %     ?UnimplementedException({"Cursor update not supported for bag tables",Table}).
 
-
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
 if_call_mfa(IsSec,Fun,Args) ->
@@ -364,7 +385,7 @@ test_with_or_without_sec(IsSec) ->
         Result2a = receive 
             R2a ->    R2a
         end,
-        {List2a, false} = Result2a,
+        {StmtRef2, {List2a, false}} = Result2a,
         ?assertEqual(4, length(List2a)),           
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
         %% io:format(user, "change list~n~p~n", [ChangeList2]),

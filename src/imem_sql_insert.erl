@@ -9,22 +9,13 @@ exec(SKey, {insert, TableName, {_, Columns}, {_, Values}} , _Stmt, _Schema, IsSe
     Table = imem_sql:table_qname(TableName),
     % io:format(user,"insert ~p values ~p into ~p~n", [Columns, Values, Table]),
     ColMap = imem_sql:column_map([Table], Columns),
-    Vs = [strip_quotes(binary_to_list(V)) || V <- Values],
+    Vs = [imem_sql:strip_quotes(binary_to_list(V)) || V <- Values],
     %% create a change list  similar to:  [1,ins,{},"99", 11, 12, undefined],                                      
     ChangeList = [[1,ins,{}|Vs]],
     % io:format(user, "~p - generated change list~n~p~n", [?MODULE, ChangeList]),
     UpdatePlan = if_call_mfa(IsSec,update_prepare,[SKey, [Table], ColMap, ChangeList]),
     if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, optimistic]).
 
-strip_quotes([]) -> [];
-strip_quotes([H]) -> [H];
-strip_quotes([H|T]=Str) ->
-    L = lists:last(T),
-    if 
-        H == $" andalso L == $" ->  lists:sublist(T, length(T)-1);
-        H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
-        true ->                     Str
-    end.
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

@@ -37,7 +37,8 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     MatchHead = list_to_tuple(['_'|[Tx || #ddColMap{tag=Tx, tind=Ti} <- FullMap, Ti==1]]),
     io:format(user, "MatchHead (~p)~n~p~n", [size(MatchHead),MatchHead]),
     Guards = case lists:keyfind(where, 1, SelectSections) of
-        {_, WhereTree} ->   master_query_guards(WhereTree,FullMap);
+        {_, WhereTree} ->   io:format(user, "WhereTree ~p~n", [WhereTree]),
+                            master_query_guards(WhereTree,FullMap);
         WError ->           ?ClientError({"Invalid where structure", WError})
     end,
     io:format(user, "Guards ~p~n", [Guards]),
@@ -76,8 +77,9 @@ tree_walk(Ti,{'<=',A,B},FullMap) ->
     comparison(Ti,'=<',A,B,FullMap);
 tree_walk(Ti,{'>=',A,B},FullMap) ->
     comparison(Ti,'>=',A,B,FullMap);
-
-tree_walk(Ti,{Op,WC1,WC2},FullMap) ->
+tree_walk(Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
+    in_comparison(Ti,A,InList,FullMap);
+ tree_walk(Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(Ti,WC1,FullMap), tree_walk(Ti,WC2,FullMap)}.
 
 comparison(Ti,OP,{'fun',erl,[Param]},B,FullMap) -> 
@@ -97,6 +99,17 @@ compguard(1, OP, {1,A,T,_,_,_,_},   {1,B,T,_,_,_,_}) ->     {OP,A,B};
 compguard(1, _,  {1,_,AT,_,_,_,AN}, {1,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(1, OP, {1,A,T,L,P,D,_},   {0,B,_,_,_,_,_}) ->     {OP,A,field_value(A,T,L,P,D,B)};
 compguard(1, OP, {0,A,_,_,_,_,_},   {1,B,T,L,P,D,_}) ->     {OP,field_value(B,T,L,P,D,A),B}.
+
+in_comparison(Ti,A,InList,FullMap) ->
+    in_comparison_loop(Ti,field_lookup(A,FullMap),InList,FullMap).
+
+in_comparison_loop(_Ti,_ALookup,[],_FullMap) -> false;    
+in_comparison_loop(Ti,ALookup,[B],FullMap) ->
+    compguard(Ti, '==', ALookup, field_lookup(B,FullMap));
+in_comparison_loop(Ti,ALookup,[B|Rest],FullMap) ->
+    {'or',
+        compguard(Ti, '==', ALookup, field_lookup(B,FullMap)),
+            in_comparison_loop(Ti,ALookup,Rest,FullMap)}.
 
 field_value(Tag,Type,Len,Prec,Def,Val) ->
     imem_datatype:value_to_db(Tag,imem_nil,Type,Len,Prec,Def,false,imem_sql:strip_quotes(Val)).
@@ -123,6 +136,7 @@ if_call_mfa(IsSec,Fun,Args) ->
         true -> apply(imem_sec,Fun,Args);
         _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
     end.
+
 
 %% TESTS ------------------------------------------------------------------
 
@@ -156,6 +170,8 @@ test_with_or_without_sec(IsSec) ->
     try
         % ClEr = 'ClientError',
         % SeEx = 'SecurityException',
+        Timeout = 2000,
+
         io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
         io:format(user, "schema ~p~n", [imem_meta:schema()]),
@@ -191,16 +207,44 @@ test_with_or_without_sec(IsSec) ->
         {List2, true} = Result2,
         io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List2),hd(List2),lists:last(List2)]),
 
-        Sql6 = "select col1, col2 from def where col1>=5 and col1<=8",
+        Sql6 = "select col1, col2 from def where col1>=5 and col1<=6",
         io:format(user, "Query: ~p~n", [Sql6]),
         {ok, _Clm6, RowFun6, StmtRef6} = imem_sql:exec(SKey, Sql6, 100, 'Imem', IsSec),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef6, self(), IsSec)),
-        Result6 = receive 
-            R6 ->    R6
-        end,
-        {List6, true} = Result6,
+        List6 = imem_statement:fetch_recs_sort(SKey, StmtRef6, self(), Timeout, IsSec),
         io:format(user, "Result: (~p)~n~p~n", [length(List6),lists:map(RowFun6,List6)]),
-        ?assertEqual(4, length(List6)),
+        ?assertEqual(2, length(List6)),
+
+        Sql7 = "select col1, col2 from def where col1 in (5,6)",
+        io:format(user, "Query: ~p~n", [Sql7]),
+        {ok, _Clm7, _RowFun7, StmtRef7} = imem_sql:exec(SKey, Sql7, 100, 'Imem', IsSec),
+        List7 = if_call_mfa(IsSec,fetch_recs_sort,[SKey, StmtRef7, self(), Timeout]),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List7),lists:map(_RowFun7,List7)]),
+        ?assertEqual(List6, List7),
+
+        Sql8 = "select col1, col2 from def where col2 in (5,6)",
+        io:format(user, "Query: ~p~n", [Sql8]),
+        {ok, _Clm8, _RowFun8, StmtRef8} = imem_sql:exec(SKey, Sql8, 100, 'Imem', IsSec),
+        List8 = imem_statement:fetch_recs_sort(SKey, StmtRef8, self(), Timeout, IsSec),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List8),lists:map(_RowFun8,List8)]),
+        ?assertEqual(List6, List8),
+
+        Sql9 = "select col1, col2 from def where col2 in (\"5\",\"6\")",
+        io:format(user, "Query: ~p~n", [Sql9]),
+        {ok, _Clm9, _RowFun9, StmtRef9} = imem_sql:exec(SKey, Sql9, 100, 'Imem', IsSec),
+        List9 = imem_statement:fetch_recs_sort(SKey, StmtRef9, self(), Timeout, IsSec),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List9),lists:map(_RowFun9,List9)]),
+        ?assertEqual(List6, List9),
+
+        List9a = imem_statement:fetch_recs_sort(SKey, StmtRef9, self(), Timeout, IsSec),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List9),lists:map(RowFun8,List9)]),
+        ?assertEqual(List6, List9a),
+
+        Sql10 = "select col1, col2 from def where col2 in (5,col2)",
+        io:format(user, "Query: ~p~n", [Sql10]),
+        {ok, _Clm10, _RowFun10, StmtRef10} = imem_sql:exec(SKey, Sql10, 100, 'Imem', IsSec),
+        List10 = imem_statement:fetch_recs_sort(SKey, StmtRef10, self(), Timeout, IsSec),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List10),lists:map(_RowFun10,List10)]),
+        ?assertEqual(10, length(List10)),
 
         Sql3 = "select qname from Imem.ddTable",
         io:format(user, "Query: ~p~n", [Sql3]),
@@ -209,7 +253,7 @@ test_with_or_without_sec(IsSec) ->
         Result3 = receive 
             R3 ->    R3
         end,
-        {List3, true} = Result3,
+        {StmtRef3, {List3, true}} = Result3,
         io:format(user, "Result: (~p)~n~p~n", [length(List3),lists:map(RowFun3,List3)]),
         ?assertEqual(AllTableCount, length(List3)),
 
@@ -217,9 +261,13 @@ test_with_or_without_sec(IsSec) ->
         Result3a = receive 
             R3a ->    R3a
         end,
-        {List3a, true} = Result3a,
+        {StmtRef3, {List3a, true}} = Result3a,
         io:format(user, "Result: (~p) reread~n~p~n", [length(List3a),lists:map(RowFun3,List3a)]),
         ?assertEqual(AllTableCount, length(List3a)),
+
+        List3b = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List9),lists:map(RowFun8,List9)]),
+        ?assertEqual(AllTableCount, length(List3b)),
 
 %        Sql4 = "select all_tables.* from all_tables where qname = erl(\"{'Imem',ddRole}")",
         Sql4 = "select all_tables.* from all_tables where owner = undefined",
@@ -229,7 +277,7 @@ test_with_or_without_sec(IsSec) ->
         Result4 = receive 
             R4 ->    R4
         end,
-        {List4, true} = Result4,
+        {StmtRef4, {List4, true}} = Result4,
         io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(RowFun4,List4)]),
         case IsSec of
             false -> ?assertEqual(1, length(List4));
@@ -243,7 +291,7 @@ test_with_or_without_sec(IsSec) ->
         Result5 = receive 
             R5 ->    R5
         end,
-        {List5, true} = Result5,
+        {StmtRef5, {List5, true}} = Result5,
         io:format(user, "Result: (~p)~n~p~n", [length(List5),lists:map(RowFun5,List5)]),
         ?assertEqual(1, length(List5)),            
 
