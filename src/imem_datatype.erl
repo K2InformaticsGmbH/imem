@@ -52,8 +52,22 @@
         , eatom_to_string/1
         ]).
 
-
 -export([ map/3
+        , name/1
+        , name/2
+        , name1/1
+        , name2/1
+        , name3/1
+        , name4/1
+        , concat/1
+        , concat/2
+        , concat/3
+        , concat/4
+        , concat/5
+        , concat/6
+        , concat/7
+        , concat/8
+        , concat/9
         ]).
 
 
@@ -64,10 +78,22 @@
 
 
 select_rowfun_raw(ColMap) ->
-    ColPointers = [{C#ddColMap.tind, C#ddColMap.cind} || C <- ColMap],
-    fun(X) -> 
-        [X|[element(Cind,element(Tind,X))|| {Tind,Cind} <- ColPointers]] 
+    fun(Recs) -> 
+        select_rowfun_raw(Recs, ColMap, []) 
     end.
+
+select_rowfun_raw(Recs, [], Acc) ->
+    [Recs|lists:reverse(Acc)];
+select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
+    select_rowfun_raw(Recs, ColMap, [element(Ci,element(Ti,Recs))|Acc]);
+select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
+    Str = try
+        apply(F,[element(Ci,element(Ti,Recs))])
+    catch
+        _:Reason ->  ?UnimplementedException({"Failed row function",{F,Reason}})
+    end,    
+    select_rowfun_raw(Recs, ColMap, [Str|Acc]).
+
 
 select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
     fun(Recs) -> 
@@ -76,8 +102,15 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
 
 select_rowfun_str(Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     [Recs|lists:reverse(Acc)];
-select_rowfun_str(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+select_rowfun_str(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_string(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
+    select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
+select_rowfun_str(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+    Str = try
+        apply(F,[element(Ci,element(Ti,Recs))])
+    catch
+        _:Reason ->  ?UnimplementedException({"Failed row function",{F,Reason}})
+    end,    
     select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
 
 select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
@@ -87,8 +120,23 @@ select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
 
 select_rowfun_gui(Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     [Recs|lists:reverse(Acc)];
-select_rowfun_gui(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+select_rowfun_gui(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_gui(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
+    select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
+select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+    X = element(Ci,element(Ti,Recs)),
+    Str = try
+        case F of
+            name ->     name(X);
+            name1 ->    name1(X);
+            name2 ->    name2(X);
+            name3 ->    name3(X);
+            name4 ->    name4(X);
+            Name ->     ?UnimplementedException({"Unimplemented row function",F})
+        end
+    catch
+        _:Reason ->  ?SystemException({"Failed row function",{F,X,Reason}})
+    end,    
     select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
 
 
@@ -506,7 +554,7 @@ string_to_etuple(Val,Len) ->
 
 string_to_eterm(Val) -> 
     try
-        F = erl_value(Val)
+        erl_value(Val)
         % ,
         % if 
         %     is_function(F,0) ->
@@ -722,6 +770,42 @@ map(Val,From,To) ->
         true ->         Val
     end.
 
+name(T) when is_tuple(T) ->
+    string:join([name(E) || E <- tuple_to_list(T)],".");
+name(N) when is_atom(N) -> atom_to_list(N);
+name(N) when is_binary(N) -> binary_to_list(N);
+name(N) when is_list(N) -> lists:flatten(N);
+name(N) -> lists:flatten(io_lib:format("~p",[N])).
+
+name(T,I) when is_tuple(T) ->
+    if 
+        size(T) >= I ->
+            name(element(I,T));
+        true ->
+            ?ClientError({"Tuple too short",{T,I}})
+    end;
+name(T,_) ->
+    ?ClientError({"Tuple expected",T}).
+
+name1(T) -> name(T,1).
+name2(T) -> name(T,2).
+name3(T) -> name(T,3).
+name4(T) -> name(T,4).
+
+concat(S1)-> concat_list([S1]).
+concat(S1,S2)-> concat_list([S1,S2]).
+concat(S1,S2,S3)-> concat_list([S1,S2,S3]).
+concat(S1,S2,S3,S4)-> concat_list([S1,S2,S3,S4]).
+concat(S1,S2,S3,S4,S5)-> concat_list([S1,S2,S3,S4,S5]).
+concat(S1,S2,S3,S4,S5,S6)-> concat_list([S1,S2,S3,S4,S5,S6]).
+concat(S1,S2,S3,S4,S5,S6,S7)-> concat_list([S1,S2,S3,S4,S5,S6,S7]).
+concat(S1,S2,S3,S4,S5,S6,S7,S8)-> concat_list([S1,S2,S3,S4,S5,S6,S7,S8]).
+concat(S1,S2,S3,S4,S5,S6,S7,S8,S9)-> concat_list([S1,S2,S3,S4,S5,S6,S7,S8,S9]).
+
+concat_list(L) when is_list(L) ->
+    string:join([name(I) || I <- L],[]).
+
+
 %% ----- TESTS ------------------------------------------------
 
 -include_lib("eunit/include/eunit.hrl").
@@ -748,6 +832,15 @@ data_types(_) ->
         %% SyEx = 'SystemException',    %% difficult to test
 
         io:format(user, "----TEST--~p:test_data_types~n", [?MODULE]),
+
+        ?assertEqual("Imem.ddTable", name({'Imem',ddTable})),
+        ?assertEqual("Imem", name1({'Imem',ddTable})),
+        ?assertEqual("Imem", name({'Imem',ddTable},1)),
+        ?assertEqual("ddTable", name2({'Imem',ddTable})),
+        ?assertEqual("ddTable", name({'Imem',ddTable},2)),
+        ?assertEqual("ABC", concat("A","B","C")),
+        ?assertEqual("abc", concat(a,b,c)),
+        ?assertEqual("123", concat(1,2,3)),
 
         ?assertEqual("123", decimal_to_string(123,0)),
         ?assertEqual("-123", decimal_to_string(-123,0)),

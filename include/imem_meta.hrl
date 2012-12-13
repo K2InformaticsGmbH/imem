@@ -29,14 +29,15 @@
                   , length                  ::integer()
                   , precision               ::integer()
                   , default                 ::any()
-                  , readonly                ::true|false      
+                  , readonly                ::true|false
+                  , func = undefined        ::any()     
                   }                  
        ).
 
 -record(statement,                                  %% Select statement 
                     { tables = []                   ::list()            %% first one is master table
                     , block_size = 100              ::integer()         %% get data in chunks of (approximately) this size
-                    , limit = 1000000               ::integer()         %% limit the total number or returned rows approximately
+                    , limit = 100000                ::integer()         %% limit the total number or returned rows approximately
                     , stmt_str = ""                 ::string()          %% SQL statement (optional)
                     , stmt_parse = undefined        ::any()             %% SQL parse tree
                     , cols = []                     ::list(#ddColMap{}) %% column map 

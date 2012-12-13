@@ -18,6 +18,7 @@
         , fetch_recs/5              %% simulation of synchronous fetch
         , fetch_recs_sort/5         %% simulation of synchronous fetch followed by a lists:sort
         , fetch_recs_async/4        %% async streaming fetch
+        , fetch_recs_async/5        %% async streaming fetch with options ({tail_mode,)
         , fetch_close/3
         , close/2
         ]).
@@ -32,6 +33,7 @@
                     , metarec   ::tuple()
                     , blockSize=100 ::integer()     %% could be adaptive
                     , remaining ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
+                    , opts = [] ::list()            %% fetch options like {tail_mode,true}
                     }).
 
 -record(state,                  %% state for statment process, including fetch subprocess
@@ -56,7 +58,7 @@ create_stmt(Statement, SKey, IsSec) ->
     end.
 
 fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock}),
+    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock,[]}),
     Result = try
         case receive 
             R ->    R
@@ -74,8 +76,11 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
 fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
 
-fetch_recs_async(SKey, Pid, Sock, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock}).
+fetch_recs_async(SKey, Pid, Sock, IsSec) ->
+    fetch_recs_async(SKey, Pid, Sock, [], IsSec).
+
+fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}).
 
 fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {fetch_close, IsSec, SKey}).
@@ -116,8 +121,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     Reply = try 
         case FetchCtx0#fetchCtx.monref of
             undefined ->    ok;
-            MonitorRef ->   catch erlang:demonitor(MonitorRef, [flush]),
-                            catch FetchCtx0#fetchCtx.pid ! abort
+            MonitorRef ->   kill_fetch(MonitorRef, FetchCtx0#fetchCtx.pid)
         end,
         if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]) 
     catch
@@ -128,30 +132,32 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined}}=State) ->
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
+handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{status=tailing}}=State) ->
+    unsubscribe(Stmt),
+    {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}=State) ->
-    catch erlang:demonitor(MonitorRef, [flush]),
-    catch Pid ! abort, 
+    kill_fetch(MonitorRef, Pid), 
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.
 
-handle_cast({fetch_recs_async, _IsSec, _SKey, Sock}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
+handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
     send_reply_to_client(Sock, {error,"Fetch aborted, execute fetch_close before refetch"}),
     {noreply, State}; 
-handle_cast({fetch_recs_async, IsSec, _SKey, Sock}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
+handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec=MatchSpec, meta=MetaMap, limit=Limit} = Stmt,
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaMap]),
     NewFetchCtx = case Pid of
         undefined ->
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
                 TransPid when is_pid(TransPid) ->
-                    MonitorRef = erlang:monitor(process, TransPid), 
+                    MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
-                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, blockSize=BlockSize, remaining=Limit};
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts};
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
         Pid ->
             Pid ! next,
-            #fetchCtx{metarec=MetaRec}
+            #fetchCtx{metarec=MetaRec, opts=Opts}
     end,
     {noreply, State#state{reply=Sock,fetchCtx=NewFetchCtx}};  
 handle_cast({close, _SKey}, State) ->
@@ -161,15 +167,63 @@ handle_cast(Request, State) ->
     io:format(user, "~p - received unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     {noreply, State}.
 
-handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=#fetchCtx{status=running}}=State) ->
-    % io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
-    send_reply_to_client(Sock, {[], true}),
-    {noreply, State#state{fetchCtx=#fetchCtx{}, reply=undefined}};
-handle_info({row, ?eot}, State) ->
-    % io:format(user, "~p - received end of table in state ~p~n", [?MODULE, State]),
+handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
+    %io:format(user, "~p - received end of table in state~n~p~n", [?MODULE, State]),
+    #fetchCtx{pid=Pid,monref=MonitorRef,status=Status,opts=Opts,remaining=R} = FetchCtx0,
+    if 
+        R == Stmt#statement.limit ->    send_reply_to_client(Sock, {[],true});
+        true ->                         ok
+    end,
+    case Status of
+        running ->  
+            kill_fetch(MonitorRef, Pid), 
+            case lists:member({tail_mode,true},Opts) of
+                false ->
+                    {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}};
+                true ->     
+                    {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
+                    case catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
+                        ok ->
+                            % io:format(user, "~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
+                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing},reply=Sock}};
+                        Error ->
+                            io:format(user, "~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
+                            send_reply_to_client(Sock, {'SystemException', {"Cannot subscribe to table changes",{Table,Error}}}),
+                            {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}}
+                    end    
+            end;
+        _ ->    
+            {noreply, State}
+    end;        
+handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
+    %io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, write, Record]),
+    #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0}=FetchCtx0,
+    case Status of
+        tailing ->  
+            case length(Stmt#statement.tables) of
+                1 ->    Wrap = fun(X) -> {X, MetaRec} end,
+                        if  
+                            Remaining0 > 1 ->
+                                send_reply_to_client(Sock, {lists:map(Wrap, [Record]),false}),
+                                {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}};
+                            true ->
+                                send_reply_to_client(Sock, {lists:map(Wrap, [Record]),true}),
+                                unsubscribe(Stmt),
+                                {noreply, State#state{fetchCtx=#fetchCtx{}}}
+                        end;
+                _ ->    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
+            end;
+        _ ->
+            {noreply, State}
+    end;
+handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State) ->
+    % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete_object, _OldRecord]),
+    {noreply, State};
+handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
+    % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{pid=Pid, monref=MonitorRef, metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
+    #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     % io:format(user, "received rows ~p~n", [Rows]),
     RowsRead=length(Rows),
     {Result, Sent} = case length(Stmt#statement.tables) of
@@ -194,13 +248,7 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
     end,
     % io:format(user, "sending rows ~p~n", [Result]),
     send_reply_to_client(Sock, Result),
-    FetchCtx1 = case Result of
-        {_,true} -> catch erlang:demonitor(MonitorRef, [flush]),
-                    catch Pid ! abort, 
-                    #fetchCtx{};
-        _ ->        FetchCtx0#fetchCtx{remaining=Remaining0-Sent}
-    end,
-    {noreply, State#state{fetchCtx=FetchCtx1}};
+    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-Sent}}};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
     % io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     {noreply, State#state{fetchCtx=#fetchCtx{}}}; 
@@ -215,13 +263,24 @@ terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) ->
     % io:format(user, "~p - terminating monitor not found~n", [?MODULE]),
     catch Pid ! abort, 
     ok;
+terminate(_Reason, #state{statement=Stmt,fetchCtx=#fetchCtx{status=tailing}}) -> 
+    % io:format(user, "~p - terminating tail_mode~n", [?MODULE]),
+    unsubscribe(Stmt),
+    ok;
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
-    % io:format(user, "~p - terminating after demonitor~n", [?MODULE]),
-    erlang:demonitor(MonitorRef, [flush]),
-    catch Pid ! abort, 
+    % io:format(user, "~p - demonitor and terminate~n", [?MODULE]),
+    kill_fetch(MonitorRef, Pid), 
     ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+unsubscribe(Stmt) ->
+    {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
+    catch if_call_mfa(false,unsubscribe,[none,{table,Table,simple}]).
+
+kill_fetch(MonitorRef, Pid) ->
+    catch erlang:demonitor(MonitorRef, [flush]),
+    catch Pid ! abort. 
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},
@@ -374,7 +433,7 @@ test_with_or_without_sec(IsSec) ->
         end,
 
         ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar2(10), col2 integer);", 0, "Imem", IsSec)),
-        ?assertEqual(ok, insert_range(SKey, 15, def, "Imem", IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 15, def, 'Imem', IsSec)),
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),
         io:format(user, "Meta table~n~p~n", [Meta]),
@@ -424,8 +483,32 @@ test_with_or_without_sec(IsSec) ->
         [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
         [?assertNot(lists:member(R,TableRows3)) || R <- RemovedRows3],
 
+        ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
+        ?assertEqual(0,imem_meta:table_size(def)),
+        ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+        ?assertEqual(5,imem_meta:table_size(def)),
+
+        Sql3 = "select col1, col2 from def;",
+        {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),
+        try
+            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}],IsSec)),
+            Result3a = receive_all(),
+            ?assertEqual(1, length(Result3a)),
+            [{_,{List3a,true}}] = Result3a,
+            ?assertEqual(5, length(List3a)),
+            ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
+            ?assertEqual(10,imem_meta:table_size(def)),
+            Result3b = receive_all(),
+            ?assertEqual(10, length(Result3b)),           
+            ?assertEqual(ok, fetch_close(SKey, StmtRef3, IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            Result3c = receive_all(),
+            ?assertEqual(0, length(Result3c))        
+        after
+            ?assertEqual(ok, close(SKey, StmtRef3))
+        end,
         ?assertEqual(ok, close(SKey, StmtRef2)),
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 
         case IsSec of
             true ->     ?imem_logout(SKey);
@@ -438,6 +521,19 @@ test_with_or_without_sec(IsSec) ->
     end,
     ok. 
 
+receive_all() ->
+    receive_all([]).
+
+receive_all(Acc) ->    
+    case receive 
+            R ->    io:format(user, "got:  ~p~n", [R]),
+                    R
+        after 1000 ->
+            stop
+        end of
+        stop ->     lists:reverse(Acc);
+        Result ->   receive_all([Result|Acc])
+    end.
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->

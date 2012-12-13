@@ -195,17 +195,17 @@ test_with_or_without_sec(IsSec) ->
 
         Result0 = if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 1000]),
         {List0, true} = Result0,
-        io:format(user, "ddTable MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List0),hd(List0),lists:last(List0)]),
+        % io:format(user, "ddTable MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List0),hd(List0),lists:last(List0)]),
         AllTableCount = length(List0),
 
         Result1 = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
         {List1, true} = Result1,
-        io:format(user, "all_tables MatchAllKeys (~p)~n~p~n", [length(List1),List1]),
+        % io:format(user, "all_tables MatchAllKeys (~p)~n~p~n", [length(List1),List1]),
         ?assertEqual(AllTableCount, length(List1)),
 
         Result2 = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
         {List2, true} = Result2,
-        io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List2),hd(List2),lists:last(List2)]),
+        % io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List2),hd(List2),lists:last(List2)]),
 
         Sql6 = "select col1, col2 from def where col1>=5 and col1<=6",
         io:format(user, "Query: ~p~n", [Sql6]),
@@ -246,7 +246,7 @@ test_with_or_without_sec(IsSec) ->
         % io:format(user, "Result: (~p)~n~p~n", [length(List10),lists:map(_RowFun10,List10)]),
         ?assertEqual(10, length(List10)),
 
-        Sql3 = "select qname from Imem.ddTable",
+        Sql3 = "select name(qname) from Imem.ddTable",
         io:format(user, "Query: ~p~n", [Sql3]),
         {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
@@ -254,7 +254,7 @@ test_with_or_without_sec(IsSec) ->
             R3 ->    R3
         end,
         {StmtRef3, {List3, true}} = Result3,
-        io:format(user, "Result: (~p)~n~p~n", [length(List3),lists:map(RowFun3,List3)]),
+        io:format(user, "Result: (~p)~n~p~n", [length(List3),[tl(R)|| R <- lists:map(RowFun3,List3)]]),
         ?assertEqual(AllTableCount, length(List3)),
 
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
@@ -262,7 +262,7 @@ test_with_or_without_sec(IsSec) ->
             R3a ->    R3a
         end,
         {StmtRef3, {List3a, true}} = Result3a,
-        io:format(user, "Result: (~p) reread~n~p~n", [length(List3a),lists:map(RowFun3,List3a)]),
+        % io:format(user, "Result: (~p) reread~n~p~n", [length(List3a),lists:map(RowFun3,List3a)]),
         ?assertEqual(AllTableCount, length(List3a)),
 
         List3b = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
@@ -278,7 +278,7 @@ test_with_or_without_sec(IsSec) ->
             R4 ->    R4
         end,
         {StmtRef4, {List4, true}} = Result4,
-        io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(RowFun4,List4)]),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(RowFun4,List4)]),
         case IsSec of
             false -> ?assertEqual(1, length(List4));
             true ->  ?assertEqual(0, length(List4))
@@ -292,7 +292,7 @@ test_with_or_without_sec(IsSec) ->
             R5 ->    R5
         end,
         {StmtRef5, {List5, true}} = Result5,
-        io:format(user, "Result: (~p)~n~p~n", [length(List5),lists:map(RowFun5,List5)]),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List5),lists:map(RowFun5,List5)]),
         ?assertEqual(1, length(List5)),            
 
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef3)),

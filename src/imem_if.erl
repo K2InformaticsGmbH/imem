@@ -511,9 +511,11 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
 
 
 subscribe({table, Tab, simple}) ->
-mnesia:subscribe({table, Tab, simple});
+    {ok,_} = mnesia:subscribe({table, Tab, simple}),
+    ok;
 subscribe({table, Tab, detailed}) ->
-mnesia:subscribe({table, Tab, detailed});
+    {ok,_} = mnesia:subscribe({table, Tab, detailed}),
+    ok;
 subscribe(EventCategory) ->
     ?ClientError({"Unsupported event category", EventCategory}).
 

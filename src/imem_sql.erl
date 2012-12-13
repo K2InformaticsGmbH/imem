@@ -218,6 +218,13 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
             Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, default=D, readonly=R},
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
+column_map([], [{'fun',Fname,[Name]}|Columns], Tindex, Lookup, Meta, Acc) ->
+    {S,T,N} = field_qname(Name),
+    column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname}|Columns], Tindex, Lookup, Meta, Acc);    
+column_map([], [{as, {'fun',Fname,[Name]}, BAlias}|Columns], Tindex, Lookup, Meta, Acc) ->
+    Alias = ?binary_to_atom(BAlias),
+    {S,T,N} = field_qname(Name),
+    column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [{as, Name, BAlias}|Columns], Tindex, Lookup, Meta, Acc) ->
     Alias = ?binary_to_atom(BAlias),
     {S,T,N} = field_qname(Name),
@@ -226,7 +233,7 @@ column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=N}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
-    ?UnimplementedException({"Expression not supported", Expression});
+    ?UnimplementedException({"Expressions not supported", Expression});
 column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
     lists:reverse(Acc);
 column_map(Tables, Columns, Tmax, Lookup, Meta, Acc) ->

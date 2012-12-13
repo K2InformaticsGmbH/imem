@@ -63,6 +63,7 @@
         , fetch_recs/4
         , fetch_recs_sort/4
         , fetch_recs_async/3        %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_recs_async/4        %% ToDo: implement proper return of RowFun(), match conditions and joins
         , fetch_close/2
         , exec/4
         , close/2
@@ -376,6 +377,9 @@ fetch_recs_sort(SKey, Pid, Sock, Timeout) ->
 
 fetch_recs_async(SKey, Pid, Sock) ->
     imem_statement:fetch_recs_async(SKey, Pid, Sock, true).
+
+fetch_recs_async(SKey, Pid, Sock, Opts) ->
+    imem_statement:fetch_recs_async(SKey, Pid, Sock, Opts, true).
 
 close(SKey, Pid) ->
     imem_statement:close(SKey, Pid).

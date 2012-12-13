@@ -72,7 +72,8 @@
         , update_cursor_execute/2   %% take update plan from state and execute it (fetch aborted first)
         , fetch_recs/3
         , fetch_recs_sort/3 
-        , fetch_recs_async/2        %% ToDo: implement proper return of RowFun(), match conditions and joins
+        , fetch_recs_async/2        
+        , fetch_recs_async/3        
         , fetch_close/1
         , exec/3
         , close/1
@@ -369,6 +370,9 @@ fetch_recs_sort(Pid, Sock, Timeout) ->
 
 fetch_recs_async(Pid, Sock) ->
     imem_statement:fetch_recs_async(none, Pid, Sock, false).
+
+fetch_recs_async(Pid, Sock, Opts) ->
+    imem_statement:fetch_recs_async(none, Pid, Sock, Opts, false).
 
 fetch_close(Pid) ->
     imem_statement:fetch_close(none, Pid, false).
