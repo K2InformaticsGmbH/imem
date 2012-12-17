@@ -354,7 +354,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         true ->                                 ok    
     end,            
     ValMap = lists:usort(
-        [{Ci,imem_datatype:value_to_db(Item,imem_nil,T,L,P,D,false,Value)} || 
+        [{Ci,imem_datatype:value_to_db(Item,?nav,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),

@@ -239,6 +239,7 @@ create_table(Table, Opts) when is_atom(Table) ->
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
    	case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
+            % lager:debug("table ~p locally exists", [Table]),
             io:format(user, "table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
@@ -495,20 +496,30 @@ update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) -
         Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
     end;
 update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
+    OldKey=element(2,Old),
     if
-        element(2,Old) /= element(2,New) ->
-            ?ClientError({"Key update not allowed", {Item, {element(2,Old), element(2,New)}}});
         Lock == none ->
             ok;
         true ->
-            case read(Table, element(2,Old)) of
+            case read(Table, OldKey) of
                 [Old] ->    ok;
                 [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
-                Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
+                Curr1 ->    ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Curr1}}})
             end
     end,
-    mnesia:write(New).
-
+    NewKey = element(2,New),
+    case NewKey of
+        OldKey ->   
+            mnesia:write(New);
+        NewKey ->           
+            case read(Table, NewKey) of
+                [New] ->    mnesia:delete(Table,OldKey),
+                            mnesia:write(New);
+                [] ->       mnesia:delete(Table,OldKey),
+                            mnesia:write(New);
+                Curr2 ->    ?ConcurrencyException({"Modified key already exists", {Item,Curr2}})
+            end
+    end.
 
 subscribe({table, Tab, simple}) ->
     {ok,_} = mnesia:subscribe({table, Tab, simple}),
@@ -538,6 +549,7 @@ init(Params) ->
     SchemaDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
     random:seed(now()),
     SleepTime = random:uniform(1000),
+    % lager:info("~p sleeping for about ~p ms...", [?MODULE, SleepTime]),
     io:format(user, "~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
     timer:sleep(SleepTime),
     application:set_env(mnesia, dir, SchemaDir),
@@ -588,6 +600,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
+    % lager:set_log_level(lager_console_backend,debug),
     ?imem_test_setup().
 
 teardown(_) ->

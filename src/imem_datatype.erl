@@ -132,7 +132,7 @@ select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
             name2 ->    name2(X);
             name3 ->    name3(X);
             name4 ->    name4(X);
-            Name ->     ?UnimplementedException({"Unimplemented row function",F})
+            Name ->     ?UnimplementedException({"Unimplemented row function",Name})
         end
     catch
         _:Reason ->  ?SystemException({"Failed row function",{F,X,Reason}})

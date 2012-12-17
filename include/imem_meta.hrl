@@ -64,3 +64,7 @@
                   }
        ).
 -define(dual, [integer,integer]).
+
+-define(nav, '$not_a_value').    %% used as default value which must not be used (not null columns)
+-define(nac, '$not_a_column').   %% used as value column name for key only tables
+

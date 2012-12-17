@@ -37,6 +37,18 @@
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
+    application:load(lager),
+    application:set_env(lager, handlers, [{lager_console_backend, info},
+                                          {lager_imem, [{db, "imemLog"},
+                                                        {table, imemLog},
+                                                        {level, info},
+                                                        {user, <<"admin">>},
+                                                        {password, <<"change_on_install">>}]},
+                                          {lager_file_backend,
+                                           [{"error.log", error, 10485760, "$D0", 5},
+                                            {"console.log", info, 10485760, "$D0", 5}]}]),
+    application:set_env(lager, error_logger_redirect, false),
+    % lager:start(),
     case application:get_env(erl_cluster_mgr) of
         {ok, undefined} -> io:format(user, "~p - CM not defined!~n", [?MODULE]);
         {ok, CMNode} ->

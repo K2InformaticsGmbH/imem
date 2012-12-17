@@ -5,9 +5,10 @@
 -export([ exec/5
         ]).
 
-exec(SKey, {insert, TableName, {_, Columns}, {_, Values}} , _Stmt, _Schema, IsSec) ->
+exec(SKey, {insert, TableName, {_, Columns}, {_, Values}}=_ParseTree , _Stmt, _Schema, IsSec) ->
     Table = imem_sql:table_qname(TableName),
     % io:format(user,"insert ~p values ~p into ~p~n", [Columns, Values, Table]),
+    % io:format(user,"parse tree~n~p~n", [_ParseTree]),
     ColMap = imem_sql:column_map([Table], Columns),
     Vs = [imem_sql:strip_quotes(binary_to_list(V)) || V <- Values],
     %% create a change list  similar to:  [1,ins,{},"99", 11, 12, undefined],                                      
@@ -33,6 +34,7 @@ setup() ->
     ?imem_test_setup().
 
 teardown(_) -> 
+    catch imem_meta:drop_table(not_null),
     catch imem_meta:drop_table(def),
     ?imem_test_teardown().
 
@@ -66,24 +68,30 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar, col2 integer);", 0, "Imem", IsSec)),
-        ?assertEqual(ok, insert_range(SKey, 3, "def", "Imem", IsSec)),
-        {ok, _Clm, _RowFun, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, "Imem", IsSec),         
+        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar, col2 integer);", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 3, "def", 'Imem', IsSec)),
+        {ok, _Clm, _RowFun, _StmtRef} = imem_sql:exec(SKey, "select * from def;", 100, 'Imem', IsSec),         
         {List1, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords]),
         io:format(user, "table def 1~n~p~n", [lists:sort(List1)]),
         ?assertEqual(3, length(List1)),
-        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1) values ('A');", 0, "Imem", IsSec)),
-        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1,col2) values ('B', 'undefined');", 0, "Imem", IsSec)),
-        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1,col2) values ('C', 5);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1) values ('A');", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1,col2) values ('B', 'undefined');", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "insert into def (col1,col2) values ('C', 5);", 0, 'Imem', IsSec)),
         {List2, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords]),
         io:format(user, "table def 2~n~p~n", [lists:sort(List2)]),
         ?assertEqual(6, length(List2)),
 
-        ?assertException(throw,{ClEr,{"Too many values",{1,["C","5"]}}}, imem_sql:exec(SKey, "insert into def (col1) values ('C', 5);", 0, "Imem", IsSec)),
-        ?assertException(throw,{CoEx,{"Key violation",{1,{[{def,"C",5}],{def,"C",undefined}}}}}, imem_sql:exec(SKey, "insert into def (col1) values ('C');", 0, "Imem", IsSec)),
-        ?assertException(throw,{ClEr,{"Missing key column",{1,[{3,8}]}}}, imem_sql:exec(SKey, "insert into def (col2) values (8);", 0, "Imem", IsSec)),
+        ?assertException(throw,{ClEr,{"Too many values",{1,["C","5"]}}}, imem_sql:exec(SKey, "insert into def (col1) values ('C', 5);", 0, 'Imem', IsSec)),
+        ?assertException(throw,{CoEx,{"Key violation",{1,{[{def,"C",5}],{def,"C",undefined}}}}}, imem_sql:exec(SKey, "insert into def (col1) values ('C');", 0, 'Imem', IsSec)),
+        ?assertException(throw,{ClEr,{"Missing key column",{1,[{3,8}]}}}, imem_sql:exec(SKey, "insert into def (col2) values (8);", 0, 'Imem', IsSec)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec))
+        ?assertEqual(ok, imem_sql:exec(SKey, "create table not_null (col1 varchar not null, col2 integer not null);", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "insert into not_null (col1, col2) values ('A',5);", 0, 'Imem', IsSec)),
+        ?assertException(throw, {ClEr,{"Missing key column",{1,[{3,5}]}}}, imem_sql:exec(SKey, "insert into not_null (col2) values (5);", 0, 'Imem', IsSec)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{not_null,_}}}}, imem_sql:exec(SKey, "insert into not_null (col1) values ('B');", 0, 'Imem', IsSec)),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table not_null;", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec))
     catch
         Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")

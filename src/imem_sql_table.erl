@@ -6,12 +6,13 @@
         ]).
     
 exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
-exec(SKey, {'drop table', {tables, [Table|Tables]}, Exists, RestrictCascade}, Stmt, Schema, IsSec) ->
+exec(SKey, {'drop table', {tables, [Table|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Schema, IsSec) ->
+    io:format(user,"ParseTree ~p~n", [_ParseTree]),
     Tab = ?binary_to_existing_atom(Table),
-    % io:format(user,"drop_table ~p~n", [Tab]),
     if_call_mfa(IsSec, 'drop_table', [SKey,Tab]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
-exec(SKey, {'create table', TableName, Columns, TOpts}, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Schema, IsSec) ->
+    io:format(user,"Parse Tree ~p~n", [_ParseTree]),
     create_table(SKey, ?binary_to_atom(TableName), TOpts, Columns, IsSec, []).
 
 create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
@@ -27,27 +28,30 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
         {Typ,SLen,SPrec} ->         {Typ,list_to_integer(SLen),list_to_integer(SPrec)};
         Else ->                     ?SystemException({"Unexpected parse tree structure",Else})
     end,
-    Default = case lists:keyfind(default, 1, COpts) of
-        false ->    
-            undefined;
+    {Default,Opts} = case lists:keyfind(default, 1, COpts) of
+        false ->
+            case lists:member('not null', COpts) of
+                true ->     {?nav,lists:delete('not null',COpts)};
+                false ->    {undefined,COpts}
+            end;
         {_,Bin} ->  
             Str = binary_to_list(Bin),
             case re:run(Str, "fun[ \(\)\-\>]*(.*)end[ ]*.", [global, {capture, [1], list}]) of
                 {match,[Body]} ->
                     try 
                         % io:format(user,"body ~p~n", [Body]),
-                        imem_datatype:string_to_eterm(Body)
+                        {imem_datatype:string_to_eterm(Body),lists:keydelete(default, 1, COpts)}
                     catch
                         _:_ ->  try
                                     % io:format(user,"str ~p~n", [Str]),
                                     Fun = imem_datatype:string_to_fun(Str,0),
-                                    Fun()
+                                    {Fun(),lists:keydelete(default, 1, COpts)}
                                 catch
                                     _:Reason -> ?ClientError({"Default evaluation fails",{Str,Reason}})
                                 end
                     end;
                 nomatch ->  
-                    imem_datatype:string_to_eterm(Str)
+                    {imem_datatype:string_to_eterm(Str),lists:keydelete(default, 1, COpts)}
             end
     end,
     C = #ddColumn{  name=?binary_to_atom(Name)
@@ -55,7 +59,7 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
                   , length=L
                   , precision=P
                   , default=Default
-                  , opts = lists:keydelete(default, 1, COpts)
+                  , opts = Opts
                   },
     create_table(SKey, Table, TOpts, Columns, IsSec, [C|ColMap]).
 
@@ -107,20 +111,20 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
-        Sql1 = "create table def (col1 varchar2(10), col2 integer default 12, col3 elist default fun() -> [] end.);",
+        Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 elist default fun() -> [] end.);",
         Expected = 
-                [   {ddColumn,col1,varchar,10,0,undefined,[]},
+                [   {ddColumn,col1,varchar,10,0,?nav,[]},
                     {ddColumn,col2,int,0,0,12,[]},
                     {ddColumn,col3,elist,0,0,[],[]}
                 ],
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, 'Imem', IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),
         io:format(user, "Meta table~n~p~n", [Meta]),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertEqual(Expected,element(3,Meta)),    
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  if_call_mfa(IsSec, table_size, [SKey, def])),
-        ?assertException(throw, {ClEr,{"Table does not exist",def}},  imem_sql:exec(SKey, "drop table def;", 0, "Imem", IsSec))
+        ?assertException(throw, {ClEr,{"Table does not exist",def}},  imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec))
     catch
         Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")

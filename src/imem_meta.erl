@@ -301,8 +301,12 @@ create_table(Table, ColumnNames, Opts) ->
     imem_if:create_table(Table, ColumnNames, Opts),
     imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts}).
 
-drop_table({_Schema,Table}) -> 
-    drop_table(Table);          %% ToDo: may depend on schema 
+drop_table({Schema,Table}) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema ->     drop_table(Table);
+        OtherSchema ->  ?UnimplementedException({"Drop table in foreign schema",{Schema,Table}})
+    end;
 drop_table(ddTable) -> 
     imem_if:drop_table(ddTable);
 drop_table(Table) -> 
@@ -456,8 +460,18 @@ write(Table, Record) ->
 
 insert({_Schema,Table}, Row) ->
     insert(Table, Row);             %% ToDo: may depend on schema
-insert(Table, Row) ->
-    imem_if:insert(Table, Row).
+insert(ddTable, Row) ->
+    imem_if:insert(ddTable, Row);
+insert(Table, Row) when is_list(Row) ->
+    case lists:member(?nav,Row) of
+        false ->    imem_if:insert(Table, Row);
+        true ->     ?ClientError({"Not null constraint violation", {Table,Row}})
+    end;
+insert(Table, Row) when is_tuple(Row) ->
+    case lists:member(?nav,tuple_to_list(Row)) of
+        false ->    imem_if:insert(Table, Row);
+        true ->     ?ClientError({"Not null constraint violation", {Table,Row}})
+    end.
 
 delete({_Schema,Table}, Key) ->
     delete(Table, Key);             %% ToDo: may depend on schema
@@ -489,8 +503,11 @@ update_table_name(MySchema,[{MySchema,all_tables,Type}|T]) ->
     [{ddTable,Type}|T];
 update_table_name(MySchema,[{MySchema,user_tables,Type}|T]) ->
     [{ddTable,Type}|T];
-update_table_name(MySchema,[{MySchema,Table,Type}|T]) ->
-    [{Table,Type}|T].
+update_table_name(MySchema,[{MySchema,Tab,Type}=Table, Item, Old, New]) ->
+    case lists:member(?nav,tuple_to_list(New)) of
+        false ->    [{Tab,Type}, Item, Old, New];
+        true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
+    end.
 
 transaction(Function) ->
     imem_if:transaction(Function).
@@ -537,7 +554,7 @@ db_test_() ->
 
 meta_operations(_) ->
     try 
-        %% ClEr = 'ClientError',
+        ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
 
         io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
@@ -559,9 +576,19 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
-        ?assertEqual(ok, create_table(meta_table_3, {[a,nil],[date,nil],{meta_table_3,undefined,undefined}}, [])),
-        io:format(user, "success ~p~n", [create_tables]),
+        ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[date,undefined],{meta_table_3,?nav,undefined}}, [])),
+        io:format(user, "success ~p~n", [create_table_not_null]),
 
+        ?assertEqual(ok, insert(meta_table_3, {{{2000,01,01},{12,45,55}},undefined})),
+        ?assertEqual(1, table_size(meta_table_3)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {?nav,undefined})),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {{{2000,01,01},{12,45,56}},?nav})),
+        io:format(user, "success ~p~n", [not_null_constraint]),
+        
+        ?assertEqual(ok, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
+        
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),

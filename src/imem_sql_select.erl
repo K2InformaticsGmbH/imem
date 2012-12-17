@@ -112,7 +112,7 @@ in_comparison_loop(Ti,ALookup,[B|Rest],FullMap) ->
             in_comparison_loop(Ti,ALookup,Rest,FullMap)}.
 
 field_value(Tag,Type,Len,Prec,Def,Val) ->
-    imem_datatype:value_to_db(Tag,imem_nil,Type,Len,Prec,Def,false,imem_sql:strip_quotes(Val)).
+    imem_datatype:value_to_db(Tag,?nav,Type,Len,Prec,Def,false,imem_sql:strip_quotes(Val)).
 
 field_lookup(Name,FullMap) ->
     U = undefined,
@@ -204,8 +204,8 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(AllTableCount, length(List1)),
 
         Result2 = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
-        {List2, true} = Result2,
-        % io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List2),hd(List2),lists:last(List2)]),
+        {_List2, true} = Result2,
+        % io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(_List2),hd(List2),lists:last(_List2)]),
 
         Sql6 = "select col1, col2 from def where col1>=5 and col1<=6",
         io:format(user, "Query: ~p~n", [Sql6]),
@@ -272,13 +272,13 @@ test_with_or_without_sec(IsSec) ->
 %        Sql4 = "select all_tables.* from all_tables where qname = erl(\"{'Imem',ddRole}")",
         Sql4 = "select all_tables.* from all_tables where owner = undefined",
         io:format(user, "Query: ~p~n", [Sql4]),
-        {ok, _Clm4, RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),  %% all_tables
+        {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
         Result4 = receive 
             R4 ->    R4
         end,
         {StmtRef4, {List4, true}} = Result4,
-        % io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(RowFun4,List4)]),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(_RowFun4,List4)]),
         case IsSec of
             false -> ?assertEqual(1, length(List4));
             true ->  ?assertEqual(0, length(List4))
@@ -286,13 +286,13 @@ test_with_or_without_sec(IsSec) ->
 
         Sql5 = "select col1, col2, col3, user from def where 1=1 and col2 = \"7\"",
         io:format(user, "Query: ~p~n", [Sql5]),
-        {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
+        {ok, _Clm5, _RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
         Result5 = receive 
             R5 ->    R5
         end,
         {StmtRef5, {List5, true}} = Result5,
-        % io:format(user, "Result: (~p)~n~p~n", [length(List5),lists:map(RowFun5,List5)]),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List5),lists:map(_RowFun5,List5)]),
         ?assertEqual(1, length(List5)),            
 
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef3)),
