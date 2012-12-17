@@ -104,6 +104,7 @@
         ]).
 
 -export([ have_table_permission/3   %% includes table ownership and readonly
+        , have_permission/2    
         ]).
 
 %% one to one from dd_account ------------ AA FUNCTIONS _--------
@@ -524,6 +525,16 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
     end.
 
 %% ------- security extension for sql and tables (exported) ---------------------------------
+
+have_permission(SKey, Permission) ->
+    case get_permission_cache(SKey, Permission) of
+        true ->         true;
+        false ->        false;
+        no_exists ->    
+            Result = imem_seco:have_permission(SKey, Permission),
+            set_permission_cache(SKey, Permission, Result),
+            Result
+    end.      
 
 have_table_permission(SKey, Table, Operation) ->
     case get_permission_cache(SKey, {Table,Operation}) of

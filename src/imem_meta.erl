@@ -304,8 +304,8 @@ create_table(Table, ColumnNames, Opts) ->
 drop_table({Schema,Table}) ->
     MySchema = schema(),
     case Schema of
-        MySchema ->     drop_table(Table);
-        OtherSchema ->  ?UnimplementedException({"Drop table in foreign schema",{Schema,Table}})
+        MySchema -> drop_table(Table);
+        _ ->        ?UnimplementedException({"Drop table in foreign schema",{Schema,Table}})
     end;
 drop_table(ddTable) -> 
     imem_if:drop_table(ddTable);
@@ -503,7 +503,7 @@ update_table_name(MySchema,[{MySchema,all_tables,Type}|T]) ->
     [{ddTable,Type}|T];
 update_table_name(MySchema,[{MySchema,user_tables,Type}|T]) ->
     [{ddTable,Type}|T];
-update_table_name(MySchema,[{MySchema,Tab,Type}=Table, Item, Old, New]) ->
+update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New]) ->
     case lists:member(?nav,tuple_to_list(New)) of
         false ->    [{Tab,Type}, Item, Old, New];
         true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
