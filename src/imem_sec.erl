@@ -519,7 +519,7 @@ admin_exec(SKey, Module, Function, Params) ->
 admin_apply(SKey, Module, Function, Params, Permissions) ->
     case imem_seco:have_permission(SKey, Permissions) of
         true ->     
-            apply(Module, Function, Params);
+            apply(Module, Function, [SKey|Params]);
         false ->
             ?SecurityException({"Admin execute unauthorized", {SKey, Module, Function, Params}})
     end.
@@ -663,9 +663,9 @@ test(_) ->
         io:format(user, "----TEST--~p:test_admin_exec~n", [?MODULE]),
 
         io:format(user, "accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [SeCoAdmin, user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
         io:format(user, "success ~p~n", [account_create_user]),
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [SeCoAdmin, <<"test_user_123">>, create_table])),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [<<"test_user_123">>, create_table])),
         io:format(user, "success ~p~n", [create_test_admin_permissions]), 
      
         io:format(user, "----TEST--~p:test_user_login~n", [?MODULE]),
@@ -695,7 +695,7 @@ test(_) ->
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
         io:format(user, "success ~p~n", [permissions_own_table]), 
 
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, revoke_role, [SeCoAdmin, <<"test_user_123">>, create_table])),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, revoke_role, [<<"test_user_123">>, create_table])),
         io:format(user, "success ~p~n", [role_revoke_role]),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
@@ -748,7 +748,7 @@ test(_) ->
         ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
         io:format(user, "success ~p~n", [drop_own_table_no_exists]),
 
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [SeCoAdmin, <<"test_user_123">>])),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [<<"test_user_123">>])),
         io:format(user, "success ~p~n", [account_create_user])
 
     catch

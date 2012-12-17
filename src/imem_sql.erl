@@ -102,6 +102,8 @@ table_qname(Str) when is_list(Str) ->
         [S,T] ->    {list_to_atom(S), list_to_atom(T), list_to_atom(T)};
         _ ->        ?ClientError({"Invalid table name", Str})
     end;
+table_qname({as,Table,Alias}) ->
+    table_qname(Table, Alias);
 table_qname({Table, Alias}) ->
     table_qname(Table, Alias);
 table_qname(N) -> 

@@ -7,12 +7,12 @@
     
 exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
 exec(SKey, {'drop table', {tables, [Table|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Schema, IsSec) ->
-    io:format(user,"ParseTree ~p~n", [_ParseTree]),
+    % io:format(user,"ParseTree ~p~n", [_ParseTree]),
     Tab = ?binary_to_existing_atom(Table),
     if_call_mfa(IsSec, 'drop_table', [SKey,Tab]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
 exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Schema, IsSec) ->
-    io:format(user,"Parse Tree ~p~n", [_ParseTree]),
+    % io:format(user,"Parse Tree ~p~n", [_ParseTree]),
     create_table(SKey, ?binary_to_atom(TableName), TOpts, Columns, IsSec, []).
 
 create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
