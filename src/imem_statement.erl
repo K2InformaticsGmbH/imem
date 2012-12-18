@@ -201,17 +201,19 @@ handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,f
     case Status of
         tailing ->  
             case length(Stmt#statement.tables) of
-                1 ->    Wrap = fun(X) -> {X, MetaRec} end,
-                        if  
-                            Remaining0 > 1 ->
-                                send_reply_to_client(Sock, {lists:map(Wrap, [Record]),false}),
-                                {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}};
-                            true ->
-                                send_reply_to_client(Sock, {lists:map(Wrap, [Record]),true}),
-                                unsubscribe(Stmt),
-                                {noreply, State#state{fetchCtx=#fetchCtx{}}}
-                        end;
-                _ ->    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
+                1 ->    
+                    Wrap = fun(X) -> {X, MetaRec} end,
+                    if  
+                        Remaining0 > 1 ->
+                            send_reply_to_client(Sock, {lists:map(Wrap, [Record]),false}),
+                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}};
+                        true ->
+                            send_reply_to_client(Sock, {lists:map(Wrap, [Record]),true}),
+                            unsubscribe(Stmt),
+                            {noreply, State#state{fetchCtx=#fetchCtx{}}}
+                    end;
+                _N ->    
+                    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
             end;
         _ ->
             {noreply, State}
@@ -226,29 +228,30 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
     #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     % io:format(user, "received rows ~p~n", [Rows]),
     RowsRead=length(Rows),
-    {Result, Sent} = case length(Stmt#statement.tables) of
-        1 ->    Wrap = fun(X) -> {X, MetaRec} end,
-                if  
-                    ((RowsRead < Remaining0) andalso (RowsRead < BlockSize)) ->
-                        {{lists:map(Wrap, Rows), true}, RowsRead};
-                    RowsRead < Remaining0 ->
-                        {{lists:map(Wrap, Rows), false}, RowsRead};
-                    RowsRead == Remaining0 ->
-                        {{lists:map(Wrap, Rows), true}, RowsRead};
-                    Remaining0 > 0 ->
-                        {ResultRows,Rest} = lists:split(Remaining0, Rows),
-                        LastKey = lists:nthtail(length(ResultRows)-1, ResultRows),
-                        Pred = fun(X) -> (X==LastKey) end,
-                        ResultTail = lists:takewhile(Pred, Rest),
-                        {{lists:map(Wrap, ResultRows ++ ResultTail), true}, length(ResultRows) + length(ResultTail)};
-                    Remaining0 =< 0 ->
-                        {{[], true}, 0}
-                end;
-        _ ->    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
+    Complete = ((RowsRead < Remaining0) andalso (RowsRead < BlockSize)),
+    Result = case length(Stmt#statement.tables) of
+        1 ->    
+            Wrap = fun(X) -> {X, MetaRec} end,
+            if  
+                RowsRead < Remaining0 ->
+                    lists:map(Wrap, Rows);
+                RowsRead == Remaining0 ->
+                    lists:map(Wrap, Rows);
+                Remaining0 > 0 ->
+                    {ResultRows,Rest} = lists:split(Remaining0, Rows),
+                    LastKey = lists:nthtail(length(ResultRows)-1, ResultRows),
+                    Pred = fun(X) -> (X==LastKey) end,
+                    ResultTail = lists:takewhile(Pred, Rest),
+                    lists:map(Wrap, ResultRows ++ ResultTail);
+                Remaining0 =< 0 ->
+                    []
+            end;
+        _ ->
+            join_rows(Rows, FetchCtx0, Stmt)
     end,
     % io:format(user, "sending rows ~p~n", [Result]),
-    send_reply_to_client(Sock, Result),
-    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-Sent}}};
+    send_reply_to_client(Sock, {Result, (Complete orelse (Remaining0 =< length(Result)))}),
+    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
     % io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     {noreply, State#state{fetchCtx=#fetchCtx{}}}; 
@@ -281,6 +284,33 @@ unsubscribe(Stmt) ->
 kill_fetch(MonitorRef, Pid) ->
     catch erlang:demonitor(MonitorRef, [flush]),
     catch Pid ! abort. 
+
+join_rows(Rows, FetchCtx0, Stmt) ->
+    #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
+    Tables = tl(Stmt#statement.tables),
+    JoinSpec = Stmt#statement.joinspec,
+    io:format(user, "Join Tables: ~p~n", [Tables]),
+    io:format(user, "Join Specs: ~p~n", [JoinSpec]),
+    join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpec, []).
+
+join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
+join_rows(_, _, _, Remaining, _, _, Acc) when Remaining < 1 -> Acc;    %% lists:reverse(Acc);
+join_rows([Row|Rows], MetaRec, BlockSize, Remaining, Tables, JoinSpec, Acc) ->
+    JAcc = join_row([{Row}], MetaRec, BlockSize, Tables, JoinSpec),
+    join_rows([Row|Rows], MetaRec, BlockSize, Remaining-length(JAcc), Tables, JoinSpec, [JAcc|Acc]).
+
+join_row(Recs, MetaRec, _BlockSize, [], []) -> 
+    [erlang:append_element(R, MetaRec)||R <- Recs];
+join_row(Recs, MetaRec, BlockSize, [{_S,Tab,_A}|Tabs], [{MatchSpec,[]}|JSpecs]) ->
+    case imem_meta:select(Tab, MatchSpec) of
+        {[], true} ->   
+            [];
+        {L, true} ->
+            join_row([erlang:append_element(Recs, I)||I <- L], MetaRec, BlockSize, Tabs, JSpecs)
+    end;   
+join_row(Recs, MetaRec, BlockSize, Tables, [{MatchSpec0,[{Tag,Ti,Ci}|Binds]}|JSpecs]) ->
+    MatchSpec1 = MatchSpec0,        %% ToDo bind Tag  $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+    join_row(Recs, MetaRec, BlockSize, Tables, [{MatchSpec1,Binds}|JSpecs]).
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},

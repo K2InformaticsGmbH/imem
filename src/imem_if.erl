@@ -466,8 +466,8 @@ update_xt({Table,bag}, Item, Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
                     end
             end
     end,
-    % io:format(user, "delete ~p~n", [element(2,O)]),
-    mnesia:delete({Table, element(2,O)}), 
+    % io:format(user, "delete ~p ~p~n", [Table, element(2,O)]),
+    mnesia:delete(Table, element(2, O), write), 
     % io:format(user, "write ~p~n", [New]),
     [mnesia:write(Y) || Y <- New];
 
@@ -513,9 +513,9 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
             mnesia:write(New);
         NewKey ->           
             case read(Table, NewKey) of
-                [New] ->    mnesia:delete(Table,OldKey),
+                [New] ->    mnesia:delete(Table,OldKey,write),
                             mnesia:write(New);
-                [] ->       mnesia:delete(Table,OldKey),
+                [] ->       mnesia:delete(Table,OldKey,write),
                             mnesia:write(New);
                 Curr2 ->    ?ConcurrencyException({"Modified key already exists", {Item,Curr2}})
             end

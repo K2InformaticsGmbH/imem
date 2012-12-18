@@ -23,6 +23,7 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid select structure", CError})
     end,
+    % io:format(user, "ColMap (~p)~n~p~n", [length(ColMap),ColMap]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap);
         str ->  imem_datatype:select_rowfun_str(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
@@ -33,18 +34,20 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
 
     RawMap = imem_sql:column_map(Tables,[]),
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    io:format(user, "FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
-    MatchHead = list_to_tuple(['_'|[Tx || #ddColMap{tag=Tx, tind=Ti} <- FullMap, Ti==1]]),
-    io:format(user, "MatchHead (~p)~n~p~n", [size(MatchHead),MatchHead]),
-    Guards = case lists:keyfind(where, 1, SelectSections) of
-        {_, WhereTree} ->   io:format(user, "WhereTree ~p~n", [WhereTree]),
-                            master_query_guards(WhereTree,FullMap);
-        WError ->           ?ClientError({"Invalid where structure", WError})
+    % io:format(user, "FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
+    WhereTree = case lists:keyfind(where, 1, SelectSections) of
+        {_, WT} ->  % io:format(user, "WhereTree ~p~n", [WT]),
+                    WT;
+        WError ->   ?ClientError({"Invalid where structure", WError})
     end,
-    io:format(user, "Guards ~p~n", [Guards]),
+    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==1]]),
+    % io:format(user, "MatchHead (~p) ~p~n", [1,MatchHead]),
+    Guards = master_query_guards(WhereTree,FullMap),
+    % io:format(user, "Guards (~p) ~p~n", [1,Guards]),
     Result = '$_',
     MatchSpec = [{MatchHead, Guards, [Result]}],
-    JoinSpec = [],                      %% ToDo: e.g. {join type (inner|outer|self, join field element number, matchspec joined table} per join
+    JoinSpec = build_join_spec(length(Tables), WhereTree, FullMap, []),
+    % io:format(user, "Join Spec ~p~n", [JoinSpec]),
     Statement = Stmt#statement{
                     tables=Tables, cols=ColMap, meta=MetaMap, rowfun=RowFun,
                     matchspec=MatchSpec, joinspec=JoinSpec
@@ -58,10 +61,39 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user,"JoinSpec: ~p~n", [JoinSpec]),
     {ok, ColMap, RowFun, StmtRef}.
 
+build_join_spec(1, _WhereTree, _FullMap, Acc)-> Acc;
+build_join_spec(Tind, WhereTree, FullMap, Acc)->
+    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==Tind]]),
+    % io:format(user, "Join MatchHead (~p) ~p~n", [Tind,MatchHead]),
+    Guards = join_query_guards(Tind,WhereTree,FullMap),
+    % io:format(user, "Join Guards (~p) ~p~n", [Tind,Guards]),
+    Result = '$_',
+    MatchSpec = [{MatchHead, Guards, [Result]}],
+    Binds = join_binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, Ti<Tind], Guards,[]),
+    build_join_spec(Tind-1, WhereTree, FullMap, [{MatchSpec,Binds}|Acc]).
+
+join_query_guards(Tind,WhereTree,FullMap) ->
+    [simplify(tree_walk(Tind,WhereTree,FullMap))].
+
+join_binds(_, [], []) -> [];
+join_binds(_, [true], []) -> [];
+join_binds([], _Guards, Acc) -> Acc;
+join_binds([{Tx,Ti,Ci}|Rest], [Guard], Acc) ->
+    case tree_member(Tx,Guard) of
+        true ->     join_binds(Rest,[Guard],[{Tx,Ti,Ci}|Acc]);
+        false ->    join_binds(Rest,[Guard],Acc)
+    end.
+
+tree_member(Tx,{_,R}) -> tree_member(Tx,R);
+tree_member(Tx,{_,Tx,_}) -> true;
+tree_member(Tx,{_,_,Tx}) -> true;
+tree_member(Tx,{_,L,R}) -> tree_member(Tx,L) orelse tree_member(Tx,R);
+tree_member(Tx,Tx) -> true;
+tree_member(_,_) -> false.
 
 master_query_guards([],_FullMap) -> [];
 master_query_guards(WhereTree,FullMap) ->
-    [tree_walk(1,WhereTree,FullMap)].
+    [simplify(tree_walk(1,WhereTree,FullMap))].
 
 tree_walk(_,<<"true">>,_FullMap) -> true;
 tree_walk(_,<<"false">>,_FullMap) -> false;
@@ -73,14 +105,41 @@ tree_walk(Ti,{'=',A,B},FullMap) ->
     comparison(Ti,'==',A,B,FullMap);
 tree_walk(Ti,{'<>',A,B},FullMap) ->
     comparison(Ti,'/=',A,B,FullMap);
+tree_walk(Ti,{'<',A,B},FullMap) ->
+    comparison(Ti,'<',A,B,FullMap);
 tree_walk(Ti,{'<=',A,B},FullMap) ->
     comparison(Ti,'=<',A,B,FullMap);
+tree_walk(Ti,{'>',A,B},FullMap) ->
+    comparison(Ti,'>',A,B,FullMap);
 tree_walk(Ti,{'>=',A,B},FullMap) ->
     comparison(Ti,'>=',A,B,FullMap);
 tree_walk(Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
     in_comparison(Ti,A,InList,FullMap);
- tree_walk(Ti,{Op,WC1,WC2},FullMap) ->
+tree_walk(Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(Ti,WC1,FullMap), tree_walk(Ti,WC2,FullMap)}.
+
+simplify(Term) ->
+    case  simplify_once(Term) of
+        Term -> Term;
+        T ->    simplify(T)
+    end.
+
+simplify_once({'or', true, _}) -> true; 
+simplify_once({'or', _, true}) -> true; 
+simplify_once({'or', false, false}) -> false; 
+simplify_once({'or', Left, false}) -> simplify_once(Left); 
+simplify_once({'or', false, Right}) -> simplify_once(Right); 
+simplify_once({'and', false, _}) -> false; 
+simplify_once({'and', _, false}) -> false; 
+simplify_once({'and', true, true}) -> true; 
+simplify_once({'and', Left, true}) -> simplify_once(Left); 
+simplify_once({'and', true, Right}) -> simplify_once(Right); 
+simplify_once({ Op, Left, Right}) -> {Op, simplify_once(Left), simplify_once(Right)};
+simplify_once({'not', true}) -> false; 
+simplify_once({'not', false}) -> true; 
+simplify_once({'not', Result}) -> {'not', simplify_once(Result)};
+simplify_once({ Op, Result}) -> {Op, Result};
+simplify_once(Result) -> Result.
 
 comparison(Ti,OP,{'fun',erl,[Param]},B,FullMap) -> 
     comparison(Ti,OP,Param,B,FullMap);
@@ -98,7 +157,21 @@ compguard(1, OP, {0,A,_,_,_,_,_},   {0,B,_,_,_,_,_}) ->     {OP,A,B};
 compguard(1, OP, {1,A,T,_,_,_,_},   {1,B,T,_,_,_,_}) ->     {OP,A,B};
 compguard(1, _,  {1,_,AT,_,_,_,AN}, {1,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(1, OP, {1,A,T,L,P,D,_},   {0,B,_,_,_,_,_}) ->     {OP,A,field_value(A,T,L,P,D,B)};
-compguard(1, OP, {0,A,_,_,_,_,_},   {1,B,T,L,P,D,_}) ->     {OP,field_value(B,T,L,P,D,A),B}.
+compguard(1, OP, {0,A,_,_,_,_,_},   {1,B,T,L,P,D,_}) ->     {OP,field_value(B,T,L,P,D,A),B};
+compguard(1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
+
+compguard(J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J -> ?UnimplementedException({"Unsupported join order",{A,B}});
+compguard(J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J -> ?UnimplementedException({"Unsupported join order",{A,B}});
+compguard(_, OP, {0,A,_,_,_,_,_},   {0,B,_,_,_,_,_}) ->     {OP,A,B};           
+compguard(J, OP, {J,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
+compguard(J, OP, {J,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->     {OP,A,B};
+compguard(J, OP, {_,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
+compguard(J, OP, {J,A,T,L,P,D,_},   {0,B,_,_,_,_,_}) ->     {OP,A,field_value(A,T,L,P,D,B)};
+compguard(J, OP, {0,A,_,_,_,_,_},   {J,B,T,L,P,D,_}) ->     {OP,field_value(B,T,L,P,D,A),B};
+compguard(J, _,  {J,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
+compguard(J, _,  {J,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
+compguard(J, _,  {_,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
+compguard(_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->     true.
 
 in_comparison(Ti,A,InList,FullMap) ->
     in_comparison_loop(Ti,field_lookup(A,FullMap),InList,FullMap).
@@ -248,13 +321,13 @@ test_with_or_without_sec(IsSec) ->
 
         Sql3 = "select name(qname) from Imem.ddTable",
         io:format(user, "Query: ~p~n", [Sql3]),
-        {ok, _Clm3, RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
+        {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         Result3 = receive 
             R3 ->    R3
         end,
         {StmtRef3, {List3, true}} = Result3,
-        io:format(user, "Result: (~p)~n~p~n", [length(List3),[tl(R)|| R <- lists:map(RowFun3,List3)]]),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List3),[tl(R)|| R <- lists:map(_RowFun3,List3)]]),
         ?assertEqual(AllTableCount, length(List3)),
 
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
@@ -262,7 +335,7 @@ test_with_or_without_sec(IsSec) ->
             R3a ->    R3a
         end,
         {StmtRef3, {List3a, true}} = Result3a,
-        % io:format(user, "Result: (~p) reread~n~p~n", [length(List3a),lists:map(RowFun3,List3a)]),
+        % io:format(user, "Result: (~p) reread~n~p~n", [length(List3a),lists:map(_RowFun3,List3a)]),
         ?assertEqual(AllTableCount, length(List3a)),
 
         List3b = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
@@ -298,6 +371,14 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef3)),
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef4)),
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef5)),
+
+        Sql11 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1",
+        io:format(user, "Query: ~p~n", [Sql11]),
+        {ok, _Clm11, _RowFun11, StmtRef11} = imem_sql:exec(SKey, Sql11, 100, 'Imem', IsSec),
+        List11 = imem_statement:fetch_recs_sort(SKey, StmtRef11, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List11),lists:map(_RowFun11,List11)]),
+        ?assertEqual(3, length(List11)),
+
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 

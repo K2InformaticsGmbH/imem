@@ -207,7 +207,7 @@ grant_quota(SeCo, #ddRole{id=ToRoleId}=ToRole, QuotaId, Value) ->
 grant_quota(SeCo, ToRoleId, QuotaId, Value) ->
    case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     #ddRole{quotas=Quotas} = ToRole = get(SeCo, ToRoleId),
-                    OtherQuotas = lists:key_delete(QuotaId, 1, Quotas),
+                    OtherQuotas = lists:keydelete(QuotaId, 1, Quotas),
                     update(SeCo,ToRole,ToRole#ddRole{quotas=lists:append(OtherQuotas, [{QuotaId,Value}])});   
         false ->    ?SecurityException({"Grant quota unauthorized",SeCo})
     end.
@@ -226,7 +226,7 @@ revoke_quota(SeCo, #ddRole{id=FromRoleId}=FromRole, QuotaId) ->
 revoke_quota(SeCo, FromRoleId, QuotaId) -> 
     case imem_seco:have_permission(SeCo, manage_accounts) of
         true ->     #ddRole{quotas=Quotas} = FromRole = get(SeCo, FromRoleId),
-                    update(SeCo,FromRole,FromRole#ddRole{quotas=lists:key_delete(QuotaId, 1, Quotas)});   
+                    update(SeCo,FromRole,FromRole#ddRole{quotas=lists:keydelete(QuotaId, 1, Quotas)});   
         false ->    ?SecurityException({"Revoke quota unauthorized",SeCo})
     end.
 
