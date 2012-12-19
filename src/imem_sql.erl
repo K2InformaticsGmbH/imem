@@ -172,7 +172,8 @@ column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
         [] ->                       ?ClientError({"Table does not exist",{Schema,Table}})
     end,
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
-    column_map(Tables, Columns, Tindex+1, L++Lookup, Meta, Acc);
+    % io:format(user, "column_map lookup ~p~n", [Lookup++L]),
+    column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     Cmaps = [ Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, name=N} || {Ti, Ci, S, T, N, #ddColumn{type=Type, length=Len, precision=P}} <- Lookup],
@@ -358,7 +359,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, "Imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_2])),    
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table meta_table_3 (a char, d integer, c1 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "Imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
         io:format(user, "success ~p~n", [create_tables]),
 
@@ -413,7 +414,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertMatch([_,_,_,_,_,_], column_map([Table1, Table3], [#ddColMap{name='*'}])),
         io:format(user, "success ~p~n", [columns_13_join]),
 
-        ?assertMatch([_,_,_,_,_,_,_,_], column_map([Table1, Table2, Table3], [#ddColMap{name='*'}])),
+        Cmap3 = column_map([Table1, Table2, Table3], [#ddColMap{name='*'}]),
+        % io:format(user, "ColMap3 ~p~n", [Cmap3]),        
+        ?assertMatch([_,_,_,_,_,_,_,_], Cmap3),
+        ?assertEqual(lists:sort(Cmap3), Cmap3),
         io:format(user, "success ~p~n", [columns_123_join]),
 
         ?assertMatch([_,_,_,_,_,_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{name='*'}])),

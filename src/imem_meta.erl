@@ -59,9 +59,10 @@
         , truncate_table/1  %% truncate table
         , read/1            %% read whole table, only use for small tables 
         , read/2            %% read by key
-        , select/1          %% contiunation block read
         , select/2          %% select without limit, only use for small result sets
         , select/3          %% select with limit
+        , select_sort/2
+        , select_sort/3
         , insert/2    
         , write/2           %% write single key
         , delete/2          %% delete rows by key
@@ -450,8 +451,13 @@ select(user_tables, MatchSpec, Limit) ->
 select(Table, MatchSpec, Limit) ->
     imem_if:select(Table, MatchSpec, Limit).
 
-select(Continuation) ->
-    imem_if:select(Continuation).
+select_sort(Table, MatchSpec)->
+    {L, true} = select(Table, MatchSpec),
+    {lists:sort(L), true}.
+
+select_sort(Table, MatchSpec, Limit) ->
+    {Result, AllRead} = select(Table, MatchSpec, Limit),
+    {lists:sort(Result), AllRead}.
 
 write({_Schema,Table}, Record) -> 
     write(Table, Record);           %% ToDo: may depend on schema 

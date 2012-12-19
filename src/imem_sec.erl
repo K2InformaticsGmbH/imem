@@ -30,9 +30,6 @@
 
 -export([ update_opts/3
         , add_attribute/3
-        , localTimeToSysDate/2
-        , nowToSysTimeStamp/2
-        , value_cast/9
         ]).
 
 -export([ authenticate/4
@@ -47,7 +44,6 @@
         , truncate_table/2
         , read/2
         , read/3
-        , select/2
         , select/3
         , select/4
         , insert/3    
@@ -157,15 +153,6 @@ add_attribute(_SKey, A, Opts) ->
 update_opts(_SKey, T, Opts) ->
     imem_meta:update_opts(T, Opts).
 
-localTimeToSysDate(_SKey, LTime) -> 
-    imem_meta:localTimeToSysDate(LTime).
-
-nowToSysTimeStamp(_SKey, Now) -> 
-    imem_meta:nowToSysTimeStamp(Now).
-
-value_cast(_SKey,Item,Old,Type,Len,Prec,Def,RO,Val) ->
-    imem_meta:value_cast(Item,Old,Type,Len,Prec,Def,RO,Val).
-
 %% imem_if but security context added --- META INFORMATION ------
 
 schema(SKey) ->
@@ -190,7 +177,7 @@ meta_field_value(SKey, Name) ->
     if_meta_field_value(SKey, Name).
 
 column_map(_SKey, Tables, Columns) ->
-    imem_sql:columns_map(Tables, Columns).
+    imem_sql:column_map(Tables, Columns).
 
 column_infos(_SKey, Table) ->
     imem_meta:column_infos(Table).
@@ -256,26 +243,26 @@ update_tables(_SKey, UpdatePlan, Lock) ->
     imem_meta:update_tables(UpdatePlan, Lock).
 
 
-pretty_type(_SKey,Type) -> imem_meta:pretty_type(Type).
-string_to_integer(_SKey,Val,Len,Prec) -> imem_meta:string_to_integer(Val,Len,Prec).
-string_to_float(_SKey,Val,Prec) -> imem_meta:string_to_float(Val,Prec).
-string_to_double(_SKey,Val,Prec) -> imem_meta:string_to_double(Val,Prec).
-string_to_edatetime(_SKey,Val) -> imem_meta:string_to_edatetime(Val).
-string_to_etimestamp(_SKey,Val) -> imem_meta:string_to_etimestamp(Val).
-string_to_eipaddr(_SKey,Val,Len) -> imem_meta:string_to_eipaddr(Val,Len).
-string_to_elist(_SKey,Val,Len) -> imem_meta:string_to_elist(Val,Len).
-string_to_ebinary(_SKey,Val,Len) -> imem_meta:string_to_ebinary(Val,Len).
-string_to_etuple(_SKey,Val,Len) -> imem_meta:string_to_etuple(Val,Len).
-string_to_number(_SKey,Val,Len,Prec) -> imem_meta:string_to_number(Val,Len,Prec).
-string_to_decimal(_SKey,Val,Len,Prec) -> imem_meta:string_to_decimal(Val,Len,Prec).
-string_to_set(_SKey,Val,Len) -> imem_meta:string_to_set(Val,Len).
-string_to_enum(_SKey,Val,Len) -> imem_meta:string_to_enum(Val,Len).
-string_to_fun(_SKey,Val,Len) -> imem_meta:string_to_fun(Val,Len).
-string_to_date(_SKey,Val) -> imem_meta:string_to_date(Val).
-string_to_time(_SKey,Val) -> imem_meta:string_to_time(Val).
-string_to_timestamp(_SKey,Val,Prec) -> imem_meta:string_to_timestamp(Val,Prec).
-string_to_year(_SKey,Val) -> imem_meta:string_to_year(Val).
-string_to_eterm(_SKey,Val) -> imem_meta:string_to_eterm(Val).
+pretty_type(_SKey,Type) -> imem_datatype:pretty_type(Type).
+string_to_integer(_SKey,Val,Len,Prec) -> imem_datatype:string_to_integer(Val,Len,Prec).
+string_to_float(_SKey,Val,Prec) -> imem_datatype:string_to_float(Val,Prec).
+string_to_double(_SKey,Val,Prec) -> imem_datatype:string_to_double(Val,Prec).
+string_to_edatetime(_SKey,Val) -> imem_datatype:string_to_edatetime(Val).
+string_to_etimestamp(_SKey,Val) -> imem_datatype:string_to_etimestamp(Val).
+string_to_eipaddr(_SKey,Val,Len) -> imem_datatype:string_to_eipaddr(Val,Len).
+string_to_elist(_SKey,Val,Len) -> imem_datatype:string_to_elist(Val,Len).
+string_to_ebinary(_SKey,Val,Len) -> imem_datatype:string_to_ebinary(Val,Len).
+string_to_etuple(_SKey,Val,Len) -> imem_datatype:string_to_etuple(Val,Len).
+string_to_number(_SKey,Val,Len,Prec) -> imem_datatype:string_to_number(Val,Len,Prec).
+string_to_decimal(_SKey,Val,Len,Prec) -> imem_datatype:string_to_decimal(Val,Len,Prec).
+string_to_set(_SKey,Val,Len) -> imem_datatype:string_to_set(Val,Len).
+string_to_enum(_SKey,Val,Len) -> imem_datatype:string_to_enum(Val,Len).
+string_to_fun(_SKey,Val,Len) -> imem_datatype:string_to_fun(Val,Len).
+string_to_date(_SKey,Val) -> imem_datatype:string_to_date(Val).
+string_to_time(_SKey,Val) -> imem_datatype:string_to_time(Val).
+string_to_timestamp(_SKey,Val,Prec) -> imem_datatype:string_to_timestamp(Val,Prec).
+string_to_year(_SKey,Val) -> imem_datatype:string_to_year(Val).
+string_to_eterm(_SKey,Val) -> imem_datatype:string_to_eterm(Val).
 
 
 transaction(_SKey, Function) ->
@@ -460,10 +447,6 @@ select_filter_user(SKey, [TableQN|Tail], Acc0) ->
         false ->    Acc0
     end,  
     select_filter_user(SKey, Tail, Acc1).
-
-
-select(_SKey, Continuation) ->
-        imem_meta:select(Continuation).
 
 select(SKey, dba_tables, MatchSpec) ->
     case imem_seco:have_permission(SKey, [manage_system_tables]) of
