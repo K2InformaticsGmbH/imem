@@ -296,21 +296,36 @@ join_rows(Rows, FetchCtx0, Stmt) ->
 join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
 join_rows(_, _, _, Remaining, _, _, Acc) when Remaining < 1 -> Acc;    %% lists:reverse(Acc);
 join_rows([Row|Rows], MetaRec, BlockSize, Remaining, Tables, JoinSpec, Acc) ->
-    JAcc = join_row([{Row}], MetaRec, BlockSize, Tables, JoinSpec),
-    join_rows([Row|Rows], MetaRec, BlockSize, Remaining-length(JAcc), Tables, JoinSpec, [JAcc|Acc]).
+    Rec = erlang:make_tuple(length(Tables)+2, undefined, [{1,Row},{2+length(Tables),MetaRec}]),
+    JAcc = join_row([Rec], BlockSize, 2, Tables, JoinSpec),
+    join_rows(Rows, MetaRec, BlockSize, Remaining-length(JAcc), Tables, JoinSpec, JAcc++Acc).
 
-join_row(Recs, MetaRec, _BlockSize, [], []) -> 
-    [erlang:append_element(R, MetaRec)||R <- Recs];
-join_row(Recs, MetaRec, BlockSize, [{_S,Tab,_A}|Tabs], [{MatchSpec,[]}|JSpecs]) ->
-    case imem_meta:select(Tab, MatchSpec) of
+join_row(Recs, _BlockSize, _, [], []) -> Recs;
+join_row(Recs0, BlockSize, T, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
+    Recs1 = [join_table(Rec, BlockSize, T, Table, JS) || Rec <- Recs0],
+    join_row(lists:flatten(Recs1), BlockSize, T+1, Tabs, JSpecs).
+
+join_table(Rec, BlockSize, T, Table, {MatchSpec,[]}) ->
+    case imem_meta:select(Table, MatchSpec, BlockSize) of
         {[], true} ->   
             [];
         {L, true} ->
-            join_row([erlang:append_element(Recs, I)||I <- L], MetaRec, BlockSize, Tabs, JSpecs)
-    end;   
-join_row(Recs, MetaRec, BlockSize, Tables, [{MatchSpec0,[{Tag,Ti,Ci}|Binds]}|JSpecs]) ->
-    MatchSpec1 = MatchSpec0,        %% ToDo bind Tag  $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-    join_row(Recs, MetaRec, BlockSize, Tables, [{MatchSpec1,Binds}|JSpecs]).
+            [setelement(T, Rec, I) || I <- L]
+    end;
+join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
+    [{MatchHead, [Guard], [Result]}] = MatchSpec0,
+    io:format(user, "Rec before bind ~p~n", [Rec]),
+    io:format(user, "MatchSpec before bind ~p~n", [MatchSpec0]),
+    MatchSpec1 = [{MatchHead, [join_bind(Rec, Guard, {Tag,Ti,Ci})], [Result]}],
+    io:format(user, "MatchSpec after bind ~p~n", [MatchSpec1]),
+    join_table(Rec, BlockSize, T, Table, {MatchSpec1, Binds}).
+
+join_bind(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
+join_bind(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind(Rec,A,{Tag,Ti,Ci})};
+join_bind(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  {Op,element(Ci,element(Ti,Rec)),B};
+join_bind(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  {Op,A,element(Ci,element(Ti,Rec))};
+join_bind(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->    {Op,join_bind(Rec,A,{Tag,Ti,Ci}),join_bind(Rec,B,{Tag,Ti,Ci})};
+join_bind(_, A, _) ->                       A.
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},

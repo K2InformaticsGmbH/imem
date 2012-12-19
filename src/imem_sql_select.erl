@@ -372,13 +372,25 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef4)),
         ?assertEqual(ok, imem_statement:close(SKey, StmtRef5)),
 
-        Sql11 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1",
+        Sql11 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1 and t2.col1 <> 9 ", %% and t2.col1 <= t1.col1 + 2 
         io:format(user, "Query: ~p~n", [Sql11]),
         {ok, _Clm11, _RowFun11, StmtRef11} = imem_sql:exec(SKey, Sql11, 100, 'Imem', IsSec),
         List11 = imem_statement:fetch_recs_sort(SKey, StmtRef11, self(), Timeout, IsSec),
         io:format(user, "Result: (~p)~n~p~n", [length(List11),lists:map(_RowFun11,List11)]),
-        ?assertEqual(3, length(List11)),
-
+%        io:format(user, "Result: (~p)~n~p~n", [length(List11),List11]),
+        ?assertEqual(9, length(List11)),
+        % 5,6
+        % 5,7
+        % 5,8 --
+        % 5,9 --
+        % 5,10 --
+        % 6,7
+        % 6,8
+        % 6,9 -- 
+        % 6,10 -- 
+        % 7,8
+        % 7,9 -- 
+        % 7,10 --
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 
