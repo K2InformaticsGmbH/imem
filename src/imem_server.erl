@@ -77,14 +77,17 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf, native_if_mod=_Mod, is_secure=_Is
             {noreply, State#state{buf=NewBuf}};
         [Mod,Fun|Args] ->
             % replace penultimate pid wih socket (if present)
+            % io:format(user, "call ~p:~p(~p)~n", [Mod,Fun,Args]),
             case Fun of
                 fetch_recs_async ->
                     NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
-                    %io:format(user, "call ~p:~p(~p)~n", [Mod,Fun,NewArgs]),
                     catch apply(Mod,Fun,NewArgs);
                 _ ->
-                    %io:format(user, "call ~p:~p(~p)~n", [Mod,Fun,Args]),
-                    send_resp(catch apply(Mod,Fun,Args), Sock)
+                    ApplyRes = try apply(Mod,Fun,Args)
+                    catch 
+                        _Class:Reason -> {error, Reason}
+                    end,
+                    send_resp(ApplyRes, Sock)
             end,
             %send_resp(catch apply(Mod,Fun,NewArgs), Sock),
             {noreply, State#state{buf= <<>>}}
