@@ -77,28 +77,6 @@
         , return_atomic/2
         ]).
 
--export([ pretty_type/2
-        , string_to_date/2
-        , string_to_decimal/4
-        , string_to_double/3
-        , string_to_ebinary/3
-        , string_to_edatetime/2
-        , string_to_eipaddr/3
-        , string_to_elist/3
-        , string_to_enum/3
-        , string_to_eterm/2
-        , string_to_etimestamp/2
-        , string_to_etuple/3
-        , string_to_float/3
-        , string_to_fun/3
-        , string_to_integer/4
-        , string_to_number/4
-        , string_to_set/3
-        , string_to_time/2
-        , string_to_timestamp/3
-        , string_to_year/2
-        ]).
-
 -export([ have_table_permission/3   %% includes table ownership and readonly
         , have_permission/2    
         ]).
@@ -241,29 +219,6 @@ unsubscribe(_SKey, EventCategory) ->
 update_tables(_SKey, UpdatePlan, Lock) ->
     %% ToDo: Plan must be checked against permissions
     imem_meta:update_tables(UpdatePlan, Lock).
-
-
-pretty_type(_SKey,Type) -> imem_datatype:pretty_type(Type).
-string_to_integer(_SKey,Val,Len,Prec) -> imem_datatype:string_to_integer(Val,Len,Prec).
-string_to_float(_SKey,Val,Prec) -> imem_datatype:string_to_float(Val,Prec).
-string_to_double(_SKey,Val,Prec) -> imem_datatype:string_to_double(Val,Prec).
-string_to_edatetime(_SKey,Val) -> imem_datatype:string_to_edatetime(Val).
-string_to_etimestamp(_SKey,Val) -> imem_datatype:string_to_etimestamp(Val).
-string_to_eipaddr(_SKey,Val,Len) -> imem_datatype:string_to_eipaddr(Val,Len).
-string_to_elist(_SKey,Val,Len) -> imem_datatype:string_to_elist(Val,Len).
-string_to_ebinary(_SKey,Val,Len) -> imem_datatype:string_to_ebinary(Val,Len).
-string_to_etuple(_SKey,Val,Len) -> imem_datatype:string_to_etuple(Val,Len).
-string_to_number(_SKey,Val,Len,Prec) -> imem_datatype:string_to_number(Val,Len,Prec).
-string_to_decimal(_SKey,Val,Len,Prec) -> imem_datatype:string_to_decimal(Val,Len,Prec).
-string_to_set(_SKey,Val,Len) -> imem_datatype:string_to_set(Val,Len).
-string_to_enum(_SKey,Val,Len) -> imem_datatype:string_to_enum(Val,Len).
-string_to_fun(_SKey,Val,Len) -> imem_datatype:string_to_fun(Val,Len).
-string_to_date(_SKey,Val) -> imem_datatype:string_to_date(Val).
-string_to_time(_SKey,Val) -> imem_datatype:string_to_time(Val).
-string_to_timestamp(_SKey,Val,Prec) -> imem_datatype:string_to_timestamp(Val,Prec).
-string_to_year(_SKey,Val) -> imem_datatype:string_to_year(Val).
-string_to_eterm(_SKey,Val) -> imem_datatype:string_to_eterm(Val).
-
 
 transaction(_SKey, Function) ->
     imem_meta:transaction(Function).

@@ -20,10 +20,8 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) ->
     {T,L,P} = case Type of
         A when is_atom(A) ->        {A,0,0};
-        {double,SPrec} ->           {double,0,list_to_integer(SPrec)};
         {float,SPrec} ->            {float,0,list_to_integer(SPrec)};
         {timestamp,SPrec} ->        {timestamp,0,list_to_integer(SPrec)};
-        {time,SPrec} ->             {time,0,list_to_integer(SPrec),0};
         {Typ,SLen} ->               {Typ,list_to_integer(SLen),0};
         {Typ,SLen,SPrec} ->         {Typ,list_to_integer(SLen),list_to_integer(SPrec)};
         Else ->                     ?SystemException({"Unexpected parse tree structure",Else})
@@ -40,7 +38,7 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
                 {match,[Body]} ->
                     try 
                         % io:format(user,"body ~p~n", [Body]),
-                        {imem_datatype:string_to_eterm(Body),lists:keydelete(default, 1, COpts)}
+                        {imem_datatype:string_to_term(Body),lists:keydelete(default, 1, COpts)}
                     catch
                         _:_ ->  try
                                     % io:format(user,"str ~p~n", [Str]),
@@ -51,7 +49,7 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
                                 end
                     end;
                 nomatch ->  
-                    {imem_datatype:string_to_eterm(Str),lists:keydelete(default, 1, COpts)}
+                    {imem_datatype:string_to_term(Str),lists:keydelete(default, 1, COpts)}
             end
     end,
     C = #ddColumn{  name=?binary_to_atom(Name)
@@ -111,11 +109,11 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
-        Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 elist default fun() -> [] end.);",
+        Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [] end.);",
         Expected = 
-                [   {ddColumn,col1,varchar,10,0,?nav,[]},
-                    {ddColumn,col2,int,0,0,12,[]},
-                    {ddColumn,col3,elist,0,0,[],[]}
+                [   {ddColumn,col1,string,10,0,?nav,[]},
+                    {ddColumn,col2,integer,0,0,12,[]},
+                    {ddColumn,col3,list,0,0,[],[]}
                 ],
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, 'Imem', IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),

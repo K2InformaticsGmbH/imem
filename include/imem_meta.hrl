@@ -1,8 +1,8 @@
 
 -include("imem_if.hrl").
 
--type ddEntityId() :: 	reference() | atom().
--type ddType() ::		atom(). 			%% any | list | tuple | integer | float | binary | string | json | xml                  
+-type ddEntityId() :: 	reference() | integer() | atom().
+-type ddType() ::		atom(). 			%% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 -type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
 -type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 
@@ -45,7 +45,7 @@
                     , rowfun                        ::fun()             %% rendering fun for row {table recs} -> [field values]
                     , joinfun                       ::fun()             %% fun for merging rows for joined tables [] -> {table recs} -> [field values]
                     , matchspec = undefined         ::list()            %% how to find master records
-                    , joinspec = []                 ::list()            %% how to find joined records
+                    , joinspec = []                 ::list()            %% how to find joined records list({MatchSpec,Binds})
                     }).
 
 -record(ddTable,                            %% table    
@@ -56,7 +56,7 @@
                   , readonly='false'        ::'true' | 'false'
                   }
        ).
--define(ddTable, [tuple,list,list,any,boolean]).
+-define(ddTable, [tuple,list,list,term,boolean]).
 
 -record(dual,                               %% table    
                   { x                       ::integer()   

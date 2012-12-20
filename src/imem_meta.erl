@@ -571,9 +571,9 @@ meta_operations(_) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
-        Types1 =    [ #ddColumn{name=a, type=estring, length=10}     %% key
-                    , #ddColumn{name=b1, type=estring, length=20}    %% value 1
-                    , #ddColumn{name=c1, type=estring, length=30}    %% value 2
+        Types1 =    [ #ddColumn{name=a, type=string, length=10}     %% key
+                    , #ddColumn{name=b1, type=string, length=20}    %% value 1
+                    , #ddColumn{name=c1, type=string, length=30}    %% value 2
                     ],
         Types2 =    [ #ddColumn{name=a, type=integer, length=10}    %% key
                     , #ddColumn{name=b2, type=float, length=8, precision=3}   %% value

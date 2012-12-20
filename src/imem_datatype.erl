@@ -7,49 +7,57 @@
 -export([ value_to_db/8
         , db_to_string/6
         , db_to_gui/6
+        , strip_quotes/1
         ]).
 
--export([ pretty_type/1
-        , raw_type/1
-        , string_to_date/1
+%   datatypes
+%   internal    aliases (synonyms)
+%   --------------------------------------------
+%   atom
+%   binary      raw(L), blob(L), rowid
+%   binstr      clob(L), nclob(L)
+%   boolean
+%   datetime    date
+%   decimal     number(Len,Prec)
+%   float
+%   fun
+%   integer     int
+%   ipaddr
+%   list
+%   pid
+%   ref
+%   string      varchar2(L), nvarchar2(L), char(L), nchar(L)
+%   term
+%   timestamp
+%   tuple
+
+
+-export([ raw_type/1
+        , string_to_binary/2
+        , string_to_datetime/1
         , string_to_decimal/3
-        , string_to_double/2
-        , string_to_ebinary/2
-        , string_to_edatetime/1
-        , string_to_eipaddr/2
-        , string_to_elist/2
-        , string_to_enum/2
-        , string_to_eterm/1
-        , string_to_etimestamp/1
-        , string_to_etuple/2
         , string_to_float/2
         , string_to_fun/2
         , string_to_integer/3
-        , string_to_number/3
-        , string_to_set/2
-        , string_to_time/1
+        , string_to_ipaddr/2
+        , string_to_list/2
+        , string_to_term/1
+        , string_to_timestamp/1
         , string_to_timestamp/2
-        , string_to_year/1
+        , string_to_tuple/2
         ]).
 
--export([ date_to_string/1
-        , date_to_string/2
+-export([ atom_to_string/1
+        , binary_to_string/1
+        , binstr_to_string/2
+        , datetime_to_string/1
+        , datetime_to_string/2
         , decimal_to_string/2
-        , ebinary_to_string/1
-        , edatetime_to_string/1
-        , edatetime_to_string/2
-        , eipaddr_to_string/1
-        , etimestamp_to_string/2
-        , number_to_string/2
-        , time_to_string/1
-        , year_to_string/1
         , float_to_string/3
-        , double_to_string/3
-        , ebinstr_to_string/2
-        , enum_to_string/1
-        , estring_to_string/2
         , integer_to_string/2
-        , eatom_to_string/1
+        , ipaddr_to_string/1
+        , string_to_string/2
+        , timestamp_to_string/2
         ]).
 
 -export([ map/3
@@ -142,39 +150,14 @@ select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
 
 %% ----- DATA TYPES  with CamelCase  --------------------------------
 
-raw_type(integer) -> integer;
-raw_type(int) -> integer;
-raw_type(float) -> float;
+raw_type(binstr) -> binary;
+raw_type(string) -> list;
 raw_type(decimal) -> integer;
-raw_type(number) -> integer;
-raw_type(varchar) -> eString;
-raw_type(varchar2) -> eString;
-raw_type(blob) -> eBinary;
-raw_type(date) -> eDatetime;
-raw_type(time) -> eTuple;
-raw_type(year) -> integer;
-raw_type(timestamp) -> eTimestamp;
-raw_type(text) -> eString;
-raw_type(char) -> eString;
-raw_type(character) -> eString;
-raw_type(double) -> float;
-raw_type(Type) -> pretty_type(Type).
-
-pretty_type(etuple) -> eTuple;
-pretty_type(efun) -> eFun;
-pretty_type(ebinary) -> eBinary;
-pretty_type(elist) -> eList;
-pretty_type(eipaddr) -> eIpaddr;
-pretty_type(etimestamp) -> eTimestamp;
-pretty_type(edatetime) -> eDatetime;
-pretty_type(eatom) -> eAtom;
-pretty_type(ebinstr) -> eBinstr;
-pretty_type(eref) -> eRef;
-pretty_type(epid) -> ePid;
-pretty_type(estring) -> eString;
-pretty_type(eterm) -> eTerm;
-pretty_type(Type) -> Type.
-
+raw_type(datetime) -> tuple;
+raw_type(timestamp) -> tuple;
+raw_type(ipaddr) -> tuple;
+raw_type(boolean) -> atom;
+raw_type(Type) -> Type.
 
 %% ----- CAST Data to become compatible with DB  ------------------
 
@@ -192,69 +175,51 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
             IsString ->
                 DefAsStr = lists:flatten(io_lib:format("~p", [Def])),
                 OldAsStr = lists:flatten(io_lib:format("~p", [Old])),
+                Unquoted = strip_quotes(Val),
                 if 
-                    (DefAsStr == Val) ->    Def;
-                    (OldAsStr == Val) ->    Old;
-                    (Type == bigint) ->     string_to_integer(Val,Len,Prec);
-                    (Type == blob) ->       string_to_ebinary(Val,Len);
-                    (Type == character) ->  string_to_list(Val,map(Len,0,1));
-                    (Type == decimal) ->    string_to_decimal(Val,Len,Prec);
-                    (Type == date) ->       string_to_date(Val);
-                    (Type == double) ->     string_to_double(Val,Prec);
-                    (Type == eatom) ->      list_to_atom(Val);
-                    (Type == ebinary) ->    string_to_ebinary(Val,Len);
-                    (Type == ebinstr) ->    list_to_binary(Val);
-                    (Type == edatetime) ->  string_to_edatetime(Val);
-                    (Type == efun) ->       string_to_fun(Val,Len);
-                    (Type == eipaddr) ->    string_to_eipaddr(Val,Len);
-                    (Type == elist) ->      string_to_elist(Val,Len);
-                    (Type == enum) ->       string_to_enum(Val,Len);
-                    (Type == epid) ->       list_to_pid(Val);
-                    (Type == eref) ->       Old;    %% cannot convert back
-                    (Type == estring) ->    string_to_list(Val,Len);
-                    (Type == etimestamp) -> string_to_etimestamp(Val); 
-                    (Type == etuple) ->     string_to_etuple(Val,Len);
-                    (Type == float) ->      string_to_float(Val,Prec);
-                    (Type == int) ->        string_to_integer(Val,Len,Prec);
-                    (Type == integer) ->    string_to_integer(Val,Len,Prec);
-                    (Type == longblob) ->   string_to_ebinary(Val,Len);
-                    (Type == longtext) ->   string_to_list(Val,map(Len,0,4294967295));
-                    (Type == mediumint) ->  string_to_integer(Val,Len,Prec);
-                    (Type == mediumtext) -> string_to_list(Val,map(Len,0,16777215));
-                    (Type == number) ->     string_to_number(Val,Len,Prec);
-                    (Type == numeric) ->    string_to_number(Val,Len,Prec);
-                    (Type == set) ->        string_to_set(Val,Len);
-                    (Type == smallint) ->   string_to_integer(Val,Len,Prec);
-                    (Type == text) ->       string_to_list(Val,map(Len,0,65535));
-                    (Type == time) ->       string_to_time(Val);
-                    (Type == timestamp) ->  string_to_timestamp(Val,Prec);
-                    (Type == tinyint) ->    string_to_integer(Val,Len,Prec);
-                    (Type == tinytext) ->   string_to_list(Val,map(Len,0,255));
-                    (Type == char) ->       string_to_list(Val,map(Len,0,1));
-                    (Type == varchar) ->    string_to_list(Val,map(Len,0,255));
-                    (Type == varchar2) ->   string_to_list(Val,map(Len,0,4000));
-                    (Type == year) ->       string_to_year(Val);                    
-                    true ->                 string_to_eterm(Val)   
+                    (DefAsStr == Unquoted) ->   Def;
+                    (DefAsStr == Val) ->        Def;
+                    (OldAsStr == Unquoted) ->   Old;
+                    (OldAsStr == Val) ->        Old;
+                    (Type == 'fun') ->          string_to_fun(Unquoted,Len);
+                    (Type == atom) ->           list_to_atom(Unquoted);
+                    (Type == binary) ->         string_to_binary(Unquoted,Len);
+                    (Type == binstr) ->         list_to_binary(Unquoted);
+                    (Type == blob) ->           string_to_binary(Unquoted,Len);
+                    (Type == datetime) ->       string_to_datetime(Unquoted);
+                    (Type == decimal) ->        string_to_decimal(Val,Len,Prec);
+                    (Type == float) ->          string_to_float(Val,Prec);
+                    (Type == integer) ->        string_to_integer(Val,Len,Prec);
+                    (Type == ipaddr) ->         string_to_ipaddr(Unquoted,Len);
+                    (Type == list) ->           string_to_list(Unquoted,Len);
+                    (Type == pid) ->            list_to_pid(Unquoted);
+                    (Type == ref) ->            Old;    %% cannot convert back
+                    (Type == string) ->         string_to_limited_string(Unquoted,Len);
+                    (Type == timestamp) ->      string_to_timestamp(Unquoted,Prec); 
+                    (Type == tuple) ->          string_to_tuple(Unquoted,Len);
+                    true ->                     string_to_term(Unquoted)   
                 end;
             true -> Val
         end
     catch
         _:{'UnimplementedException',_} ->       ?ClientError({"Unimplemented data type conversion",{Item,{Type,Val}}});
         _:{'ClientError', {Text, Reason}} ->    ?ClientError({Text, {Item,Reason}});
-        _:_ ->                                  ?ClientError({"Data conversion format error",{Item,{pretty_type(Type),Val}}})
+        _:_ ->                                  ?ClientError({"Data conversion format error",{Item,{Type,Val}}})
     end;
 value_to_db(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.    
 
-
-string_to_list(Val,Len) ->
+strip_quotes([]) -> [];
+strip_quotes([H]) -> [H];
+strip_quotes([H|T]=Str) ->
+    L = lists:last(T),
     if 
-        Len == 0 ->             Val;
-        length(Val) > Len ->    ?ClientError({"Data conversion format error",{string,Len,Val}});
-        true ->                 Val
+        H == $" andalso L == $" ->  lists:sublist(T, length(T)-1);
+        H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
+        true ->                     Str
     end.
 
 string_to_integer(Val,Len,Prec) ->
-    Value = case string_to_eterm(Val) of
+    Value = case string_to_term(Val) of
         V when is_integer(V) -> V;
         V when is_float(V) ->   erlang:round(V);
         _ ->                    ?ClientError({"Data conversion format error",{integer,Len,Prec,Val}})
@@ -272,7 +237,7 @@ string_to_integer(Val,Len,Prec) ->
     end.
 
 string_to_float(Val,Prec) ->
-    Value = case string_to_eterm(Val) of
+    Value = case string_to_term(Val) of
         V when is_float(V) ->   V;
         V when is_integer(V) -> float(V);
         _ ->                    ?ClientError({"Data conversion format error",{float,Prec,Val}})
@@ -282,29 +247,11 @@ string_to_float(Val,Prec) ->
         true ->         erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec)
     end.
 
-string_to_set(_Val,_Len) -> ?UnimplementedException({}).
-string_to_enum(_Val,_Len) -> ?UnimplementedException({}).
-string_to_double(_Val,_Prec) -> ?UnimplementedException({}).  %% not in erlang:math ??
-string_to_ebinary(_Val,_Len) -> ?UnimplementedException({}).
+string_to_binary(_Val,_Len) -> ?UnimplementedException({}).
 
-string_to_date(Val) -> 
-    string_to_edatetime(Val).
 
-string_to_time("systime") ->
-    string_to_time("localtime");
-string_to_time("sysdate") ->
-    string_to_time("localtime");
-string_to_time("now") ->
-    string_to_time("localtime");
-string_to_time("localtime") -> 
-    {_,Time} = string_to_edatetime("localtime"),
-    Time;
-string_to_time(Val) -> 
-    try
-        parse_time(Val)
-    catch
-        _:_ ->  ?ClientError({"Data conversion format error",{eTime,Val}})
-    end.
+string_to_timestamp(TS) ->
+    string_to_timestamp(TS,6).
 
 string_to_timestamp("systime",Prec) ->
     string_to_timestamp("now",Prec);
@@ -314,29 +261,29 @@ string_to_timestamp("now",Prec) ->
     {Megas,Secs,Micros} = erlang:now(),    
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};  
 string_to_timestamp(Val,6) ->
-    string_to_etimestamp(Val); 
+    string_to_timestamp(Val); 
 string_to_timestamp(Val,0) ->
-    {Megas,Secs,_} = string_to_etimestamp(Val),
+    {Megas,Secs,_} = string_to_timestamp(Val),
     {Megas,Secs,0};
 string_to_timestamp(Val,Prec) when Prec > 0 ->
-    {Megas,Secs,Micros} = string_to_etimestamp(Val),
+    {Megas,Secs,Micros} = string_to_timestamp(Val),
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
 string_to_timestamp(Val,Prec) when Prec < 0 ->
-    {Megas,Secs,_} = string_to_etimestamp(Val),
+    {Megas,Secs,_} = string_to_timestamp(Val),
     {Megas,erlang:round(erlang:round(math:pow(10, -Prec) * Secs) * erlang:round(math:pow(10,Prec))),0}.  
 
-string_to_edatetime("today") ->
-    {Date,_} = string_to_edatetime("localtime"),
+string_to_datetime("today") ->
+    {Date,_} = string_to_datetime("localtime"),
     {Date,{0,0,0}}; 
-string_to_edatetime("systime") ->
-    string_to_edatetime("localtime"); 
-string_to_edatetime("sysdate") ->
-    string_to_edatetime("localtime"); 
-string_to_edatetime("now") ->
-    string_to_edatetime("localtime"); 
-string_to_edatetime("localtime") ->
+string_to_datetime("systime") ->
+    string_to_datetime("localtime"); 
+string_to_datetime("sysdate") ->
+    string_to_datetime("localtime"); 
+string_to_datetime("now") ->
+    string_to_datetime("localtime"); 
+string_to_datetime("localtime") ->
     erlang:localtime(); 
-string_to_edatetime(Val) ->
+string_to_datetime(Val) ->
     try 
         case re:run(Val,"[\/\.\-]+",[{capture,all,list}]) of
             {match,["."]} ->    
@@ -462,50 +409,26 @@ validate_date(Date) ->
         false ->    ?ClientError({})
     end.    
 
-string_to_year(Val) -> 
-    try     
-        parse_year(Val)
-    catch
-        _:_ ->  ?ClientError({"Data conversion format error",{year,Val}})
-    end.    
-
-string_to_etimestamp("sysdate") ->
-    erlang:now();
-string_to_etimestamp("now") ->
-    erlang:now();
-string_to_etimestamp(Val) ->
-    try     
-        case string:tokens(Val, ":") of
-            [Megas,Secs,Micros] ->  {list_to_integer(Megas),list_to_integer(Secs),list_to_integer(Micros)};
-            _ ->                    ?ClientError({})
-        end
-    catch
-        _:_ ->  ?ClientError({"Data conversion format error",{eTimestamp,Val}})
-    end.    
-
-string_to_eipaddr(Val,Len) ->
+string_to_ipaddr(Val,Len) ->
     Result = try 
         [ip_item(Item) || Item <- string:tokens(Val, ".")]
     catch
-        _:_ -> ?ClientError({"Data conversion format error",{eIpaddr,Len,Val}})
+        _:_ -> ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
     end,
     RLen = length(lists:flatten(Result)),
     if 
         Len == 0 andalso RLen == 4 ->   list_to_tuple(Result);
         Len == 0 andalso RLen == 6 ->   list_to_tuple(Result);
         Len == 0 andalso RLen == 8 ->   list_to_tuple(Result);
-        RLen /= Len ->                  ?ClientError({"Data conversion format error",{eIpaddr,Len,Val}});
+        RLen /= Len ->                  ?ClientError({"Data conversion format error",{ipaddr,Len,Val}});
         true ->                         list_to_tuple(Result)
     end.
 
 ip_item(Val) ->
-    case string_to_eterm(Val) of
+    case string_to_term(Val) of
         V when is_integer(V), V >= 0, V < 256  ->   V;
         _ ->                                        ?ClientError({})
     end.
-
-string_to_number(Val,Len,Prec) ->
-    string_to_decimal(Val,Len,Prec). 
 
 string_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
     string_to_integer(Val,Len,0);  
@@ -520,48 +443,49 @@ string_to_decimal(Val,Len,Prec) when Prec > 0 ->
 string_to_decimal(Val,Len,Prec) ->
     ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}}).
 
-string_to_elist(Val, 0) -> 
-    case string_to_eterm(Val) of
+string_to_limited_string(Val,0) ->
+    Val;
+string_to_limited_string(Val,Len) ->
+    if
+        length(Val) =< Len  ->  Val;
+        true ->                 ?ClientError({"String is too long",{Val,Len}})
+    end.
+
+string_to_list(Val, 0) -> 
+    case string_to_term(Val) of
         V when is_list(V) ->    V;
-        _ ->                    ?ClientError({"Data conversion format error",{eList,0,Val}})
+        _ ->                    ?ClientError({"Data conversion format error",{list,0,Val}})
     end;
-string_to_elist(Val,Len) -> 
-    case string_to_eterm(Val) of
+string_to_list(Val,Len) -> 
+    case string_to_term(Val) of
         V when is_list(V) ->
             if 
                 length(V) == Len -> V;
-                true ->             ?ClientError({"Data conversion format error",{eList,Len,Val}})
+                true ->             ?ClientError({"Data conversion format error",{list,Len,Val}})
             end;
         _ ->
-            ?ClientError({"Data conversion format error",{eTuple,Len,Val}})
+            ?ClientError({"Data conversion format error",{tuple,Len,Val}})
     end.
 
-string_to_etuple(Val,0) -> 
-    case string_to_eterm(Val) of
+string_to_tuple(Val,0) -> 
+    case string_to_term(Val) of
         V when is_tuple(V) ->   V;
-        _ ->                    ?ClientError({"Data conversion format error",{eTuple,0,Val}})
+        _ ->                    ?ClientError({"Data conversion format error",{tuple,0,Val}})
     end;
-string_to_etuple(Val,Len) -> 
-    case string_to_eterm(Val) of
+string_to_tuple(Val,Len) -> 
+    case string_to_term(Val) of
         V when is_tuple(V) ->
             if 
                 size(V) == Len ->   V;
-                true ->             ?ClientError({"Data conversion format error",{eTuple,Len,Val}})
+                true ->             ?ClientError({"Data conversion format error",{tuple,Len,Val}})
             end;
         _ ->
-            ?ClientError({"Data conversion format error",{eTuple,Len,Val}})
+            ?ClientError({"Data conversion format error",{tuple,Len,Val}})
     end.
 
-string_to_eterm(Val) -> 
+string_to_term(Val) -> 
     try
         erl_value(Val)
-        % ,
-        % if 
-        %     is_function(F,0) ->
-        %         ?ClientError({"Data conversion format error",{eTerm,Val}}); 
-        %     true ->                 
-        %         F
-        % end
     catch
         _:_ -> ?ClientError({})
     end.
@@ -588,44 +512,16 @@ string_to_fun(Val,Len) ->
 
 %% ----- CAST Data from DB to string ------------------
 
-db_to_gui(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
+db_to_gui(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
     try
         if 
-            (Type == blob) andalso is_binary(Val) ->        ebinary_to_string(Val);
-            (Type == longblob) andalso is_binary(Val) ->    ebinary_to_string(Val);
-            (Type == ebinary) andalso is_binary(Val) ->     ebinary_to_string(Val);
-            (Type == date) andalso is_tuple(Val) ->         edatetime_to_string(Val,DateFmt);
-            (Type == edatetime) andalso is_tuple(Val)->     edatetime_to_string(Val,DateFmt);
-            (Type == time) andalso is_tuple(Val)->          time_to_string(Val);
-            (Type == timestamp) andalso is_tuple(Val) ->    etimestamp_to_string(Val,Prec);
-            (Type == etimestamp) andalso is_tuple(Val) ->   etimestamp_to_string(Val,Prec); 
-            (Type == eipaddr) andalso is_tuple(Val) ->      eipaddr_to_string(Val);
+            (Type == binary) andalso is_binary(Val) ->      binary_to_string(Val);
+            (Type == binstr) andalso is_binary(Val) ->      binstr_to_string(Val,StringFmt);
+            (Type == datetime) andalso is_tuple(Val)->      datetime_to_string(Val,DateFmt);
+            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec);
+            (Type == ipaddr) andalso is_tuple(Val) ->       ipaddr_to_string(Val);
             (Type == decimal) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
-            (Type == number) andalso is_integer(Val) ->     decimal_to_string(Val,Prec);
-            (Type == numeric) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
             (Type == float) andalso is_float(Val) ->        float_to_string(Val,Prec,NumFmt);
-            (Type == double) ->                             double_to_string(Val,Prec,NumFmt);
-
-            % (Type == enum) ->       enum_to_string(Val);
-            % (Type == eatom) ->      eatom_to_string(Val);
-            % (Type == estring) ->    estring_to_string(Val,StringFmt);
-            % (Type == ebinstr) ->    ebinstr_to_string(Val,StringFmt);
-            % (Type == text) ->       estring_to_string(Val,StringFmt);
-            % (Type == tinytext) ->   estring_to_string(Val,StringFmt);
-            % (Type == mediumtext) -> estring_to_string(Val,StringFmt);
-            % (Type == longtext) ->   estring_to_string(Val,StringFmt);
-            % (Type == char) ->       estring_to_string(Val,StringFmt);
-            % (Type == varchar) ->    estring_to_string(Val,StringFmt);
-            % (Type == varchar2) ->   estring_to_string(Val,StringFmt);
-
-            % (Type == integer) ->    integer_to_string(Val,StringFmt);
-            % (Type == int) ->        integer_to_string(Val,StringFmt);
-            % (Type == tinyint) ->    integer_to_string(Val,StringFmt);
-            % (Type == smallint) ->   integer_to_string(Val,StringFmt);
-            % (Type == mediumint) ->  integer_to_string(Val,StringFmt);
-            % (Type == bigint) ->     integer_to_string(Val,StringFmt);
-            % (Type == year) ->       integer_to_string(Val,StringFmt);
-
             true ->                 Val   
         end
     catch
@@ -635,37 +531,16 @@ db_to_gui(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
 db_to_string(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
     try
         if 
-            (Type == blob) andalso is_binary(Val) ->        ebinary_to_string(Val);
-            (Type == ebinary) andalso is_binary(Val) ->     ebinary_to_string(Val);
-            (Type == longblob) andalso is_binary(Val) ->    ebinary_to_string(Val);
-            (Type == date) andalso is_tuple(Val) ->         date_to_string(Val,DateFmt);
-            (Type == edatetime) andalso is_tuple(Val) ->    edatetime_to_string(Val,DateFmt);
-            (Type == time) andalso is_tuple(Val) ->         string_to_time(Val);
-            (Type == timestamp) andalso is_tuple(Val) ->    string_to_timestamp(Val,Prec);
-            (Type == eipaddr) andalso is_tuple(Val) ->      eipaddr_to_string(Val);
-            (Type == eatom) andalso is_atom(Val) ->         eatom_to_string(Val);
-            (Type == etimestamp) andalso is_tuple(Val) ->   etimestamp_to_string(Val,Prec); 
+            (Type == atom) andalso is_atom(Val) ->          atom_to_string(Val);
+            (Type == binary) andalso is_binary(Val) ->      binary_to_string(Val);
+            (Type == binstr) andalso is_binary(Val) ->      binstr_to_string(Val,StringFmt);
+            (Type == datetime) andalso is_tuple(Val) ->     datetime_to_string(Val,DateFmt);
             (Type == decimal) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
-            (Type == number) andalso is_integer(Val) ->     decimal_to_string(Val,Prec);
-            (Type == numeric) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
             (Type == float) andalso is_float(Val) ->        float_to_string(Val,Prec,NumFmt);
-            (Type == double) ->                             double_to_string(Val,Prec,NumFmt);
-            (Type == estring) andalso is_list(Val) ->       estring_to_string(Val,StringFmt);
-            (Type == ebinstr) andalso is_binary(Val) ->     ebinstr_to_string(Val,StringFmt);
-            (Type == text) andalso is_list(Val) ->          estring_to_string(Val,StringFmt);
-            (Type == tinytext) andalso is_list(Val) ->      estring_to_string(Val,StringFmt);
-            (Type == mediumtext) andalso is_list(Val) ->    estring_to_string(Val,StringFmt);
-            (Type == longtext) andalso is_list(Val) ->      estring_to_string(Val,StringFmt);
-            (Type == char) andalso is_list(Val) ->          estring_to_string(Val,StringFmt);
-            (Type == varchar) andalso is_list(Val) ->       estring_to_string(Val,StringFmt);
-            (Type == varchar2) andalso is_list(Val) ->      estring_to_string(Val,StringFmt);
             (Type == integer) andalso is_integer(Val) ->    integer_to_string(Val,StringFmt);
-            (Type == int) andalso is_integer(Val) ->        integer_to_string(Val,StringFmt);
-            (Type == tinyint) andalso is_integer(Val) ->    integer_to_string(Val,StringFmt);
-            (Type == smallint) andalso is_integer(Val) ->   integer_to_string(Val,StringFmt);
-            (Type == mediumint) andalso is_integer(Val) ->  integer_to_string(Val,StringFmt);
-            (Type == bigint) andalso is_integer(Val) ->     integer_to_string(Val,StringFmt);
-            (Type == year) andalso is_integer(Val) ->       integer_to_string(Val,StringFmt);
+            (Type == ipaddr) andalso is_tuple(Val) ->       ipaddr_to_string(Val);
+            (Type == string) andalso is_list(Val) ->        string_to_string(Val,StringFmt);
+            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec);
 
             true -> lists:flatten(io_lib:format("~p",[Val]))   
         end
@@ -673,26 +548,27 @@ db_to_string(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
         _:_ -> lists:flatten(io_lib:format("~p",[Val])) 
     end.
 
-eatom_to_string(Val) ->
+atom_to_string(Val) ->
     lists:flatten(io_lib:format("~p",[Val])).
 
-date_to_string(Datetime) ->
-    date_to_string(Datetime, eu).
 
-date_to_string({{Year,Month,Day},{Hour,Min,Sec}},eu) ->
+datetime_to_string(Datetime) ->
+    datetime_to_string(Datetime, eu).
+
+datetime_to_string({{Year,Month,Day},{Hour,Min,Sec}},eu) ->
     lists:flatten(io_lib:format("~2.10.0B.~2.10.0B.~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
         [Day, Month, Year, Hour, Min, Sec]));
-date_to_string({{Year,Month,Day},{Hour,Min,Sec}},raw) ->
+datetime_to_string({{Year,Month,Day},{Hour,Min,Sec}},raw) ->
     lists:flatten(io_lib:format("~4.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
         [Year, Month, Day, Hour, Min, Sec]));
-date_to_string({{Year,Month,Day},{Hour,Min,Sec}},iso) ->
+datetime_to_string({{Year,Month,Day},{Hour,Min,Sec}},iso) ->
     lists:flatten(io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
         [Year, Month, Day, Hour, Min, Sec]));
-date_to_string({{Year,Month,Day},{Hour,Min,Sec}},us) ->
+datetime_to_string({{Year,Month,Day},{Hour,Min,Sec}},us) ->
     lists:flatten(io_lib:format("~2.10.0B/~2.10.0B/~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
         [Month, Day, Year, Hour, Min, Sec]));
-date_to_string(Datetime, Fmt) ->
-    ?ClientError({"Data conversion format error",{eDatetime,Fmt,Datetime}}).
+datetime_to_string(Datetime, Fmt) ->
+    ?ClientError({"Data conversion format error",{datetime,Fmt,Datetime}}).
 
 
 decimal_to_string(Val,0) ->
@@ -713,50 +589,29 @@ decimal_to_string(Val,Prec) when Prec > 0 ->
 decimal_to_string(Val,Prec) ->
     lists:flatten(lists:concat([integer_to_list(Val),lists:duplicate(-Prec,$0)])).
 
+binary_to_string(_Val) -> ?UnimplementedException({}).
 
-ebinary_to_string(_Val) -> ?UnimplementedException({}).
-
-edatetime_to_string(Val) ->
-    date_to_string(Val).
-
-edatetime_to_string(Val,Fmt) ->
-    date_to_string(Val,Fmt).
-
-eipaddr_to_string({A,B,C,D}) ->
+ipaddr_to_string({A,B,C,D}) ->
     lists:concat([integer_to_list(A),".",integer_to_list(B),".",integer_to_list(C),".",integer_to_list(D)]);
-eipaddr_to_string(_IpAddr) -> ?UnimplementedException({}).
+ipaddr_to_string(_IpAddr) -> ?UnimplementedException({}).
 
 
-etimestamp_to_string({Megas,Secs,Micros},_Prec) ->
+timestamp_to_string({Megas,Secs,Micros},_Prec) ->
     lists:concat([integer_to_list(Megas),":",integer_to_list(Secs),":",integer_to_list(Micros)]).    
-
-number_to_string(Val,Prec)->
-    decimal_to_string(Val,Prec).
 
 float_to_string(Val,_Prec,_NumFmt) ->
     float_to_list(Val).                     %% ToDo: implement rounding to db precision
 
-double_to_string(_Val,_Prec,_NumFmt) ->
-    ?UnimplementedException({"Double precision not implemented"}).
-
-enum_to_string(_Val) ->
-    ?UnimplementedException({"Enum not implemented"}).
-
-time_to_string(_Val) -> ?UnimplementedException({}).
-
-year_to_string(Year) ->
-    integer_to_list(Year).
-
-ebinstr_to_string(Val, StringFmt) ->
-    estring_to_string(binary_to_list(Val), StringFmt).      %% ToDo: handle escaping and quoting etc.
+binstr_to_string(Val, StringFmt) ->
+    string_to_string(binary_to_list(Val), StringFmt).      %% ToDo: handle escaping and quoting etc.
     
-estring_to_string(Val, _StringFmt) when is_list(Val) ->
+string_to_string(Val, _StringFmt) when is_list(Val) ->
     IsString = io_lib:printable_unicode_list(Val),
     if 
         IsString ->     lists:flatten(io_lib:format("~s",[Val]));          %% ToDo: handle escaping and quoting etc.
         true ->         io_lib:format("~p",[Val])
     end;                                    
-estring_to_string(Val, _StringFmt) ->
+string_to_string(Val, _StringFmt) ->
     lists:flatten(io_lib:format("~p",[Val])).
 
 integer_to_string(Val, _StringFmt) ->
@@ -851,31 +706,31 @@ data_types(_) ->
         ?assertEqual("0.00123", decimal_to_string(123,5)),
         ?assertEqual("-0.00123", decimal_to_string(-123,5)),
 
-        ?assertEqual("0.0.0.0", eipaddr_to_string({0,0,0,0})),
-        ?assertEqual("1.2.3.4", eipaddr_to_string({1,2,3,4})),
+        ?assertEqual("0.0.0.0", ipaddr_to_string({0,0,0,0})),
+        ?assertEqual("1.2.3.4", ipaddr_to_string({1,2,3,4})),
 
-        ?assertEqual("1:2:3", etimestamp_to_string({1,2,3},0)),
+        ?assertEqual("1:2:3", timestamp_to_string({1,2,3},0)),
 
-        ?assertEqual("-0.00123", number_to_string(-123,5)),
-        ?assertEqual("12300000", number_to_string(123,-5)),
-        ?assertEqual("-12300000", number_to_string(-123,-5)),
+        ?assertEqual("-0.00123", decimal_to_string(-123,5)),
+        ?assertEqual("12300000", decimal_to_string(123,-5)),
+        ?assertEqual("-12300000", decimal_to_string(-123,-5)),
 
         LocalTime = erlang:localtime(),
-        {Date,Time} = LocalTime,
-        ?assertEqual({{2004,3,1},{0,0,0}}, string_to_edatetime("1.3.2004")),
-        ?assertEqual({{2004,3,1},{3,45,0}}, string_to_edatetime("1.3.2004 3:45")),
-        ?assertEqual({Date,{0,0,0}}, string_to_edatetime("today")),
-        ?assertEqual(LocalTime, string_to_edatetime("sysdate")),
-        ?assertEqual(LocalTime, string_to_edatetime("systime")),
-        ?assertEqual(LocalTime, string_to_edatetime("now")),
-        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("18.8.1888 1:23:59")),
-        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("1888-08-18 1:23:59")),
-        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("8/18/1888 1:23:59")),
-        ?assertEqual({{1888,8,18},{1,23,0}}, string_to_edatetime("8/18/1888 1:23")),
-        ?assertEqual({{1888,8,18},{1,0,0}}, string_to_edatetime("8/18/1888 01")),
-        ?assertException(throw,{ClEr,{"Data conversion format error",{eDatetime,"8/18/1888 1"}}}, string_to_edatetime("8/18/1888 1")),
-        ?assertEqual({{1888,8,18},{0,0,0}}, string_to_edatetime("8/18/1888 ")),
-        ?assertEqual({{1888,8,18},{0,0,0}}, string_to_edatetime("8/18/1888")),
+        {Date,_Time} = LocalTime,
+        ?assertEqual({{2004,3,1},{0,0,0}}, string_to_datetime("1.3.2004")),
+        ?assertEqual({{2004,3,1},{3,45,0}}, string_to_datetime("1.3.2004 3:45")),
+        ?assertEqual({Date,{0,0,0}}, string_to_datetime("today")),
+        ?assertEqual(LocalTime, string_to_datetime("sysdate")),
+        ?assertEqual(LocalTime, string_to_datetime("systime")),
+        ?assertEqual(LocalTime, string_to_datetime("now")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("18.8.1888 1:23:59")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("1888-08-18 1:23:59")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("8/18/1888 1:23:59")),
+        ?assertEqual({{1888,8,18},{1,23,0}}, string_to_datetime("8/18/1888 1:23")),
+        ?assertEqual({{1888,8,18},{1,0,0}}, string_to_datetime("8/18/1888 01")),
+        ?assertException(throw,{ClEr,{"Data conversion format error",{eDatetime,"8/18/1888 1"}}}, string_to_datetime("8/18/1888 1")),
+        ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888 ")),
+        ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888")),
         ?assertEqual({1,23,59}, parse_time("01:23:59")),        
         ?assertEqual({1,23,59}, parse_time("1:23:59")),        
         ?assertEqual({1,23,0}, parse_time("01:23")),        
@@ -883,17 +738,11 @@ data_types(_) ->
         ?assertEqual({1,23,0}, parse_time("0123")),        
         ?assertEqual({1,0,0}, parse_time("01")),        
         ?assertEqual({0,0,0}, parse_time("")),        
-        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_edatetime("18880818012359")),
-        ?assertEqual(Time, string_to_time("systime")),
-        ?assertEqual(Time, string_to_time("sysdate")),
-        ?assertEqual(Time, string_to_time("now")),
-        ?assertEqual(Time, string_to_time("localtime")),
-        ?assertEqual({12,13,14}, string_to_time("12:13:14")),
-        ?assertEqual({0,1,11}, string_to_time("0:1:11")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("18880818012359")),
 
         Item = 0,
         OldString = "OldString",
-        StringType = estring,
+        StringType = string,
         Len = 3,
         Prec = 1,
         Def = default,
@@ -910,7 +759,7 @@ data_types(_) ->
         ?assertEqual(-3.14, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,-3.14)),
 
         ?assertEqual(OldString, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,OldString)),
-        ?assertException(throw,{ClEr,{"Data conversion format error",{0,{string,3,"NewVal"}}}}, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"NewVal")),
+        ?assertException(throw,{ClEr,{"String is too long",{0,{"NewVal",3}}}}, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"NewVal")),
         ?assertEqual("NewVal", value_to_db(Item,OldString,StringType,6,Prec,Def,RW,"NewVal")),
         ?assertEqual("[NewVal]", value_to_db(Item,OldString,StringType,8,Prec,Def,RW,"[NewVal]")),
         ?assertEqual(default, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"default")),
@@ -976,41 +825,41 @@ data_types(_) ->
         ?assertEqual(-112346, value_to_db(Item,OldDecimal,DecimalType,7,5,Def,RW,"-1.1234567")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,Prec,"1234567.89"}}}}, value_to_db(Item,OldDecimal,DecimalType,5,Prec,Def,RW,"1234567.89")),
 
-        ETermType = eterm,
-        OldETerm = {-1.2,[a,b,c]},
-        ?assertEqual(OldETerm, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,OldETerm)),
-        ?assertEqual(default, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"default")),
-        ?assertEqual([a,b], value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"[a,b]")),
-        ?assertEqual(-1.1234567, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"-1.1234567")),
-        ?assertEqual({[1,2,3]}, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"{[1,2,3]}")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTerm,"[a|]"}}}}, value_to_db(Item,OldETerm,ETermType,Len,Prec,Def,RW,"[a|]")),
+        TermType = term,
+        OldTerm = {-1.2,[a,b,c]},
+        ?assertEqual(OldTerm, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,OldTerm)),
+        ?assertEqual(default, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"default")),
+        ?assertEqual([a,b], value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"[a,b]")),
+        ?assertEqual(-1.1234567, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"-1.1234567")),
+        ?assertEqual({[1,2,3]}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"{[1,2,3]}")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{term,"[a|]"}}}}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"[a|]")),
 
-        ?assertEqual({1,2,3}, value_to_db(Item,OldETerm,eTuple,Len,Prec,Def,RW,"{1,2,3}")),
-        ?assertEqual({}, value_to_db(Item,OldETerm,eTuple,0,Prec,Def,RW,"{}")),
-        ?assertEqual({1}, value_to_db(Item,OldETerm,eTuple,0,Prec,Def,RW,"{1}")),
-        ?assertEqual({1,2}, value_to_db(Item,OldETerm,eTuple,0,Prec,Def,RW,"{1,2}")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTuple,Len,"[a]"}}}}, value_to_db(Item,OldETerm,etuple,Len,Prec,Def,RW,"[a]")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eTuple,Len,"{a}"}}}}, value_to_db(Item,OldETerm,etuple,Len,Prec,Def,RW,"{a}")),
+        ?assertEqual({1,2,3}, value_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,"{1,2,3}")),
+        ?assertEqual({}, value_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,"{}")),
+        ?assertEqual({1}, value_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,"{1}")),
+        ?assertEqual({1,2}, value_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,"{1,2}")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{tuple,Len,"[a]"}}}}, value_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,"[a]")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{tuple,Len,"{a}"}}}}, value_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,"{a}")),
 
-        ?assertEqual([a,b,c], value_to_db(Item,OldETerm,elist,Len,Prec,Def,RW,"[a,b,c]")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eList,Len,"[a]"}}}}, value_to_db(Item,OldETerm,elist,Len,Prec,Def,RW,"[a]")),
-        ?assertEqual([], value_to_db(Item,[],eList,Len,Prec,Def,RW,"[]")),
-        ?assertEqual([], value_to_db(Item,OldETerm,eList,Len,Prec,[],RW,"[]")),
-        ?assertEqual([], value_to_db(Item,OldETerm,eList,0,Prec,Def,RW,"[]")),
-        ?assertEqual([a], value_to_db(Item,OldETerm,eList,0,Prec,Def,RW,"[a]")),
-        ?assertEqual([a,b], value_to_db(Item,OldETerm,eList,0,Prec,Def,RW,"[a,b]")),
+        ?assertEqual([a,b,c], value_to_db(Item,OldTerm,elist,Len,Prec,Def,RW,"[a,b,c]")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{list,Len,"[a]"}}}}, value_to_db(Item,OldTerm,list,Len,Prec,Def,RW,"[a]")),
+        ?assertEqual([], value_to_db(Item,[],list,Len,Prec,Def,RW,"[]")),
+        ?assertEqual([], value_to_db(Item,OldTerm,list,Len,Prec,[],RW,"[]")),
+        ?assertEqual([], value_to_db(Item,OldTerm,list,0,Prec,Def,RW,"[]")),
+        ?assertEqual([a], value_to_db(Item,OldTerm,list,0,Prec,Def,RW,"[a]")),
+        ?assertEqual([a,b], value_to_db(Item,OldTerm,list,0,Prec,Def,RW,"[a,b]")),
 
-        ?assertEqual({10,132,7,92}, value_to_db(Item,OldETerm,eipaddr,0,Prec,Def,RW,"10.132.7.92")),
-        ?assertEqual({0,0,0,0}, value_to_db(Item,OldETerm,eipaddr,4,Prec,Def,RW,"0.0.0.0")),
-        ?assertEqual({255,255,255,255}, value_to_db(Item,OldETerm,eipaddr,4,Prec,Def,RW,"255.255.255.255")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,0,"1.2.3.4.5"}}}}, value_to_db(Item,OldETerm,eipaddr,0,0,Def,RW,"1.2.3.4.5")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,4,"1.2.-1.4"}}}}, value_to_db(Item,OldETerm,eipaddr,4,0,Def,RW,"1.2.-1.4")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,6,"1.256.1.4"}}}}, value_to_db(Item,OldETerm,eipaddr,6,0,Def,RW,"1.256.1.4")),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{eIpaddr,8,"1.2.1.4"}}}}, value_to_db(Item,OldETerm,eipaddr,8,0,Def,RW,"1.2.1.4")),
+        ?assertEqual({10,132,7,92}, value_to_db(Item,OldTerm,ipaddr,0,Prec,Def,RW,"10.132.7.92")),
+        ?assertEqual({0,0,0,0}, value_to_db(Item,OldTerm,ipaddr,4,Prec,Def,RW,"0.0.0.0")),
+        ?assertEqual({255,255,255,255}, value_to_db(Item,OldTerm,ipaddr,4,Prec,Def,RW,"255.255.255.255")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,0,"1.2.3.4.5"}}}}, value_to_db(Item,OldTerm,ipaddr,0,0,Def,RW,"1.2.3.4.5")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,4,"1.2.-1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,4,0,Def,RW,"1.2.-1.4")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,6,"1.256.1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,6,0,Def,RW,"1.256.1.4")),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,"1.2.1.4")),
 
         Fun = fun(X) -> X*X end,
         io:format(user, "Fun ~p~n", [Fun]),
-        Res = value_to_db(Item,OldETerm,efun,1,Prec,Def,RW,"fun(X) -> X*X end"),
+        Res = value_to_db(Item,OldTerm,'fun',1,Prec,Def,RW,"fun(X) -> X*X end"),
         io:format(user, "Run ~p~n", [Res]),
         ?assertEqual(Fun(4), Res(4)),
 

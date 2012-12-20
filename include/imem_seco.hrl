@@ -19,7 +19,7 @@
                   , locked='false'          ::'true' | 'false'
                   }
        ).
--define(ddAccount, [any,binary,atom,list,binary,ddDatetime,ddDatetime,ddDatetime,boolean]).
+-define(ddAccount, [term,binary,atom,list,binary,datetime,datetime,datetime,boolean]).
 
 -record(ddRole,                             %% hierarchy of roles with permissions and access privileges to connections and commands  
                   { id                      ::ddEntityId()            %% lookup starts with ddAccount.id, other roles are atoms
@@ -28,7 +28,7 @@
                   , quotas=[]               ::[ddQuota()]             %% granted quotas
                   }
        ). 
--define(ddRole, [any,list,list,list]).
+-define(ddRole, [term,list,list,list]).
 
 -record(ddSeCo,                             %% security context              
                   { skey                    :: ddSeCoKey()        %% random hash value
@@ -41,7 +41,7 @@
                   , state                   :: any()              %% authentication state
                   }     
        ). 
--define(ddSeCo, [integer,pid,integer,binary,ref,atom,ddTimestamp,any]).
+-define(ddSeCo, [integer,pid,integer,binary,ref,atom,timestamp,term]).
 
 -record(ddPerm,                             %% acquired permission cache bag table             
                   { pkey                    :: {ddSeCoKey(), ddPermission()}  %% permission key
@@ -59,7 +59,7 @@
                   , value                   :: any()                          %% granted quota
                   }
        ). 
--define(ddQuota, [tuple,integer,pid,any]).
+-define(ddQuota, [tuple,integer,pid,term]).
 
 -define(SecurityException(Reason), throw({'SecurityException',Reason})).
 -define(SecurityViolation(Reason), exit({'SecurityViolation',Reason})).
