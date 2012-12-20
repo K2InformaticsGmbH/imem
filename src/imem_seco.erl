@@ -83,7 +83,8 @@ init(_Args) ->
         case if_select_account_by_name(none, UserName) of
             {[],true} ->  
                     UserId = make_ref(),
-                    UserCred=create_credentials(pwdmd5, <<"change_on_install">>),
+                    {ok, Pwd} = application:get_env(imem, default_admin_pswd),
+                    UserCred=create_credentials(pwdmd5, Pwd),
                     User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
                                         ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
                     if_write(none, ddAccount, User),                    

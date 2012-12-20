@@ -15,6 +15,7 @@
          {mnesia_node_type, undefined},
          {mnesia_timeout, 30000},
          {mnesia_bulk_sleep_time, 501},
+         {default_admin_pswd, <<"change_on_install">>},
          {if_mod, imem_sec},
          {if_sec, true},
          {servers, [
