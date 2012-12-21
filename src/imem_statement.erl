@@ -536,7 +536,7 @@ test_with_or_without_sec(IsSec) ->
         Sql3 = "select col1, col2 from def;",
         {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),
         try
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, [{tail_mode,true}], self(), IsSec)),
+            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
             Result3a = receive_all(),
             ?assertEqual(1, length(Result3a)),
             [{_,{List3a,true}}] = Result3a,
