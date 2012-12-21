@@ -380,7 +380,7 @@ fetch_recs_sort(Pid, Sock, Timeout) ->
 fetch_recs_async(Pid, Sock) ->
     imem_statement:fetch_recs_async(none, Pid, Sock, false).
 
-fetch_recs_async(Pid, Sock, Opts) ->
+fetch_recs_async(Opts, Pid, Sock) ->
     imem_statement:fetch_recs_async(none, Pid, Sock, Opts, false).
 
 fetch_close(Pid) ->
