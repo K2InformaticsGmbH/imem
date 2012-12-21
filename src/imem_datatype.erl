@@ -45,6 +45,7 @@
         , string_to_timestamp/1
         , string_to_timestamp/2
         , string_to_tuple/2
+        , string_to_userid/1
         ]).
 
 -export([ atom_to_string/1
@@ -58,6 +59,7 @@
         , ipaddr_to_string/1
         , string_to_string/2
         , timestamp_to_string/2
+        , userid_to_string/1
         ]).
 
 -export([ map/3
@@ -150,6 +152,7 @@ select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
 
 %% ----- DATA TYPES  with CamelCase  --------------------------------
 
+raw_type(userid) -> ref;
 raw_type(binstr) -> binary;
 raw_type(string) -> list;
 raw_type(decimal) -> integer;
@@ -197,6 +200,7 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
                     (Type == string) ->         string_to_limited_string(Unquoted,Len);
                     (Type == timestamp) ->      string_to_timestamp(Unquoted,Prec); 
                     (Type == tuple) ->          string_to_tuple(Unquoted,Len);
+                    (Type == userid) ->         string_to_userid(Unquoted);
                     true ->                     string_to_term(Unquoted)   
                 end;
             true -> Val
@@ -249,6 +253,14 @@ string_to_float(Val,Prec) ->
 
 string_to_binary(_Val,_Len) -> ?UnimplementedException({}).
 
+string_to_userid("system") -> system;
+string_to_userid(Name) ->
+    Guard = {'==', '$1', list_to_binary(Name)},
+    case imem_if:select(ddAccount, [{'$1', [Guard], [{element,2,'$1'}]}]) of
+        [] ->   ?ClientError({"Account does not exist",list_to_binary(Name)});
+        [Id] -> Id;
+        Else -> ?SystemException({"Account lookup error",{list_to_binary(Name),Else}})
+    end.
 
 string_to_timestamp(TS) ->
     string_to_timestamp(TS,6).
@@ -518,10 +530,12 @@ db_to_gui(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
             (Type == binary) andalso is_binary(Val) ->      binary_to_string(Val);
             (Type == binstr) andalso is_binary(Val) ->      binstr_to_string(Val,StringFmt);
             (Type == datetime) andalso is_tuple(Val)->      datetime_to_string(Val,DateFmt);
-            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec);
-            (Type == ipaddr) andalso is_tuple(Val) ->       ipaddr_to_string(Val);
             (Type == decimal) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
             (Type == float) andalso is_float(Val) ->        float_to_string(Val,Prec,NumFmt);
+            (Type == ipaddr) andalso is_tuple(Val) ->       ipaddr_to_string(Val);
+            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec);
+            (Type == userid) andalso is_atom(Val) ->        atom_to_list(Val);
+            (Type == userid) ->                             userid_to_string(Val);
             true ->                 Val   
         end
     catch
@@ -541,7 +555,8 @@ db_to_string(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
             (Type == ipaddr) andalso is_tuple(Val) ->       ipaddr_to_string(Val);
             (Type == string) andalso is_list(Val) ->        string_to_string(Val,StringFmt);
             (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec);
-
+            (Type == userid) andalso is_atom(Val) ->        atom_to_list(Val);
+            (Type == userid) ->                             userid_to_string(Val);
             true -> lists:flatten(io_lib:format("~p",[Val]))   
         end
     catch
@@ -590,6 +605,18 @@ decimal_to_string(Val,Prec) ->
     lists:flatten(lists:concat([integer_to_list(Val),lists:duplicate(-Prec,$0)])).
 
 binary_to_string(_Val) -> ?UnimplementedException({}).
+
+userid_to_string(Val) ->
+    case imem_if:read(ddAccount,Val) of
+        [] ->           ?ClientError({"Account does not exist",Val});
+        [Account] ->    Name=element(3,Account),
+                        if 
+                            is_binary(Name) ->  binary_to_list(Name);
+                            is_atom(Name) ->    atom_to_list(Name);
+                            true ->             lists:flatten(io_lib:format("~p",[Name]))
+                        end;
+        Else ->         ?SystemException({"Account lookup error",{Val,Else}})
+    end.
 
 ipaddr_to_string({A,B,C,D}) ->
     lists:concat([integer_to_list(A),".",integer_to_list(B),".",integer_to_list(C),".",integer_to_list(D)]);

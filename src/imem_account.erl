@@ -7,6 +7,7 @@
 -export([ create/2
         , create/5
         , get/2
+        , get_name/2
         , get_by_name/2
         , update/3
         , delete/2
@@ -74,6 +75,15 @@ get(SeKey, AccountId) ->
                         [] ->                       ?ClientError({"Account does not exist", AccountId})
                     end;
         false ->    ?SecurityException({"Get account unauthorized",SeKey})
+    end.
+
+get_name(SeKey, AccountId) -> 
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccount, AccountId) of
+                        [#ddAccount{name=Name}] ->  Name;
+                        [] ->                       ?ClientError({"Account does not exist", AccountId})
+                    end;
+        false ->    ?SecurityException({"Get account name unauthorized",SeKey})
     end.
 
 get_by_name(SeKey, Name) -> 

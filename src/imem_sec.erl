@@ -98,6 +98,7 @@ logout(SKey) ->
 clone_seco(SKey, Pid) ->
     imem_seco:clone_seco(SKey, Pid).
 
+
 %% from imem_meta --- HELPER FUNCTIONS do not export!! --------
 
 if_read(_SKey, Table, Key) -> 
@@ -118,10 +119,15 @@ if_meta_field(_SKey, Name) ->
 if_meta_field_info(_SKey, Name) ->
     imem_meta:meta_field_info(Name).
 
-if_meta_field_value(SKey, user) ->
+if_meta_field_value(SKey, username) ->
     #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
     [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
     Name;
+if_meta_field_value(SKey, user) ->
+    #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
+    % [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
+    % Name;
+    AccountId;
 if_meta_field_value(_SKey, Name) ->
     imem_meta:meta_field_value(Name).
 

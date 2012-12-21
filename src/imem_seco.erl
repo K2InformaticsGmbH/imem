@@ -38,6 +38,8 @@
         , change_credentials/3
         , logout/1
         , clone_seco/2
+        , account_id/1
+        , account_name/1
         ]).
 
 -export([ has_role/3
@@ -345,6 +347,17 @@ seco_perm_delete(SKeyM, [PKey|PKeys]) ->
         Class:Reason -> io:format(user, "~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, Class, Reason])
     end,
     seco_perm_delete(SKeyM, PKeys).
+
+account_id(SKey) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    AccountId.
+
+account_name(SKey) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    case if_read(SKey, ddAccount, AccountId) of
+        [#ddAccount{name=Name}] ->  Name;
+        [] ->                       ?ClientError({"Account does not exist", AccountId})
+    end.
 
 has_role(SKey, RootRoleId, RoleId) ->
     case have_permission(SKey, manage_accounts) of

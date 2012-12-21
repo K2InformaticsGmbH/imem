@@ -224,22 +224,26 @@ meta_field(Name) ->
     lists:member(Name,?META_FIELDS).
 
 meta_field_info(sysdate) ->
-    #ddColumn{name=sysdate, type='date', length=7, precision=0};
+    #ddColumn{name=sysdate, type='datetime', length=20, precision=0};
 meta_field_info(systimestamp) ->
     #ddColumn{name=systimestamp, type='timestamp', length=20, precision=0};
 meta_field_info(schema) ->
-    #ddColumn{name=schema, type='eatom', length=10, precision=0};
+    #ddColumn{name=schema, type='atom', length=10, precision=0};
 meta_field_info(node) ->
-    #ddColumn{name=node, type='eatom', length=30, precision=0};
+    #ddColumn{name=node, type='atom', length=30, precision=0};
 meta_field_info(user) ->
-    #ddColumn{name=user, type='ebinstr', length=20, precision=0};
+    #ddColumn{name=user, type='userid', length=20, precision=0};
+meta_field_info(username) ->
+    #ddColumn{name=username, type='binstr', length=20, precision=0};
 meta_field_info(localtime) ->
-    #ddColumn{name=localtime, type='edatetime', length=20, precision=0};
+    #ddColumn{name=localtime, type='datetime', length=20, precision=0};
 meta_field_info(now) ->
-    #ddColumn{name=now, type='etimestamp', length=20, precision=0};
+    #ddColumn{name=now, type='timestamp', length=20, precision=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 
+meta_field_value(username) ->
+    <<"unknown">>; 
 meta_field_value(user) ->
     <<"unknown">>; 
 meta_field_value(Name) ->

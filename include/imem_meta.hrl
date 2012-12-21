@@ -56,7 +56,7 @@
                   , readonly='false'        ::'true' | 'false'
                   }
        ).
--define(ddTable, [tuple,list,list,term,boolean]).
+-define(ddTable, [tuple,list,list,userid,boolean]).
 
 -record(dual,                               %% table    
                   { x                       ::integer()   

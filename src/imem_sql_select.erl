@@ -10,7 +10,7 @@
 -export([ exec/5
         ]).
 
-exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
+exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     Tables = case lists:keyfind(from, 1, SelectSections) of
         {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
         TError ->       ?ClientError({"Invalid select structure", TError})
@@ -42,17 +42,17 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     end,
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==1]]),
     % io:format(user, "MatchHead (~p) ~p~n", [1,MatchHead]),
-    Guards = master_query_guards(WhereTree,FullMap),
+    Guards = master_query_guards(SKey,WhereTree,FullMap),
     % io:format(user, "Guards (~p) ~p~n", [1,Guards]),
     Result = '$_',
     MatchSpec = [{MatchHead, Guards, [Result]}],
-    JoinSpec = build_join_spec(length(Tables), WhereTree, FullMap, []),
+    JoinSpec = build_join_spec(SKey,length(Tables), WhereTree, FullMap, []),
     % io:format(user, "Join Spec ~p~n", [JoinSpec]),
     Statement = Stmt#statement{
                     tables=Tables, cols=ColMap, meta=MetaMap, rowfun=RowFun,
                     matchspec=MatchSpec, joinspec=JoinSpec
                 },
-    {ok, StmtRef} = imem_statement:create_stmt(Statement, SeCo, IsSec),
+    {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
     % io:format(user,"Statement : ~p~n", [Stmt]),
     % io:format(user,"Tables: ~p~n", [Tables]),
     % io:format(user,"Column map: ~p~n", [ColMap]),
@@ -61,19 +61,19 @@ exec(SeCo, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user,"JoinSpec: ~p~n", [JoinSpec]),
     {ok, ColMap, RowFun, StmtRef}.
 
-build_join_spec(1, _WhereTree, _FullMap, Acc)-> Acc;
-build_join_spec(Tind, WhereTree, FullMap, Acc)->
+build_join_spec(_SKey, 1, _WhereTree, _FullMap, Acc)-> Acc;
+build_join_spec(SKey,Tind, WhereTree, FullMap, Acc)->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==Tind]]),
     % io:format(user, "Join MatchHead (~p) ~p~n", [Tind,MatchHead]),
-    Guards = join_query_guards(Tind,WhereTree,FullMap),
+    Guards = join_query_guards(SKey,Tind,WhereTree,FullMap),
     io:format(user, "Join Guards (~p) ~p~n", [Tind,Guards]),
     Result = '$_',
     MatchSpec = [{MatchHead, Guards, [Result]}],
     Binds = join_binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, Ti<Tind], Guards,[]),
-    build_join_spec(Tind-1, WhereTree, FullMap, [{MatchSpec,Binds}|Acc]).
+    build_join_spec(SKey,Tind-1, WhereTree, FullMap, [{MatchSpec,Binds}|Acc]).
 
-join_query_guards(Tind,WhereTree,FullMap) ->
-    [simplify(tree_walk(Tind,WhereTree,FullMap))].
+join_query_guards(SKey,Tind,WhereTree,FullMap) ->
+    [simplify(tree_walk(SKey,Tind,WhereTree,FullMap))].
 
 join_binds(_, [], []) -> [];
 join_binds(_, [true], []) -> [];
@@ -91,32 +91,34 @@ tree_member(Tx,{_,L,R}) -> tree_member(Tx,L) orelse tree_member(Tx,R);
 tree_member(Tx,Tx) -> true;
 tree_member(_,_) -> false.
 
-master_query_guards([],_FullMap) -> [];
-master_query_guards(WhereTree,FullMap) ->
-    [simplify(tree_walk(1,WhereTree,FullMap))].
+master_query_guards(_SKey,[],_FullMap) -> [];
+master_query_guards(SKey,WhereTree,FullMap) ->
+    [simplify(tree_walk(SKey,1,WhereTree,FullMap))].
 
-tree_walk(_,<<"true">>,_FullMap) -> true;
-tree_walk(_,<<"false">>,_FullMap) -> false;
-tree_walk(Ti,{'not',WC},FullMap) ->
-    {'not', tree_walk(Ti,WC,FullMap)};
-tree_walk(_Ti,{Op,_WC},_FullMap) -> ?UnimplementedException({"Operator not supported in where clause",Op});
-
-tree_walk(Ti,{'=',A,B},FullMap) ->
-    comparison(Ti,'==',A,B,FullMap);
-tree_walk(Ti,{'<>',A,B},FullMap) ->
-    comparison(Ti,'/=',A,B,FullMap);
-tree_walk(Ti,{'<',A,B},FullMap) ->
-    comparison(Ti,'<',A,B,FullMap);
-tree_walk(Ti,{'<=',A,B},FullMap) ->
-    comparison(Ti,'=<',A,B,FullMap);
-tree_walk(Ti,{'>',A,B},FullMap) ->
-    comparison(Ti,'>',A,B,FullMap);
-tree_walk(Ti,{'>=',A,B},FullMap) ->
-    comparison(Ti,'>=',A,B,FullMap);
-tree_walk(Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
-    in_comparison(Ti,A,InList,FullMap);
-tree_walk(Ti,{Op,WC1,WC2},FullMap) ->
-    {Op, tree_walk(Ti,WC1,FullMap), tree_walk(Ti,WC2,FullMap)}.
+tree_walk(_SKey,_,<<"true">>,_FullMap) -> true;
+tree_walk(_SKey,_,<<"false">>,_FullMap) -> false;
+tree_walk(SKey,Ti,{'not',WC},FullMap) ->
+    {'not', tree_walk(SKey,Ti,WC,FullMap)};
+tree_walk(_SKey,_Ti,{Op,_WC},_FullMap) -> 
+    ?UnimplementedException({"Operator not supported in where clause",Op});
+tree_walk(SKey,Ti,{'=',A,B},FullMap) ->
+    condition(SKey,Ti,'==',A,B,FullMap);
+tree_walk(SKey,Ti,{'<>',A,B},FullMap) ->
+    condition(SKey,Ti,'/=',A,B,FullMap);
+tree_walk(SKey,Ti,{'<',A,B},FullMap) ->
+    condition(SKey,Ti,'<',A,B,FullMap);
+tree_walk(SKey,Ti,{'<=',A,B},FullMap) ->
+    condition(SKey,Ti,'=<',A,B,FullMap);
+tree_walk(SKey,Ti,{'>',A,B},FullMap) ->
+    condition(SKey,Ti,'>',A,B,FullMap);
+tree_walk(SKey,Ti,{'>=',A,B},FullMap) ->
+    condition(SKey,Ti,'>=',A,B,FullMap);
+tree_walk(SKey,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
+    in_condition(SKey,Ti,A,InList,FullMap);
+tree_walk(SKey,Ti,{'fun',F,[Param]},FullMap) -> 
+    {F,tree_walk(SKey,Ti,Param,FullMap)};    %% F = unary boolean function like 'is_list' 
+tree_walk(SKey,Ti,{Op,WC1,WC2},FullMap) ->
+    {Op, tree_walk(SKey,Ti,WC1,FullMap), tree_walk(SKey,Ti,WC2,FullMap)}.
 
 simplify(Term) ->
     case  simplify_once(Term) of
@@ -141,17 +143,29 @@ simplify_once({'not', Result}) -> {'not', simplify_once(Result)};
 simplify_once({ Op, Result}) -> {Op, Result};
 simplify_once(Result) -> Result.
 
-comparison(Ti,OP,{'fun',erl,[Param]},B,FullMap) -> 
-    comparison(Ti,OP,Param,B,FullMap);
-comparison(Ti,OP,A, {'fun',erl,[Param]},FullMap) -> 
-    comparison(Ti,OP,A,Param,FullMap);
-comparison(_Ti,_OP,{'fun',A,_Params},_B,_FullMap) -> ?UnimplementedException({"Function not supported in where clause",A});
-comparison(_Ti,_OP,_A,{'fun',B,_Params},_FullMap) -> ?UnimplementedException({"Function not supported in where clause",B});
-comparison(Ti,OP,A,B,FullMap) when is_binary(A),is_binary(B) ->
-    compguard(Ti,OP,field_lookup(A,FullMap),field_lookup(B,FullMap));
-comparison(_Ti,_OP,A,B,_FullMap) when is_binary(A) -> ?UnimplementedException({"Expression not supported in where clause",B});
-comparison(Ti,OP,A,B,FullMap) when is_binary(B) -> 
-    compguard(Ti,OP,expr_lookup(Ti,A,FullMap),field_lookup(B,FullMap)).
+% condition(Ti,OP,{'fun',erl,[Param]},B,FullMap) -> 
+%     condition(Ti,OP,Param,B,FullMap);
+% condition(Ti,OP,A, {'fun',erl,[Param]},FullMap) -> 
+%     condition(Ti,OP,A,Param,FullMap);
+% condition(_Ti,_OP,{'fun',A,_Params},_B,_FullMap) -> ?UnimplementedException({"Function not supported in where clause",A});
+% condition(_Ti,_OP,_A,{'fun',B,_Params},_FullMap) -> ?UnimplementedException({"Function not supported in where clause",B});
+% condition(Ti,OP,A,B,FullMap) when is_binary(A),is_binary(B) ->
+%     compguard(Ti,OP,field_lookup(A,FullMap),field_lookup(B,FullMap));
+% condition(Ti,OP,A,B,FullMap) when is_binary(A) ->
+%     compguard(Ti,OP,field_lookup(A,FullMap), expr_lookup(Ti,B,FullMap));
+% condition(Ti,OP,A,B,FullMap) when is_binary(B) -> 
+%     compguard(Ti,OP,expr_lookup(Ti,A,FullMap),field_lookup(B,FullMap));
+condition(SKey,1,OP,A,B,FullMap) -> 
+    compguard(1,OP,expr_lookup(SKey,1,A,FullMap),expr_lookup(SKey,1,B,FullMap));
+condition(SKey,Ti,OP,A,B,FullMap) ->
+    try 
+        ExA = expr_lookup(SKey,Ti,A,FullMap),
+        ExB = expr_lookup(SKey,Ti,B,FullMap),
+        compguard(Ti,OP,ExA,ExB)
+    catch
+        throw:{'JoinEvent','join_condition'} -> true;
+        _:Reason -> throw(Reason)
+    end.
 
 compguard(1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1; B>1 -> true;   %% join condition
 compguard(1, OP, {0,A,T,_,_,_,_},   {0,B,T,_,_,_,_}) ->     {OP,A,B};           
@@ -170,24 +184,24 @@ compguard(J, OP, {J,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
 compguard(J, OP, {J,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->     {OP,A,B};
 compguard(J, OP, {_,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
 compguard(J, OP, {J,A,T,_,_,_,_},   {0,B,T,_,_,_,_}) ->     {OP,A,B};
-compguard(J, OP, {J,A,T,L,P,D,_},   {0,B,string,_,_,_,_}) -> {OP,A,field_value(A,T,L,P,D,B)};
-compguard(J, OP, {0,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->      {OP,A,B};
-compguard(J, OP, {0,A,string,_,_,_,_}, {J,B,T,L,P,D,_}) ->   {OP,field_value(B,T,L,P,D,A),B};
+compguard(J, OP, {J,A,T,L,P,D,_},   {0,B,string,_,_,_,_})-> {OP,A,field_value(A,T,L,P,D,B)};
+compguard(J, OP, {0,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
+compguard(J, OP, {0,A,string,_,_,_,_}, {J,B,T,L,P,D,_}) ->  {OP,field_value(B,T,L,P,D,A),B};
 compguard(J, _,  {J,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(J, _,  {J,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(J, _,  {_,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->     true.
 
-in_comparison(Ti,A,InList,FullMap) ->
-    in_comparison_loop(Ti,field_lookup(A,FullMap),InList,FullMap).
+in_condition(SKey,Ti,A,InList,FullMap) ->
+    in_condition_loop(SKey,Ti,expr_lookup(SKey,Ti,A,FullMap),InList,FullMap).
 
-in_comparison_loop(_Ti,_ALookup,[],_FullMap) -> false;    
-in_comparison_loop(Ti,ALookup,[B],FullMap) ->
-    compguard(Ti, '==', ALookup, field_lookup(B,FullMap));
-in_comparison_loop(Ti,ALookup,[B|Rest],FullMap) ->
+in_condition_loop(_SKey,_Ti,_ALookup,[],_FullMap) -> false;    
+in_condition_loop(SKey,Ti,ALookup,[B],FullMap) ->
+    compguard(Ti, '==', ALookup, expr_lookup(SKey,Ti,B,FullMap));
+in_condition_loop(SKey,Ti,ALookup,[B|Rest],FullMap) ->
     {'or',
-        compguard(Ti, '==', ALookup, field_lookup(B,FullMap)),
-            in_comparison_loop(Ti,ALookup,Rest,FullMap)}.
+        compguard(Ti, '==', ALookup, expr_lookup(SKey,Ti,B,FullMap)),
+            in_condition_loop(SKey,Ti,ALookup,Rest,FullMap)}.
 
 field_value(Tag,Type,Len,Prec,Def,Val) ->
     imem_datatype:value_to_db(Tag,?nav,Type,Len,Prec,Def,false,Val).
@@ -221,35 +235,39 @@ field_lookup(Name,FullMap) ->
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
 
-expr_lookup(Ti,{OP,A,B},FullMap) when is_binary(A), is_binary(B)->
+
+expr_lookup(SKey,_Ti,<<"user">>,_FullMap) ->
+    {0,imem_seco:account_id(SKey),userid,undefined,undefined,undefined,<<"user">>};
+expr_lookup(SKey,_Ti,<<"username">>,_FullMap) ->
+    {0,binary_to_list(imem_seco:account_name(SKey)),string,undefined,undefined,undefined,<<"username">>};
+expr_lookup(_SKey,_Ti,A,FullMap) when is_binary(A)->
+    field_lookup(A,FullMap);
+expr_lookup(SKey,Ti,{'fun',F,[Param]},FullMap) ->
+    {F,expr_lookup(SKey,Ti,Param,FullMap)};          %% F = unary value function like 'abs' 
+expr_lookup(_SKey,Ti,{OP,A,B},FullMap) when is_binary(A), is_binary(B)->
     exprguard(Ti,OP,field_lookup(A,FullMap),field_lookup(B,FullMap));
-expr_lookup(Ti,{OP,A,B},FullMap) when is_binary(A) ->
-    exprguard(Ti,OP,field_lookup(A,FullMap),expr_lookup(Ti,B,FullMap));
-expr_lookup(Ti,{OP,A,B},FullMap) when is_binary(B) ->
-    exprguard(Ti,OP,expr_lookup(Ti,A,FullMap), field_lookup(B,FullMap));
-expr_lookup(Ti,{OP,A,B},FullMap) ->
-    exprguard(Ti,OP,expr_lookup(Ti,A,FullMap), expr_lookup(Ti,B,FullMap)).
+expr_lookup(SKey,Ti,{OP,A,B},FullMap) when is_binary(A) ->
+    exprguard(Ti,OP,field_lookup(A,FullMap),expr_lookup(SKey,Ti,B,FullMap));
+expr_lookup(SKey,Ti,{OP,A,B},FullMap) when is_binary(B) ->
+    exprguard(Ti,OP,expr_lookup(SKey,Ti,A,FullMap), field_lookup(B,FullMap));
+expr_lookup(SKey,Ti,{OP,A,B},FullMap) ->
+    exprguard(Ti,OP,expr_lookup(SKey,Ti,A,FullMap), expr_lookup(SKey,Ti,B,FullMap)).
 
-exprguard(1, OP, {0,A,_,_,_,_,_},   {0,B,_,_,_,_,_}) ->     {OP,A,B};           
-exprguard(1, OP, {1,A,T,_,_,_,_},   {1,B,T,_,_,_,_}) ->     {OP,A,B};
-exprguard(1, _,  {1,_,AT,_,_,_,AN}, {1,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(1, OP, {1,A,T,L,P,D,_},   {0,B,_,_,_,_,_}) ->     {OP,A,field_value(A,T,L,P,D,B)};
-exprguard(1, OP, {0,A,_,_,_,_,_},   {1,B,T,L,P,D,_}) ->     {OP,field_value(B,T,L,P,D,A),B};
+exprguard(1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1; B>1 -> throw({'JoinEvent','join_condition'});
+exprguard(1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y -> {X,{OP,A,B},T,L,P,D,AN};           
+exprguard(1, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->            {Y,{OP,A,B},T,L,P,D,BN};           
+exprguard(1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->        {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->       {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
-
 exprguard(J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J -> ?UnimplementedException({"Unsupported join order",{A,B}});
 exprguard(J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J -> ?UnimplementedException({"Unsupported join order",{A,B}});
-exprguard(_, OP, {0,A,_,_,_,_,_},   {0,B,_,_,_,_,_}) ->     {OP,A,B};           
-exprguard(J, OP, {J,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
-exprguard(J, OP, {J,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->     {OP,A,B};
-exprguard(J, OP, {_,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
-exprguard(J, OP, {J,A,T,L,P,D,_},   {0,B,_,_,_,_,_}) ->     {OP,A,field_value(A,T,L,P,D,B)};
-exprguard(J, OP, {0,A,_,_,_,_,_},   {J,B,T,L,P,D,_}) ->     {OP,field_value(B,T,L,P,D,A),B};
-exprguard(J, _,  {J,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(J, _,  {J,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(J, _,  {_,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->     true.
-
+exprguard(_, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y -> {X,{OP,A,B},T,L,P,D,AN};           
+exprguard(_, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->            {Y,{OP,A,B},T,L,P,D,BN};           
+exprguard(_, OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 -> {N,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(_, OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 ->{N,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(_, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
+exprguard(J, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {J,OP,A,B}}).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -437,6 +455,36 @@ test_with_or_without_sec(IsSec) ->
         % 7,9 -- 
         % 7,10 --
 
+        case IsSec of
+            false ->    ok;
+            true ->     
+                Sql12 = "select * from all_tables where owner=user",
+                io:format(user, "Query: ~p~n", [Sql12]),
+                {ok, _Clm12, _RowFun12, StmtRef12} = imem_sql:exec(SKey, Sql12, 100, 'Imem', IsSec),
+                List12 = imem_statement:fetch_recs_sort(SKey, StmtRef12, self(), Timeout, IsSec),
+                io:format(user, "Result: (~p)~n~p~n", [length(List12),lists:map(_RowFun12,List12)]),
+                ?assertEqual(1, length(List12))                
+        end,
+
+        Sql13 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1 and t2.col1 <= t1.col1 + 2 ",  
+        io:format(user, "Query: ~p~n", [Sql13]),
+        {ok, _Clm13, _RowFun13, StmtRef13} = imem_sql:exec(SKey, Sql13, 100, 'Imem', IsSec),
+        List13 = imem_statement:fetch_recs_sort(SKey, StmtRef13, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List13),lists:map(_RowFun13,List13)]),
+        ?assertEqual(6, length(List13)),
+        % 5,6
+        % 5,7
+        % 5,8 --
+        % 5,9 --
+        % 5,10 --
+        % 6,7
+        % 6,8
+        % 6,9 -- 
+        % 6,10 -- 
+        % 7,8
+        % 7,9  
+        % 7,10 --
+
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 
         case IsSec of
@@ -449,8 +497,6 @@ test_with_or_without_sec(IsSec) ->
         ?assert( true == "all tests completed")
     end,
     ok. 
-
-
 
 insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->

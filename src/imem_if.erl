@@ -131,6 +131,7 @@ transaction(Fun, Args, Retries) when is_function(Fun)->
 
 meta_field_value(node) -> node();
 meta_field_value(user) -> <<"unknown">>;
+meta_field_value(username) -> <<"unknown">>;
 meta_field_value(schema) -> schema();
 meta_field_value(localtime) -> calendar:local_time();            
 meta_field_value(now) -> erlang:now();            

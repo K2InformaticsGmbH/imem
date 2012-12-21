@@ -19,7 +19,7 @@
                   , locked='false'          ::'true' | 'false'
                   }
        ).
--define(ddAccount, [term,binary,atom,list,binary,datetime,datetime,datetime,boolean]).
+-define(ddAccount, [uerid,binstr,atom,list,binstr,datetime,datetime,datetime,boolean]).
 
 -record(ddRole,                             %% hierarchy of roles with permissions and access privileges to connections and commands  
                   { id                      ::ddEntityId()            %% lookup starts with ddAccount.id, other roles are atoms
@@ -41,7 +41,7 @@
                   , state                   :: any()              %% authentication state
                   }     
        ). 
--define(ddSeCo, [integer,pid,integer,binary,ref,atom,timestamp,term]).
+-define(ddSeCo, [integer,pid,integer,binstr,userid,atom,timestamp,term]).
 
 -record(ddPerm,                             %% acquired permission cache bag table             
                   { pkey                    :: {ddSeCoKey(), ddPermission()}  %% permission key
