@@ -1,7 +1,7 @@
 -module(imem_sec).
 
 -define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).
--define(SECO_FIELDS,[user]).
+-define(SECO_FIELDS,[user,username]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -18,6 +18,7 @@
         , check_table_record/3
         , check_table_columns/3
         , system_table/2
+        , meta_field_list/1                
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
@@ -110,6 +111,9 @@ if_system_table(_SKey, Table) ->
         false ->    imem_meta:system_table(Table)
     end.
 
+if_meta_field_list(_SKey) ->
+    imem_meta:meta_field_list().
+
 if_meta_field(_SKey, Name) ->
     case lists:member(Name,?SECO_FIELDS) of
         true ->     true;
@@ -124,9 +128,7 @@ if_meta_field_value(SKey, username) ->
     [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
     Name;
 if_meta_field_value(SKey, user) ->
-    #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
-    % [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
-    % Name;
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     AccountId;
 if_meta_field_value(_SKey, Name) ->
     imem_meta:meta_field_value(Name).
@@ -150,6 +152,9 @@ schema(SKey, Node) ->
 system_table(SKey, Table) ->
     seco_authorized(SKey),    
     if_system_table(SKey, Table).
+
+meta_field_list(SKey) ->
+    if_meta_field_list(SKey).
 
 meta_field(SKey, Name) ->
     if_meta_field(SKey, Name).

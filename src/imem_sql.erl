@@ -12,6 +12,7 @@
         , column_map_items/2
         , column_map/2
         , strip_quotes/1
+        , simplify_matchspec/1
         ]).
 
 parse(Statement) when is_list(Statement) ->
@@ -128,6 +129,8 @@ table_qname(Str, A) when is_list(Str), is_atom(A) ->
 table_qname(S, _A) ->
     ?ClientError({"Invalid table name", S}).
 
+column_map_items(Map, tag) ->
+    [C#ddColMap.tag || C <- Map];
 column_map_items(Map, schema) ->
     [C#ddColMap.schema || C <- Map];
 column_map_items(Map, table) ->
@@ -138,16 +141,16 @@ column_map_items(Map, qname) ->
     [lists:flatten(io_lib:format("~p.~p.~p", [C#ddColMap.schema,C#ddColMap.table,C#ddColMap.name])) || C <- Map];
 column_map_items(Map, qtype) ->
     [lists:flatten(io_lib:format("~p(~p,~p)", [C#ddColMap.type,C#ddColMap.length,C#ddColMap.precision])) || C <- Map];
-column_map_items(Map, table_index) ->
+column_map_items(Map, tind) ->
     [C#ddColMap.tind || C <- Map];
-column_map_items(Map, column_index) ->
+column_map_items(Map, cind) ->
     [C#ddColMap.cind || C <- Map];
 column_map_items(Map, type) ->
     [C#ddColMap.type || C <- Map];
 column_map_items(Map, length) ->
     [C#ddColMap.length || C <- Map];
 column_map_items(Map, precision) ->
-    [C#ddColMap.length || C <- Map];
+    [C#ddColMap.precision || C <- Map];
 column_map_items(_Map, Item) ->
     ?ClientError({"Invalid item",Item}).
 
@@ -265,6 +268,34 @@ strip_quotes([H|T]=Str) ->
         true ->                     Str
     end.
 
+simplify_matchspec(Term) ->
+    case  simplify_once(Term) of
+        Term -> Term;
+        T ->    simplify_matchspec(T)
+    end.
+
+simplify_once({'or', true, _}) -> true; 
+simplify_once({'or', _, true}) -> true; 
+simplify_once({'or', false, false}) -> false; 
+simplify_once({'or', Left, false}) -> simplify_once(Left); 
+simplify_once({'or', false, Right}) -> simplify_once(Right); 
+simplify_once({'or', Same, Same}) -> simplify_once(Same); 
+simplify_once({'and', false, _}) -> false; 
+simplify_once({'and', _, false}) -> false; 
+simplify_once({'and', true, true}) -> true; 
+simplify_once({'and', Left, true}) -> simplify_once(Left); 
+simplify_once({'and', true, Right}) -> simplify_once(Right); 
+simplify_once({'and', Same, Same}) -> simplify_once(Same); 
+simplify_once({ '+', Left, Right}) when is_number(Left), is_number(Right) -> Left + Right;
+simplify_once({ '-', Left, Right}) when is_number(Left), is_number(Right) -> Left - Right;
+simplify_once({ '*', Left, Right}) when is_number(Left), is_number(Right) -> Left * Right;
+simplify_once({ '/', Left, Right}) when is_number(Left), is_number(Right) -> Left / Right;
+simplify_once({ Op, Left, Right}) -> {Op, simplify_once(Left), simplify_once(Right)};
+simplify_once({'not', true}) -> false; 
+simplify_once({'not', false}) -> true; 
+simplify_once({'not', Result}) -> {'not', simplify_once(Result)};
+simplify_once({ Op, Result}) -> {Op, Result};
+simplify_once(Result) -> Result.
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

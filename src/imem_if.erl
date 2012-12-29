@@ -133,8 +133,6 @@ meta_field_value(node) -> node();
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(username) -> <<"unknown">>;
 meta_field_value(schema) -> schema();
-meta_field_value(localtime) -> calendar:local_time();            
-meta_field_value(now) -> erlang:now();            
 meta_field_value(sysdate) -> calendar:local_time();    
 meta_field_value(systimestamp) -> erlang:now();         
 meta_field_value(Name) -> ?ClientError({"Undefined meta value",Name}).

@@ -143,11 +143,21 @@ handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fet
     send_reply_to_client(Sock, {error,"Fetch aborted, execute fetch_close before refetch"}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
-    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec=MatchSpec, meta=MetaMap, limit=Limit} = Stmt,
-    MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaMap]),
+    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={MatchSpec0,Binds}, meta=MetaFields, limit=Limit} = Stmt,
+    MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
+    % io:format(user,"MetaRec : ~p~n", [MetaRec]),
+    % io:format(user,"Binds : ~p~n", [Binds]),
+    [{MatchHead, Guards0, [Result]}] = MatchSpec0,
+    % io:format(user,"Guards before bind : ~p~n", [Guards0]),
+    Guards1 = case Guards0 of
+        [] ->       [];
+        [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, Binds))]
+    end,
+    % io:format(user,"Guards after bind : ~p~n", [Guards1]),
+    MatchSpec1 = [{MatchHead, Guards1, [Result]}],
     NewFetchCtx = case Pid of
         undefined ->
-            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
+            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec1, BlockSize]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
@@ -285,12 +295,23 @@ kill_fetch(MonitorRef, Pid) ->
     catch erlang:demonitor(MonitorRef, [flush]),
     catch Pid ! abort. 
 
+select_bind(_MetaRec, Guard, []) -> Guard;
+select_bind(MetaRec, Guard0, [{Tag,Ti,Ci}|Binds]) ->
+    Guard1 = select_bind(MetaRec, Guard0, {Tag,Ti,Ci}),
+    select_bind(MetaRec, Guard1, Binds);
+select_bind(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,element(Ci,MetaRec)};
+select_bind(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind(MetaRec,A,{Tag,Ti,Ci})};
+select_bind(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> {Op,element(Ci,MetaRec),B};
+select_bind(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) -> {Op,A,element(Ci,MetaRec)};
+select_bind(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->  {Op,select_bind(MetaRec,A,{Tag,Ti,Ci}),select_bind(MetaRec,B,{Tag,Ti,Ci})};
+select_bind(_, A, _) ->                         A.
+
 join_rows(Rows, FetchCtx0, Stmt) ->
     #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     Tables = tl(Stmt#statement.tables),
     JoinSpec = Stmt#statement.joinspec,
-    io:format(user, "Join Tables: ~p~n", [Tables]),
-    io:format(user, "Join Specs: ~p~n", [JoinSpec]),
+    % io:format(user, "Join Tables: ~p~n", [Tables]),
+    % io:format(user, "Join Specs: ~p~n", [JoinSpec]),
     join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpec, []).
 
 join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
@@ -313,12 +334,12 @@ join_table(Rec, BlockSize, T, Table, {MatchSpec,[]}) ->
             [setelement(T, Rec, I) || I <- L]
     end;
 join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
-    [{MatchHead, [Guard], [Result]}] = MatchSpec0,
-    io:format(user, "Rec before bind ~p~n", [Rec]),
-    io:format(user, "MatchSpec before bind ~p~n", [MatchSpec0]),
-    MatchSpec1 = [{MatchHead, [join_bind(Rec, Guard, {Tag,Ti,Ci})], [Result]}],
-    io:format(user, "MatchSpec after bind ~p~n", [MatchSpec1]),
-    join_table(Rec, BlockSize, T, Table, {MatchSpec1, Binds}).
+    [{MatchHead, [Guard0], [Result]}] = MatchSpec0,
+    % io:format(user, "Rec used for bind ~p~n", [Rec]),
+    % io:format(user, "Guard before bind ~p~n", [Guard0]),
+    Guard1 = imem_sql:simplify_matchspec(join_bind(Rec, Guard0, {Tag,Ti,Ci})),
+    % io:format(user, "Guard after bind ~p~n", [Guard1]),
+    join_table(Rec, BlockSize, T, Table, {[{MatchHead, [Guard1], [Result]}], Binds}).
 
 join_bind(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
 join_bind(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind(Rec,A,{Tag,Ti,Ci})};

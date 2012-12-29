@@ -1,7 +1,7 @@
 -module(imem_meta).
 
 -define(META_TABLES,[ddTable]).
--define(META_FIELDS,[user,schema,node,sysdate,systimestamp]).
+-define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -42,6 +42,7 @@
         , check_table_record/2
         , check_table_columns/2
         , system_table/1
+        , meta_field_list/0        
         , meta_field/1
         , meta_field_info/1
         , meta_field_value/1
@@ -220,6 +221,8 @@ check_table_columns(Table, ColumnInfo) when is_atom(Table) ->
 drop_meta_tables() ->
     drop_table(ddTable).     
 
+meta_field_list() -> ?META_FIELDS.
+
 meta_field(Name) ->
     lists:member(Name,?META_FIELDS).
 
@@ -235,10 +238,6 @@ meta_field_info(user) ->
     #ddColumn{name=user, type='userid', length=20, precision=0};
 meta_field_info(username) ->
     #ddColumn{name=username, type='binstr', length=20, precision=0};
-meta_field_info(localtime) ->
-    #ddColumn{name=localtime, type='datetime', length=20, precision=0};
-meta_field_info(now) ->
-    #ddColumn{name=now, type='timestamp', length=20, precision=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 
