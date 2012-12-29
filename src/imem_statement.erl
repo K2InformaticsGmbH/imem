@@ -34,6 +34,7 @@
                     , blockSize=100 ::integer()     %% could be adaptive
                     , remaining ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
                     , opts = [] ::list()            %% fetch options like {tail_mode,true}
+                    , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
                     }).
 
 -record(state,                  %% state for statment process, including fetch subprocess
@@ -154,14 +155,15 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
         [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, Binds))]
     end,
     % io:format(user,"Guards after bind : ~p~n", [Guards1]),
-    MatchSpec1 = [{MatchHead, Guards1, [Result]}],
+    MatchSpec = [{MatchHead, Guards1, [Result]}],
+    TailSpec = ets:match_spec_compile(MatchSpec),
     NewFetchCtx = case Pid of
         undefined ->
-            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec1, BlockSize]) of
+            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
-                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts};
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts, tailSpec=TailSpec};
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
@@ -207,23 +209,42 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=St
     end;        
 handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     %io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, write, Record]),
-    #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0}=FetchCtx0,
+    #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec}=FetchCtx0,
     case Status of
-        tailing ->  
-            case length(Stmt#statement.tables) of
-                1 ->    
-                    Wrap = fun(X) -> {X, MetaRec} end,
-                    if  
-                        Remaining0 > 1 ->
-                            send_reply_to_client(Sock, {lists:map(Wrap, [Record]),false}),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}};
-                        true ->
-                            send_reply_to_client(Sock, {lists:map(Wrap, [Record]),true}),
-                            unsubscribe(Stmt),
-                            {noreply, State#state{fetchCtx=#fetchCtx{}}}
-                    end;
-                _N ->    
-                    ?UnimplementedException({"Joins not supported",Stmt#statement.tables})
+        tailing ->
+            case ets:match_spec_run([Record],TailSpec) of
+                [] ->  
+                    {noreply, State};
+                [Rec] ->       
+                    case length(Stmt#statement.tables) of
+                        1 ->    
+                            Wrap = fun(X) -> {X, MetaRec} end,
+                            if  
+                                Remaining0 > 1 ->
+                                    send_reply_to_client(Sock, {lists:map(Wrap, [Rec]),false}),
+                                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}};
+                                true ->
+                                    send_reply_to_client(Sock, {lists:map(Wrap, [Rec]),true}),
+                                    unsubscribe(Stmt),
+                                    {noreply, State#state{fetchCtx=#fetchCtx{}}}
+                            end;
+                        _N ->    
+                            case join_rows([Rec], FetchCtx0, Stmt) of
+                                [] ->
+                                    {noreply, State};
+                                Result ->    
+                                    Complete = (Remaining0 =< length(Result)),
+                                    % io:format(user, "sending rows ~p~n", [Result]),
+                                    send_reply_to_client(Sock, {Result, Complete}),
+                                    case Complete of
+                                        true -> 
+                                            unsubscribe(Stmt),
+                                            {noreply, State#state{fetchCtx=#fetchCtx{}}};
+                                        false ->
+                                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}}
+                                    end
+                            end
+                    end
             end;
         _ ->
             {noreply, State}
@@ -498,14 +519,18 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table def (col1 varchar2(10), col2 integer);", 0, "Imem", IsSec)),
+        Sql1 = "create table def (col1 varchar2(10), col2 integer);",
+        io:format(user, "Sql: ~p~n", [Sql1]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, "Imem", IsSec)),
         ?assertEqual(ok, insert_range(SKey, 15, def, 'Imem', IsSec)),
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),
         io:format(user, "Meta table~n~p~n", [Meta]),
         io:format(user, "original table~n~p~n", [TableRows1]),
 
-        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, "select col1, col2 from def;", 4, "Imem", IsSec),
+        Sql2 = "select col1, col2 from def;",
+        io:format(user, "Query: ~p~n", [Sql1]),
+        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, Sql2, 4, "Imem", IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
         Result2a = receive 
             R2a ->    R2a
@@ -554,7 +579,8 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
         ?assertEqual(5,imem_meta:table_size(def)),
 
-        Sql3 = "select col1, col2 from def;",
+        Sql3 = "select col1, col2 from def where col2 <= 5;",
+        io:format(user, "Query: ~p~n", [Sql3]),
         {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),
         try
             ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
@@ -565,7 +591,7 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),
             Result3b = receive_all(),
-            ?assertEqual(10, length(Result3b)),           
+            ?assertEqual(5, length(Result3b)),           
             ?assertEqual(ok, fetch_close(SKey, StmtRef3, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
             Result3c = receive_all(),
@@ -573,6 +599,33 @@ test_with_or_without_sec(IsSec) ->
         after
             ?assertEqual(ok, close(SKey, StmtRef3))
         end,
+
+        ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
+        ?assertEqual(0,imem_meta:table_size(def)),
+        ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+        ?assertEqual(5,imem_meta:table_size(def)),
+
+        Sql4 = "select t1.col1, t2.col2 from def t1, def t2 where t2.col1 = t1.col1 and t2.col2 <= 5;",
+        io:format(user, "Query: ~p~n", [Sql4]),
+        {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),
+        try
+            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), [{tail_mode,true}], IsSec)),
+            Result4a = receive_all(),
+            ?assertEqual(1, length(Result4a)),
+            [{_,{List4a,true}}] = Result4a,
+            ?assertEqual(5, length(List4a)),
+            ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
+            ?assertEqual(10,imem_meta:table_size(def)),
+            Result4b = receive_all(),
+            ?assertEqual(5, length(Result4b)),           
+            ?assertEqual(ok, fetch_close(SKey, StmtRef4, IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            Result4c = receive_all(),
+            ?assertEqual(0, length(Result4c))        
+        after
+            ?assertEqual(ok, close(SKey, StmtRef4))
+        end,
+
         ?assertEqual(ok, close(SKey, StmtRef2)),
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 
@@ -594,7 +647,7 @@ receive_all(Acc) ->
     case receive 
             R ->    io:format(user, "got:  ~p~n", [R]),
                     R
-        after 1000 ->
+        after 500 ->
             stop
         end of
         stop ->     lists:reverse(Acc);
