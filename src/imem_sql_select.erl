@@ -30,7 +30,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         gui ->  imem_datatype:select_rowfun_gui(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
-        {_, WT} ->  % io:format(user, "WhereTree ~p~n", [WT]),
+        {_, WT} ->  io:format(user, "WhereTree ~p~n", [WT]),
                     WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
@@ -66,7 +66,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user,"Tables: ~p~n", [Tables]),
     % io:format(user,"Column map: ~p~n", [ColMap]),
     % io:format(user,"Meta map: ~p~n", [MetaFields]),
-    % io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
+     io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
     % io:format(user,"JoinSpecs: ~p~n", [JoinSpec]),
     {ok, ColMap, RowFun, StmtRef}.
 
@@ -144,8 +144,8 @@ tree_walk(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->
 tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)}.
 
-condition(SKey,Tmax,1,OP,A,B,FullMap) -> 
-    compguard(Tmax,1,OP,expr_lookup(SKey,Tmax,1,A,FullMap),expr_lookup(SKey,Tmax,1,B,FullMap));
+% condition(SKey,Tmax,1,OP,A,B,FullMap) -> 
+%     compguard(Tmax,1,OP,expr_lookup(SKey,Tmax,1,A,FullMap),expr_lookup(SKey,Tmax,1,B,FullMap));
 condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
     try 
         ExA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
@@ -153,11 +153,17 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
         compguard(Tmax,Ti,OP,ExA,ExB)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
-        _:Reason -> throw(Reason)
+        _:Reason ->
+            io:format(user, "Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+            io:format(user, "Failing condition eval A: ~p~n", [A]),
+            io:format(user, "Failing condition eval B: ~p~n", [B]),
+            throw(Reason)
     end.
 
 compguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> true;   %% join condition
 compguard(_ ,1, OP, {_,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->     {OP,A,B};           
+compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) -> {OP,A,field_value(A,float,0,0,0.0,B)};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) -> {OP,field_value(B,float,0,0,0.0,A),B};
 compguard(_ ,1, OP, {1,A,T,L,P,D,_},   {0,B,string,_,_,_,_}) -> {OP,A,field_value(A,T,L,P,D,B)};
 compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) -> {OP,field_value(B,T,L,P,D,A),B};
 compguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},{BN,BT}}});
@@ -223,21 +229,22 @@ field_lookup(Name,FullMap) ->
 
 expr_lookup(_SKey,_Tmax,_Ti,A,FullMap) when is_binary(A)->
     field_lookup(A,FullMap);
-expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->
-    {F,expr_lookup(SKey,Tmax,Ti,Param,FullMap)};          %% F = unary value function like 'abs' 
-expr_lookup(_SKey,Tmax,Ti,{OP,A,B},FullMap) when is_binary(A), is_binary(B)->
-    exprguard(Tmax,Ti,OP,field_lookup(A,FullMap),field_lookup(B,FullMap));
-expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) when is_binary(A) ->
-    exprguard(Tmax,Ti,OP,field_lookup(A,FullMap),expr_lookup(SKey,Tmax,Ti,B,FullMap));
-expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) when is_binary(B) ->
-    exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), field_lookup(B,FullMap));
+expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
+    io:format(user, "Fun condition eval Tmax/Ti/Fun: ~p ~p ~p~n", [Tmax,Ti,F]),
+    {Ti,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
+    io:format(user, "Fun parameter: ~p~n", [{Ti,A,T,L,P,D,AN}]),    
+    {Ti,{F,A},T,L,P,D,AN};          
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
     exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), expr_lookup(SKey,Tmax,Ti,B,FullMap)).
 
 exprguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1, A=<Tm; B>1,B=<Tm -> throw({'JoinEvent','join_condition'});
 exprguard(_ ,1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y -> {X,{OP,A,B},T,L,P,D,AN};           
 exprguard(_ ,1, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->            {Y,{OP,A,B},T,L,P,D,BN};           
+exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,integer,_,_,_,_}) -> {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,float,_,_,_,_}) ->   {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
 exprguard(_ ,1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->        {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,datetime,L,P,D,BN}) -> {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
+exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->   {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
 exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->       {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
 exprguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
@@ -444,7 +451,23 @@ test_with_or_without_sec(IsSec) ->
                 {ok, _Clm12, _RowFun12, StmtRef12} = imem_sql:exec(SKey, Sql12, 100, 'Imem', IsSec),
                 List12 = imem_statement:fetch_recs_sort(SKey, StmtRef12, self(), Timeout, IsSec),
                 io:format(user, "Result: (~p)~n~p~n", [length(List12),lists:map(_RowFun12,List12)]),
-                ?assertEqual(1, length(List12))                
+                ?assertEqual(1, length(List12)),                
+
+                Sql17 = "select name, type from ddAccount where id=user and locked <> true", 
+                io:format(user, "Query: ~p~n", [Sql17]),
+                {ok, _Clm17, _RowFun17, StmtRef17} = imem_sql:exec(SKey, Sql17, 100, 'Imem', IsSec),
+                List17 = imem_statement:fetch_recs_sort(SKey, StmtRef17, self(), Timeout, IsSec),
+                io:format(user, "Result: (~p)~n~p~n", [length(List17),lists:map(_RowFun17,List17)]),
+                ?assertEqual(1, length(List17))
+                % "admin", user
+
+                % Sql18 = "select name, lastLoginTime from ddAccount where id=user and lastLoginTime > sysdate - 1/2",    %1/24
+                % io:format(user, "Query: ~p~n", [Sql18]),
+                % {ok, _Clm18, _RowFun18, StmtRef18} = imem_sql:exec(SKey, Sql18, 100, 'Imem', IsSec),
+                % List18 = imem_statement:fetch_recs_sort(SKey, StmtRef18, self(), Timeout, IsSec),
+                % io:format(user, "Result: (~p)~n~p~n", [length(List18),lists:map(_RowFun18,List18)]),
+                % ?assertEqual(1, length(List18))
+                % "admin", user
         end,
 
         Sql13 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1 and t2.col1 <= t1.col1 + 2 ",  
@@ -455,16 +478,31 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(6, length(List13)),
         % 5,6
         % 5,7
-        % 5,8 --
-        % 5,9 --
-        % 5,10 --
         % 6,7
         % 6,8
-        % 6,9 -- 
-        % 6,10 -- 
         % 7,8
         % 7,9  
-        % 7,10 --
+
+        Sql14 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,7) and abs(t2.col1-t1.col1) = 1", 
+        io:format(user, "Query: ~p~n", [Sql14]),
+        {ok, _Clm14, _RowFun14, StmtRef14} = imem_sql:exec(SKey, Sql14, 100, 'Imem', IsSec),
+        List14 = imem_statement:fetch_recs_sort(SKey, StmtRef14, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List14),lists:map(_RowFun14,List14)]),
+        ?assertEqual(4, length(List14)),
+        % 5,4
+        % 5,6
+        % 7,6
+        % 7,8 
+
+        Sql16 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1=5 and t2.col1 > t1.col1 / 2 and t2.col1 <= t1.col1", 
+        io:format(user, "Query: ~p~n", [Sql16]),
+        {ok, _Clm16, _RowFun16, StmtRef16} = imem_sql:exec(SKey, Sql16, 100, 'Imem', IsSec),
+        List16 = imem_statement:fetch_recs_sort(SKey, StmtRef16, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List16),lists:map(_RowFun16,List16)]),
+        ?assertEqual(3, length(List16)),
+        % 5,3
+        % 5,4
+        % 5,5
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 

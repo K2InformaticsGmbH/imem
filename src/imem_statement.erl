@@ -322,10 +322,55 @@ select_bind(MetaRec, Guard0, [{Tag,Ti,Ci}|Binds]) ->
     select_bind(MetaRec, Guard1, Binds);
 select_bind(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,element(Ci,MetaRec)};
 select_bind(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind(MetaRec,A,{Tag,Ti,Ci})};
-select_bind(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> {Op,element(Ci,MetaRec),B};
-select_bind(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) -> {Op,A,element(Ci,MetaRec)};
+select_bind(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> 
+    case element(Ci,MetaRec) of
+        {{Year,Month,Day},{Hour,Min,Sec}} ->
+            offset_datetime(Op,{{Year,Month,Day},{Hour,Min,Sec}},B);
+        {Mega,Sec,Micro} ->
+            offset_timestamp(Op,{Mega,Sec,Micro},B);
+        Other ->
+            {Op,Other,B}
+    end;
+select_bind(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) -> 
+    case element(Ci,MetaRec) of
+        {{_,_,_},{_,_,_}} = DT ->
+            offset_datetime(Op,DT,A);
+        {Mega,Sec,Micro} ->
+            offset_timestamp(Op,{Mega,Sec,Micro},A);
+        Other ->
+            {Op,A,Other}
+    end;
 select_bind(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->  {Op,select_bind(MetaRec,A,{Tag,Ti,Ci}),select_bind(MetaRec,B,{Tag,Ti,Ci})};
 select_bind(_, A, _) ->                         A.
+
+offset_datetime('-', DT, Offset) ->
+    offset_datetime('+', DT, -Offset);
+offset_datetime('+', {{Y,M,D},{HH,MI,SS}}, Offset) ->
+    GregSecs = calendar:datetime_to_gregorian_seconds({{Y,M,D},{HH,MI,SS}}),  %% for local time we should use calendar:local_time_to_universal_time_dst(DT)
+    calendar:gregorian_seconds_to_datetime(GregSecs + round(Offset*86400.0)); %% calendar:universal_time_to_local_time(
+offset_datetime(OP, DT, Offset) ->
+    ?ClientError({"Illegal datetime offset operation",{OP,DT,Offset}}).
+
+offset_timestamp('+', TS, Offset) when Offset < 0.0 -> 
+    offset_timestamp('-', TS, -Offset);    
+offset_timestamp('-', TS, Offset) when Offset < 0.0 -> 
+    offset_timestamp('+', TS, -Offset);    
+offset_timestamp(_, TS, Offset) when Offset < 5.787e-12 -> 
+    TS;
+offset_timestamp('+', {Mega,Sec,Micro}, Offset) ->
+    NewMicro = Micro + round(Offset*8.64e10),
+    NewSec = Sec + NewMicro div 1000000,
+    NewMega = Mega + NewSec div 1000000,
+    {NewMega, NewSec rem 1000000, NewMicro rem 1000000};    
+offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
+    NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 + Mega * 1000000000000,
+    Mi = NewMicro rem 1000000,
+    NewSec = (NewMicro-Mi) div 1000000, 
+    Se = NewSec rem 1000000,
+    NewMega = (NewSec-Se) div 1000000,
+    {NewMega, Se, Mi};    
+offset_timestamp(OP, TS, Offset) ->
+    ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
 
 join_rows(Rows, FetchCtx0, Stmt) ->
     #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
@@ -628,6 +673,44 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, close(SKey, StmtRef2)),
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
+
+        ?assertEqual({{2000,1,29},{12,13,14}}, offset_datetime('+', {{2000,1,28},{12,13,14}}, 1.0)),
+        ?assertEqual({{2000,1,27},{12,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0)),
+        ?assertEqual({{2000,1,28},{12,13,14}}, offset_datetime('+', {{2000,1,28},{12,13,14}}, 1.0e-10)),
+        ?assertEqual({{2000,1,28},{12,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0e-10)),
+        ?assertEqual({{2000,1,28},{11,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0)),
+        ?assertEqual({{2000,1,28},{12,12,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/60.0)),
+        ?assertEqual({{2000,1,28},{12,13,13}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/3600.0)),
+        
+        ENow = erlang:now(),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('+', ENow, 1.0),-1.0)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0),1.0)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.1),0.1)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.01),0.01)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.001),0.001)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.0001),0.0001)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.00001),0.00001)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.000001),0.000001)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-6),1.0e-6)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-7),1.0e-7)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-8),1.0e-8)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-9),1.0e-9)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-10),1.0e-10)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-11),1.0e-11)),
+        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-12),1.0e-12)),
+
+        io:format(user, "ErlangNow: ~p~n", [ENow]),
+        OneSec = 1.0/86400.0,
+        io:format(user, "Now-  1us: ~p~n", [offset_timestamp('-', ENow, 0.000001 * OneSec)]),
+        io:format(user, "Now- 10us: ~p~n", [offset_timestamp('-', ENow, 0.00001 * OneSec)]),
+        io:format(user, "Now-100us: ~p~n", [offset_timestamp('-', ENow, 0.0001 * OneSec)]),
+        io:format(user, "Now-  1ms: ~p~n", [offset_timestamp('-', ENow, 0.001 * OneSec)]),
+        io:format(user, "Now- 10ms: ~p~n", [offset_timestamp('-', ENow, 0.01 * OneSec)]),
+        io:format(user, "Now-100ms: ~p~n", [offset_timestamp('-', ENow, 0.1 * OneSec)]),
+        io:format(user, "Now-   1s: ~p~n", [offset_timestamp('-', ENow, OneSec)]),
+        io:format(user, "Now-  10s: ~p~n", [offset_timestamp('-', ENow, 10.0*OneSec)]),
+        io:format(user, "Now- 100s: ~p~n", [offset_timestamp('-', ENow, 100.0*OneSec)]),
+        io:format(user, "Now-1000s: ~p~n", [offset_timestamp('-', ENow, 1000.0*OneSec)]),
 
         case IsSec of
             true ->     ?imem_logout(SKey);

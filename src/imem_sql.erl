@@ -290,6 +290,13 @@ simplify_once({ '+', Left, Right}) when is_number(Left), is_number(Right) -> Lef
 simplify_once({ '-', Left, Right}) when is_number(Left), is_number(Right) -> Left - Right;
 simplify_once({ '*', Left, Right}) when is_number(Left), is_number(Right) -> Left * Right;
 simplify_once({ '/', Left, Right}) when is_number(Left), is_number(Right) -> Left / Right;
+simplify_once({ 'div', Left, Right}) when is_number(Left), is_number(Right) -> Left div Right;
+simplify_once({ '>', Left, Right}) when is_number(Left), is_number(Right) -> (Left > Right);
+simplify_once({ '>=', Left, Right}) when is_number(Left), is_number(Right) -> (Left >= Right);
+simplify_once({ '<', Left, Right}) when is_number(Left), is_number(Right) -> (Left < Right);
+simplify_once({ '=<', Left, Right}) when is_number(Left), is_number(Right) -> (Left =< Right);
+simplify_once({ '==', Left, Right}) when is_number(Left), is_number(Right) -> (Left == Right);
+simplify_once({ '/=', Left, Right}) when is_number(Left), is_number(Right) -> (Left /= Right);
 simplify_once({ Op, Left, Right}) -> {Op, simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', true}) -> false; 
 simplify_once({'not', false}) -> true; 

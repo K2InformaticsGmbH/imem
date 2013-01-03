@@ -19,7 +19,7 @@
                   , locked='false'          ::'true' | 'false'
                   }
        ).
--define(ddAccount, [uerid,binstr,atom,list,binstr,datetime,datetime,datetime,boolean]).
+-define(ddAccount, [userid,binstr,atom,list,binstr,datetime,datetime,datetime,boolean]).
 
 -record(ddRole,                             %% hierarchy of roles with permissions and access privileges to connections and commands  
                   { id                      ::ddEntityId()            %% lookup starts with ddAccount.id, other roles are atoms
