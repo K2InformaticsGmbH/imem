@@ -1,6 +1,7 @@
 -module(imem_statement).
 
 -include("imem_seco.hrl").
+-include("imem_sql.hrl").
 
 %% gen_server
 -behaviour(gen_server).
@@ -324,8 +325,8 @@ select_bind(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,element(Ci,MetaRec)};
 select_bind(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind(MetaRec,A,{Tag,Ti,Ci})};
 select_bind(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> 
     case element(Ci,MetaRec) of
-        {{Year,Month,Day},{Hour,Min,Sec}} ->
-            offset_datetime(Op,{{Year,Month,Day},{Hour,Min,Sec}},B);
+        {{_,_,_},{_,_,_}} = DT ->
+            offset_datetime(Op,DT,B);
         {Mega,Sec,Micro} ->
             offset_timestamp(Op,{Mega,Sec,Micro},B);
         Other ->
@@ -340,8 +341,14 @@ select_bind(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) ->
         Other ->
             {Op,A,Other}
     end;
-select_bind(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->  {Op,select_bind(MetaRec,A,{Tag,Ti,Ci}),select_bind(MetaRec,B,{Tag,Ti,Ci})};
-select_bind(_, A, _) ->                         A.
+select_bind(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->
+    BA=select_bind(MetaRec,A,{Tag,Ti,Ci}),
+    BB=select_bind(MetaRec,B,{Tag,Ti,Ci}),
+    case lists:member(Op,?ComparisonOperators) of
+        true ->     comparison_bind(Op,BA,BB);
+        false ->    {Op,BA,BB}
+    end;
+select_bind(_, A, _) ->             A.
 
 offset_datetime('-', DT, Offset) ->
     offset_datetime('+', DT, -Offset);
@@ -409,10 +416,45 @@ join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
 
 join_bind(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
 join_bind(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind(Rec,A,{Tag,Ti,Ci})};
-join_bind(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  {Op,element(Ci,element(Ti,Rec)),B};
-join_bind(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  {Op,A,element(Ci,element(Ti,Rec))};
-join_bind(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->    {Op,join_bind(Rec,A,{Tag,Ti,Ci}),join_bind(Rec,B,{Tag,Ti,Ci})};
-join_bind(_, A, _) ->                       A.
+join_bind(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  
+    case element(Ci,element(Ti,Rec)) of
+        {{_,_,_},{_,_,_}} = DT ->
+            offset_datetime(Op,DT,B);
+        {Mega,Sec,Micro} ->
+            offset_timestamp(Op,{Mega,Sec,Micro},B);
+        Other ->
+            {Op,Other,B}
+    end;
+join_bind(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
+    case element(Ci,element(Ti,Rec)) of
+        {{_,_,_},{_,_,_}} = DT ->
+            offset_datetime(Op,DT,A);
+        {Mega,Sec,Micro} ->
+            offset_timestamp(Op,{Mega,Sec,Micro},A);
+        Other ->
+            {Op,A,Other}
+    end;
+join_bind(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
+    BA=join_bind(Rec,A,{Tag,Ti,Ci}),
+    BB=join_bind(Rec,B,{Tag,Ti,Ci}),
+    case lists:member(Op,?ComparisonOperators) of
+        true ->     comparison_bind(Op,BA,BB);
+        false ->    {Op,BA,BB}
+    end;
+join_bind(_, A, _) ->               A.
+
+comparison_bind(Op,A,B) ->
+    AW = case A of
+        {Ma,Sa,Microa} when is_integer(Ma), is_integer(Sa), is_integer(Microa) -> {const,A};
+        {{Ya,Mona,Da},{_,_,_}} when is_integer(Ya), is_integer(Mona), is_integer(Da) -> {const,A};
+        _ -> A
+    end,
+    BW = case B of
+        {Mb,Sb,Microb} when is_integer(Mb), is_integer(Sb), is_integer(Microb) -> {const,B};
+        {{Yb,Monb,Db},{_,_,_}} when is_integer(Yb), is_integer(Monb), is_integer(Db) -> {const,B};
+        _ -> B
+    end,
+    {Op,AW,BW}.   
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},

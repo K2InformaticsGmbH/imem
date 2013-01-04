@@ -30,7 +30,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         gui ->  imem_datatype:select_rowfun_gui(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
-        {_, WT} ->  io:format(user, "WhereTree ~p~n", [WT]),
+        {_, WT} ->  % io:format(user, "WhereTree ~p~n", [WT]),
                     WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
@@ -66,7 +66,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user,"Tables: ~p~n", [Tables]),
     % io:format(user,"Column map: ~p~n", [ColMap]),
     % io:format(user,"Meta map: ~p~n", [MetaFields]),
-     io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
+    % io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
     % io:format(user,"JoinSpecs: ~p~n", [JoinSpec]),
     {ok, ColMap, RowFun, StmtRef}.
 
@@ -230,9 +230,9 @@ field_lookup(Name,FullMap) ->
 expr_lookup(_SKey,_Tmax,_Ti,A,FullMap) when is_binary(A)->
     field_lookup(A,FullMap);
 expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
-    io:format(user, "Fun condition eval Tmax/Ti/Fun: ~p ~p ~p~n", [Tmax,Ti,F]),
+    % io:format(user, "Fun condition eval Tmax/Ti/Fun: ~p ~p ~p~n", [Tmax,Ti,F]),
     {Ti,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
-    io:format(user, "Fun parameter: ~p~n", [{Ti,A,T,L,P,D,AN}]),    
+    % io:format(user, "Fun parameter: ~p~n", [{Ti,A,T,L,P,D,AN}]),    
     {Ti,{F,A},T,L,P,D,AN};          
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
     exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), expr_lookup(SKey,Tmax,Ti,B,FullMap)).
@@ -335,6 +335,8 @@ test_with_or_without_sec(IsSec) ->
         {_List2, true} = Result2,
         % io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(_List2),hd(List2),lists:last(_List2)]),
 
+        ?assertEqual([imem], field_value(tag,list,0,0,[],"[imem]")),
+
         Sql6 = "select col1, col2 from def where col1>=5 and col1<=6",
         io:format(user, "Query: ~p~n", [Sql6]),
         {ok, _Clm6, RowFun6, StmtRef6} = imem_sql:exec(SKey, Sql6, 100, 'Imem', IsSec),
@@ -432,16 +434,9 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(9, length(List11)),
         % 5,6
         % 5,7
-        % 5,8 --
-        % 5,9 --
-        % 5,10 --
         % 6,7
         % 6,8
-        % 6,9 -- 
-        % 6,10 -- 
         % 7,8
-        % 7,9 -- 
-        % 7,10 --
 
         case IsSec of
             false ->    ok;
@@ -458,16 +453,16 @@ test_with_or_without_sec(IsSec) ->
                 {ok, _Clm17, _RowFun17, StmtRef17} = imem_sql:exec(SKey, Sql17, 100, 'Imem', IsSec),
                 List17 = imem_statement:fetch_recs_sort(SKey, StmtRef17, self(), Timeout, IsSec),
                 io:format(user, "Result: (~p)~n~p~n", [length(List17),lists:map(_RowFun17,List17)]),
-                ?assertEqual(1, length(List17))
+                ?assertEqual(1, length(List17)),
                 % "admin", user
 
-                % Sql18 = "select name, lastLoginTime from ddAccount where id=user and lastLoginTime > sysdate - 1/2",    %1/24
-                % io:format(user, "Query: ~p~n", [Sql18]),
-                % {ok, _Clm18, _RowFun18, StmtRef18} = imem_sql:exec(SKey, Sql18, 100, 'Imem', IsSec),
-                % List18 = imem_statement:fetch_recs_sort(SKey, StmtRef18, self(), Timeout, IsSec),
-                % io:format(user, "Result: (~p)~n~p~n", [length(List18),lists:map(_RowFun18,List18)]),
-                % ?assertEqual(1, length(List18))
-                % "admin", user
+                Sql18 = "select name, lastLoginTime from ddAccount where id=user and lastLoginTime > sysdate - (1/2 + 1/24)",    
+                io:format(user, "Query: ~p~n", [Sql18]),
+                {ok, _Clm18, _RowFun18, StmtRef18} = imem_sql:exec(SKey, Sql18, 100, 'Imem', IsSec),
+                List18 = imem_statement:fetch_recs_sort(SKey, StmtRef18, self(), Timeout, IsSec),
+                io:format(user, "Result: (~p)~n~p~n", [length(List18),lists:map(_RowFun18,List18)]),
+                ?assertEqual(1, length(List18))
+                
         end,
 
         Sql13 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1 and t2.col1 <= t1.col1 + 2 ",  
@@ -481,7 +476,7 @@ test_with_or_without_sec(IsSec) ->
         % 6,7
         % 6,8
         % 7,8
-        % 7,9  
+        % 7,9
 
         Sql14 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,7) and abs(t2.col1-t1.col1) = 1", 
         io:format(user, "Query: ~p~n", [Sql14]),

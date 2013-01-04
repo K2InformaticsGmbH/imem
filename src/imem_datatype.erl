@@ -322,7 +322,7 @@ string_to_datetime(Val) ->
                 end
         end
     catch
-        _:_ ->  ?ClientError({"Data conversion format error",{eDatetime,Val}})
+        _:_ ->  ?ClientError({"Data conversion format error",{datetime,Val}})
     end.    
 
 parse_date_eu(Val) ->
@@ -442,6 +442,10 @@ ip_item(Val) ->
         _ ->                                        ?ClientError({})
     end.
 
+string_to_decimal(Val,Len,undefined) ->
+    string_to_decimal(Val,Len,0);
+string_to_decimal(Val,undefined,Prec) ->
+    string_to_decimal(Val,0,Prec);
 string_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
     string_to_integer(Val,Len,0);  
 string_to_decimal(Val,Len,Prec) when Prec > 0 -> 
@@ -457,6 +461,8 @@ string_to_decimal(Val,Len,Prec) ->
 
 string_to_limited_string(Val,0) ->
     Val;
+string_to_limited_string(Val,undefined) ->
+    Val;
 string_to_limited_string(Val,Len) ->
     if
         length(Val) =< Len  ->  Val;
@@ -468,6 +474,11 @@ string_to_list(Val, 0) ->
         V when is_list(V) ->    V;
         _ ->                    ?ClientError({"Data conversion format error",{list,0,Val}})
     end;
+string_to_list(Val, undefined) -> 
+    case string_to_term(Val) of
+        V when is_list(V) ->    V;
+        _ ->                    ?ClientError({"Data conversion format error",{list,undefined,Val}})
+    end;
 string_to_list(Val,Len) -> 
     case string_to_term(Val) of
         V when is_list(V) ->
@@ -476,13 +487,18 @@ string_to_list(Val,Len) ->
                 true ->             ?ClientError({"Data conversion format error",{list,Len,Val}})
             end;
         _ ->
-            ?ClientError({"Data conversion format error",{tuple,Len,Val}})
+            ?ClientError({"Data conversion format error",{list,Len,Val}})
     end.
 
 string_to_tuple(Val,0) -> 
     case string_to_term(Val) of
         V when is_tuple(V) ->   V;
         _ ->                    ?ClientError({"Data conversion format error",{tuple,0,Val}})
+    end;
+string_to_tuple(Val,undefined) -> 
+    case string_to_term(Val) of
+        V when is_tuple(V) ->   V;
+        _ ->                    ?ClientError({"Data conversion format error",{tuple,undefined,Val}})
     end;
 string_to_tuple(Val,Len) -> 
     case string_to_term(Val) of
@@ -755,7 +771,7 @@ data_types(_) ->
         ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("8/18/1888 1:23:59")),
         ?assertEqual({{1888,8,18},{1,23,0}}, string_to_datetime("8/18/1888 1:23")),
         ?assertEqual({{1888,8,18},{1,0,0}}, string_to_datetime("8/18/1888 01")),
-        ?assertException(throw,{ClEr,{"Data conversion format error",{eDatetime,"8/18/1888 1"}}}, string_to_datetime("8/18/1888 1")),
+        ?assertException(throw,{ClEr,{"Data conversion format error",{datetime,"8/18/1888 1"}}}, string_to_datetime("8/18/1888 1")),
         ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888 ")),
         ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888")),
         ?assertEqual({1,23,59}, parse_time("01:23:59")),        
