@@ -397,7 +397,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(AllTableCount, length(List3b)),
 
 %        Sql4 = "select all_tables.* from all_tables where qname = erl(\"{'Imem',ddRole}")",
-        Sql4 = "select all_tables.* from all_tables where owner = undefined",
+        Sql4 = "select all_tables.* from all_tables where owner = system",
         io:format(user, "Query: ~p~n", [Sql4]),
         {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
@@ -407,8 +407,8 @@ test_with_or_without_sec(IsSec) ->
         {StmtRef4, {List4, true}} = Result4,
         % io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(_RowFun4,List4)]),
         case IsSec of
-            false -> ?assertEqual(1, length(List4));
-            true ->  ?assertEqual(0, length(List4))
+            false -> ?assertEqual(AllTableCount, length(List4));
+            true ->  ?assertEqual(AllTableCount-1, length(List4))
         end,
 
         Sql5 = "select col1, col2, col3, user from def where 1=1 and col2 = \"7\"",
@@ -462,6 +462,13 @@ test_with_or_without_sec(IsSec) ->
                 List18 = imem_statement:fetch_recs_sort(SKey, StmtRef18, self(), Timeout, IsSec),
                 io:format(user, "Result: (~p)~n~p~n", [length(List18),lists:map(_RowFun18,List18)]),
                 ?assertEqual(1, length(List18))
+
+                % Sql19 = "select v.name from ddView as v, ddCmd as c where c.id = v.cmd and c.adapters = \"[imem]\" and (c.owner = user or c.owner = system)",    
+                % io:format(user, "Query: ~p~n", [Sql19]),
+                % {ok, _Clm19, _RowFun19, StmtRef19} = imem_sql:exec(SKey, Sql19, 100, 'Imem', IsSec),
+                % List19 = imem_statement:fetch_recs_sort(SKey, StmtRef19, self(), Timeout, IsSec),
+                % io:format(user, "Result: (~p)~n~p~n", [length(List19),lists:map(_RowFun19,List19)]),
+                % ?assertEqual(2, length(List19))
                 
         end,
 

@@ -3,8 +3,6 @@
 
 -type ddEntityId() :: 	reference() | integer() | atom().
 -type ddType() ::		atom(). 			%% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
--type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
--type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 
 -record(ddColumn,                           %% column definition    
                   { name                    ::atom()
@@ -48,27 +46,11 @@
                     , joinspec = []                 ::list()            %% how to find joined records list({MatchSpec,Binds})
                     }).
 
-
--record(ddLog,                              %% log table    
-                  { logTime                 ::ddDatetime()              %% erlang time of last login success {{Y,M,D},{Hour,Min,Sec}}
-                  , logLevel                ::atom()
-                  , pid                     ::pid()      
-                  , module                  ::atom()
-                  , function                ::atom()
-                  , line=-1                 ::integer()
-                  , node                    ::atom()
-                  , fields=[]               ::list()
-                  , message=[]              ::any()
-                  , stacktrace=[]           ::list()
-                  }
-       ).
--define(ddLog, [datetime,atom,pid,atom,atom,integer,atom,list,term,list]).
-
 -record(ddTable,                            %% table    
                   { qname                   ::{atom(),atom()}		%% {Schema,Table}
                   , columns                 ::list(#ddColumn{})
                   , opts = []               ::list()      
-                  , owner                   ::ddEntityId()        	%% AccountId of creator / owner
+                  , owner=system            ::ddEntityId()        	%% AccountId of creator / owner
                   , readonly='false'        ::'true' | 'false'
                   }
        ).

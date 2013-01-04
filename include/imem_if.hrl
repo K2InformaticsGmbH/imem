@@ -1,3 +1,7 @@
+
+-type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
+-type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
+
 -define(MatchAllRecords,[{'$1', [], ['$_']}]).
 -define(MatchAllKeys,[{'$1', [], [{element,2,'$1'}]}]).
 
@@ -9,6 +13,23 @@
 -define(SystemException(Reason), throw({'SystemException',Reason})).
 -define(ConcurrencyException(Reason), throw({'ConcurrencyException',Reason})).
 -define(UnimplementedException(Reason), throw({'UnimplementedException',Reason})).
+
+
+-record(ddLog,                              %% log table    
+                  { logTime                 ::ddTimestamp()             %% erlang timestamp {Mega,Sec,Micro}
+                  , logLevel                ::atom()
+                  , pid                     ::pid()      
+                  , module                  ::atom()
+                  , function                ::atom()
+                  , line=0                  ::integer()
+                  , node                    ::atom()
+                  , fields=[]               ::list()
+                  , message=[]              ::any()
+                  , stacktrace=[]           ::list()
+                  }
+       ).
+-define(ddLog, [timestamp,atom,pid,atom,atom,integer,atom,list,term,list]).
+
 
 %% HELPER FUNCTIONS (do not export!!) --------------------------------------
 

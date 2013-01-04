@@ -170,7 +170,9 @@ check_table_record(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
                             ok;
                         true ->                 
                             ?SystemException({"Record does not match table metadata",Table})
-                    end   
+                    end;
+                Else -> 
+                    ?SystemException({"Column definition does not match table metadata",{Table,Else}})    
             end;  
         true ->                 
             ?SystemException({"Record field names do not match table structure",Table})             
