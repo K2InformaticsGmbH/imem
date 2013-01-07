@@ -11,7 +11,8 @@
         , schema/2
         , data_nodes/1
         , all_tables/1
-        , table_name/2
+        , node_shard/1
+        , node_shard/2
         , table_type/2
         , table_columns/2
         , table_size/2
@@ -190,8 +191,11 @@ all_selectable_tables(SKey, [Table|Rest], Acc0) ->
     end,
     all_selectable_tables(SKey, Rest, Acc1).
 
-table_name(_SKey,Prefix) ->
-    imem_meta:table_name(Prefix).
+node_shard(_SKey) ->
+    imem_meta:node_shard().
+
+node_shard(_SKey,Node) ->
+    imem_meta:node_shard(Node).
 
 table_type(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of

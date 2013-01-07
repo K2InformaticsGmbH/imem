@@ -1,8 +1,7 @@
 -module(imem_meta).
 
--define(META_TABLES,[ddTable]).
+-define(META_TABLES,[ddTable,'ddLog@']).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]).
--define(META_TABLE_PREFIXES,["ddLog_"]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -36,6 +35,7 @@
         , schema/1
         , data_nodes/0
         , all_tables/0
+        , node_shard/0
         , node_shard/1
         , table_type/1
         , table_columns/1
@@ -149,18 +149,12 @@ system_table({_,Table}) ->
     system_table(Table);
 system_table(Table) when is_atom(Table) ->
     case lists:member(Table,?META_TABLES) of
-        true ->
-            true;
-        false ->
-            TString = atom_to_list(Table),
-            case lists:member(true,[lists:prefix(P,TString) || P <- ?META_TABLE_PREFIXES]) of
-                true ->     true;
-                false ->    imem_if:system_table(Table)
-            end
+        true ->     true;
+        false ->    imem_if:system_table(Table)
     end.
 
 check_table(Table) when is_atom(Table) ->
-    imem_if:table_size(Table).
+    imem_if:table_size(physical_table_name(Table)).
 
 check_table_record(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
@@ -168,7 +162,7 @@ check_table_record(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     TableColumns = table_columns(Table),    
     if
         Names =:= TableColumns ->
-            case imem_if:read(ddTable,{schema(), Table}) of
+            case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
                 [] ->   ?SystemException({"Missing table metadata",Table}); 
                 [#ddTable{columns=ColumnInfos}] ->
                     CINames = column_info_items(ColumnInfos, name),
@@ -190,7 +184,7 @@ check_table_record(Table, ColumnNames) when is_atom(Table) ->
     TableColumns = table_columns(Table),    
     if
         ColumnNames =:= TableColumns ->
-            case imem_if:read(ddTable,{schema(), Table}) of
+            case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
                 [] ->   ?SystemException({"Missing table metadata",Table}); 
                 [#ddTable{columns=ColumnInfo}] ->
                     CINames = column_info_items(ColumnInfo, name),
@@ -230,7 +224,7 @@ check_table_columns(Table, ColumnInfo) when is_atom(Table) ->
     end.
 
 drop_meta_tables() ->
-    drop_table(ddLog),
+    drop_table('ddLog@'),
     drop_table(ddTable).     
 
 meta_field_list() -> ?META_FIELDS.
@@ -279,7 +273,7 @@ column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
 column_infos(Table) when is_atom(Table)->
-            case imem_if:read(ddTable,{schema(), Table}) of
+            case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
                 [] ->                       ?SystemException({"Missing table metadata",Table}); 
                 [#ddTable{columns=CI}] ->   CI
             end;  
@@ -334,7 +328,7 @@ physical_table_name(Name) when is_atom(Name) ->
     physical_table_name(atom_to_list(Name));
 physical_table_name(Name) when is_list(Name) ->
     case lists:last(Name) of
-        $@ ->   list_to_atom(lists:flatten(Name ++ node_shard(node())));
+        $@ ->   list_to_atom(lists:flatten(Name ++ node_shard()));
         _ ->    list_to_atom(Name)
     end.
 
@@ -360,6 +354,9 @@ data_nodes() ->
 
 all_tables() ->
     imem_if:all_tables().
+
+node_shard() ->
+    node_shard(node()).
 
 node_shard(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
