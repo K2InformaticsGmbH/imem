@@ -2,6 +2,7 @@
 
 -define(META_TABLES,[ddTable]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]).
+-define(META_TABLE_PREFIXES,["ddLog_"]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -35,6 +36,7 @@
         , schema/1
         , data_nodes/0
         , all_tables/0
+        , node_shard/1
         , table_type/1
         , table_columns/1
         , table_size/1
@@ -106,6 +108,10 @@ init(_Args) ->
         check_table(ddTable),
         check_table_record(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
+        catch create_table('ddLog@', {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog}, {type,bag}], system),
+        check_table('ddLog@'),
+        check_table_record('ddLog@', {record_info(fields, ddLog), ?ddLog, #ddLog{}}),
+
         catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system),
         check_table(dual),
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
@@ -139,22 +145,25 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ------ META implementation -------------------------------------------------------
 
+system_table({_,Table}) ->
+    system_table(Table);
 system_table(Table) when is_atom(Table) ->
     case lists:member(Table,?META_TABLES) of
-        true ->     true;
-        false ->    imem_if:system_table(Table) 
-    end;
-system_table({_,Table}) when is_atom(Table) ->
-    case lists:member(Table,?META_TABLES) of
-        true ->     true;
-        false ->    imem_if:system_table(Table) 
+        true ->
+            true;
+        false ->
+            TString = atom_to_list(Table),
+            case lists:member(true,[lists:prefix(P,TString) || P <- ?META_TABLE_PREFIXES]) of
+                true ->     true;
+                false ->    imem_if:system_table(Table)
+            end
     end.
 
 check_table(Table) when is_atom(Table) ->
     imem_if:table_size(Table).
 
 check_table_record(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
-    [Table|Defaults] = tuple_to_list(DefaultRecord),
+    [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
     TableColumns = table_columns(Table),    
     if
@@ -197,7 +206,7 @@ check_table_record(Table, ColumnNames) when is_atom(Table) ->
     end.
 
 check_table_columns(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
-    [Table|Defaults] = tuple_to_list(DefaultRecord),
+    [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfo = column_infos(Names, Types, Defaults),
     TableColumns = table_columns(Table),    
     MetaInfo = column_infos(Table),    
@@ -221,6 +230,7 @@ check_table_columns(Table, ColumnInfo) when is_atom(Table) ->
     end.
 
 drop_meta_tables() ->
+    drop_table(ddLog),
     drop_table(ddTable).     
 
 meta_field_list() -> ?META_FIELDS.
@@ -279,33 +289,29 @@ column_infos(Names) when is_list(Names)->
 column_infos(Names, Types, Defaults)->
     [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N]))), type=T, default=D} || {N,T,D} <- lists:zip3(Names, Types, Defaults)].
 
-create_table(Table, {Names, Types, DefaultRecord}, Opts, Owner) ->
-    [Table|Defaults] = tuple_to_list(DefaultRecord),
-    ColumnInfos = column_infos(Names, Types, Defaults),
-    imem_if:create_table(Table, ColumnInfos, Opts),
-    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts, owner=Owner});
-create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
-    ColumnNames = column_names(ColumnInfos),
-    imem_if:create_table(Table, ColumnNames, Opts),
-    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts, owner=Owner});
-create_table(Table, ColumnNames, Opts, Owner) ->
-    ColumnInfos = column_infos(ColumnNames), 
-    imem_if:create_table(Table, ColumnNames, Opts),
-    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts, owner=Owner}).
+create_table(Table, Columns, Opts) ->
+    create_table(Table, Columns, Opts, #ddTable{}#ddTable.owner).
 
-create_table(Table, {Names, Types, DefaultRecord}, Opts) ->
-    [Table|Defaults] = tuple_to_list(DefaultRecord),
-    ColumnInfos = column_infos(Names, Types, Defaults),
-    imem_if:create_table(Table, ColumnInfos, Opts),
-    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts});
-create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts) ->
-    ColumnNames = column_names(ColumnInfos),
-    imem_if:create_table(Table, ColumnNames, Opts),
-    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts});
-create_table(Table, ColumnNames, Opts) ->
-    ColumnInfos = column_infos(ColumnNames), 
-    imem_if:create_table(Table, ColumnNames, Opts),
-    imem_if:write(ddTable, #ddTable{qname={schema(),Table}, columns=ColumnInfos, opts=Opts}).
+create_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
+    [_|Defaults] = tuple_to_list(DefaultRecord),
+    ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
+    create_physical_table(Table,ColumnInfos,Opts,Owner);
+create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
+    create_physical_table(Table,ColumnInfos,Opts,Owner);
+create_table(Table, ColumnNames, Opts, Owner) ->
+    ColumnInfos = column_infos(ColumnNames),
+    create_physical_table(Table,ColumnInfos,Opts,Owner).
+
+create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> create_physical_table(Table,ColumnInfos,Opts,Owner);
+        _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
+    end;
+create_physical_table(Table,ColumnInfos,Opts,Owner) ->
+    PhysicalName=physical_table_name(Table),
+    imem_if:create_table(PhysicalName, column_names(ColumnInfos), Opts),
+    imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner}).
 
 drop_table({Schema,Table}) ->
     MySchema = schema(),
@@ -316,8 +322,21 @@ drop_table({Schema,Table}) ->
 drop_table(ddTable) -> 
     imem_if:drop_table(ddTable);
 drop_table(Table) -> 
-    imem_if:drop_table(Table),
-    imem_if:delete(ddTable, {schema(),Table}).
+    PhysicalName=physical_table_name(Table),
+    imem_if:drop_table(PhysicalName),
+    imem_if:delete(ddTable, {schema(),PhysicalName}).
+
+
+physical_table_name(dba_tables) -> ddTable;
+physical_table_name(all_tables) -> ddTable;
+physical_table_name(user_tables) -> ddTable;
+physical_table_name(Name) when is_atom(Name) ->
+    physical_table_name(atom_to_list(Name));
+physical_table_name(Name) when is_list(Name) ->
+    case lists:last(Name) of
+        $@ ->   list_to_atom(lists:flatten(Name ++ node_shard(node())));
+        _ ->    list_to_atom(Name)
+    end.
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
@@ -342,32 +361,23 @@ data_nodes() ->
 all_tables() ->
     imem_if:all_tables().
 
+node_shard(Node) when is_atom(Node) ->
+    io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
+
 table_type({_Schema,Table}) ->
     table_type(Table);          %% ToDo: may depend on schema
-table_type(dba_tables) ->
-    table_type(ddTable);
-table_type(all_tables) ->
-    table_type(ddTable);
-table_type(user_tables) ->
-    table_type(ddTable);
 table_type(Table) when is_atom(Table) ->
-    imem_if:table_type(Table).
+    imem_if:table_type(physical_table_name(Table)).
 
 table_columns({_Schema,Table}) ->
     table_columns(Table);       %% ToDo: may depend on schema
-table_columns(dba_tables) ->
-    table_columns(ddTable);
-table_columns(all_tables) ->
-    table_columns(ddTable);
-table_columns(user_tables) ->
-    table_columns(ddTable);
 table_columns(Table) ->
-    imem_if:table_columns(Table).
+    imem_if:table_columns(physical_table_name(Table)).
 
 table_size({_Schema,Table}) ->
     table_size(Table);          %% ToDo: may depend on schema
 table_size(Table) ->
-    imem_if:table_size(Table).
+    imem_if:table_size(physical_table_name(Table)).
 
 exec(Statement, BlockSize, Schema) ->
     imem_sql:exec(none, Statement, BlockSize, Schema, false).   
@@ -398,63 +408,33 @@ update_cursor_execute(Pid, Lock) ->
 
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize);          %% ToDo: may depend on schema
-fetch_start(Pid, dba_tables, MatchSpec, BlockSize) ->
-    fetch_start(Pid, ddTable, MatchSpec, BlockSize);
-fetch_start(Pid, all_tables, MatchSpec, BlockSize) ->
-    fetch_start(Pid, ddTable, MatchSpec, BlockSize);
-fetch_start(Pid, user_tables, MatchSpec, BlockSize) ->
-    fetch_start(Pid, ddTable, MatchSpec, BlockSize);
 fetch_start(Pid, Table, MatchSpec, BlockSize) ->
-    imem_if:fetch_start(Pid, Table, MatchSpec, BlockSize).
+    imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize).
 
 close(Pid) ->
     imem_statement:close(none, Pid).
 
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema 
-read(dba_tables) ->
-    read(ddTable);
-read(all_tables) -> 
-    read(ddTable);
-read(user_tables) -> 
-    read(ddTable);
 read(Table) -> 
-    imem_if:read(Table).
+    imem_if:read(physical_table_name(Table)).
 
 read({_Schema,Table}, Key) -> 
     read(Table, Key); 
-read(dba_tables, Key) ->
-    read(ddTable, Key);
-read(all_tables, Key) -> 
-    read(ddTable, Key);
-read(user_tables, Key) -> 
-    read(ddTable, Key);
 read(Table, Key) -> 
-    imem_if:read(Table, Key).
+    imem_if:read(physical_table_name(Table), Key).
 
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
-select(dba_tables, MatchSpec) ->
-    select(ddTable, MatchSpec);
-select(all_tables, MatchSpec) ->
-    select(ddTable, MatchSpec);
-select(user_tables, MatchSpec) ->
-    select(ddTable, MatchSpec);
 select(Table, MatchSpec) ->
-    imem_if:select(Table, MatchSpec).
+    imem_if:select(physical_table_name(Table), MatchSpec).
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
-select(dba_tables, MatchSpec, Limit) ->
-    select(ddTable, MatchSpec, Limit);
-select(all_tables, MatchSpec, Limit) ->
-    select(ddTable, MatchSpec, Limit);
-select(user_tables, MatchSpec, Limit) ->
-    select(ddTable, MatchSpec, Limit);
 select(Table, MatchSpec, Limit) ->
-    imem_if:select(Table, MatchSpec, Limit).
+    imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
 select_sort(Table, MatchSpec)->
     {L, true} = select(Table, MatchSpec),
@@ -475,24 +455,24 @@ insert(ddTable, Row) ->
     imem_if:insert(ddTable, Row);
 insert(Table, Row) when is_list(Row) ->
     case lists:member(?nav,Row) of
-        false ->    imem_if:insert(Table, Row);
+        false ->    imem_if:insert(physical_table_name(Table), Row);
         true ->     ?ClientError({"Not null constraint violation", {Table,Row}})
     end;
 insert(Table, Row) when is_tuple(Row) ->
     case lists:member(?nav,tuple_to_list(Row)) of
-        false ->    imem_if:insert(Table, Row);
+        false ->    imem_if:insert(physical_table_name(Table), Row);
         true ->     ?ClientError({"Not null constraint violation", {Table,Row}})
     end.
 
 delete({_Schema,Table}, Key) ->
     delete(Table, Key);             %% ToDo: may depend on schema
 delete(Table, Key) ->
-    imem_if:delete(Table, Key).
+    imem_if:delete(physical_table_name(Table), Key).
 
 truncate_table({_Schema,Table}) ->
     truncate_table(Table);                %% ToDo: may depend on schema
 truncate_table(Table) ->
-    imem_if:truncate_table(Table).
+    imem_if:truncate_table(physical_table_name(Table)).
 
 subscribe(EventCategory) ->
     imem_if:subscribe(EventCategory).
@@ -508,15 +488,9 @@ update_tables(_MySchema, [], Lock, Acc) ->
 update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
     update_tables(MySchema, UPlan, Lock, [update_table_name(MySchema, UEntry)|Acc]).
 
-update_table_name(MySchema,[{MySchema,dba_tables,Type}|T]) ->
-    [{ddTable,Type}|T];
-update_table_name(MySchema,[{MySchema,all_tables,Type}|T]) ->
-    [{ddTable,Type}|T];
-update_table_name(MySchema,[{MySchema,user_tables,Type}|T]) ->
-    [{ddTable,Type}|T];
 update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New]) ->
     case lists:member(?nav,tuple_to_list(New)) of
-        false ->    [{Tab,Type}, Item, Old, New];
+        false ->    [{physical_table_name(Tab),Type}, Item, Old, New];
         true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
     end.
 

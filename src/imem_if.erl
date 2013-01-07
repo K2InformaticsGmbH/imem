@@ -25,7 +25,6 @@
         , table_columns/1
         , table_size/1
         , check_table/1
-        , check_table_record/2
         , check_table_columns/2
         , system_table/1
         , meta_field_value/1        
@@ -151,10 +150,6 @@ add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
-
-column_names(ColumnInfos)->
-    [list_to_atom(lists:flatten(io_lib:format("~p", [element(2,C)]))) || C <- ColumnInfos].
-
 data_nodes() -> [{schema(N),N} || N <- mnesia:system_info(running_db_nodes)].
 
 all_tables() ->
@@ -179,58 +174,45 @@ table_size(Table) ->
 check_table(Table) ->
     table_size(Table).
 
-check_table_record(Table, ColumnNames) ->
+check_table_columns(Table, ColumnNames) ->
     TableColumns = table_columns(Table),    
     if
         ColumnNames =:= TableColumns ->
             ok;  
         true ->                 
-            ?SystemException({"Record field names do not match table structure",Table})             
-    end.
-
-check_table_columns(Table, ColumnInfo) ->
-    ColumnNames = column_names(ColumnInfo),
-    TableColumns = table_columns(Table),    
-    if
-        ColumnNames =:= TableColumns ->
-            ok;  
-        true ->                 
-            ?SystemException({"Column info does not match table structure",Table})             
+            ?SystemException({"Column names do not match table structure",Table})             
     end.
 
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
-create_table(Table,[First|_]=ColumnInfos,Opts) when is_tuple(First) ->
-    ColumnNames = column_names(ColumnInfos),
-    create_table(Table,ColumnNames,Opts);
-create_table(Table,Columns,Opts) ->
+create_table(Table, ColumnNames, Opts) ->
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
     if 
-        Local ->    create_local_table(Table, Columns, Opts);
-        Cluster ->  create_cluster_table(Table, Columns, Opts);
-        true ->     create_schema_table(Table, Columns, Opts)
+        Local ->    create_local_table(Table, ColumnNames, Opts);
+        Cluster ->  create_cluster_table(Table, ColumnNames, Opts);
+        true ->     create_schema_table(Table, ColumnNames, Opts)
     end.
 
 system_table(_) -> false.
 
-create_local_table(Table,Columns,Opts) when is_atom(Table) ->
-    Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- Columns],
+create_local_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+    Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- ColumnNames],
     CompleteOpts = add_attribute(Cols, Opts) -- [{scope,local}],
     create_table(Table, CompleteOpts).
 
-create_schema_table(Table,Columns,Opts) when is_atom(Table) ->
+create_schema_table(Table,ColumnNames,Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,schema}],
-    create_local_table(Table,Columns,CompleteOpts).
+    create_local_table(Table,ColumnNames,CompleteOpts).
 
-create_cluster_table(Table,Columns,Opts) when is_atom(Table) ->
+create_cluster_table(Table,ColumnNames,Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     %% ToDo: may need to pull from another imem schema first and initiate sync
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,cluster}],
-    create_local_table(Table,Columns,CompleteOpts).
+    create_local_table(Table,ColumnNames,CompleteOpts).
 
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    

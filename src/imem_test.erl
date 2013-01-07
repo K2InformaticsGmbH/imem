@@ -52,6 +52,7 @@ test(_) ->
         ?assert(0 =< imem_meta:table_size(ddPerm)),
         ?assert(0 =< imem_meta:table_size(ddQuota)),
         ?assert(6 =< imem_meta:table_size(ddTable)),
+        ?assert(0 =< imem_meta:table_size(imem_meta:table_name(ddLog))),
         io:format(user, "success ~p~n", [minimum_table_sizes]),
 
         io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
