@@ -444,7 +444,7 @@ select_sort(Table, MatchSpec, Limit) ->
 write({_Schema,Table}, Record) -> 
     write(Table, Record);           %% ToDo: may depend on schema 
 write(Table, Record) -> 
-    imem_if:write(Table, Record).
+    imem_if:write(physical_table_name(Table), Record).
 
 insert({_Schema,Table}, Row) ->
     insert(Table, Row);             %% ToDo: may depend on schema
@@ -545,6 +545,15 @@ meta_operations(_) ->
         io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
+        Now = erlang:now(),
+        LogSize = table_size(ddLog@),
+        Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
+        LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
+                            ,module=?MODULE,function=meta_operations,node=node()
+                            ,fields=Fields,message= <<"some log message 1">>},
+        ?assertEqual(ok, write(ddLog@, LogRec1)),
+        ?assertEqual(LogSize+1, table_size(ddLog@)),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, length=10}     %% key
