@@ -24,11 +24,11 @@
                   , line=0                  ::integer()
                   , node                    ::atom()
                   , fields=[]               ::list()
-                  , message=[]              ::any()
+                  , message= <<"">>         ::binary()
                   , stacktrace=[]           ::list()
                   }
        ).
--define(ddLog, [timestamp,atom,pid,atom,atom,integer,atom,list,term,list]).
+-define(ddLog, [timestamp,atom,pid,atom,atom,integer,atom,list,binstr,list]).
 
 
 %% HELPER FUNCTIONS (do not export!!) --------------------------------------
