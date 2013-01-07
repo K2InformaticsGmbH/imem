@@ -527,7 +527,10 @@ start_link(Params) ->
 init(Params) ->
     {_, NodeType} = lists:keyfind(node_type,1,Params),
     {_, SchemaName} = lists:keyfind(schema_name,1,Params),
-    SchemaDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
+    SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
+    {ok, Cwd} = file:get_cwd(),
+    LastFolder = lists:last(filename:split(Cwd)),
+    SchemaDir = if LastFolder =:= ".eunit" -> Cwd ++ "/../" ++ SDir; true -> Cwd ++ SDir end,
     random:seed(now()),
     SleepTime = random:uniform(1000),
     % lager:info("~p sleeping for about ~p ms...", [?MODULE, SleepTime]),
