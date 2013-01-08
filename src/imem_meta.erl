@@ -547,13 +547,18 @@ meta_operations(_) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         Now = erlang:now(),
-        LogSize = table_size(ddLog@),
+        LogCount1 = table_size(ddLog@),
+        io:format(user, "ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
         ?assertEqual(ok, write(ddLog@, LogRec1)),
-        ?assertEqual(LogSize+1, table_size(ddLog@)),
+        LogCount2 = table_size(ddLog@),
+        io:format(user, "ddLog@ count ~p~n", [LogCount2]),
+        ?assertEqual(LogCount1+1,LogCount2),
+        Log1=read(ddLog@,Now),
+        io:format(user, "ddLog@ content ~p~n", [Log1]),        
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, length=10}     %% key

@@ -281,9 +281,16 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
         _ ->
             join_rows(Rows, FetchCtx0, Stmt)
     end,
-    % io:format(user, "sending rows ~p~n", [Result]),
-    send_reply_to_client(Sock, {Result, (Complete orelse (Remaining0 =< length(Result)))}),
-    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}};
+    case is_number(Remaining0) of
+        true ->
+            % io:format(user, "sending rows ~p~n", [Result]),
+            send_reply_to_client(Sock, {Result, (Complete orelse (Remaining0 =< length(Result)))}),
+            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}};
+        false ->
+            io:format(user, "receiving rows ~n~p~n", [Rows]),
+            io:format(user, "in unexpected state ~n~p~n", [Rows,State]),
+            {noreply, State}
+    end;
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
     % io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     {noreply, State#state{fetchCtx=#fetchCtx{}}}; 
