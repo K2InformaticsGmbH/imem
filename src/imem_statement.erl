@@ -391,7 +391,7 @@ join_rows(Rows, FetchCtx0, Stmt) ->
     Tables = tl(Stmt#statement.tables),
     JoinSpec = Stmt#statement.joinspec,
     % io:format(user, "Join Tables: ~p~n", [Tables]),
-    io:format(user, "Join Specs: ~p~n", [JoinSpec]),
+    % io:format(user, "Join Specs: ~p~n", [JoinSpec]),
     join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpec, []).
 
 join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
@@ -416,9 +416,9 @@ join_table(Rec, BlockSize, T, Table, {MatchSpec,[]}) ->
 join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
     [{MatchHead, [Guard0], [Result]}] = MatchSpec0,
     % io:format(user, "Rec used for bind ~p~n", [Rec]),
-    io:format(user, "Guard before bind ~p~n", [Guard0]),
+    % io:format(user, "Guard before bind ~p~n", [Guard0]),
     Guard1 = imem_sql:simplify_matchspec(join_bind(Rec, Guard0, {Tag,Ti,Ci})),
-    io:format(user, "Guard after bind ~p~n", [Guard1]),
+    % io:format(user, "Guard after bind ~p~n", [Guard1]),
     join_table(Rec, BlockSize, T, Table, {[{MatchHead, [Guard1], [Result]}], Binds}).
 
 join_bind(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};

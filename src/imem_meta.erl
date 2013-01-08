@@ -55,6 +55,7 @@
 -export([ add_attribute/2
         , update_opts/2
         , throw_exception/2
+        , log_to_db/5
         ]).
 
 -export([ create_table/4
@@ -358,11 +359,11 @@ throw_exception(Ex,Reason) ->
 
 throw_exception(Ex,Reason,Level,Stacktrace) ->
     {Head,Fields} = case Reason of
-        {H0} ->                     {H0,[]};
-        {H1,P1} ->                  {H1,[{ep1,P1}]};
-        {H2,{P21,P22}} ->           {H2,[{ep1,P21},{ep2,P22}]};
-        {H3,{P31,P32,P33}} ->       {H3,[{ep1,P31},{ep2,P32},{ep3,P33}]};
         {H4,{P41,P42,P43,P44}} ->   {H4,[{ep1,P41},{ep2,P42},{ep3,P43},{ep4,P44}]};
+        {H3,{P31,P32,P33}} ->       {H3,[{ep1,P31},{ep2,P32},{ep3,P33}]};
+        {H2,{P21,P22}} ->           {H2,[{ep1,P21},{ep2,P22}]};
+        {H1,P1} ->                  {H1,[{ep1,P1}]};
+        {H0} ->                     {H0,[]};
         Else ->                     {Level,[{ep1,Else}]}
     end,
     Message = if 
@@ -376,7 +377,10 @@ throw_exception(Ex,Reason,Level,Stacktrace) ->
                         ,fields=[{ex,Ex}|Fields],message= Message
                         ,stacktrace = Stacktrace},
     imem_meta:write(ddLog@, LogRec),
-    throw({Ex,Reason}).
+    case Ex of
+        'SecurityViolation' ->  exit({Ex,Reason});
+        _ ->                    throw({Ex,Reason})
+    end.
 
 failing_function([]) -> 
     {undefined,undefined};
@@ -390,6 +394,15 @@ failing_function([{M,N,_,_}|STrace]) ->
 failing_function(Other) ->
     io:format(user, "unexpected stack trace ~p~n", [Other]),
     {undefined,undefined}.
+
+log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
+    LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
+                        ,module=Module,function=Function,node=node()
+                        ,fields=Fields,message= Message
+                    },
+    write(ddLog@, LogRec);
+log_to_db(Level,Module,Function,Fields,Message) ->
+    log_to_db(Level,Module,Function,Fields, list_to_binary(lists:flatten(io_lib:format("~p",[Message])))).
 
 
 %% imem_if but security context added --- META INFORMATION ------
@@ -603,7 +616,13 @@ meta_operations(_) ->
         io:format(user, "ddLog@ count ~p~n", [LogCount2]),
         ?assertEqual(LogCount1+1,LogCount2),
         Log1=read(ddLog@,Now),
-        io:format(user, "ddLog@ content ~p~n", [Log1]),        
+        io:format(user, "ddLog@ content ~p~n", [Log1]),
+        ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
+        ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
+        ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
+        ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],{stupid_error_message,2})),        
+        LogCount2a = table_size(ddLog@),
+        ?assertEqual(LogCount2+4,LogCount2a),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, length=10}     %% key

@@ -221,7 +221,6 @@ create_table(Table, Opts) when is_atom(Table) ->
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
    	case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
-            % lager:debug("table ~p locally exists", [Table]),
             io:format(user, "table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
@@ -535,7 +534,6 @@ init(Params) ->
     io:format(user, "SchemaDir ~p~n", [SchemaDir]),
     random:seed(now()),
     SleepTime = random:uniform(1000),
-    % lager:info("~p sleeping for about ~p ms...", [?MODULE, SleepTime]),
     io:format(user, "~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
     timer:sleep(SleepTime),
     application:set_env(mnesia, dir, SchemaDir),
@@ -586,7 +584,6 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
-    % lager:set_log_level(lager_console_backend,debug),
     ?imem_test_setup().
 
 teardown(_) ->

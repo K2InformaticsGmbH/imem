@@ -33,6 +33,7 @@
 
 -export([ update_opts/3
         , add_attribute/3
+        , log_to_db/6
         ]).
 
 -export([ authenticate/4
@@ -202,6 +203,12 @@ table_type(SKey, Table) ->
         true ->     imem_meta:table_type(Table);
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
+
+log_to_db(SKey,Level,Module,Function,Fields,Message) ->
+    case have_table_permission(SKey, ddLog@, insert) of
+        true ->     imem_meta:log_to_db(Level,Module,Function,Fields,Message);
+        false ->    ?SecurityException({"Insert into ddLog@ unauthorized", SKey})
+    end.    
 
 table_columns(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
@@ -591,7 +598,6 @@ test(_) ->
         SeEx = 'SecurityException',
 
         % CoEx = 'ConcurrencyException',
-        % SeEx = 'SecurityException',
         % SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
@@ -694,6 +700,14 @@ test(_) ->
         ?assertEqual(true, lists:member({'Imem',user_table_123}, UserTables)),
         io:format(user, "success ~p~n", [user_tables]),
 
+        LogCount1 = table_size(SeCoAdmin,ddLog@),
+        ?assertEqual(ok, log_to_db(SeCoAdmin,info,?MODULE,test,[{test_1,value2},{test_3,value4}],"Message")),        
+        LogCount2 = table_size(SeCoAdmin,ddLog@),
+        ?assertEqual(LogCount1+1,LogCount2),
+        ?assertException(throw, {SeEx,{"Insert into ddLog@ unauthorized",SeCoUser}}, log_to_db(SeCoUser,info,?MODULE,test,[{test_5,value6},{test_7,value8}],"Message")),        
+        LogCount3 = table_size(SeCoAdmin,ddLog@),
+        ?assertEqual(LogCount2+1,LogCount3),
+
         ?assertEqual(ok, insert(SeCoUser, user_table_123, {"A","B","C"})),
         ?assertEqual(1, table_size(SeCoUser, user_table_123)),
         io:format(user, "success ~p~n", [insert_own_table]),
@@ -702,7 +716,7 @@ test(_) ->
         io:format(user, "success ~p~n", [insert_own_table]),
         ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),
         io:format(user, "success ~p~n", [drop_own_table]),
-        ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
+        ?assertException(throw, {ClEr,{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
         io:format(user, "success ~p~n", [drop_own_table_no_exists]),
 
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [<<"test_user_123">>])),

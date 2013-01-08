@@ -61,8 +61,8 @@
        ). 
 -define(ddQuota, [tuple,integer,pid,term]).
 
--define(SecurityException(Reason), throw({'SecurityException',Reason})).
--define(SecurityViolation(Reason), exit({'SecurityViolation',Reason})).
+-define(SecurityException(Reason), imem_meta:throw_exception('SecurityException',Reason)).
+-define(SecurityViolation(Reason), imem_meta:throw_exception('SecurityViolation',Reason)).
 
 -define(PasswordChangeNeeded, "Password expired. Please change it").
 
