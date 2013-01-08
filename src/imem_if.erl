@@ -183,6 +183,7 @@ check_table_columns(Table, ColumnNames) ->
             ?SystemException({"Column names do not match table structure",Table})             
     end.
 
+
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
 create_table(Table, ColumnNames, Opts) ->

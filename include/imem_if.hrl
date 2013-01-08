@@ -9,11 +9,10 @@
 -define(eot,'$end_of_table').		  %% defined in mnesia
 -define(more,'$more_rows_exist').	%% defined here
 
--define(ClientError(Reason), throw({'ClientError',Reason})).
--define(SystemException(Reason), throw({'SystemException',Reason})).
--define(ConcurrencyException(Reason), throw({'ConcurrencyException',Reason})).
--define(UnimplementedException(Reason), throw({'UnimplementedException',Reason})).
-
+-define(ClientError(Reason), imem_meta:throw_exception('ClientError',Reason)).
+-define(SystemException(Reason), imem_meta:throw_exception('SystemException',Reason)).
+-define(ConcurrencyException(Reason), imem_meta:throw_exception('ConcurrencyException',Reason)).
+-define(UnimplementedException(Reason), imem_meta:throw_exception('UnimplementedException',Reason)).
 
 -record(ddLog,                              %% log table    
                   { logTime                 ::ddTimestamp()             %% erlang timestamp {Mega,Sec,Micro}

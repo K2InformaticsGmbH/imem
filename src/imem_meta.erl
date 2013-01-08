@@ -54,6 +54,7 @@
 
 -export([ add_attribute/2
         , update_opts/2
+        , throw_exception/2
         ]).
 
 -export([ create_table/4
@@ -346,6 +347,50 @@ add_attribute(A, Opts) ->
 update_opts(T, Opts) ->
     imem_if:update_opts(T, Opts).
 
+throw_exception(Ex,Reason) ->
+    Level = case Ex of
+        'UnimplementedException' -> warning;
+        'ConcurrencyException' ->   warning;
+        'ClientError' ->            warning;
+        _ ->                        error
+    end,
+    throw_exception(Ex,Reason,Level,erlang:get_stacktrace()).
+
+throw_exception(Ex,Reason,Level,Stacktrace) ->
+    {Head,Fields} = case Reason of
+        {H0} ->                     {H0,[]};
+        {H1,P1} ->                  {H1,[{ep1,P1}]};
+        {H2,{P21,P22}} ->           {H2,[{ep1,P21},{ep2,P22}]};
+        {H3,{P31,P32,P33}} ->       {H3,[{ep1,P31},{ep2,P32},{ep3,P33}]};
+        {H4,{P41,P42,P43,P44}} ->   {H4,[{ep1,P41},{ep2,P42},{ep3,P43},{ep4,P44}]};
+        Else ->                     {Level,[{ep1,Else}]}
+    end,
+    Message = if 
+        is_atom(Head) ->    list_to_binary(atom_to_list(Head));
+        is_list(Head) ->    list_to_binary(Head);
+        true ->             <<"invalid exception head">>
+    end,
+    {Module,Function} = failing_function(Stacktrace),
+    LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
+                        ,module=Module,function=Function,node=node()
+                        ,fields=[{ex,Ex}|Fields],message= Message
+                        ,stacktrace = Stacktrace},
+    imem_meta:write(ddLog@, LogRec),
+    throw({Ex,Reason}).
+
+failing_function([]) -> 
+    {undefined,undefined};
+failing_function([{imem_meta,throw_exception,_,_}|STrace]) -> 
+    failing_function(STrace);
+failing_function([{M,N,_,_}|STrace]) ->
+    case lists:prefix("imem",atom_to_list(M)) of 
+        true ->     {M,N};
+        false ->    failing_function(STrace)
+    end;
+failing_function(Other) ->
+    io:format(user, "unexpected stack trace ~p~n", [Other]),
+    {undefined,undefined}.
+
 
 %% imem_if but security context added --- META INFORMATION ------
 
@@ -577,10 +622,13 @@ meta_operations(_) ->
 
         ?assertEqual(ok, insert(meta_table_3, {{{2000,01,01},{12,45,55}},undefined})),
         ?assertEqual(1, table_size(meta_table_3)),
+        LogCount3 = table_size(ddLog@),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {?nav,undefined})),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {{{2000,01,01},{12,45,56}},?nav})),
+        LogCount4 = table_size(ddLog@),
         io:format(user, "success ~p~n", [not_null_constraint]),
-        
+        ?assertEqual(LogCount3+2, LogCount4),
+
         ?assertEqual(ok, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
