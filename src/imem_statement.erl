@@ -144,7 +144,7 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=P
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
     send_reply_to_client(Sock, {error,"Fetch aborted, execute fetch_close before refetch"}),
     {noreply, State}; 
-handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=#fetchCtx{pid=Pid}}=State) ->
+handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={MatchSpec0,Binds}, meta=MetaFields, limit=Limit} = Stmt,
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
     % io:format(user,"MetaRec : ~p~n", [MetaRec]),
@@ -158,7 +158,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % io:format(user,"Guards after bind : ~p~n", [Guards1]),
     MatchSpec = [{MatchHead, Guards1, [Result]}],
     TailSpec = ets:match_spec_compile(MatchSpec),
-    NewFetchCtx = case Pid of
+    FetchCtx1 = case FetchCtx0#fetchCtx.pid of
         undefined ->
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
                 TransPid when is_pid(TransPid) ->
@@ -170,9 +170,9 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             end;
         Pid ->
             Pid ! next,
-            #fetchCtx{metarec=MetaRec, opts=Opts}
+            FetchCtx0#fetchCtx{metarec=MetaRec, opts=Opts}
     end,
-    {noreply, State#state{reply=Sock,fetchCtx=NewFetchCtx}};  
+    {noreply, State#state{reply=Sock,fetchCtx=FetchCtx1}};  
 handle_cast({close, _SKey}, State) ->
     % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
