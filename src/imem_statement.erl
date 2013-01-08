@@ -288,7 +288,7 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}};
         false ->
             io:format(user, "receiving rows ~n~p~n", [Rows]),
-            io:format(user, "in unexpected state ~n~p~n", [Rows,State]),
+            io:format(user, "in unexpected state ~n~p~n", [State]),
             {noreply, State}
     end;
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
