@@ -307,6 +307,8 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
+        ?assertEqual([],receive_all()),
+
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none
@@ -377,34 +379,29 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql3]),
         {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        Result3 = receive 
-            R3 ->    R3
-        end,
-        {StmtRef3, {List3, true}} = Result3,
-        % io:format(user, "Result: (~p)~n~p~n", [length(List3),[tl(R)|| R <- lists:map(_RowFun3,List3)]]),
-        ?assertEqual(AllTableCount, length(List3)),
-
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        Result3a = receive 
-            R3a ->    R3a
-        end,
-        {StmtRef3, {List3a, true}} = Result3a,
-        % io:format(user, "Result: (~p) reread~n~p~n", [length(List3a),lists:map(_RowFun3,List3a)]),
+        [{StmtRef3, {List3a, false}}] = receive_all(),
+        % io:format(user, "Result: (~p)~n~p~n", [length(List3),[tl(R)|| R <- lists:map(_RowFun3,List3a)]]),
         ?assertEqual(AllTableCount, length(List3a)),
-
-        List3b = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
-        % io:format(user, "Result: (~p)~n~p~n", [length(List9),lists:map(RowFun8,List9)]),
-        ?assertEqual(AllTableCount, length(List3b)),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        [{StmtRef3, {[], true}}] = receive_all(),
+        io:format(user, "first read success (async)~n", []),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        [{StmtRef3, {List3b, false}}] = receive_all(),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        [{StmtRef3, {[], true}}] = receive_all(),
+        ?assertEqual(List3a,List3b),
+        io:format(user, "second read success (async)~n", []),
+        List3c = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
+        ?assertEqual(length(List3b), length(List3c)),
+        ?assertEqual(lists:sort(List3b), lists:sort(List3c)),
+        io:format(user, "third read success (sync)~n", []),
 
 %        Sql4 = "select all_tables.* from all_tables where qname = erl(\"{'Imem',ddRole}")",
         Sql4 = "select all_tables.* from all_tables where owner = system",
         io:format(user, "Query: ~p~n", [Sql4]),
         {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
-        Result4 = receive 
-            R4 ->    R4
-        end,
-        {StmtRef4, {List4, true}} = Result4,
+        [{StmtRef4, {List4, false}}] = receive_all(),
         % io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(_RowFun4,List4)]),
         case IsSec of
             false -> ?assertEqual(AllTableCount, length(List4));
@@ -415,10 +412,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql5]),
         {ok, _Clm5, _RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
-        Result5 = receive 
-            R5 ->    R5
-        end,
-        {StmtRef5, {List5, true}} = Result5,
+        [{StmtRef5, {List5, false}}] = receive_all(),
         % io:format(user, "Result: (~p)~n~p~n", [length(List5),lists:map(_RowFun5,List5)]),
         ?assertEqual(1, length(List5)),            
 
@@ -518,6 +512,20 @@ test_with_or_without_sec(IsSec) ->
         ?assert( true == "all tests completed")
     end,
     ok. 
+
+receive_all() ->
+    receive_all([]).
+
+receive_all(Acc) ->    
+    case receive 
+            R ->    io:format(user, "~p got:~n~p~n", [erlang:now(),R]),
+                    R
+        after 50 ->
+            stop
+        end of
+        stop ->     lists:reverse(Acc);
+        Result ->   receive_all([Result|Acc])
+    end.
 
 insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
