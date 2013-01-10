@@ -159,16 +159,10 @@ column_map([], Columns) ->
 column_map(Tables, []) ->
     column_map(Tables, [#ddColMap{name='*'}]);    
 column_map(Tables, Columns) ->
-    column_map(Tables, Columns, 1, [], [], []).
+    column_map([{S,imem_meta:physical_table_name(T),A}||{S,T,A} <- Tables], Columns, 1, [], [], []).
 
 column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     column_map([{imem_meta:schema(),Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
-column_map([{Schema,dba_tables,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
-    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
-column_map([{Schema,all_tables,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
-    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
-column_map([{Schema,user_tables,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
-    column_map([{Schema,ddTable,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
 column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     Cols = case imem_meta:read(ddTable,{Schema,Table}) of
         [#ddTable{columns=C}] ->    C;

@@ -58,7 +58,9 @@
         , integer_to_string/2
         , ipaddr_to_string/1
         , string_to_string/2
+        , timestamp_to_string/1
         , timestamp_to_string/2
+        , timestamp_to_string/3
         , userid_to_string/1
         ]).
 
@@ -549,7 +551,7 @@ db_to_gui(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
             (Type == decimal) andalso is_integer(Val) ->    decimal_to_string(Val,Prec);
             (Type == float) andalso is_float(Val) ->        float_to_string(Val,Prec,NumFmt);
             (Type == ipaddr) andalso is_tuple(Val) ->       ipaddr_to_string(Val);
-            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec);
+            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec,DateFmt);
             (Type == userid) andalso is_atom(Val) ->        atom_to_list(Val);
             (Type == userid) ->                             userid_to_string(Val);
             true ->                 Val   
@@ -570,7 +572,7 @@ db_to_string(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
             (Type == integer) andalso is_integer(Val) ->    integer_to_string(Val,StringFmt);
             (Type == ipaddr) andalso is_tuple(Val) ->       ipaddr_to_string(Val);
             (Type == string) andalso is_list(Val) ->        string_to_string(Val,StringFmt);
-            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec);
+            (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec,DateFmt);
             (Type == userid) andalso is_atom(Val) ->        atom_to_list(Val);
             (Type == userid) ->                             userid_to_string(Val);
             true -> lists:flatten(io_lib:format("~p",[Val]))   
@@ -601,6 +603,17 @@ datetime_to_string({{Year,Month,Day},{Hour,Min,Sec}},us) ->
 datetime_to_string(Datetime, Fmt) ->
     ?ClientError({"Data conversion format error",{datetime,Fmt,Datetime}}).
 
+timestamp_to_string(TS) ->
+    timestamp_to_string(TS,6,eu).
+
+timestamp_to_string(TS,Prec) ->
+    timestamp_to_string(TS,Prec,eu).
+
+timestamp_to_string({Megas,Secs,Micros},_Prec,raw) ->
+    lists:concat([integer_to_list(Megas),":",integer_to_list(Secs),":",integer_to_list(Micros)]);   
+timestamp_to_string({Megas,Secs,Micros},_Prec,Fmt) ->
+    lists:flatten(datetime_to_string(calendar:now_to_local_time({Megas,Secs,0}),Fmt) ++ io_lib:format(".~6.6.0w",[Micros])).
+   
 
 decimal_to_string(Val,0) ->
     lists:flatten(io_lib:format("~p",[Val]));   
@@ -637,10 +650,6 @@ userid_to_string(Val) ->
 ipaddr_to_string({A,B,C,D}) ->
     lists:concat([integer_to_list(A),".",integer_to_list(B),".",integer_to_list(C),".",integer_to_list(D)]);
 ipaddr_to_string(_IpAddr) -> ?UnimplementedException({}).
-
-
-timestamp_to_string({Megas,Secs,Micros},_Prec) ->
-    lists:concat([integer_to_list(Megas),":",integer_to_list(Secs),":",integer_to_list(Micros)]).    
 
 float_to_string(Val,_Prec,_NumFmt) ->
     float_to_list(Val).                     %% ToDo: implement rounding to db precision
