@@ -379,16 +379,12 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql3]),
         {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        [{StmtRef3, {List3a, false}}] = receive_all(),
+        [{StmtRef3, {List3a, true}}] = receive_all(),
         % io:format(user, "Result: (~p)~n~p~n", [length(List3),[tl(R)|| R <- lists:map(_RowFun3,List3a)]]),
         ?assertEqual(AllTableCount, length(List3a)),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        [{StmtRef3, {[], true}}] = receive_all(),
         io:format(user, "first read success (async)~n", []),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        [{StmtRef3, {List3b, false}}] = receive_all(),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        [{StmtRef3, {[], true}}] = receive_all(),
+        [{StmtRef3, {List3b, true}}] = receive_all(),
         ?assertEqual(List3a,List3b),
         io:format(user, "second read success (async)~n", []),
         List3c = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
@@ -401,7 +397,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql4]),
         {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
-        [{StmtRef4, {List4, false}}] = receive_all(),
+        [{StmtRef4, {List4, true}}] = receive_all(),
         % io:format(user, "Result: (~p)~n~p~n", [length(List4),lists:map(_RowFun4,List4)]),
         case IsSec of
             false -> ?assertEqual(AllTableCount, length(List4));
@@ -412,7 +408,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql5]),
         {ok, _Clm5, _RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
-        [{StmtRef5, {List5, false}}] = receive_all(),
+        [{StmtRef5, {List5, true}}] = receive_all(),
         % io:format(user, "Result: (~p)~n~p~n", [length(List5),lists:map(_RowFun5,List5)]),
         ?assertEqual(1, length(List5)),            
 

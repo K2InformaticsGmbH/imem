@@ -183,33 +183,13 @@ handle_cast(Request, State) ->
     io:format(user, "~p - received unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     {noreply, State}.
 
-handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
-    #fetchCtx{pid=Pid,monref=MonitorRef,status=Status,opts=Opts} = FetchCtx0,
-    % io:format(user, "~p - received end of table in status ~p~n", [?MODULE,Status]),
+handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
+    % io:format(user, "~p - received end of table in status ~p~n", [?MODULE,FetchCtx0#fetchCtx.status]),
     % io:format(user, "~p - received end of table in state~n~p~n", [?MODULE,State]),
-    if 
-        Status == running ->            send_reply_to_client(Sock, {[],true});
-        true ->                         ok
-    end,
-    case Status of
-        running ->  
-            kill_fetch(MonitorRef, Pid),
-            % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
-            case lists:member({tail_mode,true},Opts) of
-                false ->
-                    {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}};
-                true ->     
-                    {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
-                    case catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
-                        ok ->
-                            % io:format(user, "~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing},reply=Sock}};
-                        Error ->
-                            io:format(user, "~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
-                            send_reply_to_client(Sock, {'SystemException', {"Cannot subscribe to table changes",{Table,Error}}}),
-                            {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}}
-                    end    
-            end;
+    case FetchCtx0#fetchCtx.status of
+        running ->
+            send_reply_to_client(Sock, {[],true}),  
+            handle_fetch_complete(State);
         _ ->
             io:format(user, "~p - unexpected end of table received in state~n~p~n", [?MODULE, State]),        
             {noreply, State}
@@ -262,21 +242,25 @@ handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State
 handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
     {noreply, State};
-handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MetaRec, pid=Pid, monref=MonitorRef, remaining=Remaining0}=FetchCtx0,
+handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
+    #fetchCtx{metarec=MetaRec,pid=Pid,monref=MonitorRef,remaining=Remaining0}=FetchCtx0,
     % io:format(user, "~p - received ~p rows~n", [?MODULE, length(Rows)]),
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
+    {Rows1,Complete} = case Rows0 of
+        [?eot|R] ->     {R,true};
+        _ ->            {Rows0,false}
+    end,   
     Result = case length(Stmt#statement.tables) of
         1 ->    
             Wrap = fun(X) -> {X, MetaRec} end,
-            RowsRead=length(Rows),
+            RowsRead=length(Rows1),
             if  
                 RowsRead < Remaining0 ->
-                    lists:map(Wrap, Rows);
+                    lists:map(Wrap, Rows1);
                 RowsRead == Remaining0 ->
-                    lists:map(Wrap, Rows);
+                    lists:map(Wrap, Rows1);
                 Remaining0 > 0 ->
-                    {ResultRows,Rest} = lists:split(Remaining0, Rows),
+                    {ResultRows,Rest} = lists:split(Remaining0, Rows1),
                     LastKey = lists:nthtail(length(ResultRows)-1, ResultRows),
                     Pred = fun(X) -> (X==LastKey) end,
                     ResultTail = lists:takewhile(Pred, Rest),
@@ -285,20 +269,28 @@ handle_info({row, Rows}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=
                     []
             end;
         _ ->
-            join_rows(Rows, FetchCtx0, Stmt)
+            join_rows(Rows1, FetchCtx0, Stmt)
     end,
     case is_number(Remaining0) of
         true ->
             % io:format(user, "sending rows ~p~n", [Result]),
-            case (Remaining0 =< length(Result)) of
-                true ->     send_reply_to_client(Sock, {Result, true}),
-                            kill_fetch(MonitorRef, Pid),
-                            {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}};
-                false ->    send_reply_to_client(Sock, {Result, false}),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}}
+            case Remaining0 =< length(Result) of
+                true ->     
+                    send_reply_to_client(Sock, {Result, true}),
+                    kill_fetch(MonitorRef, Pid),
+                    {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}};
+                false ->    
+                    send_reply_to_client(Sock, {Result, Complete}),
+                    FetchCtx1 = FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)},
+                    if
+                        Complete ->
+                            handle_fetch_complete(State#state{fetchCtx=FetchCtx1});
+                        true ->
+                            {noreply, State#state{fetchCtx=FetchCtx1}}
+                    end
             end;
         false ->
-            io:format(user, "receiving rows ~n~p~n", [Rows]),
+            io:format(user, "receiving rows ~n~p~n", [Rows0]),
             io:format(user, "in unexpected state ~n~p~n", [State]),
             {noreply, State}
     end;
@@ -311,6 +303,26 @@ handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
 handle_info(Info, State) ->
     io:format(user, "~p - received unsolicited info ~p~nin state ~p~n", [?MODULE, Info, State]),
     {noreply, State}.
+
+handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State)->
+    #fetchCtx{pid=Pid,monref=MonitorRef,opts=Opts}=FetchCtx0,
+    kill_fetch(MonitorRef, Pid),
+    % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
+    case lists:member({tail_mode,true},Opts) of
+        false ->
+            {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}};
+        true ->     
+            {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
+            case catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
+                ok ->
+                    % io:format(user, "~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
+                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
+                Error ->
+                    io:format(user, "~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
+                    send_reply_to_client(Sock, {'SystemException', {"Cannot subscribe to table changes",{Table,Error}}}),
+                    {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}}
+            end    
+    end.
 
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) -> 
     % io:format(user, "~p - terminating monitor not found~n", [?MODULE]),
@@ -697,18 +709,15 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
             Result3a = receive_all(),
             ?assertEqual(1, length(Result3a)),
-            [{_,{List3a,false}}] = Result3a,
+            [{_,{List3a,true}}] = Result3a,
             ?assertEqual(5, length(List3a)),
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
-            [{_,{[],true}}] = receive_all(),
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),
             Result3b = receive_all(),
             ?assertEqual(5, length(Result3b)),           
             ?assertEqual(ok, fetch_close(SKey, StmtRef3, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
-            Result3c = receive_all(),
-            ?assertEqual(0, length(Result3c))        
+            ?assertEqual([], receive_all())        
         after
             ?assertEqual(ok, close(SKey, StmtRef3))
         end,
@@ -723,10 +732,8 @@ test_with_or_without_sec(IsSec) ->
         {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),
         try
             ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), [{tail_mode,true}], IsSec)),
-            [{_,{List4a,false}}] = receive_all(),
+            [{_,{List4a,true}}] = receive_all(),
             ?assertEqual(5, length(List4a)),
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), [{tail_mode,true}], IsSec)),
-            [{_,{[],true}}] = receive_all(),
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),
             Result4b = receive_all(),
@@ -751,13 +758,9 @@ test_with_or_without_sec(IsSec) ->
             [{_,{List5a,false}}] = receive_all(),
             ?assertEqual(5, length(List5a)),
             ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), [{tail_mode,true}], IsSec)),
-            [{_,{List5b,false}}] = receive_all(),
+            [{_,{List5b,true}}] = receive_all(),
             ?assertEqual(5, length(List5b)),
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), [{tail_mode,true}], IsSec)),
-            ?assertMatch([{_,{[],true}}], receive_all()),
-            io:format(user, "last fetch done~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
-            io:format(user, "one insert done~n", []),
             ?assertEqual(10,imem_meta:table_size(def)),
             [{_,{List5c,false}}] = receive_all(),
             ?assertEqual(1, length(List5c)),

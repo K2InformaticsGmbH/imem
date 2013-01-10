@@ -381,14 +381,13 @@ fetch_start(Pid, Table, MatchSpec, BlockSize) ->
                     '$end_of_table' -> 
                         Pid ! {row, ?eot};
                     {Rows, Contd1} ->
-                        Pid ! {row, Rows},
-                        F(F,Contd1)
-                        % Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
-                        % if  Eot ->
-                        %         Pid ! {row, ?eot};
-                        %     true ->
-                        %         F(F,Contd1)
-                        % end
+                        Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
+                        if  Eot ->
+                                Pid ! {row, [?eot|Rows]};
+                            true ->
+                                Pid ! {row, Rows},
+                                F(F,Contd1)
+                        end
                 end
         end
     end,
