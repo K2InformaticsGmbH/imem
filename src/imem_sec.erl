@@ -50,7 +50,8 @@
         , read/3
         , select/3
         , select/4
-        , insert/3    
+        , insert/3
+        , dirty_write/3    
         , write/3
         , delete/3
         , admin_exec/4
@@ -385,6 +386,12 @@ update_cursor_execute(SKey, Pid, Lock) ->
 write(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of
         true ->     imem_meta:write(Table, Row);
+        false ->    ?SecurityException({"Insert/update unauthorized", SKey})
+    end.
+
+dirty_write(SKey, Table, Row) ->
+    case have_table_permission(SKey, Table, insert) of
+        true ->     imem_meta:dirty_write(Table, Row);
         false ->    ?SecurityException({"Insert/update unauthorized", SKey})
     end.
 

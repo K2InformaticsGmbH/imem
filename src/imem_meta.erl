@@ -71,6 +71,7 @@
         , select_sort/3
         , insert/2    
         , write/2           %% write single key
+        , dirty_write/2
         , delete/2          %% delete rows by key
         ]).
 
@@ -509,6 +510,11 @@ write({_Schema,Table}, Record) ->
     write(Table, Record);           %% ToDo: may depend on schema 
 write(Table, Record) -> 
     imem_if:write(physical_table_name(Table), Record).
+
+dirty_write({_Schema,Table}, Record) -> 
+    dirty_write(Table, Record);           %% ToDo: may depend on schema 
+dirty_write(Table, Record) -> 
+    imem_if:dirty_write(physical_table_name(Table), Record).
 
 insert({_Schema,Table}, Row) ->
     insert(Table, Row);             %% ToDo: may depend on schema

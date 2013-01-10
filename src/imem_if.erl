@@ -49,7 +49,7 @@
         , read/2                 
         , fetch_start/4
         , write/2
-        % , dirty_write/2
+        , dirty_write/2
         , insert/2    
         , delete/2
         , update_tables/2
@@ -313,6 +313,14 @@ read(Table, Key) when is_atom(Table) ->
         Res ->                      Res 
     end,
     return_atomic_list(Result).
+
+dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
+    try 
+        mnesia:dirty_write(Table, Row)
+    catch
+        exit:{aborted, {no_exists,_}} ->    ?ClientError({"Table does not exist",Table});
+        _:Reason ->                         ?SystemException({"Mnesia dirty_write failure",Reason})
+    end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     Result = case transaction(write,[Table, Row, write]) of
@@ -622,8 +630,12 @@ table_operations(_) ->
         io:format(user, "success ~p~n", [table_read_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
         io:format(user, "success ~p~n", [row_read_no_exists]),
-        ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
         io:format(user, "success ~p~n", [row_write_no_exists]),
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, dirty_write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
+        io:format(user, "success ~p~n", [row_dirty_write_no_exists]),
+        ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
+        io:format(user, "success ~p~n", [row_write_bad_type]),
         ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [])),
         io:format(user, "success ~p~n", [create_table]),
         ?assertEqual(0, table_size(imem_table_123)),
@@ -640,7 +652,7 @@ table_operations(_) ->
         ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
         io:format(user, "success ~p~n", [write_table]),
-        ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
+        ?assertEqual(ok, dirty_write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
         io:format(user, "success ~p~n", [write_table]),
         ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
