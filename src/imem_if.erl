@@ -49,6 +49,7 @@
         , read/2                 
         , fetch_start/4
         , write/2
+        % , dirty_write/2
         , insert/2    
         , delete/2
         , update_tables/2
@@ -225,14 +226,14 @@ create_table(Table, Opts) when is_atom(Table) ->
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
-            ?ClientError({"Table already exists", Table});
+            ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, Node}} ->
             io:format(user, "table ~p exists at ~p~n", [Table, Node]),
             case mnesia:force_load_table(Table) of
                 yes -> ok;
                 Error -> ?ClientError({"Loading table(s) timeout~p", Error})
             end,
-            ?ClientError({"Table already exists", Table});
+            ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result -> 
             % io:format(user, "create_table ~p for ~p~n", [Result, Table]),

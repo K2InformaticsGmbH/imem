@@ -10,6 +10,7 @@
 -define(more,'$more_rows_exist').	%% defined here
 
 -define(ClientError(Reason), imem_meta:throw_exception('ClientError',Reason)).
+-define(ClientErrorNoLogging(Reason), throw({'ClientError',Reason})).
 -define(SystemException(Reason), imem_meta:throw_exception('SystemException',Reason)).
 -define(ConcurrencyException(Reason), imem_meta:throw_exception('ConcurrencyException',Reason)).
 -define(UnimplementedException(Reason), imem_meta:throw_exception('UnimplementedException',Reason)).
