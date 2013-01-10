@@ -133,20 +133,24 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined}}=State) ->
-    io:format(user,"fetch_close ignored~n", []),
+    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,undefined}],"fetch_close ignored"),
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{status=tailing}}=State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,tailing}],"fetch_close unsubscribe"),
     unsubscribe(Stmt),
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}=State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,running}],"fetch_close kill"),
     kill_fetch(MonitorRef, Pid), 
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.
 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
+    imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,aborted}],"fetch_recs_async rejected"),
     send_reply_to_client(Sock, {error,"Fetch aborted, execute fetch_close before refetch"}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={MatchSpec0,Binds}, meta=MetaFields, limit=Limit} = Stmt,
+    imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
     % io:format(user,"MetaRec : ~p~n", [MetaRec]),
     % io:format(user,"Binds : ~p~n", [Binds]),
@@ -177,15 +181,18 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     end,
     {noreply, State#state{reply=Sock,fetchCtx=FetchCtx1}};  
 handle_cast({close, _SKey}, State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
     % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
-    io:format(user, "~p - received unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
+    imem_meta:log_to_db(error,?MODULE,handle_cast,[{request,Request},{state,State}],"receives unsolicited cast"),
+    io:format(user, "~p - receives unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     {noreply, State}.
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     % io:format(user, "~p - received end of table in status ~p~n", [?MODULE,FetchCtx0#fetchCtx.status]),
     % io:format(user, "~p - received end of table in state~n~p~n", [?MODULE,State]),
+    imem_meta:log_to_db(debug,?MODULE,handle_info,[{row, ?eot}],"eot"),
     case FetchCtx0#fetchCtx.status of
         running ->
             send_reply_to_client(Sock, {[],true}),  
@@ -195,6 +202,7 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
             {noreply, State}
     end;        
 handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
     %io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, write, Record]),
     #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec}=FetchCtx0,
     case Status of
@@ -237,9 +245,11 @@ handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,f
             {noreply, State}
     end;
 handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
     % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete_object, _OldRecord]),
     {noreply, State};
 handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
     % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
@@ -247,8 +257,12 @@ handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}
     % io:format(user, "~p - received ~p rows~n", [?MODULE, length(Rows)]),
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case Rows0 of
-        [?eot|R] ->     {R,true};
-        _ ->            {Rows0,false}
+        [?eot|R] ->
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(Rows0)}],"data complete"),     
+            {R,true};
+        _ ->            
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(Rows0)}],"data"),     
+            {Rows0,false}
     end,   
     Result = case length(Stmt#statement.tables) of
         1 ->    
