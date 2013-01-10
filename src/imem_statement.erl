@@ -152,15 +152,16 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={MatchSpec0,Binds}, meta=MetaFields, limit=Limit} = Stmt,
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
+    io:format(user,"Table : ~p~n", [Table]),
     % io:format(user,"MetaRec : ~p~n", [MetaRec]),
     % io:format(user,"Binds : ~p~n", [Binds]),
     [{MatchHead, Guards0, [Result]}] = MatchSpec0,
-    % io:format(user,"Guards before bind : ~p~n", [Guards0]),
+    io:format(user,"Guards before bind : ~p~n", [Guards0]),
     Guards1 = case Guards0 of
         [] ->       [];
         [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, Binds))]
     end,
-    % io:format(user,"Guards after bind : ~p~n", [Guards1]),
+    io:format(user,"Guards after bind : ~p~n", [Guards1]),
     MatchSpec = [{MatchHead, Guards1, [Result]}],
     TailSpec = ets:match_spec_compile(MatchSpec),
     FetchCtx1 = case FetchCtx0#fetchCtx.pid of

@@ -161,11 +161,13 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
     end.
 
 compguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> true;   %% join condition
-compguard(_ ,1, OP, {_,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->     {OP,A,B};           
-compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) -> {OP,A,field_value(A,float,0,0,0.0,B)};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) -> {OP,field_value(B,float,0,0,0.0,A),B};
-compguard(_ ,1, OP, {1,A,T,L,P,D,_},   {0,B,string,_,_,_,_}) -> {OP,A,field_value(A,T,L,P,D,B)};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) -> {OP,field_value(B,T,L,P,D,A),B};
+compguard(_ ,1, OP, {_,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->               {OP,A,B};           
+compguard(_ ,1, OP, {1,A,timestamp,_,_,_,_}, {0,B,string,_,_,_,_}) -> {OP,A,field_value(A,float,0,0,0.0,B)};
+compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) ->     {OP,A,field_value(A,float,0,0,0.0,B)};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,0.0,A),B};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) ->     {OP,field_value(B,float,0,0,0.0,A),B};
+compguard(_ ,1, OP, {1,A,T,L,P,D,_},   {0,B,string,_,_,_,_}) ->          {OP,A,field_value(A,T,L,P,D,B)};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->          {OP,field_value(B,T,L,P,D,A),B};
 compguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},{BN,BT}}});
 compguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
 
@@ -238,14 +240,18 @@ expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
     exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), expr_lookup(SKey,Tmax,Ti,B,FullMap)).
 
 exprguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1, A=<Tm; B>1,B=<Tm -> throw({'JoinEvent','join_condition'});
-exprguard(_ ,1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y -> {X,{OP,A,B},T,L,P,D,AN};           
-exprguard(_ ,1, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->            {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,integer,_,_,_,_}) -> {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,float,_,_,_,_}) ->   {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
-exprguard(_ ,1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->        {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,datetime,L,P,D,BN}) -> {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
-exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->   {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
-exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->       {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(_ ,1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
+exprguard(_ ,1, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
+exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,integer,_,_,_,_}) ->  {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,float,_,_,_,_}) ->    {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,integer,_,_,_,_}) ->      {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,float,_,_,_,_}) ->        {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
+exprguard(_ ,1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->  {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
+exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->    {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
+exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->      {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
+exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->        {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
+exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
 exprguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
 exprguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J,N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
@@ -446,12 +452,18 @@ test_with_or_without_sec(IsSec) ->
                 ?assertEqual(1, length(List17)),
                 % "admin", user
 
-                Sql18 = "select name, lastLoginTime from ddAccount where id=user and lastLoginTime > sysdate - (1/2 + 1/24)",    
+                Sql18 = "select name, lastLoginTime from ddAccount where lastLoginTime > sysdate - 1.1574074074074073e-4",     %% 10.0 * ?OneSecond
                 io:format(user, "Query: ~p~n", [Sql18]),
                 {ok, _Clm18, _RowFun18, StmtRef18} = imem_sql:exec(SKey, Sql18, 100, 'Imem', IsSec),
                 List18 = imem_statement:fetch_recs_sort(SKey, StmtRef18, self(), Timeout, IsSec),
-                io:format(user, "Result: (~p)~n~p~n", [length(List18),lists:map(_RowFun18,List18)]),
-                ?assertEqual(1, length(List18))
+                io:format(user, "Result: (~p)~n~p~n", [length(List18),[tl(I)||I <- lists:map(_RowFun18,List18)]]),
+                ?assertEqual(1, length(List18)),
+
+                Sql19 = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-3", %% 100.0 * ?OneSecond
+                io:format(user, "Query: ~p~n", [Sql19]),
+                {ok, _Clm19, _RowFun19, StmtRef19} = imem_sql:exec(SKey, Sql19, 100, 'Imem', IsSec),
+                List19 = imem_statement:fetch_recs_sort(SKey, StmtRef19, self(), Timeout, IsSec),
+                io:format(user, "Result: (~p)~n~p~n", [length(List19),[tl(I)||I <- lists:map(_RowFun19,List19)]])
 
                 % Sql19 = "select v.name from ddView as v, ddCmd as c where c.id = v.cmd and c.adapters = \"[imem]\" and (c.owner = user or c.owner = system)",    
                 % io:format(user, "Query: ~p~n", [Sql19]),

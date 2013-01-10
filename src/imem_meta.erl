@@ -37,6 +37,7 @@
         , all_tables/0
         , node_shard/0
         , node_shard/1
+        , physical_table_name/1
         , table_type/1
         , table_columns/1
         , table_size/1
@@ -226,7 +227,7 @@ check_table_columns(Table, ColumnInfo) when is_atom(Table) ->
     end.
 
 drop_meta_tables() ->
-    drop_table('ddLog@'),
+    drop_table(ddLog@),
     drop_table(ddTable).     
 
 meta_field_list() -> ?META_FIELDS.
@@ -402,7 +403,12 @@ log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
                     },
     write(ddLog@, LogRec);
 log_to_db(Level,Module,Function,Fields,Message) ->
-    log_to_db(Level,Module,Function,Fields, list_to_binary(lists:flatten(io_lib:format("~p",[Message])))).
+    BinStr = try 
+        list_to_binary(Message)
+    catch
+        _:_ ->  list_to_binary(lists:flatten(io_lib:format("~p",[Message])))
+    end,
+    log_to_db(Level,Module,Function,Fields,BinStr).
 
 
 %% imem_if but security context added --- META INFORMATION ------

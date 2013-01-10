@@ -66,3 +66,9 @@
 -define(nav, '$not_a_value').    %% used as default value which must not be used (not null columns)
 -define(nac, '$not_a_column').   %% used as value column name for key only tables
 
+-define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)
+-define(OneDay, 1.0).                       %% span of  datetime or timestamp (fraction of 1 day)
+-define(OneHour, 0.041666666666666664).     %% span of  datetime or timestamp (1.0/24.0 of 1 day)
+-define(OneMinute, 6.944444444444444e-4).   %% span of  datetime or timestamp (1.0/24.0 of 1 day)
+-define(OneSecond, 1.1574074074074073e-5).  %% span of  datetime or timestamp (fraction of 1 day)
+
