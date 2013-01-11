@@ -1,7 +1,7 @@
 -module(imem_meta).
 
 -define(META_TABLES,[ddTable,'ddLog@']).
--define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]).
+-define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -248,13 +248,14 @@ meta_field_info(user) ->
     #ddColumn{name=user, type='userid', length=20, precision=0};
 meta_field_info(username) ->
     #ddColumn{name=username, type='binstr', length=20, precision=0};
+% meta_field_info(rownum) ->
+%     #ddColumn{name=rownum, type='integer', length=10, precision=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 
-meta_field_value(username) ->
-    <<"unknown">>; 
-meta_field_value(user) ->
-    <<"unknown">>; 
+meta_field_value(rownum) ->     1; 
+meta_field_value(username) ->   <<"unknown">>; 
+meta_field_value(user) ->       unknown; 
 meta_field_value(Name) ->
     imem_if:meta_field_value(Name). 
 
@@ -303,7 +304,13 @@ create_table(Table, ColumnNames, Opts, Owner) ->
 create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> create_physical_table(Table,ColumnInfos,Opts,Owner);
+        MySchema ->
+            case Table of
+                ddTable ->  create_physical_table(Table,ColumnInfos,Opts,Owner);
+                ddLog@ ->   create_physical_table(Table,ColumnInfos,Opts,Owner);
+                _ ->        log_to_db(info,?MODULE,create_table,[{table,Table},{ops,Opts},{owner,Owner}],"create table"),  
+                            create_physical_table(Table,ColumnInfos,Opts,Owner)
+            end;
         _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
 create_physical_table(Table,ColumnInfos,Opts,Owner) ->
@@ -324,7 +331,12 @@ drop_table({Schema,Table}) ->
     end;
 drop_table(ddTable) -> 
     imem_if:drop_table(ddTable);
-drop_table(Table) -> 
+drop_table(ddLog@ = Table) ->
+    PhysicalName=physical_table_name(Table),
+    imem_if:drop_table(PhysicalName),
+    imem_if:delete(ddTable, {schema(),PhysicalName});
+drop_table(Table) ->
+    log_to_db(info,?MODULE,drop_table,[{table,Table}],"drop table"), 
     PhysicalName=physical_table_name(Table),
     imem_if:drop_table(PhysicalName),
     imem_if:delete(ddTable, {schema(),PhysicalName}).
@@ -513,12 +525,18 @@ select_sort(Table, MatchSpec, Limit) ->
 
 write({_Schema,Table}, Record) -> 
     write(Table, Record);           %% ToDo: may depend on schema 
-write(Table, Record) -> 
+write(ddLog@, Record) ->
+    imem_if:write(physical_table_name(ddLog@), Record);
+write(Table, Record) ->
+    log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
     imem_if:write(physical_table_name(Table), Record).
 
 dirty_write({_Schema,Table}, Record) -> 
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
+dirty_write(ddLog@, Record) -> 
+    imem_if:dirty_write(physical_table_name(ddLog@), Record);
 dirty_write(Table, Record) -> 
+    log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
     imem_if:dirty_write(physical_table_name(Table), Record).
 
 insert({_Schema,Table}, Row) ->
@@ -539,21 +557,20 @@ insert(Table, Row) when is_tuple(Row) ->
 delete({_Schema,Table}, Key) ->
     delete(Table, Key);             %% ToDo: may depend on schema
 delete(Table, Key) ->
-    imem_meta:log_to_db(info,?MODULE,delete,[{table,Table}],"delete table"),
     imem_if:delete(physical_table_name(Table), Key).
 
 truncate_table({_Schema,Table}) ->
     truncate_table(Table);                %% ToDo: may depend on schema
 truncate_table(Table) ->
-    imem_meta:log_to_db(debug,?MODULE,truncate_table,[{table,Table}],"truncate table"),
+    log_to_db(debug,?MODULE,truncate_table,[{table,Table}],"truncate table"),
     imem_if:truncate_table(physical_table_name(Table)).
 
 subscribe(EventCategory) ->
-    imem_meta:log_to_db(info,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
+    log_to_db(info,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
     imem_if:subscribe(EventCategory).
 
 unsubscribe(EventCategory) ->
-    imem_meta:log_to_db(info,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
+    log_to_db(info,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
     imem_if:unsubscribe(EventCategory).
 
 update_tables(UpdatePlan, Lock) ->
@@ -562,7 +579,7 @@ update_tables(UpdatePlan, Lock) ->
 update_tables(_MySchema, [], Lock, Acc) ->
     imem_if:update_tables(Acc, Lock);  
 update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
-    imem_meta:log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
+    log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
     update_tables(MySchema, UPlan, Lock, [update_table_name(MySchema, UEntry)|Acc]).
 
 update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New]) ->

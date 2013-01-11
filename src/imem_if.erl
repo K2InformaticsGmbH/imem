@@ -316,6 +316,7 @@ read(Table, Key) when is_atom(Table) ->
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     try 
+        io:format(user, "mnesia:dirty_write ~p ~p~n", [Table,Row]),
         mnesia:dirty_write(Table, Row)
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientError({"Table does not exist",Table});
@@ -323,6 +324,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
+    io:format(user, "mnesia:write ~p ~p~n", [Table,Row]),
     Result = case transaction(write,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
         Res ->                      Res 
@@ -414,7 +416,7 @@ update_xt({_Table,bag}, _Item, _Lock, [], []) ->
 update_xt({Table,bag}, _Item, _Lock, [Old|_], []) when is_atom(Table) ->
     mnesia:delete(Table, element(2, Old), write);
 update_xt({Table,bag}, _Item, _Lock, [], New) when is_atom(Table), is_list(New) ->
-    [mnesia:write(N) || N <- New] ;
+    [mnesia:write(Table, N, write) || N <- New] ;
 update_xt({Table,bag}, _Item, none, Old, Old) when is_atom(Table), is_list(Old) ->
     ok;
 update_xt({Table,bag}, Item, _Lock, [O|_]=Old, Old) when is_atom(Table), is_list(Old) ->
@@ -459,7 +461,7 @@ update_xt({Table,bag}, Item, Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
     % io:format(user, "delete ~p ~p~n", [Table, element(2,O)]),
     mnesia:delete(Table, element(2, O), write), 
     % io:format(user, "write ~p~n", [New]),
-    [mnesia:write(Y) || Y <- New];
+    [mnesia:write(Table,Y,write) || Y <- New];
 
 update_xt(_Table, _Item, _Lock, {}, {}) ->
     ok;
@@ -476,7 +478,7 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
                 Current ->  ?ConcurrencyException({"Key violation", {Item,{Current, New}}})
             end
     end,
-    mnesia:write(New);
+    mnesia:write(Table,New,write);
 update_xt({Table,_}, _Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
     ok;    
 update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
@@ -500,13 +502,13 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
     NewKey = element(2,New),
     case NewKey of
         OldKey ->   
-            mnesia:write(New);
+            mnesia:write(Table,New,write);
         NewKey ->           
             case mnesia:read(Table, NewKey) of
                 [New] ->    mnesia:delete(Table,OldKey,write),
-                            mnesia:write(New);
+                            mnesia:write(Table,New,write);
                 [] ->       mnesia:delete(Table,OldKey,write),
-                            mnesia:write(New);
+                            mnesia:write(Table,New,write);
                 Curr2 ->    ?ConcurrencyException({"Modified key already exists", {Item,Curr2}})
             end
     end.
