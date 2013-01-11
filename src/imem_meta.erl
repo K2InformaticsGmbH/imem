@@ -558,6 +558,7 @@ update_tables(UpdatePlan, Lock) ->
 update_tables(_MySchema, [], Lock, Acc) ->
     imem_if:update_tables(Acc, Lock);  
 update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
+    imem_meta:log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
     update_tables(MySchema, UPlan, Lock, [update_table_name(MySchema, UEntry)|Acc]).
 
 update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New]) ->
