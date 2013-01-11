@@ -50,8 +50,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user, "FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==1]]),
     % io:format(user, "MatchHead (~p) ~p~n", [1,MatchHead]),
-    Guards = master_query_guards(SKey,length(Tables),WhereTree,FullMap),
-    % io:format(user, "Guards (~p) ~p~n", [1,Guards]),
+    {Guards,Limit} = master_query_guards(SKey,length(Tables),WhereTree,FullMap),
+    % io:format(user, "Guards ~p~n", [Guards]),
+    % io:format(user, "Limit ~p~n", [Limit]),
     Result = '$_',
     MatchSpec = [{MatchHead, Guards, [Result]}],
     Binds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], Guards,[]),
@@ -59,7 +60,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user, "Join Spec ~p~n", [JoinSpec]),
     Statement = Stmt#statement{
                     tables=Tables, cols=ColMap, meta=MetaFields1, rowfun=RowFun,
-                    matchspec={MatchSpec,Binds}, joinspec=JoinSpec
+                    matchspec={MatchSpec,Binds}, joinspec=JoinSpec, limit=Limit
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
     % io:format(user,"Statement : ~p~n", [Stmt]),
@@ -100,7 +101,17 @@ tree_member(Tx,{_,L,R}) -> tree_member(Tx,L) orelse tree_member(Tx,R);
 tree_member(Tx,Tx) -> true;
 tree_member(_,_) -> false.
 
-add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> MetaFields;
+tree_match(Tx,{_,R}) -> tree_match(Tx,R);
+tree_match(Tx,{_,Tx,_}=C1) -> C1;
+tree_match(Tx,{_,_,Tx}=C2) -> C2;
+tree_match(Tx,{_,L,R}) -> tree_match(Tx,L) orelse tree_match(Tx,R);
+tree_match(Tx,Tx) -> Tx;
+tree_match(_,_) -> false.
+
+add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> 
+    MetaFields;
+% add_where_clause_meta_fields(MetaFields, WhereTree, [rownum|FieldList]) ->
+%     add_where_clause_meta_fields(MetaFields, WhereTree, FieldList);
 add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
     case lists:member(F,MetaFields) of
         true ->         
@@ -114,9 +125,29 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
             end
     end.
 
-master_query_guards(_SKey,_Tmax,[],_FullMap) -> [];
+master_query_guards(_SKey,_Tmax,[],_FullMap) -> {[],#statement{}#statement.limit};
 master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
-    [imem_sql:simplify_matchspec(tree_walk(SKey,Tmax,1,WhereTree,FullMap))].
+    Guard0 = imem_sql:simplify_matchspec(tree_walk(SKey,Tmax,1,WhereTree,FullMap)),
+    % io:format(user, "Guard0 ~p~n", [Guard0]),
+    Limit = case tree_match(rownum,Guard0) of
+        false ->  #statement{}#statement.limit;
+        {'<',rownum,L} when is_integer(L) ->    L-1;
+        {'=<',rownum,L} when is_integer(L) ->   L;
+        {'>',L,rownum} when is_integer(L) ->    L-1;
+        {'>=',L,rownum} when is_integer(L) ->   L;
+        Else ->
+            ?UnimplementedException({"Unsupported use of rownum",{Else}})
+    end,
+    Guard1 = replace_rownum(Guard0),
+    % io:format(user, "Guard1 ~p~n", [Guard1]),
+    Guard2 = imem_sql:simplify_matchspec(Guard1),
+    {[Guard2],Limit}.
+
+replace_rownum({Op,rownum,Right}) -> {Op,1,Right};
+replace_rownum({Op,Left,rownum}) ->  {Op,Left,1};
+replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Right)};
+replace_rownum({Op,Result}) ->       {Op,replace_rownum(Result)};
+replace_rownum(Result) ->            Result.
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
 tree_walk(_SKey,_,_,<<"false">>,_FullMap) -> false;
@@ -162,9 +193,9 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
 
 compguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> true;   %% join condition
 compguard(_ ,1, OP, {_,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->               {OP,A,B};           
-compguard(_ ,1, OP, {1,A,timestamp,_,_,_,_}, {0,B,string,_,_,_,_}) -> {OP,A,field_value(A,float,0,0,0.0,B)};
+compguard(_ ,1, OP, {1,A,timestamp,_,_,_,_}, {0,B,string,_,_,_,_}) ->    {OP,A,field_value(A,float,0,0,0.0,B)};
 compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) ->     {OP,A,field_value(A,float,0,0,0.0,B)};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,0.0,A),B};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,timestamp,_,_,_,_}) ->    {OP,field_value(B,float,0,0,0.0,A),B};
 compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) ->     {OP,field_value(B,float,0,0,0.0,A),B};
 compguard(_ ,1, OP, {1,A,T,L,P,D,_},   {0,B,string,_,_,_,_}) ->          {OP,A,field_value(A,T,L,P,D,B)};
 compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->          {OP,field_value(B,T,L,P,D,A),B};
@@ -214,6 +245,7 @@ value_lookup(Val) when is_binary(Val) ->
             {Unquoted,string}  %% assume strings, convert to atoms/dates/lists/tuples when type is known
     end.
 
+field_lookup(<<"rownum">>,FullMap) -> {0,rownum,integer,0,0,1,<<"rownum">>};
 field_lookup(Name,FullMap) ->
     U = undefined,
     ML = case imem_sql:field_qname(Name) of
@@ -459,7 +491,7 @@ test_with_or_without_sec(IsSec) ->
                 io:format(user, "Result: (~p)~n~p~n", [length(List18),[tl(I)||I <- lists:map(_RowFun18,List18)]]),
                 ?assertEqual(1, length(List18)),
 
-                Sql19 = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-4", %% 10.0 * ?OneSecond
+                Sql19 = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-5 and rownum <= 100", %% 1.0 * ?OneSecond
                 io:format(user, "Query: ~p~n", [Sql19]),
                 io:format(user, "full table size ~p~n", [imem_meta:table_size(ddLog@)]),
                 {ok, _Clm19, _RowFun19, StmtRef19} = imem_sql:exec(SKey, Sql19, 100, 'Imem', IsSec),

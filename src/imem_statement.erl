@@ -117,7 +117,7 @@ close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
 init([Statement]) ->
-    imem_meta:log_to_db(debug,?MODULE,init,[],Statement),
+    imem_meta:log_to_db(debug,?MODULE,init,[],Statement#statement.stmt_str),
     {ok, #state{statement=Statement}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
@@ -166,12 +166,12 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % io:format(user,"MetaRec : ~p~n", [MetaRec]),
     % io:format(user,"Binds : ~p~n", [Binds]),
     [{MatchHead, Guards0, [Result]}] = MatchSpec0,
-    io:format(user,"Guards before bind : ~p~n", [Guards0]),
+    % io:format(user,"Guards before bind : ~p~n", [Guards0]),
     Guards1 = case Guards0 of
         [] ->       [];
         [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, Binds))]
     end,
-    io:format(user,"Guards after bind : ~p~n", [Guards1]),
+    % io:format(user,"Guards after bind : ~p~n", [Guards1]),
     MatchSpec = [{MatchHead, Guards1, [Result]}],
     TailSpec = ets:match_spec_compile(MatchSpec),
     FetchCtx1 = case FetchCtx0#fetchCtx.pid of
@@ -269,7 +269,7 @@ handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case Rows0 of
         [?eot|R] ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(Rows0)}],"data complete"),     
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(Rows0)-1}],"data complete"),     
             {R,true};
         _ ->            
             imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(Rows0)}],"data"),     
@@ -782,7 +782,11 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), [], IsSec)),
             [{_,{List5a,false}}] = receive_all(),
             ?assertEqual(5, length(List5a)),
+            io:format(user, "trying to insert one row before fetch complete~n", []),
+            ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
+            io:format(user, "completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), [{tail_mode,true}], IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             [{_,{List5b,true}}] = receive_all(),
             ?assertEqual(5, length(List5b)),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
@@ -868,7 +872,7 @@ receive_all(Acc) ->
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
-    if_call_mfa(IsSec,write,[SKey,Table,{Table,integer_to_list(N),N}]),
+    if_call_mfa(IsSec,dirty_write,[SKey,Table,{Table,integer_to_list(N),N}]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 
