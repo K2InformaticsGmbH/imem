@@ -418,7 +418,7 @@ update_xt({Table,bag}, _Item, _Lock, [], New) when is_atom(Table), is_list(New) 
 update_xt({Table,bag}, _Item, none, Old, Old) when is_atom(Table), is_list(Old) ->
     ok;
 update_xt({Table,bag}, Item, _Lock, [O|_]=Old, Old) when is_atom(Table), is_list(Old) ->
-    Current = read(Table, element(2,O)),
+    Current = mnesia:read(Table, element(2,O)),
     if  
         Current == Old ->   
             ok;
@@ -439,7 +439,7 @@ update_xt({Table,bag}, Item, Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
         Lock == none ->
             ok;
         true ->
-            Current = read(Table, element(2,O)),
+            Current = mnesia:read(Table, element(2,O)),
             % io:format(user, "current ~p~n", [Current]),
             % io:format(user, "old ~p~n", [Old]),
             if  
@@ -470,7 +470,7 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
         Lock == none ->
             ok;
         true ->
-            case read(Table, element(2,New)) of
+            case mnesia:read(Table, element(2,New)) of
                 [New] ->    ok;
                 [] ->       ok;
                 Current ->  ?ConcurrencyException({"Key violation", {Item,{Current, New}}})
@@ -480,7 +480,7 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
 update_xt({Table,_}, _Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
     ok;    
 update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
-    case read(Table, element(2,Old)) of
+    case mnesia:read(Table, element(2,Old)) of
         [Old] ->    ok;
         [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
         Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
@@ -491,7 +491,7 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
         Lock == none ->
             ok;
         true ->
-            case read(Table, OldKey) of
+            case mnesia:read(Table, OldKey) of
                 [Old] ->    ok;
                 [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
                 Curr1 ->    ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Curr1}}})
@@ -502,7 +502,7 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
         OldKey ->   
             mnesia:write(New);
         NewKey ->           
-            case read(Table, NewKey) of
+            case mnesia:read(Table, NewKey) of
                 [New] ->    mnesia:delete(Table,OldKey,write),
                             mnesia:write(New);
                 [] ->       mnesia:delete(Table,OldKey,write),

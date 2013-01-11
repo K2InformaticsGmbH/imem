@@ -539,17 +539,21 @@ insert(Table, Row) when is_tuple(Row) ->
 delete({_Schema,Table}, Key) ->
     delete(Table, Key);             %% ToDo: may depend on schema
 delete(Table, Key) ->
+    imem_meta:log_to_db(info,?MODULE,delete,[{table,Table}],"delete table"),
     imem_if:delete(physical_table_name(Table), Key).
 
 truncate_table({_Schema,Table}) ->
     truncate_table(Table);                %% ToDo: may depend on schema
 truncate_table(Table) ->
+    imem_meta:log_to_db(debug,?MODULE,truncate_table,[{table,Table}],"truncate table"),
     imem_if:truncate_table(physical_table_name(Table)).
 
 subscribe(EventCategory) ->
+    imem_meta:log_to_db(info,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
     imem_if:subscribe(EventCategory).
 
 unsubscribe(EventCategory) ->
+    imem_meta:log_to_db(info,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
     imem_if:unsubscribe(EventCategory).
 
 update_tables(UpdatePlan, Lock) ->
