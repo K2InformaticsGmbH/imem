@@ -64,11 +64,20 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     Result = try
         case receive 
             R ->    R
-        after Timeout -> ?ClientError({"Fetch timeout, increase timeout and retry",Timeout})
+        after Timeout ->
+            io:format(user, "~p - fetch_recs timeout ~p~n", [?MODULE, Timeout]),
+            gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
+            ?ClientError({"Fetch timeout, increase timeout and retry",Timeout})
         end of
             {Pid,{List, true}} ->   List;
-            {Pid,{List, false}} ->  List;   %% ?ClientError({"Too much data, increase block size or receive in streaming mode",List});
-            Error ->                ?SystemException({"Bad async receive",Error})            
+            {Pid,{List, false}} ->  
+                io:format(user, "~p - fetch_recs too much data~n", [?MODULE]),
+                gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
+                ?ClientError({"Too much data, increase block size or receive in streaming mode",length(List)});
+            Error ->
+                io:format(user, "~p - fetch_recs bad async receive ~p~n", [?MODULE, Error]),
+                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                ?SystemException({"Bad async receive",Error})            
         end
     after
         gen_server:call(Pid, {fetch_close, IsSec, SKey})
@@ -108,6 +117,7 @@ close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
 init([Statement]) ->
+    imem_meta:log_to_db(debug,?MODULE,init,[],Statement),
     {ok, #state{statement=Statement}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
@@ -152,7 +162,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={MatchSpec0,Binds}, meta=MetaFields, limit=Limit} = Stmt,
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
-    io:format(user,"Table : ~p~n", [Table]),
+    % io:format(user,"Table : ~p~n", [Table]),
     % io:format(user,"MetaRec : ~p~n", [MetaRec]),
     % io:format(user,"Binds : ~p~n", [Binds]),
     [{MatchHead, Guards0, [Result]}] = MatchSpec0,
@@ -490,12 +500,12 @@ join_bind(_, A, _) ->               A.
 
 comparison_bind(Op,A,B) ->
     AW = case A of
-        {Ma,Sa,Microa} when is_integer(Ma), is_integer(Sa), is_integer(Microa) -> {const,A};
+        {Ma,Sa,Microa} when is_integer(Ma), is_integer(Sa), is_integer(Microa) -> {A};  %% {const,A};
         {{Ya,Mona,Da},{_,_,_}} when is_integer(Ya), is_integer(Mona), is_integer(Da) -> {const,A};
         _ -> A
     end,
     BW = case B of
-        {Mb,Sb,Microb} when is_integer(Mb), is_integer(Sb), is_integer(Microb) -> {const,B};
+        {Mb,Sb,Microb} when is_integer(Mb), is_integer(Sb), is_integer(Microb) -> {B}; %% {const,B};
         {{Yb,Monb,Db},{_,_,_}} when is_integer(Yb), is_integer(Monb), is_integer(Db) -> {const,B};
         _ -> B
     end,
@@ -860,3 +870,11 @@ insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     if_call_mfa(IsSec,write,[SKey,Table,{Table,integer_to_list(N),N}]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
+
+
+    % {M1,S1,Mic1} = erlang:now(),
+    % {M2,S2,Mic2} = erlang:now(),
+    % Count = length(Result),
+    % Delta = Mic2 - Mic1 + 1000000 * ((S2-S1) + 1000000 * (M2-M1)),
+    % Message = io_lib:format("fetch_recs latency per record: ~p usec",[Delta div Count]),
+    % imem_meta:log_to_db(debug,?MODULE,fetch_recs,[{rec_count,Count},{fetch_duration,Delta}], Message),

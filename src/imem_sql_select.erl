@@ -455,15 +455,17 @@ test_with_or_without_sec(IsSec) ->
                 Sql18 = "select name, lastLoginTime from ddAccount where lastLoginTime > sysdate - 1.1574074074074073e-4",     %% 10.0 * ?OneSecond
                 io:format(user, "Query: ~p~n", [Sql18]),
                 {ok, _Clm18, _RowFun18, StmtRef18} = imem_sql:exec(SKey, Sql18, 100, 'Imem', IsSec),
-                List18 = imem_statement:fetch_recs_sort(SKey, StmtRef18, self(), Timeout, IsSec),
+                List18 = imem_statement:fetch_recs(SKey, StmtRef18, self(), Timeout, IsSec),
                 io:format(user, "Result: (~p)~n~p~n", [length(List18),[tl(I)||I <- lists:map(_RowFun18,List18)]]),
                 ?assertEqual(1, length(List18)),
 
-                Sql19 = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-3", %% 100.0 * ?OneSecond
+                Sql19 = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-4", %% 10.0 * ?OneSecond
                 io:format(user, "Query: ~p~n", [Sql19]),
+                io:format(user, "full table size ~p~n", [imem_meta:table_size(ddLog@)]),
                 {ok, _Clm19, _RowFun19, StmtRef19} = imem_sql:exec(SKey, Sql19, 100, 'Imem', IsSec),
-                List19 = imem_statement:fetch_recs_sort(SKey, StmtRef19, self(), Timeout, IsSec),
+                List19 = imem_statement:fetch_recs(SKey, StmtRef19, self(), Timeout, IsSec),
                 io:format(user, "Result: (~p)~n~p~n", [length(List19),[tl(I)||I <- lists:map(_RowFun19,List19)]])
+
 
                 % Sql19 = "select v.name from ddView as v, ddCmd as c where c.id = v.cmd and c.adapters = \"[imem]\" and (c.owner = user or c.owner = system)",    
                 % io:format(user, "Query: ~p~n", [Sql19]),

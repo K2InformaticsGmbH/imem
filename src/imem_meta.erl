@@ -112,7 +112,7 @@ init(_Args) ->
         check_table(ddTable),
         check_table_record(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
-        catch create_table('ddLog@', {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog}, {type,bag}], system),
+        catch create_table('ddLog@', {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
         check_table('ddLog@'),
         check_table_record('ddLog@', {record_info(fields, ddLog), ?ddLog, #ddLog{}}),
 
@@ -307,6 +307,11 @@ create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
         _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
 create_physical_table(Table,ColumnInfos,Opts,Owner) ->
+    TypeCheck = [{lists:member(Type,?DataTypes),Type} || Type <- column_info_items(ColumnInfos, type)],
+    case lists:keyfind(false, 1, TypeCheck) of
+        false ->    ok;
+        {_,Bad} ->  ?ClientError({"Invalid data type",Bad})
+    end,
     PhysicalName=physical_table_name(Table),
     imem_if:create_table(PhysicalName, column_names(ColumnInfos), Opts),
     imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner}).
@@ -402,7 +407,7 @@ log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
                         ,module=Module,function=Function,node=node()
                         ,fields=Fields,message= Message
                     },
-    write(ddLog@, LogRec);
+    dirty_write(ddLog@, LogRec);
 log_to_db(Level,Module,Function,Fields,Message) ->
     BinStr = try 
         list_to_binary(Message)
@@ -648,7 +653,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
-        ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[date,undefined],{meta_table_3,?nav,undefined}}, [])),
+        ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         io:format(user, "success ~p~n", [create_table_not_null]),
 
         ?assertEqual(ok, insert(meta_table_3, {{{2000,01,01},{12,45,55}},undefined})),

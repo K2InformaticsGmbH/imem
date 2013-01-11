@@ -32,6 +32,7 @@
 %   tuple
 
 
+
 -export([ raw_type/1
         , string_to_binary/2
         , string_to_datetime/1
@@ -190,7 +191,7 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
                     (Type == atom) ->           list_to_atom(Unquoted);
                     (Type == binary) ->         string_to_binary(Unquoted,Len);
                     (Type == binstr) ->         list_to_binary(Unquoted);
-                    (Type == blob) ->           string_to_binary(Unquoted,Len);
+                    (Type == boolean) ->        string_to_term(Unquoted);
                     (Type == datetime) ->       string_to_datetime(Unquoted);
                     (Type == decimal) ->        string_to_decimal(Val,Len,Prec);
                     (Type == float) ->          string_to_float(Val,Prec);
@@ -200,6 +201,7 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
                     (Type == pid) ->            list_to_pid(Unquoted);
                     (Type == ref) ->            Old;    %% cannot convert back
                     (Type == string) ->         string_to_limited_string(Unquoted,Len);
+                    (Type == term) ->           string_to_term(Unquoted);
                     (Type == timestamp) ->      string_to_timestamp(Unquoted,Prec); 
                     (Type == tuple) ->          string_to_tuple(Unquoted,Len);
                     (Type == userid) ->         string_to_userid(Unquoted);
