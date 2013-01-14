@@ -5,9 +5,9 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(ROWCOUNT, 100).
--define(THREAD_A_DELAY, 2000).
--define(THREAD_B_DELAY, 2000).
+-define(ROWCOUNT, 50).
+-define(THREAD_A_DELAY, 200).
+-define(THREAD_B_DELAY, 200).
 -define(THREAD_A_CHUNK, 5).
 -define(THREAD_B_CHUNK, 10).
 -define(TEST_TIMEOUT, 1000000).
@@ -39,45 +39,36 @@ run_test_eunit(_) ->
 
 run_test_core() ->
     async_insert(),
-    timer:sleep(?THREAD_A_DELAY div 2),
     recv_async("_A_", ?THREAD_A_CHUNK, ?THREAD_A_DELAY),
     recv_async("_B_", ?THREAD_B_CHUNK, ?THREAD_B_DELAY),
     TotalDelay = round(?ROWCOUNT / ?THREAD_A_CHUNK * ?THREAD_A_DELAY + ?ROWCOUNT / ?THREAD_B_CHUNK * ?THREAD_B_DELAY),
-    io:format("waiting... ~p~n", [TotalDelay]),
+    io:format(user, "waiting... ~p~n", [TotalDelay]),
     timer:sleep(TotalDelay).
-
-run_console() ->
-    io:format(user, "CONSOLE ---~n", []),
-    mnesia:start(),
-    {atomic, ok} = mnesia:create_table(table, [{attributes, [col1, col2, col3]}]),
-    run_test_core(),
-    mnesia:delete_table(table),
-    mnesia:stop().
 
 async_insert() ->
     F = fun
             (_, 0) -> ok;
             (F, R) ->
-                timer:sleep(?THREAD_B_DELAY div 20),
                 mnesia:transaction(fun() ->
                     io:format(user, "insert ~p~n", [R]),
                     mnesia:write({table, R, R+1, R+2})
                 end),
+                timer:sleep(?THREAD_B_DELAY div 20),
                 F(F,R-1)
     end,
-    spawn(fun() -> F(F, ?ROWCOUNT div 3) end).
+    spawn(fun() -> F(F, ?ROWCOUNT) end).
 
 recv_async(Title, Limit, Delay) ->
     F0 = fun() ->
-        Pid = start_trans(self(), Limit),
+        Pid = start_trans(self(), Title, Limit),
         F = fun(F) ->
+            timer:sleep(Delay),
             Pid ! next,
             receive
                 eot ->
-                    io:format("[~p] finished~n", [Title]);
+                    io:format(user, "[~p] finished~n", [Title]);
                 {row, Row} ->
-                    io:format("[~p] got rows ~p~n", [Title, length(Row)]),
-                    timer:sleep(Delay),
+                    io:format(user, "[~p] got rows ~p~n", [Title, length(Row)]),
                     F(F)
             end
         end,
@@ -85,18 +76,19 @@ recv_async(Title, Limit, Delay) ->
     end,
     spawn(F0).
 
-start_trans(Pid, Limit) ->
+start_trans(Pid, Title, Limit) ->
     F =
     fun(F,Contd0) ->
         receive
             abort ->
-                io:format("Abort~n", []);
+                io:format(user, "[~p] {T} Abort~n", [Title]);
             next ->
                 case (case Contd0 of
                       undefined -> mnesia:select(table, [{'$1', [], ['$_']}], Limit, read);
                       Contd0 -> mnesia:select(Contd0)
                       end) of
                 {Rows, Contd1} ->
+                    io:format(user, "[~p] {T} -> ~p~n", [Title, length(Rows)]),
                     Pid ! {row, Rows},
                     F(F,Contd1);
                 '$end_of_table' -> Pid ! eot
