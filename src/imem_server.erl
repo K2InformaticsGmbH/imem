@@ -45,11 +45,9 @@ init(Params) ->
                 {ok, LSock} ->
                     io:format("~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
                     gen_server:cast(self(), accept),
-                    true = erlang:register(?MODULE, self()),
                     {ok, #state{lsock=LSock}};
                 Reason ->
                     io:format("~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
-                    true = erlang:register(?MODULE, self()),
                     {ok, #state{}}
             end;
         _ ->
@@ -66,11 +64,9 @@ handle_call({start_listen, ListenIf, ListenPort}, _From, #state{lsock=LSock} = S
         {ok, LSock} ->
             io:format("~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
             gen_server:cast(self(), accept),
-            true = erlang:register(?MODULE, self()),
             {reply, ok, #state{lsock=LSock}};
         Reason ->
             io:format("~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
-            true = erlang:register(?MODULE, self()),
             {reply, Reason, State}
     end;
 handle_call(_Request, _From, State) ->
@@ -78,8 +74,8 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(accept, #state{lsock=LSock}=State) ->
+io:format("handle_cast(accept conn ~p~n", [LSock]),
     {ok, Sock} = gen_tcp:accept(LSock),
-    % io:format("accept conn ~p~n", [Sock]),
     {ok,Pid} = gen_server:start(?MODULE, [Sock, true], []),
     ok = gen_tcp:controlling_process(Sock, Pid),
     gen_server:cast(Pid, activate),
