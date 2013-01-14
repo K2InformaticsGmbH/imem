@@ -5,9 +5,8 @@
 -define(MatchAllRecords,[{'$1', [], ['$_']}]).
 -define(MatchAllKeys,[{'$1', [], [{element,2,'$1'}]}]).
 
--define(sot,'$start_of_table').		%% defined in mnesia
--define(eot,'$end_of_table').		  %% defined in mnesia
--define(more,'$more_rows_exist').	%% defined here
+-define(sot,'$start_of_table').		%% defined in mnesia, signals start of fetch transaction here 
+-define(eot,'$end_of_table').		  %% defined in mnesia, signals end of fetch transaction here
 
 -define(ClientError(Reason), imem_meta:throw_exception('ClientError',Reason)).
 -define(ClientErrorNoLogging(Reason), throw({'ClientError',Reason})).

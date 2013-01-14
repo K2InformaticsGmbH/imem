@@ -30,7 +30,7 @@
 -record(fetchCtx,               %% state for fetch process
                     { pid       ::pid()
                     , monref    ::any()             %% fetch monitor ref
-                    , status    ::atom()            %% undefined | running | aborted
+                    , status    ::atom()            %% undefined | waiting | fetching | aborted
                     , metarec   ::tuple()
                     , blockSize=100 ::integer()     %% could be adaptive
                     , remaining ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
@@ -142,15 +142,15 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     % io:format(user, "~p - update_cursor_execute result ~p~n", [?MODULE, Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
-handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined}}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,undefined}],"fetch_close ignored"),
-    {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{status=tailing}}=State) ->
     imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,tailing}],"fetch_close unsubscribe"),
     unsubscribe(Stmt),
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
-handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,running}],"fetch_close kill"),
+handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined}}=State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,undefined}],"fetch_close ignored"),
+    {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
+handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close kill"),
     kill_fetch(MonitorRef, Pid), 
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.
 
@@ -176,12 +176,12 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     TailSpec = ets:match_spec_compile(MatchSpec),
     FetchCtx1 = case FetchCtx0#fetchCtx.pid of
         undefined ->
-            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize]) of
+            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize, Opts]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
                     % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
-                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=running, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts, tailSpec=TailSpec};
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=waiting, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts, tailSpec=TailSpec};
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
@@ -203,13 +203,15 @@ handle_cast(Request, State) ->
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     % io:format(user, "~p - received end of table in status ~p~n", [?MODULE,FetchCtx0#fetchCtx.status]),
     % io:format(user, "~p - received end of table in state~n~p~n", [?MODULE,State]),
-    imem_meta:log_to_db(debug,?MODULE,handle_info,[{row, ?eot}],"eot"),
     case FetchCtx0#fetchCtx.status of
-        running ->
+        fetching ->
+            io:format(user, "~p - late end of table received in state~n~p~n", [?MODULE, State]),        
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             send_reply_to_client(Sock, {[],true}),  
             handle_fetch_complete(State);
         _ ->
             io:format(user, "~p - unexpected end of table received in state~n~p~n", [?MODULE, State]),        
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             {noreply, State}
     end;        
 handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
@@ -264,16 +266,31 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MetaRec,pid=Pid,monref=MonitorRef,remaining=Remaining0}=FetchCtx0,
+    #fetchCtx{metarec=MetaRec,remaining=Remaining0,status=Status}=FetchCtx0,
     % io:format(user, "~p - received ~p rows~n", [?MODULE, length(Rows)]),
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
-    {Rows1,Complete} = case Rows0 of
-        [?eot|R] ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(Rows0)-1}],"data complete"),     
+    {Rows1,Complete} = case {Status,Rows0} of
+        {waiting,[?sot,?eot|R]} ->
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
-        _ ->            
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(Rows0)}],"data"),     
-            {Rows0,false}
+        {waiting,[?sot|R]} ->            
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
+            {R,false};
+        {fetching,[?eot|R]} ->
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            {R,true};
+        {fetching,[?sot,?eot|R]} ->
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(R)}],"data transaction restart"),     
+            handle_fetch_complete(State);
+        {fetching,[?sot|R]} ->
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(R)}],"data transaction restart"),     
+            handle_fetch_complete(State);
+        {fetching,R} ->            
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
+            {R,false};
+        {_,R} ->            
+            imem_meta:log_to_db(error,?MODULE,handle_info,[{row,length(R)}],"data"),     
+            {R,false}        
     end,   
     Result = case length(Stmt#statement.tables) of
         1 ->    
@@ -302,11 +319,10 @@ handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}
             case Remaining0 =< length(Result) of
                 true ->     
                     send_reply_to_client(Sock, {Result, true}),
-                    kill_fetch(MonitorRef, Pid),
-                    {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}};
+                    handle_fetch_complete(State);
                 false ->    
                     send_reply_to_client(Sock, {Result, Complete}),
-                    FetchCtx1 = FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)},
+                    FetchCtx1 = FetchCtx0#fetchCtx{remaining=Remaining0-length(Result),status=fetching},
                     if
                         Complete ->
                             handle_fetch_complete(State#state{fetchCtx=FetchCtx1});
@@ -786,17 +802,16 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             io:format(user, "completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), [{tail_mode,true}], IsSec)),
-            ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             [{_,{List5b,true}}] = receive_all(),
             ?assertEqual(5, length(List5b)),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
-            ?assertEqual(10,imem_meta:table_size(def)),
             [{_,{List5c,false}}] = receive_all(),
             ?assertEqual(1, length(List5c)),
+            ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             ?assertEqual(ok, insert_range(SKey, 11, def, 'Imem', IsSec)),
             ?assertEqual(11,imem_meta:table_size(def)),
             Result5d = receive_all(),
-            ?assertEqual(11, length(Result5d)),
+            ?assertEqual(12, length(Result5d)),
             ?assertEqual(ok, fetch_close(SKey, StmtRef5, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
             ?assertEqual([], receive_all())        
@@ -872,7 +887,7 @@ receive_all(Acc) ->
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
-    if_call_mfa(IsSec,dirty_write,[SKey,Table,{Table,integer_to_list(N),N}]),
+    if_call_mfa(IsSec, write,[SKey,Table,{Table,integer_to_list(N),N}]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 

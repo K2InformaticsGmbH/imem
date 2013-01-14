@@ -245,7 +245,7 @@ value_lookup(Val) when is_binary(Val) ->
             {Unquoted,string}  %% assume strings, convert to atoms/dates/lists/tuples when type is known
     end.
 
-field_lookup(<<"rownum">>,FullMap) -> {0,rownum,integer,0,0,1,<<"rownum">>};
+field_lookup(<<"rownum">>,_FullMap) -> {0,rownum,integer,0,0,1,<<"rownum">>};
 field_lookup(Name,FullMap) ->
     U = undefined,
     ML = case imem_sql:field_qname(Name) of

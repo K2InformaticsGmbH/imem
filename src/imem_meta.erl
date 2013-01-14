@@ -87,7 +87,7 @@
         , close/1
         ]).
 
--export([ fetch_start/4
+-export([ fetch_start/5
         , update_tables/2  
         , subscribe/1
         , unsubscribe/1
@@ -485,10 +485,10 @@ update_cursor_prepare(Pid, ChangeList) ->
 update_cursor_execute(Pid, Lock) ->
     imem_statement:update_cursor_execute(none, Pid, false, Lock).
 
-fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize) ->
-    fetch_start(Pid, Table, MatchSpec, BlockSize);          %% ToDo: may depend on schema
-fetch_start(Pid, Table, MatchSpec, BlockSize) ->
-    imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize).
+fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
+    fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
+fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
+    imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
 close(Pid) ->
     imem_statement:close(none, Pid).
