@@ -528,7 +528,7 @@ write({_Schema,Table}, Record) ->
 write(ddLog@, Record) ->
     imem_if:write(physical_table_name(ddLog@), Record);
 write(Table, Record) ->
-    log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
+    % log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
     imem_if:write(physical_table_name(Table), Record).
 
 dirty_write({_Schema,Table}, Record) -> 
@@ -536,7 +536,7 @@ dirty_write({_Schema,Table}, Record) ->
 dirty_write(ddLog@, Record) -> 
     imem_if:dirty_write(physical_table_name(ddLog@), Record);
 dirty_write(Table, Record) -> 
-    log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
+    % log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
     imem_if:dirty_write(physical_table_name(Table), Record).
 
 insert({_Schema,Table}, Row) ->
@@ -579,7 +579,7 @@ update_tables(UpdatePlan, Lock) ->
 update_tables(_MySchema, [], Lock, Acc) ->
     imem_if:update_tables(Acc, Lock);  
 update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
-    log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
+    % log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
     update_tables(MySchema, UPlan, Lock, [update_table_name(MySchema, UEntry)|Acc]).
 
 update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New]) ->

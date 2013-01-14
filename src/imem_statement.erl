@@ -171,7 +171,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
         [] ->       [];
         [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, Binds))]
     end,
-    % io:format(user,"Guards after bind : ~p~n", [Guards1]),
+    % io:format(user,"Guards after  bind : ~p~n", [Guards1]),
     MatchSpec = [{MatchHead, Guards1, [Result]}],
     TailSpec = ets:match_spec_compile(MatchSpec),
     FetchCtx1 = case FetchCtx0#fetchCtx.pid of
@@ -480,9 +480,9 @@ join_table(Rec, BlockSize, T, Table, {MatchSpec,[]}) ->
 join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
     [{MatchHead, [Guard0], [Result]}] = MatchSpec0,
     % io:format(user, "Rec used for bind ~p~n", [Rec]),
-    % io:format(user, "Guard before bind ~p~n", [Guard0]),
+    % io:format(user, "Join guard before bind ~p~n", [Guard0]),
     Guard1 = imem_sql:simplify_matchspec(join_bind(Rec, Guard0, {Tag,Ti,Ci})),
-    % io:format(user, "Guard after bind ~p~n", [Guard1]),
+    % io:format(user, "Join guard after  bind ~p~n", [Guard1]),
     join_table(Rec, BlockSize, T, Table, {[{MatchHead, [Guard1], [Result]}], Binds}).
 
 join_bind(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
@@ -518,12 +518,16 @@ comparison_bind(Op,A,B) ->
     AW = case A of
         {Ma,Sa,Microa} when is_integer(Ma), is_integer(Sa), is_integer(Microa) -> {const,A}; 
         {{Ya,Mona,Da},{_,_,_}} when is_integer(Ya), is_integer(Mona), is_integer(Da) -> {const,A};
-        _ -> A
+        A when size(A) =< 3 -> A;
+        A when is_tuple(A) -> {const,A};
+        A -> A
     end,
     BW = case B of
         {Mb,Sb,Microb} when is_integer(Mb), is_integer(Sb), is_integer(Microb) -> {const,B};
         {{Yb,Monb,Db},{_,_,_}} when is_integer(Yb), is_integer(Monb), is_integer(Db) -> {const,B};
-        _ -> B
+        B when size(B) =< 3 -> B;
+        B when is_tuple(B) -> {const,B};
+        B -> B
     end,
     {Op,AW,BW}.   
 

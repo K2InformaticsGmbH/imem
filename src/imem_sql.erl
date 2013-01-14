@@ -88,7 +88,8 @@ field_qname(Str) when is_list(Str) ->
         [A] ->      {undefined, undefined, list_to_atom(A)};
         [T,A] ->    {undefined, list_to_atom(T), list_to_atom(A)};
         [S,T,A] ->  {list_to_atom(S), list_to_atom(T), list_to_atom(A)};
-        _ ->        ?ClientError({"Invalid field name", Str})
+        _ ->        {}
+        % _ ->        ?ClientError({"Invalid field name", Str})
     end;
 field_qname(S) ->
     ?ClientError({"Invalid field name", S}).

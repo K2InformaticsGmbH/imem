@@ -229,7 +229,10 @@ in_condition_loop(SKey,Tmax,Ti,ALookup,[B|Rest],FullMap) ->
             in_condition_loop(SKey,Tmax,Ti,ALookup,Rest,FullMap)}.
 
 field_value(Tag,Type,Len,Prec,Def,Val) ->
-    imem_datatype:value_to_db(Tag,?nav,Type,Len,Prec,Def,false,Val).
+    case imem_datatype:value_to_db(Tag,?nav,Type,Len,Prec,Def,false,Val) of
+        T when is_tuple(T) ->   {const,T};
+        V ->                    V
+    end.                    
 
 value_lookup(Val) when is_binary(Val) ->
     Str = binary_to_list(Val),
@@ -251,7 +254,8 @@ field_lookup(Name,FullMap) ->
     ML = case imem_sql:field_qname(Name) of
         {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
         {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))]
+        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {} ->       []
     end,
     case length(ML) of
         0 ->    {Value,Type} = value_lookup(Name),
@@ -356,10 +360,11 @@ test_with_or_without_sec(IsSec) ->
                 create table def (
                     col1 integer, 
                     col2 char(2), 
-                    col3 date default fun() -> calendar:local_time() end.
+                    col3 date,
+                    col4 ipaddr
                 );", 0, 'Imem', IsSec)),
 
-        ?assertEqual(ok, insert_range(SKey, 10, "def", 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
 
         Result0 = if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 1000]),
         {List0, true} = Result0,
@@ -373,7 +378,7 @@ test_with_or_without_sec(IsSec) ->
 
         Result2 = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
         {_List2, true} = Result2,
-        % io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(_List2),hd(List2),lists:last(_List2)]),
+        io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(_List2),hd(_List2),lists:last(_List2)]),
 
         ?assertEqual([imem], field_value(tag,list,0,0,[],"[imem]")),
 
@@ -413,12 +418,20 @@ test_with_or_without_sec(IsSec) ->
         % io:format(user, "Result: (~p)~n~p~n", [length(List10),lists:map(_RowFun10,List10)]),
         ?assertEqual(10, length(List10)),
 
-        Sql3 = "select name(qname) from Imem.ddTable",
+        Sql10a = "select * from def where col4 < \"10.132.7.3\"",
+        io:format(user, "Query: ~p~n", [Sql10a]),
+        {ok, _Clm10a, _RowFun10a, StmtRef10a} = imem_sql:exec(SKey, Sql10a, 100, 'Imem', IsSec),
+        List10a = imem_statement:fetch_recs_sort(SKey, StmtRef10a, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List10a),lists:map(_RowFun10a,List10a)]),
+        ?assertEqual(2, length(List10a)),
+
+
+        Sql3 = "select name(qname) from all_tables",    %Imem.ddTable
         io:format(user, "Query: ~p~n", [Sql3]),
         {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         [{StmtRef3, {List3a, true}}] = receive_all(),
-        % io:format(user, "Result: (~p)~n~p~n", [length(List3),[tl(R)|| R <- lists:map(_RowFun3,List3a)]]),
+        io:format(user, "Result: (~p)~n~p~n", [length(List3a),[tl(R)|| R <- lists:map(_RowFun3,List3a)]]),
         ?assertEqual(AllTableCount, length(List3a)),
         io:format(user, "first read success (async)~n", []),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
@@ -458,13 +471,17 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql11]),
         {ok, _Clm11, _RowFun11, StmtRef11} = imem_sql:exec(SKey, Sql11, 100, 'Imem', IsSec),
         List11 = imem_statement:fetch_recs_sort(SKey, StmtRef11, self(), Timeout, IsSec),
-        io:format(user, "Result: (~p)~n~p~n", [length(List11),lists:map(_RowFun11,List11)]),
+        io:format(user, "Result: (~p)~n~p~n", [length(List11),[tl(I)||I <- lists:map(_RowFun11,List11)]]),
         ?assertEqual(9, length(List11)),
         % 5,6
         % 5,7
+        % 5,8
+        % 5,10
         % 6,7
         % 6,8
+        % 6,10
         % 7,8
+        % 7,10
 
         case IsSec of
             false ->    ok;
@@ -496,8 +513,8 @@ test_with_or_without_sec(IsSec) ->
                 io:format(user, "full table size ~p~n", [imem_meta:table_size(ddLog@)]),
                 {ok, _Clm19, _RowFun19, StmtRef19} = imem_sql:exec(SKey, Sql19, 100, 'Imem', IsSec),
                 List19 = imem_statement:fetch_recs(SKey, StmtRef19, self(), Timeout, IsSec),
-                io:format(user, "Result: (~p)~n~p~n", [length(List19),[tl(I)||I <- lists:map(_RowFun19,List19)]])
-
+                Reduced19=[tl(I)||I <- lists:map(_RowFun19,List19)],
+                io:format(user, "Logs100: (~p)~n~p~n...~n~p~n", [length(Reduced19),hd(Reduced19),lists:last(Reduced19)])
 
                 % Sql19 = "select v.name from ddView as v, ddCmd as c where c.id = v.cmd and c.adapters = \"[imem]\" and (c.owner = user or c.owner = system)",    
                 % io:format(user, "Query: ~p~n", [Sql19]),
@@ -569,7 +586,12 @@ receive_all(Acc) ->
         Result ->   receive_all([Result|Acc])
     end.
 
-insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
-insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
-    imem_sql:exec(SKey, "insert into " ++ TableName ++ " (col1, col2) values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
-    insert_range(SKey, N-1, TableName, Schema, IsSec).
+% insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
+% insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
+%     imem_sql:exec(SKey, "insert into " ++ TableName ++ " (col1, col2) values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
+%     insert_range(SKey, N-1, TableName, Schema, IsSec).
+
+insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
+insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
+    if_call_mfa(IsSec, write,[SKey,Table,{Table,N,integer_to_list(N),calendar:local_time(),{10,132,7,N}}]),
+    insert_range(SKey, N-1, Table, Schema, IsSec).
