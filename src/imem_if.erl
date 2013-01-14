@@ -47,7 +47,7 @@
         , select_sort/3
         , read/1
         , read/2                 
-        , fetch_start/4
+        , fetch_start/5
         , write/2
         , dirty_write/2
         , insert/2    
@@ -316,7 +316,7 @@ read(Table, Key) when is_atom(Table) ->
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     try 
-        io:format(user, "mnesia:dirty_write ~p ~p~n", [Table,Row]),
+        % io:format(user, "mnesia:dirty_write ~p ~p~n", [Table,Row]),
         mnesia:dirty_write(Table, Row)
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientError({"Table does not exist",Table});
@@ -324,7 +324,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
-    io:format(user, "mnesia:write ~p ~p~n", [Table,Row]),
+    % io:format(user, "mnesia:write ~p ~p~n", [Table,Row]),
     Result = case transaction(write,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
         Res ->                      Res 
@@ -378,31 +378,47 @@ select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-fetch_start(Pid, Table, MatchSpec, BlockSize) ->
+fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     F =
     fun(F,Contd0) ->
         receive
             abort ->
                 io:format(user, "Abort fetch on table ~p~n", [Table]);
             next ->
-                case (case Contd0 of
-                        undefined ->    mnesia:select(Table, MatchSpec, BlockSize, read);
-                        Contd0 ->       mnesia:select(Contd0)
-                      end) of
-                    '$end_of_table' -> 
-                        Pid ! {row, ?eot};
-                    {Rows, Contd1} ->
-                        Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
-                        if  Eot ->
-                                Pid ! {row, [?eot|Rows]};
-                            true ->
-                                Pid ! {row, Rows},
-                                F(F,Contd1)
-                        end
+                case Contd0 of
+                        undefined ->
+                            case mnesia:select(Table, MatchSpec, BlockSize, read) of
+                                '$end_of_table' -> 
+                                    Pid ! {row, [?sot,?eot]};
+                                {Rows, Contd1} ->
+                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
+                                    if  Eot ->
+                                            Pid ! {row, [?sot|[?eot|Rows]]};
+                                        true ->
+                                            Pid ! {row, [?sot|Rows]},
+                                            F(F,Contd1)
+                                    end
+                            end;
+                        Contd0 ->       
+                            case mnesia:select(Contd0) of
+                                '$end_of_table' -> 
+                                    Pid ! {row, ?eot};
+                                {Rows, Contd1} ->
+                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
+                                    if  Eot ->
+                                            Pid ! {row, [?eot|Rows]};
+                                        true ->
+                                            Pid ! {row, Rows},
+                                            F(F,Contd1)
+                                    end
+                            end                                
                 end
         end
     end,
-    spawn(mnesia, transaction, [F, [F,undefined]]).
+    case lists:keyfind(access, 1, Opts) of
+        {_,Access} ->   spawn(mnesia, Access, [F, [F,undefined]]);
+        false ->        spawn(mnesia, async_dirty, [F, [F,undefined]])
+    end.
 
 update_tables(UpdatePlan, Lock) ->
     Update = fun() ->
