@@ -95,11 +95,12 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
     Res = (catch binary_to_term(NewBuf)),
     case Res  of
         {'EXIT', _} ->
-            % io:format("~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
+            %io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
             {noreply, State#state{buf=NewBuf}};
         [Mod,Fun|Args] ->
             % replace penultimate pid wih socket (if present)
-            % io:format("call ~p:~p(~p)~n", [Mod,Fun,Args]),
+            %io:format(user, "__SERVER__ call ~p:~p(~p)~n", [Mod,Fun,Args]),
+            io:format(user, "__SERVER__ call ~p:~p~n", [Mod,Fun]),
             case Fun of
                 fetch_recs_async ->
                     NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
@@ -107,11 +108,11 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
                 _ ->
                     ApplyRes = try apply(Mod,Fun,Args)
                     catch 
-                        _Class:Reason -> {error, Reason}
+                        _Class:Reason ->
+                            {error, Reason}
                     end,
                     send_resp(ApplyRes, Sock)
             end,
-            %send_resp(catch apply(Mod,Fun,NewArgs), Sock),
             {noreply, State#state{buf= <<>>}}
     end;
 handle_info({tcp_closed, _Sock}, State) ->
@@ -129,6 +130,10 @@ terminate(_Reason, #state{csock=Sock}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-send_resp(Resp, Sock) ->
+send_resp(Resp, SockOrPid) ->
+%    io:format(user, "__SERVER__ resp ~p~n", [Resp]),
     RespBin = term_to_binary(Resp),
-    gen_tcp:send(Sock, RespBin).
+    case SockOrPid of
+        Pid when is_pid(Pid)    -> Pid ! Resp;
+        Sock                    -> gen_tcp:send(Sock, RespBin)
+    end.

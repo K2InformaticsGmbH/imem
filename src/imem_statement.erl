@@ -533,10 +533,7 @@ comparison_bind(Op,A,B) ->
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},
-    case SockOrPid of
-        Pid when is_pid(Pid)    -> Pid ! NewResult;
-        Sock                    -> imem_server:send_resp(NewResult, Sock)
-    end.
+    imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     TableTypes = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table,_Alias} <- Tables],
