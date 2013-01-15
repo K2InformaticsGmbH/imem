@@ -156,7 +156,7 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=P
 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,aborted}],"fetch_recs_async rejected"),
-    send_reply_to_client(Sock, {error,"Fetch aborted, execute fetch_close before refetch"}),
+    imem_server:send_resp({error,{'SystemException',"Fetch aborted, execute fetch_close before refetch"}}, Sock),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
     #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={MatchSpec0,Binds}, meta=MetaFields, limit=Limit} = Stmt,
@@ -360,7 +360,8 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
                 Error ->
                     io:format(user, "~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
-                    send_reply_to_client(Sock, {'SystemException', {"Cannot subscribe to table changes",{Table,Error}}}),
+                    imem_meta:log_to_db(error,?MODULE,handle_fetch_complete,[{table,Table},{error,Error},{sock,Sock}],"Cannot subscribe to table changes"),
+                    imem_server:send_resp({error,{'SystemException',{"Cannot subscribe to table changes",{Table,Error}}}}, Sock),
                     {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}}
             end    
     end.

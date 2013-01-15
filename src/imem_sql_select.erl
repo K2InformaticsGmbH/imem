@@ -30,7 +30,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         gui ->  imem_datatype:select_rowfun_gui(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
-        {_, WT} ->  % io:format(user, "WhereTree ~p~n", [WT]),
+        {_, WT} ->  io:format(user, "WhereTree ~p~n", [WT]),
                     WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
@@ -101,12 +101,39 @@ tree_member(Tx,{_,L,R}) -> tree_member(Tx,L) orelse tree_member(Tx,R);
 tree_member(Tx,Tx) -> true;
 tree_member(_,_) -> false.
 
-tree_match(Tx,{_,R}) -> tree_match(Tx,R);
-tree_match(Tx,{_,Tx,_}=C1) -> C1;
-tree_match(Tx,{_,_,Tx}=C2) -> C2;
-tree_match(Tx,{_,L,R}) -> tree_match(Tx,L) orelse tree_match(Tx,R);
-tree_match(Tx,Tx) -> Tx;
-tree_match(_,_) -> false.
+operand_match(Tx,{_,Tx}=C0) ->      C0;
+operand_match(Tx,{_,R}) ->          operand_match(Tx,R);
+operand_match(Tx,{_,Tx,_}=C1) ->    C1;
+operand_match(Tx,{_,_,Tx}=C2) ->    C2;
+operand_match(Tx,{_,L,R}) ->        
+    case operand_match(Tx,L) of
+        false ->    operand_match(Tx,R);
+        Else ->     Else
+    end;    
+operand_match(Tx,Tx) ->             Tx;
+operand_match(_,_) ->               false.
+
+operator_match(Tx,{Tx,_}=C0) ->     C0;
+operator_match(Tx,{_,R}) ->         operator_match(Tx,R);
+operator_match(Tx,{Tx,_,_}=C1) ->   C1;
+operator_match(Tx,{_,L,R}) ->       
+    case operator_match(Tx,L) of
+        false ->    operator_match(Tx,R);
+        Else ->     Else
+    end;
+operator_match(_,_) ->              false.
+
+replace_rownum({Op,rownum,Right}) -> {Op,1,Right};
+replace_rownum({Op,Left,rownum}) ->  {Op,Left,1};
+replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Right)};
+replace_rownum({Op,Result}) ->       {Op,replace_rownum(Result)};
+replace_rownum(Result) ->            Result.
+
+replace_is_member({is_member,_Left,_Right})->    true;
+replace_is_member({Op,Left,Right})->    {Op,replace_is_member(Left),replace_is_member(Right)};
+replace_is_member({Op,Result}) ->       {Op,replace_is_member(Result)};
+replace_is_member(Result) ->            Result.
+
 
 add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> 
     MetaFields;
@@ -128,8 +155,8 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
 master_query_guards(_SKey,_Tmax,[],_FullMap) -> {[],#statement{}#statement.limit};
 master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
     Guard0 = imem_sql:simplify_matchspec(tree_walk(SKey,Tmax,1,WhereTree,FullMap)),
-    % io:format(user, "Guard0 ~p~n", [Guard0]),
-    Limit = case tree_match(rownum,Guard0) of
+    io:format(user, "Guard0 ~p~n", [Guard0]),
+    Limit = case operand_match(rownum,Guard0) of
         false ->  #statement{}#statement.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
         {'=<',rownum,L} when is_integer(L) ->   L;
@@ -138,16 +165,13 @@ master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
         Else ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
-    Guard1 = replace_rownum(Guard0),
-    % io:format(user, "Guard1 ~p~n", [Guard1]),
-    Guard2 = imem_sql:simplify_matchspec(Guard1),
+    Guard1 = imem_sql:simplify_matchspec(replace_rownum(Guard0)),
+    io:format(user, "Guard1 ~p~n", [Guard1]),
+    Filter = operator_match('is_member',Guard1),
+    io:format(user, "Filter ~p~n", [Filter]),
+    Guard2 = imem_sql:simplify_matchspec(replace_is_member(Guard1)),
+    io:format(user, "Guard2 ~p~n", [Guard2]),
     {[Guard2],Limit}.
-
-replace_rownum({Op,rownum,Right}) -> {Op,1,Right};
-replace_rownum({Op,Left,rownum}) ->  {Op,Left,1};
-replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Right)};
-replace_rownum({Op,Result}) ->       {Op,replace_rownum(Result)};
-replace_rownum(Result) ->            Result.
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
 tree_walk(_SKey,_,_,<<"false">>,_FullMap) -> false;
@@ -170,10 +194,19 @@ tree_walk(SKey,Tmax,Ti,{'>=',A,B},FullMap) ->
     condition(SKey,Tmax,Ti,'>=',A,B,FullMap);
 tree_walk(SKey,Tmax,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
     in_condition(SKey,Tmax,Ti,A,InList,FullMap);
-tree_walk(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) -> 
-    {F,tree_walk(SKey,Tmax,Ti,Param,FullMap)};    %% F = unary boolean function like 'is_list' 
+tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) -> 
+    {F,tree_walk(SKey,Tmax,Ti,P1,FullMap)};    %% F = unary function like abs | is_list 
+tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) -> 
+    {F,tree_walk(SKey,Tmax,Ti,P1,FullMap),tree_walk(SKey,Tmax,Ti,P2,FullMap)};    %% F = binary function like element(E,Tuple) | is_member | is_element
 tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
-    {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)}.
+    {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)};
+tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
+    case expr_lookup(SKey,Tmax,Ti,Expr,FullMap) of
+        {0,V1,integer,_,_,_,_} ->   field_value(0,integer,0,0,?nav,V1);   
+        {0,V2,float,_,_,_,_} ->     field_value(0,float,0,0,?nav,V2);   
+        {0,V3,string,_,_,_,_} ->    field_value(0,term,0,0,?nav,V3);   
+        {_,Tag,_,_,_,_,_} ->        Tag
+    end.
 
 % condition(SKey,Tmax,1,OP,A,B,FullMap) -> 
 %     compguard(Tmax,1,OP,expr_lookup(SKey,Tmax,1,A,FullMap),expr_lookup(SKey,Tmax,1,B,FullMap));
@@ -316,6 +349,7 @@ setup() ->
     ?imem_test_setup().
 
 teardown(_SKey) -> 
+    catch imem_meta:drop_table(member_test),
     catch imem_meta:drop_table(def),
     ?imem_test_teardown().
 
@@ -558,6 +592,39 @@ test_with_or_without_sec(IsSec) ->
         % 5,3
         % 5,4
         % 5,5
+
+        Sql19a = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-5 and rownum <= 100", %% 1.0 * ?OneSecond
+        io:format(user, "Query: ~p~n", [Sql19a]),
+        io:format(user, "full table size ~p~n", [imem_meta:table_size(ddLog@)]),
+        {ok, _Clm19a, _RowFun19a, StmtRef19a} = imem_sql:exec(SKey, Sql19a, 100, 'Imem', IsSec),
+        List19a = imem_statement:fetch_recs(SKey, StmtRef19a, self(), Timeout, IsSec),
+        Reduced19a=[tl(I)||I <- lists:map(_RowFun19a,List19a)],
+        io:format(user, "Logs100: (~p)~n~p~n...~n~p~n", [length(Reduced19a),hd(Reduced19a),lists:last(Reduced19a)]),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, 
+            "create table member_test (col1 integer, col2 list, col3 tuple);"
+            , 0, 'Imem', IsSec)),
+
+        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,1,undefined,undefined}]),
+        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,2,[1,2,3],{a,b,c}}]),
+        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,3,[3,4,5],1}]),
+        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,4,undefined,{a,d,e}}]),
+
+        Sql20 = "select col1 from member_test where is_list(col2) or is_tuple(col3)", %% is_member(3,col2) and col1 > 0",
+        io:format(user, "Query: ~p~n", [Sql20]),
+        {ok, _Clm20, _RowFun20, StmtRef20} = imem_sql:exec(SKey, Sql20, 100, 'Imem', IsSec),
+        List20 = imem_statement:fetch_recs_sort(SKey, StmtRef20, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List20),lists:map(_RowFun20,List20)]),
+        ?assertEqual(3, length(List20)),
+
+        Sql21 = "select col1 from member_test where is_member(3,col2) and col1 > 0",
+        io:format(user, "Query: ~p~n", [Sql21]),
+        {ok, _Clm21, _RowFun21, StmtRef21} = imem_sql:exec(SKey, Sql21, 100, 'Imem', IsSec),
+        List21 = imem_statement:fetch_recs_sort(SKey, StmtRef21, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List21),lists:map(_RowFun21,List21)]),
+        ?assertEqual(2, length(List21)),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, 'Imem', IsSec)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 
