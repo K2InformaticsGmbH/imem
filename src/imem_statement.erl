@@ -36,6 +36,7 @@
                     , remaining ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
                     , opts = [] ::list()            %% fetch options like {tail_mode,true}
                     , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
+                    , filter    ::any()             %% filter specification {Guard,Binds}
                     }).
 
 -record(state,                  %% state for statment process, including fetch subprocess
@@ -159,17 +160,18 @@ handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fet
     imem_server:send_resp({error,{'SystemException',"Fetch aborted, execute fetch_close before refetch"}}, Sock),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
-    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={MatchSpec0,Binds}, meta=MetaFields, limit=Limit} = Stmt,
+    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={{MatchSpec0,MatchBinds},Filter}, meta=MetaFields, limit=Limit} = Stmt,
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
     % io:format(user,"Table : ~p~n", [Table]),
     % io:format(user,"MetaRec : ~p~n", [MetaRec]),
-    % io:format(user,"Binds : ~p~n", [Binds]),
+    % io:format(user,"MatchBinds : ~p~n", [MatchBinds]),
+    % io:format(user,"Filter : ~p~n", [Filter]),
     [{MatchHead, Guards0, [Result]}] = MatchSpec0,
     % io:format(user,"Guards before bind : ~p~n", [Guards0]),
     Guards1 = case Guards0 of
         [] ->       [];
-        [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, Binds))]
+        [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, MatchBinds))]
     end,
     % io:format(user,"Guards after  bind : ~p~n", [Guards1]),
     MatchSpec = [{MatchHead, Guards1, [Result]}],
@@ -181,7 +183,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
                     % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
-                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=waiting, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts, tailSpec=TailSpec};
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=waiting, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts, tailSpec=TailSpec, filter=Filter};
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
@@ -266,7 +268,7 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MetaRec,remaining=Remaining0,status=Status}=FetchCtx0,
+    #fetchCtx{metarec=MetaRec,remaining=Remaining0,status=Status,filter=Filter}=FetchCtx0,
     % io:format(user, "~p - received ~p rows~n", [?MODULE, length(Rows)]),
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case {Status,Rows0} of
@@ -292,25 +294,46 @@ handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}
             imem_meta:log_to_db(error,?MODULE,handle_info,[{row,length(R)}],"data"),     
             {R,false}        
     end,   
-    Result = case length(Stmt#statement.tables) of
-        1 ->    
+    Result = case {length(Stmt#statement.tables),Filter} of
+        {1,true} ->
             Wrap = fun(X) -> {X, MetaRec} end,
-            RowsRead=length(Rows1),
+            Rows=length(Rows1),
             if  
-                RowsRead < Remaining0 ->
+                Rows < Remaining0 ->
                     lists:map(Wrap, Rows1);
-                RowsRead == Remaining0 ->
+                Rows == Remaining0 ->
                     lists:map(Wrap, Rows1);
                 Remaining0 > 0 ->
                     {ResultRows,Rest} = lists:split(Remaining0, Rows1),
-                    LastKey = lists:nthtail(length(ResultRows)-1, ResultRows),
-                    Pred = fun(X) -> (X==LastKey) end,
-                    ResultTail = lists:takewhile(Pred, Rest),
+                    LastKey = element(2,lists:last(ResultRows)),
+                    Pred = fun(X) -> (element(2,X)==LastKey) end,
+                    ResultTail = lists:takewhile(Pred, Rest),   
+                    %% ToDo: may need to read more blocks to completely read this key in a bag
                     lists:map(Wrap, ResultRows ++ ResultTail);
                 Remaining0 =< 0 ->
                     []
             end;
-        _ ->
+        {1,Filter} ->
+            Wrap = fun(X) -> {X, MetaRec} end,
+            Rows2 = lists:map(Wrap, Rows1),
+            Rows3 = lists:filter(Filter,Rows2),
+            Rows=length(Rows3),
+            if  
+                Rows < Remaining0 ->
+                    Rows3;
+                Rows == Remaining0 ->
+                    Rows3;
+                Remaining0 > 0 ->
+                    {ResultRows,Rest} = lists:split(Remaining0, Rows3),
+                    LastKey = element(2,element(1,lists:last(ResultRows))),
+                    Pred = fun(X) -> (element(2,element(1,X))==LastKey) end,
+                    ResultTail = lists:takewhile(Pred, Rest),
+                    %% ToDo: may need to read more blocks to completely read this key in a bag
+                    ResultRows ++ ResultTail;
+                Remaining0 =< 0 ->
+                    []
+            end;
+        {_,_} ->
             join_rows(Rows1, FetchCtx0, Stmt)
     end,
     case is_number(Remaining0) of
