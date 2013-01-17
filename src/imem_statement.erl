@@ -175,7 +175,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
         [] ->       [];
         [SGuard0]-> [imem_sql:simplify_guard(select_bind(MetaRec, SGuard0, SBinds))]
     end,
-    io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
+    % io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
     TailSpec = ets:match_spec_compile(SSpec),
     Filter = make_filter_fun(select_bind(MetaRec, FGuard, MBinds), FBinds),
@@ -501,15 +501,36 @@ make_filter_fun({'is_member', A, B}, FBinds)  ->
     BBind = lists:keyfind(B,1,FBinds),
     case {ABind,BBind} of
         {false,false} ->        
-            F = fun(_X) -> lists:member(A,B) end;
+            fun(_X) -> 
+                if 
+                    is_list(B) ->   lists:member(A,B);
+                    true ->         false
+                end
+            end;
         {false,{B,BTi,BCi}} ->
-            F = fun(X) -> lists:member(A,element(BCi,element(BTi,X))) end;
+            fun(X1) ->
+                Bbound = element(BCi,element(BTi,X1)),
+                if 
+                    is_list(Bbound) ->  lists:member(A,Bbound);
+                    true ->             false
+                end
+            end;
         {{A,ATi,ACi},false} ->  
-            F = fun(X) -> lists:member(element(ACi,element(ATi,X)),B) end;
+            fun(X2) ->
+                if 
+                    is_list(B) ->  lists:member(element(ACi,element(ATi,X2)),B);
+                    true ->             false
+                end
+            end;
         {{A,XTi,XCi},{B,YTi,YCi}} ->  
-            F = fun(X) -> lists:member(element(XCi,element(XTi,X)),element(YCi,element(YTi,X))) end
-    end,
-    F;
+            fun(X3) ->
+                Ybound = element(YCi,element(YTi,X3)), 
+                if 
+                    is_list(Ybound) ->  lists:member(element(XCi,element(XTi,X3)),Ybound);
+                    true ->             false
+                end
+            end
+    end;
 make_filter_fun(FGuard, FBinds) ->
     ?UnimplementedException({"Illegal filter",{FGuard, FBinds}}).
 
@@ -907,6 +928,25 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Now-  10s: ~p~n", [offset_timestamp('-', ENow, 10.0*OneSec)]),
         io:format(user, "Now- 100s: ~p~n", [offset_timestamp('-', ENow, 100.0*OneSec)]),
         io:format(user, "Now-1000s: ~p~n", [offset_timestamp('-', ENow, 1000.0*OneSec)]),
+
+        F0 = make_filter_fun(true, []),
+        ?assertEqual(true,F0(1)),        
+        ?assertEqual(true,F0([])),        
+        F1 = make_filter_fun({'is_member', a, [a,b]}, []),
+        ?assertEqual(true,F1(1)),        
+        ?assertEqual(true,F1([])),        
+        F2 = make_filter_fun({'is_member', a, '$3'}, [{'$3',1,3}]),
+        ?assertEqual(false,F2({{1,2,[3,4,5]}})),        
+        ?assertEqual(true, F2({{1,2,[c,a,d]}})),        
+        F3 = make_filter_fun({'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        ?assertEqual(true, F3({{1,d,[c,a,d]}})),        
+        ?assertEqual(true, F3({{1,c,[c,a,d]}})),        
+        ?assertEqual(true, F3({{1,a,[c,a,d]}})),        
+        ?assertEqual(true, F3({{1,3,[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,2,[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,a,[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,3,[]}})),        
 
         case IsSec of
             true ->     ?imem_logout(SKey);

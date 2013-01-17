@@ -31,7 +31,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         gui ->  imem_datatype:select_rowfun_gui(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
-        {_, WT} ->  io:format(user, "WhereTree ~p~n", [WT]),
+        {_, WT} ->  % io:format(user, "WhereTree ~p~n", [WT]),
                     WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
@@ -52,17 +52,17 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==1]]),
     % io:format(user, "MatchHead (~p) ~p~n", [1,MatchHead]),
     {SGuards,FGuard,Limit} = master_query_guards(SKey,length(Tables),WhereTree,FullMap),
-    io:format(user, "SGuards ~p~n", [SGuards]),
-    io:format(user, "FGuard ~p~n", [FGuard]),
-    io:format(user, "Limit ~p~n", [Limit]),
+    % io:format(user, "SGuards ~p~n", [SGuards]),
+    % io:format(user, "FGuard ~p~n", [FGuard]),
+    % io:format(user, "Limit ~p~n", [Limit]),
     Result = '$_',
     SSpec = [{MatchHead, SGuards, [Result]}],
     SBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], SGuards,[]),
     MBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], [FGuard],[]),
     FBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==1)], [FGuard],[]),
-    io:format(user, "SBinds ~p~n", [SBinds]),
-    io:format(user, "MBinds ~p~n", [MBinds]),
-    io:format(user, "FBinds ~p~n", [FBinds]),
+    % io:format(user, "SBinds ~p~n", [SBinds]),
+    % io:format(user, "MBinds ~p~n", [MBinds]),
+    % io:format(user, "FBinds ~p~n", [FBinds]),
     JoinSpecs = build_join_spec(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
     % io:format(user, "Join Spec ~p~n", [JoinSpec]),
     Statement = Stmt#statement{
@@ -161,7 +161,7 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
 master_query_guards(_SKey,_Tmax,[],_FullMap) -> {[],true,#statement{}#statement.limit};
 master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
     SGuard0 = imem_sql:simplify_guard(tree_walk(SKey,Tmax,1,WhereTree,FullMap)),
-    io:format(user, "SGuard0 ~p~n", [SGuard0]),
+    % io:format(user, "SGuard0 ~p~n", [SGuard0]),
     Limit = case operand_match(rownum,SGuard0) of
         false ->  #statement{}#statement.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
@@ -172,7 +172,7 @@ master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     SGuard1 = imem_sql:simplify_guard(replace_rownum(SGuard0)),
-    io:format(user, "SGuard1 ~p~n", [SGuard1]),
+    % io:format(user, "SGuard1 ~p~n", [SGuard1]),
     FGuard = case operator_match('is_member',SGuard1) of
         false ->    true;   %% no filtering needed
         F ->        F
@@ -624,12 +624,12 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Result: (~p)~n~p~n", [length(List20),lists:map(_RowFun20,List20)]),
         ?assertEqual(3, length(List20)),
 
-        % Sql21 = "select col1 from member_test where is_member(3,col2) and col1 > 0",
-        % io:format(user, "Query21: ~p~n", [Sql21]),
-        % {ok, _Clm21, _RowFun21, StmtRef21} = imem_sql:exec(SKey, Sql21, 100, 'Imem', IsSec),
-        % List21 = imem_statement:fetch_recs_sort(SKey, StmtRef21, self(), Timeout, IsSec),
-        % io:format(user, "Result: (~p)~n~p~n", [length(List21),lists:map(_RowFun21,List21)]),
-        % ?assertEqual(4, length(List21)), %% ToDo: 2
+        Sql21 = "select col1 from member_test where is_member(3,col2) and col1 > 0",
+        io:format(user, "Query21: ~p~n", [Sql21]),
+        {ok, _Clm21, _RowFun21, StmtRef21} = imem_sql:exec(SKey, Sql21, 100, 'Imem', IsSec),
+        List21 = imem_statement:fetch_recs_sort(SKey, StmtRef21, self(), Timeout, IsSec),
+        io:format(user, "Result: (~p)~n~p~n", [length(List21),lists:map(_RowFun21,List21)]),
+        ?assertEqual(2, length(List21)), 
 
         if_call_mfa(IsSec, write,[SKey,def,{def,100,"\"text_in_quotes\"",{{2001,02,03},{4,5,6}},{10,132,7,92}}]),
 
