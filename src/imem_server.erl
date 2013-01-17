@@ -55,11 +55,11 @@ init(Params) ->
     end.
 
 handle_call({stop_listen}, _From, #state{lsock=LSock} = State) ->
-    catch gen_server:close(LSock),
+    catch gen_tcp:close(LSock),
     io:format("~p imem tcp service stopped!~n", [self()]),
     {reply, ok, State};
 handle_call({start_listen, ListenIf, ListenPort}, _From, #state{lsock=LSock} = State) ->
-    catch gen_server:close(LSock),
+    catch gen_tcp:close(LSock),
     case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
         {ok, LSock} ->
             io:format("~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),

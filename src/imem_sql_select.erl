@@ -1,8 +1,9 @@
 -module(imem_sql_select).
 
 -include("imem_seco.hrl").
+-include("imem_sql.hrl").
 
--define(DefaultRendering, gui ).         %% gui (strings when necessary) | str (strings) | raw (erlang terms)
+-define(DefaultRendering, str ).         %% gui (strings when necessary) | str (always strings) | raw (erlang terms) 
 -define(DefaultDateFormat, eu ).         %% eu | us | iso | raw
 -define(DefaultStrFormat, []).           %% escaping not implemented
 -define(DefaultNumFormat, [{prec,2}]).   %% precision, no 
@@ -50,28 +51,31 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user, "FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==1]]),
     % io:format(user, "MatchHead (~p) ~p~n", [1,MatchHead]),
-    {Guards,FilterGuard,Limit} = master_query_guards(SKey,length(Tables),WhereTree,FullMap),
-    io:format(user, "MatchGuards ~p~n", [Guards]),
-    io:format(user, "FilterGuard ~p~n", [FilterGuard]),
+    {SGuards,FGuard,Limit} = master_query_guards(SKey,length(Tables),WhereTree,FullMap),
+    io:format(user, "SGuards ~p~n", [SGuards]),
+    io:format(user, "FGuard ~p~n", [FGuard]),
     io:format(user, "Limit ~p~n", [Limit]),
     Result = '$_',
-    MatchSpec = [{MatchHead, Guards, [Result]}],
-    MatchBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], Guards,[]),
-    FilterBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==1)], [FilterGuard],[]),
-    io:format(user, "MatchBinds ~p~n", [MatchBinds]),
-    io:format(user, "FilterBinds ~p~n", [FilterBinds]),
-    JoinSpec = build_join_spec(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
+    SSpec = [{MatchHead, SGuards, [Result]}],
+    SBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], SGuards,[]),
+    MBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], [FGuard],[]),
+    FBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==1)], [FGuard],[]),
+    io:format(user, "SBinds ~p~n", [SBinds]),
+    io:format(user, "MBinds ~p~n", [MBinds]),
+    io:format(user, "FBinds ~p~n", [FBinds]),
+    JoinSpecs = build_join_spec(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
     % io:format(user, "Join Spec ~p~n", [JoinSpec]),
     Statement = Stmt#statement{
                     tables=Tables, cols=ColMap, meta=MetaFields1, rowfun=RowFun,
-                    matchspec={{MatchSpec,MatchBinds},FilterGuard}, joinspec=JoinSpec, limit=Limit
+                    scanspec=#scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds}, 
+                    joinspecs=JoinSpecs, limit=Limit
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
     % io:format(user,"Statement : ~p~n", [Stmt]),
     % io:format(user,"Tables: ~p~n", [Tables]),
     % io:format(user,"Column map: ~p~n", [ColMap]),
     % io:format(user,"Meta map: ~p~n", [MetaFields]),
-    % io:format(user,"MatchSpec: ~p~n", [MatchSpec]),
+    % io:format(user,"ScanSpec: ~p~n", [SSpec]),
     % io:format(user,"JoinSpecs: ~p~n", [JoinSpec]),
     {ok, ColMap, RowFun, StmtRef}.
 
@@ -87,7 +91,7 @@ build_join_spec(SKey, Tmax, Tind, WhereTree, FullMap, Acc)->
     build_join_spec(SKey,Tmax, Tind-1, WhereTree, FullMap, [{MatchSpec,Binds}|Acc]).
 
 join_query_guards(SKey,Tmax,Tind,WhereTree,FullMap) ->
-    [imem_sql:simplify_matchspec(tree_walk(SKey,Tmax,Tind,WhereTree,FullMap))].
+    [imem_sql:simplify_guard(tree_walk(SKey,Tmax,Tind,WhereTree,FullMap))].
 
 binds(_, [], []) -> [];
 binds(_, [true], []) -> [];
@@ -156,9 +160,9 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
 
 master_query_guards(_SKey,_Tmax,[],_FullMap) -> {[],true,#statement{}#statement.limit};
 master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
-    Guard0 = imem_sql:simplify_matchspec(tree_walk(SKey,Tmax,1,WhereTree,FullMap)),
-    io:format(user, "Guard0 ~p~n", [Guard0]),
-    Limit = case operand_match(rownum,Guard0) of
+    SGuard0 = imem_sql:simplify_guard(tree_walk(SKey,Tmax,1,WhereTree,FullMap)),
+    io:format(user, "SGuard0 ~p~n", [SGuard0]),
+    Limit = case operand_match(rownum,SGuard0) of
         false ->  #statement{}#statement.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
         {'=<',rownum,L} when is_integer(L) ->   L;
@@ -167,16 +171,14 @@ master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
         Else ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
-    Guard1 = imem_sql:simplify_matchspec(replace_rownum(Guard0)),
-    io:format(user, "Guard1 ~p~n", [Guard1]),
-    FilterGuard = case operator_match('is_member',Guard1) of
+    SGuard1 = imem_sql:simplify_guard(replace_rownum(SGuard0)),
+    io:format(user, "SGuard1 ~p~n", [SGuard1]),
+    FGuard = case operator_match('is_member',SGuard1) of
         false ->    true;   %% no filtering needed
         F ->        F
     end,
-    io:format(user, "FilterGuard ~p~n", [FilterGuard]),
-    Guard2 = imem_sql:simplify_matchspec(replace_is_member(Guard1)),
-    io:format(user, "Guard2 ~p~n", [Guard2]),
-    {[Guard2], FilterGuard, Limit}.
+    SGuard2 = imem_sql:simplify_guard(replace_is_member(SGuard1)),
+    {[SGuard2], FGuard, Limit}.
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
 tree_walk(_SKey,_,_,<<"false">>,_FullMap) -> false;

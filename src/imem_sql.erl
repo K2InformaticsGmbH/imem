@@ -1,6 +1,7 @@
 -module(imem_sql).
 
 -include("imem_seco.hrl").
+-include("imem_sql.hrl").
 
 -export([ exec/5
         , parse/1
@@ -12,7 +13,7 @@
         , column_map_items/2
         , column_map/2
         , strip_quotes/1
-        , simplify_matchspec/1
+        , simplify_guard/1
         ]).
 
 parse(Statement) when is_list(Statement) ->
@@ -263,10 +264,10 @@ strip_quotes([H|T]=Str) ->
         true ->                     Str
     end.
 
-simplify_matchspec(Term) ->
+simplify_guard(Term) ->
     case  simplify_once(Term) of
         Term -> Term;
-        T ->    simplify_matchspec(T)
+        T ->    simplify_guard(T)
     end.
 
 simplify_once({'or', true, _}) -> true; 

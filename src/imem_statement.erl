@@ -160,30 +160,33 @@ handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fet
     imem_server:send_resp({error,{'SystemException',"Fetch aborted, execute fetch_close before refetch"}}, Sock),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
-    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, matchspec={{MatchSpec0,MatchBinds},Filter}, meta=MetaFields, limit=Limit} = Stmt,
+    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, scanspec=ScanSpec, meta=MetaFields, limit=Limit} = Stmt,
+    #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds} = ScanSpec,
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
-    % io:format(user,"Table : ~p~n", [Table]),
-    % io:format(user,"MetaRec : ~p~n", [MetaRec]),
-    % io:format(user,"MatchBinds : ~p~n", [MatchBinds]),
-    % io:format(user,"Filter : ~p~n", [Filter]),
-    [{MatchHead, Guards0, [Result]}] = MatchSpec0,
-    % io:format(user,"Guards before bind : ~p~n", [Guards0]),
-    Guards1 = case Guards0 of
+    % io:format(user,"Table  : ~p~n", [Table]),
+    % io:format(user,"MetaRec: ~p~n", [MetaRec]),
+    % io:format(user,"SBinds : ~p~n", [SBinds]),
+    % io:format(user,"MBinds : ~p~n", [MBinds]),
+    % io:format(user,"FGuard : ~p~n", [FGuard]),
+    [{SHead, SGuards0, [Result]}] = SSpec0,
+    % io:format(user,"SGuards before bind : ~p~n", [SGuards0]),
+    SGuards1 = case SGuards0 of
         [] ->       [];
-        [Guard0] -> [imem_sql:simplify_matchspec(select_bind(MetaRec, Guard0, MatchBinds))]
+        [SGuard0]-> [imem_sql:simplify_guard(select_bind(MetaRec, SGuard0, SBinds))]
     end,
-    % io:format(user,"Guards after  bind : ~p~n", [Guards1]),
-    MatchSpec = [{MatchHead, Guards1, [Result]}],
-    TailSpec = ets:match_spec_compile(MatchSpec),
+    io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
+    SSpec = [{SHead, SGuards1, [Result]}],
+    TailSpec = ets:match_spec_compile(SSpec),
+    Filter = make_filter_fun(select_bind(MetaRec, FGuard, MBinds), FBinds),
     FetchCtx1 = case FetchCtx0#fetchCtx.pid of
         undefined ->
-            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, MatchSpec, BlockSize, Opts]) of
+            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
                     % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
-                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=waiting, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts, tailSpec=TailSpec, filter=Filter};
+                    #fetchCtx{pid=TransPid, monref=MonitorRef, status=waiting, metarec=MetaRec, blockSize=BlockSize, remaining=Limit, opts=Opts, filter=Filter, tailSpec=TailSpec};
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
@@ -445,70 +448,6 @@ select_bind(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->
     end;
 select_bind(_, A, _) ->             A.
 
-offset_datetime('-', DT, Offset) ->
-    offset_datetime('+', DT, -Offset);
-offset_datetime('+', {{Y,M,D},{HH,MI,SS}}, Offset) ->
-    GregSecs = calendar:datetime_to_gregorian_seconds({{Y,M,D},{HH,MI,SS}}),  %% for local time we should use calendar:local_time_to_universal_time_dst(DT)
-    calendar:gregorian_seconds_to_datetime(GregSecs + round(Offset*86400.0)); %% calendar:universal_time_to_local_time(
-offset_datetime(OP, DT, Offset) ->
-    ?ClientError({"Illegal datetime offset operation",{OP,DT,Offset}}).
-
-offset_timestamp('+', TS, Offset) when Offset < 0.0 -> 
-    offset_timestamp('-', TS, -Offset);    
-offset_timestamp('-', TS, Offset) when Offset < 0.0 -> 
-    offset_timestamp('+', TS, -Offset);    
-offset_timestamp(_, TS, Offset) when Offset < 5.787e-12 -> 
-    TS;
-offset_timestamp('+', {Mega,Sec,Micro}, Offset) ->
-    NewMicro = Micro + round(Offset*8.64e10),
-    NewSec = Sec + NewMicro div 1000000,
-    NewMega = Mega + NewSec div 1000000,
-    {NewMega, NewSec rem 1000000, NewMicro rem 1000000};    
-offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
-    NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 + Mega * 1000000000000,
-    Mi = NewMicro rem 1000000,
-    NewSec = (NewMicro-Mi) div 1000000, 
-    Se = NewSec rem 1000000,
-    NewMega = (NewSec-Se) div 1000000,
-    {NewMega, Se, Mi};    
-offset_timestamp(OP, TS, Offset) ->
-    ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
-
-join_rows(Rows, FetchCtx0, Stmt) ->
-    #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
-    Tables = tl(Stmt#statement.tables),
-    JoinSpec = Stmt#statement.joinspec,
-    % io:format(user, "Join Tables: ~p~n", [Tables]),
-    % io:format(user, "Join Specs: ~p~n", [JoinSpec]),
-    join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpec, []).
-
-join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
-join_rows(_, _, _, Remaining, _, _, Acc) when Remaining < 1 -> Acc;    %% lists:reverse(Acc);
-join_rows([Row|Rows], MetaRec, BlockSize, Remaining, Tables, JoinSpec, Acc) ->
-    Rec = erlang:make_tuple(length(Tables)+2, undefined, [{1,Row},{2+length(Tables),MetaRec}]),
-    JAcc = join_row([Rec], BlockSize, 2, Tables, JoinSpec),
-    join_rows(Rows, MetaRec, BlockSize, Remaining-length(JAcc), Tables, JoinSpec, JAcc++Acc).
-
-join_row(Recs, _BlockSize, _, [], []) -> Recs;
-join_row(Recs0, BlockSize, T, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
-    Recs1 = [join_table(Rec, BlockSize, T, Table, JS) || Rec <- Recs0],
-    join_row(lists:flatten(Recs1), BlockSize, T+1, Tabs, JSpecs).
-
-join_table(Rec, BlockSize, T, Table, {MatchSpec,[]}) ->
-    case imem_meta:select(Table, MatchSpec, BlockSize) of
-        {[], true} ->   
-            [];
-        {L, true} ->
-            [setelement(T, Rec, I) || I <- L]
-    end;
-join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
-    [{MatchHead, [Guard0], [Result]}] = MatchSpec0,
-    % io:format(user, "Rec used for bind ~p~n", [Rec]),
-    % io:format(user, "Join guard before bind ~p~n", [Guard0]),
-    Guard1 = imem_sql:simplify_matchspec(join_bind(Rec, Guard0, {Tag,Ti,Ci})),
-    % io:format(user, "Join guard after  bind ~p~n", [Guard1]),
-    join_table(Rec, BlockSize, T, Table, {[{MatchHead, [Guard1], [Result]}], Binds}).
-
 join_bind(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
 join_bind(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind(Rec,A,{Tag,Ti,Ci})};
 join_bind(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  
@@ -554,6 +493,90 @@ comparison_bind(Op,A,B) ->
         B -> B
     end,
     {Op,AW,BW}.   
+
+make_filter_fun(true, _FBinds)  ->
+    fun(_X) -> true end;
+make_filter_fun({'is_member', A, B}, FBinds)  ->
+    ABind = lists:keyfind(A,1,FBinds),
+    BBind = lists:keyfind(B,1,FBinds),
+    case {ABind,BBind} of
+        {false,false} ->        
+            F = fun(_X) -> lists:member(A,B) end;
+        {false,{B,BTi,BCi}} ->
+            F = fun(X) -> lists:member(A,element(BCi,element(BTi,X))) end;
+        {{A,ATi,ACi},false} ->  
+            F = fun(X) -> lists:member(element(ACi,element(ATi,X)),B) end;
+        {{A,XTi,XCi},{B,YTi,YCi}} ->  
+            F = fun(X) -> lists:member(element(XCi,element(XTi,X)),element(YCi,element(YTi,X))) end
+    end,
+    F;
+make_filter_fun(FGuard, FBinds) ->
+    ?UnimplementedException({"Illegal filter",{FGuard, FBinds}}).
+
+offset_datetime('-', DT, Offset) ->
+    offset_datetime('+', DT, -Offset);
+offset_datetime('+', {{Y,M,D},{HH,MI,SS}}, Offset) ->
+    GregSecs = calendar:datetime_to_gregorian_seconds({{Y,M,D},{HH,MI,SS}}),  %% for local time we should use calendar:local_time_to_universal_time_dst(DT)
+    calendar:gregorian_seconds_to_datetime(GregSecs + round(Offset*86400.0)); %% calendar:universal_time_to_local_time(
+offset_datetime(OP, DT, Offset) ->
+    ?ClientError({"Illegal datetime offset operation",{OP,DT,Offset}}).
+
+offset_timestamp('+', TS, Offset) when Offset < 0.0 -> 
+    offset_timestamp('-', TS, -Offset);    
+offset_timestamp('-', TS, Offset) when Offset < 0.0 -> 
+    offset_timestamp('+', TS, -Offset);    
+offset_timestamp(_, TS, Offset) when Offset < 5.787e-12 -> 
+    TS;
+offset_timestamp('+', {Mega,Sec,Micro}, Offset) ->
+    NewMicro = Micro + round(Offset*8.64e10),
+    NewSec = Sec + NewMicro div 1000000,
+    NewMega = Mega + NewSec div 1000000,
+    {NewMega, NewSec rem 1000000, NewMicro rem 1000000};    
+offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
+    NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 + Mega * 1000000000000,
+    Mi = NewMicro rem 1000000,
+    NewSec = (NewMicro-Mi) div 1000000, 
+    Se = NewSec rem 1000000,
+    NewMega = (NewSec-Se) div 1000000,
+    {NewMega, Se, Mi};    
+offset_timestamp(OP, TS, Offset) ->
+    ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
+
+join_rows(Rows, FetchCtx0, Stmt) ->
+    #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
+    Tables = tl(Stmt#statement.tables),
+    JoinSpecs = Stmt#statement.joinspecs,
+    % io:format(user, "Join Tables: ~p~n", [Tables]),
+    % io:format(user, "Join Specs: ~p~n", [JoinSpecs]),
+    join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpecs, []).
+
+join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
+join_rows(_, _, _, Remaining, _, _, Acc) when Remaining < 1 -> Acc;    %% lists:reverse(Acc);
+join_rows([Row|Rows], MetaRec, BlockSize, Remaining, Tables, JoinSpecs, Acc) ->
+    Rec = erlang:make_tuple(length(Tables)+2, undefined, [{1,Row},{2+length(Tables),MetaRec}]),
+    JAcc = join_row([Rec], BlockSize, 2, Tables, JoinSpecs),
+    join_rows(Rows, MetaRec, BlockSize, Remaining-length(JAcc), Tables, JoinSpecs, JAcc++Acc).
+
+join_row(Recs, _BlockSize, _, [], []) -> Recs;
+join_row(Recs0, BlockSize, T, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
+    Recs1 = [join_table(Rec, BlockSize, T, Table, JS) || Rec <- Recs0],
+    join_row(lists:flatten(Recs1), BlockSize, T+1, Tabs, JSpecs).
+
+join_table(Rec, BlockSize, T, Table, {MatchSpec,[]}) ->
+    case imem_meta:select(Table, MatchSpec, BlockSize) of
+        {[], true} ->   
+            [];
+        {L, true} ->
+            [setelement(T, Rec, I) || I <- L]
+    end;
+join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
+    [{MatchHead, [Guard0], [Result]}] = MatchSpec0,
+    % io:format(user, "Rec used for bind ~p~n", [Rec]),
+    % io:format(user, "Join guard before bind ~p~n", [Guard0]),
+    Guard1 = imem_sql:simplify_guard(join_bind(Rec, Guard0, {Tag,Ti,Ci})),
+    % io:format(user, "Join guard after  bind ~p~n", [Guard1]),
+    join_table(Rec, BlockSize, T, Table, {[{MatchHead, [Guard1], [Result]}], Binds}).
+
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},
