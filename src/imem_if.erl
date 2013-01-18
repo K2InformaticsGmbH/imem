@@ -588,9 +588,9 @@ handle_cast(_Request, State) ->
 handle_info(Info, State) ->
     case Info of
         {mnesia_system_event,{mnesia_overload,Details}} ->
-            BulkSleepTime0 = get(mnesia_bulk_sleep_time),
-            BulkSleepTime = trunc(1.1 * BulkSleepTime0),
-            put(mnesia_bulk_sleep_time, BulkSleepTime),
+            % BulkSleepTime0 = get(mnesia_bulk_sleep_time),
+            % BulkSleepTime = trunc(1.1 * BulkSleepTime0),
+            % put(mnesia_bulk_sleep_time, BulkSleepTime),
             io:format("Mnesia overload : ~p!~n",[Details]);
         {mnesia_system_event,{Event,Node}} ->
             io:format("Mnesia event ~p from Node ~p!~n",[Event, Node]);

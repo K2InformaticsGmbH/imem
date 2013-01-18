@@ -16,7 +16,8 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         {_, TNames} ->  [imem_sql:table_qname(T) || T <- TNames];
         TError ->       ?ClientError({"Invalid select structure", TError})
     end,
-    ColMap = case lists:keyfind(fields, 1, SelectSections) of
+    % io:format(user,"Tables: ~p~n", [Tables]),
+    ColMaps = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql:column_map(Tables,[]);
         {_, FieldList} -> 
@@ -24,20 +25,21 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid select structure", CError})
     end,
-    % io:format(user, "ColMap (~p)~n~p~n", [length(ColMap),ColMap]),
+    % io:format(user,"Column map: ~p~n", [ColMaps]),
     RowFun = case ?DefaultRendering of
-        raw ->  imem_datatype:select_rowfun_raw(ColMap);
-        str ->  imem_datatype:select_rowfun_str(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
-        gui ->  imem_datatype:select_rowfun_gui(ColMap, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
+        raw ->  imem_datatype:select_rowfun_raw(ColMaps);
+        str ->  imem_datatype:select_rowfun_str(ColMaps, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
+        gui ->  imem_datatype:select_rowfun_gui(ColMaps, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
-        {_, WT} ->  % io:format(user, "WhereTree ~p~n", [WT]),
-                    WT;
+        {_, WT} ->  WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
+    % io:format(user, "WhereTree ~p~n", [WT]),
     MetaTabIdx = length(Tables) + 1,
-    MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMap, C#ddColMap.tind==MetaTabIdx])],
+    MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps, C#ddColMap.tind==MetaTabIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
+    % io:format(user,"MetaFields: ~p~n", [MetaFields]),
     RawMap = case MetaFields1 of
         [] ->   
             imem_sql:column_map(Tables,[]);
@@ -48,100 +50,27 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    % io:format(user, "FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
-    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==1]]),
-    % io:format(user, "MatchHead (~p) ~p~n", [1,MatchHead]),
-    {SGuards,FGuard,Limit} = master_query_guards(SKey,length(Tables),WhereTree,FullMap),
-    % io:format(user, "SGuards ~p~n", [SGuards]),
-    % io:format(user, "FGuard ~p~n", [FGuard]),
-    % io:format(user, "Limit ~p~n", [Limit]),
-    Result = '$_',
-    SSpec = [{MatchHead, SGuards, [Result]}],
-    SBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], SGuards,[]),
-    MBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==MetaTabIdx)], [FGuard],[]),
-    FBinds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti==1)], [FGuard],[]),
-    % io:format(user, "SBinds ~p~n", [SBinds]),
-    % io:format(user, "MBinds ~p~n", [MBinds]),
-    % io:format(user, "FBinds ~p~n", [FBinds]),
-    JoinSpecs = build_join_spec(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    % io:format(user, "Join Spec ~p~n", [JoinSpec]),
+    % io:format(user,"FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
+    MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
+    % io:format(user,"MainSpec  : ~p~n", [MainSpec]),
+    JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
+    % io:format(user, "JoinSpecs: ~p~n", [JoinSpecs]),
     Statement = Stmt#statement{
-                    tables=Tables, cols=ColMap, meta=MetaFields1, rowfun=RowFun,
-                    scanspec=#scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds}, 
-                    joinspecs=JoinSpecs, limit=Limit
+                    tables=Tables, colMaps=ColMaps, metaFields=MetaFields1, rowFun=RowFun,
+                    mainSpec=MainSpec, joinSpecs=JoinSpecs
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
-    % io:format(user,"Statement : ~p~n", [Stmt]),
-    % io:format(user,"Tables: ~p~n", [Tables]),
-    % io:format(user,"Column map: ~p~n", [ColMap]),
-    % io:format(user,"Meta map: ~p~n", [MetaFields]),
-    % io:format(user,"ScanSpec: ~p~n", [SSpec]),
-    % io:format(user,"JoinSpecs: ~p~n", [JoinSpec]),
-    {ok, ColMap, RowFun, StmtRef}.
+    {ok, ColMaps, RowFun, StmtRef}.
 
-build_join_spec(_SKey, _Tmax, 1, _WhereTree, _FullMap, Acc)-> Acc;
-build_join_spec(SKey, Tmax, Tind, WhereTree, FullMap, Acc)->
-    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Ti} <- FullMap, Ti==Tind]]),
-    % io:format(user, "Join MatchHead (~p) ~p~n", [Tind,MatchHead]),
-    Guards = join_query_guards(SKey,Tmax,Tind,WhereTree,FullMap),
-    % io:format(user, "Join Guards (~p) ~p~n", [Tind,Guards]),
-    Result = '$_',
-    MatchSpec = [{MatchHead, Guards, [Result]}],
-    Binds = binds([{Tag,Ti,Ci} || #ddColMap{tag=Tag, tind=Ti, cind=Ci} <- FullMap, (Ti<Tind) or (Ti==Tmax+1)], Guards,[]),
-    build_join_spec(SKey,Tmax, Tind-1, WhereTree, FullMap, [{MatchSpec,Binds}|Acc]).
+build_main_spec(SKey,Tmax,Ti,WhereTree,FullMap) when (Ti==1) ->
+    SGuards= query_guards(SKey,Tmax,Ti,WhereTree,FullMap),
+    imem_sql:create_scan_spec(Tmax,Ti,FullMap,SGuards).
 
-join_query_guards(SKey,Tmax,Tind,WhereTree,FullMap) ->
-    [imem_sql:simplify_guard(tree_walk(SKey,Tmax,Tind,WhereTree,FullMap))].
-
-binds(_, [], []) -> [];
-binds(_, [true], []) -> [];
-binds([], _Guards, Acc) -> Acc;
-binds([{Tx,Ti,Ci}|Rest], [Guard], Acc) ->
-    case tree_member(Tx,Guard) of
-        true ->     binds(Rest,[Guard],[{Tx,Ti,Ci}|Acc]);
-        false ->    binds(Rest,[Guard],Acc)
-    end.
-
-tree_member(Tx,{_,R}) -> tree_member(Tx,R);
-tree_member(Tx,{_,Tx,_}) -> true;
-tree_member(Tx,{_,_,Tx}) -> true;
-tree_member(Tx,{_,L,R}) -> tree_member(Tx,L) orelse tree_member(Tx,R);
-tree_member(Tx,Tx) -> true;
-tree_member(_,_) -> false.
-
-operand_match(Tx,{_,Tx}=C0) ->      C0;
-operand_match(Tx,{_,R}) ->          operand_match(Tx,R);
-operand_match(Tx,{_,Tx,_}=C1) ->    C1;
-operand_match(Tx,{_,_,Tx}=C2) ->    C2;
-operand_match(Tx,{_,L,R}) ->        
-    case operand_match(Tx,L) of
-        false ->    operand_match(Tx,R);
-        Else ->     Else
-    end;    
-operand_match(Tx,Tx) ->             Tx;
-operand_match(_,_) ->               false.
-
-operator_match(Tx,{Tx,_}=C0) ->     C0;
-operator_match(Tx,{_,R}) ->         operator_match(Tx,R);
-operator_match(Tx,{Tx,_,_}=C1) ->   C1;
-operator_match(Tx,{_,L,R}) ->       
-    case operator_match(Tx,L) of
-        false ->    operator_match(Tx,R);
-        Else ->     Else
-    end;
-operator_match(_,_) ->              false.
-
-replace_rownum({Op,rownum,Right}) -> {Op,1,Right};
-replace_rownum({Op,Left,rownum}) ->  {Op,Left,1};
-replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Right)};
-replace_rownum({Op,Result}) ->       {Op,replace_rownum(Result)};
-replace_rownum(Result) ->            Result.
-
-replace_is_member({is_member,_Left,_Right})->    true;
-replace_is_member({Op,Left,Right})->    {Op,replace_is_member(Left),replace_is_member(Right)};
-replace_is_member({Op,Result}) ->       {Op,replace_is_member(Result)};
-replace_is_member(Result) ->            Result.
-
+build_join_specs(_SKey, _Tmax, 1, _WhereTree, _FullMap, Acc)-> Acc;
+build_join_specs(SKey, Tmax, Ti, WhereTree, FullMap, Acc)->
+    SGuards = query_guards(SKey,Tmax,Ti,WhereTree,FullMap),
+    JoinSpec = imem_sql:create_scan_spec(Tmax,Ti,FullMap,SGuards),
+    build_join_specs(SKey,Tmax, Ti-1, WhereTree, FullMap, [JoinSpec|Acc]).
 
 add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> 
     MetaFields;
@@ -150,7 +79,7 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
         true ->         
             add_where_clause_meta_fields(MetaFields, WhereTree, FieldList);
         false ->
-            case tree_member(list_to_binary(atom_to_list(F)),WhereTree) of
+            case imem_sql:operand_member(list_to_binary(atom_to_list(F)),WhereTree) of
                 false ->
                     add_where_clause_meta_fields(MetaFields, WhereTree, FieldList);
                 true ->
@@ -158,27 +87,9 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
             end
     end.
 
-master_query_guards(_SKey,_Tmax,[],_FullMap) -> {[],true,#statement{}#statement.limit};
-master_query_guards(SKey,Tmax,WhereTree,FullMap) ->
-    SGuard0 = imem_sql:simplify_guard(tree_walk(SKey,Tmax,1,WhereTree,FullMap)),
-    % io:format(user, "SGuard0 ~p~n", [SGuard0]),
-    Limit = case operand_match(rownum,SGuard0) of
-        false ->  #statement{}#statement.limit;
-        {'<',rownum,L} when is_integer(L) ->    L-1;
-        {'=<',rownum,L} when is_integer(L) ->   L;
-        {'>',L,rownum} when is_integer(L) ->    L-1;
-        {'>=',L,rownum} when is_integer(L) ->   L;
-        Else ->
-            ?UnimplementedException({"Unsupported use of rownum",{Else}})
-    end,
-    SGuard1 = imem_sql:simplify_guard(replace_rownum(SGuard0)),
-    % io:format(user, "SGuard1 ~p~n", [SGuard1]),
-    FGuard = case operator_match('is_member',SGuard1) of
-        false ->    true;   %% no filtering needed
-        F ->        F
-    end,
-    SGuard2 = imem_sql:simplify_guard(replace_is_member(SGuard1)),
-    {[SGuard2], FGuard, Limit}.
+query_guards(_SKey,_Tmax,_Ti,[],_FullMap) -> [];
+query_guards(SKey,Tmax,Ti,WhereTree,FullMap) ->
+    [imem_sql:simplify_guard(tree_walk(SKey,Tmax,Ti,WhereTree,FullMap))].
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
 tree_walk(_SKey,_,_,<<"false">>,_FullMap) -> false;

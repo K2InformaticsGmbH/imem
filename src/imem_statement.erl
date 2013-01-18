@@ -118,14 +118,14 @@ close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
 init([Statement]) ->
-    imem_meta:log_to_db(debug,?MODULE,init,[],Statement#statement.stmt_str),
+    imem_meta:log_to_db(debug,?MODULE,init,[],Statement#statement.stmtStr),
     {ok, #state{statement=Statement}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
     {reply,ok,State#state{seco=SKey}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
     {Reply, UpdatePlan1} = try
-        {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.cols, ChangeList)}
+        {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.colMaps, ChangeList)}
     catch
         _:Reason ->  {Reason, []}
     end,
@@ -160,8 +160,8 @@ handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fet
     imem_server:send_resp({error,{'SystemException',"Fetch aborted, execute fetch_close before refetch"}}, Sock),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
-    #statement{tables=[{_Schema,Table,_Alias}|_], block_size=BlockSize, scanspec=ScanSpec, meta=MetaFields, limit=Limit} = Stmt,
-    #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds} = ScanSpec,
+    #statement{tables=[{_Schema,Table,_Alias}|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
+    #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit} = MainSpec,
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
     % io:format(user,"Table  : ~p~n", [Table]),
@@ -416,41 +416,47 @@ kill_fetch(MonitorRef, Pid) ->
     catch Pid ! abort. 
 
 select_bind(_MetaRec, Guard, []) -> Guard;
-select_bind(MetaRec, Guard0, [{Tag,Ti,Ci}|Binds]) ->
-    Guard1 = select_bind(MetaRec, Guard0, {Tag,Ti,Ci}),
-    select_bind(MetaRec, Guard1, Binds);
-select_bind(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,element(Ci,MetaRec)};
-select_bind(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind(MetaRec,A,{Tag,Ti,Ci})};
-select_bind(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> 
-    case element(Ci,MetaRec) of
-        {{_,_,_},{_,_,_}} = DT ->
-            offset_datetime(Op,DT,B);
-        {Mega,Sec,Micro} ->
-            offset_timestamp(Op,{Mega,Sec,Micro},B);
-        Other ->
-            {Op,Other,B}
-    end;
-select_bind(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) -> 
-    case element(Ci,MetaRec) of
-        {{_,_,_},{_,_,_}} = DT ->
-            offset_datetime(Op,DT,A);
-        {Mega,Sec,Micro} ->
-            offset_timestamp(Op,{Mega,Sec,Micro},A);
-        Other ->
-            {Op,A,Other}
-    end;
-select_bind(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    BA=select_bind(MetaRec,A,{Tag,Ti,Ci}),
-    BB=select_bind(MetaRec,B,{Tag,Ti,Ci}),
-    case lists:member(Op,?ComparisonOperators) of
-        true ->     comparison_bind(Op,BA,BB);
-        false ->    {Op,BA,BB}
-    end;
-select_bind(_, A, _) ->             A.
+select_bind(MetaRec, Guard0, [B|Binds]) ->
+    Guard1 = imem_sql:simplify_guard(select_bind_one(MetaRec, Guard0, B)),
+    select_bind(MetaRec, Guard1, Binds).
 
-join_bind(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
-join_bind(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind(Rec,A,{Tag,Ti,Ci})};
-join_bind(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  
+select_bind_one(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,element(Ci,MetaRec)};
+select_bind_one(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind(MetaRec,A,{Tag,Ti,Ci})};
+select_bind_one(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> 
+    case element(Ci,MetaRec) of
+        {{_,_,_},{_,_,_}} = DT ->
+            offset_datetime(Op,DT,B);
+        {Mega,Sec,Micro} ->
+            offset_timestamp(Op,{Mega,Sec,Micro},B);
+        Other ->
+            {Op,Other,B}
+    end;
+select_bind_one(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) -> 
+    case element(Ci,MetaRec) of
+        {{_,_,_},{_,_,_}} = DT ->
+            offset_datetime(Op,DT,A);
+        {Mega,Sec,Micro} ->
+            offset_timestamp(Op,{Mega,Sec,Micro},A);
+        Other ->
+            {Op,A,Other}
+    end;
+select_bind_one(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->
+    BA=select_bind_one(MetaRec,A,{Tag,Ti,Ci}),
+    BB=select_bind_one(MetaRec,B,{Tag,Ti,Ci}),
+    case lists:member(Op,?ComparisonOperators) of
+        true ->     comparison_bind(Op,BA,BB);
+        false ->    {Op,BA,BB}
+    end;
+select_bind_one(_, A, _) -> A.
+
+join_bind(_Rec, Guard, []) -> Guard;
+join_bind(Rec, Guard0, [B|Binds]) ->
+    Guard1 = imem_sql:simplify_guard(join_bind_one(Rec, Guard0, B)),
+    join_bind(Rec, Guard1, Binds).
+
+join_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
+join_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind_one(Rec,A,{Tag,Ti,Ci})};
+join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
             offset_datetime(Op,DT,B);
@@ -459,7 +465,7 @@ join_bind(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->
         Other ->
             {Op,Other,B}
     end;
-join_bind(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
+join_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
             offset_datetime(Op,DT,A);
@@ -468,14 +474,14 @@ join_bind(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->
         Other ->
             {Op,A,Other}
     end;
-join_bind(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    BA=join_bind(Rec,A,{Tag,Ti,Ci}),
-    BB=join_bind(Rec,B,{Tag,Ti,Ci}),
+join_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
+    BA=join_bind_one(Rec,A,{Tag,Ti,Ci}),
+    BB=join_bind_one(Rec,B,{Tag,Ti,Ci}),
     case lists:member(Op,?ComparisonOperators) of
         true ->     comparison_bind(Op,BA,BB);
         false ->    {Op,BA,BB}
     end;
-join_bind(_, A, _) ->               A.
+join_bind_one(_, A, _) ->               A.
 
 comparison_bind(Op,A,B) ->
     AW = case A of
@@ -566,7 +572,7 @@ offset_timestamp(OP, TS, Offset) ->
 join_rows(Rows, FetchCtx0, Stmt) ->
     #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     Tables = tl(Stmt#statement.tables),
-    JoinSpecs = Stmt#statement.joinspecs,
+    JoinSpecs = Stmt#statement.joinSpecs,
     % io:format(user, "Join Tables: ~p~n", [Tables]),
     % io:format(user, "Join Specs: ~p~n", [JoinSpecs]),
     join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpecs, []).
@@ -583,21 +589,25 @@ join_row(Recs0, BlockSize, T, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     Recs1 = [join_table(Rec, BlockSize, T, Table, JS) || Rec <- Recs0],
     join_row(lists:flatten(Recs1), BlockSize, T+1, Tabs, JSpecs).
 
-join_table(Rec, BlockSize, T, Table, {MatchSpec,[]}) ->
-    case imem_meta:select(Table, MatchSpec, BlockSize) of
-        {[], true} ->   
-            [];
+join_table(Rec, BlockSize, T, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds}) ->
+    % io:format(user, "Rec used for join bind ~p~n", [Rec]),
+    [{MatchHead, [Guard0], [Result]}] = SSpec,
+    Guard1 = join_bind(Rec, Guard0, SBinds),
+    io:format(user, "Join guard after bind : ~p~n", [Guard1]),
+    case imem_meta:select(Table, [{MatchHead, [Guard1], [Result]}], 10*BlockSize) of
+        {[], true} ->   [];
         {L, true} ->
-            [setelement(T, Rec, I) || I <- L]
-    end;
-join_table(Rec, BlockSize, T, Table, {MatchSpec0,[{Tag,Ti,Ci}|Binds]}) ->
-    [{MatchHead, [Guard0], [Result]}] = MatchSpec0,
-    % io:format(user, "Rec used for bind ~p~n", [Rec]),
-    % io:format(user, "Join guard before bind ~p~n", [Guard0]),
-    Guard1 = imem_sql:simplify_guard(join_bind(Rec, Guard0, {Tag,Ti,Ci})),
-    % io:format(user, "Join guard after  bind ~p~n", [Guard1]),
-    join_table(Rec, BlockSize, T, Table, {[{MatchHead, [Guard1], [Result]}], Binds}).
-
+            case FGuard of
+                true -> 
+                    [setelement(T, Rec, I) || I <- L];
+                _ ->
+                    Filter = make_filter_fun(join_bind(Rec, FGuard, MBinds), FBinds),
+                    Recs = [setelement(T, Rec, I) || I <- L],
+                    lists:filter(Filter,Recs)
+            end;
+        {_, false} ->   ?ClientError({"Too much data in join select result", 10*BlockSize});
+        Error ->        ?SystemException({"Unexpected join select result", Error})
+    end.
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},
@@ -762,7 +772,7 @@ test_with_or_without_sec(IsSec) ->
         Sql2 = "select col1, col2 from def;",
         io:format(user, "Query: ~p~n", [Sql1]),
         {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, Sql2, 4, "Imem", IsSec),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
+        ?assertEqual(ok, fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
         Result2a = receive 
             R2a ->    R2a
         end,
@@ -816,7 +826,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql3]),
         {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),
         try
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
+            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
             Result3a = receive_all(),
             ?assertEqual(1, length(Result3a)),
             [{_,{List3a,true}}] = Result3a,
@@ -841,7 +851,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql4]),
         {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),
         try
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), [{tail_mode,true}], IsSec)),
+            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef4, self(), [{tail_mode,true}], IsSec)),
             [{_,{List4a,true}}] = receive_all(),
             ?assertEqual(5, length(List4a)),
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
@@ -864,13 +874,13 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query: ~p~n", [Sql5]),
         {ok, _Clm5, _RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 5, 'Imem', IsSec),
         try
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), [], IsSec)),
+            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef5, self(), [], IsSec)),
             [{_,{List5a,false}}] = receive_all(),
             ?assertEqual(5, length(List5a)),
             io:format(user, "trying to insert one row before fetch complete~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             io:format(user, "completed insert one row before fetch complete~n", []),
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), [{tail_mode,true}], IsSec)),
+            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef5, self(), [{tail_mode,true}], IsSec)),
             [{_,{List5b,true}}] = receive_all(),
             ?assertEqual(5, length(List5b)),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),

@@ -14,6 +14,8 @@
         , column_map/2
         , strip_quotes/1
         , simplify_guard/1
+        , create_scan_spec/4
+        , operand_member/2
         ]).
 
 parse(Statement) when is_list(Statement) ->
@@ -43,7 +45,7 @@ exec(SKey, Statement, BlockSize, Schema, IsSec) when is_list(Statement) ->
             case (catch sql_parse:parse(Tokens)) of
                 {ok, [ParseTree|_]} -> 
                     exec(SKey, element(1,ParseTree), ParseTree, 
-                        #statement{stmt_str=Statement, stmt_parse=ParseTree, block_size=BlockSize}, 
+                        #statement{stmtStr=Statement, stmtParse=ParseTree, blockSize=BlockSize}, 
                         Schema, IsSec);
                 {'EXIT', Error} -> 
                     ?ClientError({"SQL parser error", Error});
@@ -300,6 +302,89 @@ simplify_once({'not', Result}) -> {'not', simplify_once(Result)};
 simplify_once({ Op, Result}) -> {Op, Result};
 simplify_once(Result) -> Result.
 
+
+create_scan_spec(_Tmax,Ti,FullMap,[]) ->
+    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
+    #scanSpec{sspec=[{MatchHead, [], ['$_']}]};
+create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
+    % io:format(user, "SGuard0 ~p~n", [SGuard0]),
+    Limit = case operand_match(rownum,SGuard0) of
+        false ->  #scanSpec{}#scanSpec.limit;
+        {'<',rownum,L} when is_integer(L) ->    L-1;
+        {'=<',rownum,L} when is_integer(L) ->   L;
+        {'>',L,rownum} when is_integer(L) ->    L-1;
+        {'>=',L,rownum} when is_integer(L) ->   L;
+        Else ->
+            ?UnimplementedException({"Unsupported use of rownum",{Else}})
+    end,
+    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
+    % io:format(user, "MatchHead (~p) ~p~n", [Ti,MatchHead]),
+    SGuard1 = simplify_guard(replace_rownum(SGuard0)),
+    % io:format(user, "SGuard1 ~p~n", [SGuard1]),
+    FGuard = case operator_match('is_member',SGuard1) of
+        false ->    true;   %% no filtering needed
+        F ->        F
+    end,
+    SGuard2 = simplify_guard(replace_is_member(SGuard1)),
+    SSpec = [{MatchHead, [SGuard2], ['$_']}],
+    % io:format(user, "FGuard ~p~n", [FGuard]),
+    SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
+    % io:format(user, "SBinds ~p~n", [SBinds]),
+    MBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [FGuard],[]),
+    % io:format(user, "MBinds ~p~n", [MBinds]),
+    FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
+    % io:format(user, "FBinds ~p~n", [FBinds]),
+    #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
+
+operand_member(Tx,{_,R}) -> operand_member(Tx,R);
+operand_member(Tx,{_,Tx,_}) -> true;
+operand_member(Tx,{_,_,Tx}) -> true;
+operand_member(Tx,{_,L,R}) -> operand_member(Tx,L) orelse operand_member(Tx,R);
+operand_member(Tx,Tx) -> true;
+operand_member(_,_) -> false.
+
+binds(_, [], []) -> [];
+binds(_, [true], []) -> [];
+binds([], _Guards, Acc) -> Acc;
+binds([{Tx,Ti,Ci}|Rest], [Guard], Acc) ->
+    case operand_member(Tx,Guard) of
+        true ->     binds(Rest,[Guard],[{Tx,Ti,Ci}|Acc]);
+        false ->    binds(Rest,[Guard],Acc)
+    end.
+
+operand_match(Tx,{_,Tx}=C0) ->      C0;
+operand_match(Tx,{_,R}) ->          operand_match(Tx,R);
+operand_match(Tx,{_,Tx,_}=C1) ->    C1;
+operand_match(Tx,{_,_,Tx}=C2) ->    C2;
+operand_match(Tx,{_,L,R}) ->        
+    case operand_match(Tx,L) of
+        false ->    operand_match(Tx,R);
+        Else ->     Else
+    end;    
+operand_match(Tx,Tx) ->             Tx;
+operand_match(_,_) ->               false.
+
+operator_match(Tx,{Tx,_}=C0) ->     C0;
+operator_match(Tx,{_,R}) ->         operator_match(Tx,R);
+operator_match(Tx,{Tx,_,_}=C1) ->   C1;
+operator_match(Tx,{_,L,R}) ->       
+    case operator_match(Tx,L) of
+        false ->    operator_match(Tx,R);
+        Else ->     Else
+    end;
+operator_match(_,_) ->              false.
+
+replace_rownum({Op,rownum,Right}) -> {Op,1,Right};
+replace_rownum({Op,Left,rownum}) ->  {Op,Left,1};
+replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Right)};
+replace_rownum({Op,Result}) ->       {Op,replace_rownum(Result)};
+replace_rownum(Result) ->            Result.
+
+replace_is_member({is_member,_Left,_Right})->    true;
+replace_is_member({Op,Left,Right})->    {Op,replace_is_member(Left),replace_is_member(Right)};
+replace_is_member({Op,Result}) ->       {Op,replace_is_member(Result)};
+replace_is_member(Result) ->            Result.
+
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
 if_call_mfa(IsSec,Fun,Args) ->
@@ -387,13 +472,13 @@ test_with_or_without_sec(IsSec) ->
                     , #ddColumn{name=b2, type=float, length=8, precision=3}   %% value
                     ],
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "Imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, "Imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_2])),    
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "Imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
         io:format(user, "success ~p~n", [create_tables]),
 
