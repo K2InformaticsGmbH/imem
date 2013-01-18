@@ -100,7 +100,7 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
         [Mod,Fun|Args] ->
             % replace penultimate pid wih socket (if present)
             %io:format(user, "__SERVER__ call ~p:~p(~p)~n", [Mod,Fun,Args]),
-            io:format(user, "__SERVER__ call ~p:~p~n", [Mod,Fun]),
+            %io:format(user, "__SERVER__ call ~p:~p~n", [Mod,Fun]),
             case Fun of
                 fetch_recs_async ->
                     NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
