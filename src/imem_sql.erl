@@ -12,7 +12,6 @@
         , table_qname/2
         , column_map_items/2
         , column_map/2
-        , strip_quotes/1
         , simplify_guard/1
         , create_scan_spec/4
         , operand_member/2
@@ -255,16 +254,6 @@ index_of(Item, List) -> index_of(Item, List, 1).
 index_of(_, [], _)  -> false;
 index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
-
-strip_quotes([]) -> [];
-strip_quotes([H]) -> [H];
-strip_quotes([H|T]=Str) ->
-    L = lists:last(T),
-    if 
-        H == $" andalso L == $" ->  lists:sublist(T, length(T)-1);
-        H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
-        true ->                     Str
-    end.
 
 simplify_guard(Term) ->
     case  simplify_once(Term) of

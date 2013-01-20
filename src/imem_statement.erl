@@ -178,7 +178,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
     TailSpec = ets:match_spec_compile(SSpec),
-    Filter = make_filter_fun(select_bind(MetaRec, FGuard, MBinds), FBinds),
+    Filter = make_filter_fun(1,select_bind(MetaRec, FGuard, MBinds), FBinds),
     FetchCtx1 = case FetchCtx0#fetchCtx.pid of
         undefined ->
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
@@ -500,16 +500,35 @@ comparison_bind(Op,A,B) ->
     end,
     {Op,AW,BW}.   
 
-make_filter_fun(true, _FBinds)  ->
+make_filter_fun(_Ti, true, _FBinds)  ->
     fun(_X) -> true end;
-make_filter_fun({'is_member', A, B}, FBinds)  ->
+make_filter_fun(Ti, {'is_member', {const,A}, {const,B}}, FBinds) ->
+    make_filter_fun(Ti,{'is_member', A, B}, FBinds);
+make_filter_fun(Ti, {'is_member', {const,A}, B}, FBinds) ->
+    make_filter_fun(Ti,{'is_member', A, B}, FBinds);
+make_filter_fun(Ti, {'is_member', A, {const,B}}, FBinds) ->
+    make_filter_fun(Ti, {'is_member', A, B}, FBinds);
+make_filter_fun(Ti, {'is_member', A, '$_'}, FBinds) ->
+    ABind = lists:keyfind(A,1,FBinds),
+    case ABind of 
+        false ->        
+            fun(X1) -> 
+                lists:member(A,tuple_to_list(element(Ti,X1)))
+            end;
+        {A,ATi,ACi} ->  
+            fun(X2) ->
+                lists:member(element(ACi,element(ATi,X2)),tuple_to_list(element(Ti,X2)))
+            end
+    end;
+make_filter_fun(_Ti, {'is_member', A, B}, FBinds)  ->
     ABind = lists:keyfind(A,1,FBinds),
     BBind = lists:keyfind(B,1,FBinds),
-    case {ABind,BBind} of
+    case {ABind,BBind} of 
         {false,false} ->        
             fun(_X) -> 
                 if 
                     is_list(B) ->   lists:member(A,B);
+                    is_tuple(B) ->  lists:member(A,tuple_to_list(B));
                     true ->         false
                 end
             end;
@@ -518,6 +537,7 @@ make_filter_fun({'is_member', A, B}, FBinds)  ->
                 Bbound = element(BCi,element(BTi,X1)),
                 if 
                     is_list(Bbound) ->  lists:member(A,Bbound);
+                    is_tuple(Bbound) -> lists:member(A,tuple_to_list(Bbound));
                     true ->             false
                 end
             end;
@@ -525,6 +545,7 @@ make_filter_fun({'is_member', A, B}, FBinds)  ->
             fun(X2) ->
                 if 
                     is_list(B) ->  lists:member(element(ACi,element(ATi,X2)),B);
+                    is_tuple(B) -> lists:member(element(ACi,element(ATi,X2)),tuple_to_list(B));
                     true ->             false
                 end
             end;
@@ -533,12 +554,13 @@ make_filter_fun({'is_member', A, B}, FBinds)  ->
                 Ybound = element(YCi,element(YTi,X3)), 
                 if 
                     is_list(Ybound) ->  lists:member(element(XCi,element(XTi,X3)),Ybound);
+                    is_tuple(Ybound) -> lists:member(element(XCi,element(XTi,X3)),tuple_to_list(Ybound));
                     true ->             false
                 end
             end
     end;
-make_filter_fun(FGuard, FBinds) ->
-    ?UnimplementedException({"Illegal filter",{FGuard, FBinds}}).
+make_filter_fun(Ti,FGuard, FBinds) ->
+    ?UnimplementedException({"Illegal filter",{Ti, FGuard, FBinds}}).
 
 offset_datetime('-', DT, Offset) ->
     offset_datetime('+', DT, -Offset);
@@ -584,25 +606,27 @@ join_rows([Row|Rows], MetaRec, BlockSize, Remaining, Tables, JoinSpecs, Acc) ->
     JAcc = join_row([Rec], BlockSize, 2, Tables, JoinSpecs),
     join_rows(Rows, MetaRec, BlockSize, Remaining-length(JAcc), Tables, JoinSpecs, JAcc++Acc).
 
-join_row(Recs, _BlockSize, _, [], []) -> Recs;
-join_row(Recs0, BlockSize, T, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
-    Recs1 = [join_table(Rec, BlockSize, T, Table, JS) || Rec <- Recs0],
-    join_row(lists:flatten(Recs1), BlockSize, T+1, Tabs, JSpecs).
+join_row(Recs, _BlockSize, _Ti, [], []) -> Recs;
+join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
+    Recs1 = [join_table(Rec, BlockSize, Ti, Table, JS) || Rec <- Recs0],
+    join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
-join_table(Rec, BlockSize, T, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds}) ->
+join_table(Rec, BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds}) ->
     % io:format(user, "Rec used for join bind ~p~n", [Rec]),
     [{MatchHead, [Guard0], [Result]}] = SSpec,
     Guard1 = join_bind(Rec, Guard0, SBinds),
-    io:format(user, "Join guard after bind : ~p~n", [Guard1]),
+    % io:format(user, "Join guard after bind : ~p~n", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, [Guard1], [Result]}], 10*BlockSize) of
         {[], true} ->   [];
         {L, true} ->
             case FGuard of
                 true -> 
-                    [setelement(T, Rec, I) || I <- L];
+                    [setelement(Ti, Rec, I) || I <- L];
                 _ ->
-                    Filter = make_filter_fun(join_bind(Rec, FGuard, MBinds), FBinds),
-                    Recs = [setelement(T, Rec, I) || I <- L],
+                    MboundGuard = join_bind(Rec, FGuard, MBinds),
+                    % io:format(user, "Join guard after MBind : ~p~n", [MboundGuard]),
+                    Filter = make_filter_fun(Ti, MboundGuard, FBinds),
+                    Recs = [setelement(Ti, Rec, I) || I <- L],
                     lists:filter(Filter,Recs)
             end;
         {_, false} ->   ?ClientError({"Too much data in join select result", 10*BlockSize});
@@ -939,16 +963,16 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Now- 100s: ~p~n", [offset_timestamp('-', ENow, 100.0*OneSec)]),
         io:format(user, "Now-1000s: ~p~n", [offset_timestamp('-', ENow, 1000.0*OneSec)]),
 
-        F0 = make_filter_fun(true, []),
+        F0 = make_filter_fun(1,true, []),
         ?assertEqual(true,F0(1)),        
         ?assertEqual(true,F0([])),        
-        F1 = make_filter_fun({'is_member', a, [a,b]}, []),
+        F1 = make_filter_fun(1,{'is_member', a, [a,b]}, []),
         ?assertEqual(true,F1(1)),        
         ?assertEqual(true,F1([])),        
-        F2 = make_filter_fun({'is_member', a, '$3'}, [{'$3',1,3}]),
+        F2 = make_filter_fun(1,{'is_member', a, '$3'}, [{'$3',1,3}]),
         ?assertEqual(false,F2({{1,2,[3,4,5]}})),        
         ?assertEqual(true, F2({{1,2,[c,a,d]}})),        
-        F3 = make_filter_fun({'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        F3 = make_filter_fun(1,{'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
         ?assertEqual(true, F3({{1,d,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,c,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,a,[c,a,d]}})),        
@@ -957,6 +981,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false,F3({{1,a,[3,4,5]}})),        
         ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
         ?assertEqual(false,F3({{1,3,[]}})),        
+
+        F4 = make_filter_fun(1,{'is_member', a, '$_'}, []),
+        ?assertEqual(true, F4({{1,a,[c,a,d]}})),        
+        ?assertEqual(false, F4({{1,d,[c,a,d]}})),        
 
         case IsSec of
             true ->     ?imem_logout(SKey);

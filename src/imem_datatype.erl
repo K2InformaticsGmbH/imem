@@ -231,11 +231,19 @@ value_to_db(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.
 
 strip_quotes([]) -> [];
 strip_quotes([H]) -> [H];
+strip_quotes([92,34,92,34]) -> [];
+strip_quotes([92,34,_,_,_|T]=Str) ->
+    L = lists:last(Str),
+    SL = lists:nth(length(Str)-2,Str),
+    if 
+        L == 34 andalso SL == 92 -> lists:sublist(Str, 3, length(Str)-4);
+        true ->                     Str
+    end;
 strip_quotes([H|T]=Str) ->
-    L = lists:last(T),
+    L = lists:last(Str),
     if 
         H == $" andalso L == $" ->  lists:sublist(T, length(T)-1);
-        H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
+    %    H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
         true ->                     Str
     end.
 
@@ -614,7 +622,7 @@ db_to_string(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
             (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec,DateFmt);
             (Type == userid) andalso is_atom(Val) ->        atom_to_list(Val);
             (Type == userid) ->                             userid_to_string(Val);
-            true -> lists:flatten(io_lib:format("~p",[Val]))   
+            true -> lists:flatten(io_lib:format("~w",[Val]))   
         end
     catch
         _:_ -> lists:flatten(io_lib:format("~p",[Val])) 
@@ -959,6 +967,11 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,""}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"-100"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-100")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"9999"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"9999")),
+
+        ?assertEqual('$_', value_to_db(Item,?nav,term,0,0,?nav,false,"'$_'")),
+        ?assertEqual({1,2,3}, value_to_db(Item,?nav,term,0,0,?nav,false,"{1,2,3}")),
+        ?assertEqual([1,2,3], value_to_db(Item,?nav,term,0,0,?nav,false,"[1,2,3]")),
+
         io:format(user, "value_to_db success 5~n", []),
 
         FloatType = float,
