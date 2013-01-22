@@ -1,6 +1,6 @@
 -module(imem_meta).
 
--define(META_TABLES,[ddTable,'ddLog@']).
+-define(META_TABLES,[ddTable,ddLog@,dual,items]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 
 -include_lib("eunit/include/eunit.hrl").
@@ -112,13 +112,25 @@ init(_Args) ->
         check_table(ddTable),
         check_table_record(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
-        catch create_table('ddLog@', {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
-        check_table('ddLog@'),
-        check_table_record('ddLog@', {record_info(fields, ddLog), ?ddLog, #ddLog{}}),
+        catch create_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
+        check_table(ddLog@),
+        check_table_record(ddLog@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}),
 
-        catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system),
+        case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
+            ok ->   write(dual,#dual{});
+            _ ->    ok
+        end,
         check_table(dual),
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
+        check_table_record(dual, {record_info(fields, dual), ?dual, #dual{}}),
+
+        case catch create_table(items, {record_info(fields, items),?items, #items{}}, [], system) of
+            ok ->   write(items,#items{});
+            _ ->    ok
+        end,            
+        check_table(items),
+        check_table_columns(items, {record_info(fields, items),?items, #items{}}),
+        check_table_record(items, {record_info(fields, items), ?items, #items{}}),
 
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}

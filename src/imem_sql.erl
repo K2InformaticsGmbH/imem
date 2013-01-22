@@ -15,6 +15,7 @@
         , simplify_guard/1
         , create_scan_spec/4
         , operand_member/2
+        , un_escape_sql/1
         ]).
 
 parse(Statement) when is_list(Statement) ->
@@ -373,6 +374,10 @@ replace_is_member({is_member,_Left,_Right})->    true;
 replace_is_member({Op,Left,Right})->    {Op,replace_is_member(Left),replace_is_member(Right)};
 replace_is_member({Op,Result}) ->       {Op,replace_is_member(Result)};
 replace_is_member(Result) ->            Result.
+
+
+un_escape_sql(Str) when is_list(Str) ->
+    re:replace(Str, "('')", "'", [global, {return, list}]).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

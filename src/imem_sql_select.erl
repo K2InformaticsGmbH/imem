@@ -186,38 +186,39 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
     end.
 
 compguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> true;   %% join condition
-compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->      {is_member,field_value(?nav,term,0,0,?nav,A),field_value(?nav,term,0,0,?nav,B)};           
-compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->      {is_member,field_value(?nav,term,0,0,?nav,A),B};           
-compguard(_ ,1, is_member, {_,A,_,_,_,_,_},{0,B,_,_,_,_,_}) ->           {is_member,A,field_value(?nav,term,0,0,?nav,B)};           
-compguard(_ ,1, is_member, {_,A,_,_,_,_,_},{_,B,_,_,_,_,_}) ->           {is_member,A,B};           
-compguard(_ ,1, OP, {_,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->               {OP,A,B};           
-compguard(_ ,1, OP, {1,A,timestamp,_,_,_,_}, {0,B,string,_,_,_,_}) ->    {OP,A,field_value(A,float,0,0,0.0,B)};
-compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) ->     {OP,A,field_value(A,float,0,0,0.0,B)};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,timestamp,_,_,_,_}) ->    {OP,field_value(B,float,0,0,0.0,A),B};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) ->     {OP,field_value(B,float,0,0,0.0,A),B};
-compguard(_ ,1, OP, {1,A,T,L,P,D,_},   {0,B,string,_,_,_,_}) ->          {OP,A,field_value(A,T,L,P,D,B)};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->          {OP,field_value(B,T,L,P,D,A),B};
+compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(?nav,term,0,0,?nav,A),field_value(?nav,term,0,0,?nav,B)};           
+compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(?nav,term,0,0,?nav,A),B};           
+compguard(_ ,1, is_member, {_,A,_,_,_,_,_},     {0,B,_,_,_,_,_}) ->     {is_member,A,field_value(?nav,term,0,0,?nav,B)};           
+compguard(_ ,1, is_member, {_,A,_,_,_,_,_},     {_,B,_,_,_,_,_}) ->     {is_member,A,B};           
+compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(?nav,string,0,0,?nav,A),field_value(?nav,string,0,0,?nav,B)};           
+compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(?nav,string,0,0,?nav,A),B};           
+compguard(_ ,1, OP, {_,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,A,field_value(?nav,string,0,0,?nav,B)};           
+compguard(_ ,1, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
+compguard(_ ,1, OP, {1,A,timestamp,_,_,_,_}, {0,B,string,_,_,_,_}) ->   {OP,A,field_value(?nav,float,0,0,?nav,B)};
+compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) ->    {OP,A,field_value(?nav,float,0,0,?nav,B)};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,timestamp,_,_,_,_}) ->   {OP,field_value(?nav,float,0,0,?nav,A),B};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) ->    {OP,field_value(?nav,float,0,0,?nav,A),B};
+compguard(_ ,1, OP, {1,A,T,L,P,D,_},      {0,B,string,_,_,_,_}) ->      {OP,A,field_value(A,T,L,P,D,B)};
+compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
 compguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},{BN,BT}}});
 compguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
 
 compguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
 compguard(Tm,J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
-compguard(_ ,_, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->      {is_member,field_value(?nav,term,0,0,?nav,A),field_value(?nav,term,0,0,?nav,B)};           
-compguard(_ ,_, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->      {is_member,field_value(?nav,term,0,0,?nav,A),B};           
-compguard(_ ,_, is_member, {_,A,_,_,_,_,_},{0,B,_,_,_,_,_}) ->           {is_member,A,field_value(?nav,term,0,0,?nav,B)};           
-compguard(_ ,_, is_member, {_,A,_,_,_,_,_},{_,B,_,_,_,_,_}) ->           {is_member,A,B};           
-compguard(_ ,_, OP, {0,A,T,_,_,_,_},   {0,B,T,_,_,_,_}) ->     {OP,A,B};           
-compguard(_ ,J, OP, {J,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
-compguard(_ ,J, OP, {J,A,T,_,_,_,_},   {_,B,T,_,_,_,_}) ->     {OP,A,B};
-compguard(_ ,J, OP, {_,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
-compguard(_ ,J, OP, {J,A,T,_,_,_,_},   {0,B,T,_,_,_,_}) ->     {OP,A,B};
-compguard(_ ,J, OP, {J,A,T,L,P,D,_},   {0,B,string,_,_,_,_})-> {OP,A,field_value(A,T,L,P,D,B)};
-compguard(_ ,J, OP, {0,A,T,_,_,_,_},   {J,B,T,_,_,_,_}) ->     {OP,A,B};
-compguard(_ ,J, OP, {0,A,string,_,_,_,_}, {J,B,T,L,P,D,_}) ->  {OP,field_value(B,T,L,P,D,A),B};
+compguard(_ ,_, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(?nav,term,0,0,?nav,A),field_value(?nav,term,0,0,?nav,B)};           
+compguard(_ ,_, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(?nav,term,0,0,?nav,A),B};           
+compguard(_ ,_, is_member, {_,A,_,_,_,_,_},     {0,B,_,_,_,_,_}) ->     {is_member,A,field_value(?nav,term,0,0,?nav,B)};           
+compguard(_ ,_, is_member, {_,A,_,_,_,_,_},     {_,B,_,_,_,_,_}) ->     {is_member,A,B};           
+compguard(_ ,_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(?nav,string,0,0,?nav,A),field_value(?nav,string,0,0,?nav,B)};           
+compguard(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(?nav,string,0,0,?nav,A),B};           
+compguard(_ ,_, OP, {_,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,A,field_value(?nav,string,0,0,?nav,B)};           
+compguard(_ ,_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
+compguard(_ ,J, OP, {J,A,T,L,P,D,_},        {0,B,string,_,_,_,_})->     {OP,A,field_value(A,T,L,P,D,B)};
+compguard(_ ,J, OP, {0,A,string,_,_,_,_},   {J,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
 compguard(_ ,J, _,  {J,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(_ ,J, _,  {J,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(_ ,J, _,  {_,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-compguard(_ ,_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->     true.
+compguard(_ ,_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->              true.
 
 in_condition(SKey,Tmax,Ti,A,InList,FullMap) ->
     in_condition_loop(SKey,Tmax,Ti,expr_lookup(SKey,Tmax,Ti,A,FullMap),InList,FullMap).
@@ -241,13 +242,9 @@ value_lookup(Val) when is_binary(Val) ->
     Int = (catch list_to_integer(Str)),
     Float = (catch list_to_float(Str)),
     if 
-        is_integer(Int) ->
-            {Int,integer};
-        is_float(Float) ->
-            {Float,float};
-        true ->
-            Unquoted = imem_datatype:strip_quotes(Str),
-            {Unquoted,string}  %% assume strings, convert to atoms/dates/lists/tuples when type is known
+        is_integer(Int) ->  {Int,integer};
+        is_float(Float) ->  {Float,float};
+        true ->             {Str,string}     %% promote as strings, convert to atoms/dates/lists/tuples when type is known
     end.
 
 field_lookup(<<"rownum">>,_FullMap) -> {0,rownum,integer,0,0,1,<<"rownum">>};
@@ -354,6 +351,8 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual([],receive_all()),
 
+        ?assertEqual([imem], field_value(tag,list,0,0,[],"[imem]")),
+
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none
@@ -362,7 +361,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "
                 create table def (
                     col1 integer, 
-                    col2 char(2), 
+                    col2 char(20), 
                     col3 date,
                     col4 ipaddr
                 );", 0, 'Imem', IsSec)),
@@ -374,16 +373,35 @@ test_with_or_without_sec(IsSec) ->
         % io:format(user, "ddTable MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List0),hd(List0),lists:last(List0)]),
         AllTableCount = length(List0),
 
-        Result1 = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
-        {List1, true} = Result1,
-        % io:format(user, "all_tables MatchAllKeys (~p)~n~p~n", [length(List1),List1]),
-        ?assertEqual(AllTableCount, length(List1)),
+        R1 = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
+        {L1, true} = R1,
+        % io:format(user, "all_tables MatchAllKeys (~p)~n~p~n", [length(L1),L1]),
+        ?assertEqual(AllTableCount, length(L1)),
 
-        Result2 = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
-        {_List2, true} = Result2,
-        io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(_List2),hd(_List2),lists:last(_List2)]),
+        R2 = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
+        {_L2, true} = R2,
+        io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(_L2),hd(_L2),lists:last(_L2)]),
 
-        ?assertEqual([imem], field_value(tag,list,0,0,[],"[imem]")),
+        Sql1 = "select * from dual",
+        io:format(user, "Query1: ~p~n", [Sql1]),
+        {ok, _Clm1, _RowFun1, StmtRef1} = imem_sql:exec(SKey, Sql1, 100, 'Imem', IsSec),
+        List1 = imem_statement:fetch_recs_sort(SKey, StmtRef1, self(), Timeout, IsSec),
+        io:format(user, "Result: ~p~n", [result_tuples(List1,_RowFun1)]),
+        ?assertEqual([{"X","'$not_a_value'"}], result_tuples(List1,_RowFun1)),
+
+        Sql1a = "select dummy from dual",
+        io:format(user, "Query1a: ~p~n", [Sql1a]),
+        {ok, _Clm1a, _RowFun1a, StmtRef1a} = imem_sql:exec(SKey, Sql1a, 100, 'Imem', IsSec),
+        List1a = imem_statement:fetch_recs_sort(SKey, StmtRef1a, self(), Timeout, IsSec),
+        io:format(user, "Result: ~p~n", [result_tuples(List1a,_RowFun1a)]),
+        ?assertEqual([{"X"}], result_tuples(List1a,_RowFun1a)),
+
+        Sql2 = "select item from items",
+        io:format(user, "Query2: ~p~n", [Sql2]),
+        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, Sql2, 100, 'Imem', IsSec),
+        List2 = imem_statement:fetch_recs_sort(SKey, StmtRef2, self(), Timeout, IsSec),
+        io:format(user, "Result: ~p~n", [result_tuples(List2,_RowFun2)]),
+        ?assertEqual([{"[95]"}], result_tuples(List2,_RowFun2)),
 
         Sql6 = "select col1, col2 from def where col1>=5 and col1<=6",
         io:format(user, "Query6: ~p~n", [Sql6]),
@@ -403,7 +421,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Query8: ~p~n", [Sql8]),
         ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"col2">>,string},{<<"5">>,integer}}}}, imem_sql:exec(SKey, Sql8, 100, 'Imem', IsSec)),
  
-        Sql9 = "select col1, col2 from def where col2 in (\"5\",\"6\")",
+        Sql9 = "select col1, col2 from def where col2 in ('5','6')",
         io:format(user, "Query9: ~p~n", [Sql9]),
         {ok, _Clm9, _RowFun9, StmtRef9} = imem_sql:exec(SKey, Sql9, 100, 'Imem', IsSec),
         List9 = imem_statement:fetch_recs_sort(SKey, StmtRef9, self(), Timeout, IsSec),
@@ -441,10 +459,16 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(AllTableCount, length(List3a)),
         io:format(user, "first read success (async)~n", []),
         ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        [{StmtRef3, {error, Reason3}}] = receive_all(),
+        ?assertEqual({'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},Reason3),
+        ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)),
+        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
         _Receive3b = [{StmtRef3, {List3b, true}}] = receive_all(),
         % io:format(user, "Result: ~p~n", [receive_lists(_Receive3b,_RowFun3)]),
         ?assertEqual(List3a,List3b),
         io:format(user, "second read success (async)~n", []),
+        ?assertException(throw,{'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec)),
+        ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)), % actually not needed here, fetch_recs does it
         List3c = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
         ?assertEqual(length(List3b), length(List3c)),
         ?assertEqual(lists:sort(List3b), lists:sort(List3c)),

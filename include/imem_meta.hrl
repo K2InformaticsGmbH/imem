@@ -42,15 +42,22 @@
        ).
 -define(ddTable, [tuple,list,list,userid,boolean]).
 
--record(dual,                               %% table    
-                  { x                       ::integer()   
-                  , y                       ::integer()
-                  }
-       ).
--define(dual, [integer,integer]).
-
 -define(nav, '$not_a_value').    %% used as default value which must not be used (not null columns)
 -define(nac, '$not_a_column').   %% used as value column name for key only tables
+
+-record(dual,                               %% table    
+                  { dummy = "X"             ::list()        % fixed string "X"
+                  , nac = ?nav              ::atom()        % not a column
+                  }
+       ).
+-define(dual, [string,atom]).
+
+-record(items,                              %% table    
+                  { item = "_"              ::any()         % never to be called
+                  , nac = ?nav              ::atom()        % not a column
+                  }
+       ).
+-define(items, [term,atom]).
 
 -define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)
 -define(OneDay, 1.0).                       %% span of  datetime or timestamp (fraction of 1 day)

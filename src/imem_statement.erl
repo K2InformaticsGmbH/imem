@@ -30,7 +30,7 @@
 -record(fetchCtx,               %% state for fetch process
                     { pid       ::pid()
                     , monref    ::any()             %% fetch monitor ref
-                    , status    ::atom()            %% undefined | waiting | fetching | aborted
+                    , status    ::atom()            %% undefined | waiting | fetching | done | aborted
                     , metarec   ::tuple()
                     , blockSize=100 ::integer()     %% could be adaptive
                     , remaining ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
@@ -75,8 +75,20 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
                 io:format(user, "~p - fetch_recs too much data~n", [?MODULE]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
                 ?ClientError({"Too much data, increase block size or receive in streaming mode",length(List)});
+            {Pid,{error, {'SystemException', Reason}}} ->
+                io:format(user, "~p - fetch_recs exception ~p ~p~n", [?MODULE, 'SystemException', Reason]),
+                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                ?SystemException(Reason);            
+            {Pid,{error, {'ClientError', Reason}}} ->
+                io:format(user, "~p - fetch_recs exception ~p ~p~n", [?MODULE, 'ClientError', Reason]),
+                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                ?ClientError(Reason);            
+            {Pid,{error, {'ClientError', Reason}}} ->
+                io:format(user, "~p - fetch_recs exception ~p ~p~n", [?MODULE, 'ClientError', Reason]),
+                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                ?ClientError(Reason);            
             Error ->
-                io:format(user, "~p - fetch_recs bad async receive ~p~n", [?MODULE, Error]),
+                io:format(user, "~p - fetch_recs bad async receive~n~p~n", [?MODULE, Error]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?SystemException({"Bad async receive",Error})            
         end
@@ -143,23 +155,34 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     % io:format(user, "~p - update_cursor_execute result ~p~n", [?MODULE, Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
-handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{status=tailing}}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,tailing}],"fetch_close unsubscribe"),
-    unsubscribe(Stmt),
-    {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
-handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined}}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,undefined}],"fetch_close ignored"),
-    {reply, ok, State#state{fetchCtx=#fetchCtx{}}};
-handle_call({fetch_close, _IsSec, _SKey}, _From, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close kill"),
-    kill_fetch(MonitorRef, Pid), 
-    {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.
+handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
+    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
+    case Status of
+        undefined ->    ok;                             % close is ignored
+        done ->         ok;                             % normal close after completed fetch
+        fetching ->     kill_fetch(MonitorRef, Pid);    % client stops fetch 
+        tailing ->      unsubscribe(Stmt);              % client stops tail mode
+        aborted ->      ok                              % client acknowledges abort
+    end,
+    {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.     % client may restart the fetch now
 
+handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=done}}=State) ->
+    % io:format(user, "fetch_recs_async called in status done~n", []),
+    imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,done}],"fetch_recs_async rejected"),
+    send_reply_to_client(Sock, {error,{'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"}}),
+    {noreply, State}; 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
+    % io:format(user, "fetch_recs_async called in status aborted~n", []),
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,aborted}],"fetch_recs_async rejected"),
-    imem_server:send_resp({error,{'SystemException',"Fetch aborted, execute fetch_close before refetch"}}, Sock),
+    send_reply_to_client(Sock, {error,{'SystemException',"Fetch is aborted, execute fetch_close before fetching from start again"}}),
+    {noreply, State}; 
+handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=tailing}}=State) ->
+    % io:format(user, "fetch_recs_async called in status tailing~n", []),
+    imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,tailing}],"fetch_recs_async rejected"),
+    send_reply_to_client(Sock, {error,{'ClientError',"Running in tail mode, execute fetch_close before fetching from start again"}}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
+    % io:format(user, "fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     #statement{tables=[{_Schema,Table,_Alias}|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
     #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit} = MainSpec,
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
@@ -175,7 +198,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
         [] ->       [];
         [SGuard0]-> [imem_sql:simplify_guard(select_bind(MetaRec, SGuard0, SBinds))]
     end,
-    % io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
+    io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
     TailSpec = ets:match_spec_compile(SSpec),
     Filter = make_filter_fun(1,select_bind(MetaRec, FGuard, MBinds), FBinds),
@@ -201,8 +224,8 @@ handle_cast({close, _SKey}, State) ->
     % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
-    imem_meta:log_to_db(error,?MODULE,handle_cast,[{request,Request},{state,State}],"receives unsolicited cast"),
     io:format(user, "~p - receives unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
+    imem_meta:log_to_db(error,?MODULE,handle_cast,[{request,Request},{state,State}],"receives unsolicited cast"),
     {noreply, State}.
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
@@ -377,7 +400,7 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
     % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
     case lists:member({tail_mode,true},Opts) of
         false ->
-            {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}};
+            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};           % ,reply=undefined
         true ->     
             {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
             case catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
@@ -387,8 +410,8 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
                 Error ->
                     io:format(user, "~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
                     imem_meta:log_to_db(error,?MODULE,handle_fetch_complete,[{table,Table},{error,Error},{sock,Sock}],"Cannot subscribe to table changes"),
-                    imem_server:send_resp({error,{'SystemException',{"Cannot subscribe to table changes",{Table,Error}}}}, Sock),
-                    {noreply, State#state{fetchCtx=#fetchCtx{},reply=undefined}}
+                    send_reply_to_client(Sock, {error,{'SystemException',{"Cannot subscribe to table changes",{Table,Error}}}}),
+                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}}    % ,reply=undefined
             end    
     end.
 
@@ -513,11 +536,11 @@ make_filter_fun(Ti, {'is_member', A, '$_'}, FBinds) ->
     case ABind of 
         false ->        
             fun(X1) -> 
-                lists:member(A,tuple_to_list(element(Ti,X1)))
+                lists:member(A,tl(tuple_to_list(element(Ti,X1))))
             end;
         {A,ATi,ACi} ->  
             fun(X2) ->
-                lists:member(element(ACi,element(ATi,X2)),tuple_to_list(element(Ti,X2)))
+                lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2))))
             end
     end;
 make_filter_fun(_Ti, {'is_member', A, B}, FBinds)  ->
@@ -785,7 +808,7 @@ test_with_or_without_sec(IsSec) ->
         end,
 
         Sql1 = "create table def (col1 varchar2(10), col2 integer);",
-        io:format(user, "Sql: ~p~n", [Sql1]),
+        io:format(user, "Sql1: ~p~n", [Sql1]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, "Imem", IsSec)),
         ?assertEqual(ok, insert_range(SKey, 15, def, 'Imem', IsSec)),
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
@@ -794,7 +817,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "original table~n~p~n", [TableRows1]),
 
         Sql2 = "select col1, col2 from def;",
-        io:format(user, "Query: ~p~n", [Sql1]),
+        io:format(user, "Query2: ~p~n", [Sql2]),
         {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, Sql2, 4, "Imem", IsSec),
         ?assertEqual(ok, fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
         Result2a = receive 
@@ -847,7 +870,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, close(SKey, StmtRef2)),
 
         Sql3 = "select col1, col2 from def where col2 <= 5;",
-        io:format(user, "Query: ~p~n", [Sql3]),
+        io:format(user, "Query3: ~p~n", [Sql3]),
         {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),
         try
             ?assertEqual(ok, fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
@@ -872,7 +895,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(5,imem_meta:table_size(def)),
 
         Sql4 = "select t1.col1, t2.col2 from def t1, def t2 where t2.col1 = t1.col1 and t2.col2 <= 5;",
-        io:format(user, "Query: ~p~n", [Sql4]),
+        io:format(user, "Query4: ~p~n", [Sql4]),
         {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),
         try
             ?assertEqual(ok, fetch_recs_async(SKey, StmtRef4, self(), [{tail_mode,true}], IsSec)),
@@ -895,7 +918,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(10,imem_meta:table_size(def)),
 
         Sql5 = "select col1 from def;",
-        io:format(user, "Query: ~p~n", [Sql5]),
+        io:format(user, "Query5: ~p~n", [Sql5]),
         {ok, _Clm5, _RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 5, 'Imem', IsSec),
         try
             ?assertEqual(ok, fetch_recs_async(SKey, StmtRef5, self(), [], IsSec)),
@@ -915,9 +938,18 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(11,imem_meta:table_size(def)),
             Result5d = receive_all(),
             ?assertEqual(12, length(Result5d)),
+            io:format(user, "12 tail rows received in single packets~n", []),
+            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
+            Result5e = receive_all(),
+            io:format(user, "reject receive ~p~n", [Result5e]),
+            [{_, {error, {ClEr,Reason5}}}] = Result5e, 
+            ?assertEqual("Running in tail mode, execute fetch_close before fetching from start again",Reason5),
+            io:format(user, "no fetch restart allowed in tail mode~n", []),
             ?assertEqual(ok, fetch_close(SKey, StmtRef5, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
-            ?assertEqual([], receive_all())        
+            Result5f = receive_all(),
+            io:format(user, "last receive ~p~n", [Result5f]),
+            ?assertEqual([], Result5f)        
         after
             ?assertEqual(ok, close(SKey, StmtRef5))
         end,

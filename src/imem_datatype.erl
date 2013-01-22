@@ -11,7 +11,8 @@
 -export([ value_to_db/8
         , db_to_string/6
         , db_to_gui/6
-        , strip_quotes/1
+        , strip_squotes/1   %% strip single quotes
+        , strip_dquotes/1   %% strip double quotes
         ]).
 
 %   datatypes
@@ -20,7 +21,7 @@
 %   atom
 %   binary      raw(L), blob(L), rowid
 %   binstr      clob(L), nclob(L)
-%   boolean
+%   boolean     bool
 %   datetime    date
 %   decimal     number(Len,Prec)
 %   float
@@ -194,11 +195,14 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
             IsString ->
                 DefAsStr = lists:flatten(io_lib:format("~p", [Def])),
                 OldAsStr = lists:flatten(io_lib:format("~p", [Old])),
-                Unquoted = strip_quotes(Val),
+                Squoted = strip_dquotes(Val),       %% may still be single quoted
+                Unquoted = strip_squotes(Squoted),  %% only explicit quotes remaining
                 if 
                     (DefAsStr == Unquoted) ->   Def;
+                    (DefAsStr == Squoted) ->    Def;
                     (DefAsStr == Val) ->        Def;
                     (OldAsStr == Unquoted) ->   Old;
+                    (OldAsStr == Squoted) ->    Old;
                     (OldAsStr == Val) ->        Old;
                     (Type == 'fun') ->          string_to_fun(Unquoted,Len);
                     (Type == atom) ->           list_to_atom(Unquoted);
@@ -214,7 +218,12 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
                     (Type == pid) ->            list_to_pid(Unquoted);
                     (Type == ref) ->            Old;    %% cannot convert back
                     (Type == string) ->         string_to_limited_string(Unquoted,Len);
-                    (Type == term) ->           string_to_term(Unquoted);
+                    (Type == term) ->
+                        case Squoted of
+                            Unquoted ->         string_to_term(Unquoted);   %% not single quoted, use erlang term
+                            Val ->              Unquoted;                   %% single quoted only, unquote to string
+                            _ ->                string_to_term(Squoted)     %% double and single quoted, make an atom
+                        end;        
                     (Type == timestamp) ->      string_to_timestamp(Unquoted,Prec); 
                     (Type == tuple) ->          string_to_tuple(Unquoted,Len);
                     (Type == userid) ->         string_to_userid(Unquoted);
@@ -229,21 +238,33 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
     end;
 value_to_db(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.    
 
-strip_quotes([]) -> [];
-strip_quotes([H]) -> [H];
-strip_quotes([92,34,92,34]) -> [];
-strip_quotes([92,34,_,_,_|T]=Str) ->
+
+strip_quotes(S) -> 
+    strip_dquotes(S).
+
+strip_dquotes([]) -> [];
+strip_dquotes([H]) -> [H];
+strip_dquotes([92,34,92,34]) -> [];
+strip_dquotes([92,34,_,_,_|_]=Str) ->
     L = lists:last(Str),
     SL = lists:nth(length(Str)-2,Str),
     if 
         L == 34 andalso SL == 92 -> lists:sublist(Str, 3, length(Str)-4);
         true ->                     Str
     end;
-strip_quotes([H|T]=Str) ->
+strip_dquotes([H|T]=Str) ->
     L = lists:last(Str),
     if 
         H == $" andalso L == $" ->  lists:sublist(T, length(T)-1);
-    %    H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
+        true ->                     Str
+    end.
+
+strip_squotes([]) -> [];
+strip_squotes([H]) -> [H];
+strip_squotes([H|T]=Str) ->
+    L = lists:last(Str),
+    if 
+        H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
         true ->                     Str
     end.
 
