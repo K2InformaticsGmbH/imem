@@ -57,7 +57,7 @@ test(_) ->
 
         io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
 
-        UserId = make_ref(),
+        UserId = imem_account:make_id(),
         UserName= <<"test_admin">>,
         UserCred={pwdmd5, erlang:md5(<<"t1e2s3t4_5a6d7m8i9n">>)},
         UserCredNew={pwdmd5, erlang:md5(<<"test_5a6d7m8i9n">>)},
@@ -148,12 +148,12 @@ test(_) ->
 
         io:format(user, "----TEST--~p:test_manage_accounts~n", [?MODULE]),
 
-        AccountId = make_ref(),
+        AccountId = imem_account:make_id(),
         AccountCred={pwdmd5, erlang:md5(<<"TestPwd">>)},
         AccountCredNew={pwdmd5, erlang:md5(<<"TestPwd1">>)},
         AccountName= <<"test">>,
         Account = #ddAccount{id=AccountId,name=AccountName,credentials=[AccountCred],fullName= <<"FullName">>},
-        AccountId0 = make_ref(),
+        AccountId0 = imem_account:make_id(),
         Account0 = #ddAccount{id=AccountId0,name=AccountName,credentials=[AccountCred],fullName= <<"AnotherName">>},
         Account1 = Account#ddAccount{credentials=[AccountCredNew],fullName= <<"NewFullName">>,locked='true'},
         Account2 = Account#ddAccount{credentials=[AccountCredNew],fullName= <<"OldFullName">>},

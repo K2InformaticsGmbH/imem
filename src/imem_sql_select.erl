@@ -396,12 +396,12 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Result: ~p~n", [result_tuples(List1a,_RowFun1a)]),
         ?assertEqual([{"X"}], result_tuples(List1a,_RowFun1a)),
 
-        Sql2 = "select item from items",
-        io:format(user, "Query2: ~p~n", [Sql2]),
-        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, Sql2, 100, 'Imem', IsSec),
-        List2 = imem_statement:fetch_recs_sort(SKey, StmtRef2, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [result_tuples(List2,_RowFun2)]),
-        ?assertEqual([{"[95]"}], result_tuples(List2,_RowFun2)),
+        % Sql2 = "select item from items",
+        % io:format(user, "Query2: ~p~n", [Sql2]),
+        % {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, Sql2, 100, 'Imem', IsSec),
+        % List2 = imem_statement:fetch_recs_sort(SKey, StmtRef2, self(), Timeout, IsSec),
+        % io:format(user, "Result: ~p~n", [result_tuples(List2,_RowFun2)]),
+        % ?assertEqual([{"[95]"}], result_tuples(List2,_RowFun2)),
 
         Sql6 = "select col1, col2 from def where col1>=5 and col1<=6",
         io:format(user, "Query6: ~p~n", [Sql6]),

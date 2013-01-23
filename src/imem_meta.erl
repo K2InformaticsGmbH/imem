@@ -1,6 +1,6 @@
 -module(imem_meta).
 
--define(META_TABLES,[ddTable,ddLog@,dual,items]).
+-define(META_TABLES,[ddTable,ddLog@,dual]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 
 -include_lib("eunit/include/eunit.hrl").
@@ -42,7 +42,7 @@
         , table_columns/1
         , table_size/1
         , check_table/1
-        , check_table_record/2
+        , check_table_meta/2
         , check_table_columns/2
         , system_table/1
         , meta_field_list/0        
@@ -110,11 +110,13 @@ init(_Args) ->
     Result = try
         catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
         check_table(ddTable),
-        check_table_record(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
+        check_table_columns(ddTable, record_info(fields, ddTable)),
+        check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
         catch create_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
         check_table(ddLog@),
-        check_table_record(ddLog@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}),
+        check_table_columns(ddLog@, record_info(fields, ddLog)),
+        check_table_meta(ddLog@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}),
 
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
             ok ->   write(dual,#dual{});
@@ -122,15 +124,9 @@ init(_Args) ->
         end,
         check_table(dual),
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
-        check_table_record(dual, {record_info(fields, dual), ?dual, #dual{}}),
+        check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
 
-        case catch create_table(items, {record_info(fields, items),?items, #items{}}, [], system) of
-            ok ->   write(items,#items{});
-            _ ->    ok
-        end,            
-        check_table(items),
-        check_table_columns(items, {record_info(fields, items),?items, #items{}}),
-        check_table_record(items, {record_info(fields, items), ?items, #items{}}),
+        create_type_tables(?DataTypes),
 
         io:format(user, "~p started!~n", [?MODULE]),
         {ok,#state{}}
@@ -161,6 +157,12 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ------ META implementation -------------------------------------------------------
 
+create_type_tables([]) -> ok;
+create_type_tables([Type|Types]) ->
+    catch create_table(Type, {[item], [Type], {Type,undefined}}, [{virtual,true}], system),
+    check_table_meta(Type, {[item], [Type], {Type,undefined}}),
+    create_type_tables(Types).
+
 system_table({_,Table}) ->
     system_table(Table);
 system_table(Table) when is_atom(Table) ->
@@ -172,47 +174,35 @@ system_table(Table) when is_atom(Table) ->
 check_table(Table) when is_atom(Table) ->
     imem_if:table_size(physical_table_name(Table)).
 
-check_table_record(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
+check_table_meta(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
-    TableColumns = table_columns(Table),    
-    if
-        Names =:= TableColumns ->
-            case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
-                [] ->   ?SystemException({"Missing table metadata",Table}); 
-                [#ddTable{columns=ColumnInfos}] ->
-                    CINames = column_info_items(ColumnInfos, name),
-                    CITypes = column_info_items(ColumnInfos, type),
-                    CIDefaults = column_info_items(ColumnInfos, default),
-                    if
-                        (CINames =:= Names) andalso (CITypes =:= Types) andalso (CIDefaults =:= Defaults) ->  
-                            ok;
-                        true ->                 
-                            ?SystemException({"Record does not match table metadata",Table})
-                    end;
-                Else -> 
-                    ?SystemException({"Column definition does not match table metadata",{Table,Else}})    
-            end;  
-        true ->                 
-            ?SystemException({"Record field names do not match table structure",Table})             
-    end;
-check_table_record(Table, ColumnNames) when is_atom(Table) ->
-    TableColumns = table_columns(Table),    
-    if
-        ColumnNames =:= TableColumns ->
-            case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
-                [] ->   ?SystemException({"Missing table metadata",Table}); 
-                [#ddTable{columns=ColumnInfo}] ->
-                    CINames = column_info_items(ColumnInfo, name),
-                    if
-                        CINames =:= ColumnNames ->  
-                            ok;
-                        true ->                 
-                            ?SystemException({"Record field names do not match table metadata",Table})
-                    end          
-            end;  
-        true ->                 
-            ?SystemException({"Record field names do not match table structure",Table})             
+    case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
+        [] ->   ?SystemException({"Missing table metadata",Table}); 
+        [#ddTable{columns=ColumnInfos}] ->
+            CINames = column_info_items(ColumnInfos, name),
+            CITypes = column_info_items(ColumnInfos, type),
+            CIDefaults = column_info_items(ColumnInfos, default),
+            if
+                (CINames =:= Names) andalso (CITypes =:= Types) andalso (CIDefaults =:= Defaults) ->  
+                    ok;
+                true ->                 
+                    ?SystemException({"Record does not match table metadata",Table})
+            end;
+        Else -> 
+            ?SystemException({"Column definition does not match table metadata",{Table,Else}})    
+    end;  
+check_table_meta(Table, ColumnNames) when is_atom(Table) ->
+    case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
+        [] ->   ?SystemException({"Missing table metadata",Table}); 
+        [#ddTable{columns=ColumnInfo}] ->
+            CINames = column_info_items(ColumnInfo, name),
+            if
+                CINames =:= ColumnNames ->  
+                    ok;
+                true ->                 
+                    ?SystemException({"Record field names do not match table metadata",Table})
+            end          
     end.
 
 check_table_columns(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
@@ -227,7 +217,7 @@ check_table_columns(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
             ?SystemException({"Column info does not match table metadata",Table});
         true ->     ok
     end;
-check_table_columns(Table, ColumnInfo) when is_atom(Table) ->
+check_table_columns(Table, [CI|_]=ColumnInfo) when is_atom(Table), is_tuple(CI) ->
     ColumnNames = column_info_items(ColumnInfo, name),
     TableColumns = table_columns(Table),
     MetaInfo = column_infos(Table),    
@@ -236,6 +226,13 @@ check_table_columns(Table, ColumnInfo) when is_atom(Table) ->
             ?SystemException({"Column info does not match table structure",Table}) ;
         ColumnInfo /= MetaInfo ->
             ?SystemException({"Column info does not match table metadata",Table});
+        true ->     ok                           
+    end;
+check_table_columns(Table, ColumnNames) when is_atom(Table) ->
+    TableColumns = table_columns(Table),
+    if
+        ColumnNames /= TableColumns ->
+            ?SystemException({"Column info does not match table structure",Table}) ;
         true ->     ok                           
     end.
 
@@ -332,7 +329,10 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
         {_,Bad} ->  ?ClientError({"Invalid data type",Bad})
     end,
     PhysicalName=physical_table_name(Table),
-    imem_if:create_table(PhysicalName, column_names(ColumnInfos), Opts),
+    case lists:member({virtual,true},Opts) of
+        true ->     ok;
+        false ->    imem_if:create_table(PhysicalName, column_names(ColumnInfos), Opts)
+    end,
     imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner}).
 
 drop_table({Schema,Table}) ->
@@ -654,6 +654,8 @@ meta_operations(_) ->
         io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
+        ?assertEqual(ok, check_table_columns(ddTable, record_info(fields, ddTable))),
 
         Now = erlang:now(),
         LogCount1 = table_size(ddLog@),

@@ -19,11 +19,11 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) ->
     {T,L,P} = case Type of
-        A when is_atom(A) ->        {A,0,0};
+        A when is_atom(A) ->        {imem_datatype:imem_type(A),0,0};
         {float,SPrec} ->            {float,0,list_to_integer(SPrec)};
         {timestamp,SPrec} ->        {timestamp,0,list_to_integer(SPrec)};
-        {Typ,SLen} ->               {Typ,list_to_integer(SLen),0};
-        {Typ,SLen,SPrec} ->         {Typ,list_to_integer(SLen),list_to_integer(SPrec)};
+        {Typ,SLen} ->               {imem_datatype:imem_type(Typ),list_to_integer(SLen),0};
+        {Typ,SLen,SPrec} ->         {imem_datatype:imem_type(Typ),list_to_integer(SLen),list_to_integer(SPrec)};
         Else ->                     ?SystemException({"Unexpected parse tree structure",Else})
     end,
     {Default,Opts} = case lists:keyfind(default, 1, COpts) of

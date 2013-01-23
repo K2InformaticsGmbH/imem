@@ -17,6 +17,7 @@
         , unlock/2
         , renew/2
         , expire/2
+        , make_id/0
         ]).
 
 %% --Interface functions  (calling imem_if for now, not exported) -------------------
@@ -41,8 +42,10 @@ if_select_account_by_name(SeKey, Name) ->
 
 %% --Implementation ------------------------------------------------------------------
 
+make_id() -> erlang:phash2(make_ref()).
+
 create(SeKey, Type, Name, FullName, PasswordMd5) -> 
-    AccountId = make_ref(),
+    AccountId = make_id(),
     Cred={pwdmd5, PasswordMd5},
     create(SeKey, #ddAccount{id=AccountId, name=Name, type=Type, fullName=FullName, credentials=[Cred]}).
 

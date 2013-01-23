@@ -17,7 +17,7 @@
         , table_columns/2
         , table_size/2
         , check_table/2
-        , check_table_record/3
+        , check_table_meta/3
         , check_table_columns/3
         , system_table/2
         , meta_field_list/1                
@@ -226,8 +226,8 @@ table_size(SKey, Table) ->
 check_table(_SKey, Table) ->
     imem_meta:check_table(Table).
 
-check_table_record(_SKey, Table, ColumnNames) ->
-    imem_meta:check_table_record(Table, ColumnNames).
+check_table_meta(_SKey, Table, ColumnNames) ->
+    imem_meta:check_table_meta(Table, ColumnNames).
 
 check_table_columns(_SKey, Table, ColumnInfo) ->
     imem_meta:check_table_columns(Table, ColumnInfo).
@@ -511,8 +511,17 @@ have_table_permission(SKey, Table, Operation) ->
     case get_permission_cache(SKey, {Table,Operation}) of
         true ->         true;
         false ->        false;
-        no_exists ->    
-            Result = have_table_permission(SKey, Table, Operation, if_system_table(SKey, Table)),
+        no_exists ->
+            Result = case Operation of
+                select ->
+                    case lists:member(Table, ?DataTypes) of
+                        false -> 
+                            have_table_permission(SKey, Table, Operation, if_system_table(SKey, Table));
+                        true -> true
+                    end;
+                _ ->    
+                    have_table_permission(SKey, Table, Operation, if_system_table(SKey, Table))
+            end,
             set_permission_cache(SKey, {Table,Operation}, Result),
             Result
     end.      
@@ -539,6 +548,8 @@ have_table_ownership(SKey, {Schema,Table}) ->
 have_table_ownership(SKey, Table) ->
     have_table_ownership(SKey, {imem_meta:schema(),Table}).
 
+have_table_permission(_SKey, dual, select, _) ->  true;
+have_table_permission(_SKey, dual, _, _) ->  false;
 have_table_permission(SKey, Table, Operation, true) ->
     imem_seco:have_permission(SKey, [manage_system_tables, {Table,Operation}]);
 

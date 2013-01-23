@@ -11,8 +11,8 @@
 -export([ value_to_db/8
         , db_to_string/6
         , db_to_gui/6
-        , strip_squotes/1   %% strip single quotes
-        , strip_dquotes/1   %% strip double quotes
+        , strip_squotes/1           %% strip single quotes
+        , strip_dquotes/1           %% strip double quotes
         ]).
 
 %   datatypes
@@ -35,10 +35,11 @@
 %   term
 %   timestamp
 %   tuple
-
+%   userid
 
 
 -export([ raw_type/1
+        , imem_type/1
         , string_to_binary/2
         , string_to_datetime/1
         , string_to_decimal/3
@@ -94,7 +95,6 @@
         , select_rowfun_str/4   %% convert all rows to string
         , select_rowfun_gui/4   %% convert rows to string when necessary (where io_lib(~p) will not do)
         ]).
-
 
 select_rowfun_raw(ColMap) ->
     fun(Recs) -> 
@@ -167,9 +167,24 @@ select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
     select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
 
 
-%% ----- DATA TYPES  with CamelCase  --------------------------------
+%% ----- DATA TYPES    --------------------------------------------
 
-raw_type(userid) -> ref;
+imem_type(raw) -> binary; 
+imem_type(blob) -> binary; 
+imem_type(rowid) -> rowid; 
+imem_type(clob) -> binstr; 
+imem_type(nclob) -> binstr; 
+imem_type(bool) -> boolean; 
+imem_type(date) -> datetime; 
+imem_type(number) -> decimal; 
+imem_type(int) -> integer; 
+imem_type(varchar2) -> string; 
+imem_type(nvarchar2) -> string; 
+imem_type(char) -> string; 
+imem_type(nchar) -> string; 
+imem_type(Type) -> Type. 
+
+raw_type(userid) -> integer;
 raw_type(binstr) -> binary;
 raw_type(string) -> list;
 raw_type(decimal) -> integer;
@@ -184,8 +199,6 @@ raw_type(Type) -> Type.
 value_to_db(_Item,Old,_Type,_Len,_Prec,_Def,true,_) -> Old;
 value_to_db(_Item,Old,_Type,_Len,_Prec,_Def,_RO, Old) -> Old;
 value_to_db(_Item,_Old,_Type,_Len,_Prec,Def,_RO, Def) -> Def;
-value_to_db(_Item,_Old,_Type,_Len,_Prec,[],_RO, "[]") -> [];
-value_to_db(_Item,[],_Type,_Len,_Prec,_Def,_RO, "[]") -> [];
 value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_function(Def,0) ->
     value_to_db(Item,Old,Type,Len,Prec,Def(),_RO,Val);
 value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
@@ -238,20 +251,16 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
     end;
 value_to_db(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.    
 
-
-strip_quotes(S) -> 
-    strip_dquotes(S).
-
 strip_dquotes([]) -> [];
 strip_dquotes([H]) -> [H];
-strip_dquotes([92,34,92,34]) -> [];
-strip_dquotes([92,34,_,_,_|_]=Str) ->
-    L = lists:last(Str),
-    SL = lists:nth(length(Str)-2,Str),
-    if 
-        L == 34 andalso SL == 92 -> lists:sublist(Str, 3, length(Str)-4);
-        true ->                     Str
-    end;
+% strip_dquotes([92,34,92,34]) -> [];
+% strip_dquotes([92,34,_,_,_|_]=Str) ->
+%     L = lists:last(Str),
+%     SL = lists:nth(length(Str)-2,Str),
+%     if 
+%         L == 34 andalso SL == 92 -> lists:sublist(Str, 3, length(Str)-4);
+%         true ->                     Str
+%     end;
 strip_dquotes([H|T]=Str) ->
     L = lists:last(Str),
     if 
@@ -989,9 +998,9 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"-100"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"-100")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"9999"}}}}, value_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,"9999")),
 
-        ?assertEqual('$_', value_to_db(Item,?nav,term,0,0,?nav,false,"'$_'")),
         ?assertEqual({1,2,3}, value_to_db(Item,?nav,term,0,0,?nav,false,"{1,2,3}")),
         ?assertEqual([1,2,3], value_to_db(Item,?nav,term,0,0,?nav,false,"[1,2,3]")),
+        ?assertEqual('$_', value_to_db(Item,?nav,term,0,0,?nav,false,"\"'$_'\"")),
 
         io:format(user, "value_to_db success 5~n", []),
 
@@ -1037,9 +1046,15 @@ data_types(_) ->
         OldTerm = {-1.2,[a,b,c]},
         ?assertEqual(OldTerm, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,OldTerm)),
         ?assertEqual(default, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"default")),
+        ?assertEqual(default, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"\"default\"")),
+        ?assertEqual(default, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"\"'default'\"")),
+    %    ?assertEqual("default", value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"'default'")),
         ?assertEqual([a,b], value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"[a,b]")),
         ?assertEqual(-1.1234567, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"-1.1234567")),
+        ?assertEqual("-1.1234567", value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"'-1.1234567'")),
+        ?assertEqual(-1.1234567, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"\"-1.1234567\"")),
         ?assertEqual({[1,2,3]}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"{[1,2,3]}")),
+        ?assertEqual({[1,2,3]}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"\"{[1,2,3]}\"")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{term,"[a|]"}}}}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"[a|]")),
         io:format(user, "value_to_db success 9~n", []),
 

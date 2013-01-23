@@ -28,7 +28,7 @@
                   , quotas=[]               ::[ddQuota()]             %% granted quotas
                   }
        ). 
--define(ddRole, [term,list,list,list]).
+-define(ddRole, [userid,list,list,list]).
 
 -record(ddSeCo,                             %% security context              
                   { skey                    :: ddSeCoKey()        %% random hash value

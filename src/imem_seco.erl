@@ -64,27 +64,27 @@ init(_Args) ->
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
         catch if_create_table(none, ddAccount, ADef ,[], system),
         if_check_table(none, ddAccount),
-        if_check_table_record(none, ddAccount, ADef),
+        if_check_table_meta(none, ddAccount, ADef),
         RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
         catch if_create_table(none, ddRole, RDef,[], system),          
         if_check_table(none, ddRole),
-        if_check_table_record(none, ddRole, RDef),
+        if_check_table_meta(none, ddRole, RDef),
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
         catch if_create_table(none, ddSeCo, SDef,[{scope,local}, {local_content,true}], system),
         if_check_table(none, ddSeCo),
-        if_check_table_record(none, ddSeCo, SDef),
+        if_check_table_meta(none, ddSeCo, SDef),
         PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
         catch if_create_table(none, ddPerm, PDef,[{scope,local}, {local_content,true}], system),
         if_check_table(none, ddPerm),
-        if_check_table_record(none, ddPerm, PDef),
+        if_check_table_meta(none, ddPerm, PDef),
         QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
         catch if_create_table(none, ddQuota, QDef,[{scope,local}, {local_content,true}], system),
         if_check_table(none, ddQuota),
-        if_check_table_record(none, ddQuota, QDef),
+        if_check_table_meta(none, ddQuota, QDef),
         UserName= <<"admin">>,
         case if_select_account_by_name(none, UserName) of
             {[],true} ->  
-                    UserId = make_ref(),
+                    UserId = erlang:phash2(make_ref()),
                     {ok, Pwd} = application:get_env(imem, default_admin_pswd),
                     UserCred=create_credentials(pwdmd5, Pwd),
                     User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
@@ -159,8 +159,8 @@ if_select_account_by_name(SKey, Name) ->
 if_check_table(_SeKey, Table) ->
     imem_meta:check_table(Table).
 
-if_check_table_record(_SeKey, Table, ColumnNames) ->
-    imem_meta:check_table_record(Table, ColumnNames).
+if_check_table_meta(_SeKey, Table, ColumnNames) ->
+    imem_meta:check_table_meta(Table, ColumnNames).
 
 %% --Interface functions  (calling imem_meta) ----------------------------------
 
