@@ -198,10 +198,12 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
         [] ->       [];
         [SGuard0]-> [imem_sql:simplify_guard(select_bind(MetaRec, SGuard0, SBinds))]
     end,
-    io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
+    % io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
     TailSpec = ets:match_spec_compile(SSpec),
-    Filter = make_filter_fun(1,select_bind(MetaRec, FGuard, MBinds), FBinds),
+    FBound = select_bind(MetaRec, FGuard, MBinds),
+    % io:format(user,"FBound : ~p~n", [FBound]),
+    Filter = make_filter_fun(1,FBound, FBinds),
     FetchCtx1 = case FetchCtx0#fetchCtx.pid of
         undefined ->
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
@@ -631,7 +633,10 @@ join_rows([Row|Rows], MetaRec, BlockSize, Remaining, Tables, JoinSpecs, Acc) ->
 
 join_row(Recs, _BlockSize, _Ti, [], []) -> Recs;
 join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
-    Recs1 = [join_table(Rec, BlockSize, Ti, Table, JS) || Rec <- Recs0],
+    Recs1 = case lists:member(Table,?DataTypes) of
+        true ->  [join_virtual(Rec, BlockSize, Ti, Table, JS) || Rec <- Recs0];
+        false -> [join_table(Rec, BlockSize, Ti, Table, JS) || Rec <- Recs0]
+    end,
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds}) ->
@@ -655,6 +660,158 @@ join_table(Rec, BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard
         {_, false} ->   ?ClientError({"Too much data in join select result", 10*BlockSize});
         Error ->        ?SystemException({"Unexpected join select result", Error})
     end.
+
+join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds}) ->
+    [{_,[SGuard],_}] = SSpec,
+    case join_bind(Rec, SGuard, SBinds) of
+        true ->
+            case FGuard of
+                true ->
+                    ?UnimplementedException({"Unsupported virtual join filter guard", FGuard}); 
+                _ ->
+                    % io:format(user, "Rec used for join bind ~p~n", [Rec]),
+                    % io:format(user, "MBinds used for join bind ~p~n", [MBinds]),
+                    case join_bind(Rec, FGuard, MBinds) of
+                        {is_member,Tag, '$_'} when is_atom(Tag) ->
+                            Items = element(1,Rec),
+                            % io:format(user, "generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+                            Virt = generate_virtual(Table,tl(tuple_to_list(Items))),
+                            % io:format(user, "Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            [setelement(Ti, Rec, {Table,I}) || I <- Virt];
+                        {is_member,Tag, Items} when is_atom(Tag) ->
+                            % io:format(user, "generate_virtual table ~p from~n~p~n", [Table,Items]),
+                            Virt = generate_virtual(Table,Items),
+                            % io:format(user, "Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            [setelement(Ti, Rec, {Table,I}) || I <- Virt];
+                        BadFG ->
+                            ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
+                    end
+            end;
+        BadJG ->
+            ?UnimplementedException({"Unsupported virtual join guard",BadJG})
+    end.
+
+generate_virtual(Table, Items) when is_tuple(Items) ->
+    generate_virtual(Table, tuple_to_list(Items));
+
+generate_virtual(atom, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_atom(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(atom, Item) when is_atom(Item)-> [Item];
+generate_virtual(atom, _) -> [];
+
+generate_virtual(binary, Items) when is_binary(Items) ->
+    [list_to_binary([B]) || B <- binary_to_list(Items)];
+generate_virtual(binary, _) -> [];
+
+generate_virtual(binstr, Items) when is_binary(Items) ->
+    String = binary_to_list(Items),
+    case io_lib:printable_unicode_list(String) of
+        true ->     String;
+        false ->    []
+    end;
+
+generate_virtual(boolean, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_boolean(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(boolean, Item) when is_boolean(Item)-> [Item];
+generate_virtual(boolean, _) -> [];
+
+generate_virtual(datetime, Items) when is_list(Items) ->
+    Pred = fun
+        ({{_,_,_},{_,_,_}}) -> true;
+        (_) -> false
+    end,
+    lists:filter(Pred,Items);
+generate_virtual(datetime, {{_,_,_},{_,_,_}}=Item) -> 
+    [Item];
+generate_virtual(datetime, _) -> [];
+
+generate_virtual(decimal, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_integer(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(decimal, Item) when is_integer(Item)-> [Item];
+generate_virtual(decimal, _) -> [];
+
+generate_virtual(float, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_float(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(float, Item) when is_float(Item)-> [Item];
+generate_virtual(float, _) -> [];
+
+generate_virtual('fun', Items) when is_list(Items) ->
+    Pred = fun(X) -> is_function(X) end,
+    lists:filter(Pred,Items);
+generate_virtual('fun', Item) when is_function(Item)-> [Item];
+generate_virtual('fun', _) -> [];
+
+generate_virtual(integer, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_integer(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(integer, Item) when is_integer(Item)-> [Item];
+generate_virtual(integer, _) -> [];
+
+generate_virtual(ipaddr, Items) when is_list(Items) ->
+    Pred = fun
+        ({A,B,C,D}) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> true;
+        (_) -> false
+    end,                                %% ToDo: IpV6
+    lists:filter(Pred,Items);
+generate_virtual(ipaddr, {A,B,C,D}=Item) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> [Item];
+generate_virtual(ipaddr, _) -> [];      %% ToDo: IpV6
+
+generate_virtual(list, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_list(X) end,
+    lists:filter(Pred,Items);
+
+generate_virtual(timestamp, Items) when is_list(Items) ->
+    Pred = fun
+        ({Meg,Sec,Mic}) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> true;
+        (_) -> false
+    end,
+    lists:filter(Pred,Items);
+generate_virtual(timestamp, {Meg,Sec,Mic}=Item) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> 
+    [Item];
+generate_virtual(timestamp, _) -> [];
+
+generate_virtual(tuple, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_tuple(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(tuple, Item) when is_tuple(Item)-> [Item];
+generate_virtual(tuple, _) -> [];
+
+generate_virtual(pid, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_pid(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(pid, Item) when is_pid(Item)-> [Item];
+generate_virtual(pid, _) -> [];
+
+generate_virtual(ref, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_reference(X) end,
+    lists:filter(Pred,Items);
+generate_virtual(ref, Item) when is_reference(Item)-> [Item];
+generate_virtual(ref, _) -> [];
+
+generate_virtual(string, Items) when is_list(Items) ->
+    case io_lib:printable_unicode_list(Items) of
+        true ->     Items;
+        false ->    []
+    end;
+
+generate_virtual(term, Items) when is_list(Items) ->
+    Items;
+generate_virtual(term, Item) ->
+    [Item];
+
+generate_virtual(userid, Items) when is_list(Items) ->
+    Pred = fun(X) -> is_integer(X) end,
+    lists:filter(Pred,Items);               %% ToDo: filter in imem_account
+generate_virtual(userid, Item) when is_integer(Item)-> 
+    [Item];                                 %% ToDo: filter in imem_account
+generate_virtual(userid, _) -> [];
+
+generate_virtual(Table,Items) -> 
+    ?UnimplementedException({"Unsupported virtual table generation",{Table,Items}}).
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},
