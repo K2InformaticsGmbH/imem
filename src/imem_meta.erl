@@ -577,10 +577,16 @@ truncate_table(Table) ->
     log_to_db(debug,?MODULE,truncate_table,[{table,Table}],"truncate table"),
     imem_if:truncate_table(physical_table_name(Table)).
 
+subscribe({table, Tab, Mode}) ->
+    log_to_db(info,?MODULE,subscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"subscribe to mnesia"),
+    imem_if:subscribe({table, physical_table_name(Tab), Mode});
 subscribe(EventCategory) ->
     log_to_db(info,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
     imem_if:subscribe(EventCategory).
 
+unsubscribe({table, Tab, Mode}) ->
+    log_to_db(info,?MODULE,unsubscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"unsubscribe from mnesia"),
+    imem_if:unsubscribe({table, physical_table_name(Tab), Mode});
 unsubscribe(EventCategory) ->
     log_to_db(info,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
     imem_if:unsubscribe(EventCategory).

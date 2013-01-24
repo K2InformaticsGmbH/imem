@@ -245,7 +245,7 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
             {noreply, State}
     end;        
 handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
     %io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, write, Record]),
     #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec}=FetchCtx0,
     case Status of
@@ -288,11 +288,11 @@ handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,f
             {noreply, State}
     end;
 handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
     % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete_object, _OldRecord]),
     {noreply, State};
 handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
     % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
@@ -301,25 +301,25 @@ handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
         {waiting,[?sot|R]} ->            
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
             {R,false};
         {fetching,[?eot|R]} ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
-        {fetching,[?sot,?eot|R]} ->
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(R)}],"data transaction restart"),     
+        {fetching,[?sot,?eot|_R]} ->
+            % imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
             handle_fetch_complete(State);
-        {fetching,[?sot|R]} ->
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(R)}],"data transaction restart"),     
+        {fetching,[?sot|_R]} ->
+            % imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
             handle_fetch_complete(State);
         {fetching,R} ->            
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
             {R,false};
-        {_,R} ->            
-            imem_meta:log_to_db(error,?MODULE,handle_info,[{row,length(R)}],"data"),     
+        {BadStatus,R} ->            
+            imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
             {R,false}        
     end,   
     Result = case {length(Stmt#statement.tables),Filter} of
@@ -328,9 +328,9 @@ handle_info({row, Rows0}, #state{reply=Sock, fetchCtx=FetchCtx0, statement=Stmt}
             Rows=length(Rows1),
             if  
                 Rows < Remaining0 ->
-                    lists:map(Wrap, Rows1);
+                    lists:map(Wrap, Rows1);     
                 Rows == Remaining0 ->
-                    lists:map(Wrap, Rows1);
+                    lists:map(Wrap, Rows1);     
                 Remaining0 > 0 ->
                     {ResultRows,Rest} = lists:split(Remaining0, Rows1),
                     LastKey = element(2,lists:last(ResultRows)),
@@ -399,15 +399,17 @@ handle_info(Info, State) ->
 handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State)->
     #fetchCtx{pid=Pid,monref=MonitorRef,opts=Opts}=FetchCtx0,
     kill_fetch(MonitorRef, Pid),
-    % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
+    % io:format(user, "~p - fetch complete, opts ~p~n", [?MODULE,Opts]), 
     case lists:member({tail_mode,true},Opts) of
         false ->
+            % io:format(user, "~p - fetch complete no tail ~p~n", [?MODULE,Opts]), 
             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};           % ,reply=undefined
         true ->     
             {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
-            case catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
+            io:format(user, "~p - fetch complete, tail now~p~n", [?MODULE,Opts]), 
+            case  catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
                 ok ->
-                    % io:format(user, "~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
+                    io:format(user, "~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
                 Error ->
                     io:format(user, "~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
@@ -639,12 +641,13 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     end,
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
-join_table(Rec, BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds}) ->
+join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
     % io:format(user, "Rec used for join bind ~p~n", [Rec]),
     [{MatchHead, [Guard0], [Result]}] = SSpec,
     Guard1 = join_bind(Rec, Guard0, SBinds),
+    MaxSize = Limit+1000,
     % io:format(user, "Join guard after bind : ~p~n", [Guard1]),
-    case imem_meta:select(Table, [{MatchHead, [Guard1], [Result]}], 10*BlockSize) of
+    case imem_meta:select(Table, [{MatchHead, [Guard1], [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->
             case FGuard of
@@ -657,12 +660,13 @@ join_table(Rec, BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard
                     Recs = [setelement(Ti, Rec, I) || I <- L],
                     lists:filter(Filter,Recs)
             end;
-        {_, false} ->   ?ClientError({"Too much data in join select result", 10*BlockSize});
-        Error ->        ?SystemException({"Unexpected join select result", Error})
+        {_, false} ->   ?ClientError({"Too much data in join intermediate result", MaxSize});
+        Error ->        ?SystemException({"Unexpected join intermediate result", Error})
     end.
 
-join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds}) ->
+join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,limit=Limit}) ->
     [{_,[SGuard],_}] = SSpec,
+    MaxSize = Limit+1000,
     case join_bind(Rec, SGuard, SBinds) of
         true ->
             case FGuard of
@@ -675,12 +679,12 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fgu
                         {is_member,Tag, '$_'} when is_atom(Tag) ->
                             Items = element(1,Rec),
                             % io:format(user, "generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
-                            Virt = generate_virtual(Table,tl(tuple_to_list(Items))),
+                            Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
                             % io:format(user, "Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         {is_member,Tag, Items} when is_atom(Tag) ->
                             % io:format(user, "generate_virtual table ~p from~n~p~n", [Table,Items]),
-                            Virt = generate_virtual(Table,Items),
+                            Virt = generate_virtual(Table,Items,MaxSize),
                             % io:format(user, "Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         BadFG ->
@@ -691,127 +695,149 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fgu
             ?UnimplementedException({"Unsupported virtual join guard",BadJG})
     end.
 
-generate_virtual(Table, Items) when is_tuple(Items) ->
-    generate_virtual(Table, tuple_to_list(Items));
+generate_virtual(Table, Items, MaxSize) when is_tuple(Items) ->
+    generate_virtual(Table, tuple_to_list(Items), MaxSize);
 
-generate_virtual(atom, Items) when is_list(Items) ->
+generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_atom(X) end,
     lists:filter(Pred,Items);
-generate_virtual(atom, Item) when is_atom(Item)-> [Item];
-generate_virtual(atom, _) -> [];
+generate_virtual(atom, Item, _) when is_atom(Item)-> [Item];
+generate_virtual(atom, _, _) -> [];
 
-generate_virtual(binary, Items) when is_binary(Items) ->
+generate_virtual(binary=Table, Items, MaxSize) when is_binary(Items) ->
+    generate_limit_check(Table, byte_size(Items), MaxSize),
     [list_to_binary([B]) || B <- binary_to_list(Items)];
-generate_virtual(binary, _) -> [];
+generate_virtual(binary, _, _) -> [];
 
-generate_virtual(binstr, Items) when is_binary(Items) ->
+generate_virtual(binstr=Table, Items, MaxSize) when is_binary(Items) ->
+    generate_limit_check(Table, byte_size(Items), MaxSize),
     String = binary_to_list(Items),
     case io_lib:printable_unicode_list(String) of
         true ->     String;
         false ->    []
     end;
 
-generate_virtual(boolean, Items) when is_list(Items) ->
+generate_virtual(boolean=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_boolean(X) end,
     lists:filter(Pred,Items);
-generate_virtual(boolean, Item) when is_boolean(Item)-> [Item];
-generate_virtual(boolean, _) -> [];
+generate_virtual(boolean, Item, _) when is_boolean(Item)-> [Item];
+generate_virtual(boolean, _, _) -> [];
 
-generate_virtual(datetime, Items) when is_list(Items) ->
+generate_virtual(datetime=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun
         ({{_,_,_},{_,_,_}}) -> true;
         (_) -> false
     end,
     lists:filter(Pred,Items);
-generate_virtual(datetime, {{_,_,_},{_,_,_}}=Item) -> 
+generate_virtual(datetime, {{_,_,_},{_,_,_}}=Item, _) -> 
     [Item];
-generate_virtual(datetime, _) -> [];
+generate_virtual(datetime, _, _) -> [];
 
-generate_virtual(decimal, Items) when is_list(Items) ->
+generate_virtual(decimal=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
     lists:filter(Pred,Items);
-generate_virtual(decimal, Item) when is_integer(Item)-> [Item];
-generate_virtual(decimal, _) -> [];
+generate_virtual(decimal, Item, _) when is_integer(Item)-> [Item];
+generate_virtual(decimal, _, _) -> [];
 
-generate_virtual(float, Items) when is_list(Items) ->
+generate_virtual(float=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_float(X) end,
     lists:filter(Pred,Items);
-generate_virtual(float, Item) when is_float(Item)-> [Item];
-generate_virtual(float, _) -> [];
+generate_virtual(float, Item, _) when is_float(Item)-> [Item];
+generate_virtual(float, _, _) -> [];
 
-generate_virtual('fun', Items) when is_list(Items) ->
+generate_virtual('fun'=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_function(X) end,
     lists:filter(Pred,Items);
-generate_virtual('fun', Item) when is_function(Item)-> [Item];
-generate_virtual('fun', _) -> [];
+generate_virtual('fun', Item, _) when is_function(Item)-> [Item];
+generate_virtual('fun', _, _) -> [];
 
-generate_virtual(integer, Items) when is_list(Items) ->
+generate_virtual(integer=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
     lists:filter(Pred,Items);
-generate_virtual(integer, Item) when is_integer(Item)-> [Item];
-generate_virtual(integer, _) -> [];
+generate_virtual(integer, Item, _) when is_integer(Item)-> [Item];
+generate_virtual(integer, _, _) -> [];
 
-generate_virtual(ipaddr, Items) when is_list(Items) ->
+generate_virtual(ipaddr=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun
         ({A,B,C,D}) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> true;
         (_) -> false
     end,                                %% ToDo: IpV6
     lists:filter(Pred,Items);
-generate_virtual(ipaddr, {A,B,C,D}=Item) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> [Item];
-generate_virtual(ipaddr, _) -> [];      %% ToDo: IpV6
+generate_virtual(ipaddr, {A,B,C,D}=Item, _) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> [Item];
+generate_virtual(ipaddr, _, _) -> [];      %% ToDo: IpV6
 
-generate_virtual(list, Items) when is_list(Items) ->
+generate_virtual(list=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_list(X) end,
     lists:filter(Pred,Items);
 
-generate_virtual(timestamp, Items) when is_list(Items) ->
+generate_virtual(timestamp=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun
         ({Meg,Sec,Mic}) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> true;
         (_) -> false
     end,
     lists:filter(Pred,Items);
-generate_virtual(timestamp, {Meg,Sec,Mic}=Item) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> 
+generate_virtual(timestamp, {Meg,Sec,Mic}=Item, _) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> 
     [Item];
-generate_virtual(timestamp, _) -> [];
+generate_virtual(timestamp, _, _) -> [];
 
-generate_virtual(tuple, Items) when is_list(Items) ->
+generate_virtual(tuple=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_tuple(X) end,
     lists:filter(Pred,Items);
-generate_virtual(tuple, Item) when is_tuple(Item)-> [Item];
-generate_virtual(tuple, _) -> [];
+generate_virtual(tuple, Item, _) when is_tuple(Item)-> [Item];
+generate_virtual(tuple, _, _) -> [];
 
-generate_virtual(pid, Items) when is_list(Items) ->
+generate_virtual(pid=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_pid(X) end,
     lists:filter(Pred,Items);
-generate_virtual(pid, Item) when is_pid(Item)-> [Item];
-generate_virtual(pid, _) -> [];
+generate_virtual(pid, Item, _) when is_pid(Item)-> [Item];
+generate_virtual(pid, _, _) -> [];
 
-generate_virtual(ref, Items) when is_list(Items) ->
+generate_virtual(ref=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_reference(X) end,
     lists:filter(Pred,Items);
-generate_virtual(ref, Item) when is_reference(Item)-> [Item];
-generate_virtual(ref, _) -> [];
+generate_virtual(ref, Item, _) when is_reference(Item)-> [Item];
+generate_virtual(ref, _, _) -> [];
 
-generate_virtual(string, Items) when is_list(Items) ->
+generate_virtual(string=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     case io_lib:printable_unicode_list(Items) of
         true ->     Items;
         false ->    []
     end;
 
-generate_virtual(term, Items) when is_list(Items) ->
+generate_virtual(term=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Items;
-generate_virtual(term, Item) ->
+generate_virtual(term, Item, _) ->
     [Item];
 
-generate_virtual(userid, Items) when is_list(Items) ->
+generate_virtual(userid=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
     lists:filter(Pred,Items);               %% ToDo: filter in imem_account
-generate_virtual(userid, Item) when is_integer(Item)-> 
+generate_virtual(userid, Item, _) when is_integer(Item)-> 
     [Item];                                 %% ToDo: filter in imem_account
-generate_virtual(userid, _) -> [];
+generate_virtual(userid, _, _) -> [];
 
-generate_virtual(Table,Items) -> 
+generate_virtual(Table, Items, _MaxSize) -> 
     ?UnimplementedException({"Unsupported virtual table generation",{Table,Items}}).
+
+generate_limit_check(Table, CurSize, MaxSize) when CurSize > MaxSize -> 
+    ?ClientError({"Too much data for virtual table generation",{Table,CurSize,MaxSize}});
+generate_limit_check(_,_,_) -> ok. 
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},
@@ -1199,6 +1225,21 @@ receive_all(Acc) ->
         stop ->     lists:reverse(Acc);
         Result ->   receive_all([Result|Acc])
     end.
+
+receive_all_silently() ->
+    receive_all_silently([]).
+
+receive_all_silently(Acc) ->    
+    case receive 
+            R ->    % io:format(user, "~p got:~n~p~n", [erlang:now(),R]),
+                    R
+        after 500 ->
+            stop
+        end of
+        stop ->     lists:reverse(Acc);
+        Result ->   receive_all([Result|Acc])
+    end.
+
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
