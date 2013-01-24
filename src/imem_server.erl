@@ -92,28 +92,32 @@ handle_cast(_Msg, State) ->
 handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
     ok = inet:setopts(Sock, [{active, once}]),
     NewBuf = <<Buf/binary, Data/binary>>,
-    Res = (catch binary_to_term(NewBuf)),
-    case Res  of
+    case (catch binary_to_term(NewBuf)) of
         {'EXIT', _} ->
             %io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
             {noreply, State#state{buf=NewBuf}};
-        [Mod,Fun|Args] ->
-            % replace penultimate pid wih socket (if present)
-            %io:format(user, "__SERVER__ call ~p:~p(~p)~n", [Mod,Fun,Args]),
-            %io:format(user, "__SERVER__ call ~p:~p~n", [Mod,Fun]),
-            case Fun of
-                fetch_recs_async ->
-                    NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
-                    catch apply(Mod,Fun,NewArgs);
-                _ ->
-                    ApplyRes = try apply(Mod,Fun,Args)
-                    catch 
-                        _Class:Reason ->
-                            {error, Reason}
-                    end,
-                    send_resp(ApplyRes, Sock)
+        Term ->
+            case Term of
+                [Mod,Fun|Args] ->
+                    % replace penultimate pid wih socket (if present)
+                    % io:format(user, "__SERVER__ call ~p:~p(~p)~n", [Mod,Fun,Args]),
+                    % io:format(user, "__SERVER__ call ~p:~p~n", [Mod,Fun]),
+                    case Fun of
+                        fetch_recs_async ->
+                            NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
+                            catch apply(Mod,Fun,NewArgs);
+                        _ ->
+                            ApplyRes = try apply(Mod,Fun,Args)
+                            catch 
+                                _Class:Reason ->
+                                    {error, Reason}
+                            end,
+                            send_resp(ApplyRes, Sock)
+                    end
             end,
-            {noreply, State#state{buf= <<>>}}
+            TSize = byte_size(term_to_binary(Term)),
+            RestSize = byte_size(NewBuf)-TSize,
+            handle_info({tcp,Sock,binary_part(NewBuf, {TSize, RestSize})}, State#state{buf= <<>>})
     end;
 handle_info({tcp_closed, _Sock}, State) ->
     % io:format("handle_info closed ~p~n", [_Sock]),
