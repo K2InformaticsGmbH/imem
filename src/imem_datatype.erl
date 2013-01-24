@@ -500,6 +500,8 @@ validate_date(Date) ->
         false ->    ?ClientError({})
     end.    
 
+string_to_ipaddr(Val,undefined) -> 
+    string_to_ipaddr(Val,0);
 string_to_ipaddr(Val,Len) ->
     Result = try 
         [ip_item(Item) || Item <- string:tokens(Val, ".")]
@@ -607,6 +609,8 @@ erl_value(Val) ->
     {value,Value,_}=erl_eval:exprs(ErlAbsForm,[]),    
     Value.
 
+string_to_fun(Val,undefined) ->
+    string_to_fun(Val,0);
 string_to_fun(Val,Len) ->
     Fun = erl_value(Val),
     if 
@@ -943,6 +947,10 @@ data_types(_) ->
         ?assertEqual({1,0,0}, parse_time("01")),        
         ?assertEqual({0,0,0}, parse_time("")),        
         io:format(user, "parse_time success~n", []),
+
+        ?assertEqual({1,2,3,4},string_to_ipaddr("1.2.3.4",0)),
+        ?assertEqual({1,2,3,4},value_to_db(0,"",ipaddr,0,0,undefined,false,"1.2.3.4")),
+        ?assertEqual({1,2,3,4},value_to_db(0,"",ipaddr,0,0,undefined,false,"\"1.2.3.4\"")),
 
         Item = 0,
         OldString = "OldString",
