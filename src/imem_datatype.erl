@@ -101,8 +101,8 @@ select_rowfun_raw(ColMap) ->
         select_rowfun_raw(Recs, ColMap, []) 
     end.
 
-select_rowfun_raw(Recs, [], Acc) ->
-    [Recs|lists:reverse(Acc)];
+select_rowfun_raw(_Recs, [], Acc) ->
+    lists:reverse(Acc);
 select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
     select_rowfun_raw(Recs, ColMap, [element(Ci,element(Ti,Recs))|Acc]);
 select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
@@ -119,8 +119,8 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
         select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, []) 
     end.
 
-select_rowfun_str(Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
-    [Recs|lists:reverse(Acc)];
+select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
+    lists:reverse(Acc);
 select_rowfun_str(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_string(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
     select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
@@ -145,8 +145,8 @@ select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
         select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, []) 
     end.
 
-select_rowfun_gui(Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
-    [Recs|lists:reverse(Acc)];
+select_rowfun_gui(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
+    lists:reverse(Acc);
 select_rowfun_gui(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_gui(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
     select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
