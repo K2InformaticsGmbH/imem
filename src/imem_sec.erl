@@ -538,6 +538,8 @@ seco_authorized(SKey) ->
             ?SecurityException({"Not logged in", SKey})
     end.   
 
+have_table_ownership(SKey, {Schema,Table,_Alias}) ->
+    have_table_ownership(SKey, {Schema,Table});
 have_table_ownership(SKey, {Schema,Table}) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     Owner = case imem_meta:read(ddTable, {Schema,Table}) of
@@ -548,6 +550,8 @@ have_table_ownership(SKey, {Schema,Table}) ->
 have_table_ownership(SKey, Table) ->
     have_table_ownership(SKey, {imem_meta:schema(),Table}).
 
+have_table_permission(SKey, {Schema,Table,_Alias}, Operation, Type) ->
+    have_table_permission(SKey, {Schema,Table}, Operation, Type);
 have_table_permission(_SKey, dual, select, _) ->  true;
 have_table_permission(_SKey, dual, _, _) ->  false;
 have_table_permission(SKey, Table, Operation, true) ->

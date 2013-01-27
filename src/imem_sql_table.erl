@@ -6,14 +6,17 @@
         ]).
     
 exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
-exec(SKey, {'drop table', {tables, [Table|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Schema, IsSec) ->
+exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Schema, IsSec) ->
     % io:format(user,"ParseTree ~p~n", [_ParseTree]),
-    Tab = ?binary_to_existing_atom(Table),
-    if_call_mfa(IsSec, 'drop_table', [SKey,Tab]),
+    QName = imem_sql:table_qname(TableName),      %% ?binary_to_existing_atom(Table),
+    if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
+exec(SKey, {'truncate table', TableName}=_ParseTree, _Stmt, _Schema, IsSec) ->
+    io:format(user,"Parse Tree ~p~n", [_ParseTree]),
+    if_call_mfa(IsSec, 'truncate_table', [SKey, imem_sql:table_qname(TableName)]);
 exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Schema, IsSec) ->
     % io:format(user,"Parse Tree ~p~n", [_ParseTree]),
-    create_table(SKey, ?binary_to_atom(TableName), TOpts, Columns, IsSec, []).
+    create_table(SKey, imem_sql:table_qname(TableName), TOpts, Columns, IsSec, []).
 
 create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);
@@ -77,6 +80,7 @@ setup() ->
     ?imem_test_setup().
 
 teardown(_) -> 
+    catch imem_meta:drop_table(truncate_test),
     catch imem_meta:drop_table(def),
     ?imem_test_teardown().
 
@@ -120,6 +124,20 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Meta table~n~p~n", [Meta]),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertEqual(Expected,element(3,Meta)),    
+
+        % ?assertEqual(ok, imem_sql:exec(SKey, 
+        %     "create table truncate_test (col1 integer, col2 string);", 0, 'Imem', IsSec)),
+        % if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,1,""}]),
+        % if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,2,"abc"}]),
+        % if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,3,"123"}]),
+        % if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,4,undefined}]),
+        % if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,5,[]}]),
+        % ?assertEqual(5,  if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
+        % ?assertEqual(ok, imem_sql:exec(SKey, 
+        %     "truncate table truncate_test;", 0, 'Imem', IsSec)),
+        % ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
+        % ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, 'Imem', IsSec)),
+
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec))

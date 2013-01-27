@@ -80,8 +80,11 @@ exec(SKey, 'create table', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_table:exec(SKey, ParseTree, Stmt, Schema, IsSec);
 exec(SKey, 'drop table', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_table:exec(SKey, ParseTree, Stmt, Schema, IsSec);
-exec(SKey, Command, _ParseTree, _Stmt, _Schema, _IsSec) ->
-    ?UnimplementedException({"SQL command unimplemented", {SKey, Command}}).
+exec(SKey, 'truncate table', ParseTree, Stmt, Schema, IsSec) ->
+    imem_sql_table:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+
+exec(SKey, Command, ParseTree, _Stmt, _Schema, _IsSec) ->
+    ?UnimplementedException({"SQL command unimplemented", {SKey, Command, ParseTree}}).
 
 
 field_qname(B) when is_binary(B) ->

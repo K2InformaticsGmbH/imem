@@ -163,8 +163,8 @@ create_type_tables([Type|Types]) ->
     check_table_meta(Type, {[item], [Type], {Type,undefined}}),
     create_type_tables(Types).
 
-system_table({_,Table}) ->
-    system_table(Table);
+system_table({_S,Table,_A}) -> system_table(Table);
+system_table({_,Table}) -> system_table(Table);
 system_table(Table) when is_atom(Table) ->
     case lists:member(Table,?META_TABLES) of
         true ->     true;
@@ -310,6 +310,8 @@ create_table(Table, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
     create_physical_table(Table,ColumnInfos,Opts,Owner).
 
+create_physical_table({Schema,Table,_Alias},ColumnInfos,Opts,Owner) ->
+    create_physical_table({Schema,Table},ColumnInfos,Opts,Owner);
 create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
     case Schema of
@@ -335,6 +337,8 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
     end,
     imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner}).
 
+drop_table({Schema,Table,_Alias}) -> 
+    drop_table({Schema,Table});
 drop_table({Schema,Table}) ->
     MySchema = schema(),
     case Schema of
@@ -354,6 +358,8 @@ drop_table(Table) ->
     imem_if:delete(ddTable, {schema(),PhysicalName}).
 
 
+physical_table_name({_S,N,_A}) -> physical_table_name(N);
+physical_table_name({_S,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
 physical_table_name(user_tables) -> ddTable;
