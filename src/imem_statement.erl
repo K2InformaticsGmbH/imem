@@ -1015,7 +1015,7 @@ receive_list(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Time
             case lists:usort([element(1, SR) || SR <- Unchecked]) of
                 [StmtRef] ->                
                     List = lists:flatten([element(1,element(2, T)) || T <- Unchecked]),
-                    RT = imem_statement:result_tuples(List,RowFun),
+                    RT = result_tuples(List,RowFun),
                     if 
                         length(RT) =< 10 ->
                             io:format(user, "Received  : ~p~n", [RT]);
@@ -1199,42 +1199,6 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
         ?assertEqual(5,imem_meta:table_size(def)),
 
-        % Sql3 = "select name(qname) from all_tables",    %Imem.ddTable
-        % io:format(user, "Query3: ~p~n", [Sql3]),
-        % {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
-        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        % List3a = imem_statement:receive_list(StmtRef3,true),
-        % io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List3a,_RowFun3)]),
-        % ?assert(lists:member({"Imem.def"},imem_statement:result_tuples(List3a,_RowFun3))),
-        % ?assert(lists:member({"Imem.ddTable"},imem_statement:result_tuples(List3a,_RowFun3))),
-        % ?assertEqual(AllTableCount, length(List3a)),
-        % io:format(user, "first read success (async)~n", []),
-        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        % [{StmtRef3, {error, Reason3}}] = imem_statement:receive_raw(),
-        % ?assertEqual({'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},Reason3),
-        % ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)),
-        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        % List3b = imem_statement:receive_list(StmtRef3,true),
-        % io:format(user, "Result: ~p~n", [imem_statement:result_lists(List3b,_RowFun3)]),
-        % ?assertEqual(List3a,List3b),
-        % io:format(user, "second read success (async)~n", []),
-        % ?assertException(throw,{'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec)),
-        % ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)), % actually not needed here, fetch_recs does it
-        % List3c = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
-        % ?assertEqual(length(List3b), length(List3c)),
-        % ?assertEqual(lists:sort(List3b), lists:sort(List3c)),
-        % io:format(user, "third read success (sync)~n", []),
-
-        % Sql5 = "select col1, col2, col3, user from def where 1=1 and col2 = \"7\"",
-        % io:format(user, "Query5: ~p~n", [Sql5]),
-        % {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
-        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
-        % List5 = imem_statement:result_tuples(imem_statement:receive_list(StmtRef5,true),RowFun5),
-        % io:format(user, "Result: ~p~n", [List5]),
-        % ?assertEqual(1, length(List5)),
-        % ?assertMatch([{"7","7",_DString,_UString}], List5),            
-        % ?assertEqual(ok, imem_statement:close(SKey, StmtRef5)),
-
         SR3 = exec(SKey,query3, 2, IsSec, 
             "select t1.col1, t2.col2 
              from def t1, def t2 
@@ -1264,42 +1228,79 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
         ?assertEqual(10,imem_meta:table_size(def)),
 
-        Sql5 = "select col1 from def;",
-        io:format(user, "Query5: ~p~n", [Sql5]),
-        {ok, _Clm5, _RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 5, 'Imem', IsSec),
+        SR4 = exec(SKey,query4, 5, IsSec, "select col1 from def;"),
         try
-            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef5, self(), [], IsSec)),
-            List5a = receive_list(StmtRef5,false),
-            ?assertEqual(5, length(List5a)),
+            ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
+            List4a = receive_list(SR4,false),
+            ?assertEqual(5, length(List4a)),
             io:format(user, "trying to insert one row before fetch complete~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             io:format(user, "completed insert one row before fetch complete~n", []),
-            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef5, self(), [{tail_mode,true}], IsSec)),
-            List5b = receive_list(StmtRef5,true),
-            ?assertEqual(5, length(List5b)),
+            ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),
+            List4b = receive_list(SR4,true),
+            ?assertEqual(5, length(List4b)),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
-            List5c = receive_list(StmtRef5,tail),
-            ?assertEqual(1, length(List5c)),
+            List4c = receive_list(SR4,tail),
+            ?assertEqual(1, length(List4c)),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             ?assertEqual(ok, insert_range(SKey, 11, def, 'Imem', IsSec)),
             ?assertEqual(11,imem_meta:table_size(def)),
-            List5d = receive_list(StmtRef5,tail),
-            ?assertEqual(12, length(List5d)),
+            List4d = receive_list(SR4,tail),
+            ?assertEqual(12, length(List4d)),
             io:format(user, "12 tail rows received in single packets~n", []),
-            ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
-            Result5e = receive_raw(),
-            io:format(user, "reject receive ~p~n", [Result5e]),
-            [{StmtRef5, {error, {ClEr,Reason5}}}] = Result5e, 
-            ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason5),
-            io:format(user, "no fetch restart allowed in tail mode~n", []),
-            ?assertEqual(ok, fetch_close(SKey, StmtRef5, IsSec)),
+            ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
+            Result4e = receive_raw(),
+            io:format(user, "reject received ~p~n", [Result4e]),
+            [{StmtRef4, {error, {ClEr,Reason4e}}}] = Result4e, 
+            ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason4e),
+            ?assertEqual(StmtRef4,SR4#stmtResult.stmtRef),
+            ?assertEqual(ok, fetch_close(SKey, SR4, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
-            Result5f = receive_raw(),
-            io:format(user, "last receive ~p~n", [Result5f]),
-            ?assertEqual([], Result5f)        
+            ?assertEqual([], receive_raw())
         after
-            ?assertEqual(ok, close(SKey, StmtRef5))
+            ?assertEqual(ok, close(SKey, SR4))
         end,
+
+        SR5 = exec(SKey,query5, 100, IsSec, "select name(qname) from all_tables"),
+        try
+            ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
+            List5a = receive_list(SR5,true),
+            ?assert(lists:member({"Imem.def"},List5a)),
+            ?assert(lists:member({"Imem.ddTable"},List5a)),
+            io:format(user, "first read success (async)~n", []),
+            ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
+            [{StmtRef5, {error, Reason5a}}] = receive_raw(),
+            ?assertEqual({'ClientError',
+                "Fetch is completed, execute fetch_close before fetching from start again"},
+                Reason5a),
+            ?assertEqual(StmtRef5,SR5#stmtResult.stmtRef),
+            ?assertEqual(ok, fetch_close(SKey, SR5, IsSec)),
+            ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
+            List5b = receive_list(SR5,true),
+            ?assertEqual(List5a,List5b),
+            io:format(user, "second read success (async)~n", []),
+            ?assertException(throw,
+                {'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},
+                fetch_recs_sort(SKey, SR5, self(), 1000, IsSec)
+            ),
+            ?assertEqual(ok, fetch_close(SKey, SR5, IsSec)), % actually not needed here, fetch_recs does it
+            List5c = fetch_recs_sort(SKey, SR5, self(), 1000, IsSec),
+            ?assertEqual(length(List5b), length(List5c)),
+            ?assertEqual(lists:sort(List5b), lists:sort(List5c)),
+            io:format(user, "third read success (sync)~n", [])
+        after
+            ?assertEqual(ok, close(SKey, SR4))
+        end,
+
+        % Sql5 = "select col1, col2, col3, user from def where 1=1 and col2 = \"7\"",
+        % io:format(user, "Query5: ~p~n", [Sql5]),
+        % {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
+        % ?assertEqual(ok, fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
+        % List5 = result_tuples(receive_list(StmtRef5,true),RowFun5),
+        % io:format(user, "Result: ~p~n", [List5]),
+        % ?assertEqual(1, length(List5)),
+        % ?assertMatch([{"7","7",_DString,_UString}], List5),            
+        % ?assertEqual(ok, close(SKey, StmtRef5)),
 
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
@@ -1386,8 +1387,9 @@ exec(SKey,Id, BS, IsSec, Sql) ->
     io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
-    #stmtResult{stmtRows=StmtRows} = StmtResult,
-    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    #stmtResult{stmtCols=StmtCols} = StmtResult,
+    io:format(user, "Statement Cols : ~p~n", [StmtCols]),
+    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     StmtResult.
 
 fetch_async(SKey, StmtResult, Opts, IsSec) ->

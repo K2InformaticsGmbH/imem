@@ -32,8 +32,8 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     end,
     ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
     % io:format(user,"Column map: ~p~n", [ColMaps1]),
-    StmtRows = [#stmtRow{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
-    % io:format(user,"Statement rows: ~p~n", [StmtRows]),
+    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
+    % io:format(user,"Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
         str ->  imem_datatype:select_rowfun_str(ColMaps1, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
@@ -76,7 +76,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
-    {ok, #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun,sortFun=SortFun}}.
+    {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun}}.
 
 build_main_spec(SKey,Tmax,Ti,WhereTree,FullMap) when (Ti==1) ->
     SGuards= query_guards(SKey,Tmax,Ti,WhereTree,FullMap),
@@ -704,10 +704,10 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
-    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs(SKey, StmtRef, self(), 1000, IsSec),
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
-    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
     io:format(user, "Result: ~p~n", [RT]),
     ?assertEqual(Expected, RT),
@@ -717,10 +717,10 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
-    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtRef, self(), 1000, IsSec),
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
-    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
     io:format(user, "Result  : ~p~n", [RT]),
     ?assertEqual(Expected, RT),
@@ -730,10 +730,10 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
-    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtRef, self(), 1000, IsSec),
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
-    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 10 ->
@@ -747,10 +747,10 @@ exec_fetch(SKey,Id, BS, IsSec, Sql) ->
     io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
-    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs(SKey, StmtRef, self(), 1000, IsSec),
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
-    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 10 ->
