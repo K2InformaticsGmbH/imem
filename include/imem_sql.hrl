@@ -41,7 +41,7 @@
                     , joinSpecs = []                ::list()            %% how to find joined records list({MatchSpec,Binds})
                     }).
 
--record(stmtRow,                                    %% simplified column map for client
+-record(stmtCol,                                    %% simplified column map for client
                   { tag                             ::any()
                   , alias                           ::binary()          %% column name or expression
                   , type = term                     ::atom()
@@ -54,7 +54,7 @@
 -record(stmtResult,                                 %% result record for exec function call
                   { rowCount = 0                    %% RowCount
                   , stmtRef = undefined             %% id needed for fetching
-                  , stmtRows = undefined            ::list(#stmtRow{})  %% simplified column map of main statement
+                  , stmtCols = undefined            ::list(#stmtCol{})  %% simplified column map of main statement
                   , rowFun  = undefined             ::fun()             %% rendering fun for row {key rec} -> [ResultValues]
                   , sortFun = undefined             ::fun()             %% rendering fun for sorting {key rec} -> SortColumn
                   }
