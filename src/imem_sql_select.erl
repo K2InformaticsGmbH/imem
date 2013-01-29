@@ -31,7 +31,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             ?ClientError({"Invalid select structure", CError})
     end,
     ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
-    % io:format(user,"Column map: ~p~n", [ColMaps1]),
+    io:format(user,"Column map: ~p~n", [ColMaps1]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
     % io:format(user,"Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of

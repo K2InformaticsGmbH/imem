@@ -1286,21 +1286,39 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_close(SKey, SR5, IsSec)), % actually not needed here, fetch_recs does it
             List5c = fetch_recs_sort(SKey, SR5, self(), 1000, IsSec),
             ?assertEqual(length(List5b), length(List5c)),
-            ?assertEqual(lists:sort(List5b), lists:sort(List5c)),
+            ?assertEqual(lists:sort(List5b), lists:sort(result_tuples(List5c,SR5#stmtResult.rowFun))),
             io:format(user, "third read success (sync)~n", [])
         after
             ?assertEqual(ok, close(SKey, SR4))
         end,
 
-        % Sql5 = "select col1, col2, col3, user from def where 1=1 and col2 = \"7\"",
-        % io:format(user, "Query5: ~p~n", [Sql5]),
-        % {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
-        % ?assertEqual(ok, fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
-        % List5 = result_tuples(receive_list(StmtRef5,true),RowFun5),
-        % io:format(user, "Result: ~p~n", [List5]),
-        % ?assertEqual(1, length(List5)),
-        % ?assertMatch([{"7","7",_DString,_UString}], List5),            
-        % ?assertEqual(ok, close(SKey, StmtRef5)),
+        RowCount6 = imem_meta:table_size(def),
+        SR6 = exec(SKey,query6, 3, IsSec, "select col1 from def;"),
+        try
+            ?assertEqual(ok, fetch_async(SKey, SR6, [{fetch_mode,push}], IsSec)),
+            List6a = receive_list(SR6,true),
+            ?assertEqual(RowCount6, length(List6a)),
+            ?assertEqual([], receive_raw()),
+            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual([], receive_raw())            
+        after
+            ?assertEqual(ok, close(SKey, SR6))
+        end,
+
+        SR7 = exec(SKey,query7, 3, IsSec, "select col1 from def;"),
+        try
+            ?assertEqual(ok, fetch_async(SKey, SR7, [{fetch_mode,skip},{tail_mode,true}], IsSec)),
+            ?assertEqual([], receive_raw()),
+            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            List7a = receive_list(SR7,tail),
+            ?assertEqual(5, length(List7a)),
+            ?assertEqual([], receive_raw()),
+            ?assertEqual(ok, fetch_close(SKey, SR7, IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual([], receive_raw())
+        after
+            ?assertEqual(ok, close(SKey, SR7))
+        end,
 
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),

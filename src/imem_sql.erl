@@ -237,13 +237,12 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
     end;
 column_map([], [{'fun',Fname,[Name]}|Columns], Tindex, Lookup, Meta, Acc) ->
     {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname}|Columns], Tindex, Lookup, Meta, Acc);    
+    Alias = list_to_binary(atom_to_list(Fname) ++ "(" ++ binary_to_list(Name) ++ ")"),
+    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=Fname}|Columns], Tindex, Lookup, Meta, Acc);    
 column_map([], [{as, {'fun',Fname,[Name]}, Alias}|Columns], Tindex, Lookup, Meta, Acc) ->
-    % Alias = ?binary_to_atom(BAlias),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [{as, Name, Alias}|Columns], Tindex, Lookup, Meta, Acc) ->
-    %Alias = ?binary_to_atom(BAlias),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
