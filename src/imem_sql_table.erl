@@ -57,8 +57,8 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
     end,
     C = #ddColumn{  name=?binary_to_atom(Name)
                   , type=T
-                  , length=L
-                  , precision=P
+                  , len=L
+                  , prec=P
                   , default=Default
                   , opts = Opts
                   },

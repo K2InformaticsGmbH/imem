@@ -6,7 +6,7 @@
 -define(DefaultRendering, str ).         %% gui (strings when necessary) | str (always strings) | raw (erlang terms) 
 -define(DefaultDateFormat, eu ).         %% eu | us | iso | raw
 -define(DefaultStrFormat, []).           %% escaping not implemented
--define(DefaultNumFormat, [{prec,2}]).   %% precision, no 
+-define(DefaultNumFormat, [{prec,2}]).   %% prec, no 
 
 -export([ exec/5
         ]).
@@ -19,10 +19,10 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
                             true ->     ?ClientError({"Virtual table can only be joined", MainTab});
                             false ->    Tabs
                         end;
-        TError ->       ?ClientError({"Invalid select structure", TError})
+        TError ->       ?ClientError({"Invalid from in select structure", TError})
     end,
     % io:format(user,"Tables: ~p~n", [Tables]),
-    ColMaps = case lists:keyfind(fields, 1, SelectSections) of
+    ColMaps0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql:column_map(Tables,[]);
         {_, FieldList} -> 
@@ -30,11 +30,14 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid select structure", CError})
     end,
-    % io:format(user,"Column map: ~p~n", [ColMaps]),
+    ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
+    % io:format(user,"Column map: ~p~n", [ColMaps1]),
+    StmtRows = [#stmtRow{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
+    % io:format(user,"Statement rows: ~p~n", [StmtRows]),
     RowFun = case ?DefaultRendering of
-        raw ->  imem_datatype:select_rowfun_raw(ColMaps);
-        str ->  imem_datatype:select_rowfun_str(ColMaps, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
-        gui ->  imem_datatype:select_rowfun_gui(ColMaps, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
+        raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
+        str ->  imem_datatype:select_rowfun_str(ColMaps1, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
+        gui ->  imem_datatype:select_rowfun_gui(ColMaps1, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
         {_, WT} ->  WT;
@@ -42,7 +45,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     end,
     % io:format(user, "WhereTree ~p~n", [WhereTree]),
     MetaTabIdx = length(Tables) + 1,
-    MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps, C#ddColMap.tind==MetaTabIdx])],
+    MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps1, C#ddColMap.tind==MetaTabIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
     % io:format(user,"MetaFields: ~p~n", [MetaFields]),
     RawMap = case MetaFields1 of
@@ -51,7 +54,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         MF ->   
             % io:format(user, "MetaFields (~p)~n~p~n", [length(MF),MF]),
             MetaMap0 = [{#ddColMap{name=N,tind=MetaTabIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
-            MetaMap1 = [CM#ddColMap{type=T,length=L,precision=P} || {CM,#ddColumn{type=T, length=L, precision=P}} <- MetaMap0],
+            MetaMap1 = [CM#ddColMap{type=T,len=L,prec=P} || {CM,#ddColumn{type=T, len=L, prec=P}} <- MetaMap0],
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
@@ -60,13 +63,20 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % io:format(user,"MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
     % io:format(user, "JoinSpecs: ~p~n", [JoinSpecs]),
+    _Sorts = case lists:keyfind('order by', 1, SelectSections) of
+        {_, SNames} ->  % io:format(user,"SNames  : ~p~n", [SNames]),
+                        SNames;
+        SError ->       ?ClientError({"Invalid order by in select structure", SError})
+    end,
+    % io:format(user,"Sort: ~p~n", [Sorts]),
+    SortFun = fun(_X) -> {} end,
     Statement = Stmt#statement{
-                    tables=Tables, colMaps=ColMaps, metaFields=MetaFields1, rowFun=RowFun,
+                    tables=Tables, colMaps=ColMaps1, metaFields=MetaFields1, 
+                    rowFun=RowFun, sortFun=SortFun, 
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
-    {ok, ColMaps, RowFun, StmtRef}.
-
+    {ok, #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun,sortFun=SortFun}}.
 
 build_main_spec(SKey,Tmax,Ti,WhereTree,FullMap) when (Ti==1) ->
     SGuards= query_guards(SKey,Tmax,Ti,WhereTree,FullMap),
@@ -237,7 +247,7 @@ field_lookup(Name,FullMap) ->
     case length(ML) of
         0 ->    {Value,Type} = value_lookup(Name),
                 {0,Value,Type,U,U,U,Name};
-        1 ->    #ddColMap{tag=Tag,type=T,tind=Ti,length=L,precision=P,default=D} = hd(ML),
+        1 ->    #ddColMap{tag=Tag,type=T,tind=Ti,len=L,prec=P,default=D} = hd(ML),
                 {Ti,Tag,T,L,P,D,Name};
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
@@ -318,9 +328,8 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
-        Timeout = 2000,
 
-        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        io:format(user, "~n----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
         io:format(user, "schema ~p~n", [imem_meta:schema()]),
         io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -336,355 +345,340 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
-                create table def (
-                    col1 integer, 
-                    col2 char(20), 
-                    col3 date,
-                    col4 ipaddr
-                );", 0, 'Imem', IsSec)),
+    %% test table def
+
+        ?assertEqual(ok, imem_sql:exec(SKey,
+            "create table def (
+                col1 integer, 
+                col2 char(20), 
+                col3 date,
+                col4 ipaddr
+            );", 0, 'Imem', IsSec)),
 
         ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
 
-        {List0, true} =  if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 1000]),
-        % io:format(user, "ddTable MatchAllRecords (~p)~n~p~n...~n~p~n", [length(List0),hd(List0),lists:last(List0)]),
-        AllTableCount = length(List0),
+        {L0, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
+        io:format(user, "Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
+        ?assertEqual(10, length(L0)),
 
-        {L1, true} = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
-        % io:format(user, "all_tables MatchAllKeys (~p)~n~p~n", [length(L1),L1]),
-        ?assertEqual(AllTableCount, length(L1)),
-
-        {_L2, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
-        io:format(user, "def MatchAllRecords (~p)~n~p~n...~n~p~n", [length(_L2),hd(_L2),lists:last(_L2)]),
-
-        Sql1 = "select * from dual",
-        io:format(user, "Query1: ~p~n", [Sql1]),
-        {ok, _Clm1, _RowFun1, StmtRef1} = imem_sql:exec(SKey, Sql1, 100, 'Imem', IsSec),
-        List1 = imem_statement:fetch_recs_sort(SKey, StmtRef1, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List1,_RowFun1)]),
-        ?assertEqual([{"X","'$not_a_value'"}], imem_statement:result_tuples(List1,_RowFun1)),
-
-        Sql1a = "select dummy from dual",
-        io:format(user, "Query1a: ~p~n", [Sql1a]),
-        {ok, _Clm1a, _RowFun1a, StmtRef1a} = imem_sql:exec(SKey, Sql1a, 100, 'Imem', IsSec),
-        List1a = imem_statement:fetch_recs_sort(SKey, StmtRef1a, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List1a,_RowFun1a)]),
-        ?assertEqual([{"X"}], imem_statement:result_tuples(List1a,_RowFun1a)),
-
-        Sql1b = "select sysdate from dual",
-        io:format(user, "Query1b: ~p~n", [Sql1b]),
-        {ok, _Clm1b, _RowFun1b, StmtRef1b} = imem_sql:exec(SKey, Sql1b, 100, 'Imem', IsSec),
-        List1b = imem_statement:fetch_recs_sort(SKey, StmtRef1b, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List1b,_RowFun1b)]),
-        ?assertEqual(19, length(element(1,hd(imem_statement:result_tuples(List1b,_RowFun1b))))),
-
-        Sql1c = "select systimestamp from dual",
-        io:format(user, "Query1c: ~p~n", [Sql1c]),
-        {ok, _Clm1c, _RowFun1c, StmtRef1c} = imem_sql:exec(SKey, Sql1c, 100, 'Imem', IsSec),
-        List1c = imem_statement:fetch_recs_sort(SKey, StmtRef1c, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List1c,_RowFun1c)]),
-        ?assertEqual(26, length(element(1,hd(imem_statement:result_tuples(List1c,_RowFun1c))))),
-
-        Sql1d = "select user from dual",
-        io:format(user, "Query1d: ~p~n", [Sql1d]),
-        {ok, _Clm1d, _RowFun1d, StmtRef1d} = imem_sql:exec(SKey, Sql1d, 100, 'Imem', IsSec),
-        List1d = imem_statement:fetch_recs_sort(SKey, StmtRef1d, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List1d,_RowFun1d)]),
-        case IsSec of
-            false ->    ?assertEqual([{"unknown"}], imem_statement:result_tuples(List1d,_RowFun1d));
-            true ->     ?assertEqual([{"admin"}], imem_statement:result_tuples(List1d,_RowFun1d))
-        end,
-
-        Sql2 = "select item from integer",
-        io:format(user, "Query2: ~p~n", [Sql2]),
-        ?assertException(throw,{ClEr,{"Virtual table can only be joined",integer}}, imem_sql:exec(SKey, Sql2, 100, 'Imem', IsSec)),
-
-        Sql2a = "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)",
-        io:format(user, "Query2a: ~p~n", [Sql2a]),
-        {ok, _Clm2a, _RowFun2a, StmtRef2a} = imem_sql:exec(SKey, Sql2a, 100, 'Imem', IsSec),
-        List2a = imem_statement:fetch_recs(SKey, StmtRef2a, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List2a,_RowFun2a)]),
-        ?assertEqual([{"10"},{"132"},{"7"},{"1"}], imem_statement:result_tuples(List2a,_RowFun2a)),
-
-        Sql2b = "select col3, item from def, integer where is_member(item,\"'$_'\")",
-        io:format(user, "Query2b: ~p~n", [Sql2b]),
-        {ok, _Clm2b, _RowFun2b, StmtRef2b} = imem_sql:exec(SKey, Sql2b, 100, 'Imem', IsSec),
-        List2b = imem_statement:fetch_recs_sort(SKey, StmtRef2b, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List2b,_RowFun2b)]),
-        ?assertEqual(10, length(imem_statement:result_tuples(List2b,_RowFun2b))),
-
-        Sql6 = "select col1, col2 from def where col1>=5 and col1<=6",
-        io:format(user, "Query6: ~p~n", [Sql6]),
-        {ok, _Clm6, _RowFun6, StmtRef6} = imem_sql:exec(SKey, Sql6, 100, 'Imem', IsSec),
-        List6 = imem_statement:fetch_recs_sort(SKey, StmtRef6, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List6,_RowFun6)]),
-        ?assertEqual([{"5","5"},{"6","6"}], imem_statement:result_tuples(List6,_RowFun6)),
-
-        Sql7 = "select col1, col2 from def where col1 in (5,6)",
-        io:format(user, "Query7: ~p~n", [Sql7]),
-        {ok, _Clm7, _RowFun7, StmtRef7} = imem_sql:exec(SKey, Sql7, 100, 'Imem', IsSec),
-        List7 = if_call_mfa(IsSec,fetch_recs_sort,[SKey, StmtRef7, self(), Timeout]),
-        % io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List7,_RowFun7)]),
-        ?assertEqual(List6, List7),
-
-        Sql8 = "select col1, col2 from def where col2 in (5,6)",
-        io:format(user, "Query8: ~p~n", [Sql8]),
-        ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"col2">>,string},{<<"5">>,integer}}}}, imem_sql:exec(SKey, Sql8, 100, 'Imem', IsSec)),
- 
-        Sql9 = "select col1, col2 from def where col2 in ('5','6')",
-        io:format(user, "Query9: ~p~n", [Sql9]),
-        {ok, _Clm9, _RowFun9, StmtRef9} = imem_sql:exec(SKey, Sql9, 100, 'Imem', IsSec),
-        List9 = imem_statement:fetch_recs_sort(SKey, StmtRef9, self(), Timeout, IsSec),
-        % io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List9,_RowFun9)]),
-        ?assertEqual(List6, List9),
-
-        List9a = imem_statement:fetch_recs_sort(SKey, StmtRef9, self(), Timeout, IsSec),
-        % io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List9a,_RowFun9)]),
-        ?assertEqual(List6, List9a),
-
-        Sql10 = "select col1, col2 from def where col2 in ('5',col2)",
-        io:format(user, "Query10: ~p~n", [Sql10]),
-        {ok, _Clm10, _RowFun10, StmtRef10} = imem_sql:exec(SKey, Sql10, 100, 'Imem', IsSec),
-        List10 = imem_statement:fetch_recs_sort(SKey, StmtRef10, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List10,_RowFun10)]),
-        ?assertEqual(  [{"1","1"},{"2","2"},{"3","3"},{"4","4"},
-                        {"5","5"},{"6","6"},{"7","7"},{"8","8"},
-                        {"9","9"},{"10","10"}], imem_statement:result_tuples(List10,_RowFun10)),
-
-        Sql10a = "select * from def where col4 < \"10.132.7.3\"",
-        io:format(user, "Query10a: ~p~n", [Sql10a]),
-        {ok, _Clm10a, _RowFun10a, StmtRef10a} = imem_sql:exec(SKey, Sql10a, 100, 'Imem', IsSec),
-        List10a = imem_statement:fetch_recs_sort(SKey, StmtRef10a, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List10a,_RowFun10a)]),
-        ?assertEqual(2, length(List10a)),
-
-        Sql3 = "select name(qname) from all_tables",    %Imem.ddTable
-        io:format(user, "Query3: ~p~n", [Sql3]),
-        {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        List3a = imem_statement:receive_list(StmtRef3,true),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List3a,_RowFun3)]),
-        ?assert(lists:member({"Imem.def"},imem_statement:result_tuples(List3a,_RowFun3))),
-        ?assert(lists:member({"Imem.ddTable"},imem_statement:result_tuples(List3a,_RowFun3))),
-        ?assertEqual(AllTableCount, length(List3a)),
-        io:format(user, "first read success (async)~n", []),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        [{StmtRef3, {error, Reason3}}] = imem_statement:receive_raw(),
-        ?assertEqual({'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},Reason3),
-        ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
-        List3b = imem_statement:receive_list(StmtRef3,true),
-        io:format(user, "Result: ~p~n", [imem_statement:result_lists(List3b,_RowFun3)]),
-        ?assertEqual(List3a,List3b),
-        io:format(user, "second read success (async)~n", []),
-        ?assertException(throw,{'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec)),
-        ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)), % actually not needed here, fetch_recs does it
-        List3c = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
-        ?assertEqual(length(List3b), length(List3c)),
-        ?assertEqual(lists:sort(List3b), lists:sort(List3c)),
-        io:format(user, "third read success (sync)~n", []),
-
-        Sql4 = "select all_tables.* from all_tables where owner = system",
-        io:format(user, "Query4: ~p~n", [Sql4]),
-        {ok, _Clm4, RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 100, 'Imem', IsSec),  %% all_tables
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef4, self(), IsSec)),
-        List4 = imem_statement:result_tuples(imem_statement:receive_list(StmtRef4,true),RowFun4),
-        io:format(user, "Result: ~p~n~p~n~p~n~p~n", [length(List4), hd(List4), "...", lists:last(List4)]),
-        case IsSec of
-            false -> ?assertEqual(AllTableCount, length(List4));
-            true ->  ?assertEqual(AllTableCount-1, length(List4))
-        end,
-
-        Sql5 = "select col1, col2, col3, user from def where 1=1 and col2 = \"7\"",
-        io:format(user, "Query5: ~p~n", [Sql5]),
-        {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
-        ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
-        List5 = imem_statement:result_tuples(imem_statement:receive_list(StmtRef5,true),RowFun5),
-        io:format(user, "Result: ~p~n", [List5]),
-        ?assertEqual(1, length(List5)),
-        ?assertMatch([{"7","7",_DString,_UString}], List5),            
-
-        ?assertEqual(ok, imem_statement:close(SKey, StmtRef3)),
-        ?assertEqual(ok, imem_statement:close(SKey, StmtRef4)),
-        ?assertEqual(ok, imem_statement:close(SKey, StmtRef5)),
-
-        Sql11 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1 and t2.col1 > t1.col1 and t2.col1 <> 9 ", %% and t2.col1 <= t1.col1 + 2 
-        io:format(user, "Query11: ~p~n", [Sql11]),
-        {ok, _Clm11, _RowFun11, StmtRef11} = imem_sql:exec(SKey, Sql11, 100, 'Imem', IsSec),
-        List11 = imem_statement:fetch_recs_sort(SKey, StmtRef11, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List11,_RowFun11)]),
-        ?assertEqual(  [{"5","6"},{"5","7"},{"5","8"},{"5","10"},{"6","7"}
-                        , {"6","8"},{"6","10"},{"7","8"},{"7","10"}]
-                        , imem_statement:result_tuples(List11,_RowFun11)),
-
-        case IsSec of
-            false ->    ok;
-            true ->     
-                Sql12 = "select * from all_tables where owner=user",
-                io:format(user, "Query12: ~p~n", [Sql12]),
-                {ok, _Clm12, _RowFun12, StmtRef12} = imem_sql:exec(SKey, Sql12, 100, 'Imem', IsSec),
-                List12 = imem_statement:fetch_recs_sort(SKey, StmtRef12, self(), Timeout, IsSec),
-                io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List12,_RowFun12)]),
-                ?assertEqual(1, length(List12)),                
-
-                Sql17 = "select name, type from ddAccount where id=user and locked <> true", 
-                io:format(user, "Query17: ~p~n", [Sql17]),
-                {ok, _Clm17, _RowFun17, StmtRef17} = imem_sql:exec(SKey, Sql17, 100, 'Imem', IsSec),
-                List17 = imem_statement:fetch_recs_sort(SKey, StmtRef17, self(), Timeout, IsSec),
-                io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List17,_RowFun17)]),
-                ?assertEqual(1, length(List17)),
-
-                Sql18 = "select name, lastLoginTime from ddAccount where lastLoginTime > sysdate - 1.1574074074074073e-4",     %% 10.0 * ?OneSecond
-                io:format(user, "Query18: ~p~n", [Sql18]),
-                {ok, _Clm18, _RowFun18, StmtRef18} = imem_sql:exec(SKey, Sql18, 100, 'Imem', IsSec),
-                List18 = imem_statement:fetch_recs(SKey, StmtRef18, self(), Timeout, IsSec),
-                io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List18,_RowFun18)]),
-                ?assertEqual(1, length(List18)),
-
-                Sql19 = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-5 and rownum <= 100", %% 1.0 * ?OneSecond
-                io:format(user, "Query19: ~p~n", [Sql19]),
-                io:format(user, "full table size ~p~n", [imem_meta:table_size(ddLog@)]),
-                {ok, _Clm19, _RowFun19, StmtRef19} = imem_sql:exec(SKey, Sql19, 100, 'Imem', IsSec),
-                List19 = imem_statement:fetch_recs(SKey, StmtRef19, self(), Timeout, IsSec),
-                Reduced19 = imem_statement:result_tuples(List19,_RowFun19),
-                % io:format(user, "Result: ~p~n", [Reduced19]),
-                io:format(user, "Logs100: (~p)~n~p~n...~n~p~n", [length(Reduced19),hd(Reduced19),lists:last(Reduced19)])
-
-                % Sql19 = "select v.name from ddView as v, ddCmd as c where c.id = v.cmd and c.adapters = \"[imem]\" and (c.owner = user or c.owner = system)",    
-                % io:format(user, "Query19: ~p~n", [Sql19]),
-                % {ok, _Clm19, _RowFun19, StmtRef19} = imem_sql:exec(SKey, Sql19, 100, 'Imem', IsSec),
-                % List19 = imem_statement:fetch_recs_sort(SKey, StmtRef19, self(), Timeout, IsSec),
-                % io:format(user, "Result: (~p)~n~p~n", [length(List19),lists:map(_RowFun19,List19)]),
-                % ?assertEqual(2, length(List19))
-                
-        end,
-
-        Sql13 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,6,7) and t2.col1 > t1.col1 and t2.col1 <= t1.col1 + 2 ",  
-        io:format(user, "Query13: ~p~n", [Sql13]),
-        {ok, _Clm13, _RowFun13, StmtRef13} = imem_sql:exec(SKey, Sql13, 100, 'Imem', IsSec),
-        List13 = imem_statement:fetch_recs_sort(SKey, StmtRef13, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List13,_RowFun13)]),
-        ?assertEqual(  [{"5","6"},{"5","7"},{"6","7"}
-                       ,{"6","8"},{"7","8"},{"7","9"}]
-                       , imem_statement:result_tuples(List13,_RowFun13)),
-
-        Sql14 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1 in (5,7) and abs(t2.col1-t1.col1) = 1", 
-        io:format(user, "Query14: ~p~n", [Sql14]),
-        {ok, _Clm14, _RowFun14, StmtRef14} = imem_sql:exec(SKey, Sql14, 100, 'Imem', IsSec),
-        List14 = imem_statement:fetch_recs_sort(SKey, StmtRef14, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List14,_RowFun14)]),
-        ?assertEqual([{"5","4"},{"5","6"},{"7","6"},{"7","8"}], imem_statement:result_tuples(List14,_RowFun14)),
-
-        Sql16 = "select t1.col1, t2.col1 from def t1, def t2 where t1.col1=5 and t2.col1 > t1.col1 / 2 and t2.col1 <= t1.col1", 
-        io:format(user, "Query16: ~p~n", [Sql16]),
-        {ok, _Clm16, _RowFun16, StmtRef16} = imem_sql:exec(SKey, Sql16, 100, 'Imem', IsSec),
-        List16 = imem_statement:fetch_recs_sort(SKey, StmtRef16, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List16,_RowFun16)]),
-        ?assertEqual([{"5","3"},{"5","4"},{"5","5"}], imem_statement:result_tuples(List16,_RowFun16)),
-
-        Sql19a = "select logTime, logLevel, module, function, fields, message from ddLog@ where logTime > systimestamp - 1.1574074074074073e-5 and rownum <= 100", %% 1.0 * ?OneSecond
-        io:format(user, "Query19a: ~p~n", [Sql19a]),
-        io:format(user, "full table size ~p~n", [imem_meta:table_size(ddLog@)]),
-        {ok, _Clm19a, _RowFun19a, StmtRef19a} = imem_sql:exec(SKey, Sql19a, 100, 'Imem', IsSec),
-        List19a = imem_statement:fetch_recs(SKey, StmtRef19a, self(), Timeout, IsSec),
-        Reduced19a = imem_statement:result_tuples(List19a,_RowFun19a),
-        io:format(user, "Logs100: (~p)~n~p~n...~n~p~n", [length(Reduced19a),hd(Reduced19a),lists:last(Reduced19a)]),
+    %% test table member_test
 
         ?assertEqual(ok, imem_sql:exec(SKey, 
             "create table member_test (col1 integer, col2 list, col3 tuple);"
             , 0, 'Imem', IsSec)),
 
-        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,1,[a,b,c,[e]],undefined}]),
-        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,2,[1,2,3,{e}],9}]),
-        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,3,[[e],3,4,5],1}]),
-        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,4,undefined,{a,d,e}}]),
-        if_call_mfa(IsSec, write,[SKey,member_test,{member_test,5,[d,{e},a],{a,d,e}}]),
+        if_call_mfa(IsSec, write,[SKey,member_test,
+            {member_test,1, [a,b,c,[e]] ,   undefined}
+        ]),
+        if_call_mfa(IsSec, write,[SKey,member_test,
+            {member_test,2, [1,2,3,{e}] ,           9}
+        ]),
+        if_call_mfa(IsSec, write,[SKey,member_test,
+            {member_test,3, [[e],3,4,5] ,           1}
+        ]),
+        if_call_mfa(IsSec, write,[SKey,member_test,
+            {member_test,4, undefined   ,     {a,d,e}}
+        ]),
+        if_call_mfa(IsSec, write,[SKey,member_test,
+            {member_test,5, [d,{e},a]   ,     {a,d,e}}
+        ]),
 
-        Sql20 = "select col1 from member_test where is_list(col2) or is_tuple(col3)", %% is_member(3,col2) and col1 > 0",
-        io:format(user, "Query20: ~p~n", [Sql20]),
-        {ok, _Clm20, _RowFun20, StmtRef20} = imem_sql:exec(SKey, Sql20, 100, 'Imem', IsSec),
-        List20 = imem_statement:fetch_recs_sort(SKey, StmtRef20, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List20,_RowFun20)]),
-        ?assertEqual([{"1"},{"2"},{"3"},{"4"},{"5"}], imem_statement:result_tuples(List20,_RowFun20)),
+        {L1, true} = if_call_mfa(IsSec,select,[SKey, member_test, ?MatchAllRecords, 1000]),
+        io:format(user, "Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1),hd(L1), '...', lists:last(L1)]),
+        ?assertEqual(5, length(L1)),
 
-        Sql21 = "select col1 from member_test where is_member(3,col2) and col1 > 0",
-        io:format(user, "Query21: ~p~n", [Sql21]),
-        {ok, _Clm21, _RowFun21, StmtRef21} = imem_sql:exec(SKey, Sql21, 100, 'Imem', IsSec),
-        List21 = imem_statement:fetch_recs_sort(SKey, StmtRef21, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List21,_RowFun21)]),
-        ?assertEqual([{"2"},{"3"}], imem_statement:result_tuples(List21,_RowFun21)), 
+    %% queries on meta table
 
-        Sql21a = "select col1 from member_test where is_member(a,col2)",
-        io:format(user, "Query21a: ~p~n", [Sql21a]),
-        {ok, _Clm21a, _RowFun21a, StmtRef21a} = imem_sql:exec(SKey, Sql21a, 100, 'Imem', IsSec),
-        List21a = imem_statement:fetch_recs_sort(SKey, StmtRef21a, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List21a,_RowFun21a)]),
-        ?assertEqual([{"1"},{"5"}], imem_statement:result_tuples(List21a,_RowFun21a)), 
+        {L2, true} =  if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 1000]),
+        % io:format(user, "Table ddTable : ~p entries~n~p~n~p~n~p~n", [length(L2),hd(L2), '...', lists:last(L2)]),
+        AllTableCount = length(L2),
 
-        Sql21b = "select col1 from member_test where is_member(\"{e}\",col2)",
-        io:format(user, "Query21b: ~p~n", [Sql21b]),
-        {ok, _Clm21b, _RowFun21b, StmtRef21b} = imem_sql:exec(SKey, Sql21b, 100, 'Imem', IsSec),
-        List21b = imem_statement:fetch_recs_sort(SKey, StmtRef21b, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List21b,_RowFun21b)]),
-        ?assertEqual([{"2"},{"5"}], imem_statement:result_tuples(List21b,_RowFun21b)), 
+        {L3, true} = if_call_mfa(IsSec,select,[SKey, dba_tables, ?MatchAllKeys]),
+        % io:format(user, "Table dba_tables : ~p entries~n~p~n~p~n~p~n", [length(L3),hd(L3), '...', lists:last(L3)]),
+        ?assertEqual(AllTableCount, length(L3)),
 
-        Sql21c = "select col1 from member_test where is_member(\"[e]\",col2)",
-        io:format(user, "Query21c: ~p~n", [Sql21c]),
-        {ok, _Clm21c, _RowFun21c, StmtRef21c} = imem_sql:exec(SKey, Sql21c, 100, 'Imem', IsSec),
-        List21c = imem_statement:fetch_recs_sort(SKey, StmtRef21c, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List21c,_RowFun21c)]),
-        ?assertEqual([{"1"},{"3"}], imem_statement:result_tuples(List21c,_RowFun21c)), 
+        {L4, true} = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
+        % io:format(user, "Table all_tables : ~p entries~n~p~n~p~n~p~n", [length(L4),hd(L4), '...', lists:last(L4)]),
+        ?assertEqual(AllTableCount, length(L4)),
 
-        Sql21d = "select col1 from member_test where is_member(1,\"'$_'\")",
-        io:format(user, "Query21d: ~p~n", [Sql21d]),
-        {ok, _Clm21d, _RowFun21d, StmtRef21d} = imem_sql:exec(SKey, Sql21d, 100, 'Imem', IsSec),
-        List21d = imem_statement:fetch_recs_sort(SKey, StmtRef21d, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List21d,_RowFun21d)]),
-        ?assertEqual([{"1"},{"3"}], imem_statement:result_tuples(List21d,_RowFun21d)), 
+        {L5, true} = if_call_mfa(IsSec,select,[SKey, user_tables, ?MatchAllKeys]),
+        % io:format(user, "Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
+        case IsSec of
+            false ->    ?assertEqual(AllTableCount, length(L5));
+            true ->     ?assertEqual(2, length(L5))
+        end,
 
-        Sql21e = "select col1 from member_test where is_member(3,\"[1,2,3,4]\")",
-        io:format(user, "Query21e: ~p~n", [Sql21e]),
-        {ok, _Clm21e, _RowFun21e, StmtRef21e} = imem_sql:exec(SKey, Sql21e, 100, 'Imem', IsSec),
-        List21e = imem_statement:fetch_recs_sort(SKey, StmtRef21e, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List21e,_RowFun21e)]),
-        ?assertEqual([{"1"},{"2"},{"3"},{"4"},{"5"}], imem_statement:result_tuples(List21e,_RowFun21e)), 
+        R0 = exec_fetch_sort(SKey, query0, 100, IsSec, 
+            "select * from ddTable"
+        ),
+        ?assertEqual(AllTableCount, length(R0)),
 
-        Sql21f = "select col1 from member_test where is_member(undefined,\"'$_'\")",
-        io:format(user, "Query21f: ~p~n", [Sql21f]),
-        {ok, _Clm21f, _RowFun21f, StmtRef21f} = imem_sql:exec(SKey, Sql21f, 100, 'Imem', IsSec),
-        List21f = imem_statement:fetch_recs_sort(SKey, StmtRef21f, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List21f,_RowFun21f)]),
-        ?assertEqual([{"1"},{"4"}], imem_statement:result_tuples(List21f,_RowFun21f)), 
+    %% simple queries on meta fields
 
-        if_call_mfa(IsSec, write,[SKey,def,{def,100,"\"text_in_quotes\"",{{2001,02,03},{4,5,6}},{10,132,7,92}}]),
+        exec_fetch_sort_equal(SKey, query1, 100, IsSec, 
+            "select dual.* from dual", 
+            [{"X","'$not_a_value'"}]
+        ),
 
-        Sql22 = "select col2 from def where col1 = 100",
-        io:format(user, "Query22: ~p~n", [Sql22]),
-        {ok, _Clm22, _RowFun22, StmtRef22} = imem_sql:exec(SKey, Sql22, 100, 'Imem', IsSec),
-        List22 = imem_statement:fetch_recs_sort(SKey, StmtRef22, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List22,_RowFun22)]),
-        ?assertEqual([{"\"text_in_quotes\""}], imem_statement:result_tuples(List22,_RowFun22)),
+        exec_fetch_sort_equal(SKey, query1a, 100, IsSec, 
+            "select dual.dummy from dual",
+            [{"X"}]
+        ),
 
-        Sql23 = "select d.col1, m.col1 from def as d, member_test as m where is_member(d.col1,m.col2)",
-        io:format(user, "Query23: ~p~n", [Sql23]),
-        {ok, _Clm23, _RowFun23, StmtRef23} = imem_sql:exec(SKey, Sql23, 100, 'Imem', IsSec),
-        List23 = imem_statement:fetch_recs_sort(SKey, StmtRef23, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List23,_RowFun23)]),
-        ?assertEqual([{"1","2"},{"2","2"},{"3","2"},{"3","3"},{"4","3"},{"5","3"}], imem_statement:result_tuples(List23,_RowFun23)),
+        R1b = exec_fetch_sort(SKey, query1b, 100, IsSec, 
+            "select sysdate from dual"
+        ),
+        ?assertEqual(19, length(element(1,hd(R1b)))),
 
-        Sql24 = "select d.col1, m.col1 from def as d, member_test as m where is_member(d.col1+1,m.col2)",
-        io:format(user, "Query24: ~p~n", [Sql24]),
-        {ok, _Clm24, _RowFun24, StmtRef24} = imem_sql:exec(SKey, Sql24, 100, 'Imem', IsSec),
-        List24 = imem_statement:fetch_recs_sort(SKey, StmtRef24, self(), Timeout, IsSec),
-        io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List24,_RowFun24)]),
-        ?assertEqual([{"1","2"},{"2","2"},{"2","3"},{"3","3"},{"4","3"}], imem_statement:result_tuples(List24,_RowFun24)),
+        R1c = exec_fetch_sort(SKey, query1c, 100, IsSec, 
+            "select systimestamp from dual"
+        ),
+        ?assertEqual(26, length(element(1,hd(R1c)))),
 
-        % Sql25 = "select d.col1, m.col1 from def d, member_test m where is_member(d.col1,m.\"'$_'\")",
-        % io:format(user, "Query25: ~p~n", [Sql25]),
-        % {ok, _Clm25, _RowFun25, StmtRef25} = imem_sql:exec(SKey, Sql25, 100, 'Imem', IsSec),
-        % List25 = imem_statement:fetch_recs_sort(SKey, StmtRef25, self(), Timeout, IsSec),
-        % io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List25,_RowFun25)]),
-        % ?assertEqual([{"1","1"},{"1","3"},{"2","2"},{"3","3"},{"4","4"},{"5","5"},{"9","2"}], imem_statement:result_tuples(List25,_RowFun25)),
+        R1d = exec_fetch_sort(SKey, query1d, 100, IsSec, 
+            "select user from dual"
+        ),
+        case IsSec of
+            false ->    ?assertEqual([{"unknown"}], R1d);
+            true ->     ?assertEqual([{"admin"}], R1d)
+        end,
+
+        R1e = exec_fetch_sort(SKey, query1e, 100, IsSec, 
+            "select all_tables.* from all_tables where owner = system"
+        ),
+        case IsSec of
+            false -> ?assertEqual(AllTableCount, length(R1e));
+            true ->  ?assertEqual(AllTableCount-2, length(R1e))
+        end,
+
+        R1f = exec_fetch_sort(SKey, query1f, 100, IsSec, 
+            "select qname as qn from all_tables where owner=user"
+        ),
+        case IsSec of
+            false -> ?assertEqual(0, length(R1f));
+            true ->  ?assertEqual(2, length(R1f))
+        end,
+
+        R1g = exec_fetch_sort(SKey, query1g, 100, IsSec, 
+            "select name, type from ddAccount where id=user and locked <> true"
+        ),
+        case IsSec of
+            false -> ?assertEqual(0, length(R1g));
+            true ->  ?assertEqual(1, length(R1g))
+        end,
+
+    %% simple queries on single table
+
+        R2 = exec_fetch_sort_equal(SKey, query2, 100, IsSec, 
+            "select col1, col2 from def where col1>=5 and col1<=6", 
+            [{"5","5"},{"6","6"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2a, 100, IsSec, 
+            "select col1, col2 from def where col1 in (5,6)", 
+            R2
+        ),
+
+        exec_fetch_sort_equal(SKey, query2b, 100, IsSec, 
+            "select col1, col2 from def where col2 in ('5','6')", 
+            R2
+        ),
+
+        ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"col2">>,string},{<<"5">>,integer}}}}, 
+            exec_fetch_sort(SKey, query2c, 100, IsSec, "select col1, col2 from def where col2 in (5,6)")
+        ), 
+
+        exec_fetch_sort_equal(SKey, query2d, 100, IsSec, 
+            "select col1, col2 from def where col2 in ('5',col2)", 
+            [
+                {"1","1"},{"2","2"},{"3","3"},{"4","4"},
+                {"5","5"},{"6","6"},{"7","7"},{"8","8"},
+                {"9","9"},{"10","10"}
+            ]
+        ),
+
+        R2e = exec_fetch_sort(SKey, query2e, 100, IsSec, 
+            "select * from def where col4 < \"10.132.7.3\""
+        ),
+        ?assertEqual(2, length(R2e)),
+
+        R2f = exec_fetch_sort(SKey, query2f, 100, IsSec, 
+            "select name, lastLoginTime 
+             from ddAccount 
+             where lastLoginTime > sysdate - 1.1574074074074073e-4"   %% 10.0 * ?OneSecond
+        ),
+        case IsSec of
+            false -> ?assertEqual(0, length(R2f));
+            true ->  ?assertEqual(1, length(R2f))
+        end,
+
+        R2g = exec_fetch(SKey, query2g, 100, IsSec, 
+            "select logTime, logLevel, module, function, fields, message 
+             from ddLog@ 
+             where logTime > systimestamp - 1.1574074074074073e-5 
+             and rownum <= 100"   %% 1.0 * ?OneSecond
+        ),
+        ?assert(length(R2g) >= 1),
+        ?assert(length(R2g) =< 100),
+
+        if_call_mfa(IsSec, write,[SKey,def,
+            {def,100,"\"text_in_quotes\"",{{2001,02,03},{4,5,6}},{10,132,7,92}}
+        ]),
+
+        exec_fetch_sort_equal(SKey, query2h, 100, IsSec, 
+            "select col2 from def where col1 = 100",
+            [{"\"text_in_quotes\""}]
+        ),
+
+
+    %% joins with virtual (datatype) tables
+
+        ?assertException(throw,{ClEr,{"Virtual table can only be joined",integer}}, 
+            exec_fetch_sort(SKey, query3, 100, IsSec, "select item from integer")
+        ),
+
+        exec_fetch_equal(SKey, query3a, 100, IsSec, 
+            "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)", 
+            [{"10"},{"132"},{"7"},{"1"}]
+        ),
+
+        R3b = exec_fetch_sort(SKey, query3b, 100, IsSec, 
+            "select col3, item from def, integer where is_member(item,\"'$_'\") and col1 <> 100"
+        ),
+        ?assertEqual(10, length(R3b)),
+
+        %% self joins 
+
+        exec_fetch_sort_equal(SKey, query4, 100, IsSec, 
+            "select t1.col1, t2.col1 
+             from def t1, def t2 
+             where t1.col1 in (5,6,7)
+             and t2.col1 > t1.col1 
+             and t2.col1 > t1.col1 
+             and t2.col1 <> 9
+             and t2.col1 <> 100",
+            [
+                {"5","6"},{"5","7"},{"5","8"},{"5","10"},
+                {"6","7"},{"6","8"},{"6","10"},
+                {"7","8"},{"7","10"}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query4a, 100, IsSec, 
+            "select t1.col1, t2.col1
+             from def t1, def t2 
+             where t1.col1 in (5,6,7) 
+             and t2.col1 > t1.col1 
+             and t2.col1 <= t1.col1 + 2",
+            [
+                {"5","6"},{"5","7"},
+                {"6","7"},{"6","8"},
+                {"7","8"},{"7","9"}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query4a, 100, IsSec, 
+            "select t1.col1, t2.col1 
+             from def t1, def t2 
+             where t1.col1 in (5,7) 
+             and abs(t2.col1-t1.col1) = 1", 
+            [
+                {"5","4"},{"5","6"},
+                {"7","6"},{"7","8"}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query4a, 100, IsSec, 
+            "select t1.col1, t2.col1 
+             from def t1, def t2 
+             where t1.col1=5 
+             and t2.col1 > t1.col1 / 2 
+             and t2.col1 <= t1.col1", 
+            [
+                {"5","3"},{"5","4"},{"5","5"}
+            ]
+        ),
+
+    %% is_xxx function conditions
+
+        exec_fetch_sort_equal(SKey, query5, 100, IsSec, 
+            "select col1 from member_test 
+             where is_list(col2) 
+             or is_tuple(col3)",  
+            [{"1"},{"2"},{"3"},{"4"},{"5"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5a, 100, IsSec, 
+            "select col1 
+             from member_test 
+             where is_member(3,col2) 
+             and col1 > 0",
+            [{"2"},{"3"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5b, 100, IsSec, 
+            "select col1 from member_test where is_member(a,col2)",
+            [{"1"},{"5"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5c, 100, IsSec, 
+            "select col1 from member_test where is_member(\"{e}\",col2)",
+            [{"2"},{"5"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5d, 100, IsSec, 
+            "select col1 from member_test where is_member(\"[e]\",col2)",
+            [{"1"},{"3"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5e, 100, IsSec, 
+            "select col1 from member_test where is_member(1,\"'$_'\")",
+            [{"1"},{"3"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5f, 100, IsSec, 
+            "select col1 from member_test where is_member(3,\"[1,2,3,4]\")",
+            [{"1"},{"2"},{"3"},{"4"},{"5"}]
+        ),
+
+
+        exec_fetch_sort_equal(SKey, query5g, 100, IsSec, 
+            "select col1 from member_test where is_member(undefined,\"'$_'\")",
+            [{"1"},{"4"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5h, 100, IsSec, 
+            "select d.col1, m.col1 from def as d, member_test as m where is_member(d.col1,m.col2)",
+            [
+                {"1","2"},
+                {"2","2"},
+                {"3","2"},{"3","3"},
+                {"4","3"},
+                {"5","3"}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5i, 100, IsSec, 
+            "select d.col1, m.col1 from def as d, member_test as m where is_member(d.col1+1,m.col2)",
+            [
+                {"1","2"},
+                {"2","2"},{"2","3"},
+                {"3","3"},
+                {"4","3"}
+            ]
+        ),
+
+        % exec_fetch_sort_equal(SKey, query5j, 100, IsSec, 
+        %     "select d.col1, m.col1 from def d, member_test m where is_member(d.col1,m.\"'$_'\")",
+        %     [
+        %         {"1","1"},{"1","3"},
+        %         {"2","2"},
+        %         {"3","3"},
+        %         {"4","4"},
+        %         {"5","5"},
+        %         {"9","2"}
+        %     ]
+        % ),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, 'Imem', IsSec)),
 
@@ -701,12 +695,67 @@ test_with_or_without_sec(IsSec) ->
     end,
     ok. 
 
-% insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
-% insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
-%     imem_sql:exec(SKey, "insert into " ++ TableName ++ " (col1, col2) values (" ++ integer_to_list(N) ++ ", '" ++ integer_to_list(N) ++ "');", 0, Schema, IsSec),
-%     insert_range(SKey, N-1, TableName, Schema, IsSec).
-
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     if_call_mfa(IsSec, write,[SKey,Table,{Table,N,integer_to_list(N),calendar:local_time(),{10,132,7,N}}]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
+
+exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
+    io:format(user, "~p : ~s~n", [Id,Sql]),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    ?assertEqual(ok, RetCode),
+    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    List = imem_statement:fetch_recs(SKey, StmtRef, self(), 1000, IsSec),
+    ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
+    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    RT = imem_statement:result_tuples(List,RowFun),
+    io:format(user, "Result: ~p~n", [RT]),
+    ?assertEqual(Expected, RT),
+    RT.
+
+exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
+    io:format(user, "~p : ~s~n", [Id,Sql]),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    ?assertEqual(ok, RetCode),
+    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    List = imem_statement:fetch_recs_sort(SKey, StmtRef, self(), 1000, IsSec),
+    ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
+    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    RT = imem_statement:result_tuples(List,RowFun),
+    io:format(user, "Result  : ~p~n", [RT]),
+    ?assertEqual(Expected, RT),
+    RT.
+
+exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
+    io:format(user, "~p : ~s~n", [Id,Sql]),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    ?assertEqual(ok, RetCode),
+    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    List = imem_statement:fetch_recs_sort(SKey, StmtRef, self(), 1000, IsSec),
+    ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
+    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    RT = imem_statement:result_tuples(List,RowFun),
+    if 
+        length(RT) =< 10 ->
+            io:format(user, "Result  : ~p~n", [RT]);
+        true ->
+            io:format(user, "Result  :  ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+    end,            
+    RT.
+
+exec_fetch(SKey,Id, BS, IsSec, Sql) ->
+    io:format(user, "~p : ~s~n", [Id,Sql]),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    ?assertEqual(ok, RetCode),
+    #stmtResult{stmtRef=StmtRef,stmtRows=StmtRows,rowFun=RowFun} = StmtResult,
+    List = imem_statement:fetch_recs(SKey, StmtRef, self(), 1000, IsSec),
+    ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
+    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    RT = imem_statement:result_tuples(List,RowFun),
+    if 
+        length(RT) =< 10 ->
+            io:format(user, "Result  : ~p~n", [RT]);
+        true ->
+            io:format(user, "Result  : ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+    end,            
+    RT.

@@ -32,6 +32,8 @@
 
 %% HELPER FUNCTIONS (do not export!!) --------------------------------------
 
+-define(atom_to_binary(Atom), list_to_binary(atom_to_list(Atom))).
+
 -define(binary_to_atom(Bin), list_to_atom(binary_to_list(Bin))).
 
 -define(binary_to_existing_atom(Bin), 

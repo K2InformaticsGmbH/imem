@@ -246,19 +246,19 @@ meta_field(Name) ->
     lists:member(Name,?META_FIELDS).
 
 meta_field_info(sysdate) ->
-    #ddColumn{name=sysdate, type='datetime', length=20, precision=0};
+    #ddColumn{name=sysdate, type='datetime', len=20, prec=0};
 meta_field_info(systimestamp) ->
-    #ddColumn{name=systimestamp, type='timestamp', length=20, precision=0};
+    #ddColumn{name=systimestamp, type='timestamp', len=20, prec=0};
 meta_field_info(schema) ->
-    #ddColumn{name=schema, type='atom', length=10, precision=0};
+    #ddColumn{name=schema, type='atom', len=10, prec=0};
 meta_field_info(node) ->
-    #ddColumn{name=node, type='atom', length=30, precision=0};
+    #ddColumn{name=node, type='atom', len=30, prec=0};
 meta_field_info(user) ->
-    #ddColumn{name=user, type='userid', length=20, precision=0};
+    #ddColumn{name=user, type='userid', len=20, prec=0};
 meta_field_info(username) ->
-    #ddColumn{name=username, type='binstr', length=20, precision=0};
+    #ddColumn{name=username, type='binstr', len=20, prec=0};
 % meta_field_info(rownum) ->
-%     #ddColumn{name=rownum, type='integer', length=10, precision=0};
+%     #ddColumn{name=rownum, type='integer', len=10, prec=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 
@@ -274,10 +274,10 @@ column_info_items(Info, type) ->
     [C#ddColumn.type || C <- Info];
 column_info_items(Info, default) ->
     [C#ddColumn.default || C <- Info];
-column_info_items(Info, length) ->
-    [C#ddColumn.length || C <- Info];
-column_info_items(Info, precision) ->
-    [C#ddColumn.precision || C <- Info];
+column_info_items(Info, len) ->
+    [C#ddColumn.len || C <- Info];
+column_info_items(Info, prec) ->
+    [C#ddColumn.prec || C <- Info];
 column_info_items(Info, opts) ->
     [C#ddColumn.opts || C <- Info];
 column_info_items(_Info, Item) ->
@@ -690,12 +690,12 @@ meta_operations(_) ->
         ?assertEqual(LogCount2+4,LogCount2a),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
-        Types1 =    [ #ddColumn{name=a, type=string, length=10}     %% key
-                    , #ddColumn{name=b1, type=string, length=20}    %% value 1
-                    , #ddColumn{name=c1, type=string, length=30}    %% value 2
+        Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
+                    , #ddColumn{name=b1, type=string, len=20}    %% value 1
+                    , #ddColumn{name=c1, type=string, len=30}    %% value 2
                     ],
-        Types2 =    [ #ddColumn{name=a, type=integer, length=10}    %% key
-                    , #ddColumn{name=b2, type=float, length=8, precision=3}   %% value
+        Types2 =    [ #ddColumn{name=a, type=integer, len=10}    %% key
+                    , #ddColumn{name=b2, type=float, len=8, prec=3}   %% value
                     ],
 
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),

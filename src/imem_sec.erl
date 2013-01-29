@@ -650,6 +650,9 @@ test(_) ->
         io:format(user, "accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
         io:format(user, "success ~p~n", [account_create_user]),
+        UserId = admin_exec(SeCoAdmin, imem_account, get_by_name, [<<"test_user_123">>]),
+        ?assert(is_integer(UserId)),
+        io:format(user, "success (~p) ~p~n", [UserId, create_test_admin_permissions]), 
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [<<"test_user_123">>, create_table])),
         io:format(user, "success ~p~n", [create_test_admin_permissions]), 
      

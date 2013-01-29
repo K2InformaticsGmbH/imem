@@ -67,6 +67,8 @@ create_stmt(Statement, SKey, IsSec) ->
             {ok, Pid}
     end.
 
+fetch_recs(SKey, #stmtResult{stmtRef=Pid}, Sock, Timeout, IsSec) ->
+    fetch_recs(SKey, Pid, Sock, Timeout, IsSec);
 fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock,[]}),
     Result = try
@@ -104,35 +106,51 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     end,
     Result.
 
+fetch_recs_sort(SKey, #stmtResult{stmtRef=Pid}, Sock, Timeout, IsSec) ->
+    fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec);
 fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
 
+fetch_recs_async(SKey, #stmtResult{stmtRef=Pid}, Sock, IsSec) ->
+    fetch_recs_async(SKey, Pid, Sock, IsSec);
 fetch_recs_async(SKey, Pid, Sock, IsSec) ->
     fetch_recs_async(SKey, Pid, Sock, [], IsSec).
 
+fetch_recs_async(SKey, #stmtResult{stmtRef=Pid}, Sock, Opts, IsSec) ->
+    fetch_recs_async(SKey, Pid, Sock, Opts, IsSec);
 fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}).
 
+fetch_close(SKey,  #stmtResult{stmtRef=Pid}, IsSec) ->
+    fetch_close(SKey, Pid, IsSec);
 fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {fetch_close, IsSec, SKey}).
 
+update_cursor_prepare(SKey, #stmtResult{stmtRef=Pid}, IsSec, ChangeList) ->
+    update_cursor_prepare(SKey, Pid, IsSec, ChangeList);
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList}) of
         ok ->   ok;
         Error-> throw(Error)
     end.
 
+update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, none) ->
+    update_cursor_prepare(SKey, Pid, IsSec, none);
 update_cursor_execute(SKey, Pid, IsSec, none) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, none}) of
         ok ->       ok;
         Error ->    throw(Error)
     end; 
+update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, optimistic) ->
+    update_cursor_execute(SKey, Pid, IsSec, optimistic);
 update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}) of
         ok ->       ok;
         Error ->    throw(Error)
     end.
 
+close(SKey, #stmtResult{stmtRef=Pid}) ->
+    close(SKey, Pid);
 close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
@@ -897,7 +915,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
     end,            
     ValMap = lists:usort(
         [{Ci,imem_datatype:value_to_db(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
-            {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D, readonly=R},Value} 
+            {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
     % io:format(user, "~p - value map~n~p~n", [?MODULE, ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
@@ -928,7 +946,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
     end,            
     ValMap = lists:usort(
         [{Ci,imem_datatype:value_to_db(Item,?nav,T,L,P,D,false,Value)} || 
-            {#ddColMap{tind=Ti, cind=Ci, type=T, length=L, precision=P, default=D},Value} 
+            {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
     HasKey = lists:member(2,IndMap),
@@ -970,13 +988,13 @@ receive_raw(Timeout,Acc) ->
         Result ->   receive_raw(Timeout,[Result|Acc])
     end.
 
-receive_list(StmtRef,Complete) ->
-    receive_list(StmtRef,Complete,50,[]).
+receive_list(StmtResult, Complete) ->
+    receive_list(StmtResult,Complete,50,[]).
 
-receive_list(StmtRef,Complete, Timeout) ->
-    receive_list(StmtRef,Complete,Timeout,[]).
+receive_list(StmtResult, Complete, Timeout) ->
+    receive_list(StmtResult, Complete, Timeout,[]).
 
-receive_list(StmtRef,Complete,Timeout,Acc) ->    
+receive_list(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
             R ->    % io:format(user, "~p got:~n~p~n", [erlang:now(),R]),
                     R
@@ -995,11 +1013,21 @@ receive_list(StmtRef,Complete,Timeout,Acc) ->
                     throw({bad_receive,lists:reverse(Res)})
             end,
             case lists:usort([element(1, SR) || SR <- Unchecked]) of
-                [StmtRef] ->                lists:flatten([element(1,element(2, T)) || T <- Unchecked]);
-                StmtRefs ->                 throw({bad_stmtref,lists:delete(StmtRef, StmtRefs)})
+                [StmtRef] ->                
+                    List = lists:flatten([element(1,element(2, T)) || T <- Unchecked]),
+                    RT = imem_statement:result_tuples(List,RowFun),
+                    if 
+                        length(RT) =< 10 ->
+                            io:format(user, "Received  : ~p~n", [RT]);
+                        true ->
+                            io:format(user, "Received  : ~p items [~p,~p,~p]~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                    end,            
+                    RT;
+                StmtRefs ->
+                    throw({bad_stmtref,lists:delete(StmtRef, StmtRefs)})
             end;
         Result ->   
-            receive_list(StmtRef,Complete,Timeout,[Result|Acc])
+            receive_list(StmtResult,Complete,Timeout,[Result|Acc])
     end.
 
 result_lists(List,RowFun) when is_list(List), is_function(RowFun) ->  
@@ -1064,33 +1092,39 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        Sql1 = "create table def (col1 varchar2(10), col2 integer);",
-        io:format(user, "Sql1: ~p~n", [Sql1]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, "Imem", IsSec)),
+
+    %% test table def
+
+        ?assertEqual(ok, imem_sql:exec(SKey, 
+                "create table def (
+                    col1 varchar2(10), 
+                    col2 integer
+                );"
+                , 0, 'Imem', IsSec)),
+
         ?assertEqual(ok, insert_range(SKey, 15, def, 'Imem', IsSec)),
+
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),
         io:format(user, "Meta table~n~p~n", [Meta]),
         io:format(user, "original table~n~p~n", [TableRows1]),
 
-        Sql2 = "select col1, col2 from def;",
-        io:format(user, "Query2: ~p~n", [Sql2]),
-        {ok, _Clm2, _RowFun2, StmtRef2} = imem_sql:exec(SKey, Sql2, 4, "Imem", IsSec),
-        ?assertEqual(ok, fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
-        List2a = receive_list(StmtRef2,false),
-        ?assertEqual(4, length(List2a)),
+        SR1 = exec(SKey,query1, 4, IsSec, "select col1, col2 from def;"),
+        ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
+        List1a = receive_list(SR1,false),
+        ?assertEqual(4, length(List1a)),
         ?assertEqual([], receive_raw()),
-        ?assertEqual(ok, fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
-        List2b = receive_list(StmtRef2,false),
-        ?assertEqual(4, length(List2b)),
+        ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
+        List1b = receive_list(SR1,false),
+        ?assertEqual(4, length(List1b)),
         ?assertEqual([], receive_raw()),
-        ?assertEqual(ok, fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
-        List2c = receive_list(StmtRef2,false),
-        ?assertEqual(4, length(List2c)),
-        ?assertEqual(ok, fetch_recs_async(SKey, StmtRef2, self(), IsSec)),
-        List2d = receive_list(StmtRef2,true),
-        ?assertEqual(3, length(List2d)),
-        io:format(user, "Result2:~n~p~n", [List2a ++ List2b ++ List2c ++ List2d]),
+        ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
+        List1c = receive_list(SR1,false),
+        ?assertEqual(4, length(List1c)),
+        ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
+        List1d = receive_list(SR1,true),
+        ?assertEqual(3, length(List1d)),
+        ?assertEqual([], receive_raw()),
 
 
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
@@ -1101,7 +1135,9 @@ test_with_or_without_sec(IsSec) ->
         [3,del,{{def,"5",5},{}},"5",5],         %% delete {def,"5","'5'"}
         [4,upd,{{def,"12",12},{}},"112",12]     %% update {def,"12","'12'"} to {def,"112","'12'"}
         ],
-        ?assertException(throw,{ClEr,{"Cannot update readonly field",{4,{"12","112"}}}}, update_cursor_prepare(SKey, StmtRef2, IsSec, ChangeList2)),
+        ?assertException(throw,{ClEr,{"Cannot update readonly field",{4,{"12","112"}}}}, 
+            update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)
+        ),
         TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         io:format(user, "unchanged table~n~p~n", [TableRows2]),
         ?assertEqual(TableRows1, TableRows2),
@@ -1123,8 +1159,8 @@ test_with_or_without_sec(IsSec) ->
         {def,"5",5}                             %% delete {def,"5",5}
         ],
 
-        ?assertEqual(ok, update_cursor_prepare(SKey, StmtRef2, IsSec, ChangeList3)),
-        ?assertEqual(ok, update_cursor_execute(SKey, StmtRef2, IsSec, optimistic)),        
+        ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
+        ?assertEqual(ok, update_cursor_execute(SKey, SR1, IsSec, optimistic)),        
         TableRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         io:format(user, "changed table~n~p~n", [TableRows3]),
         [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
@@ -1135,24 +1171,27 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
         ?assertEqual(5,imem_meta:table_size(def)),
 
-        ?assertEqual(ok, close(SKey, StmtRef2)),
+        ?assertEqual(ok, close(SKey, SR1)),
 
-        Sql3 = "select col1, col2 from def where col2 <= 5;",
-        io:format(user, "Query3: ~p~n", [Sql3]),
-        {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),
+        SR2 = exec(SKey,query2, 100, IsSec, 
+            "select col1, col2 
+             from def 
+             where col2 <= 5;"
+        ),
         try
-            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef3, self(), [{tail_mode,true}], IsSec)),
-            List3a = receive_list(StmtRef3,true),
-            ?assertEqual(5, length(List3a)),
+            ?assertEqual(ok, fetch_async(SKey,SR2,[{tail_mode,true}],IsSec)),
+            List2a = receive_list(SR2,true),
+            ?assertEqual(5, length(List2a)),
+            ?assertEqual([], receive_raw()),
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),  %% unchanged, all updates
-            List3b = receive_list(StmtRef3,tail),
-            ?assertEqual(5, length(List3b)),             %% 10 updates, 5 filtered with TailFun()           
-            ?assertEqual(ok, fetch_close(SKey, StmtRef3, IsSec)),
+            List2b = receive_list(SR2,tail),
+            ?assertEqual(5, length(List2b)),             %% 10 updates, 5 filtered with TailFun()           
+            ?assertEqual(ok, fetch_close(SKey, SR2, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
             ?assertEqual([], receive_raw())        
         after
-            ?assertEqual(ok, close(SKey, StmtRef3))
+            ?assertEqual(ok, close(SKey, SR2))
         end,
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
@@ -1160,25 +1199,64 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
         ?assertEqual(5,imem_meta:table_size(def)),
 
-        Sql4 = "select t1.col1, t2.col2 from def t1, def t2 where t2.col1 = t1.col1 and t2.col2 <= 5;",
-        io:format(user, "Query4: ~p~n", [Sql4]),
-        {ok, _Clm4, _RowFun4, StmtRef4} = imem_sql:exec(SKey, Sql4, 2, 'Imem', IsSec),
+        % Sql3 = "select name(qname) from all_tables",    %Imem.ddTable
+        % io:format(user, "Query3: ~p~n", [Sql3]),
+        % {ok, _Clm3, _RowFun3, StmtRef3} = imem_sql:exec(SKey, Sql3, 100, 'Imem', IsSec),  %% all_tables
+        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        % List3a = imem_statement:receive_list(StmtRef3,true),
+        % io:format(user, "Result: ~p~n", [imem_statement:result_tuples(List3a,_RowFun3)]),
+        % ?assert(lists:member({"Imem.def"},imem_statement:result_tuples(List3a,_RowFun3))),
+        % ?assert(lists:member({"Imem.ddTable"},imem_statement:result_tuples(List3a,_RowFun3))),
+        % ?assertEqual(AllTableCount, length(List3a)),
+        % io:format(user, "first read success (async)~n", []),
+        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        % [{StmtRef3, {error, Reason3}}] = imem_statement:receive_raw(),
+        % ?assertEqual({'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},Reason3),
+        % ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)),
+        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef3, self(), IsSec)),
+        % List3b = imem_statement:receive_list(StmtRef3,true),
+        % io:format(user, "Result: ~p~n", [imem_statement:result_lists(List3b,_RowFun3)]),
+        % ?assertEqual(List3a,List3b),
+        % io:format(user, "second read success (async)~n", []),
+        % ?assertException(throw,{'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec)),
+        % ?assertEqual(ok, imem_statement:fetch_close(SKey, StmtRef3, IsSec)), % actually not needed here, fetch_recs does it
+        % List3c = imem_statement:fetch_recs_sort(SKey, StmtRef3, self(), Timeout, IsSec),
+        % ?assertEqual(length(List3b), length(List3c)),
+        % ?assertEqual(lists:sort(List3b), lists:sort(List3c)),
+        % io:format(user, "third read success (sync)~n", []),
+
+        % Sql5 = "select col1, col2, col3, user from def where 1=1 and col2 = \"7\"",
+        % io:format(user, "Query5: ~p~n", [Sql5]),
+        % {ok, _Clm5, RowFun5, StmtRef5} = imem_sql:exec(SKey, Sql5, 100, 'Imem', IsSec),
+        % ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtRef5, self(), IsSec)),
+        % List5 = imem_statement:result_tuples(imem_statement:receive_list(StmtRef5,true),RowFun5),
+        % io:format(user, "Result: ~p~n", [List5]),
+        % ?assertEqual(1, length(List5)),
+        % ?assertMatch([{"7","7",_DString,_UString}], List5),            
+        % ?assertEqual(ok, imem_statement:close(SKey, StmtRef5)),
+
+        SR3 = exec(SKey,query3, 2, IsSec, 
+            "select t1.col1, t2.col2 
+             from def t1, def t2 
+             where t2.col1 = t1.col1 
+             and t2.col2 <= 5;"
+        ),
         try
-            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef4, self(), [{tail_mode,true}], IsSec)),
-            List4a = receive_list(StmtRef4,false),
-            ?assertEqual(2, length(List4a)),
-            ?assertEqual(ok, fetch_recs_async(SKey, StmtRef4, self(), [{fetch_mode,push},{tail_mode,true}], IsSec)),
-            List4b = receive_list(StmtRef4,true),
-            ?assertEqual(3, length(List4b)),
+            ?assertEqual(ok, fetch_async(SKey,SR3,[{tail_mode,true}],IsSec)),
+            List3a = receive_list(SR3,false),
+            ?assertEqual(2, length(List3a)),
+            ?assertEqual(ok, fetch_async(SKey,SR3,[{fetch_mode,push},{tail_mode,true}],IsSec)),
+            List3b = receive_list(SR3,true),
+            ?assertEqual(3, length(List3b)),
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),
-            List4c = receive_list(StmtRef4,tail),
-            ?assertEqual(5, length(List4c)),           
-            ?assertEqual(ok, fetch_close(SKey, StmtRef4, IsSec)),
+            List3c = receive_list(SR3,tail),
+            ?assertEqual(5, length(List3c)),           
+            ?assertEqual(ok, fetch_close(SKey, SR3, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
             ?assertEqual([], receive_raw())        
         after
-            ?assertEqual(ok, close(SKey, StmtRef4))
+            ?assertEqual(ok, close(SKey, SR3))
         end,
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
@@ -1304,6 +1382,16 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     if_call_mfa(IsSec, write,[SKey,Table,{Table,integer_to_list(N),N}]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
+exec(SKey,Id, BS, IsSec, Sql) ->
+    io:format(user, "~p : ~s~n", [Id,Sql]),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    ?assertEqual(ok, RetCode),
+    #stmtResult{stmtRows=StmtRows} = StmtResult,
+    [?assert(is_binary(SR#stmtRow.alias)) || SR <- StmtRows],
+    StmtResult.
+
+fetch_async(SKey, StmtResult, Opts, IsSec) ->
+    ?assertEqual(ok, fetch_recs_async(SKey, StmtResult#stmtResult.stmtRef, self(), Opts, IsSec)).
 
     % {M1,S1,Mic1} = erlang:now(),
     % {M2,S2,Mic2} = erlang:now(),

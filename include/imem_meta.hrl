@@ -7,30 +7,12 @@
 -record(ddColumn,                           %% column definition    
                   { name                    ::atom()
                   , type = term             ::ddType()
-                  , length			  ::integer()
-                  , precision			  ::integer()
+                  , len = 0  	              ::integer()
+                  , prec = 0		        ::integer()
                   , default                 ::any()
                   , opts = []               ::list()
                   }
         ).
-
--record(ddColMap,                           %% column map entry
-                  { tag                     ::any()
-                  , oname                   ::binary()    %% original name
-                  , schema                  ::atom()
-                  , table                   ::atom()
-                  , name                    ::atom()
-                  , alias                   ::atom()    
-                  , tind = 0                ::integer()               
-                  , cind = 0                ::integer()               
-                  , type = term             ::ddType()
-                  , length                  ::integer()
-                  , precision               ::integer()
-                  , default                 ::any()
-                  , readonly                ::true|false
-                  , func = undefined        ::any()     
-                  }                  
-       ).
 
 -record(ddTable,                            %% table    
                   { qname                   ::{atom(),atom()}		%% {Schema,Table}

@@ -3,6 +3,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -include("imem_meta.hrl").
+-include("imem_sql.hrl").
 
 -define(H(X), (hex(X)):16).
 
@@ -121,7 +122,7 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
 
 select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     lists:reverse(Acc);
-select_rowfun_str(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+select_rowfun_str(Recs, [#ddColMap{type=T,prec=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_string(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
     select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
 select_rowfun_str(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
@@ -147,7 +148,7 @@ select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
 
 select_rowfun_gui(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     lists:reverse(Acc);
-select_rowfun_gui(Recs, [#ddColMap{type=T,precision=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+select_rowfun_gui(Recs, [#ddColMap{type=T,prec=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = db_to_gui(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
     select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
 select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->

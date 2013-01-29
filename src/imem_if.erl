@@ -383,7 +383,8 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     fun(F,Contd0) ->
         receive
             abort ->
-                io:format(user, "Abort fetch on table ~p~n", [Table]);
+                % io:format(user, "Abort fetch on table ~p~n", [Table]),
+                ok;
             next ->
                 case Contd0 of
                         undefined ->

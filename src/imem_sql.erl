@@ -91,9 +91,9 @@ field_qname(B) when is_binary(B) ->
     field_qname(binary_to_list(B));
 field_qname(Str) when is_list(Str) ->
     case string:tokens(Str, ".") of
-        [A] ->      {undefined, undefined, list_to_atom(A)};
-        [T,A] ->    {undefined, list_to_atom(T), list_to_atom(A)};
-        [S,T,A] ->  {list_to_atom(S), list_to_atom(T), list_to_atom(A)};
+        [N] ->      {undefined, undefined, list_to_atom(N)};
+        [T,N] ->    {undefined, list_to_atom(T), list_to_atom(N)};
+        [S,T,N] ->  {list_to_atom(S), list_to_atom(T), list_to_atom(N)};
         _ ->        {}
         % _ ->        ?ClientError({"Invalid field name", Str})
     end;
@@ -147,17 +147,17 @@ column_map_items(Map, name) ->
 column_map_items(Map, qname) ->
     [lists:flatten(io_lib:format("~p.~p.~p", [C#ddColMap.schema,C#ddColMap.table,C#ddColMap.name])) || C <- Map];
 column_map_items(Map, qtype) ->
-    [lists:flatten(io_lib:format("~p(~p,~p)", [C#ddColMap.type,C#ddColMap.length,C#ddColMap.precision])) || C <- Map];
+    [lists:flatten(io_lib:format("~p(~p,~p)", [C#ddColMap.type,C#ddColMap.len,C#ddColMap.prec])) || C <- Map];
 column_map_items(Map, tind) ->
     [C#ddColMap.tind || C <- Map];
 column_map_items(Map, cind) ->
     [C#ddColMap.cind || C <- Map];
 column_map_items(Map, type) ->
     [C#ddColMap.type || C <- Map];
-column_map_items(Map, length) ->
-    [C#ddColMap.length || C <- Map];
-column_map_items(Map, precision) ->
-    [C#ddColMap.precision || C <- Map];
+column_map_items(Map, len) ->
+    [C#ddColMap.len || C <- Map];
+column_map_items(Map, prec) ->
+    [C#ddColMap.prec || C <- Map];
 column_map_items(_Map, Item) ->
     ?ClientError({"Invalid item",Item}).
 
@@ -180,12 +180,22 @@ column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    Cmaps = [ Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, name=N} || {Ti, Ci, S, T, N, #ddColumn{type=Type, length=Len, precision=P}} <- Lookup],
+    Cmaps = [Cmap0#ddColMap{
+                schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N, 
+                alias=?atom_to_binary(N)
+            } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     column_map([], [Cmap0#ddColMap{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    Cmaps = [ Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, name=N} || {Ti, Ci, S, T, N, #ddColumn{type=Type, length=Len, precision=P}} <- Lookup, S==Schema, T==Table],
+    Prefix = case imem_meta:schema() of
+        Schema ->   atom_to_list(Table);
+        _ ->        atom_to_list(Schema) ++ "." ++ atom_to_list(Table)
+    end,
+    Cmaps = [Cmap0#ddColMap{
+                schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N, 
+                alias=list_to_binary(Prefix ++ "." ++ atom_to_list(N)) 
+            } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, S==Schema, T==Table],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     Pred = fun(L) ->
@@ -204,8 +214,8 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
                 false ->    {length(Meta)+1, Meta ++ [Name]};
                 Index ->    {Index, Meta}
             end, 
-            #ddColumn{type=Type, length=Len, precision=P} = imem_meta:meta_field_info(Name),
-            Cmap1 = Cmap0#ddColMap{tind=Tindex, cind=Cindex, type=Type, length=Len, precision=P},
+            #ddColumn{type=Type, len=Len, prec=P} = imem_meta:meta_field_info(Name),
+            Cmap1 = Cmap0#ddColMap{tind=Tindex, cind=Cindex, type=Type, len=Len, prec=P},
             column_map([], Columns, Tindex, Lookup, Meta1, [Cmap1|Acc]);                          
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined)->  
             ?ClientError({"Unknown column name", Name});
@@ -220,25 +230,25 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
         (Tcount > 1) -> 
             ?ClientError({"Ambiguous column name", {Schema, Table, Name}});
         true ->         
-            {Ti, Ci, S, T, Name, #ddColumn{type=Type, length=Len, precision=P, default=D}} = hd(Lmatch),
+            {Ti, Ci, S, T, Name, #ddColumn{type=Type, len=Len, prec=P, default=D}} = hd(Lmatch),
             R = ((Ti > 1) or (Ci < 3)),
-            Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, length=Len, precision=P, default=D, readonly=R},
+            Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
 column_map([], [{'fun',Fname,[Name]}|Columns], Tindex, Lookup, Meta, Acc) ->
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname}|Columns], Tindex, Lookup, Meta, Acc);    
-column_map([], [{as, {'fun',Fname,[Name]}, BAlias}|Columns], Tindex, Lookup, Meta, Acc) ->
-    Alias = ?binary_to_atom(BAlias),
+column_map([], [{as, {'fun',Fname,[Name]}, Alias}|Columns], Tindex, Lookup, Meta, Acc) ->
+    % Alias = ?binary_to_atom(BAlias),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias}|Columns], Tindex, Lookup, Meta, Acc);
-column_map([], [{as, Name, BAlias}|Columns], Tindex, Lookup, Meta, Acc) ->
-    Alias = ?binary_to_atom(BAlias),
+column_map([], [{as, Name, Alias}|Columns], Tindex, Lookup, Meta, Acc) ->
+    %Alias = ?binary_to_atom(BAlias),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
     {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=N}|Columns], Tindex, Lookup, Meta, Acc);
+    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Name}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
     ?UnimplementedException({"Expressions not supported", Expression});
 column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
@@ -461,12 +471,12 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "success ~p~n", [data_nodes]),
 
         io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
-        _Types1 =    [ #ddColumn{name=a, type=char, length=1}     %% key
-                    , #ddColumn{name=b1, type=char, length=1}    %% value 1
-                    , #ddColumn{name=c1, type=char, length=1}    %% value 2
+        _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
+                    , #ddColumn{name=b1, type=char, len=1}    %% value 1
+                    , #ddColumn{name=c1, type=char, len=1}    %% value 2
                     ],
-        _Types2 =    [ #ddColumn{name=a, type=integer, length=10}    %% key
-                    , #ddColumn{name=b2, type=float, length=8, precision=3}   %% value
+        _Types2 =    [ #ddColumn{name=a, type=integer, len=10}    %% key
+                    , #ddColumn{name=b2, type=float, len=8, prec=3}   %% value
                     ],
 
         ?assertEqual(ok, exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "Imem", IsSec)),
