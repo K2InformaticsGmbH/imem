@@ -155,7 +155,7 @@ close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
 init([Statement]) ->
-    imem_meta:log_to_db(debug,?MODULE,init,[],Statement#statement.stmtStr),
+    imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
     {ok, #state{statement=Statement}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
@@ -181,7 +181,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
     case Status of
         undefined ->    ok;                             % close is ignored
         done ->         ok;                             % normal close after completed fetch
@@ -210,7 +210,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % io:format(user, "fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     #statement{tables=[{_Schema,Table,_Alias}|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
     #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit} = MainSpec,
-    imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     % io:format(user,"Table  : ~p~n", [Table]),
     % io:format(user,"SBinds : ~p~n", [SBinds]),
     % io:format(user,"MBinds : ~p~n", [MBinds]),
@@ -255,7 +255,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
 handle_cast({close, _SKey}, State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
     % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
@@ -333,13 +333,13 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
         {waiting,[?sot|R]} ->            
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
             {R,false};
         {fetching,[?eot|R]} ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
         {fetching,[?sot,?eot|_R]} ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
@@ -348,7 +348,7 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
             handle_fetch_complete(State);
         {fetching,R} ->            
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
             {R,false};
         {BadStatus,R} ->            
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
