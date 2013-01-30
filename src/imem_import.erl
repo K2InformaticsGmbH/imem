@@ -72,10 +72,10 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Log("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        io:format(user, "schema ~p~n", [imem_meta:schema()]),
-        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Log("schema ~p~n", [imem_meta:schema()]),
+        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -84,14 +84,14 @@ test_with_or_without_sec(IsSec) ->
             _ ->    ok
         end,
 
-        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        io:format(user, "success ~p~n", [schema]),
+        ?Log("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        io:format(user, "success ~p~n", [data_nodes]),
+        ?Log("success ~p~n", [data_nodes]),
 
-        io:format(user, "----TEST--~p:import from string~n", [?MODULE]),
+        ?Log("----TEST--~p:import from string~n", [?MODULE]),
 
         Imp1 = "
         table_name\n
@@ -114,14 +114,14 @@ test_with_or_without_sec(IsSec) ->
         % ?assertEqual(ok, imem_meta:drop_table(import_test_3)),
         % ?assertEqual(ok, imem_meta:drop_table(import_test_2)),
         % ?assertEqual(ok, imem_meta:drop_table(import_test_1)),
-        io:format(user, "success ~p~n", [drop_tables]),
+        ?Log("success ~p~n", [drop_tables]),
 
         case IsSec of
             true -> ?imem_logout(SKey);
             _ ->    ok
         end
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

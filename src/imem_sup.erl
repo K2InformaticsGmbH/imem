@@ -12,6 +12,7 @@
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
+-include("imem.hrl").
 
 %% --------------------------------------------------------------------
 %% External exports
@@ -50,8 +51,8 @@ start_in_shell() ->
     
 start_link(Args) ->
     case Result=supervisor:start_link({local,?MODULE}, ?MODULE, Args) of
-        {ok,_} ->   io:format("~p started ~p~n", [?MODULE, Result]);
-        Error ->    io:format("~p startup failed with ~p~n", [?MODULE, Error])
+        {ok,_} ->   ?Log("~p started ~p~n", [?MODULE, Result]);
+        Error ->    ?Log("~p startup failed with ~p~n", [?MODULE, Error])
     end,
     Result.
 
@@ -67,7 +68,7 @@ start_link(Args) ->
 init(_StartArgs) ->
     {ok, MnesiaTimeout} = application:get_env(mnesia_timeout),
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
-    io:format("~p initializing with MnesiaTimeout ~p~n", [?MODULE, MnesiaTimeout]),
+    ?Log("~p initializing with MnesiaTimeout ~p~n", [?MODULE, MnesiaTimeout]),
     {ok, NodeType} = application:get_env(mnesia_node_type),
     {ok, Mod} = application:get_env(if_mod),
     {ok, IsSec} = application:get_env(if_sec),

@@ -887,18 +887,18 @@ data_types(_) ->
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
 
-        io:format(user, "----TEST--~p:test_data_types~n", [?MODULE]),
+        ?Log("----TEST--~p:test_data_types~n", [?MODULE]),
 
         ?assertEqual("Imem.ddTable", name({'Imem',ddTable})),
         ?assertEqual("Imem", name1({'Imem',ddTable})),
         ?assertEqual("Imem", name({'Imem',ddTable},1)),
         ?assertEqual("ddTable", name2({'Imem',ddTable})),
         ?assertEqual("ddTable", name({'Imem',ddTable},2)),
-        io:format(user, "name success~n", []),
+        ?Log("name success~n", []),
         ?assertEqual("ABC", concat("A","B","C")),
         ?assertEqual("abc", concat(a,b,c)),
         ?assertEqual("123", concat(1,2,3)),
-        io:format(user, "concat success~n", []),
+        ?Log("concat success~n", []),
 
         ?assertEqual("123", decimal_to_string(123,0)),
         ?assertEqual("-123", decimal_to_string(-123,0)),
@@ -911,15 +911,15 @@ data_types(_) ->
         ?assertEqual("-0.00123", decimal_to_string(-123,5)),
         ?assertEqual("12300000", decimal_to_string(123,-5)),
         ?assertEqual("-12300000", decimal_to_string(-123,-5)),
-        io:format(user, "decimal_to_string success~n", []),
+        ?Log("decimal_to_string success~n", []),
 
         ?assertEqual("0.0.0.0", ipaddr_to_string({0,0,0,0})),
         ?assertEqual("1.2.3.4", ipaddr_to_string({1,2,3,4})),
-        io:format(user, "ipaddr_to_string success~n", []),
+        ?Log("ipaddr_to_string success~n", []),
 
         ?assertEqual("01.01.1970 01:00:00.000000", timestamp_to_string({0,0,0},0)),  %% with DLS offset wintertime CH
         ?assertEqual("12.01.1970 14:46:42.000003", timestamp_to_string({1,2,3},0)),  %% with DLS offset wintertime CH
-        io:format(user, "timestamp_to_string success~n", []),
+        ?Log("timestamp_to_string success~n", []),
 
         LocalTime = erlang:localtime(),
         {Date,_Time} = LocalTime,
@@ -938,7 +938,7 @@ data_types(_) ->
         ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888 ")),
         ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888")),
         ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("18880818012359")),
-        io:format(user, "string_to_datetime success~n", []),
+        ?Log("string_to_datetime success~n", []),
 
         ?assertEqual({1,23,59}, parse_time("01:23:59")),        
         ?assertEqual({1,23,59}, parse_time("1:23:59")),        
@@ -947,7 +947,7 @@ data_types(_) ->
         ?assertEqual({1,23,0}, parse_time("0123")),        
         ?assertEqual({1,0,0}, parse_time("01")),        
         ?assertEqual({0,0,0}, parse_time("")),        
-        io:format(user, "parse_time success~n", []),
+        ?Log("parse_time success~n", []),
 
         ?assertEqual({1,2,3,4},string_to_ipaddr("1.2.3.4",0)),
         ?assertEqual({1,2,3,4},value_to_db(0,"",ipaddr,0,0,undefined,false,"1.2.3.4")),
@@ -963,7 +963,7 @@ data_types(_) ->
         RW = false,
         DefFun = fun() -> [{},{}] end,
         ?assertEqual(OldString, value_to_db(Item,OldString,StringType,Len,Prec,Def,RO,"NewVal")),
-        io:format(user, "value_to_db success 1~n", []),
+        ?Log("value_to_db success 1~n", []),
 
         ?assertEqual(<<"NewVal">>, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,<<"NewVal">>)),
         ?assertEqual([], value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"")),
@@ -971,21 +971,21 @@ data_types(_) ->
         ?assertEqual([atom,atom], value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,[atom,atom])),
         ?assertEqual(12, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,12)),
         ?assertEqual(-3.14, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,-3.14)),
-        io:format(user, "value_to_db success 2~n", []),
+        ?Log("value_to_db success 2~n", []),
 
         ?assertEqual(OldString, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,OldString)),
         ?assertException(throw,{ClEr,{"String is too long",{0,{"NewVal",3}}}}, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"NewVal")),
         ?assertEqual("NewVal", value_to_db(Item,OldString,StringType,6,Prec,Def,RW,"NewVal")),
         ?assertEqual("[NewVal]", value_to_db(Item,OldString,StringType,8,Prec,Def,RW,"[NewVal]")),
         ?assertEqual(default, value_to_db(Item,OldString,StringType,Len,Prec,Def,RW,"default")),
-        io:format(user, "value_to_db success 3~n", []),
+        ?Log("value_to_db success 3~n", []),
 
         ?assertEqual([{},{}], value_to_db(Item,OldString,StringType,Len,Prec,DefFun,RW,"[{},{}]")),
 
         ?assertEqual(oldValue, value_to_db(Item,oldValue,StringType,Len,Prec,Def,RW,"oldValue")),
         ?assertEqual('OldValue', value_to_db(Item,'OldValue',StringType,Len,Prec,Def,RW,"'OldValue'")),
         ?assertEqual(-15, value_to_db(Item,-15,StringType,Len,Prec,Def,RW,"-15")),
-        io:format(user, "value_to_db success 4~n", []),
+        ?Log("value_to_db success 4~n", []),
 
         IntegerType = integer,
         OldInteger = 17,
@@ -1011,7 +1011,7 @@ data_types(_) ->
         ?assertEqual([1,2,3], value_to_db(Item,?nav,term,0,0,?nav,false,"[1,2,3]")),
         ?assertEqual('$_', value_to_db(Item,?nav,term,0,0,?nav,false,"\"'$_'\"")),
 
-        io:format(user, "value_to_db success 5~n", []),
+        ?Log("value_to_db success 5~n", []),
 
         FloatType = float,
         OldFloat = -1.2,
@@ -1023,7 +1023,7 @@ data_types(_) ->
         ?assertEqual(-1.12, value_to_db(Item,OldFloat,FloatType,Len,2,Def,RW,"-1.1234567")),
         ?assertEqual(-1.123, value_to_db(Item,OldFloat,FloatType,Len,3,Def,RW,"-1.1234567")),
         ?assertEqual(-1.1235, value_to_db(Item,OldFloat,FloatType,Len,4,Def,RW,"-1.1234567")),
-        io:format(user, "value_to_db success 6~n", []),
+        ?Log("value_to_db success 6~n", []),
         %% ?assertEqual(-1.12346, value_to_db(Item,OldFloat,FloatType,Len,5,Def,RW,"-1.1234567")),  %% fails due to single precision math
         %% ?assertEqual(-1.123457, value_to_db(Item,OldFloat,FloatType,Len,6,Def,RW,"-1.1234567")), %% fails due to single precision math
         ?assertEqual(100.0, value_to_db(Item,OldFloat,FloatType,Len,-2,Def,RW,"149")),
@@ -1038,7 +1038,7 @@ data_types(_) ->
         %% ?assertEqual(1234.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5678")),
         %% ?assertEqual(1234.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.5678910111")),
         %% ?assertEqual(1234.6, value_to_db(Item,OldFloat,FloatType,Len,Prec,Def,RW,"1234.56789101112131415")),
-        io:format(user, "value_to_db success 7~n", []),
+        ?Log("value_to_db success 7~n", []),
 
         DecimalType = decimal,
         OldDecimal = -123,
@@ -1049,7 +1049,7 @@ data_types(_) ->
         ?assertEqual(-112300, value_to_db(Item,OldDecimal,DecimalType,7,5,Def,RW,"-1.123")),
         ?assertEqual(-112346, value_to_db(Item,OldDecimal,DecimalType,7,5,Def,RW,"-1.1234567")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,Prec,"1234567.89"}}}}, value_to_db(Item,OldDecimal,DecimalType,5,Prec,Def,RW,"1234567.89")),
-        io:format(user, "value_to_db success 8~n", []),
+        ?Log("value_to_db success 8~n", []),
 
         TermType = term,
         OldTerm = {-1.2,[a,b,c]},
@@ -1065,7 +1065,7 @@ data_types(_) ->
         ?assertEqual({[1,2,3]}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"{[1,2,3]}")),
         ?assertEqual({[1,2,3]}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"\"{[1,2,3]}\"")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{term,"[a|]"}}}}, value_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,"[a|]")),
-        io:format(user, "value_to_db success 9~n", []),
+        ?Log("value_to_db success 9~n", []),
 
         ?assertEqual({1,2,3}, value_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,"{1,2,3}")),
         ?assertEqual({}, value_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,"{}")),
@@ -1073,7 +1073,7 @@ data_types(_) ->
         ?assertEqual({1,2}, value_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,"{1,2}")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{tuple,Len,"[a]"}}}}, value_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,"[a]")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{tuple,Len,"{a}"}}}}, value_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,"{a}")),
-        io:format(user, "value_to_db success 10~n", []),
+        ?Log("value_to_db success 10~n", []),
 
         ?assertEqual([a,b,c], value_to_db(Item,OldTerm,elist,Len,Prec,Def,RW,"[a,b,c]")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{list,Len,"[a]"}}}}, value_to_db(Item,OldTerm,list,Len,Prec,Def,RW,"[a]")),
@@ -1082,7 +1082,7 @@ data_types(_) ->
         ?assertEqual([], value_to_db(Item,OldTerm,list,0,Prec,Def,RW,"[]")),
         ?assertEqual([a], value_to_db(Item,OldTerm,list,0,Prec,Def,RW,"[a]")),
         ?assertEqual([a,b], value_to_db(Item,OldTerm,list,0,Prec,Def,RW,"[a,b]")),
-        io:format(user, "value_to_db success 11~n", []),
+        ?Log("value_to_db success 11~n", []),
 
         ?assertEqual({10,132,7,92}, value_to_db(Item,OldTerm,ipaddr,0,Prec,Def,RW,"10.132.7.92")),
         ?assertEqual({0,0,0,0}, value_to_db(Item,OldTerm,ipaddr,4,Prec,Def,RW,"0.0.0.0")),
@@ -1091,19 +1091,19 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,4,"1.2.-1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,4,0,Def,RW,"1.2.-1.4")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,6,"1.256.1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,6,0,Def,RW,"1.256.1.4")),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,"1.2.1.4")),
-        io:format(user, "value_to_db success 12~n", []),
+        ?Log("value_to_db success 12~n", []),
 
         Fun = fun(X) -> X*X end,
-        io:format(user, "Fun ~p~n", [Fun]),
+        ?Log("Fun ~p~n", [Fun]),
         Res = value_to_db(Item,OldTerm,'fun',1,Prec,Def,RW,"fun(X) -> X*X end"),
-        io:format(user, "Run ~p~n", [Res]),
+        ?Log("Run ~p~n", [Res]),
         ?assertEqual(Fun(4), Res(4)),
-        io:format(user, "value_to_db success 13~n", []),
+        ?Log("value_to_db success 13~n", []),
 
         ?assertEqual(<<>>, binary_to_hex(<<>>)),
         ?assertEqual(<<"41">>, binary_to_hex(<<"A">>)),
         ?assertEqual(<<"4142434445464748">>, binary_to_hex(<<"ABCDEFGH">>)),
-        io:format(user, "binary_to_hex success~n", []),
+        ?Log("binary_to_hex success~n", []),
 
         ?assertEqual(<<>>, string_to_binary([],0)),
         ?assertEqual(<<0:8>>, string_to_binary("00",0)),
@@ -1115,12 +1115,12 @@ data_types(_) ->
         ?assertEqual(<<1:8,1:8>>, string_to_binary("0101",0)),
         ?assertEqual(<<"ABCDEFGH">>, string_to_binary("4142434445464748",0)),
 
-        io:format(user, "string_to_binary success~n", []),
+        ?Log("string_to_binary success~n", []),
 
         
         ?assertEqual(true, true)
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.

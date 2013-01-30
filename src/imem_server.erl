@@ -1,6 +1,8 @@
 -module(imem_server).
 -behaviour(gen_server).
 
+-include("imem.hrl").
+
 -record(state, {
         lsock = undefined
         , csock = undefined
@@ -32,7 +34,7 @@ start_link(Params) ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init([Sock, true]) ->
-    io:format("~p tcp client ~p~n", [self(), Sock]),
+    ?Log(" ~p tcp client ~p~n", [self(), Sock]),
     {ok, #state{csock=Sock}};
 init(Params) ->
     {_, Interface} = lists:keyfind(tcp_ip,1,Params),
@@ -43,11 +45,11 @@ init(Params) ->
         {ok, ListenIf} when is_integer(ListenPort) ->
             case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
                 {ok, LSock} ->
-                    io:format("~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
+                    ?Log(" ~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
                     gen_server:cast(self(), accept),
                     {ok, #state{lsock=LSock}};
                 Reason ->
-                    io:format("~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
+                    ?Log(" ~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
                     {ok, #state{}}
             end;
         _ ->
@@ -56,25 +58,25 @@ init(Params) ->
 
 handle_call({stop_listen}, _From, #state{lsock=LSock} = State) ->
     catch gen_tcp:close(LSock),
-    io:format("~p imem tcp service stopped!~n", [self()]),
+    ?Log(" ~p imem tcp service stopped!~n", [self()]),
     {reply, ok, State};
 handle_call({start_listen, ListenIf, ListenPort}, _From, #state{lsock=LSock} = State) ->
     catch gen_tcp:close(LSock),
     case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
         {ok, LSock} ->
-            io:format("~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
+            ?Log(" ~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
             gen_server:cast(self(), accept),
             {reply, ok, #state{lsock=LSock}};
         Reason ->
-            io:format("~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
+            ?Log(" ~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
             {reply, Reason, State}
     end;
 handle_call(_Request, _From, State) ->
-    % io:format("handle_call ~p~n", [_Request]),
+    % ?Log(" handle_call ~p~n", [_Request]),
     {reply, ok, State}.
 
 handle_cast(accept, #state{lsock=LSock}=State) ->
-io:format("handle_cast(accept conn ~p~n", [LSock]),
+?Log(" handle_cast(accept conn ~p~n", [LSock]),
     {ok, Sock} = gen_tcp:accept(LSock),
     {ok,Pid} = gen_server:start(?MODULE, [Sock, true], []),
     ok = gen_tcp:controlling_process(Sock, Pid),
@@ -83,10 +85,10 @@ io:format("handle_cast(accept conn ~p~n", [LSock]),
     {noreply, State#state{csock=Sock}};
 handle_cast(activate, #state{csock=Sock} = State) ->
     ok = inet:setopts(Sock, [{active, once}, binary, {packet, 0}, {nodelay, true}]),
-    % io:format("~p Socket activated ~p~n", [self(), Sock]),
+    % ?Log(" ~p Socket activated ~p~n", [self(), Sock]),
     {noreply, State};
 handle_cast(_Msg, State) ->
-    % io:format("handle_cast ~p~n", [_Msg]),
+    % ?Log(" handle_cast ~p~n", [_Msg]),
 	{noreply, State}.
 
 handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
@@ -94,14 +96,14 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
     NewBuf = <<Buf/binary, Data/binary>>,
     case (catch binary_to_term(NewBuf)) of
         {'EXIT', _} ->
-            %io:format(user, "~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
+            %?Log(" ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
             {noreply, State#state{buf=NewBuf}};
         Term ->
             case Term of
                 [Mod,Fun|Args] ->
                     % replace penultimate pid wih socket (if present)
-                    % io:format(user, "__SERVER__ call ~p:~p(~p)~n", [Mod,Fun,Args]),
-                    % io:format(user, "__SERVER__ call ~p:~p~n", [Mod,Fun]),
+                    % ?Log(" call ~p:~p(~p)~n", [Mod,Fun,Args]),
+                    % ?Log(" call ~p:~p~n", [Mod,Fun]),
                     case Fun of
                         fetch_recs_async ->
                             NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
@@ -120,22 +122,22 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
             handle_info({tcp,Sock,binary_part(NewBuf, {TSize, RestSize})}, State#state{buf= <<>>})
     end;
 handle_info({tcp_closed, _Sock}, State) ->
-    % io:format("handle_info closed ~p~n", [_Sock]),
+    % ?Log(" handle_info closed ~p~n", [_Sock]),
 	{stop, sock_close, State};
 handle_info(Info, State) ->
-    io:format("handle_info unknown ~p~n", [Info]),
+    ?Log(" handle_info unknown ~p~n", [Info]),
 	{noreply, State}.
 
 terminate(_Reason, #state{csock=undefined}) -> ok;
 terminate(_Reason, #state{csock=Sock}) ->
-    % io:format("~p closing tcp ~p~n", [self(), Sock]),
+    % ?Log(" ~p closing tcp ~p~n", [self(), Sock]),
     gen_tcp:close(Sock).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 send_resp(Resp, SockOrPid) ->
-%    io:format(user, "__SERVER__ resp ~p~n", [Resp]),
+%    ?Log("resp ~p~n", [Resp]),
     RespBin = term_to_binary(Resp),
     case SockOrPid of
         Pid when is_pid(Pid)    -> Pid ! Resp;

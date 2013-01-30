@@ -106,7 +106,7 @@ start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init(_Args) ->
-    io:format(user, "~p starting...~n", [?MODULE]),
+    ?Log("~p starting...~n", [?MODULE]),
     Result = try
         catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
         check_table(ddTable),
@@ -128,10 +128,10 @@ init(_Args) ->
 
         create_type_tables(?DataTypes),
 
-        io:format(user, "~p started!~n", [?MODULE]),
+        ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
-        Class:Reason -> io:format(user, "~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
+        Class:Reason -> ?Log("~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
                         {stop, "Insufficient/invalid resources for start"}
     end,
     Result.
@@ -429,7 +429,7 @@ failing_function([{M,N,_,_}|STrace]) ->
         false ->    failing_function(STrace)
     end;
 failing_function(Other) ->
-    io:format(user, "unexpected stack trace ~p~n", [Other]),
+    ?Log("unexpected stack trace ~p~n", [Other]),
     {undefined,undefined}.
 
 log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
@@ -660,10 +660,10 @@ meta_operations(_) ->
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
 
-        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
 
-        io:format(user, "schema ~p~n", [imem_meta:schema()]),
-        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Log("schema ~p~n", [imem_meta:schema()]),
+        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -671,17 +671,17 @@ meta_operations(_) ->
 
         Now = erlang:now(),
         LogCount1 = table_size(ddLog@),
-        io:format(user, "ddLog@ count ~p~n", [LogCount1]),
+        ?Log("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
         ?assertEqual(ok, write(ddLog@, LogRec1)),
         LogCount2 = table_size(ddLog@),
-        io:format(user, "ddLog@ count ~p~n", [LogCount2]),
+        ?Log("ddLog@ count ~p~n", [LogCount2]),
         ?assertEqual(LogCount1+1,LogCount2),
         Log1=read(ddLog@,Now),
-        io:format(user, "ddLog@ content ~p~n", [Log1]),
+        ?Log("ddLog@ content ~p~n", [Log1]),
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
@@ -689,7 +689,7 @@ meta_operations(_) ->
         LogCount2a = table_size(ddLog@),
         ?assertEqual(LogCount2+4,LogCount2a),
 
-        io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
                     , #ddColumn{name=b1, type=string, len=20}    %% value 1
                     , #ddColumn{name=c1, type=string, len=30}    %% value 2
@@ -702,7 +702,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
-        io:format(user, "success ~p~n", [create_table_not_null]),
+        ?Log("success ~p~n", [create_table_not_null]),
 
         ?assertEqual(ok, insert(meta_table_3, {{{2000,01,01},{12,45,55}},undefined})),
         ?assertEqual(1, table_size(meta_table_3)),
@@ -710,7 +710,7 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {?nav,undefined})),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {{{2000,01,01},{12,45,56}},?nav})),
         LogCount4 = table_size(ddLog@),
-        io:format(user, "success ~p~n", [not_null_constraint]),
+        ?Log("success ~p~n", [not_null_constraint]),
         ?assertEqual(LogCount3+2, LogCount4),
 
         ?assertEqual(ok, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
@@ -720,9 +720,9 @@ meta_operations(_) ->
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
-        io:format(user, "success ~p~n", [drop_tables])
+        ?Log("success ~p~n", [drop_tables])
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.

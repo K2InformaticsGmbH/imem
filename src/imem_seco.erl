@@ -58,7 +58,7 @@ start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init(_Args) ->
-    io:format(user, "~p starting...~n", [?MODULE]),
+    ?Log("~p starting...~n", [?MODULE]),
     Result = try %% try creating system tables, may fail if they exist, then check existence 
         if_check_table(none, ddTable),
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
@@ -95,16 +95,16 @@ init(_Args) ->
         end,        
         if_truncate_table(none,ddSeCo),
         if_truncate_table(none,ddPerm),
-        io:format(user, "~p started!~n", [?MODULE]),
+        ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
-        Class:Reason -> io:format(user, "~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
+        Class:Reason -> ?Log("~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
                         {stop, "Insufficient resources for start"} 
     end,
     Result.
 
 handle_call({monitor, Pid}, _From, State) ->
-    %% io:format(user, "~p - started monitoring pid ~p~n", [?MODULE, Pid]),
+    %% ?Log("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
     {reply, erlang:monitor(process, Pid), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -115,11 +115,11 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, normal}, State) ->
-    % io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
+    % ?Log("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
-    io:format(user, "~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    ?Log("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info(_Info, State) ->
@@ -336,7 +336,7 @@ seco_delete(SKeyM, SKey) ->
     try 
         if_delete(SKeyM, ddSeCo, SKey)
     catch
-        Class:Reason -> io:format(user, "~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, Class, Reason])
+        Class:Reason -> ?Log("~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, Class, Reason])
     end.
 
 seco_perm_delete(_SKeyM, []) -> ok;
@@ -344,7 +344,7 @@ seco_perm_delete(SKeyM, [PKey|PKeys]) ->
     try
         if_delete(SKeyM, ddPerm, PKey)
     catch
-        Class:Reason -> io:format(user, "~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, Class, Reason])
+        Class:Reason -> ?Log("~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, Class, Reason])
     end,
     seco_perm_delete(SKeyM, PKeys).
 
@@ -480,36 +480,36 @@ test(_) ->
         % SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
-        io:format(user, "----TEST--~p~n", [?MODULE]),
+        ?Log("----TEST--~p~n", [?MODULE]),
 
-        io:format(user, "schema ~p~n", [imem_meta:schema()]),
-        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Log("schema ~p~n", [imem_meta:schema()]),
+        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        io:format(user, "----TEST--~p:test_database~n", [?MODULE]),
+        ?Log("----TEST--~p:test_database~n", [?MODULE]),
 
         Seco0 = imem_meta:table_size(ddSeCo),
         Perm0 = imem_meta:table_size(ddPerm),
         ?assert(0 =< imem_meta:table_size(ddSeCo)),
         ?assert(0 =< imem_meta:table_size(ddPerm)),
-        io:format(user, "success ~p~n", [minimum_table_sizes]),
+        ?Log("success ~p~n", [minimum_table_sizes]),
 
-        io:format(user, "----TEST--~p:test_admin_login~n", [?MODULE]),
+        ?Log("----TEST--~p:test_admin_login~n", [?MODULE]),
 
         SeCoAdmin0=?imem_test_admin_login(),
-        io:format(user, "success ~p~n", [test_admin_login]),
+        ?Log("success ~p~n", [test_admin_login]),
 
         Seco1 = imem_meta:table_size(ddSeCo),
         Perm1 = imem_meta:table_size(ddPerm),
         ?assertEqual(Seco0+1,Seco1),
         ?assertEqual(Perm0,Perm1),        
-        io:format(user, "success ~p~n", [status1]),
+        ?Log("success ~p~n", [status1]),
         Seco2 = imem_sec:table_size(SeCoAdmin0, ddSeCo),
         Perm2 = imem_sec:table_size(SeCoAdmin0, ddPerm),
         ?assertEqual(Seco0+1,Seco2),
         ?assertEqual(Perm0+2,Perm2),        
-        io:format(user, "success ~p~n", [status1]),
+        ?Log("success ~p~n", [status1]),
 
         imem_seco ! {'DOWN', simulated_reference, process, self(), simulated_exit},
         timer:sleep(2000),
@@ -517,11 +517,11 @@ test(_) ->
         Perm3 = imem_meta:table_size(ddPerm),
         ?assertEqual(Seco0,Seco3),
         ?assertEqual(Perm0,Perm3),        
-        io:format(user, "success ~p~n", [status2]),
+        ?Log("success ~p~n", [status2]),
 
-        io:format(user, "----TEST--~p:test_imem_seco~n", [?MODULE])
+        ?Log("----TEST--~p:test_imem_seco~n", [?MODULE])
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.

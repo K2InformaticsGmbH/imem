@@ -77,10 +77,10 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException',
         % SeEx = 'SecurityException',
-        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Log("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        io:format(user, "schema ~p~n", [imem_meta:schema()]),
-        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Log("schema ~p~n", [imem_meta:schema()]),
+        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -90,7 +90,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertException(throw, {UiEx,{"Unimplemented account delete option",[cascade]}}, imem_sql:exec(SKey, "DROP USER test_user_1 CASCADE;", 0, "Imem", IsSec)),
         ?assertEqual(ok, imem_sql:exec(SKey, "DROP USER test_user_1;", 0, "Imem", IsSec))
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

@@ -75,29 +75,29 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
         case receive 
             R ->    R
         after Timeout ->
-            io:format(user, "~p - fetch_recs timeout ~p~n", [?MODULE, Timeout]),
+            ?Log("~p - fetch_recs timeout ~p~n", [?MODULE, Timeout]),
             gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
             ?ClientError({"Fetch timeout, increase timeout and retry",Timeout})
         end of
             {Pid,{List, true}} ->   List;
             {Pid,{List, false}} ->  
-                io:format(user, "~p - fetch_recs too much data~n", [?MODULE]),
+                ?Log("~p - fetch_recs too much data~n", [?MODULE]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
                 ?ClientError({"Too much data, increase block size or receive in streaming mode",length(List)});
             {Pid,{error, {'SystemException', Reason}}} ->
-                io:format(user, "~p - fetch_recs exception ~p ~p~n", [?MODULE, 'SystemException', Reason]),
+                ?Log("~p - fetch_recs exception ~p ~p~n", [?MODULE, 'SystemException', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?SystemException(Reason);            
             {Pid,{error, {'ClientError', Reason}}} ->
-                io:format(user, "~p - fetch_recs exception ~p ~p~n", [?MODULE, 'ClientError', Reason]),
+                ?Log("~p - fetch_recs exception ~p ~p~n", [?MODULE, 'ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?ClientError(Reason);            
             {Pid,{error, {'ClientError', Reason}}} ->
-                io:format(user, "~p - fetch_recs exception ~p ~p~n", [?MODULE, 'ClientError', Reason]),
+                ?Log("~p - fetch_recs exception ~p ~p~n", [?MODULE, 'ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?ClientError(Reason);            
             Error ->
-                io:format(user, "~p - fetch_recs bad async receive~n~p~n", [?MODULE, Error]),
+                ?Log("~p - fetch_recs bad async receive~n~p~n", [?MODULE, Error]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?SystemException({"Bad async receive",Error})            
         end
@@ -177,7 +177,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     catch
         _:Reason ->  Reason
     end,
-    % io:format(user, "~p - update_cursor_execute result ~p~n", [?MODULE, Reply]),
+    % ?Log("~p - update_cursor_execute result ~p~n", [?MODULE, Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
@@ -192,42 +192,42 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=
     {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.     % client may restart the fetch now
 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=done}}=State) ->
-    % io:format(user, "fetch_recs_async called in status done~n", []),
+    % ?Log("fetch_recs_async called in status done~n", []),
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,done}],"fetch_recs_async rejected"),
     send_reply_to_client(Sock, {error,{'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"}}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
-    % io:format(user, "fetch_recs_async called in status aborted~n", []),
+    % ?Log("fetch_recs_async called in status aborted~n", []),
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,aborted}],"fetch_recs_async rejected"),
     send_reply_to_client(Sock, {error,{'SystemException',"Fetch is aborted, execute fetch_close before fetching from start again"}}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=tailing}}=State) ->
-    % io:format(user, "fetch_recs_async called in status tailing~n", []),
+    % ?Log("fetch_recs_async called in status tailing~n", []),
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,tailing}],"fetch_recs_async rejected"),
     send_reply_to_client(Sock, {error,{'ClientError',"Fetching in tail mode, execute fetch_close before fetching from start again"}}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
-    % io:format(user, "fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
+    % ?Log("fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     #statement{tables=[{_Schema,Table,_Alias}|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
     #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit} = MainSpec,
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
-    % io:format(user,"Table  : ~p~n", [Table]),
-    % io:format(user,"SBinds : ~p~n", [SBinds]),
-    % io:format(user,"MBinds : ~p~n", [MBinds]),
-    % io:format(user,"FGuard : ~p~n", [FGuard]),    
+    % ?Log("Table  : ~p~n", [Table]),
+    % ?Log("SBinds : ~p~n", [SBinds]),
+    % ?Log("MBinds : ~p~n", [MBinds]),
+    % ?Log("FGuard : ~p~n", [FGuard]),    
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
-    % io:format(user,"MetaRec: ~p~n", [MetaRec]),
+    % ?Log("MetaRec: ~p~n", [MetaRec]),
     [{SHead, SGuards0, [Result]}] = SSpec0,
-    % io:format(user,"SGuards before bind : ~p~n", [SGuards0]),
+    % ?Log("SGuards before bind : ~p~n", [SGuards0]),
     SGuards1 = case SGuards0 of
         [] ->       [];
         [SGuard0]-> [imem_sql:simplify_guard(select_bind(MetaRec, SGuard0, SBinds))]
     end,
-    % io:format(user,"SGuards after meta bind : ~p~n", [SGuards1]),
+    % ?Log("SGuards after meta bind : ~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
     TailSpec = ets:match_spec_compile(SSpec),
     FBound = select_bind(MetaRec, FGuard, MBinds),
-    % io:format(user,"FBound : ~p~n", [FBound]),
+    % ?Log("FBound : ~p~n", [FBound]),
     Filter = make_filter_fun(1,FBound, FBinds),
     SkipFetch = lists:member({fetch_mode,skip},Opts),
     case {SkipFetch,FetchCtx0#fetchCtx.pid} of
@@ -239,7 +239,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
-                    % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]), 
+                    % ?Log("~p - fetch opts ~p~n", [?MODULE,Opts]), 
                     FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting,metarec=MetaRec,blockSize=BlockSize,remaining=Limit,opts=Opts,filter=Filter,tailSpec=TailSpec},
                     {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
                 Error ->    
@@ -250,36 +250,36 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
             Pid ! next,
-            % io:format(user, "~p - fetch opts ~p~n", [?MODULE,Opts]),
+            % ?Log("~p - fetch opts ~p~n", [?MODULE,Opts]),
             FetchContinue = FetchCtx0#fetchCtx{metarec=MetaRec,opts=Opts,filter=Filter,tailSpec=TailSpec}, 
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
 handle_cast({close, _SKey}, State) ->
     imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
-    % io:format(user, "~p - received close in state ~p~n", [?MODULE, State]),
+    % ?Log("~p - received close in state ~p~n", [?MODULE, State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
-    io:format(user, "~p - receives unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
+    ?Log("~p - receives unsolicited cast ~p~nin state ~p~n", [?MODULE, Request, State]),
     imem_meta:log_to_db(error,?MODULE,handle_cast,[{request,Request},{state,State}],"receives unsolicited cast"),
     {noreply, State}.
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
-    % io:format(user, "~p - received end of table in status ~p~n", [?MODULE,FetchCtx0#fetchCtx.status]),
-    % io:format(user, "~p - received end of table in state~n~p~n", [?MODULE,State]),
+    % ?Log("~p - received end of table in status ~p~n", [?MODULE,FetchCtx0#fetchCtx.status]),
+    % ?Log("~p - received end of table in state~n~p~n", [?MODULE,State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status, fetching}],"eot"),
             send_reply_to_client(Sock, {[],true}),  
-            io:format(user, "~p - late end of table received in state~n~p~n", [?MODULE, State]),        
+%            ?Log("~p - late end of table received in state~n~p~n", [?MODULE, State]),
             handle_fetch_complete(State);
         _ ->
-            io:format(user, "~p - unexpected end of table received in state~n~p~n", [?MODULE, State]),        
+            ?Log("~p - unexpected end of table received in state~n~p~n", [?MODULE, State]),        
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             {noreply, State}
     end;        
 handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
-    %io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, write, Record]),
+    %?Log("~p - received mnesia subscription event ~p ~p~n", [?MODULE, write, Record]),
     #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec}=FetchCtx0,
     case Status of
         tailing ->
@@ -321,16 +321,16 @@ handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,f
     end;
 handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
-    % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete_object, _OldRecord]),
+    % ?Log("~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete_object, _OldRecord]),
     {noreply, State};
 handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
-    % io:format(user, "~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
+    % ?Log("~p - received mnesia subscription event ~p ~p~n", [?MODULE, delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MetaRec,remaining=Remaining0,status=Status,filter=Filter, opts=Opts}=FetchCtx0,
-    % io:format(user, "~p - received ~p rows~n", [?MODULE, length(Rows)]),
-    % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
+    % ?Log("~p - received ~p rows~n", [?MODULE, length(Rows)]),
+    % ?Log("~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
@@ -398,7 +398,7 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
     end,
     case is_number(Remaining0) of
         true ->
-            % io:format(user, "sending rows ~p~n", [Result]),
+            % ?Log("sending rows ~p~n", [Result]),
             case Remaining0 =< length(Result) of
                 true ->     
                     send_reply_to_client(Sock, {Result, true}),
@@ -418,37 +418,37 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
                     end
             end;
         false ->
-            io:format(user, "receiving rows ~n~p~n", [Rows0]),
-            io:format(user, "in unexpected state ~n~p~n", [State]),
+            ?Log("receiving rows ~n~p~n", [Rows0]),
+            ?Log("in unexpected state ~n~p~n", [State]),
             {noreply, State}
     end;
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
-    % io:format(user, "~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, _Pid, _Ref, _Reason]),
+    % ?Log("~p - received expected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, _Pid, _Ref, _Reason]),
     {noreply, State#state{fetchCtx=#fetchCtx{}}}; 
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
-    io:format(user, "~p - received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    ?Log("~p - received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(Info, State) ->
-    io:format(user, "~p - received unsolicited info ~p~nin state ~p~n", [?MODULE, Info, State]),
+    ?Log("~p - received unsolicited info ~p~nin state ~p~n", [?MODULE, Info, State]),
     {noreply, State}.
 
 handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State)->
     #fetchCtx{pid=Pid,monref=MonitorRef,opts=Opts}=FetchCtx0,
     kill_fetch(MonitorRef, Pid),
-    % io:format(user, "~p - fetch complete, opts ~p~n", [?MODULE,Opts]), 
+    % ?Log("~p - fetch complete, opts ~p~n", [?MODULE,Opts]), 
     case lists:member({tail_mode,true},Opts) of
         false ->
-            % io:format(user, "~p - fetch complete no tail ~p~n", [?MODULE,Opts]), 
+            % ?Log("~p - fetch complete no tail ~p~n", [?MODULE,Opts]), 
             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};           
         true ->     
             {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
-            io:format(user, "~p - fetch complete, switching to tail_mode~p~n", [?MODULE,Opts]), 
+%           ?Log("~p - fetch complete, switching to tail_mode~p~n", [?MODULE,Opts]), 
             case  catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
                 ok ->
-                    io:format(user, "~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
+                    ?Log("~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
                 Error ->
-                    io:format(user, "~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
+                    ?Log("~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
                     imem_meta:log_to_db(error,?MODULE,handle_fetch_complete,[{table,Table},{error,Error},{sock,Sock}],"Cannot subscribe to table changes"),
                     send_reply_to_client(Sock, {error,{'SystemException',{"Cannot subscribe to table changes",{Table,Error}}}}),
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}}   
@@ -456,15 +456,15 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
     end.
 
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) -> 
-    % io:format(user, "~p - terminating monitor not found~n", [?MODULE]),
+    % ?Log("~p - terminating monitor not found~n", [?MODULE]),
     catch Pid ! abort, 
     ok;
 terminate(_Reason, #state{statement=Stmt,fetchCtx=#fetchCtx{status=tailing}}) -> 
-    % io:format(user, "~p - terminating tail_mode~n", [?MODULE]),
+    % ?Log("~p - terminating tail_mode~n", [?MODULE]),
     unsubscribe(Stmt),
     ok;
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
-    % io:format(user, "~p - demonitor and terminate~n", [?MODULE]),
+    % ?Log("~p - demonitor and terminate~n", [?MODULE]),
     kill_fetch(MonitorRef, Pid), 
     ok.
 
@@ -659,8 +659,8 @@ join_rows(Rows, FetchCtx0, Stmt) ->
     #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     Tables = tl(Stmt#statement.tables),
     JoinSpecs = Stmt#statement.joinSpecs,
-    % io:format(user, "Join Tables: ~p~n", [Tables]),
-    % io:format(user, "Join Specs: ~p~n", [JoinSpecs]),
+    % ?Log("Join Tables: ~p~n", [Tables]),
+    % ?Log("Join Specs: ~p~n", [JoinSpecs]),
     join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpecs, []).
 
 join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
@@ -679,11 +679,11 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
-    % io:format(user, "Rec used for join bind ~p~n", [Rec]),
+    % ?Log("Rec used for join bind ~p~n", [Rec]),
     [{MatchHead, [Guard0], [Result]}] = SSpec,
     Guard1 = join_bind(Rec, Guard0, SBinds),
     MaxSize = Limit+1000,
-    % io:format(user, "Join guard after bind : ~p~n", [Guard1]),
+    % ?Log("Join guard after bind : ~p~n", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, [Guard1], [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->
@@ -692,7 +692,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
                     [setelement(Ti, Rec, I) || I <- L];
                 _ ->
                     MboundGuard = join_bind(Rec, FGuard, MBinds),
-                    % io:format(user, "Join guard after MBind : ~p~n", [MboundGuard]),
+                    % ?Log("Join guard after MBind : ~p~n", [MboundGuard]),
                     Filter = make_filter_fun(Ti, MboundGuard, FBinds),
                     Recs = [setelement(Ti, Rec, I) || I <- L],
                     lists:filter(Filter,Recs)
@@ -710,19 +710,19 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fgu
                 true ->
                     ?UnimplementedException({"Unsupported virtual join filter guard", FGuard}); 
                 _ ->
-                    % io:format(user, "Rec used for join bind ~p~n", [Rec]),
-                    % io:format(user, "MBinds used for join bind ~p~n", [MBinds]),
+                    % ?Log("Rec used for join bind ~p~n", [Rec]),
+                    % ?Log("MBinds used for join bind ~p~n", [MBinds]),
                     case join_bind(Rec, FGuard, MBinds) of
                         {is_member,Tag, '$_'} when is_atom(Tag) ->
                             Items = element(1,Rec),
-                            % io:format(user, "generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+                            % ?Log("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
                             Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-                            % io:format(user, "Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            % ?Log("Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         {is_member,Tag, Items} when is_atom(Tag) ->
-                            % io:format(user, "generate_virtual table ~p from~n~p~n", [Table,Items]),
+                            % ?Log("generate_virtual table ~p from~n~p~n", [Table,Items]),
                             Virt = generate_virtual(Table,Items,MaxSize),
-                            % io:format(user, "Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            % ?Log("Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         BadFG ->
                             ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
@@ -882,7 +882,7 @@ send_reply_to_client(SockOrPid, Result) ->
 
 update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     TableTypes = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table,_Alias} <- Tables],
-    % io:format(user, "~p - received change list~n~p~n", [?MODULE, ChangeList]),
+    % ?Log("~p - received change list~n~p~n", [?MODULE, ChangeList]),
     %% transform a ChangeList
         % [1,nop,{{def,"2","'2'"},{}},"2"],                     %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
@@ -894,7 +894,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_prepare(IsSec, SKey, TableTypes, ColMap, ChangeList, []),
-    %io:format(user, "~p - prepared table changes~n~p~n", [?MODULE, UpdPlan]),
+    %?Log("~p - prepared table changes~n~p~n", [?MODULE, UpdPlan]),
     UpdPlan.
 
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
@@ -907,7 +907,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), {}],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % io:format(user, "~p - ColMap~n~p~n", [?MODULE, ColMap]),
+    % ?Log("~p - ColMap~n~p~n", [?MODULE, ColMap]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -917,11 +917,11 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         [{Ci,imem_datatype:value_to_db(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
-    % io:format(user, "~p - value map~n~p~n", [?MODULE, ValMap]),
+    % ?Log("~p - value map~n~p~n", [?MODULE, ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
-    % io:format(user, "~p - ind map~n~p~n", [?MODULE, IndMap]),
+    % ?Log("~p - ind map~n~p~n", [?MODULE, IndMap]),
     ROViol = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
-    % io:format(user, "~p - key change~n~p~n", [?MODULE, ROViol]),
+    % ?Log("~p - key change~n~p~n", [?MODULE, ROViol]),
     if  
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});        
         length(ROViol) /= 0 ->                  ?ClientError({"Cannot update readonly field",{Item,hd(ROViol)}});        
@@ -933,7 +933,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
 update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
     DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    % io:format(user, "~p - default record ~p~n", [?MODULE, DefRec]),     
+    % ?Log("~p - default record ~p~n", [?MODULE, DefRec]),     
     update_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
@@ -979,7 +979,7 @@ receive_raw(Timeout) ->
 
 receive_raw(Timeout,Acc) ->    
     case receive 
-            R ->    io:format(user, "~p got:~n~p~n", [erlang:now(),R]),
+            R ->    ?Log("~p got:~n~p~n", [erlang:now(),R]),
                     R
         after Timeout ->
             stop
@@ -996,7 +996,7 @@ receive_list(StmtResult, Complete, Timeout) ->
 
 receive_list(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
-            R ->    % io:format(user, "~p got:~n~p~n", [erlang:now(),R]),
+            R ->    % ?Log("~p got:~n~p~n", [erlang:now(),R]),
                     R
         after Timeout ->
             stop
@@ -1018,9 +1018,9 @@ receive_list(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Time
                     RT = result_tuples(List,RowFun),
                     if 
                         length(RT) =< 10 ->
-                            io:format(user, "Received  : ~p~n", [RT]);
+                            ?Log("Received  : ~p~n", [RT]);
                         true ->
-                            io:format(user, "Received  : ~p items [~p,~p,~p]~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                            ?Log("Received  : ~p items [~p,~p,~p]~n", [length(RT),hd(RT), '...', lists:last(RT)])
                     end,            
                     RT;
                 StmtRefs ->
@@ -1078,10 +1078,10 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
-        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Log("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        io:format(user, "schema ~p~n", [imem_meta:schema()]),
-        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Log("schema ~p~n", [imem_meta:schema()]),
+        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1106,8 +1106,8 @@ test_with_or_without_sec(IsSec) ->
 
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),
-        io:format(user, "Meta table~n~p~n", [Meta]),
-        io:format(user, "original table~n~p~n", [TableRows1]),
+        ?Log("Meta table~n~p~n", [Meta]),
+        ?Log("original table~n~p~n", [TableRows1]),
 
 
         SR0 = exec(SKey,query0, 15, IsSec, "select col1, col2 from def;"),
@@ -1138,7 +1138,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([], receive_raw()),
 
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
-        %% io:format(user, "change list~n~p~n", [ChangeList2]),
+        %% ?Log("change list~n~p~n", [ChangeList2]),
         ChangeList2 = [
         [1,nop,{{def,"2",2},{}},"2",2],         %% no operation on this line
         [5,ins,{},"99","undefined"],            %% insert {def,"99", undefined}
@@ -1149,7 +1149,7 @@ test_with_or_without_sec(IsSec) ->
             update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)
         ),
         TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        io:format(user, "unchanged table~n~p~n", [TableRows2]),
+        ?Log("unchanged table~n~p~n", [TableRows2]),
         ?assertEqual(TableRows1, TableRows2),
 
         ChangeList3 = [
@@ -1172,7 +1172,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
         ?assertEqual(ok, update_cursor_execute(SKey, SR1, IsSec, optimistic)),        
         TableRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        io:format(user, "changed table~n~p~n", [TableRows3]),
+        ?Log("changed table~n~p~n", [TableRows3]),
         [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
         [?assertNot(lists:member(R,TableRows3)) || R <- RemovedRows3],
 
@@ -1243,9 +1243,9 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
             List4a = receive_list(SR4,false),
             ?assertEqual(5, length(List4a)),
-            io:format(user, "trying to insert one row before fetch complete~n", []),
+            ?Log("trying to insert one row before fetch complete~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
-            io:format(user, "completed insert one row before fetch complete~n", []),
+            ?Log("completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),
             List4b = receive_list(SR4,true),
             ?assertEqual(5, length(List4b)),
@@ -1257,10 +1257,10 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(11,imem_meta:table_size(def)),
             List4d = receive_list(SR4,tail),
             ?assertEqual(12, length(List4d)),
-            io:format(user, "12 tail rows received in single packets~n", []),
+            ?Log("12 tail rows received in single packets~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
             Result4e = receive_raw(),
-            io:format(user, "reject received ~p~n", [Result4e]),
+            ?Log("reject received ~p~n", [Result4e]),
             [{StmtRef4, {error, {ClEr,Reason4e}}}] = Result4e, 
             ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason4e),
             ?assertEqual(StmtRef4,SR4#stmtResult.stmtRef),
@@ -1277,7 +1277,7 @@ test_with_or_without_sec(IsSec) ->
             List5a = receive_list(SR5,true),
             ?assert(lists:member({"Imem.def"},List5a)),
             ?assert(lists:member({"Imem.ddTable"},List5a)),
-            io:format(user, "first read success (async)~n", []),
+            ?Log("first read success (async)~n", []),
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             [{StmtRef5, {error, Reason5a}}] = receive_raw(),
             ?assertEqual({'ClientError',
@@ -1288,7 +1288,7 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             List5b = receive_list(SR5,true),
             ?assertEqual(List5a,List5b),
-            io:format(user, "second read success (async)~n", []),
+            ?Log("second read success (async)~n", []),
             ?assertException(throw,
                 {'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},
                 fetch_recs_sort(SKey, SR5, self(), 1000, IsSec)
@@ -1297,7 +1297,7 @@ test_with_or_without_sec(IsSec) ->
             List5c = fetch_recs_sort(SKey, SR5, self(), 1000, IsSec),
             ?assertEqual(length(List5b), length(List5c)),
             ?assertEqual(lists:sort(List5b), lists:sort(result_tuples(List5c,SR5#stmtResult.rowFun))),
-            io:format(user, "third read success (sync)~n", [])
+            ?Log("third read success (sync)~n", [])
         after
             ?assertEqual(ok, close(SKey, SR4))
         end,
@@ -1358,18 +1358,18 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-11),1.0e-11)),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-12),1.0e-12)),
 
-        io:format(user, "ErlangNow: ~p~n", [ENow]),
+        ?Log("ErlangNow: ~p~n", [ENow]),
         OneSec = 1.0/86400.0,
-        io:format(user, "Now-  1us: ~p~n", [offset_timestamp('-', ENow, 0.000001 * OneSec)]),
-        io:format(user, "Now- 10us: ~p~n", [offset_timestamp('-', ENow, 0.00001 * OneSec)]),
-        io:format(user, "Now-100us: ~p~n", [offset_timestamp('-', ENow, 0.0001 * OneSec)]),
-        io:format(user, "Now-  1ms: ~p~n", [offset_timestamp('-', ENow, 0.001 * OneSec)]),
-        io:format(user, "Now- 10ms: ~p~n", [offset_timestamp('-', ENow, 0.01 * OneSec)]),
-        io:format(user, "Now-100ms: ~p~n", [offset_timestamp('-', ENow, 0.1 * OneSec)]),
-        io:format(user, "Now-   1s: ~p~n", [offset_timestamp('-', ENow, OneSec)]),
-        io:format(user, "Now-  10s: ~p~n", [offset_timestamp('-', ENow, 10.0*OneSec)]),
-        io:format(user, "Now- 100s: ~p~n", [offset_timestamp('-', ENow, 100.0*OneSec)]),
-        io:format(user, "Now-1000s: ~p~n", [offset_timestamp('-', ENow, 1000.0*OneSec)]),
+        ?Log("Now-  1us: ~p~n", [offset_timestamp('-', ENow, 0.000001 * OneSec)]),
+        ?Log("Now- 10us: ~p~n", [offset_timestamp('-', ENow, 0.00001 * OneSec)]),
+        ?Log("Now-100us: ~p~n", [offset_timestamp('-', ENow, 0.0001 * OneSec)]),
+        ?Log("Now-  1ms: ~p~n", [offset_timestamp('-', ENow, 0.001 * OneSec)]),
+        ?Log("Now- 10ms: ~p~n", [offset_timestamp('-', ENow, 0.01 * OneSec)]),
+        ?Log("Now-100ms: ~p~n", [offset_timestamp('-', ENow, 0.1 * OneSec)]),
+        ?Log("Now-   1s: ~p~n", [offset_timestamp('-', ENow, OneSec)]),
+        ?Log("Now-  10s: ~p~n", [offset_timestamp('-', ENow, 10.0*OneSec)]),
+        ?Log("Now- 100s: ~p~n", [offset_timestamp('-', ENow, 100.0*OneSec)]),
+        ?Log("Now-1000s: ~p~n", [offset_timestamp('-', ENow, 1000.0*OneSec)]),
 
         F0 = make_filter_fun(1,true, []),
         ?assertEqual(true,F0(1)),        
@@ -1400,7 +1400,7 @@ test_with_or_without_sec(IsSec) ->
         end
 
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
@@ -1412,11 +1412,11 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 exec(SKey,Id, BS, IsSec, Sql) ->
-    io:format(user, "~p : ~s~n", [Id,Sql]),
+    ?Log("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,
-    io:format(user, "Statement Cols : ~p~n", [StmtCols]),
+    ?Log("Statement Cols : ~p~n", [StmtCols]),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     StmtResult.
 

@@ -176,7 +176,7 @@ column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
         [] ->                       ?ClientError({"Table does not exist",{Schema,Table}})
     end,
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
-    % io:format(user, "column_map lookup ~p~n", [Lookup++L]),
+    % ?Log("column_map lookup ~p~n", [Lookup++L]),
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
@@ -204,9 +204,9 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
         ((Schema == undefined) or (Schema == element(3, L)))
     end,
     Lmatch = lists:filter(Pred, Lookup),
-    %% io:format(user, "column_map matching tables ~p~n", [Lmatch]),
+    %% ?Log("column_map matching tables ~p~n", [Lmatch]),
     Tcount = length(lists:usort([{element(3, X), element(4, X)} || X <- Lmatch])),
-    %% io:format(user, "column_map matching table count ~p~n", [Tcount]),
+    %% ?Log("column_map matching table count ~p~n", [Tcount]),
     MetaField = imem_meta:meta_field(Name),
     if 
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined) andalso MetaField ->
@@ -253,12 +253,12 @@ column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
 column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
     lists:reverse(Acc);
 column_map(Tables, Columns, Tmax, Lookup, Meta, Acc) ->
-    io:format(user, "column_map error Tables ~p~n", [Tables]),
-    io:format(user, "column_map error Columns ~p~n", [Columns]),
-    io:format(user, "column_map error Tmax ~p~n", [Tmax]),
-    io:format(user, "column_map error Lookup ~p~n", [Lookup]),
-    io:format(user, "column_map error Meta ~p~n", [Meta]),
-    io:format(user, "column_map error Acc ~p~n", [Acc]),
+    ?Log("column_map error Tables ~p~n", [Tables]),
+    ?Log("column_map error Columns ~p~n", [Columns]),
+    ?Log("column_map error Tmax ~p~n", [Tmax]),
+    ?Log("column_map error Lookup ~p~n", [Lookup]),
+    ?Log("column_map error Meta ~p~n", [Meta]),
+    ?Log("column_map error Acc ~p~n", [Acc]),
     ?ClientError({"Column map invalid parameter",{Tables,Columns}}).
 
 
@@ -309,7 +309,7 @@ create_scan_spec(_Tmax,Ti,FullMap,[]) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     #scanSpec{sspec=[{MatchHead, [], ['$_']}]};
 create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
-    % io:format(user, "SGuard0 ~p~n", [SGuard0]),
+    % ?Log("SGuard0 ~p~n", [SGuard0]),
     Limit = case operand_match(rownum,SGuard0) of
         false ->  #scanSpec{}#scanSpec.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
@@ -320,22 +320,22 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
-    % io:format(user, "MatchHead (~p) ~p~n", [Ti,MatchHead]),
+    % ?Log("MatchHead (~p) ~p~n", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
-    % io:format(user, "SGuard1 ~p~n", [SGuard1]),
+    % ?Log("SGuard1 ~p~n", [SGuard1]),
     FGuard = case operator_match('is_member',SGuard1) of
         false ->    true;   %% no filtering needed
         F ->        F
     end,
     SGuard2 = simplify_guard(replace_is_member(SGuard1)),
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
-    % io:format(user, "FGuard ~p~n", [FGuard]),
+    % ?Log("FGuard ~p~n", [FGuard]),
     SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
-    % io:format(user, "SBinds ~p~n", [SBinds]),
+    % ?Log("SBinds ~p~n", [SBinds]),
     MBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [FGuard],[]),
-    % io:format(user, "MBinds ~p~n", [MBinds]),
+    % ?Log("MBinds ~p~n", [MBinds]),
     FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
-    % io:format(user, "FBinds ~p~n", [FBinds]),
+    % ?Log("FBinds ~p~n", [FBinds]),
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
 
 operand_member(Tx,{_,R}) -> operand_member(Tx,R);
@@ -434,10 +434,10 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        io:format(user, "----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Log("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        io:format(user, "schema ~p~n", [imem_meta:schema()]),
-        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Log("schema ~p~n", [imem_meta:schema()]),
+        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -462,14 +462,14 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual({'Imem',table,alias}, table_qname({<<"table">>,<<"alias">>})),
         ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, <<"alias">>})),
 
-        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        io:format(user, "success ~p~n", [schema]),
+        ?Log("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        io:format(user, "success ~p~n", [data_nodes]),
+        ?Log("success ~p~n", [data_nodes]),
 
-        io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
                     , #ddColumn{name=b1, type=char, len=1}    %% value 1
                     , #ddColumn{name=c1, type=char, len=1}    %% value 2
@@ -486,7 +486,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "Imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
-        io:format(user, "success ~p~n", [create_tables]),
+        ?Log("success ~p~n", [create_tables]),
 
         Table1 =    {'Imem', meta_table_1, meta_table_1},
         Table2 =    {undefined, meta_table_2, meta_table_2},
@@ -497,7 +497,7 @@ test_with_or_without_sec(IsSec) ->
         Alias2 =    {'Imem', meta_table_1, alias2},
 
         ?assertException(throw, {ClEr, {"Table does not exist", {'Imem', meta_table_x}}}, column_map([TableX], [])),
-        io:format(user, "success ~p~n", [table_no_exists]),
+        ?Log("success ~p~n", [table_no_exists]),
 
         ColsE1=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", name=x}
@@ -505,7 +505,7 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown column name", x}}, column_map([Table1], ColsE1)),
-        io:format(user, "success ~p~n", [unknown_column_name_1]),
+        ?Log("success ~p~n", [unknown_column_name_1]),
 
         ColsE2=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", table=meta_table_x, name=b1}
@@ -513,10 +513,10 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown column name", {meta_table_x,b1}}}, column_map([Table1, Table2], ColsE2)),
-        io:format(user, "success ~p~n", [unknown_column_name_2]),
+        ?Log("success ~p~n", [unknown_column_name_2]),
 
         ?assertMatch([_,_,_], column_map([Table1], [])),
-        io:format(user, "success ~p~n", [empty_select_columns]),
+        ?Log("success ~p~n", [empty_select_columns]),
 
 
         ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
@@ -525,58 +525,58 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Empty table list", _}}, column_map([], ColsA)),
-        io:format(user, "success ~p~n", [empty_table_list]),
+        ?Log("success ~p~n", [empty_table_list]),
 
         ?assertException(throw, {ClEr,{"Ambiguous column name", a}}, column_map([Table1, Table3], [#ddColMap{name=a}])),
-        io:format(user, "success ~p~n", [columns_ambiguous_a]),
+        ?Log("success ~p~n", [columns_ambiguous_a]),
 
         ?assertException(throw, {ClEr,{"Ambiguous column name", c1}}, column_map([Table1, Table3], ColsA)),
-        io:format(user, "success ~p~n", [columns_ambiguous_c1]),
+        ?Log("success ~p~n", [columns_ambiguous_c1]),
 
         ?assertMatch([_,_,_], column_map([Table1], ColsA)),
-        io:format(user, "success ~p~n", [columns_A]),
+        ?Log("success ~p~n", [columns_A]),
 
         ?assertMatch([_,_,_,_,_,_], column_map([Table1, Table3], [#ddColMap{name='*'}])),
-        io:format(user, "success ~p~n", [columns_13_join]),
+        ?Log("success ~p~n", [columns_13_join]),
 
         Cmap3 = column_map([Table1, Table2, Table3], [#ddColMap{name='*'}]),
-        % io:format(user, "ColMap3 ~p~n", [Cmap3]),        
+        % ?Log("ColMap3 ~p~n", [Cmap3]),        
         ?assertMatch([_,_,_,_,_,_,_,_], Cmap3),
         ?assertEqual(lists:sort(Cmap3), Cmap3),
-        io:format(user, "success ~p~n", [columns_123_join]),
+        ?Log("success ~p~n", [columns_123_join]),
 
         ?assertMatch([_,_,_,_,_,_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{name='*'}])),
-        io:format(user, "success ~p~n", [alias_113_join]),
+        ?Log("success ~p~n", [alias_113_join]),
 
         ?assertMatch([_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=meta_table_3, name='*'}])),
-        io:format(user, "success ~p~n", [columns_113_star1]),
+        ?Log("success ~p~n", [columns_113_star1]),
 
         ?assertMatch([_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name='*'},#ddColMap{table=meta_table_3, name='a'}])),
-        io:format(user, "success ~p~n", [columns_alias_1]),
+        ?Log("success ~p~n", [columns_alias_1]),
 
         ?assertMatch([_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name=a},#ddColMap{table=alias2, name='a'}])),
-        io:format(user, "success ~p~n", [columns_alias_2]),
+        ?Log("success ~p~n", [columns_alias_2]),
 
         ?assertMatch([_,_], column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=sysdate}])),
-        io:format(user, "success ~p~n", [sysdate]),
+        ?Log("success ~p~n", [sysdate]),
 
         ?assertException(throw, {ClEr,{"Unknown column name", {any,sysdate}}}, column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{table=any, name=sysdate}])),
-        io:format(user, "success ~p~n", [sysdate_reject]),
+        ?Log("success ~p~n", [sysdate_reject]),
 
         ?assertEqual(["'Imem'.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}]),qname)),
-        io:format(user, "success ~p~n", [user]),
+        ?Log("success ~p~n", [user]),
 
         ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
-        io:format(user, "success ~p~n", [drop_tables]),
+        ?Log("success ~p~n", [drop_tables]),
 
         case IsSec of
             true -> ?imem_logout(SKey);
             _ ->    ok
         end
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

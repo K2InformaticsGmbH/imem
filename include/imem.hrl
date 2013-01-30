@@ -1,0 +1,1 @@
+-define(Log(__F,__A), io:format(user, "[_SERVER_] "++__F, __A)).

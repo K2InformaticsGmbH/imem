@@ -10,6 +10,11 @@
 -behaviour(application).
 
 %% --------------------------------------------------------------------
+%% Include files
+%% --------------------------------------------------------------------
+-include("imem.hrl").
+
+%% --------------------------------------------------------------------
 %% Behavioural exports
 %% --------------------------------------------------------------------
 -export([start/2, stop/1]).
@@ -38,11 +43,11 @@
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
     case application:get_env(erl_cluster_mgr) of
-        {ok, undefined} -> io:format(user, "~p - CM not defined!~n", [?MODULE]);
+        {ok, undefined} -> ?Log("~p - CM not defined!~n", [?MODULE]);
         {ok, CMNode} ->
             case net_adm:ping(CMNode) of
-            pong -> io:format(user, "~p - ~p is CM~n", [?MODULE, CMNode]);
-            pang -> io:format(user, "~p - CM ~p is not reachable!~n", [?MODULE, CMNode])
+            pong -> ?Log("~p - ~p is CM~n", [?MODULE, CMNode]);
+            pang -> ?Log("~p - CM ~p is not reachable!~n", [?MODULE, CMNode])
             end
     end,
     case imem_sup:start_link(StartArgs) of
@@ -57,5 +62,5 @@ start(_Type, StartArgs) ->
 %% Returns: any
 %% --------------------------------------------------------------------
 stop(_State) ->
-	io:format(user, "Stopping ~p~n", [?MODULE]),
+	?Log("Stopping ~p~n", [?MODULE]),
 	ok.
