@@ -1109,6 +1109,17 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "Meta table~n~p~n", [Meta]),
         io:format(user, "original table~n~p~n", [TableRows1]),
 
+
+        SR0 = exec(SKey,query0, 15, IsSec, "select col1, col2 from def;"),
+        try
+            ?assertEqual(ok, fetch_async(SKey,SR0,[],IsSec)),
+            List0 = receive_list(SR0,true),
+            ?assertEqual(15, length(List0)),
+            ?assertEqual([], receive_raw())
+        after
+            ?assertEqual(ok, close(SKey, SR0))
+        end,
+
         SR1 = exec(SKey,query1, 4, IsSec, "select col1, col2 from def;"),
         ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
         List1a = receive_list(SR1,false),
@@ -1125,7 +1136,6 @@ test_with_or_without_sec(IsSec) ->
         List1d = receive_list(SR1,true),
         ?assertEqual(3, length(List1d)),
         ?assertEqual([], receive_raw()),
-
 
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
         %% io:format(user, "change list~n~p~n", [ChangeList2]),

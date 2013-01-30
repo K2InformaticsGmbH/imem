@@ -31,7 +31,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             ?ClientError({"Invalid select structure", CError})
     end,
     ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
-    io:format(user,"Column map: ~p~n", [ColMaps1]),
+    % io:format(user,"Column map: ~p~n", [ColMaps1]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
     % io:format(user,"Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
@@ -577,7 +577,7 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query4a, 100, IsSec, 
+        exec_fetch_sort_equal(SKey, query4b, 100, IsSec, 
             "select t1.col1, t2.col1 
              from def t1, def t2 
              where t1.col1 in (5,7) 
@@ -588,7 +588,7 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query4a, 100, IsSec, 
+        exec_fetch_sort_equal(SKey, query4c, 100, IsSec, 
             "select t1.col1, t2.col1 
              from def t1, def t2 
              where t1.col1=5 
@@ -596,6 +596,19 @@ test_with_or_without_sec(IsSec) ->
              and t2.col1 <= t1.col1", 
             [
                 {"5","3"},{"5","4"},{"5","5"}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query4d, 100, IsSec, 
+            "select t1.col1, t2.col2 
+             from def t1, def t2 
+             where t1.col1 <> 5 
+             and t1.col1 <= 10
+             and not (t2.col2 = '7') 
+             and t2.col1 = t1.col1", 
+            [
+                {"1","1"},{"2","2"},{"3","3"},{"4","4"},
+                {"6","6"},{"8","8"},{"9","9"},{"10","10"}
             ]
         ),
 
@@ -648,7 +661,9 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query5h, 100, IsSec, 
-            "select d.col1, m.col1 from def as d, member_test as m where is_member(d.col1,m.col2)",
+            "select d.col1, m.col1 
+             from def as d, member_test as m 
+             where is_member(d.col1,m.col2)",
             [
                 {"1","2"},
                 {"2","2"},
@@ -679,6 +694,28 @@ test_with_or_without_sec(IsSec) ->
         %         {"9","2"}
         %     ]
         % ),
+
+        R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, 
+            "select name(qname) 
+             from ddTable
+             where is_member(\"{virtual,true}\",opts)"
+        ),
+        ?assert(length(R5k) >= 18),
+        ?assert(lists:member({"Imem.atom"},R5k)),
+        ?assert(lists:member({"Imem.userid"},R5k)),
+        ?assertNot(lists:member({"Imem.ddTable"},R5k)),
+        ?assertNot(lists:member({"Imem.ddTable"},R5k)),
+
+        R5l = exec_fetch_sort(SKey, query5l, 100, IsSec, 
+            "select name(qname) 
+             from ddTable
+             where not is_member(\"{virtual,true}\",opts)"
+        ),
+        ?assert(length(R5l) >= 5),
+        ?assertNot(lists:member({"Imem.atom"},R5l)),
+        ?assertNot(lists:member({"Imem.userid"},R5l)),
+        ?assert(lists:member({"Imem.ddTable"},R5l)),
+        ?assert(lists:member({"Imem.ddAccount"},R5l)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, 'Imem', IsSec)),
 
