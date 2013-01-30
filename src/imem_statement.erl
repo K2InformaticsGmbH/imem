@@ -268,13 +268,13 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     % io:format(user, "~p - received end of table in state~n~p~n", [?MODULE,State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status, fetching}],"eot"),
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status,fetching},{sock,Sock}],"eot"),
             send_reply_to_client(Sock, {[],true}),  
             io:format(user, "~p - late end of table received in state~n~p~n", [?MODULE, State]),        
             handle_fetch_complete(State);
-        _ ->
+        Status ->
             io:format(user, "~p - unexpected end of table received in state~n~p~n", [?MODULE, State]),        
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status,Status},{sock,Sock}],"eot"),
             {noreply, State}
     end;        
 handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
@@ -979,7 +979,7 @@ receive_raw(Timeout) ->
 
 receive_raw(Timeout,Acc) ->    
     case receive 
-            R ->    io:format(user, "~p got:~n~p~n", [erlang:now(),R]),
+            R ->    % io:format(user, "~p got:~n~p~n", [erlang:now(),R]),
                     R
         after Timeout ->
             stop
@@ -1018,9 +1018,9 @@ receive_list(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Time
                     RT = result_tuples(List,RowFun),
                     if 
                         length(RT) =< 10 ->
-                            io:format(user, "Received  : ~p~n", [RT]);
+                            io:format(user, "Received  : ~p  ~p~n", [RT,Complete]);
                         true ->
-                            io:format(user, "Received  : ~p items [~p,~p,~p]~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                            io:format(user, "Received  : ~p items [~p,~p,~p]  ~p~n", [length(RT),hd(RT), '...', lists:last(RT),Complete])
                     end,            
                     RT;
                 StmtRefs ->
@@ -1110,7 +1110,7 @@ test_with_or_without_sec(IsSec) ->
         io:format(user, "original table~n~p~n", [TableRows1]),
 
 
-        SR0 = exec(SKey,query0, 15, IsSec, "select col1, col2 from def;"),
+        SR0 = exec(SKey,query0, 15, IsSec, "select * from def;"),
         try
             ?assertEqual(ok, fetch_async(SKey,SR0,[],IsSec)),
             List0 = receive_list(SR0,true),
