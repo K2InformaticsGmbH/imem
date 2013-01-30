@@ -155,7 +155,7 @@ close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
 init([Statement]) ->
-    imem_meta:log_to_db(debug,?MODULE,init,[],Statement#statement.stmtStr),
+    imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
     {ok, #state{statement=Statement}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
@@ -181,7 +181,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
     case Status of
         undefined ->    ok;                             % close is ignored
         done ->         ok;                             % normal close after completed fetch
@@ -268,7 +268,7 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     % ?Log("~p - received end of table in state~n~p~n", [?MODULE,State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status, fetching}],"eot"),
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status,fetching},{sock,Sock}],"eot"),
             send_reply_to_client(Sock, {[],true}),  
 %            ?Log("~p - late end of table received in state~n~p~n", [?MODULE, State]),
             handle_fetch_complete(State);
@@ -333,13 +333,13 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
     % ?Log("~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
         {waiting,[?sot|R]} ->            
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
             {R,false};
         {fetching,[?eot|R]} ->
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
         {fetching,[?sot,?eot|_R]} ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
@@ -348,7 +348,7 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
             handle_fetch_complete(State);
         {fetching,R} ->            
-            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
+            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
             {R,false};
         {BadStatus,R} ->            
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
@@ -1110,7 +1110,7 @@ test_with_or_without_sec(IsSec) ->
         ?Log("original table~n~p~n", [TableRows1]),
 
 
-        SR0 = exec(SKey,query0, 15, IsSec, "select col1, col2 from def;"),
+        SR0 = exec(SKey,query0, 15, IsSec, "select * from def;"),
         try
             ?assertEqual(ok, fetch_async(SKey,SR0,[],IsSec)),
             List0 = receive_list(SR0,true),
