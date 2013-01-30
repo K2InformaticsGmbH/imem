@@ -268,9 +268,9 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     % io:format(user, "~p - received end of table in state~n~p~n", [?MODULE,State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
-            io:format(user, "~p - late end of table received in state~n~p~n", [?MODULE, State]),        
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status, fetching}],"eot"),
             send_reply_to_client(Sock, {[],true}),  
+            io:format(user, "~p - late end of table received in state~n~p~n", [?MODULE, State]),        
             handle_fetch_complete(State);
         _ ->
             io:format(user, "~p - unexpected end of table received in state~n~p~n", [?MODULE, State]),        
@@ -333,22 +333,22 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
     % io:format(user, "~p - received rows~n~p~n", [?MODULE, Rows]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
         {waiting,[?sot|R]} ->            
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
             {R,false};
         {fetching,[?eot|R]} ->
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
             {R,true};
         {fetching,[?sot,?eot|_R]} ->
-            % imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
             handle_fetch_complete(State);
         {fetching,[?sot|_R]} ->
-            % imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
             handle_fetch_complete(State);
         {fetching,R} ->            
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
+            imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
             {R,false};
         {BadStatus,R} ->            
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     

@@ -392,6 +392,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 '$end_of_table' -> 
                                     Pid ! {row, [?sot,?eot]};
                                 {Rows, Contd1} ->
+                                    io:format(user,"First continuation object ~p~n",[Contd1]), 
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
                                             Pid ! {row, [?sot|[?eot|Rows]]};
@@ -402,7 +403,8 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                             end;
                         Contd0 ->       
                             case mnesia:select(Contd0) of
-                                '$end_of_table' -> 
+                                '$end_of_table' ->
+                                    io:format(user,"Last continuation object ~p~n",[Contd0]), 
                                     Pid ! {row, ?eot};
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
