@@ -1093,6 +1093,12 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,"1.2.1.4")),
         ?Log("value_to_db success 12~n", []),
 
+        AdminId = value_to_db('Item','OldTerm',userid,0,0,0,RW,"admin"),
+        ?assert(is_integer(AdminId)),
+        % ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, value_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,"1.2.1.4")),
+        ?Log("Admin Id: ~p~n", [AdminId]),
+        ?Log("value_to_db success 12a~n", []),
+
         Fun = fun(X) -> X*X end,
         ?Log("Fun ~p~n", [Fun]),
         Res = value_to_db(Item,OldTerm,'fun',1,Prec,Def,RW,"fun(X) -> X*X end"),
