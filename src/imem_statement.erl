@@ -866,8 +866,7 @@ generate_virtual(ipaddr, _, _) -> [];      %% ToDo: IpV6
 
 generate_virtual(list=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
-    Pred = fun(X) -> is_list(X) end,
-    lists:filter(Pred,Items);
+    Items;
 
 generate_virtual(timestamp=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),

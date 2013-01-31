@@ -784,8 +784,8 @@ name(T,I) when is_tuple(T) ->
         true ->
             ?ClientError({"Tuple too short",{T,I}})
     end;
-name(T,_) ->
-    ?ClientError({"Tuple expected",T}).
+name(T,_) ->    "".
+    % ?ClientError({"Tuple expected",T}).
 
 name1(T) -> name(T,1).
 name2(T) -> name(T,2).

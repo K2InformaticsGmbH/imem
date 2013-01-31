@@ -810,6 +810,13 @@ test_with_or_without_sec(IsSec) ->
         ?assert(lists:member({"Imem.ddTable"},R5l)),
         ?assert(lists:member({"Imem.ddAccount"},R5l)),
 
+        R5m = exec_fetch_sort(SKey, query5m, 100, IsSec, 
+            "select name(qname), name2(item) as field, name3(item) as type 
+             from ddTable, list
+             where is_member(item,columns)"
+        ),
+        ?assert(length(R5m) >= 5),
+
     %% sorting
 
         exec_fetch_sort_equal(SKey, query6a, 100, IsSec, 
