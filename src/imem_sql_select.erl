@@ -418,15 +418,22 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
+        case IsSec of
+            false ->    ok;
+            true ->     
+                R_a = exec_fetch_sort(SKey, query_a, 100, IsSec, 
+                    "select v.name 
+                     from ddView as v, ddCmd as c 
+                     where c.id = v.cmd 
+                     and c.adapters = \"[imem]\" 
+                     and (c.owner = user or c.owner = system)"
+                ),
+                ?assert(length(R_a) > 0),
+
+
+                ?assert(true)                
+        end,
         
-        R_a = exec_fetch_sort(SKey, query_a, 100, IsSec, 
-            "select v.name 
-             from ddView as v, ddCmd as c 
-             where c.id = v.cmd 
-             and c.adapters = \"[imem]\" 
-             and (c.owner = user or c.owner = system)"
-        ),
-        ?assert(length(R_a) > 0),
 
     %% test table def
 
