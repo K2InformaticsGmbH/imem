@@ -106,8 +106,10 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     end,
     Result.
 
-fetch_recs_sort(SKey, #stmtResult{stmtRef=Pid}, Sock, Timeout, IsSec) ->
-    fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec);
+
+fetch_recs_sort(SKey, #stmtResult{stmtRef=Pid,sortFun=SortFun}, Sock, Timeout, IsSec) ->
+    List = [{SortFun(X),X} || X <- fetch_recs(SKey, Pid, Sock, Timeout, IsSec)],
+    [Recs || {_, Recs} <- lists:sort(List)];
 fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
 
@@ -566,12 +568,12 @@ comparison_bind(Op,A,B) ->
 
 make_filter_fun(_Ti, true, _FBinds)  ->
     fun(_X) -> true end;
-make_filter_fun(Ti, {'is_member', {const,A}, {const,B}}, FBinds) ->
-    make_filter_fun(Ti,{'is_member', A, B}, FBinds);
-make_filter_fun(Ti, {'is_member', {const,A}, B}, FBinds) ->
-    make_filter_fun(Ti,{'is_member', A, B}, FBinds);
-make_filter_fun(Ti, {'is_member', A, {const,B}}, FBinds) ->
-    make_filter_fun(Ti, {'is_member', A, B}, FBinds);
+make_filter_fun(Ti, {Op, {const,A}, {const,B}}, FBinds) ->
+    make_filter_fun(Ti,{Op, A, B}, FBinds);
+make_filter_fun(Ti, {Op, {const,A}, B}, FBinds) ->
+    make_filter_fun(Ti,{Op, A, B}, FBinds);
+make_filter_fun(Ti, {Op, A, {const,B}}, FBinds) ->
+    make_filter_fun(Ti, {Op, A, B}, FBinds);
 make_filter_fun(Ti, {'is_member', A, '$_'}, FBinds) ->
     ABind = lists:keyfind(A,1,FBinds),
     case ABind of 
@@ -582,6 +584,18 @@ make_filter_fun(Ti, {'is_member', A, '$_'}, FBinds) ->
         {A,ATi,ACi} ->  
             fun(X2) ->
                 lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2))))
+            end
+    end;
+make_filter_fun(Ti, {'nis_member', A, '$_'}, FBinds) ->
+    ABind = lists:keyfind(A,1,FBinds),
+    case ABind of 
+        false ->        
+            fun(X1) -> 
+                (not lists:member(A,tl(tuple_to_list(element(Ti,X1)))))
+            end;
+        {A,ATi,ACi} ->  
+            fun(X2) ->
+                (not lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2)))))
             end
     end;
 make_filter_fun(_Ti, {'is_member', A, B}, FBinds)  ->
@@ -620,6 +634,45 @@ make_filter_fun(_Ti, {'is_member', A, B}, FBinds)  ->
                     is_list(Ybound) ->  lists:member(element(XCi,element(XTi,X3)),Ybound);
                     is_tuple(Ybound) -> lists:member(element(XCi,element(XTi,X3)),tuple_to_list(Ybound));
                     true ->             false
+                end
+            end
+    end;
+make_filter_fun(_Ti, {'nis_member', A, B}, FBinds)  ->
+    ABind = lists:keyfind(A,1,FBinds),
+    BBind = lists:keyfind(B,1,FBinds),
+    case {ABind,BBind} of 
+        {false,false} ->        
+            fun(_X) -> 
+                if 
+                    is_list(B) ->   (not lists:member(A,B));
+                    is_tuple(B) ->  (not lists:member(A,tuple_to_list(B)));
+                    true ->         true
+                end
+            end;
+        {false,{B,BTi,BCi}} ->
+            fun(X1) ->
+                Bbound = element(BCi,element(BTi,X1)),
+                if 
+                    is_list(Bbound) ->  (not lists:member(A,Bbound));
+                    is_tuple(Bbound) -> (not lists:member(A,tuple_to_list(Bbound)));
+                    true ->             true
+                end
+            end;
+        {{A,ATi,ACi},false} ->  
+            fun(X2) ->
+                if 
+                    is_list(B) ->  (not lists:member(element(ACi,element(ATi,X2)),B));
+                    is_tuple(B) -> (not lists:member(element(ACi,element(ATi,X2)),tuple_to_list(B)));
+                    true ->        true
+                end
+            end;
+        {{A,XTi,XCi},{B,YTi,YCi}} ->  
+            fun(X3) ->
+                Ybound = element(YCi,element(YTi,X3)), 
+                if 
+                    is_list(Ybound) ->  (not lists:member(element(XCi,element(XTi,X3)),Ybound));
+                    is_tuple(Ybound) -> (not lists:member(element(XCi,element(XTi,X3)),tuple_to_list(Ybound)));
+                    true ->             true
                 end
             end
     end;

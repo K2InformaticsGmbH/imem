@@ -21,7 +21,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
                         end;
         TError ->       ?ClientError({"Invalid from in select structure", TError})
     end,
-    % ?Log("Tables: ~p~n", [Tables]),
+    % io:format(user,"Tables: ~p~n", [Tables]),
     ColMaps0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql:column_map(Tables,[]);
@@ -31,9 +31,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             ?ClientError({"Invalid select structure", CError})
     end,
     ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
-    % ?Log("Column map: ~p~n", [ColMaps1]),
+    % io:format(user,"Column map: ~p~n", [ColMaps1]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
-    % ?Log("Statement rows: ~p~n", [StmtCols]),
+    % io:format(user,"Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
         str ->  imem_datatype:select_rowfun_str(ColMaps1, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat);
@@ -43,33 +43,27 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         {_, WT} ->  WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
-    % ?Log("WhereTree ~p~n", [WhereTree]),
+    % io:format(user, "WhereTree ~p~n", [WhereTree]),
     MetaTabIdx = length(Tables) + 1,
     MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps1, C#ddColMap.tind==MetaTabIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
-    % ?Log("MetaFields: ~p~n", [MetaFields]),
+    % io:format(user,"MetaFields: ~p~n", [MetaFields]),
     RawMap = case MetaFields1 of
         [] ->   
             imem_sql:column_map(Tables,[]);
         MF ->   
-            % ?Log("MetaFields (~p)~n~p~n", [length(MF),MF]),
+            % io:format(user, "MetaFields (~p)~n~p~n", [length(MF),MF]),
             MetaMap0 = [{#ddColMap{name=N,tind=MetaTabIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
             MetaMap1 = [CM#ddColMap{type=T,len=L,prec=P} || {CM,#ddColumn{type=T, len=L, prec=P}} <- MetaMap0],
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    % ?Log("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
+    % io:format(user,"FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
-    % ?Log("MainSpec  : ~p~n", [MainSpec]),
+    % io:format(user,"MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    % ?Log("JoinSpecs: ~p~n", [JoinSpecs]),
-    _Sorts = case lists:keyfind('order by', 1, SelectSections) of
-        {_, SNames} ->  % ?Log("SNames  : ~p~n", [SNames]),
-                        SNames;
-        SError ->       ?ClientError({"Invalid order by in select structure", SError})
-    end,
-    % ?Log("Sort: ~p~n", [Sorts]),
-    SortFun = fun(_X) -> {} end,
+    % io:format(user, "JoinSpecs: ~p~n", [JoinSpecs]),
+    SortFun = build_sort_fun(SKey,length(Tables),1,SelectSections,FullMap),
     Statement = Stmt#statement{
                     tables=Tables, colMaps=ColMaps1, metaFields=MetaFields1, 
                     rowFun=RowFun, sortFun=SortFun, 
@@ -88,6 +82,78 @@ build_join_specs(SKey, Tmax, Ti, WhereTree, FullMap, Acc)->
     JoinSpec = imem_sql:create_scan_spec(Tmax,Ti,FullMap,SGuards),
     build_join_specs(SKey,Tmax, Ti-1, WhereTree, FullMap, [JoinSpec|Acc]).
 
+build_sort_fun(_SKey,_Tmax,_Ti,SelectSections,FullMap) ->
+    case lists:keyfind('order by', 1, SelectSections) of
+        {_, []} ->      fun(_X) -> {} end;
+        {_, Sorts} ->   % io:format(user,"Sorts  : ~p~n", [Sorts]),
+                        SortFuns = [sort_lookup(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
+                        fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end;
+        SError ->       ?ClientError({"Invalid order by in select structure", SError})
+    end.
+
+sort_lookup(Name,Direction,FullMap) ->
+    U = undefined,
+    ML = case imem_sql:field_qname(Name) of
+        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
+        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
+        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {} ->       []
+    end,
+    case length(ML) of
+        0 ->    ?ClientError({"Bad sort expression", Name});
+        1 ->    #ddColMap{type=Type, tind=Ti, cind=Ci} = hd(ML),
+                sort_fun(Type,Ti,Ci,Direction);
+        _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
+    end.
+
+sort_fun(integer,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
+sort_fun(decimal,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
+sort_fun(float,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
+sort_fun(number,Ti,Ci,<<"desc">>) ->
+    % io:format(user,"Sort number  : ~p ~p~n", [Ti,Ci]), 
+    fun(X) -> 
+        V = element(Ci,element(Ti,X)),
+        case is_number(V) of
+            true ->         (-V);
+            false ->        element(Ci,element(Ti,X))
+        end 
+    end;
+sort_fun(datetime,Ti,Ci,<<"desc">>) -> 
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {{Y,M,D},{Hh,Mm,Ss}} when is_integer(Y), is_integer(M), is_integer(D), is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
+                {{-Y,-M,-D},{-Hh,-Mm,-Ss}};
+            _ ->
+                element(Ci,element(Ti,X))
+        end 
+    end;
+sort_fun(timestamp,Ti,Ci,<<"desc">>) -> 
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {Meg,Sec,Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
+                {-Meg,-Sec,-Micro};
+            _ ->
+                element(Ci,element(Ti,X))
+        end    
+    end;
+sort_fun(ipadr,Ti,Ci,<<"desc">>) -> 
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {A,B,C,D} when is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
+                {-A,-B,-C,-D};
+            {A,B,C,D,E,F,G,H} when is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
+                {-A,-B,-C,-D,-E,-F,-G,-H};
+            _ ->
+                element(Ci,element(Ti,X))
+        end
+    end;
+sort_fun(Type,_Ti,_Ci,<<"desc">>) ->
+    ?SystemException({"Unsupported sort desc datatype", Type});
+sort_fun(_Type,Ti,Ci,_) -> 
+    % io:format(user,"Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
+    fun(X) -> element(Ci,element(Ti,X)) end.
+
+
 add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> 
     MetaFields;
 add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
@@ -105,7 +171,12 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
 
 query_guards(_SKey,_Tmax,_Ti,[],_FullMap) -> [];
 query_guards(SKey,Tmax,Ti,WhereTree,FullMap) ->
-    [imem_sql:simplify_guard(tree_walk(SKey,Tmax,Ti,WhereTree,FullMap))].
+    % io:format(user,"WhereTree  : ~p~n", [WhereTree]),
+    Walked = tree_walk(SKey,Tmax,Ti,WhereTree,FullMap),
+    % io:format(user,"Walked     : ~p~n", [Walked]),
+    Simplified = imem_sql:simplify_guard(Walked), 
+    % io:format(user,"Simplified : ~p~n", [Simplified]),
+    [Simplified].
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
 tree_walk(_SKey,_,_,<<"false">>,_FullMap) -> false;
@@ -147,16 +218,16 @@ tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
 % condition(SKey,Tmax,Ti,is_member=OP,A,B,FullMap) ->
 %     try 
 %         ExA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
-%     ?Log("ExA: ~p~n", [ExA]),
+%     io:format(user, "ExA: ~p~n", [ExA]),
 %         ExB = expr_lookup(SKey,Tmax,Ti,B,FullMap),
-%     ?Log("ExB: ~p~n", [ExB]),
+%     io:format(user, "ExB: ~p~n", [ExB]),
 %         compguard(Tmax,Ti,OP,ExA,ExB)
 %     catch
 %         throw:{'JoinEvent','join_condition'} -> true;
 %         _:Reason ->
-%             ?Log("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-%             ?Log("Failing condition eval A: ~p~n", [A]),
-%             ?Log("Failing condition eval B: ~p~n", [B]),
+%             io:format(user, "Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+%             io:format(user, "Failing condition eval A: ~p~n", [A]),
+%             io:format(user, "Failing condition eval B: ~p~n", [B]),
 %             throw(Reason)
 %     end;
 condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
@@ -167,13 +238,13 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason ->
-            ?Log("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-            ?Log("Failing condition eval A: ~p~n", [A]),
-            ?Log("Failing condition eval B: ~p~n", [B]),
+            io:format(user, "Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+            io:format(user, "Failing condition eval A: ~p~n", [A]),
+            io:format(user, "Failing condition eval B: ~p~n", [B]),
             throw(Reason)
     end.
 
-compguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> true;   %% join condition
+compguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> join;   %% join condition
 compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
 compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
 compguard(_ ,1, is_member, {_,A,_,_,_,_,_},     {0,B,_,_,_,_,_}) ->     {is_member,A,field_value(A,term,0,0,?nav,B)};           
@@ -206,7 +277,7 @@ compguard(_ ,J, OP, {0,A,string,_,_,_,_},   {J,B,T,L,P,D,_}) ->         {OP,fiel
 compguard(_ ,J, _,  {J,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(_ ,J, _,  {J,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 compguard(_ ,J, _,  {_,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-compguard(_ ,_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->              true.
+compguard(_ ,_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->              join.
 
 in_condition(SKey,Tmax,Ti,A,InList,FullMap) ->
     in_condition_loop(SKey,Tmax,Ti,expr_lookup(SKey,Tmax,Ti,A,FullMap),InList,FullMap).
@@ -255,9 +326,9 @@ field_lookup(Name,FullMap) ->
 expr_lookup(_SKey,_Tmax,_Ti,A,FullMap) when is_binary(A)->
     field_lookup(A,FullMap);
 expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
-    % ?Log("Fun condition eval Tmax/Ti/Fun: ~p ~p ~p~n", [Tmax,Ti,F]),
+    % io:format(user, "Fun condition eval Tmax/Ti/Fun: ~p ~p ~p~n", [Tmax,Ti,F]),
     {Ti,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
-    % ?Log("Fun parameter: ~p~n", [{Ti,A,T,L,P,D,AN}]),    
+    % io:format(user, "Fun parameter: ~p~n", [{Ti,A,T,L,P,D,AN}]),    
     {Ti,{F,A},T,L,P,D,AN};          
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
     exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), expr_lookup(SKey,Tmax,Ti,B,FullMap)).
@@ -329,10 +400,10 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
 
-        ?Log("~n----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        io:format(user, "~n----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
-        ?Log("schema ~p~n", [imem_meta:schema()]),
-        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
+        io:format(user, "schema ~p~n", [imem_meta:schema()]),
+        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -358,7 +429,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
 
         {L0, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
-        ?Log("Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
+        io:format(user, "Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
         ?assertEqual(10, length(L0)),
 
     %% test table member_test
@@ -384,25 +455,25 @@ test_with_or_without_sec(IsSec) ->
         ]),
 
         {L1, true} = if_call_mfa(IsSec,select,[SKey, member_test, ?MatchAllRecords, 1000]),
-        ?Log("Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1),hd(L1), '...', lists:last(L1)]),
+        io:format(user, "Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1),hd(L1), '...', lists:last(L1)]),
         ?assertEqual(5, length(L1)),
 
     %% queries on meta table
 
         {L2, true} =  if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 1000]),
-        % ?Log("Table ddTable : ~p entries~n~p~n~p~n~p~n", [length(L2),hd(L2), '...', lists:last(L2)]),
+        % io:format(user, "Table ddTable : ~p entries~n~p~n~p~n~p~n", [length(L2),hd(L2), '...', lists:last(L2)]),
         AllTableCount = length(L2),
 
         {L3, true} = if_call_mfa(IsSec,select,[SKey, dba_tables, ?MatchAllKeys]),
-        % ?Log("Table dba_tables : ~p entries~n~p~n~p~n~p~n", [length(L3),hd(L3), '...', lists:last(L3)]),
+        % io:format(user, "Table dba_tables : ~p entries~n~p~n~p~n~p~n", [length(L3),hd(L3), '...', lists:last(L3)]),
         ?assertEqual(AllTableCount, length(L3)),
 
         {L4, true} = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
-        % ?Log("Table all_tables : ~p entries~n~p~n~p~n~p~n", [length(L4),hd(L4), '...', lists:last(L4)]),
+        % io:format(user, "Table all_tables : ~p entries~n~p~n~p~n~p~n", [length(L4),hd(L4), '...', lists:last(L4)]),
         ?assertEqual(AllTableCount, length(L4)),
 
         {L5, true} = if_call_mfa(IsSec,select,[SKey, user_tables, ?MatchAllKeys]),
-        % ?Log("Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
+        % io:format(user, "Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
         case IsSec of
             false ->    ?assertEqual(AllTableCount, length(L5));
             true ->     ?assertEqual(2, length(L5))
@@ -717,6 +788,28 @@ test_with_or_without_sec(IsSec) ->
         ?assert(lists:member({"Imem.ddTable"},R5l)),
         ?assert(lists:member({"Imem.ddAccount"},R5l)),
 
+    %% sorting
+
+        exec_fetch_sort_equal(SKey, query6a, 100, IsSec, 
+            "select col1, col2 
+             from def
+             where col1 <> 100 
+             order by col1 desc, col2"
+            , 
+            [
+                {"10","10"}
+                ,{"9","9"}
+                ,{"8","8"}
+                ,{"7","7"}
+                ,{"6","6"}
+                ,{"5","5"}
+                ,{"4","4"}
+                ,{"3","3"}
+                ,{"2","2"}
+                ,{"1","1"}
+            ]
+        ),
+
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, 'Imem', IsSec)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
@@ -727,7 +820,7 @@ test_with_or_without_sec(IsSec) ->
         end
 
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
@@ -738,7 +831,7 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
-    ?Log("~p : ~s~n", [Id,Sql]),
+    io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -746,42 +839,42 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?Log("Result: ~p~n", [RT]),
+    io:format(user, "Result: ~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
 exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
-    ?Log("~p : ~s~n", [Id,Sql]),
+    io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
-    List = imem_statement:fetch_recs_sort(SKey, StmtRef, self(), 1000, IsSec),
+    List = imem_statement:fetch_recs_sort(SKey, StmtResult, self(), 1000, IsSec),
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?Log("Result  : ~p~n", [RT]),
+    io:format(user, "Result  : ~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
 exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
-    ?Log("~p : ~s~n", [Id,Sql]),
+    io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
-    List = imem_statement:fetch_recs_sort(SKey, StmtRef, self(), 1000, IsSec),
+    List = imem_statement:fetch_recs_sort(SKey, StmtResult, self(), 1000, IsSec),
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 10 ->
-            ?Log("Result  : ~p~n", [RT]);
+            io:format(user, "Result  : ~p~n", [RT]);
         true ->
-            ?Log("Result  :  ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+            io:format(user, "Result  :  ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
     end,            
     RT.
 
 exec_fetch(SKey,Id, BS, IsSec, Sql) ->
-    ?Log("~p : ~s~n", [Id,Sql]),
+    io:format(user, "~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -791,8 +884,8 @@ exec_fetch(SKey,Id, BS, IsSec, Sql) ->
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 10 ->
-            ?Log("Result  : ~p~n", [RT]);
+            io:format(user, "Result  : ~p~n", [RT]);
         true ->
-            ?Log("Result  : ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+            io:format(user, "Result  : ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
     end,            
     RT.
