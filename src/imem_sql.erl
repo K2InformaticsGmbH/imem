@@ -281,6 +281,7 @@ simplify_guard(Term) ->
 simplify_once({'or', true, _}) ->       true; 
 simplify_once({'or', _, true}) ->       true; 
 simplify_once({'or', false, false}) ->  false; 
+simplify_once({'or', join, join}) ->    join; 
 simplify_once({'or', join, Right}) ->   ?UnimplementedException({"Join cannot be factored out",{Right}}); 
 simplify_once({'or', Left, join}) ->    ?UnimplementedException({"Join cannot be factored out",{Left}}); 
 simplify_once({'or', Left, false}) ->   simplify_once(Left); 
