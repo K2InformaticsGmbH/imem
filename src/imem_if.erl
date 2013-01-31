@@ -222,13 +222,13 @@ create_table(Table, Opts) when is_atom(Table) ->
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
    	case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
-            io:format(user, "table ~p locally exists~n", [Table]),
+            ?Log("table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
             ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, Node}} ->
-            io:format(user, "table ~p exists at ~p~n", [Table, Node]),
+            ?Log("table ~p exists at ~p~n", [Table, Node]),
             case mnesia:force_load_table(Table) of
                 yes -> ok;
                 Error -> ?ClientError({"Loading table(s) timeout~p", Error})
@@ -236,7 +236,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result -> 
-            % io:format(user, "create_table ~p for ~p~n", [Result, Table]),
+            % ?Log("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
             return_atomic_ok(Result)
 	end.
@@ -247,7 +247,7 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
     case mnesia:wait_for_tables(Tables, Timeout) of
         ok -> ok;
         {timeout, BadTabList} ->
-            io:format(user, "table ~p load time out attempt ~p~n", [BadTabList, Count]),
+            ?Log("table ~p load time out attempt ~p~n", [BadTabList, Count]),
             wait_table_tries(Tables, {Count-1,Timeout});
         {error, Reason} -> ?ClientError({"Error loading table~p", Reason})
     end.
@@ -316,7 +316,7 @@ read(Table, Key) when is_atom(Table) ->
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     try 
-        % io:format(user, "mnesia:dirty_write ~p ~p~n", [Table,Row]),
+        % ?Log("mnesia:dirty_write ~p ~p~n", [Table,Row]),
         mnesia:dirty_write(Table, Row)
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientError({"Table does not exist",Table});
@@ -324,7 +324,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
-    % io:format(user, "mnesia:write ~p ~p~n", [Table,Row]),
+    % ?Log("mnesia:write ~p ~p~n", [Table,Row]),
     Result = case transaction(write,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
         Res ->                      Res 
@@ -383,7 +383,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     fun(F,Contd0) ->
         receive
             abort ->
-                % io:format(user, "Abort fetch on table ~p~n", [Table]),
+                % ?Log("Abort fetch on table ~p~n", [Table]),
                 ok;
             next ->
                 case Contd0 of
@@ -392,7 +392,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 '$end_of_table' -> 
                                     Pid ! {row, [?sot,?eot]};
                                 {Rows, Contd1} ->
-                                    % io:format(user,"First continuation object ~p~n",[Contd1]), 
+                                    % ?Log("First continuation object ~p~n",[Contd1]), 
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
                                             Pid ! {row, [?sot|[?eot|Rows]]};
@@ -404,7 +404,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                         Contd0 ->       
                             case mnesia:select(Contd0) of
                                 '$end_of_table' ->
-                                    % io:format(user,"Last continuation object ~p~n",[Contd0]), 
+                                    % ?Log("Last continuation object ~p~n",[Contd0]), 
                                     Pid ! {row, ?eot};
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
@@ -461,8 +461,8 @@ update_xt({Table,bag}, Item, Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
             ok;
         true ->
             Current = mnesia:read(Table, element(2,O)),
-            % io:format(user, "current ~p~n", [Current]),
-            % io:format(user, "old ~p~n", [Old]),
+            % ?Log("current ~p~n", [Current]),
+            % ?Log("old ~p~n", [Old]),
             if  
                 Current == Old ->   
                     ok;
@@ -477,9 +477,9 @@ update_xt({Table,bag}, Item, Lock, [O|_]=Old, [N|_]=New) when is_atom(Table) ->
                     end
             end
     end,
-    % io:format(user, "delete ~p ~p~n", [Table, element(2,O)]),
+    % ?Log("delete ~p ~p~n", [Table, element(2,O)]),
     mnesia:delete(Table, element(2, O), write), 
-    % io:format(user, "write ~p~n", [New]),
+    % ?Log("write ~p~n", [New]),
     [mnesia:write(Table,Y,write) || Y <- New];
 
 update_xt(_Table, _Item, _Lock, {}, {}) ->
@@ -561,17 +561,17 @@ init(Params) ->
     {ok, Cwd} = file:get_cwd(),
     LastFolder = lists:last(filename:split(Cwd)),
     SchemaDir = if LastFolder =:= ".eunit" -> filename:join([Cwd, "..", SDir]); true ->  filename:join([Cwd, SDir]) end,
-    io:format(user, "SchemaDir ~p~n", [SchemaDir]),
+    ?Log("SchemaDir ~p~n", [SchemaDir]),
     random:seed(now()),
     SleepTime = random:uniform(1000),
-    io:format(user, "~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
+    ?Log("~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
     timer:sleep(SleepTime),
     application:set_env(mnesia, dir, SchemaDir),
     ok = mnesia:start(),
     case disc_schema_nodes(SchemaName) of
-        [] -> io:format(user, "~p no node found at ~p for schema ~p in erlang cluster ~p~n", [?MODULE, node(), SchemaName, erlang:get_cookie()]);
+        [] -> ?Log("~p no node found at ~p for schema ~p in erlang cluster ~p~n", [?MODULE, node(), SchemaName, erlang:get_cookie()]);
         [DiscSchemaNode|_] ->
-            io:format(user, "~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
+            ?Log("~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config, [extra_db_nodes, [node()]])
     end,
     case NodeType of
@@ -579,7 +579,7 @@ init(Params) ->
         _ -> ok
     end,
     mnesia:subscribe(system),
-    io:format("~p started as ~p!~n", [?MODULE, NodeType]),
+    ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
     {ok,#state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -594,11 +594,11 @@ handle_info(Info, State) ->
             % BulkSleepTime0 = get(mnesia_bulk_sleep_time),
             % BulkSleepTime = trunc(1.1 * BulkSleepTime0),
             % put(mnesia_bulk_sleep_time, BulkSleepTime),
-            io:format("Mnesia overload : ~p!~n",[Details]);
+            ?Log("Mnesia overload : ~p!~n",[Details]);
         {mnesia_system_event,{Event,Node}} ->
-            io:format("Mnesia event ~p from Node ~p!~n",[Event, Node]);
+            ?Log("Mnesia event ~p from Node ~p!~n",[Event, Node]);
         Error ->
-            io:format("Mnesia error : ~p~n",[Error])
+            ?Log("Mnesia error : ~p~n",[Error])
     end,
     {noreply, State}.
 
@@ -636,84 +636,84 @@ table_operations(_) ->
         SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
 
-        io:format(user, "----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
 
-        io:format(user, "schema ~p~n", [imem_meta:schema()]),
-        io:format(user, "data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Log("schema ~p~n", [imem_meta:schema()]),
+        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        io:format(user, "----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
 
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
-        io:format(user, "success ~p~n", [table_size_no_exists]),
+        ?Log("success ~p~n", [table_size_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table)),
-        io:format(user, "success ~p~n", [table_read_no_exists]),
+        ?Log("success ~p~n", [table_read_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
-        io:format(user, "success ~p~n", [row_read_no_exists]),
+        ?Log("success ~p~n", [row_read_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
-        io:format(user, "success ~p~n", [row_write_no_exists]),
+        ?Log("success ~p~n", [row_write_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, dirty_write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
-        io:format(user, "success ~p~n", [row_dirty_write_no_exists]),
+        ?Log("success ~p~n", [row_dirty_write_no_exists]),
         ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
-        io:format(user, "success ~p~n", [row_write_bad_type]),
+        ?Log("success ~p~n", [row_write_bad_type]),
         ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [])),
-        io:format(user, "success ~p~n", [create_table]),
+        ?Log("success ~p~n", [create_table]),
         ?assertEqual(0, table_size(imem_table_123)),
-        io:format(user, "success ~p~n", [table_size_empty]),
+        ?Log("success ~p~n", [table_size_empty]),
         ?assertEqual(ok, insert(imem_table_123, {"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_123)),
-        io:format(user, "success ~p~n", [insert_table]),
+        ?Log("success ~p~n", [insert_table]),
         ?assertEqual(ok, insert(imem_table_123, {"AA","BB","CC"})),
         ?assertEqual(2, table_size(imem_table_123)),
-        io:format(user, "success ~p~n", [insert_table]),
+        ?Log("success ~p~n", [insert_table]),
         ?assertEqual(ok, insert(imem_table_123, {"AA","BB","cc"})),
         ?assertEqual(2, table_size(imem_table_123)),
-        io:format(user, "success ~p~n", [insert_table]),
+        ?Log("success ~p~n", [insert_table]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
-        io:format(user, "success ~p~n", [write_table]),
+        ?Log("success ~p~n", [write_table]),
         ?assertEqual(ok, dirty_write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
-        io:format(user, "success ~p~n", [write_table]),
+        ?Log("success ~p~n", [write_table]),
         ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
-        io:format(user, "success ~p~n", [read_table_1]),
+        ?Log("success ~p~n", [read_table_1]),
         ?assertEqual([{imem_table_123,"AA","BB","cc"}], read(imem_table_123,"AA")),
-        io:format(user, "success ~p~n", [read_table_2]),
+        ?Log("success ~p~n", [read_table_2]),
         ?assertEqual([], read(imem_table_123,"XX")),
-        io:format(user, "success ~p~n", [read_table_3]),
+        ?Log("success ~p~n", [read_table_3]),
         AllRecords=lists:sort([{imem_table_123,"A","B","C"},{imem_table_123,"AA","BB","cc"},{imem_table_123,"AAA","BB","CC"}]),
         AllKeys=["A","AA","AAA"],
         ?assertEqual(AllRecords, lists:sort(read(imem_table_123))),
-        io:format(user, "success ~p~n", [read_table_4]),
+        ?Log("success ~p~n", [read_table_4]),
         ?assertEqual({AllRecords,true}, select_sort(imem_table_123, ?MatchAllRecords)),
-        io:format(user, "success ~p~n", [select_all_records]),
+        ?Log("success ~p~n", [select_all_records]),
         ?assertEqual({AllKeys,true}, select_sort(imem_table_123, ?MatchAllKeys)),
-        io:format(user, "success ~p~n", [select_all_keys]),
+        ?Log("success ~p~n", [select_all_keys]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, select(non_existing_table, ?MatchAllRecords)),
-        io:format(user, "success ~p~n", [select_table_no_exists]),
+        ?Log("success ~p~n", [select_table_no_exists]),
         MatchHead = {'$1','$2','$3','$4'},
         Guard = {'==', '$3', "BB"},
         Result = {{'$3','$4'}},
         DTupResult = lists:sort([{"BB","cc"},{"BB","CC"}]),
         ?assertEqual({DTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [Result]}])),
-        io:format(user, "success ~p~n", [select_some_data1]),
+        ?Log("success ~p~n", [select_some_data1]),
         STupResult = lists:sort(["cc","CC"]),
         ?assertEqual({STupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], ['$4']}])),
-        io:format(user, "success ~p~n", [select_some_data]),
+        ?Log("success ~p~n", [select_some_data]),
         NTupResult = lists:sort([{"cc"},{"CC"}]),
         ?assertEqual({NTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}])),
-        io:format(user, "success ~p~n", [select_some_data2]),
+        ?Log("success ~p~n", [select_some_data2]),
         Limit=10,
         SelRes=select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}], Limit),
         ?assertMatch({[_|_], true}, SelRes),
         {SelList, true} = SelRes,
         ?assertEqual(NTupResult, SelList),
-        io:format(user, "success ~p~n", [select_some_data3]),
+        ?Log("success ~p~n", [select_some_data3]),
 
-        io:format(user, "----TEST--~p:test_transactions~n", [?MODULE]),
+        ?Log("----TEST--~p:test_transactions~n", [?MODULE]),
 
-        io:format(user, "data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
+        ?Log("data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
     
         Update1 = fun(X) ->
             update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X}),
@@ -722,14 +722,14 @@ table_operations(_) ->
             lists:sort(read(imem_table_123))
         end,
         UR1 = return_atomic(transaction(Update1, ["99"])),
-        io:format(user, "updated data in table ~p~n~p~n", [imem_table_123, UR1]),
+        ?Log("updated data in table ~p~n~p~n", [imem_table_123, UR1]),
         ?assertEqual(UR1, [{imem_table_123,"A","B","C"},{imem_table_123,"AAA","11","99"},{imem_table_123,"XXX","11","22"}]),
         
         ?assertEqual(ok, drop_table(imem_table_123)),
-        io:format(user, "success ~p~n", [drop_table]),
+        ?Log("success ~p~n", [drop_table]),
 
         ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [{type, bag}])),
-        io:format(user, "success ~p~n", [create_bag_table]),
+        ?Log("success ~p~n", [create_bag_table]),
 
         ?assertEqual(ok, insert(imem_table_123, {"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_123)),
@@ -741,7 +741,7 @@ table_operations(_) ->
         ?assertEqual(4, table_size(imem_table_123)),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(4, table_size(imem_table_123)),
-        io:format(user, "success ~p~n", [write_table]),
+        ?Log("success ~p~n", [write_table]),
 
         Update2 = fun(X) ->
             update_xt({imem_table_123,bag}, 1, optimistic, [{imem_table_123, "AA","BB","cc"},{imem_table_123, "AA","BB","CC"}], [{imem_table_123, "AA","11",X}]),
@@ -750,7 +750,7 @@ table_operations(_) ->
             lists:sort(read(imem_table_123))
         end,
         UR2 = return_atomic(transaction(Update2, ["99"])),
-        io:format(user, "updated data in table ~p~n~p~n", [imem_table_123, UR2]),
+        ?Log("updated data in table ~p~n~p~n", [imem_table_123, UR2]),
         ?assertEqual([{imem_table_123,"AA","11","99"},{imem_table_123,"AAA","BB","CC"},{imem_table_123,"XXX","11","22"}], UR2),
 
         Update3 = fun() ->
@@ -764,10 +764,10 @@ table_operations(_) ->
         ?assertException(throw, {ClEr, {"Key update not allowed", {1, {"AA", "AB"}}}}, return_atomic(transaction(Update4))),
 
         ?assertEqual(ok, drop_table(imem_table_123)),
-        io:format(user, "success ~p~n", [drop_table])
+        ?Log("success ~p~n", [drop_table])
 
     catch
-        Class:Reason ->  io:format(user, "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.
