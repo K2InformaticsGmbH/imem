@@ -139,6 +139,11 @@ select_rowfun_str(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
             name2 ->    name2(X);
             name3 ->    name3(X);
             name4 ->    name4(X);
+            name5 ->    name5(X);
+            name6 ->    name6(X);
+            name7 ->    name7(X);
+            name8 ->    name8(X);
+            name9 ->    name9(X);
             Name ->     ?UnimplementedException({"Unimplemented row function",Name})
         end
     catch
@@ -165,6 +170,11 @@ select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
             name2 ->    name2(X);
             name3 ->    name3(X);
             name4 ->    name4(X);
+            name5 ->    name5(X);
+            name6 ->    name6(X);
+            name7 ->    name7(X);
+            name8 ->    name8(X);
+            name9 ->    name9(X);
             Name ->     ?UnimplementedException({"Unimplemented row function",Name})
         end
     catch
