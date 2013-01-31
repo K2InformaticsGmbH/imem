@@ -187,6 +187,7 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=
     case Status of
         undefined ->    ok;                             % close is ignored
         done ->         ok;                             % normal close after completed fetch
+        waiting ->      kill_fetch(MonitorRef, Pid);    % client stops fetch 
         fetching ->     kill_fetch(MonitorRef, Pid);    % client stops fetch 
         tailing ->      unsubscribe(Stmt);              % client stops tail mode
         aborted ->      ok                              % client acknowledges abort
