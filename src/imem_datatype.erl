@@ -80,6 +80,11 @@
         , name2/1
         , name3/1
         , name4/1
+        , name5/1
+        , name6/1
+        , name7/1
+        , name8/1
+        , name9/1
         , concat/1
         , concat/2
         , concat/3
@@ -784,13 +789,18 @@ name(T,I) when is_tuple(T) ->
         true ->
             ?ClientError({"Tuple too short",{T,I}})
     end;
-name(T,_) ->    "".
+name(_,_) ->    "".
     % ?ClientError({"Tuple expected",T}).
 
 name1(T) -> name(T,1).
 name2(T) -> name(T,2).
 name3(T) -> name(T,3).
 name4(T) -> name(T,4).
+name5(T) -> name(T,5).
+name6(T) -> name(T,6).
+name7(T) -> name(T,7).
+name8(T) -> name(T,8).
+name9(T) -> name(T,9).
 
 concat(S1)-> concat_list([S1]).
 concat(S1,S2)-> concat_list([S1,S2]).
