@@ -172,7 +172,8 @@ system_table(Table) when is_atom(Table) ->
     end.
 
 check_table(Table) when is_atom(Table) ->
-    imem_if:table_size(physical_table_name(Table)).
+    imem_if:table_size(physical_table_name(Table)),
+    ok.
 
 check_table_meta(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),

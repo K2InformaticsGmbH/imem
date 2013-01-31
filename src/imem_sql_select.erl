@@ -418,9 +418,9 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        case IsSec of
-            false ->    ok;
-            true ->     
+        case {IsSec,catch(imem_meta:check_table(ddView))} of
+            {false,_} ->    ok;
+            {true,ok} ->     
                 R_a = exec_fetch_sort(SKey, query_a, 100, IsSec, 
                     "select v.name 
                      from ddView as v, ddCmd as c 
@@ -428,10 +428,9 @@ test_with_or_without_sec(IsSec) ->
                      and c.adapters = \"[imem]\" 
                      and (c.owner = user or c.owner = system)"
                 ),
-                ?assert(length(R_a) > 0),
+                ?assert(length(R_a) > 0);
 
-
-                ?assert(true)                
+            {true,_} ->     ok                
         end,
         
 
@@ -536,8 +535,8 @@ test_with_or_without_sec(IsSec) ->
         R1e = exec_fetch_sort(SKey, query1e, 100, IsSec, 
             "select all_tables.* from all_tables where owner = system"
         ),
-        ?assert(length(R1e) < AllTableCount),
-        ?assert(length(R1e) > 5),
+        ?assert(length(R1e) =< AllTableCount),
+        ?assert(length(R1e) >= 5),
         % case IsSec of
         %     false -> ?assertEqual(AllTableCount, length(R1e));
         %     true ->  ?assertEqual(AllTableCount-2, length(R1e))

@@ -2,7 +2,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--include("imem_meta.hrl").
+-include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
 -define(H(X), (hex(X)):16).
@@ -335,11 +335,14 @@ hexstr_to_bin([X,Y|T], Acc) ->
 
 string_to_userid("system") -> system;
 string_to_userid(Name) ->
-    Guard = {'==', '$1', list_to_binary(Name)},
-    case imem_if:select(ddAccount, [{'$1', [Guard], [{element,2,'$1'}]}]) of
-        [] ->   ?ClientError({"Account does not exist",list_to_binary(Name)});
-        [Id] -> Id;
-        Else -> ?SystemException({"Account lookup error",{list_to_binary(Name),Else}})
+    % ?Log("UserName: ~p~n", [Name]),
+    MatchHead = #ddAccount{id='$1', name='$2', _='_'},
+    Guard = {'==', '$2', list_to_binary(Name)},
+    % ?Log("UserGuard: ~p~n", [Guard]),
+    case imem_if:select(ddAccount, [{MatchHead, [Guard], ['$1']}]) of
+        {[],true} ->    ?ClientError({"Account does not exist",Name});
+        {[Id],true} ->  Id;
+        Else ->         ?SystemException({"Account lookup error",{Name,Else}})
     end.
 
 string_to_timestamp(TS) ->
