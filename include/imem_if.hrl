@@ -9,11 +9,11 @@
 -define(sot,'$start_of_table').		%% defined in mnesia, signals start of fetch transaction here 
 -define(eot,'$end_of_table').		  %% defined in mnesia, signals end of fetch transaction here
 
--define(ClientError(Reason), imem_meta:throw_exception('ClientError',Reason)).
--define(ClientErrorNoLogging(Reason), throw({'ClientError',Reason})).
--define(SystemException(Reason), imem_meta:throw_exception('SystemException',Reason)).
--define(ConcurrencyException(Reason), imem_meta:throw_exception('ConcurrencyException',Reason)).
--define(UnimplementedException(Reason), imem_meta:throw_exception('UnimplementedException',Reason)).
+-define(ClientError(__Reason), imem_meta:throw_exception('ClientError',__Reason)).
+-define(ClientErrorNoLogging(__Reason), throw({'ClientError',__Reason})).
+-define(SystemException(__Reason), imem_meta:throw_exception('SystemException',__Reason)).
+-define(ConcurrencyException(__Reason), imem_meta:throw_exception('ConcurrencyException',__Reason)).
+-define(UnimplementedException(__Reason), imem_meta:throw_exception('UnimplementedException',__Reason)).
 
 -record(ddLog,                              %% log table    
                   { logTime                 ::ddTimestamp()             %% erlang timestamp {Mega,Sec,Micro}
@@ -33,15 +33,15 @@
 
 %% HELPER FUNCTIONS (do not export!!) --------------------------------------
 
--define(atom_to_binary(Atom), list_to_binary(atom_to_list(Atom))).
+-define(atom_to_binary(__Atom), list_to_binary(atom_to_list(__Atom))).
 
--define(binary_to_atom(Bin), list_to_atom(binary_to_list(Bin))).
+-define(binary_to_atom(__Bin), list_to_atom(binary_to_list(__Bin))).
 
--define(binary_to_existing_atom(Bin), 
+-define(binary_to_existing_atom(__Bin), 
         try
-          list_to_existing_atom(binary_to_list(Bin))
+          list_to_existing_atom(binary_to_list(__Bin))
         catch
-          _:_ -> ?ClientError({"Name does not exist", Bin})
+          _:_ -> ?ClientError({"Name does not exist", __Bin})
         end
     ).
 

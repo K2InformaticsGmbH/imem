@@ -576,7 +576,7 @@ test_with_or_without_sec(IsSec) ->
         R2f = exec_fetch_sort(SKey, query2f, 100, IsSec, 
             "select name, lastLoginTime 
              from ddAccount 
-             where lastLoginTime > sysdate - 1.1574074074074073e-4"   %% 10.0 * ?OneSecond
+             where lastLoginTime > sysdate - 1.1574074074074073e-5"   %% 1.0 * ?OneSecond
         ),
         case IsSec of
             false -> ?assertEqual(0, length(R2f));

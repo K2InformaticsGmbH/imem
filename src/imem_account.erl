@@ -9,6 +9,7 @@
         , get/2
         , get_name/2
         , get_by_name/2
+        , get_id_by_name/2
         , update/3
         , delete/2
         , delete/3
@@ -93,6 +94,15 @@ get_by_name(SeKey, Name) ->
     case imem_seco:have_permission(SeKey, manage_accounts) of
         true ->     case if_select_account_by_name(SeKey, Name) of
                         {[#ddAccount{}=Account],true} ->   Account;
+                        {[],true} ->                       ?ClientError({"Account does not exist", Name})
+                    end;
+        false ->    ?SecurityException({"Get account unauthorized",SeKey})
+    end.
+
+get_id_by_name(SeKey, Name) -> 
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_select_account_by_name(SeKey, Name) of
+                        {[#ddAccount{}=Account],true} ->   Account#ddAccount.id;
                         {[],true} ->                       ?ClientError({"Account does not exist", Name})
                     end;
         false ->    ?SecurityException({"Get account unauthorized",SeKey})

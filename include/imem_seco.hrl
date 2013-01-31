@@ -75,4 +75,4 @@
     end 
     ).
 
--define(imem_logout, fun(X) -> imem_seco:logout(X) end).
+-define(imem_logout, fun(__X) -> imem_seco:logout(__X) end).

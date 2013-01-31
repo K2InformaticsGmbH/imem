@@ -650,7 +650,7 @@ test(_) ->
         ?Log("accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
         ?Log("success ~p~n", [account_create_user]),
-        UserId = admin_exec(SeCoAdmin, imem_account, get_by_name, [<<"test_user_123">>]),
+        UserId = admin_exec(SeCoAdmin, imem_account, get_id_by_name, [<<"test_user_123">>]),
         ?assert(is_integer(UserId)),
         ?Log("success (~p) ~p~n", [UserId, create_test_admin_permissions]), 
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [<<"test_user_123">>, create_table])),

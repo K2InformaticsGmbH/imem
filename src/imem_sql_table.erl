@@ -11,7 +11,7 @@ exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}
     QName = imem_sql:table_qname(TableName),      %% ?binary_to_existing_atom(Table),
     if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
-exec(SKey, {'truncate table', TableName}=_ParseTree, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Schema, IsSec) ->
     ?Log("Parse Tree ~p~n", [_ParseTree]),
     if_call_mfa(IsSec, 'truncate_table', [SKey, imem_sql:table_qname(TableName)]);
 
