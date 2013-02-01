@@ -14,6 +14,7 @@
         , db_to_gui/6
         , strip_squotes/1           %% strip single quotes
         , strip_dquotes/1           %% strip double quotes
+        , strip_quotes/1            %% strip both quotes in any order 
         ]).
 
 %   datatypes
@@ -290,6 +291,16 @@ strip_squotes([H|T]=Str) ->
     L = lists:last(Str),
     if 
         H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
+        true ->                     Str
+    end.
+
+strip_quotes([]) -> [];
+strip_quotes([H]) -> [H];
+strip_quotes([H|T]=Str) ->
+    L = lists:last(Str),
+    if 
+        H == $' andalso L == $' ->  strip_quotes(lists:sublist(T, length(T)-1));
+        H == $" andalso L == $" ->  strip_quotes(lists:sublist(T, length(T)-1));
         true ->                     Str
     end.
 

@@ -171,19 +171,19 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
 
 query_guards(_SKey,_Tmax,_Ti,[],_FullMap) -> [];
 query_guards(SKey,Tmax,Ti,WhereTree,FullMap) ->
-    % ?Log("WhereTree  : ~p~n", [WhereTree]),
+    ?Log("WhereTree  : ~p~n", [WhereTree]),
     Walked = tree_walk(SKey,Tmax,Ti,WhereTree,FullMap),
-    % ?Log("Walked     : ~p~n", [Walked]),
+    ?Log("Walked     : ~p~n", [Walked]),
     Simplified = imem_sql:simplify_guard(Walked), 
-    % ?Log("Simplified : ~p~n", [Simplified]),
+    ?Log("Simplified : ~p~n", [Simplified]),
     [Simplified].
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
 tree_walk(_SKey,_,_,<<"false">>,_FullMap) -> false;
 tree_walk(SKey,Tmax,Ti,{'not',WC},FullMap) ->
     {'not', tree_walk(SKey,Tmax,Ti,WC,FullMap)};
-tree_walk(_SKey,_Tmax,_Ti,{Op,_WC},_FullMap) -> 
-    ?UnimplementedException({"Operator not supported in where clause",Op});
+% tree_walk(_SKey,_Tmax,_Ti,{Op,_WC},_FullMap) -> 
+%     ?UnimplementedException({"Operator not supported in where clause",Op});
 tree_walk(_SKey,_Tmax,_Ti,{'=',A,A},_FullMap) -> true;
 tree_walk(SKey,Tmax,Ti,{'=',A,B},FullMap) ->
     condition(SKey,Tmax,Ti,'==',A,B,FullMap);
@@ -199,8 +199,11 @@ tree_walk(SKey,Tmax,Ti,{'>=',A,B},FullMap) ->
     condition(SKey,Tmax,Ti,'>=',A,B,FullMap);
 tree_walk(SKey,Tmax,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
     in_condition(SKey,Tmax,Ti,A,InList,FullMap);
-tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) -> 
-    {F,tree_walk(SKey,Tmax,Ti,P1,FullMap)};    %% F = unary function like abs | is_list 
+tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
+    ?Log("Function Arg: ~p~n", [P1]),
+    Arg = tree_walk(SKey,Tmax,Ti,P1,FullMap),
+    ?Log("Unary function Arg: ~p~n", [Arg]),
+    {F,Arg};                 %% F = unary function like abs | is_list | to_atom
 tree_walk(SKey,Tmax,Ti,{'fun',is_member,[P1,P2]},FullMap) ->
     condition(SKey,Tmax,Ti,is_member,P1,P2,FullMap); 
 tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) -> 
@@ -258,7 +261,9 @@ compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) ->    {OP,A,fi
 compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,timestamp,_,_,_,_}) ->   {OP,field_value(B,float,0,0,?nav,A),B};
 compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) ->    {OP,field_value(B,float,0,0,?nav,A),B};
 compguard(_ ,1, OP, {1,A,T,L,P,D,_},      {0,B,string,_,_,_,_}) ->      {OP,A,field_value(A,T,L,P,D,B)};
+compguard(_ ,1, OP, {1,A,term,_,_,_,_},     {0,B,_,_,_,_,_}) ->         {OP,A,B};
 compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
+compguard(_ ,1, OP, {0,A,_,_,_,_,_},        {1,B,term,_,_,_,_}) ->      {OP,A,B};
 compguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},{BN,BT}}});
 compguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
 
@@ -326,23 +331,53 @@ field_lookup(Name,FullMap) ->
 expr_lookup(_SKey,_Tmax,_Ti,A,FullMap) when is_binary(A)->
     field_lookup(A,FullMap);
 expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
-    % ?Log("Fun condition eval Tmax/Ti/Fun: ~p ~p ~p~n", [Tmax,Ti,F]),
-    {Ti,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
-    % ?Log("Fun parameter: ~p~n", [{Ti,A,T,L,P,D,AN}]),    
-    {Ti,{F,A},T,L,P,D,AN};          
+    % ?Log("expr_lookup {'fun',F,[Param]}: ~p ~p ~p ~p~n", [Tmax,Ti,F,Param]),
+    {Ta,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
+    case {Ta,F,T} of
+        {0,to_integer,integer} ->   {Ta,A,integer,L,P,D,AN};
+        {0,to_string,integer} ->    {Ta,integer_to_list(A),string,L,P,D,AN};
+        {0,to_float,integer} ->     {Ta,float(A),float,L,P,D,AN};
+        {0,to_float,float} ->       {Ta,A,float,L,P,D,AN};
+        {0,to_integer,float} ->     {Ta,round(A),integer,L,P,D,AN};
+        {0,to_string,float} ->      {Ta,float_to_list(A),string,L,P,D,AN};
+        {0,to_atom,string} ->       {Ta,field_value(to_atom,atom,0,0,?nav,A),atom,0,0,?nav,AN};
+        {0,to_binary,string} ->     {Ta,field_value(to_binary,binary,0,0,?nav,imem_datatype:strip_quotes(A)),binary,0,0,?nav,AN};
+        {0,to_binstr,string} ->     {Ta,field_value(to_binstr,binstr,0,0,?nav,A),binstr,0,0,?nav,AN};
+        {0,to_boolean,string} ->    {Ta,field_value(to_boolean,boolean,0,0,?nav,imem_datatype:strip_quotes(A)),boolean,0,0,?nav,AN};
+        {0,to_string,string} ->     {Ta,A,string,0,0,?nav,AN};
+        {0,to_datetime,string} ->   {Ta,field_value(to_datetime,datetime,0,0,?nav,imem_datatype:strip_quotes(A)),datetime,0,0,?nav,AN};
+        {0,to_decimal,integer} ->   {Ta,field_value(to_decimal,decimal,0,0,?nav,integer_to_list(A)),decimal,0,0,?nav,AN};
+        {0,to_decimal,float} ->     {Ta,field_value(to_decimal,decimal,0,0,?nav,float_to_list(A)),decimal,0,0,?nav,AN};
+        {0,to_integer,string} ->    {Ta,field_value(to_integer,integer,0,0,?nav,imem_datatype:strip_quotes(A)),integer,0,0,?nav,AN};
+        {0,to_list,string} ->       {Ta,field_value(to_list,list,0,0,?nav,imem_datatype:strip_quotes(A)),list,0,0,?nav,AN};
+        {0,to_fun,string} ->        {Ta,field_value(to_fun,'fun',0,0,?nav,A),'fun',0,0,?nav,AN};
+        {0,to_ipaddr,string} ->     {Ta,field_value(to_ipaddr,ipaddr,0,0,?nav,imem_datatype:strip_quotes(A)),ipaddr,0,0,?nav,AN};
+        {0,to_pid,string} ->        {Ta,field_value(to_pid,pid,0,0,?nav,imem_datatype:strip_quotes(A)),pid,0,0,?nav,AN};
+        {0,to_term,string} ->       {Ta,field_value(to_term,term,0,0,?nav,A),term,0,0,?nav,AN};
+        {0,to_timestamp,string} ->  {Ta,field_value(to_timestamp,timestamp,0,0,?nav,imem_datatype:strip_quotes(A)),timestamp,0,0,?nav,AN};
+        {0,to_tuple,string} ->      {Ta,field_value(to_tuple,tuple,0,0,?nav,imem_datatype:strip_quotes(A)),tuple,0,0,?nav,AN};
+        {0,to_userid,string} ->     {Ta,field_value(to_userid,userid,0,0,?nav,A),userid,0,0,?nav,AN};
+        {0,to_userid,integer} ->    {Ta,A,userid,0,0,?nav,AN};
+        _ ->                        {Ta,{F,A},T,L,P,D,AN}
+    end;          
+expr_lookup(SKey,Tmax,Ti,{'fun','element'=F,[P1,P2]},FullMap) ->  %% F = binary value function like 'element' 
+    {0,A,integer,_,_,_,_} = expr_lookup(SKey,Tmax,Ti,P1,FullMap),
+    {Tb,B,_,_,_,_,BN} = expr_lookup(SKey,Tmax,Ti,P2,FullMap),
+    {Tb,{F,A,B},term,0,0,0,BN};          
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
+    ?Log("expr_lookup {OP,A,B}: ~p ~p ~p ~p ~p~n", [Tmax,Ti,OP,A,B]),
     exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), expr_lookup(SKey,Tmax,Ti,B,FullMap)).
 
 exprguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1, A=<Tm; B>1,B=<Tm -> throw({'JoinEvent','join_condition'});
 exprguard(_ ,1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
 exprguard(_ ,1, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,integer,_,_,_,_}) ->  {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,float,_,_,_,_}) ->    {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,integer,_,_,_,_}) ->     {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,float,_,_,_,_}) ->       {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
 exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,integer,_,_,_,_}) ->      {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
 exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,float,_,_,_,_}) ->        {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
 exprguard(_ ,1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->  {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
-exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->    {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
+exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->     {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
+exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->       {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
 exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->      {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
 exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->        {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
 exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
@@ -350,10 +385,10 @@ exprguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"In
 exprguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
 exprguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J,N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
 exprguard(Tm,J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J,N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
-exprguard(_ ,_, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y -> {X,{OP,A,B},T,L,P,D,AN};           
-exprguard(_ ,_, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->            {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_ ,_, OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 -> {N,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_ ,_, OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 ->{N,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(_ ,_, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
+exprguard(_ ,_, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
+exprguard(_ ,_, OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 ->  {N,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(_ ,_, OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 -> {N,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
 exprguard(_ ,_, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(_ ,J, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {J,OP,A,B}}).
 
@@ -441,7 +476,8 @@ test_with_or_without_sec(IsSec) ->
                 col1 integer, 
                 col2 char(20), 
                 col3 date,
-                col4 ipaddr
+                col4 ipaddr,
+                col5 tuple
             );", 0, 'Imem', IsSec)),
 
         ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
@@ -615,12 +651,52 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R2g) =< 100),
 
         if_call_mfa(IsSec, write,[SKey,def,
-            {def,100,"\"text_in_quotes\"",{{2001,02,03},{4,5,6}},{10,132,7,92}}
+            {def,100,"\"text_in_quotes\"",{{2001,02,03},{4,5,6}},{10,132,7,92},{'Atom100',100}}
         ]),
 
         exec_fetch_sort_equal(SKey, query2h, 100, IsSec, 
             "select col2 from def where col1 = 100",
             [{"\"text_in_quotes\""}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2i, 100, IsSec, 
+            "select col1, col5 from def where element(1,col5) = to_atom(Atom5)",
+            [{"5","{'Atom5',5}"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2j, 100, IsSec, 
+            "select col1, col5 from def where element(1,col5) = to_atom('Atom5')",
+            [{"5","{'Atom5',5}"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2k, 100, IsSec, 
+            "select col1, col5 from def where element(1,col5) = to_atom(\"Atom5\")",
+            [{"5","{'Atom5',5}"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2l, 100, IsSec, 
+            "select col1, col5 from def where element(2,col5) = 5",
+            [{"5","{'Atom5',5}"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2m, 100, IsSec, 
+            "select col1, col5 from def where element(2,col5) = to_integer(4+1)",
+            [{"5","{'Atom5',5}"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2n, 100, IsSec, 
+            "select col1, col5 from def where element(2,col5) = to_integer(5.0)",
+            [{"5","{'Atom5',5}"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2o, 100, IsSec, 
+            "select col1, col5 from def where element(2,col5) = to_integer(\"5\")",
+            [{"5","{'Atom5',5}"}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query2p, 100, IsSec, 
+            "select col1, col5 from def where col5 = to_tuple(\"{'Atom5', 5}\")",
+            [{"5","{'Atom5',5}"}]
         ),
 
 
@@ -863,10 +939,13 @@ test_with_or_without_sec(IsSec) ->
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
-    if_call_mfa(IsSec, write,[SKey,Table,{Table,N,integer_to_list(N),calendar:local_time(),{10,132,7,N}}]),
+    if_call_mfa(IsSec, write,[SKey,Table,
+        {Table,N,integer_to_list(N),calendar:local_time(),{10,132,7,N},{list_to_atom("Atom" ++ integer_to_list(N)),N}}
+    ]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
+    ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
@@ -880,6 +959,7 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     RT.
 
 exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
+    ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
@@ -893,6 +973,7 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     RT.
 
 exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
+    ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
@@ -910,6 +991,7 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     RT.
 
 exec_fetch(SKey,Id, BS, IsSec, Sql) ->
+    ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
