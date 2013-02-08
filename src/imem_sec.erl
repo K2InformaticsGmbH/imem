@@ -11,8 +11,11 @@
         , schema/2
         , data_nodes/1
         , all_tables/1
+        , tables_starting_with/2
         , node_shard/1
         , node_shard/2
+        , physical_table_name/2
+        , physical_table_names/2
         , table_type/2
         , table_columns/2
         , table_size/2
@@ -193,6 +196,21 @@ all_selectable_tables(SKey, [Table|Rest], Acc0) ->
     end,
     all_selectable_tables(SKey, Rest, Acc1).
 
+tables_starting_with(SKey,Prefix) when is_atom(Prefix) ->
+    tables_starting_with(SKey,atom_to_list(Prefix));
+tables_starting_with(SKey,Prefix) when is_list(Prefix) ->
+    atoms_starting_with(Prefix,all_tables(SKey)).
+
+atoms_starting_with(Prefix,Atoms) ->
+    atoms_starting_with(Prefix,Atoms,[]). 
+
+atoms_starting_with(_,[],Acc) -> lists:sort(Acc);
+atoms_starting_with(Prefix,[A|Atoms],Acc) ->
+    case lists:prefix(Prefix,atom_to_list(A)) of
+        true ->     atoms_starting_with(Prefix,Atoms,[A|Acc]);
+        false ->    atoms_starting_with(Prefix,Atoms,Acc)
+    end.
+
 node_shard(_SKey) ->
     imem_meta:node_shard().
 
@@ -204,6 +222,18 @@ table_type(SKey, Table) ->
         true ->     imem_meta:table_type(Table);
         false ->    ?SecurityException({"Select unauthorized", SKey})
     end.
+
+physical_table_name(SKey,Name) ->
+    PhysicalName = imem_meta:physical_table_name(Name),
+    case have_table_permission(SKey, PhysicalName, select) of
+        true ->     PhysicalName;
+        false ->    ?SecurityException({"Select unauthorized", SKey})
+    end.
+
+physical_table_names(SKey,Name) ->
+    PhysicalNames = imem_meta:physical_table_names(Name),
+    Pred = fun(PN) -> have_table_permission(SKey, PN, select) end,
+    lists:filter(Pred,PhysicalNames).
 
 log_to_db(SKey,Level,Module,Function,Fields,Message) ->
     case have_table_permission(SKey, ddLog@, insert) of
@@ -734,6 +764,22 @@ test(_) ->
         ?assertException(throw, {SeEx,{"Insert into ddLog@ unauthorized",SeCoUser}}, log_to_db(SeCoUser,info,?MODULE,test,[{test_5,value6},{test_7,value8}],"Message")),        
         LogCount3 = table_size(SeCoAdmin,ddLog@),
         ?assertEqual(LogCount2+1,LogCount3),
+
+
+        LogTable = physical_table_name(SeCoAdmin,ddLog@),
+        ?Log("success ~p ~p~n", [physical_table_name,LogTable]),
+        ?assertException(throw, {SeEx,{"Select unauthorized",SeCoUser}}, physical_table_name(SeCoUser,ddLog@)),    
+        LogTables = physical_table_names(SeCoAdmin,ddLog@),
+        ?assert(lists:member(LogTable,LogTables)),        
+        ?assertEqual(LogTables,physical_table_names(SeCoAdmin,"ddLog@")),
+        ?assertEqual([],physical_table_names(SeCoUser,"ddLog@")),
+
+        ?assertEqual(LogTables,tables_starting_with(SeCoAdmin,ddLog@)),
+        ?assertEqual([user_table_123],tables_starting_with(SeCoUser,"user_table_")),
+        ?assertEqual([user_table_123],tables_starting_with(SeCoAdmin,user_table_)),
+        ?assertEqual([ddTable],tables_starting_with(SeCoAdmin,ddTable)),
+        ?assertEqual([],tables_starting_with(SeCoUser,ddTable)),
+        ?assertEqual([],tables_starting_with(SeCoAdmin,"akkahadöl_")),
 
         ?assertEqual(ok, insert(SeCoUser, user_table_123, {"A","B","C"})),
         ?assertEqual(1, table_size(SeCoUser, user_table_123)),

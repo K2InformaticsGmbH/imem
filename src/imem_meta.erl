@@ -35,9 +35,11 @@
         , schema/1
         , data_nodes/0
         , all_tables/0
+        , tables_starting_with/1
         , node_shard/0
         , node_shard/1
         , physical_table_name/1
+        , physical_table_names/1
         , table_type/1
         , table_columns/1
         , table_size/1
@@ -370,6 +372,34 @@ physical_table_name(Name) when is_list(Name) ->
     case lists:last(Name) of
         $@ ->   list_to_atom(lists:flatten(Name ++ node_shard()));
         _ ->    list_to_atom(Name)
+    end.
+
+physical_table_names({_S,N,_A}) -> physical_table_names(N);
+physical_table_names({_S,N}) -> physical_table_names(N);
+physical_table_names(dba_tables) -> [ddTable];
+physical_table_names(all_tables) -> [ddTable];
+physical_table_names(user_tables) -> [ddTable];
+physical_table_names(Name) when is_atom(Name) ->
+    physical_table_names(atom_to_list(Name));
+physical_table_names(Name) when is_list(Name) ->
+    case lists:last(Name) of
+        $@ ->   tables_starting_with(Name);
+        _ ->    [list_to_atom(Name)]
+    end.
+
+tables_starting_with(Prefix) when is_atom(Prefix) ->
+    tables_starting_with(atom_to_list(Prefix));
+tables_starting_with(Prefix) when is_list(Prefix) ->
+    atoms_starting_with(Prefix,all_tables()).
+
+atoms_starting_with(Prefix,Atoms) ->
+    atoms_starting_with(Prefix,Atoms,[]). 
+
+atoms_starting_with(_,[],Acc) -> lists:sort(Acc);
+atoms_starting_with(Prefix,[A|Atoms],Acc) ->
+    case lists:prefix(Prefix,atom_to_list(A)) of
+        true ->     atoms_starting_with(Prefix,Atoms,[A|Acc]);
+        false ->    atoms_starting_with(Prefix,Atoms,Acc)
     end.
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
@@ -718,6 +748,13 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
         
+        LogTable = physical_table_name(ddLog@),
+        ?assertEqual([LogTable],physical_table_names(ddLog@)),
+        ?assertEqual([LogTable],physical_table_names("ddLog@")),
+
+        ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
+        ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
+
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
