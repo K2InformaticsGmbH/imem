@@ -298,6 +298,17 @@ column_infos(Names) when is_list(Names)->
     [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N])))} || N <- Names].
 
 column_infos(Names, Types, Defaults)->
+    NamesLength = length(Names),
+    TypesLength = length(Types),
+    DefaultsLength = length(Defaults),
+    if (NamesLength =/= TypesLength)
+       orelse (NamesLength =/= DefaultsLength)
+       orelse (TypesLength =/= DefaultsLength) ->
+        ?ClientError({"Column defn params length missmatch", { {"Names", NamesLength}
+                                                             , {"Types", TypesLength}
+                                                             , {"Defaults", DefaultsLength}}});
+    true -> ok
+    end,
     [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N]))), type=T, default=D} || {N,T,D} <- lists:zip3(Names, Types, Defaults)].
 
 create_table(Table, Columns, Opts) ->
