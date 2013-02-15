@@ -8,6 +8,8 @@
         ]).
 
 -export([ field_qname/1
+        , field_name/1
+        , field_name/3
         , table_qname/1
         , table_qname/2
         , column_map_items/2
@@ -16,6 +18,10 @@
         , create_scan_spec/4
         , operand_member/2
         , un_escape_sql/1
+        , build_sort_fun/2
+        , filter_spec_where/3
+        , sort_spec_order/2
+        , sort_spec_fun/2
         ]).
 
 parse(Statement) when is_list(Statement) ->
@@ -99,6 +105,13 @@ field_qname(Str) when is_list(Str) ->
     end;
 field_qname(S) ->
     ?ClientError({"Invalid field name", S}).
+
+field_name({S,T,N}) -> field_name(S,T,N).
+
+field_name(undefined,undefined,N) -> atom_to_list(N); 
+field_name(undefined,T,N) -> atom_to_list(T) ++ "." ++ atom_to_list(N); 
+field_name(S,T,N) -> atom_to_list(S) ++ "." ++ atom_to_list(T) ++ "." ++ atom_to_list(N). 
+
 
 table_qname(B) when is_binary(B) ->
     table_qname(binary_to_list(B));
@@ -418,6 +431,136 @@ replace_nis_member(Result) ->                   Result.
 un_escape_sql(Str) when is_list(Str) ->
     re:replace(Str, "('')", "'", [global, {return, list}]).
 
+
+build_sort_fun(SelectSections,FullMap) ->
+    case lists:keyfind('order by', 1, SelectSections) of
+        {_, []} ->      fun(_X) -> {} end;
+        {_, Sorts} ->   % ?Log("Sorts  : ~p~n", [Sorts]),
+                        SortFuns = [sort_lookup(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
+                        fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end;
+        SError ->       ?ClientError({"Invalid order by in select structure", SError})
+    end.
+
+sort_lookup(Name,Direction,FullMap) ->
+    U = undefined,
+    ML = case imem_sql:field_qname(Name) of
+        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
+        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
+        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {} ->       []
+    end,
+    case length(ML) of
+        0 ->    ?ClientError({"Bad sort expression", Name});
+        1 ->    #ddColMap{type=Type, tind=Ti, cind=Ci} = hd(ML),
+                sort_fun(Type,Ti,Ci,Direction);
+        _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
+    end.
+
+sort_column(Idx,Direction,ColMaps) ->
+    ColCount = length(ColMaps),
+    if
+        (Idx < 1) ->        ?ClientError({"Bad sort column index", Idx});
+        (Idx > ColCount) -> ?ClientError({"Bad sort column index", Idx});
+        true ->
+            #ddColMap{tind=Ti,cind=Ci,type=Type} = lists:nth(Idx,ColMaps),
+            sort_fun(Type,Ti,Ci,Direction)
+    end.
+
+sort_order(Idx, Direction, ColMaps) ->
+    ColCount = length(ColMaps),
+    if
+        (Idx < 1) ->        ?ClientError({"Bad sort column index", Idx});
+        (Idx > ColCount) -> ?ClientError({"Bad sort column index", Idx});
+        true ->
+            #ddColMap{schema=S,table=T,name=N} = lists:nth(Idx,ColMaps),
+            {list_to_binary(field_name(S,T,N)),list_to_binary(atom_to_list(Direction))}
+    end.
+
+filter_spec_where({}, _, WhereTree) -> 
+    WhereTree;
+filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree) ->
+    FCond = filter_condition(ColF, ColMaps),
+    filter_spec_where({FType,ColFs}, ColMaps, WhereTree, FCond). 
+
+filter_spec_where({_FType,[]}, _ColMaps, WhereTree, LeftTree) ->
+    {'and', LeftTree, WhereTree};
+filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree, LeftTree) ->
+    FCond = filter_condition(ColF, ColMaps),
+    filter_spec_where({FType,ColFs}, ColMaps, WhereTree, {FType,LeftTree,FCond}).    
+
+filter_condition({Idx,[Val]}, ColMaps) ->
+    #ddColMap{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Value = list_to_binary(filter_field_value(Tag,Type,L,P,D,Val)),
+    {'=',list_to_binary(field_name(S,T,N)),Value};
+filter_condition({Idx,Vals}, ColMaps) ->
+    #ddColMap{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Values = [list_to_binary(filter_field_value(Tag,Type,L,P,D,Val)) || Val <- Vals],
+    {'in',list_to_binary(field_name(S,T,N)),Values}.
+
+filter_field_value(_Tag,integer,_Len,_Prec,_Def,Val) -> Val;
+filter_field_value(_Tag,float,_Len,_Prec,_Def,Val) -> Val;
+filter_field_value(_Tag,_Type,_Len,_Prec,_Def,Val) -> imem_datatype:add_squotes(Val).    
+
+sort_spec_order([],_) -> [];
+sort_spec_order(SortSpec, ColMaps) ->    
+    [sort_order(Idx, Direction, ColMaps) || {Idx,Direction} <- SortSpec].
+
+sort_spec_fun([],_) -> 
+    fun(_X) -> {} end;
+sort_spec_fun(SortSpec,ColMap) ->    
+    SortFuns = [sort_column(Idx,Direction,ColMap) || {Idx,Direction} <- SortSpec],
+    fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end.
+
+sort_fun(integer,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
+sort_fun(decimal,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
+sort_fun(float,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
+sort_fun(number,Ti,Ci,<<"desc">>) ->
+    fun(X) -> 
+        V = element(Ci,element(Ti,X)),
+        case is_number(V) of
+            true ->         (-V);
+            false ->        element(Ci,element(Ti,X))
+        end 
+    end;
+sort_fun(datetime,Ti,Ci,<<"desc">>) -> 
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {{Y,M,D},{Hh,Mm,Ss}} when is_integer(Y), is_integer(M), is_integer(D), is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
+                {{-Y,-M,-D},{-Hh,-Mm,-Ss}};
+            _ ->
+                element(Ci,element(Ti,X))
+        end 
+    end;
+sort_fun(timestamp,Ti,Ci,<<"desc">>) -> 
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {Meg,Sec,Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
+                {-Meg,-Sec,-Micro};
+            _ ->
+                element(Ci,element(Ti,X))
+        end    
+    end;
+sort_fun(ipadr,Ti,Ci,<<"desc">>) -> 
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {A,B,C,D} when is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
+                {-A,-B,-C,-D};
+            {A,B,C,D,E,F,G,H} when is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
+                {-A,-B,-C,-D,-E,-F,-G,-H};
+            _ ->
+                element(Ci,element(Ti,X))
+        end
+    end;
+sort_fun(Type,_Ti,_Ci,<<"desc">>) ->
+    ?SystemException({"Unsupported datatype for sort desc", Type});
+sort_fun(_Type,Ti,Ci,_) -> 
+    % ?Log("Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
+    fun(X) -> element(Ci,element(Ti,X)) end.
+
+
+
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
 if_call_mfa(IsSec,Fun,Args) ->
@@ -476,6 +619,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual({undefined,undefined,field}, field_qname(<<"field">>)),
         ?assertEqual({undefined,table,field}, field_qname(<<"table.field">>)),
         ?assertEqual({schema,table,field}, field_qname(<<"schema.table.field">>)),
+
+        ?assertEqual("field", field_name(field_qname(<<"field">>))),
+        ?assertEqual("table.field", field_name(field_qname(<<"table.field">>))),
+        ?assertEqual("schema.table.field", field_name(field_qname(<<"schema.table.field">>))),
 
         % table names without alias
         ?assertEqual({'Imem',table,table}, table_qname(<<"table">>)),
@@ -545,6 +692,39 @@ test_with_or_without_sec(IsSec) ->
         ?assertMatch([_,_,_], column_map([Table1], [])),
         ?Log("success ~p~n", [empty_select_columns]),
 
+
+        ColsF =     [ #ddColMap{tag="A", schema='Imem', table=meta_table_1, name=a, type=integer}
+                    , #ddColMap{tag="B", table=meta_table_1, name=b1, type=string}
+                    , #ddColMap{tag="C", name=c1, type=ipaddr}
+                    ],
+
+        ?assertEqual([], filter_spec_where({}, ColsF, [])),
+        ?assertEqual({wt}, filter_spec_where({}, ColsF, {wt})),
+        FA1 = {1,["111"]},
+        CA1 = {'=',<<"Imem.meta_table_1.a">>,<<"111">>},
+        ?assertEqual({'and',CA1,{wt}}, filter_spec_where({'or',[FA1]}, ColsF, {wt})),
+        FB2 = {2,["222"]},
+        CB2 = {'=',<<"meta_table_1.b1">>,<<"'222'">>},
+        ?assertEqual({'and',{'and',CA1,CB2},{wt}}, filter_spec_where({'and',[FA1,FB2]}, ColsF, {wt})),
+        FC3 = {3,["3.1.2.3","3.3.2.1"]},
+        CC3 = {'in',<<"c1">>,[<<"'3.1.2.3'">>,<<"'3.3.2.1'">>]},
+        ?assertEqual({'and',{'or',{'or',CA1,CB2},CC3},{wt}}, filter_spec_where({'or',[FA1,FB2,FC3]}, ColsF, {wt})),
+        ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsF, {wt})),
+        ?Log("success ~p~n", [filter_spec_where]),
+
+        ?assertEqual([], sort_spec_order([], ColsF)),
+        SA = {1,'desc'},
+        OA = {<<"Imem.meta_table_1.a">>,<<"desc">>},
+        ?assertEqual([OA], sort_spec_order([SA], ColsF)),
+        SB = {2,'asc'},
+        OB = {<<"meta_table_1.b1">>,<<"asc">>},
+        ?assertEqual([OB], sort_spec_order([SB], ColsF)),
+        SC = {3,'desc'},
+        OC = {<<"c1">>,<<"desc">>},
+        ?assertEqual([OC], sort_spec_order([SC], ColsF)),
+        ?assertEqual([OC,OA], sort_spec_order([SC,SA], ColsF)),
+        ?assertEqual([OB,OC,OA], sort_spec_order([SB,SC,SA], ColsF)),
+        ?Log("success ~p~n", [sort_spec_order]),
 
         ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", table=meta_table_1, name=b1}

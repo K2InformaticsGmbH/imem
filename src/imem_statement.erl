@@ -16,6 +16,7 @@
 -export([ update_prepare/5          %% stateless creation of update plan from change list
         , update_cursor_prepare/4   %% stateful creation of update plan (stored in state)
         , update_cursor_execute/4   %% stateful execution of update plan (fetch aborted first)
+        , filter_and_sort/5         %% apply FilterSpec and SortSpec and return new SQL and SortFun
         , fetch_recs/5              %% simulation of synchronous fetch
         , fetch_recs_sort/5         %% simulation of synchronous fetch followed by a lists:sort
         , fetch_recs_async/4        %% async streaming fetch
@@ -27,10 +28,15 @@
 -export([ create_stmt/3
         , receive_raw/0
         , receive_raw/1
-        , receive_list/2
-        , receive_list/3
+        , receive_recs/2
+        , receive_recs/3
+        , recs_sort/2
+        , receive_tuples/2
+        , receive_tuples/3
         , result_lists/2
+        , result_lists_sort/3
         , result_tuples/2
+        , result_tuples_sort/3
         ]).
 
 -record(fetchCtx,               %% state for fetch process
@@ -108,10 +114,13 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
 
 
 fetch_recs_sort(SKey, #stmtResult{stmtRef=Pid,sortFun=SortFun}, Sock, Timeout, IsSec) ->
-    List = [{SortFun(X),X} || X <- fetch_recs(SKey, Pid, Sock, Timeout, IsSec)],
-    [Recs || {_, Recs} <- lists:sort(List)];
+    recs_sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec), SortFun);
 fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
+
+recs_sort(Recs, SortFun) ->
+    List = [{SortFun(X),X} || X <- Recs],
+    [Rs || {_, Rs} <- lists:sort(List)].
 
 fetch_recs_async(SKey, #stmtResult{stmtRef=Pid}, Sock, IsSec) ->
     fetch_recs_async(SKey, Pid, Sock, IsSec);
@@ -127,6 +136,11 @@ fetch_close(SKey,  #stmtResult{stmtRef=Pid}, IsSec) ->
     fetch_close(SKey, Pid, IsSec);
 fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {fetch_close, IsSec, SKey}).
+
+filter_and_sort(SKey, #stmtResult{stmtRef=Pid}, FilterSpec, SortSpec, IsSec) ->
+    filter_and_sort(SKey, Pid, FilterSpec, SortSpec, IsSec);    
+filter_and_sort(SKey, Pid, FilterSpec, SortSpec, IsSec) when is_pid(Pid) ->
+    gen_server:call(Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, SKey}).
 
 update_cursor_prepare(SKey, #stmtResult{stmtRef=Pid}, IsSec, ChangeList) ->
     update_cursor_prepare(SKey, Pid, IsSec, ChangeList);
@@ -182,6 +196,30 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     % ?Log("~p - update_cursor_execute result ~p~n", [?MODULE, Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
+handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #state{seco=SKey, statement=Stmt}=State) ->
+    #statement{stmtParse={select,SelectSections}, colMaps=ColMaps} = Stmt,
+    {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
+    % ?Log("~p - SelectSections ~p~n", [?MODULE, SelectSections]),
+    Reply = try
+        NewSortFun = imem_sql:sort_spec_fun(SortSpec, ColMaps),
+        % ?Log("~p - NewSortFun ~p~n", [?MODULE, NewSortFun]),
+        OrderBy = imem_sql:sort_spec_order(SortSpec, ColMaps),
+        % ?Log("~p - OrderBy ~p~n", [?MODULE, OrderBy]),
+        Filter =  imem_sql:filter_spec_where(FilterSpec, ColMaps, WhereTree),
+        % ?Log("~p - Filter ~p~n", [?MODULE, Filter]),
+        NewSections1 = lists:keyreplace('where', 1, SelectSections, {'where',Filter}),
+        % ?Log("~p - NewSections1 ~p~n", [?MODULE, NewSections1]),
+        NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
+        % ?Log("~p - NewSections2 ~p~n", [?MODULE, NewSections2]),
+        NewSql = sql_box:sql_from_parse_tree({select,NewSections2}),
+        % NewSql = sql_parse:fold({select,NewSections2}),
+        % ?Log("~p - NewSql ~p~n", [?MODULE, NewSql]),
+        {ok, NewSql, NewSortFun}
+    catch
+        _:Reason ->  Reason
+    end,
+    % ?Log("~p - replace_sort result ~p~n", [?MODULE, Reply]),
+    {reply, Reply, State};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
     case Status of
@@ -448,7 +486,7 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
 %           ?Log("~p - fetch complete, switching to tail_mode~p~n", [?MODULE,Opts]), 
             case  catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
                 ok ->
-                    ?Log("~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
+                    % ?Log("~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
                 Error ->
                     ?Log("~p - Cannot subscribe to table changes~n~p~n", [?MODULE, {Table,Error}]),    
@@ -1041,13 +1079,55 @@ receive_raw(Timeout,Acc) ->
         Result ->   receive_raw(Timeout,[Result|Acc])
     end.
 
-receive_list(StmtResult, Complete) ->
-    receive_list(StmtResult,Complete,50,[]).
+receive_recs(StmtResult, Complete) ->
+    receive_recs(StmtResult,Complete,50,[]).
 
-receive_list(StmtResult, Complete, Timeout) ->
-    receive_list(StmtResult, Complete, Timeout,[]).
+receive_recs(StmtResult, Complete, Timeout) ->
+    receive_recs(StmtResult, Complete, Timeout,[]).
 
-receive_list(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Timeout,Acc) ->    
+receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->    
+    case receive
+            R ->    % ?Log("~p got:~n~p~n", [erlang:now(),R]),
+                    R
+        after Timeout ->
+            stop
+        end of
+        stop ->     
+            Unchecked = case Acc of
+                [] ->                       
+                    [{StmtRef,[],Complete}];
+                [{StmtRef,{_,Complete}}|_] -> 
+                    lists:reverse(Acc);
+                [{StmtRef,{L1,C1}}|_] ->      
+                    throw({bad_complete,{StmtRef,{L1,C1}}});
+                Res ->                      
+                    throw({bad_receive,lists:reverse(Res)})
+            end,
+            case lists:usort([element(1, SR) || SR <- Unchecked]) of
+                [StmtRef] ->                
+                    List = lists:flatten([element(1,element(2, T)) || T <- Unchecked]),
+                    if 
+                        length(List) =< 10 ->
+                            ?Log("Received  : ~p~n", [List]);
+                        true ->
+                            ?Log("Received  : ~p items [~p,~p,~p]~n", [length(List),hd(List), '...', lists:last(List)])
+                    end,            
+                    List;
+                StmtRefs ->
+                    throw({bad_stmtref,lists:delete(StmtRef, StmtRefs)})
+            end;
+        Result ->   
+            receive_recs(StmtResult,Complete,Timeout,[Result|Acc])
+    end.
+
+
+receive_tuples(StmtResult, Complete) ->
+    receive_tuples(StmtResult,Complete,50,[]).
+
+receive_tuples(StmtResult, Complete, Timeout) ->
+    receive_tuples(StmtResult, Complete, Timeout,[]).
+
+receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
             R ->    % ?Log("~p got:~n~p~n", [erlang:now(),R]),
                     R
@@ -1080,14 +1160,20 @@ receive_list(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Time
                     throw({bad_stmtref,lists:delete(StmtRef, StmtRefs)})
             end;
         Result ->   
-            receive_list(StmtResult,Complete,Timeout,[Result|Acc])
+            receive_tuples(StmtResult,Complete,Timeout,[Result|Acc])
     end.
 
 result_lists(List,RowFun) when is_list(List), is_function(RowFun) ->  
     lists:map(RowFun,List).
 
+result_lists_sort(List,RowFun,SortFun) when is_list(List), is_function(RowFun), is_function(SortFun) ->  
+    lists:map(RowFun,recs_sort(List,SortFun)).
+
 result_tuples(List,RowFun) when is_list(List), is_function(RowFun) ->  
     [list_to_tuple(R) || R <- lists:map(RowFun,List)].
+
+result_tuples_sort(List,RowFun,SortFun) when is_list(List), is_function(RowFun), is_function(SortFun) ->  
+    [list_to_tuple(R) || R <- lists:map(RowFun,recs_sort(List,SortFun))].
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -1166,7 +1252,7 @@ test_with_or_without_sec(IsSec) ->
         SR0 = exec(SKey,query0, 15, IsSec, "select * from def;"),
         try
             ?assertEqual(ok, fetch_async(SKey,SR0,[],IsSec)),
-            List0 = receive_list(SR0,true),
+            List0 = receive_tuples(SR0,true),
             ?assertEqual(15, length(List0)),
             ?assertEqual([], receive_raw())
         after
@@ -1175,18 +1261,18 @@ test_with_or_without_sec(IsSec) ->
 
         SR1 = exec(SKey,query1, 4, IsSec, "select col1, col2 from def;"),
         ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
-        List1a = receive_list(SR1,false),
+        List1a = receive_tuples(SR1,false),
         ?assertEqual(4, length(List1a)),
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
-        List1b = receive_list(SR1,false),
+        List1b = receive_tuples(SR1,false),
         ?assertEqual(4, length(List1b)),
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
-        List1c = receive_list(SR1,false),
+        List1c = receive_tuples(SR1,false),
         ?assertEqual(4, length(List1c)),
         ?assertEqual(ok, fetch_async(SKey,SR1,[],IsSec)),
-        List1d = receive_list(SR1,true),
+        List1d = receive_tuples(SR1,true),
         ?assertEqual(3, length(List1d)),
         ?assertEqual([], receive_raw()),
 
@@ -1243,12 +1329,12 @@ test_with_or_without_sec(IsSec) ->
         ),
         try
             ?assertEqual(ok, fetch_async(SKey,SR2,[{tail_mode,true}],IsSec)),
-            List2a = receive_list(SR2,true),
+            List2a = receive_tuples(SR2,true),
             ?assertEqual(5, length(List2a)),
             ?assertEqual([], receive_raw()),
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),  %% unchanged, all updates
-            List2b = receive_list(SR2,tail),
+            List2b = receive_tuples(SR2,tail),
             ?assertEqual(5, length(List2b)),             %% 10 updates, 5 filtered with TailFun()           
             ?assertEqual(ok, fetch_close(SKey, SR2, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
@@ -1270,14 +1356,14 @@ test_with_or_without_sec(IsSec) ->
         ),
         try
             ?assertEqual(ok, fetch_async(SKey,SR3,[{tail_mode,true}],IsSec)),
-            List3a = receive_list(SR3,false),
+            List3a = receive_tuples(SR3,false),
             ?assertEqual(2, length(List3a)),
             ?assertEqual(ok, fetch_async(SKey,SR3,[{fetch_mode,push},{tail_mode,true}],IsSec)),
-            List3b = receive_list(SR3,true),
+            List3b = receive_tuples(SR3,true),
             ?assertEqual(3, length(List3b)),
             ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),
-            List3c = receive_list(SR3,tail),
+            List3c = receive_tuples(SR3,tail),
             ?assertEqual(5, length(List3c)),           
             ?assertEqual(ok, fetch_close(SKey, SR3, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
@@ -1294,21 +1380,21 @@ test_with_or_without_sec(IsSec) ->
         SR4 = exec(SKey,query4, 5, IsSec, "select col1 from def;"),
         try
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
-            List4a = receive_list(SR4,false),
+            List4a = receive_tuples(SR4,false),
             ?assertEqual(5, length(List4a)),
             ?Log("trying to insert one row before fetch complete~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             ?Log("completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),
-            List4b = receive_list(SR4,true),
+            List4b = receive_tuples(SR4,true),
             ?assertEqual(5, length(List4b)),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
-            List4c = receive_list(SR4,tail),
+            List4c = receive_tuples(SR4,tail),
             ?assertEqual(1, length(List4c)),
             ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
             ?assertEqual(ok, insert_range(SKey, 11, def, 'Imem', IsSec)),
             ?assertEqual(11,imem_meta:table_size(def)),
-            List4d = receive_list(SR4,tail),
+            List4d = receive_tuples(SR4,tail),
             ?assertEqual(12, length(List4d)),
             ?Log("12 tail rows received in single packets~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
@@ -1327,7 +1413,7 @@ test_with_or_without_sec(IsSec) ->
         SR5 = exec(SKey,query5, 100, IsSec, "select name(qname) from all_tables"),
         try
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
-            List5a = receive_list(SR5,true),
+            List5a = receive_tuples(SR5,true),
             ?assert(lists:member({"Imem.def"},List5a)),
             ?assert(lists:member({"Imem.ddTable"},List5a)),
             ?Log("first read success (async)~n", []),
@@ -1339,7 +1425,7 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(StmtRef5,SR5#stmtResult.stmtRef),
             ?assertEqual(ok, fetch_close(SKey, SR5, IsSec)),
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
-            List5b = receive_list(SR5,true),
+            List5b = receive_tuples(SR5,true),
             ?assertEqual(List5a,List5b),
             ?Log("second read success (async)~n", []),
             ?assertException(throw,
@@ -1359,7 +1445,7 @@ test_with_or_without_sec(IsSec) ->
         SR6 = exec(SKey,query6, 3, IsSec, "select col1 from def;"),
         try
             ?assertEqual(ok, fetch_async(SKey, SR6, [{fetch_mode,push}], IsSec)),
-            List6a = receive_list(SR6,true),
+            List6a = receive_tuples(SR6,true),
             ?assertEqual(RowCount6, length(List6a)),
             ?assertEqual([], receive_raw()),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
@@ -1373,7 +1459,7 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey, SR7, [{fetch_mode,skip},{tail_mode,true}], IsSec)),
             ?assertEqual([], receive_raw()),
             ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
-            List7a = receive_list(SR7,tail),
+            List7a = receive_tuples(SR7,tail),
             ?assertEqual(5, length(List7a)),
             ?assertEqual([], receive_raw()),
             ?assertEqual(ok, fetch_close(SKey, SR7, IsSec)),
@@ -1383,6 +1469,24 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, close(SKey, SR7))
         end,
 
+        SR8 = exec(SKey,query8, 100, IsSec, "select col1 from def where col1 < '4' order by col2 desc;"),
+        try
+            ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
+            List8a = receive_recs(SR8,true),
+            ?assertEqual([{"11"},{"10"},{"3"},{"2"},{"1"}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
+            {ok, Sql8b, SF8b} = filter_and_sort(SKey, SR8, {}, [{1,asc}], IsSec),
+            Sorted8b = [{"1"},{"10"},{"11"},{"2"},{"3"}],
+            ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
+            ?Log("Sql8b ~p~n", [Sql8b]),
+            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,["1","2","3"]}]}, [{1,asc}], IsSec),
+            ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
+            ?Log("Sql8c ~p~n", [Sql8c]),
+            Expected8c = "select col1 from def where Imem.def.col1 in ('1','2','3') and col1 < '4' order by Imem.def.col1 asc",
+            % ?assertEqual(Expected8c, Sql8c),
+            ?assertEqual(ok, fetch_close(SKey, SR8, IsSec))
+        after
+            ?assertEqual(ok, close(SKey, SR8))
+        end,
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 

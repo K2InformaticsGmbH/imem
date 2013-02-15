@@ -12,6 +12,8 @@
 -export([ value_to_db/8
         , db_to_string/6
         , db_to_gui/6
+        , add_squotes/1
+        , add_dquotes/1
         , strip_squotes/1           %% strip single quotes
         , strip_dquotes/1           %% strip double quotes
         , strip_quotes/1            %% strip both quotes in any order 
@@ -267,6 +269,12 @@ value_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_list(Val) ->
         _:_ ->                                  ?ClientError({"Data conversion format error",{Item,{Type,Val}}})
     end;
 value_to_db(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.    
+
+add_squotes([]) -> "''";
+add_squotes(String) -> "'" ++ String ++ "'".
+
+add_dquotes([]) -> "\"\"";
+add_dquotes(String) -> "\"" ++ String ++ "\"".
 
 strip_dquotes([]) -> [];
 strip_dquotes([H]) -> [H];

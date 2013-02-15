@@ -63,8 +63,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % ?Log("MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
     % ?Log("JoinSpecs: ~p~n", [JoinSpecs]),
-    SortFun = build_sort_fun(SKey,length(Tables),1,SelectSections,FullMap),
+    SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
     Statement = Stmt#statement{
+                    stmtParse = {select, SelectSections},
                     tables=Tables, colMaps=ColMaps1, metaFields=MetaFields1, 
                     rowFun=RowFun, sortFun=SortFun, 
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
@@ -81,78 +82,6 @@ build_join_specs(SKey, Tmax, Ti, WhereTree, FullMap, Acc)->
     SGuards = query_guards(SKey,Tmax,Ti,WhereTree,FullMap),
     JoinSpec = imem_sql:create_scan_spec(Tmax,Ti,FullMap,SGuards),
     build_join_specs(SKey,Tmax, Ti-1, WhereTree, FullMap, [JoinSpec|Acc]).
-
-build_sort_fun(_SKey,_Tmax,_Ti,SelectSections,FullMap) ->
-    case lists:keyfind('order by', 1, SelectSections) of
-        {_, []} ->      fun(_X) -> {} end;
-        {_, Sorts} ->   % ?Log("Sorts  : ~p~n", [Sorts]),
-                        SortFuns = [sort_lookup(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
-                        fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end;
-        SError ->       ?ClientError({"Invalid order by in select structure", SError})
-    end.
-
-sort_lookup(Name,Direction,FullMap) ->
-    U = undefined,
-    ML = case imem_sql:field_qname(Name) of
-        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
-        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
-        {} ->       []
-    end,
-    case length(ML) of
-        0 ->    ?ClientError({"Bad sort expression", Name});
-        1 ->    #ddColMap{type=Type, tind=Ti, cind=Ci} = hd(ML),
-                sort_fun(Type,Ti,Ci,Direction);
-        _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
-    end.
-
-sort_fun(integer,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
-sort_fun(decimal,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
-sort_fun(float,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
-sort_fun(number,Ti,Ci,<<"desc">>) ->
-    % ?Log("Sort number  : ~p ~p~n", [Ti,Ci]), 
-    fun(X) -> 
-        V = element(Ci,element(Ti,X)),
-        case is_number(V) of
-            true ->         (-V);
-            false ->        element(Ci,element(Ti,X))
-        end 
-    end;
-sort_fun(datetime,Ti,Ci,<<"desc">>) -> 
-    fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
-            {{Y,M,D},{Hh,Mm,Ss}} when is_integer(Y), is_integer(M), is_integer(D), is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
-                {{-Y,-M,-D},{-Hh,-Mm,-Ss}};
-            _ ->
-                element(Ci,element(Ti,X))
-        end 
-    end;
-sort_fun(timestamp,Ti,Ci,<<"desc">>) -> 
-    fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
-            {Meg,Sec,Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
-                {-Meg,-Sec,-Micro};
-            _ ->
-                element(Ci,element(Ti,X))
-        end    
-    end;
-sort_fun(ipadr,Ti,Ci,<<"desc">>) -> 
-    fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
-            {A,B,C,D} when is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
-                {-A,-B,-C,-D};
-            {A,B,C,D,E,F,G,H} when is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
-                {-A,-B,-C,-D,-E,-F,-G,-H};
-            _ ->
-                element(Ci,element(Ti,X))
-        end
-    end;
-sort_fun(Type,_Ti,_Ci,<<"desc">>) ->
-    ?SystemException({"Unsupported sort desc datatype", Type});
-sort_fun(_Type,Ti,Ci,_) -> 
-    % ?Log("Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
-    fun(X) -> element(Ci,element(Ti,X)) end.
-
 
 add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> 
     MetaFields;
@@ -171,11 +100,11 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
 
 query_guards(_SKey,_Tmax,_Ti,[],_FullMap) -> [];
 query_guards(SKey,Tmax,Ti,WhereTree,FullMap) ->
-    ?Log("WhereTree  : ~p~n", [WhereTree]),
+    % ?Log("WhereTree  : ~p~n", [WhereTree]),
     Walked = tree_walk(SKey,Tmax,Ti,WhereTree,FullMap),
-    ?Log("Walked     : ~p~n", [Walked]),
+    % ?Log("Walked     : ~p~n", [Walked]),
     Simplified = imem_sql:simplify_guard(Walked), 
-    ?Log("Simplified : ~p~n", [Simplified]),
+    % ?Log("Simplified : ~p~n", [Simplified]),
     [Simplified].
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
@@ -200,9 +129,9 @@ tree_walk(SKey,Tmax,Ti,{'>=',A,B},FullMap) ->
 tree_walk(SKey,Tmax,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
     in_condition(SKey,Tmax,Ti,A,InList,FullMap);
 tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
-    ?Log("Function Arg: ~p~n", [P1]),
+    % ?Log("Function Arg: ~p~n", [P1]),
     Arg = tree_walk(SKey,Tmax,Ti,P1,FullMap),
-    ?Log("Unary function Arg: ~p~n", [Arg]),
+    % ?Log("Unary function Arg: ~p~n", [Arg]),
     {F,Arg};                 %% F = unary function like abs | is_list | to_atom
 tree_walk(SKey,Tmax,Ti,{'fun',is_member,[P1,P2]},FullMap) ->
     condition(SKey,Tmax,Ti,is_member,P1,P2,FullMap); 
@@ -365,7 +294,7 @@ expr_lookup(SKey,Tmax,Ti,{'fun','element'=F,[P1,P2]},FullMap) ->  %% F = binary 
     {Tb,B,_,_,_,_,BN} = expr_lookup(SKey,Tmax,Ti,P2,FullMap),
     {Tb,{F,A,B},term,0,0,0,BN};          
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
-    ?Log("expr_lookup {OP,A,B}: ~p ~p ~p ~p ~p~n", [Tmax,Ti,OP,A,B]),
+    % ?Log("expr_lookup {OP,A,B}: ~p ~p ~p ~p ~p~n", [Tmax,Ti,OP,A,B]),
     exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), expr_lookup(SKey,Tmax,Ti,B,FullMap)).
 
 exprguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1, A=<Tm; B>1,B=<Tm -> throw({'JoinEvent','join_condition'});
