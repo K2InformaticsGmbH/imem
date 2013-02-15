@@ -196,7 +196,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     % ?Log("~p - update_cursor_execute result ~p~n", [?MODULE, Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
-handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #state{seco=SKey, statement=Stmt}=State) ->
+handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #state{statement=Stmt}=State) ->
     #statement{stmtParse={select,SelectSections}, colMaps=ColMaps} = Stmt,
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
     % ?Log("~p - SelectSections ~p~n", [?MODULE, SelectSections]),
@@ -1481,7 +1481,7 @@ test_with_or_without_sec(IsSec) ->
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,["1","2","3"]}]}, [{1,asc}], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?Log("Sql8c ~p~n", [Sql8c]),
-            Expected8c = "select col1 from def where Imem.def.col1 in ('1','2','3') and col1 < '4' order by Imem.def.col1 asc",
+            _Expected8c = "select col1 from def where Imem.def.col1 in ('1','2','3') and col1 < '4' order by Imem.def.col1 asc",
             % ?assertEqual(Expected8c, Sql8c),
             ?assertEqual(ok, fetch_close(SKey, SR8, IsSec))
         after

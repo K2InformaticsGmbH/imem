@@ -57,5 +57,6 @@
                   , stmtCols = undefined            ::list(#stmtCol{})  %% simplified column map of main statement
                   , rowFun  = undefined             ::fun()             %% rendering fun for row {key rec} -> [ResultValues]
                   , sortFun = undefined             ::fun()             %% rendering fun for sorting {key rec} -> SortColumn
+                  , sortSpec = []                   ::list()
                   }
        ).
