@@ -197,13 +197,13 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};
 handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #state{statement=Stmt}=State) ->
-    #statement{stmtParse={select,SelectSections}, colMaps=ColMaps} = Stmt,
+    #statement{stmtParse={select,SelectSections}, colMaps=ColMaps, fullMaps=FullMaps} = Stmt,
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
     % ?Log("~p - SelectSections ~p~n", [?MODULE, SelectSections]),
     Reply = try
-        NewSortFun = imem_sql:sort_spec_fun(SortSpec, ColMaps),
+        NewSortFun = imem_sql:sort_spec_fun(SortSpec, FullMaps),
         % ?Log("~p - NewSortFun ~p~n", [?MODULE, NewSortFun]),
-        OrderBy = imem_sql:sort_spec_order(SortSpec, ColMaps),
+        OrderBy = imem_sql:sort_spec_order(SortSpec, FullMaps),
         % ?Log("~p - OrderBy ~p~n", [?MODULE, OrderBy]),
         Filter =  imem_sql:filter_spec_where(FilterSpec, ColMaps, WhereTree),
         % ?Log("~p - Filter ~p~n", [?MODULE, Filter]),
@@ -211,10 +211,11 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #stat
         % ?Log("~p - NewSections1 ~p~n", [?MODULE, NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
         % ?Log("~p - NewSections2 ~p~n", [?MODULE, NewSections2]),
-        NewSql = sql_box:sql_from_parse_tree({select,NewSections2}),
-        % NewSql = sql_parse:fold({select,NewSections2}),
-        % ?Log("~p - NewSql ~p~n", [?MODULE, NewSql]),
-        {ok, NewSql, NewSortFun}
+        % NewSql1 = sql_box:sql_from_parse_tree({select,NewSections2}),
+        % ?Log("~p - NewSql1 ~p~n", [?MODULE, NewSql1]),
+        NewSql2 = sql_parse:fold({select,NewSections2}),
+        % ?Log("~p - NewSql2 ~p~n", [?MODULE, NewSql2]),
+        {ok, NewSql2, NewSortFun}
     catch
         _:Reason ->  Reason
     end,
@@ -1470,15 +1471,17 @@ test_with_or_without_sec(IsSec) ->
         end,
 
         SR8 = exec(SKey,query8, 100, IsSec, "select col1 from def where col1 < '4' order by col2 desc;"),
+        ?Log("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
+        ?assertEqual([{1,3,desc}], SR8#stmtResult.sortSpec),
         try
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
             ?assertEqual([{"11"},{"10"},{"3"},{"2"},{"1"}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
-            {ok, Sql8b, SF8b} = filter_and_sort(SKey, SR8, {}, [{1,asc}], IsSec),
+            {ok, Sql8b, SF8b} = filter_and_sort(SKey, SR8, {}, [{1,2,asc}], IsSec),
             Sorted8b = [{"1"},{"10"},{"11"},{"2"},{"3"}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
             ?Log("Sql8b ~p~n", [Sql8b]),
-            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,["1","2","3"]}]}, [{1,asc}], IsSec),
+            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,["1","2","3"]}]}, [{1,2,asc}], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?Log("Sql8c ~p~n", [Sql8c]),
             _Expected8c = "select col1 from def where Imem.def.col1 in ('1','2','3') and col1 < '4' order by Imem.def.col1 asc",

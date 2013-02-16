@@ -33,10 +33,12 @@
                     , blockSize = 100               ::integer()         %% get data in chunks of (approximately) this size
                     , stmtStr = ""                  ::string()          %% SQL statement (optional)
                     , stmtParse = undefined         ::any()             %% SQL parse tree
-                    , colMaps = []                  ::list(#ddColMap{}) %% column map 
+                    , colMaps = []                  ::list(#ddColMap{}) %% column map
+                    , fullMaps = []                 ::list(#ddColMap{}) %% full map
                     , metaFields = []               ::list(atom())      %% list of meta_field names needed by RowFun
                     , rowFun                        ::fun()             %% rendering fun for row {table recs} -> [ResultValues]
                     , sortFun                       ::fun()             %% rendering fun for sorting {table recs} -> SortColumn
+                    , sortSpec = []                 ::list()
                     , mainSpec = undefined          ::list()            %% how to find master records
                     , joinSpecs = []                ::list()            %% how to find joined records list({MatchSpec,Binds})
                     }).

@@ -64,14 +64,16 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
     % ?Log("JoinSpecs: ~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
+    SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap),
     Statement = Stmt#statement{
                     stmtParse = {select, SelectSections},
-                    tables=Tables, colMaps=ColMaps1, metaFields=MetaFields1, 
-                    rowFun=RowFun, sortFun=SortFun, 
+                    tables=Tables, fullMaps=FullMap,
+                    colMaps=ColMaps1, metaFields=MetaFields1, 
+                    rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
-    {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun}}.
+    {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}}.
 
 build_main_spec(SKey,Tmax,Ti,WhereTree,FullMap) when (Ti==1) ->
     SGuards= query_guards(SKey,Tmax,Ti,WhereTree,FullMap),

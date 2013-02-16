@@ -19,6 +19,7 @@
         , operand_member/2
         , un_escape_sql/1
         , build_sort_fun/2
+        , build_sort_spec/2
         , filter_spec_where/3
         , sort_spec_order/2
         , sort_spec_fun/2
@@ -436,12 +437,39 @@ build_sort_fun(SelectSections,FullMap) ->
     case lists:keyfind('order by', 1, SelectSections) of
         {_, []} ->      fun(_X) -> {} end;
         {_, Sorts} ->   % ?Log("Sorts  : ~p~n", [Sorts]),
-                        SortFuns = [sort_lookup(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
+                        SortFuns = [sort_fun_item(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
                         fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end;
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
     end.
 
-sort_lookup(Name,Direction,FullMap) ->
+build_sort_spec(SelectSections,FullMap) ->
+    case lists:keyfind('order by', 1, SelectSections) of
+        {_, []} ->      [];
+        {_, Sorts} ->   % ?Log("Sorts  : ~p~n", [Sorts]),
+                        [sort_spec_item(Name,Direction,FullMap) || {Name,Direction} <- Sorts];
+        SError ->       ?ClientError({"Invalid order by in select structure", SError})
+    end.
+
+sort_spec_item(Name,<<>>,FullMap) ->
+    sort_spec_item(Name,<<"asc">>,FullMap);
+sort_spec_item(Name,Direction,FullMap) ->
+    U = undefined,
+    ML = case imem_sql:field_qname(Name) of
+        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
+        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
+        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {} ->       []
+    end,
+    case length(ML) of
+        0 ->    ?ClientError({"Bad sort expression", Name});
+        1 ->    #ddColMap{tind=Ti, cind=Ci} = hd(ML),
+                {Ti,Ci,list_to_atom(binary_to_list(Direction))};
+        _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
+    end.
+
+sort_fun_item(Name,<<>>,FullMap) ->
+    sort_fun_item(Name,<<"asc">>,FullMap);
+sort_fun_item(Name,Direction,FullMap) ->
     U = undefined,
     ML = case imem_sql:field_qname(Name) of
         {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
@@ -454,26 +482,6 @@ sort_lookup(Name,Direction,FullMap) ->
         1 ->    #ddColMap{type=Type, tind=Ti, cind=Ci} = hd(ML),
                 sort_fun(Type,Ti,Ci,Direction);
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
-    end.
-
-sort_column(Idx,Direction,ColMaps) ->
-    ColCount = length(ColMaps),
-    if
-        (Idx < 1) ->        ?ClientError({"Bad sort column index", Idx});
-        (Idx > ColCount) -> ?ClientError({"Bad sort column index", Idx});
-        true ->
-            #ddColMap{tind=Ti,cind=Ci,type=Type} = lists:nth(Idx,ColMaps),
-            sort_fun(Type,Ti,Ci,Direction)
-    end.
-
-sort_order(Idx, Direction, ColMaps) ->
-    ColCount = length(ColMaps),
-    if
-        (Idx < 1) ->        ?ClientError({"Bad sort column index", Idx});
-        (Idx > ColCount) -> ?ClientError({"Bad sort column index", Idx});
-        true ->
-            #ddColMap{schema=S,table=T,name=N} = lists:nth(Idx,ColMaps),
-            {list_to_binary(field_name(S,T,N)),list_to_binary(atom_to_list(Direction))}
     end.
 
 filter_spec_where({}, _, WhereTree) -> 
@@ -497,21 +505,33 @@ filter_condition({Idx,Vals}, ColMaps) ->
     #ddColMap{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
     Tag = "Col" ++ integer_to_list(Idx),
     Values = [list_to_binary(filter_field_value(Tag,Type,L,P,D,Val)) || Val <- Vals],
-    {'in',list_to_binary(field_name(S,T,N)),Values}.
+    {'in',list_to_binary(field_name(S,T,N)),{'list',Values}}.
 
 filter_field_value(_Tag,integer,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,float,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,_Type,_Len,_Prec,_Def,Val) -> imem_datatype:add_squotes(Val).    
 
 sort_spec_order([],_) -> [];
-sort_spec_order(SortSpec, ColMaps) ->    
-    [sort_order(Idx, Direction, ColMaps) || {Idx,Direction} <- SortSpec].
+sort_spec_order(SortSpec,ColMaps) ->    
+    [sort_order(Ti,Ci,Direction,ColMaps) || {Ti,Ci,Direction} <- SortSpec].
+
+sort_order(Ti,Ci,Direction,ColMaps) ->
+    case [{S,T,N} || #ddColMap{tind=Tind,cind=Cind,schema=S,table=T,name=N} <- ColMaps, Tind==Ti, Cind==Ci] of
+        [QN] -> {list_to_binary(field_name(QN)),list_to_binary(atom_to_list(Direction))};
+        Else -> ?ClientError({"Bad sort field qualified name", Else})
+    end.
 
 sort_spec_fun([],_) -> 
     fun(_X) -> {} end;
 sort_spec_fun(SortSpec,ColMap) ->    
-    SortFuns = [sort_column(Idx,Direction,ColMap) || {Idx,Direction} <- SortSpec],
+    SortFuns = [sort_fun_any(Ti,Ci,Direction,ColMap) || {Ti,Ci,Direction} <- SortSpec],
     fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end.
+
+sort_fun_any(Ti,Ci,Direction,ColMaps) ->
+    case [Type || #ddColMap{tind=Tind,cind=Cind,type=Type} <- ColMaps, Tind==Ti, Cind==Ci] of
+        [Typ] ->    sort_fun(Typ,Ti,Ci,Direction);
+        Else ->     ?ClientError({"Bad sort field type", Else})
+    end.
 
 sort_fun(integer,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
 sort_fun(decimal,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
