@@ -129,7 +129,7 @@ init(_Args) ->
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
         check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
 
-        create_type_tables(?DataTypes),
+        %% create_type_tables(?DataTypes),
 
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
@@ -290,11 +290,18 @@ column_info_items(_Info, Item) ->
 column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
-column_infos(Table) when is_atom(Table)->
-            case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
+column_infos(Table) when is_atom(Table) ->
+    column_infos({schema(),Table});    
+column_infos({Schema,Table}) when is_atom(Schema), is_atom(Table) ->
+    case lists:member(Table, ?DataTypes) of
+        true -> 
+            [#ddColumn{name=item, type=Table, len=0, prec=0, default=undefined}];
+        false ->
+            case imem_if:read(ddTable,{Schema, physical_table_name(Table)}) of
                 [] ->                       ?SystemException({"Missing table metadata",Table}); 
                 [#ddTable{columns=CI}] ->   CI
-            end;  
+            end
+    end;  
 column_infos(Names) when is_list(Names)->
     [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N])))} || N <- Names].
 
@@ -379,7 +386,10 @@ physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
 physical_table_name(user_tables) -> ddTable;
 physical_table_name(Name) when is_atom(Name) ->
-    physical_table_name(atom_to_list(Name));
+    case lists:member(Name,?DataTypes) of
+        true ->     Name;
+        false ->    physical_table_name(atom_to_list(Name))
+    end;
 physical_table_name(Name) when is_list(Name) ->
     case lists:last(Name) of
         $@ ->   list_to_atom(lists:flatten(Name ++ node_shard()));
@@ -392,7 +402,10 @@ physical_table_names(dba_tables) -> [ddTable];
 physical_table_names(all_tables) -> [ddTable];
 physical_table_names(user_tables) -> [ddTable];
 physical_table_names(Name) when is_atom(Name) ->
-    physical_table_names(atom_to_list(Name));
+    case lists:member(Name,?DataTypes) of
+        true ->     [Name];
+        false ->    physical_table_names(atom_to_list(Name))
+    end;
 physical_table_names(Name) when is_list(Name) ->
     case lists:last(Name) of
         $@ ->   tables_starting_with(Name);

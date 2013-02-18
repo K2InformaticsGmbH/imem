@@ -185,10 +185,11 @@ column_map(Tables, Columns) ->
 column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     column_map([{imem_meta:schema(),Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
 column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
-    Cols = case imem_meta:read(ddTable,{Schema,Table}) of
-        [#ddTable{columns=C}] ->    C;
-        [] ->                       ?ClientError({"Table does not exist",{Schema,Table}})
-    end,
+    % Cols = case imem_meta:read(ddTable,{Schema,Table}) of
+    %     [#ddTable{columns=C}] ->    C;
+    %     [] ->                       ?ClientError({"Table does not exist",{Schema,Table}})
+    % end,
+    Cols = imem_meta:column_infos({Schema,Table}),
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
     % ?Log("column_map lookup ~p~n", [Lookup++L]),
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);

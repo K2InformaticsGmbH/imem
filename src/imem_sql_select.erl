@@ -800,9 +800,10 @@ test_with_or_without_sec(IsSec) ->
              from ddTable
              where is_member(\"{virtual,true}\",opts)"
         ),
-        ?assert(length(R5k) >= 18),
-        ?assert(lists:member({"Imem.atom"},R5k)),
-        ?assert(lists:member({"Imem.userid"},R5k)),
+        % ?assert(length(R5k) >= 18),
+        ?assert(length(R5k) == 0),      % not used any more for DataTypes
+        % ?assert(lists:member({"Imem.atom"},R5k)),
+        % ?assert(lists:member({"Imem.userid"},R5k)),
         ?assertNot(lists:member({"Imem.ddTable"},R5k)),
         ?assertNot(lists:member({"Imem.ddTable"},R5k)),
 
