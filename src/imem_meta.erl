@@ -160,11 +160,11 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ------ META implementation -------------------------------------------------------
 
-create_type_tables([]) -> ok;
-create_type_tables([Type|Types]) ->
-    catch create_table(Type, {[item], [Type], {Type,undefined}}, [{virtual,true}], system),
-    check_table_meta(Type, {[item], [Type], {Type,undefined}}),
-    create_type_tables(Types).
+% create_type_tables([]) -> ok;
+% create_type_tables([Type|Types]) ->
+%     catch create_table(Type, {[item], [Type], {Type,undefined}}, [{virtual,true}], system),
+%     check_table_meta(Type, {[item], [Type], {Type,undefined}}),
+%     create_type_tables(Types).
 
 system_table({_S,Table,_A}) -> system_table(Table);
 system_table({_,Table}) -> system_table(Table);
