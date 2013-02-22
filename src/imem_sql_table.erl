@@ -23,6 +23,7 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) ->
     {T,L,P} = case Type of
+        B when is_binary(B) ->      {imem_datatype:string_to_term(imem_datatype:strip_squotes(binary_to_list(B))),0,0};
         A when is_atom(A) ->        {imem_datatype:imem_type(A),0,0};
         {float,SPrec} ->            {float,0,list_to_integer(SPrec)};
         {timestamp,SPrec} ->        {timestamp,0,list_to_integer(SPrec)};
@@ -81,6 +82,7 @@ setup() ->
     ?imem_test_setup().
 
 teardown(_) -> 
+    catch imem_meta:drop_table(key_test),
     catch imem_meta:drop_table(truncate_test),
     catch imem_meta:drop_table(def),
     ?imem_test_teardown().
@@ -138,6 +140,21 @@ test_with_or_without_sec(IsSec) ->
             "truncate table truncate_test;", 0, 'Imem', IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, 'Imem', IsSec)),
+
+        Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
+        ?Log("Sql30: ~p~n", [Sql30]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, 'Imem', IsSec)),
+        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
+        TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
+        ?Log("TableDef: ~p~n", [TableDef]),
+
+
+
+
+        Sql97 = "drop table key_test;",
+        ?Log("Sql97: ~p~n", [Sql97]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, 'Imem', IsSec)),
+
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  if_call_mfa(IsSec, table_size, [SKey, def])),

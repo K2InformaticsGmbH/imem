@@ -9,6 +9,7 @@
 
 -export([ schema/1
         , schema/2
+        , system_id/1
         , data_nodes/1
         , all_tables/1
         , tables_starting_with/2
@@ -75,7 +76,7 @@
         ]).
 
 -export([ fetch_start/6
-        , update_tables/3  
+        , update_tables/3           %% update (first) table and return updated keys 
         ]).
 
 -export([ transaction/2
@@ -156,6 +157,9 @@ schema(SKey) ->
 schema(SKey, Node) ->
     seco_authorized(SKey),
     imem_meta:schema(Node).
+
+system_id(_Skey) ->
+    imem_meta:system_id().
 
 system_table(SKey, Table) ->
     seco_authorized(SKey),    

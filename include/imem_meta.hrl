@@ -2,7 +2,7 @@
 -include("imem_if.hrl").
 
 -type ddEntityId() :: 	reference() | integer() | atom().
--type ddType() ::		atom(). 			%% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
+-type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 
 -record(ddColumn,                           %% column definition    
                   { name                    ::atom()

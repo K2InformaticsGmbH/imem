@@ -16,7 +16,8 @@
         , add_dquotes/1
         , strip_squotes/1           %% strip single quotes
         , strip_dquotes/1           %% strip double quotes
-        , strip_quotes/1            %% strip both quotes in any order 
+        , strip_quotes/1            %% strip both quotes in any order
+        , is_datatype/1 
         ]).
 
 %   datatypes
@@ -187,6 +188,14 @@ select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
 
 
 %% ----- DATA TYPES    --------------------------------------------
+
+is_datatype([]) -> false;
+is_datatype({}) -> false;
+is_datatype(Type) when is_atom(Type) -> lists:member(Type,?DataTypes);
+is_datatype(Types) when is_list(Types) ->
+    (not lists:member(false,[is_datatype(T) || T <- Types]));
+is_datatype(Type) when is_tuple(Type) -> is_datatype(tuple_to_list(Type));
+is_datatype(_) -> false.
 
 imem_type(raw) -> binary; 
 imem_type(blob) -> binary; 

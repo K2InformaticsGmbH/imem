@@ -33,6 +33,7 @@
 
 -export([ schema/0
         , schema/1
+        , system_id/0
         , data_nodes/0
         , all_tables/0
         , tables_starting_with/1
@@ -298,7 +299,7 @@ column_infos({Schema,Table}) when is_atom(Schema), is_atom(Table) ->
             [#ddColumn{name=item, type=Table, len=0, prec=0, default=undefined}];
         false ->
             case imem_if:read(ddTable,{Schema, physical_table_name(Table)}) of
-                [] ->                       ?SystemException({"Missing table metadata",Table}); 
+                [] ->                       ?ClientError({"Table does not exist",{Schema,Table}}); 
                 [#ddTable{columns=CI}] ->   CI
             end
     end;  
@@ -347,10 +348,10 @@ create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
         _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
 create_physical_table(Table,ColumnInfos,Opts,Owner) ->
-    TypeCheck = [{lists:member(Type,?DataTypes),Type} || Type <- column_info_items(ColumnInfos, type)],
+    TypeCheck = [{imem_datatype:is_datatype(Type),Type} || Type <- column_info_items(ColumnInfos, type)],
     case lists:keyfind(false, 1, TypeCheck) of
         false ->    ok;
-        {_,Bad} ->  ?ClientError({"Invalid data type",Bad})
+        {_,BadT} -> ?ClientError({"Invalid data type",BadT})
     end,
     PhysicalName=physical_table_name(Table),
     case lists:member({virtual,true},Opts) of
@@ -434,6 +435,9 @@ schema() ->
 
 schema(Node) ->
     imem_if:schema(Node).
+
+system_id() ->
+    imem_if:system_id().
 
 add_attribute(A, Opts) -> 
     imem_if:add_attribute(A, Opts).
@@ -772,7 +776,10 @@ meta_operations(_) ->
         ?Log("success ~p~n", [not_null_constraint]),
         ?assertEqual(LogCount3+2, LogCount4),
 
-        ?assertEqual(ok, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
+        Keys4 = [
+        {1,{meta_table_3,{{2000,1,1},{12,45,59}},undefined}}
+        ],
+        ?assertEqual(Keys4, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
         

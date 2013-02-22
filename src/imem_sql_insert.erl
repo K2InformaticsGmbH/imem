@@ -15,7 +15,8 @@ exec(SKey, {insert, TableName, {_, Columns}, {_, Values}}=_ParseTree , _Stmt, _S
     ChangeList = [[1,ins,{}|Vs]],
     % ?Log("~p - generated change list~n~p~n", [?MODULE, ChangeList]),
     UpdatePlan = if_call_mfa(IsSec,update_prepare,[SKey, [Table], ColMap, ChangeList]),
-    if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, optimistic]).
+    if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, optimistic]),
+    ok.
 
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
@@ -34,6 +35,7 @@ setup() ->
     ?imem_test_setup().
 
 teardown(_) -> 
+    catch imem_meta:drop_table(key_test),
     catch imem_meta:drop_table(not_null),
     catch imem_meta:drop_table(def),
     ?imem_test_teardown().
@@ -199,6 +201,17 @@ test_with_or_without_sec(IsSec) ->
         Sql11 = "insert into not_null (col1) values ('B');",
         ?Log("Sql11: ~p~n", [Sql11]),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{not_null,_}}}}, imem_sql:exec(SKey, Sql11, 0, 'Imem', IsSec)),
+
+        Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
+        ?Log("Sql30: ~p~n", [Sql30]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, 'Imem', IsSec)),
+        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
+        TableDef = if_call_mfa(IsSec, read, [SKey, key_test, {imem_meta:schema(),key_test}]),
+        ?Log("TableDef: ~p~n", [TableDef]),
+
+        Sql97 = "drop table key_test;",
+        ?Log("Sql97: ~p~n", [Sql97]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, 'Imem', IsSec)),
 
         Sql98 = "drop table not_null;",
         ?Log("Sql98: ~p~n", [Sql98]),

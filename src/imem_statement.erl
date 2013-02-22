@@ -154,14 +154,16 @@ update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, none) ->
     update_cursor_prepare(SKey, Pid, IsSec, none);
 update_cursor_execute(SKey, Pid, IsSec, none) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, none}) of
-        ok ->       ok;
+        %% ok ->       ok;
+        KeyUpd when is_list(KeyUpd) -> KeyUpd;
         Error ->    throw(Error)
     end; 
 update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, optimistic) ->
     update_cursor_execute(SKey, Pid, IsSec, optimistic);
 update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}) of
-        ok ->       ok;
+        %% ok ->       ok;
+        KeyUpd when is_list(KeyUpd) -> KeyUpd;
         Error ->    throw(Error)
     end.
 
@@ -211,11 +213,9 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #stat
         % ?Log("~p - NewSections1 ~p~n", [?MODULE, NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
         % ?Log("~p - NewSections2 ~p~n", [?MODULE, NewSections2]),
-        % NewSql1 = sql_box:sql_from_parse_tree({select,NewSections2}),
-        % ?Log("~p - NewSql1 ~p~n", [?MODULE, NewSql1]),
-        NewSql2 = sql_parse:fold({select,NewSections2}),
-        % ?Log("~p - NewSql2 ~p~n", [?MODULE, NewSql2]),
-        {ok, NewSql2, NewSortFun}
+        NewSql = sql_parse:fold({select,NewSections2}),     % sql_box:flat_from_pt({select,NewSections2}),
+        % ?Log("~p - NewSql ~p~n", [?MODULE, NewSql]),
+        {ok, NewSql, NewSortFun}
     catch
         _:Reason ->  Reason
     end,
@@ -1308,13 +1308,20 @@ test_with_or_without_sec(IsSec) ->
         RemovedRows3 = [
         {def,"5",5}                             %% delete {def,"5",5}
         ],
-
+        ExpectedKeys3 = [
+        {1,{def,"2",2}},
+        {3,{}},
+        {4,{def,"12",12}},
+        {5,{def,"99",undefined}},
+        {6,{def,"10",110}}
+        ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
-        ?assertEqual(ok, update_cursor_execute(SKey, SR1, IsSec, optimistic)),        
+        ChangedKeys3 = update_cursor_execute(SKey, SR1, IsSec, optimistic),        
         TableRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         ?Log("changed table~n~p~n", [TableRows3]),
         [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
         [?assertNot(lists:member(R,TableRows3)) || R <- RemovedRows3],
+        ?assertEqual(ExpectedKeys3,lists:sort(ChangedKeys3)),
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
         ?assertEqual(0,imem_meta:table_size(def)),
