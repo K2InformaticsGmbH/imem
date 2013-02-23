@@ -75,6 +75,7 @@
         , timestamp_to_string/2
         , timestamp_to_string/3
         , userid_to_string/1
+        , term_to_string/1
         ]).
 
 -export([ map/3
@@ -398,13 +399,65 @@ string_to_timestamp("sysdate",Prec) ->
 string_to_timestamp("now",Prec) ->
     {Megas,Secs,Micros} = erlang:now(),    
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};  
+string_to_timestamp([${|_]=Val,Prec) ->
+    case string_to_tuple(Val,3) of
+        {D,T,M} when is_integer(D), is_integer(T), is_integer(M) -> {D,T,M}
+    end;
 string_to_timestamp(Val,6) ->
-    string_to_timestamp(Val); 
+    try 
+        {Date,Time,Micro} = case re:run(lists:sublist(Val,5),"[\/\.\-]+",[{capture,all,list}]) of
+            {match,["/"]} ->    
+                case string:tokens(Val, " ") of
+                    [D,T] ->  case re:split(T,"[$.]",[{return,list}]) of
+                                        [Hms,M] -> 
+                                            {parse_date_us(D),parse_time(Hms),parse_micro(M)};
+                                        [Hms] ->
+                                            {parse_date_us(D),parse_time(Hms),0.0}
+                                    end;
+                    [D] ->       {parse_date_us(D),{0,0,0},0.0}
+                end;
+            {match,["-"]} ->    
+                case string:tokens(Val, " ") of
+                    [D,T] ->  case re:split(T,"[$.]",[{return,list}]) of
+                                        [Hms,M] -> 
+                                            {parse_date_int(D),parse_time(Hms),parse_micro(M)};
+                                        [Hms] ->
+                                            {parse_date_int(D),parse_time(Hms),0.0}
+                                    end;
+                    [D] ->       {parse_date_int(D),{0,0,0},0.0}
+                end;
+            {match,["."]} ->    
+                case string:tokens(Val, " ") of
+                    [D,T] ->  case re:split(T,"[$.]",[{return,list}]) of
+                                        [Hms,M] -> 
+                                            {parse_date_eu(D),parse_time(Hms),parse_micro(M)};
+                                        [Hms] ->
+                                            {parse_date_eu(D),parse_time(Hms),0.0}
+                                    end;
+                    [D] ->       {parse_date_eu(D),{0,0,0},0.0}
+                end;
+            _ ->
+                case string:tokens(Val, " ") of
+                    [D,T,M] ->            {parse_date_raw(D),parse_time(T),parse_micro(M)};
+                    [D,T] ->              {parse_date_raw(D),parse_time(T),0.0};
+                    [DT] when length(DT)>14 ->  {D,T} = lists:split(8,DT),
+                                                {Hms,M} = lists:split(6,T),
+                                                {parse_date_raw(D),parse_time(Hms),parse_micro(M)};
+                    [DT] when length(DT)>8 ->   {D,T} = lists:split(8,DT),
+                                                {parse_date_raw(D),parse_time(T),0.0};
+                    [D] ->                      {parse_date_raw(D),{0,0,0},0.0}
+                end
+        end,
+        {Meg,Sec, 0} = utc_seconds_to_now(local_datetime_to_utc_seconds({Date, Time})),
+        {Meg,Sec,round(1000000*Micro)}
+    catch
+        _:_ ->  ?ClientError({"Data conversion format error",{timestamp,Val}})
+    end;   
 string_to_timestamp(Val,0) ->
-    {Megas,Secs,_} = string_to_timestamp(Val),
+    {Megas,Secs,_} = string_to_timestamp(Val,6),
     {Megas,Secs,0};
 string_to_timestamp(Val,Prec) when Prec > 0 ->
-    {Megas,Secs,Micros} = string_to_timestamp(Val),
+    {Megas,Secs,Micros} = string_to_timestamp(Val,6),
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
 string_to_timestamp(Val,Prec) when Prec < 0 ->
     {Megas,Secs,_} = string_to_timestamp(Val),
@@ -420,10 +473,17 @@ string_to_datetime("sysdate") ->
 string_to_datetime("now") ->
     string_to_datetime("localtime"); 
 string_to_datetime("localtime") ->
-    erlang:localtime(); 
+    erlang:localtime();
+string_to_datetime([${|_]=Val) ->
+    case string_to_tuple(Val,2) of
+        {{Y,M,D},{Hh,Mm,Ss}} when 
+            is_integer(Y), is_integer(M), is_integer(D), 
+            is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
+                {{Y,M,D},{Hh,Mm,Ss}}
+    end;
 string_to_datetime(Val) ->
     try 
-        case re:run(Val,"[\/\.\-]+",[{capture,all,list}]) of
+        case re:run(lists:sublist(Val,5),"[\/\.\-]+",[{capture,all,list}]) of
             {match,["."]} ->    
                 case string:tokens(Val, " ") of
                     [Date,Time] ->              {parse_date_eu(Date),parse_time(Time)};
@@ -541,6 +601,28 @@ parse_second(Val) ->
         true ->                     ?ClientError({})
     end.
 
+parse_micro(Val) ->
+    list_to_float("0." ++ Val).
+
+
+-spec utc_seconds_to_now(integer()) -> {integer(),integer(),0}.
+utc_seconds_to_now(SecondsUtc) ->
+%%  DateTime1970 = calendar:datetime_to_gregorian_seconds({{1970, 01, 01}, {00, 00, 00}}),
+%%  DateTime1900 = calendar:datetime_to_gregorian_seconds({{1900, 01, 01}, {00, 00, 00}}),
+%%  Seconds1970 = SecondsUtc - (DateTime1970 - DateTime1900),
+    Seconds1970 = SecondsUtc - 2208988800,
+    {Seconds1970 div 1000000, Seconds1970 rem 1000000, 0}.
+
+local_datetime_to_utc_seconds({Date, Time}) ->
+%%  DateTime1900 = calendar:datetime_to_gregorian_seconds({{1900, 01, 01}, {00, 00, 00}}),
+%%  calendar:datetime_to_gregorian_seconds({Date, Time}) - DateTime1900.
+    case calendar:local_time_to_universal_time_dst({Date, Time}) of
+        [DateTimeUTC] -> 
+            calendar:datetime_to_gregorian_seconds(DateTimeUTC) - 59958230400;
+        [DstDateTimeUTC, _] ->
+            calendar:datetime_to_gregorian_seconds(DstDateTimeUTC) - 59958230400
+    end.
+
 validate_date(Date) ->
     case calendar:valid_date(Date) of
         true ->     Date;
@@ -549,6 +631,22 @@ validate_date(Date) ->
 
 string_to_ipaddr(Val,undefined) -> 
     string_to_ipaddr(Val,0);
+string_to_ipaddr([${|_]=Val,Len) ->
+    case string_to_term(Val) of
+        {A,B,C,D} when is_integer(A), is_integer(B), 
+            is_integer(C), is_integer(D) -> 
+                if 
+                    Len==4 ->   {A,B,C,D};
+                    Len==0 ->   {A,B,C,D}
+                end;
+        {A,B,C,D,E,F,G,H} when 
+            is_integer(A), is_integer(B), is_integer(C), is_integer(D), 
+            is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
+                if 
+                    Len==8 ->   {A,B,C,D,E,F,G,H};
+                    Len==0 ->   {A,B,C,D,E,F,G,H}
+                end
+    end;
 string_to_ipaddr(Val,Len) ->
     Result = try 
         [ip_item(Item) || Item <- string:tokens(Val, ".")]
@@ -703,7 +801,7 @@ db_to_string(Type, Prec, DateFmt, NumFmt, StringFmt, Val) ->
             (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_string(Val,Prec,DateFmt);
             (Type == userid) andalso is_atom(Val) ->        atom_to_list(Val);
             (Type == userid) ->                             userid_to_string(Val);
-            true -> lists:flatten(io_lib:format("~w",[Val]))   
+            true -> term_to_string(Val)   
         end
     catch
         _:_ -> lists:flatten(io_lib:format("~p",[Val])) 
@@ -719,6 +817,8 @@ datetime_to_string(Datetime) ->
 datetime_to_string({{Year,Month,Day},{Hour,Min,Sec}},eu) ->
     lists:flatten(io_lib:format("~2.10.0B.~2.10.0B.~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
         [Day, Month, Year, Hour, Min, Sec]));
+datetime_to_string(Datetime,erlang) ->
+    term_to_string(Datetime);
 datetime_to_string({{Year,Month,Day},{Hour,Min,Sec}},raw) ->
     lists:flatten(io_lib:format("~4.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
         [Year, Month, Day, Hour, Min, Sec]));
@@ -738,9 +838,29 @@ timestamp_to_string(TS,Prec) ->
     timestamp_to_string(TS,Prec,eu).
 
 timestamp_to_string({Megas,Secs,Micros},_Prec,raw) ->
-    lists:concat([integer_to_list(Megas),":",integer_to_list(Secs),":",integer_to_list(Micros)]);   
-timestamp_to_string({Megas,Secs,Micros},_Prec,Fmt) ->
-    lists:flatten(datetime_to_string(calendar:now_to_local_time({Megas,Secs,0}),Fmt) ++ io_lib:format(".~6.6.0w",[Micros])).
+    [M]=io_lib:format("~6.6.0w",[Megas]),
+    [S]=io_lib:format("~6.6.0w",[Secs]),
+    [N]=io_lib:format("~6.6.0w",[Micros]),
+    lists:flatten([M,S,N]);   
+timestamp_to_string(TS,_Prec,erlang) ->
+    term_to_string(TS);   
+timestamp_to_string({Megas,Secs,Micros},Prec,Fmt) when Prec >= 6 ->
+    MStr = io_lib:format(".~6.6.0w",[Micros]),
+    lists:flatten(datetime_to_string(calendar:now_to_local_time({Megas,Secs,0}),Fmt) ++ MStr);
+timestamp_to_string({Megas,Secs,Micros},Prec,Fmt) when Prec > 0 ->
+    [MStr0] = io_lib:format("~6.6.0w",[Micros]),
+    ?Log("----MStr0 ~p~n", [MStr0]),
+    ?Log("----Prec ~p~n", [Prec]),
+    MStr1 = case list_to_integer(lists:sublist(MStr0, Prec+1, 6-Prec)) of
+        0 ->    [$.|lists:sublist(MStr0, Prec)];
+        _ ->    [$.|MStr0]
+    end,    
+    lists:flatten(datetime_to_string(calendar:now_to_local_time({Megas,Secs,0}),Fmt) ++ MStr1);
+timestamp_to_string({Megas,Secs,0},_,Fmt) ->
+    lists:flatten(datetime_to_string(calendar:now_to_local_time({Megas,Secs,0}),Fmt));
+timestamp_to_string({Megas,Secs,Micros},_,Fmt) ->
+    timestamp_to_string({Megas,Secs,Micros},6,Fmt).
+
    
 
 decimal_to_string(Val,0) ->
@@ -792,6 +912,9 @@ float_to_string(Val,_Prec,_NumFmt) ->
 
 binstr_to_string(Val, StringFmt) ->
     string_to_string(binary_to_list(Val), StringFmt).      %% ToDo: handle escaping and quoting etc.
+
+term_to_string(T) ->
+    lists:flatten(io_lib:format("~w",[T])).
     
 string_to_string(Val, _StringFmt) when is_list(Val) ->
     IsString = io_lib:printable_unicode_list(Val),
@@ -968,14 +1091,26 @@ data_types(_) ->
         ?assertEqual("1.2.3.4", ipaddr_to_string({1,2,3,4})),
         ?Log("ipaddr_to_string success~n", []),
 
-        ?assertEqual("01.01.1970 01:00:00.000000", timestamp_to_string({0,0,0},0)),  %% with DLS offset wintertime CH
-        ?assertEqual("12.01.1970 14:46:42.000003", timestamp_to_string({1,2,3},0)),  %% with DLS offset wintertime CH
+        ?assertEqual("01.01.1970 01:00:00.123456", timestamp_to_string({0,0,123456},0)),  %% with DLS offset wintertime CH
+        ?assertEqual("01.01.1970 01:00:00", timestamp_to_string({0,0,0},0)),  %% with DLS offset wintertime CH
+        ?assertEqual("01.01.1970 01:00:00.123", timestamp_to_string({0,0,123000},3)),  %% with DLS offset wintertime CH
+        ?assertEqual("12.01.1970 14:46:42.123456", timestamp_to_string({1,2,123456},6)),  %% with DLS offset wintertime CH
+        ?assertEqual("{1,2,1234}", timestamp_to_string({1,2,1234},3,erlang)),  %% with DLS offset wintertime CH
+        ?assertEqual("000001000002001234", timestamp_to_string({1,2,1234},3,raw)),  %% with DLS offset wintertime CH
         ?Log("timestamp_to_string success~n", []),
+        ?assertEqual({0,0,0}, string_to_timestamp("01.01.1970 01:00:00.000000",0)),  %% with DLS offset wintertime CH
+        ?assertEqual({1,2,123456}, string_to_timestamp("12.01.1970 14:46:42.123456",6)),  %% with DLS offset wintertime CH
+        ?assertEqual({1,2,0}, string_to_timestamp("12.01.1970 14:46:42.123456",0)),  %% with DLS offset wintertime CH
+        ?assertEqual({1,2,123000}, string_to_timestamp("12.01.1970 14:46:42.123456",3)),  %% with DLS offset wintertime CH
+        ?assertEqual({1,2,100000}, string_to_timestamp("12.01.1970 14:46:42.123456",1)),  %% with DLS offset wintertime CH
+        ?assertEqual({1,2,12345}, string_to_timestamp("{1,2,12345}",0)),  %% with DLS offset wintertime CH
+        ?Log("string_to_timestamp success~n", []),
 
         LocalTime = erlang:localtime(),
         {Date,_Time} = LocalTime,
         ?assertEqual({{2004,3,1},{0,0,0}}, string_to_datetime("1.3.2004")),
         ?assertEqual({{2004,3,1},{3,45,0}}, string_to_datetime("1.3.2004 3:45")),
+        ?assertEqual({{2004,3,1},{3,45,0}}, string_to_datetime("{{2004,3,1},{3,45,0}}")),
         ?assertEqual({Date,{0,0,0}}, string_to_datetime("today")),
         ?assertEqual(LocalTime, string_to_datetime("sysdate")),
         ?assertEqual(LocalTime, string_to_datetime("systime")),
@@ -989,6 +1124,7 @@ data_types(_) ->
         ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888 ")),
         ?assertEqual({{1888,8,18},{0,0,0}}, string_to_datetime("8/18/1888")),
         ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("18880818012359")),
+        ?assertEqual({{1888,8,18},{1,23,59}}, string_to_datetime("18880818 012359")),
         ?Log("string_to_datetime success~n", []),
 
         ?assertEqual({1,23,59}, parse_time("01:23:59")),        
@@ -1001,6 +1137,7 @@ data_types(_) ->
         ?Log("parse_time success~n", []),
 
         ?assertEqual({1,2,3,4},string_to_ipaddr("1.2.3.4",0)),
+        ?assertEqual({1,2,3,4},string_to_ipaddr("{1,2,3,4}",0)),
         ?assertEqual({1,2,3,4},value_to_db(0,"",ipaddr,0,0,undefined,false,"1.2.3.4")),
         ?assertEqual({1,2,3,4},value_to_db(0,"",ipaddr,0,0,undefined,false,"\"1.2.3.4\"")),
 
