@@ -45,11 +45,11 @@ init(Params) ->
         {ok, ListenIf} when is_integer(ListenPort) ->
             case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
                 {ok, LSock} ->
-                    ?Log(" ~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
+                    ?Log("~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
                     gen_server:cast(self(), accept),
                     {ok, #state{lsock=LSock}};
                 Reason ->
-                    ?Log(" ~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
+                    ?Log("~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
                     {ok, #state{}}
             end;
         _ ->
@@ -58,17 +58,17 @@ init(Params) ->
 
 handle_call({stop_listen}, _From, #state{lsock=LSock} = State) ->
     catch gen_tcp:close(LSock),
-    ?Log(" ~p imem tcp service stopped!~n", [self()]),
+    ?Log("~p imem tcp service stopped!~n", [self()]),
     {reply, ok, State};
 handle_call({start_listen, ListenIf, ListenPort}, _From, #state{lsock=LSock} = State) ->
     catch gen_tcp:close(LSock),
     case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
         {ok, LSock} ->
-            ?Log(" ~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
+            ?Log("~p started imem_server ~p @ ~p~n", [self(), LSock, {ListenIf, ListenPort}]),
             gen_server:cast(self(), accept),
             {reply, ok, #state{lsock=LSock}};
         Reason ->
-            ?Log(" ~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
+            ?Log("~p [ERROR] imem_server not started ~p~n", [self(), Reason]),
             {reply, Reason, State}
     end;
 handle_call(_Request, _From, State) ->
@@ -76,7 +76,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(accept, #state{lsock=LSock}=State) ->
-?Log(" handle_cast(accept conn ~p~n", [LSock]),
+    ?Log("accept conn ~p~n", [LSock]),
     {ok, Sock} = gen_tcp:accept(LSock),
     {ok,Pid} = gen_server:start(?MODULE, [Sock, true], []),
     ok = gen_tcp:controlling_process(Sock, Pid),
@@ -122,15 +122,15 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
             handle_info({tcp,Sock,binary_part(NewBuf, {TSize, RestSize})}, State#state{buf= <<>>})
     end;
 handle_info({tcp_closed, _Sock}, State) ->
-    % ?Log(" handle_info closed ~p~n", [_Sock]),
+    ?Log("handle_info closed ~p~n", [_Sock]),
 	{stop, sock_close, State};
 handle_info(Info, State) ->
-    ?Log(" handle_info unknown ~p~n", [Info]),
+    ?Log("handle_info unknown ~p~n", [Info]),
 	{noreply, State}.
 
 terminate(_Reason, #state{csock=undefined}) -> ok;
 terminate(_Reason, #state{csock=Sock}) ->
-    % ?Log(" ~p closing tcp ~p~n", [self(), Sock]),
+    ?Log("~p closing tcp ~p~n", [self(), Sock]),
     gen_tcp:close(Sock).
 
 code_change(_OldVsn, State, _Extra) ->
