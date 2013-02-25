@@ -714,9 +714,9 @@ test_with_or_without_sec(IsSec) ->
         ?Log("success ~p~n", [empty_select_columns]),
 
 
-        ColsF =     [ #ddColMap{tag="A", schema='Imem', table=meta_table_1, name=a, type=integer}
-                    , #ddColMap{tag="B", table=meta_table_1, name=b1, type=string}
-                    , #ddColMap{tag="C", name=c1, type=ipaddr}
+        ColsF =     [ #ddColMap{tag="A", tind=1, cind=1, schema='Imem', table=meta_table_1, name=a, type=integer}
+                    , #ddColMap{tag="B", tind=1, cind=2, table=meta_table_1, name=b1, type=string}
+                    , #ddColMap{tag="C", tind=1, cind=3, name=c1, type=ipaddr}
                     ],
 
         ?assertEqual([], filter_spec_where({}, ColsF, [])),
@@ -728,19 +728,19 @@ test_with_or_without_sec(IsSec) ->
         CB2 = {'=',<<"meta_table_1.b1">>,<<"'222'">>},
         ?assertEqual({'and',{'and',CA1,CB2},{wt}}, filter_spec_where({'and',[FA1,FB2]}, ColsF, {wt})),
         FC3 = {3,["3.1.2.3","3.3.2.1"]},
-        CC3 = {'in',<<"c1">>,[<<"'3.1.2.3'">>,<<"'3.3.2.1'">>]},
+        CC3 = {'in',<<"c1">>,{'list',[<<"'3.1.2.3'">>,<<"'3.3.2.1'">>]}},
         ?assertEqual({'and',{'or',{'or',CA1,CB2},CC3},{wt}}, filter_spec_where({'or',[FA1,FB2,FC3]}, ColsF, {wt})),
         ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsF, {wt})),
         ?Log("success ~p~n", [filter_spec_where]),
 
         ?assertEqual([], sort_spec_order([], ColsF)),
-        SA = {1,'desc'},
+        SA = {1,1,'desc'},
         OA = {<<"Imem.meta_table_1.a">>,<<"desc">>},
         ?assertEqual([OA], sort_spec_order([SA], ColsF)),
-        SB = {2,'asc'},
+        SB = {1,2,'asc'},
         OB = {<<"meta_table_1.b1">>,<<"asc">>},
         ?assertEqual([OB], sort_spec_order([SB], ColsF)),
-        SC = {3,'desc'},
+        SC = {1,3,'desc'},
         OC = {<<"c1">>,<<"desc">>},
         ?assertEqual([OC], sort_spec_order([SC], ColsF)),
         ?assertEqual([OC,OA], sort_spec_order([SC,SA], ColsF)),

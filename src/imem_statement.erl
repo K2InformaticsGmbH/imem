@@ -185,19 +185,32 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
         _:Reason ->  {Reason, []}
     end,
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
-handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan}=State) ->
+handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
+    #fetchCtx{metarec=MetaRec}=FetchCtx0,
     Reply = try 
         case FetchCtx0#fetchCtx.monref of
             undefined ->    ok;
             MonitorRef ->   kill_fetch(MonitorRef, FetchCtx0#fetchCtx.pid)
         end,
-        if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]) 
+        KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
+        case length(Stmt#statement.tables) of
+            1 ->    
+                Wrap = fun({Tag,X}) -> {Tag,{X, MetaRec}} end,
+                lists:map(Wrap, KeyUpdateRaw);
+            _ ->
+                Wrap = fun({Tag,X}) ->
+                    TabCount = length(Stmt#statement.tables),
+                    Rec = erlang:make_tuple(TabCount+1, undefined, [{1,X},{TabCount+1,MetaRec}]), 
+                    {Tag,Rec}
+                end,
+                lists:map(Wrap, KeyUpdateRaw)
+        end
     catch
         _:Reason ->  Reason
     end,
     % ?Log("~p - update_cursor_execute result ~p~n", [?MODULE, Reply]),
-    FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted, metarec=undefined},
-    {reply, Reply, State#state{fetchCtx=FetchCtx1}};
+    FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined
+    {reply, Reply, State#state{fetchCtx=FetchCtx1}};    
 handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #state{statement=Stmt}=State) ->
     #statement{stmtParse={select,SelectSections}, colMaps=ColMaps, fullMaps=FullMaps} = Stmt,
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
@@ -1309,11 +1322,11 @@ test_with_or_without_sec(IsSec) ->
         {def,"5",5}                             %% delete {def,"5",5}
         ],
         ExpectedKeys3 = [
-        {1,{def,"2",2}},
-        {3,{}},
-        {4,{def,"12",12}},
-        {5,{def,"99",undefined}},
-        {6,{def,"10",110}}
+        {1,{{def,"2",2},{}}},
+        {3,{{},{}}},
+        {4,{{def,"12",12},{}}},
+        {5,{{def,"99",undefined},{}}},
+        {6,{{def,"10",110},{}}}
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
         ChangedKeys3 = update_cursor_execute(SKey, SR1, IsSec, optimistic),        

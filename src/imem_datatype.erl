@@ -115,14 +115,23 @@ select_rowfun_raw(ColMap) ->
 select_rowfun_raw(_Recs, [], Acc) ->
     lists:reverse(Acc);
 select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
-    select_rowfun_raw(Recs, ColMap, [element(Ci,element(Ti,Recs))|Acc]);
+    Fld = case element(Ti,Recs) of
+        undefined ->    undefined;
+        Rec ->          element(Ci,Rec)
+    end,
+    select_rowfun_raw(Recs, ColMap, [Fld|Acc]);
 select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
-    Str = try
-        apply(F,[element(Ci,element(Ti,Recs))])
-    catch
-        _:Reason ->  ?UnimplementedException({"Failed row function",{F,Reason}})
+    Fld = case element(Ti,Recs) of
+        undefined ->    
+            undefined;
+        Rec ->
+            try
+                apply(F,[element(Ci,Rec)])
+            catch
+                _:Reason ->  ?UnimplementedException({"Failed row function",{F,Reason}})
+            end
     end,    
-    select_rowfun_raw(Recs, ColMap, [Str|Acc]).
+    select_rowfun_raw(Recs, ColMap, [Fld|Acc]).
 
 
 select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
@@ -133,27 +142,35 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
 select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     lists:reverse(Acc);
 select_rowfun_str(Recs, [#ddColMap{type=T,prec=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
-    Str = db_to_string(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
+    Str = case element(Ti,Recs) of
+        undefined ->    "";
+        Rec ->
+            db_to_string(T, P, DateFmt, NumFmt, StrFmt, element(Ci,Rec))
+    end,
     select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
 select_rowfun_str(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
-    X = element(Ci,element(Ti,Recs)),
-    Str = try
-        case F of
-            name ->     name(X);
-            name1 ->    name1(X);
-            name2 ->    name2(X);
-            name3 ->    name3(X);
-            name4 ->    name4(X);
-            name5 ->    name5(X);
-            name6 ->    name6(X);
-            name7 ->    name7(X);
-            name8 ->    name8(X);
-            name9 ->    name9(X);
-            Name ->     ?UnimplementedException({"Unimplemented row function",Name})
-        end
-    catch
-        _:Reason ->  ?SystemException({"Failed row function",{F,X,Reason}})
-    end,    
+    Str = case element(Ti,Recs) of
+        undefined ->    "";
+        Rec ->
+            X = element(Ci,Rec),
+            try
+                case F of
+                    name ->     name(X);
+                    name1 ->    name1(X);
+                    name2 ->    name2(X);
+                    name3 ->    name3(X);
+                    name4 ->    name4(X);
+                    name5 ->    name5(X);
+                    name6 ->    name6(X);
+                    name7 ->    name7(X);
+                    name8 ->    name8(X);
+                    name9 ->    name9(X);
+                    Name ->     ?UnimplementedException({"Unimplemented row function",Name})
+                end
+            catch
+                _:Reason ->  ?SystemException({"Failed row function",{F,X,Reason}})
+            end
+    end,
     select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
 
 select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
@@ -164,26 +181,35 @@ select_rowfun_gui(ColMap, DateFmt, NumFmt, StrFmt) ->
 select_rowfun_gui(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     lists:reverse(Acc);
 select_rowfun_gui(Recs, [#ddColMap{type=T,prec=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
-    Str = db_to_gui(T, P, DateFmt, NumFmt, StrFmt, element(Ci,element(Ti,Recs))),
+    Str = case element(Ti,Recs) of
+        undefined ->    "";
+        Rec ->
+            db_to_gui(T, P, DateFmt, NumFmt, StrFmt, element(Ci,Rec))
+    end,
     select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
 select_rowfun_gui(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
-    X = element(Ci,element(Ti,Recs)),
-    Str = try
-        case F of
-            name ->     name(X);
-            name1 ->    name1(X);
-            name2 ->    name2(X);
-            name3 ->    name3(X);
-            name4 ->    name4(X);
-            name5 ->    name5(X);
-            name6 ->    name6(X);
-            name7 ->    name7(X);
-            name8 ->    name8(X);
-            name9 ->    name9(X);
-            Name ->     ?UnimplementedException({"Unimplemented row function",Name})
-        end
-    catch
-        _:Reason ->  ?SystemException({"Failed row function",{F,X,Reason}})
+    Str = case element(Ti,Recs) of
+        undefined ->    
+            "";
+        Rec ->
+            X = element(Ci,Rec),
+            try
+                case F of
+                    name ->     name(X);
+                    name1 ->    name1(X);
+                    name2 ->    name2(X);
+                    name3 ->    name3(X);
+                    name4 ->    name4(X);
+                    name5 ->    name5(X);
+                    name6 ->    name6(X);
+                    name7 ->    name7(X);
+                    name8 ->    name8(X);
+                    name9 ->    name9(X);
+                    Name ->     ?UnimplementedException({"Unimplemented row function",Name})
+                end
+            catch
+                _:Reason ->  ?SystemException({"Failed row function",{F,X,Reason}})
+            end
     end,    
     select_rowfun_gui(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]).
 
@@ -399,7 +425,7 @@ string_to_timestamp("sysdate",Prec) ->
 string_to_timestamp("now",Prec) ->
     {Megas,Secs,Micros} = erlang:now(),    
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};  
-string_to_timestamp([${|_]=Val,Prec) ->
+string_to_timestamp([${|_]=Val,_Prec) ->
     case string_to_tuple(Val,3) of
         {D,T,M} when is_integer(D), is_integer(T), is_integer(M) -> {D,T,M}
     end;
