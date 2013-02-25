@@ -62,8 +62,9 @@
         , log_to_db/5
         ]).
 
--export([ create_table/4
-        , create_table/3
+-export([ create_table/3
+        , create_table/4
+        , create_check_table/4
 		, drop_table/1
         , truncate_table/1  %% truncate table
         , read/1            %% read whole table, only use for small tables 
@@ -117,10 +118,7 @@ init(_Args) ->
         check_table_columns(ddTable, record_info(fields, ddTable)),
         check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
-        catch create_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
-        check_table(ddLog@),
-        check_table_columns(ddLog@, record_info(fields, ddLog)),
-        check_table_meta(ddLog@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}),
+        create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
 
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
             ok ->   write(dual,#dual{});
@@ -332,6 +330,35 @@ create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
 create_table(Table, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
     create_physical_table(Table,ColumnInfos,Opts,Owner).
+
+create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
+    [_|Defaults] = tuple_to_list(DefaultRecord),
+    ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
+    create_check_physical_table(Table,ColumnInfos,Opts,Owner),
+    check_table(Table),
+    check_table_columns(Table, ColumnNames),
+    check_table_meta(Table, {ColumnNames, ColumnTypes, DefaultRecord}).
+
+create_check_physical_table(Table,ColumnInfos,Opts,Owner) when is_atom(Table) ->
+    create_check_physical_table({schema(),Table},ColumnInfos,Opts,Owner);    
+create_check_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema ->
+            PhysicalName=physical_table_name(Table),
+            case read(ddTable,{MySchema,PhysicalName}) of 
+                [] ->
+                    create_physical_table(Table,ColumnInfos,Opts,Owner);
+                [#ddTable{opts=Opts,owner=Owner}] ->
+                    ok;
+                [#ddTable{opts=Opt,owner=Owner}] ->
+                    ?SystemException({"Wrong table options",{Table,Opt}});        
+                [#ddTable{owner=Own}] ->
+                    ?SystemException({"Wrong table owner",{Table,Own}})        
+            end;
+        _ ->        
+            ?UnimplementedException({"Create/check table in foreign schema",{Schema,Table}})
+    end.
 
 create_physical_table({Schema,Table,_Alias},ColumnInfos,Opts,Owner) ->
     create_physical_table({Schema,Table},ColumnInfos,Opts,Owner);
@@ -731,6 +758,10 @@ meta_operations(_) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         ?assertEqual(ok, check_table_columns(ddTable, record_info(fields, ddTable))),
+
+        ?assertEqual(ok, create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertException(throw,{SyEx,{"Wrong table owner",{ddLog@,system}}} ,create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], admin)),
+        ?assertException(throw,{SyEx,{"Wrong table options",{ddLog@,_}}} ,create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog1},{type,ordered_set}], system)),
 
         Now = erlang:now(),
         LogCount1 = table_size(ddLog@),

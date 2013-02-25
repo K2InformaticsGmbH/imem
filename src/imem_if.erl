@@ -335,8 +335,11 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     % ?Log("mnesia:write ~p ~p~n", [Table,Row]),
     Result = case transaction(write,[Table, Row, write]) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
-        Res ->                      Res 
+        {aborted,{no_exists,_}} ->
+            ?Log("cannot write ~p to ~p~n", [Row,Table]),  
+            ?ClientError({"Table does not exist",Table}); 
+        Res ->                      
+            Res 
     end,
     return_atomic_ok(Result).
 

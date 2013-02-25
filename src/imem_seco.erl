@@ -61,26 +61,22 @@ init(_Args) ->
     ?Log("~p starting...~n", [?MODULE]),
     Result = try %% try creating system tables, may fail if they exist, then check existence 
         if_check_table(none, ddTable),
+
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
-        catch if_create_table(none, ddAccount, ADef ,[], system),
-        if_check_table(none, ddAccount),
-        if_check_table_meta(none, ddAccount, ADef),
+        imem_meta:create_check_table(ddAccount, ADef, [], system),
+
         RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
-        catch if_create_table(none, ddRole, RDef,[], system),          
-        if_check_table(none, ddRole),
-        if_check_table_meta(none, ddRole, RDef),
+        imem_meta:create_check_table(ddRole, RDef, [], system),
+
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
-        catch if_create_table(none, ddSeCo, SDef,[{scope,local}, {local_content,true}], system),
-        if_check_table(none, ddSeCo),
-        if_check_table_meta(none, ddSeCo, SDef),
+        imem_meta:create_check_table(ddSeCo, SDef, [{scope,local}, {local_content,true}], system),
+
         PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
-        catch if_create_table(none, ddPerm, PDef,[{scope,local}, {local_content,true}], system),
-        if_check_table(none, ddPerm),
-        if_check_table_meta(none, ddPerm, PDef),
+        imem_meta:create_check_table(ddPerm, PDef, [{scope,local}, {local_content,true}], system),
+
         QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
-        catch if_create_table(none, ddQuota, QDef,[{scope,local}, {local_content,true}], system),
-        if_check_table(none, ddQuota),
-        if_check_table_meta(none, ddQuota, QDef),
+        imem_meta:create_check_table(ddQuota, QDef, [{scope,local}, {local_content,true}], system),
+
         UserName= <<"admin">>,
         case if_select_account_by_name(none, UserName) of
             {[],true} ->  

@@ -48,6 +48,7 @@
         ]).
 
 -export([ create_table/4
+        , create_check_table/4
 		, drop_table/2
         , truncate_table/2
         , read/2
@@ -319,6 +320,24 @@ create_table(SKey, Table, RecordInfo, Opts) ->
             ?SecurityException({"Create table unauthorized", SKey});
         Owner ->        
             imem_meta:create_table(Table, RecordInfo, Opts, Owner)
+    end.
+
+create_check_table(SKey, Table, RecordInfo, Opts) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    Owner = case if_system_table(SKey, Table) of
+        true ->     
+            system;
+        false ->    
+            case imem_seco:have_permission(SKey,[manage_user_tables, create_table]) of
+                true ->     AccountId;
+                false ->    false
+            end
+    end,
+    case Owner of
+        false ->
+            ?SecurityException({"Create table unauthorized", SKey});
+        Owner ->        
+            imem_meta:create_check_table(Table, RecordInfo, Opts, Owner)
     end.
 
 drop_table(SKey, Table) ->
