@@ -64,6 +64,7 @@
 
 -export([ create_table/3
         , create_table/4
+        , create_check_table/3
         , create_check_table/4
 		, drop_table/1
         , truncate_table/1  %% truncate table
@@ -330,6 +331,9 @@ create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
 create_table(Table, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
     create_physical_table(Table,ColumnInfos,Opts,Owner).
+
+create_check_table(Table, Columns, Opts) ->
+    create_check_table(Table, Columns, Opts, #ddTable{}#ddTable.owner).
 
 create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
