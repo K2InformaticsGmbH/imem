@@ -748,7 +748,7 @@ db_test_() ->
 meta_operations(_) ->
     try 
         ClEr = 'ClientError',
-        %% SyEx = 'SystemException',    %% difficult to test
+        SyEx = 'SystemException', 
 
         ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
 

@@ -155,13 +155,7 @@ if_select_account_by_name(SKey, Name) ->
 if_check_table(_SeKey, Table) ->
     imem_meta:check_table(Table).
 
-if_check_table_meta(_SeKey, Table, ColumnNames) ->
-    imem_meta:check_table_meta(Table, ColumnNames).
-
 %% --Interface functions  (calling imem_meta) ----------------------------------
-
-if_create_table(_SKey, Table, RecordInfo, Opts, Owner) ->
-    imem_meta:create_table(Table, RecordInfo, Opts, Owner).
 
 
 if_drop_table(_SKey, Table) -> 

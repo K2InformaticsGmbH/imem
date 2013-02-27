@@ -630,6 +630,10 @@ test_with_or_without_sec(IsSec) ->
             [{"5","{'Atom5',5}"}]
         ),
 
+        exec_fetch_sort_equal(SKey, query2q, 100, IsSec, 
+            "select col1, col5 from def where col5 = \"{'Atom100',100}\"",
+            [{"100","{'Atom100',100}"}]
+        ),
 
     %% joins with virtual (datatype) tables
 
