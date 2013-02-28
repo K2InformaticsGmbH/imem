@@ -81,6 +81,7 @@ get(SeKey, AccountId) ->
         false ->    ?SecurityException({"Get account unauthorized",SeKey})
     end.
 
+get_name(_SeKey, system) -> <<"system">>; 
 get_name(SeKey, AccountId) -> 
     case imem_seco:have_permission(SeKey, manage_accounts) of
         true ->     case if_read(SeKey, ddAccount, AccountId) of
