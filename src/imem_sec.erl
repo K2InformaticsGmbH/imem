@@ -92,6 +92,10 @@
         , have_permission/2    
         ]).
 
+% exported for test
+-export([ select_rowfun_str/5
+        ]).
+
 %% one to one from dd_account ------------ AA FUNCTIONS _--------
 
 authenticate(_SKey, SessionId, Name, Credentials) ->
@@ -158,6 +162,11 @@ schema(SKey) ->
 schema(SKey, Node) ->
     seco_authorized(SKey),
     imem_meta:schema(Node).
+
+% BIKRAM: exported for testing
+select_rowfun_str(SKey, ColMap, DateFmt, NumFmt, StrFmt) ->
+    seco_authorized(SKey),
+    imem_datatype:select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt).
 
 system_id(_Skey) ->
     imem_meta:system_id().
