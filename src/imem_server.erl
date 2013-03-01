@@ -102,7 +102,7 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
             case Term of
                 [Mod,Fun|Args] ->
                     % replace penultimate pid wih socket (if present)
-                    % ?Log(" call ~p:~p(~p)~n", [Mod,Fun,Args]),
+                    ?Log(" call ~p:~p(~p)~n", [Mod,Fun,Args]),
                     % ?Log(" call ~p:~p~n", [Mod,Fun]),
                     case Fun of
                         fetch_recs_async ->

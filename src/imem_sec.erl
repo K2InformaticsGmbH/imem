@@ -165,6 +165,7 @@ schema(SKey, Node) ->
 
 % BIKRAM: exported for testing
 select_rowfun_str(SKey, ColMap, DateFmt, NumFmt, StrFmt) ->
+    io:format(user, "imem_sec:select_rowfun_str~n", []),
     seco_authorized(SKey),
     imem_datatype:select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt).
 
