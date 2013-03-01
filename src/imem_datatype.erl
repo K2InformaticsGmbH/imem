@@ -1337,7 +1337,11 @@ data_types(_) ->
 
         ?Log("string_to_binary success~n", []),
 
-        
+        RF1 = select_rowfun_str([#ddColMap{type=integer,tind=1,cind=2}], eu, undefined, undefined),
+        ?assert(is_function(RF1)), 
+        ?assertEqual(["5"],RF1({{dummy,5},{}})), 
+        ?Log("rowfun success~n", []),
+
         ?assertEqual(true, true)
     catch
         Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
