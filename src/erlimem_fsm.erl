@@ -127,15 +127,15 @@ init(#ctx{skey=SKey,id=Id,bl=BL,isSec=IsSec,sql=Sql}=Ctx) ->
 
 empty({button, '>|'}, #state{bl=BL,ctx=Ctx,fsm=Fsm}=State0) ->
     fetch(push,none,State0),
-    gui_nop(#gres{signal=autofilling,loop=0},State0),
+    _State1 = gui_nop(#gres{signal=autofilling,loop=0},State0),
     {next_state, autofilling, #state{bl=BL,ctx=Ctx,fsm=Fsm, tailMode=false}};
 empty({button, '>|...'}, #state{bl=BL,ctx=Ctx,fsm=Fsm}=State0) ->
     fetch(push,true,State0),
-    gui_nop(#gres{signal=autofilling,loop=0},State0),
+    _State1 = gui_nop(#gres{signal=autofilling,loop=0},State0),
     {next_state, autofilling, #state{bl=BL,ctx=Ctx,fsm=Fsm, tailMode=true}};
 empty({button, '...'}, #state{bl=BL,ctx=Ctx,fsm=Fsm}=State0) ->
     fetch(skip,true,State0),
-    gui_nop(#gres{signal=tailing,loop=0},State0),
+    _State1 = gui_nop(#gres{signal=tailing,loop=0},State0),
     {next_state, tailing, #state{bl=BL,ctx=Ctx,fsm=Fsm, tailMode=true}};
 empty({button, Target}, #state{bl=BL,ctx=Ctx,fsm=Fsm}=State0) when is_integer(Target) ->
     fetch(none,none,State0),
@@ -153,12 +153,12 @@ empty(Other, State) ->
     {next_state, empty, State}.
 
 
-filling({button, '<'}, #state{gs=#gs{top=0}}=State) ->
-    gui_nop(#gres{signal=filling,beep=true},State),
-    {next_state, filling, State};
-filling({button, '<<'}, #state{gs=#gs{top=0}}=State) ->
-    gui_nop(#gres{signal=filling,beep=true},State),
-    {next_state, filling, State};
+filling({button, '<'}, #state{gs=#gs{top=0}}=State0) ->
+    State1 = gui_nop(#gres{signal=filling,beep=true},State0),
+    {next_state, filling, State1};
+filling({button, '<<'}, #state{gs=#gs{top=0}}=State0) ->
+    State1 = gui_nop(#gres{signal=filling,beep=true},State0),
+    {next_state, filling, State1};
 filling({button, '<'}, #state{bl=BL, gs=#gs{top=GuiTop}}=State0) ->
     State1 = if
       GuiTop > BL ->
@@ -205,8 +205,7 @@ filling({button, Target}, #state{bl=BL, bs=#bs{bottom=BufBottom}, gs=#gs{top=Gui
       (Target =< BufBottom) and (GuiBottom < Target) ->
           gui_replace(Target-BL+1,Target,#gres{signal=filling},State0);
       true ->
-          gui_nop(#gres{signal=filling,message="target row already in gui"},State0),
-          State0
+          gui_nop(#gres{signal=filling,message="target row already in gui"},State0)
     end,
     {next_state, filling, State1};
 filling({button, Button}, #state{bs=#bs{bottom=0}}=State0) ->
@@ -224,8 +223,7 @@ filling({button, '>'}, #state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{bottom=GuiBo
           fetch(none,none,State0),
           gui_replace(BufBottom-BL+1,BufBottom,#gres{signal=filling},State0);
       true ->
-          gui_nop(#gres{signal=filling,message="unexpected state for '>'"},State0),
-          State0        
+          gui_nop(#gres{signal=filling,message="unexpected state for '>'"},State0)
     end,
     {next_state, filling, State1};
 filling({button, '>>'}, #state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{bottom=GuiBottom}}=State0) ->
@@ -237,23 +235,22 @@ filling({button, '>>'}, #state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{bottom=GuiB
           gui_replace(GuiBottom+GuiBottom-BL+1, GuiBottom+GuiBottom,#gres{signal=filling},State0);
       true ->
           fetch(none,none,State0),
-          gui_nop(#gres{signal=filling,loop=GuiBottom+GuiBottom},State0),
-          State0
+          gui_nop(#gres{signal=filling,loop=GuiBottom+GuiBottom},State0)
     end,
     {next_state, filling, State1};
-filling({button, '>|'}, State) ->
-    fetch(push,none,State),
-    gui_nop(#gres{signal=autofilling,loop=0},State),
-    {next_state, autofilling, State};
+filling({button, '>|'}, State0) ->
+    fetch(push,none,State0),
+    State1 = gui_nop(#gres{signal=autofilling,loop=0},State0),
+    {next_state, autofilling, State1};
 filling({button, '>|...'}, State0) ->
     fetch(push,true,State0),
-    gui_nop(#gres{signal=autofilling,loop=0},State0),
-    {next_state, autofilling, State0#state{tailMode=true}};
+    State1 = gui_nop(#gres{signal=autofilling,loop=0},State0#state{tailMode=true}),
+    {next_state, autofilling, State1};
 filling({button, '...'}, #state{}=State0) ->
     fetch_close(State0),
     fetch(skip,true,State0),
-    gui_nop(#gres{signal=tailing,loop=0},State0),
-    {next_state, tailing, State0#state{tailMode=true}};
+    State1 = gui_nop(#gres{signal=tailing,loop=0},State0#state{tailMode=true}),
+    {next_state, tailing, State1};
 
 filling({rows, {Recs,false}}, #state{bl=BL, bs=#bs{bottom=BufBottom}, stack=[Target]}=State0) when is_integer(Target) ->
     State1 = if 
@@ -308,8 +305,7 @@ autofilling({button, Target}, #state{bl=BL, bs=#bs{bottom=BufBottom}, gs=#gs{top
       (Target > BufBottom) ->
           gui_replace(BufBottom-BL+1,BufBottom,#gres{signal=autofilling,loop=Target},State0);
       true ->
-          gui_nop(#gres{signal=autofilling,message="target row already in gui"},State0),
-          State0
+          gui_nop(#gres{signal=autofilling,message="target row already in gui"},State0)
     end,
     {next_state, autofilling, State1};
 autofilling({button, '>|'}, #state{tailMode=TailMode}=State0) ->
@@ -424,7 +420,9 @@ tailing({button, Target}, #state{bl=BL, bs=#bs{bottom=BufBottom}, gs=#gs{top=Gui
       (Target >= 0-BL) and (Target < 0)  ->
           gui_replace(BufBottom+Target-BL+1,BufBottom+Target,#gres{signal=tailing},State0);
       (Target == 0) and (GuiBottom < BufBottom-BL)  ->
-          gui_append(BufBottom-BL+1,BufBottom,#gres{signal=tailing,loop=0},State0);
+          gui_replace(BufBottom-BL+1,BufBottom,#gres{signal=tailing,loop=0},State0);
+      (Target == 0) and (GuiBottom == BufBottom)  ->
+          gui_nop(#gres{signal=tailing,loop=0},State0);
       (Target == 0)  ->
           gui_append(GuiBottom+1,BufBottom,#gres{signal=tailing,loop=0},State0);
       (Target < BL) ->
@@ -436,8 +434,7 @@ tailing({button, Target}, #state{bl=BL, bs=#bs{bottom=BufBottom}, gs=#gs{top=Gui
       (Target > BufBottom) ->
           gui_replace(BufBottom-BL+1,BufBottom,#gres{signal=tailing,loop=0},State0);
       true ->
-          gui_nop(#gres{signal=tailing,message="target row already in gui"},State0),
-          State0
+          gui_nop(#gres{signal=tailing,message="target row already in gui"},State0)
     end,
     {next_state, tailing, State1};
 tailing({button, '>'}, #state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{bottom=GuiBottom}}=State0) ->
@@ -479,7 +476,7 @@ tailing({button,close}, State) ->
     fetch_close(State),
     {stop, normal, State};
 tailing(Other, State) ->
-    ?Log("~p tailing -- unexpected event ~p~n", [erlang:now(),Other]),
+    ?Log("~p tailing -- unexpected event ~p in state~n~p~n", [erlang:now(),Other,State]),
     {next_state, tailing, State}.
 
 completed({button, '...'}, State0) ->
@@ -490,9 +487,9 @@ completed({button, '>|...'}, State0) ->
     fetch(skip,true,State0),
     State1 = gui_nop(#gres{signal=tailing,loop=0},State0#state{tailMode=true}),
     {next_state, tailing, State1};
-completed({button, _}, #state{bs=#bs{bottom=0}}=State) ->
-    gui_nop(#gres{signal=completed},State),
-    {next_state, tailing, State};
+completed({button, _}, #state{bs=#bs{bottom=0}}=State0) ->
+    State1 = gui_nop(#gres{signal=completed},State0),
+    {next_state, tailing, State1};
 completed({button, '>|'}, #state{bl=BL,bs=#bs{bottom=BufBottom}}=State0) ->
     State1 = gui_replace(BufBottom-BL+1,BufBottom,#gres{signal=completed},State0),
     {next_state, tailing, State1};
@@ -515,8 +512,7 @@ completed({button, Target}, #state{bl=BL, bs=#bs{bottom=BufBottom}, gs=#gs{top=G
       (Target > BufBottom) ->
           gui_replace(BufBottom-BL+1,BufBottom,#gres{signal=completed},State0);
       true ->
-          gui_nop(#gres{signal=completed,message="target row already in gui"},State0),
-          State0
+          gui_nop(#gres{signal=completed,message="target row already in gui"},State0)
     end,
     {next_state, completed, State1};
 completed({button, '>'}, #state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{bottom=GuiBottom}}=State0) ->
@@ -635,14 +631,14 @@ gui_clear(GuiResult,State) ->
     #ctx{reply=Reply} = State#state.ctx,
     #bs{bottom=Bottom} = State#state.bs,
     Reply ! GuiResult#gres{bufBottom=Bottom},
-    ok.
+    State.
 
 gui_nop(GuiResult,State) -> 
     ?Log("~p gui_nop () ~p ~p~n", [erlang:now(), GuiResult#gres.signal, GuiResult#gres.loop]),
     #ctx{reply=Reply} = State#state.ctx,
     #bs{bottom=Bottom} = State#state.bs,
     Reply ! GuiResult#gres{bufBottom=Bottom},
-    ok.
+    State.
 
 fetch(FetchMode,TailMode, State) ->
     #ctx{skey=SKey,isSec=IsSec,sr=SR} = State#state.ctx,
@@ -755,7 +751,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 100, def, 'Imem', IsSec)),
 
         {ok,Fsm} = start(#ctx{skey=SKey,id="fsm test",bl=10,isSec=false,sql="select * from def;",reply=self()}),
-        button(Fsm,'>'),
+        button(Fsm,'>|...'),
         receive_respond(Fsm),
         button(Fsm,55),
         receive_respond(Fsm),
