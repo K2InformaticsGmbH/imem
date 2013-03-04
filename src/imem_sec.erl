@@ -1,6 +1,6 @@
 -module(imem_sec).
 
--define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo,ddPerm,ddQuota]).
+-define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo@,ddPerm@,ddQuota@]).
 -define(SECO_FIELDS,[user,username]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -596,7 +596,7 @@ have_table_permission(SKey, Table, Operation) ->
 %% ------- local private security extension for sql and tables (do not export!!) ------------
 
 seco_authorized(SKey) -> 
-    case imem_meta:read(ddSeCo, SKey) of
+    case imem_meta:read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{pid=Pid}] ->      
@@ -646,12 +646,12 @@ have_table_permission(SKey, Table, Operation, false) ->
     have_table_permission(SKey, {imem_meta:schema(),Table}, Operation, false).
 
 set_permission_cache(SKey, Permission, true) ->
-    imem_meta:write(ddPerm,#ddPerm{pkey={SKey,Permission}, skey=SKey, pid=self(), value=true});
+    imem_meta:write(ddPerm@,#ddPerm{pkey={SKey,Permission}, skey=SKey, pid=self(), value=true});
 set_permission_cache(SKey, Permission, false) ->
-    imem_meta:write(ddPerm,#ddPerm{pkey={SKey,Permission}, skey=SKey, pid=self(), value=false}).
+    imem_meta:write(ddPerm@,#ddPerm{pkey={SKey,Permission}, skey=SKey, pid=self(), value=false}).
 
 get_permission_cache(SKey, Permission) ->
-    case imem_meta:read(ddPerm,{SKey,Permission}) of
+    case imem_meta:read(ddPerm@,{SKey,Permission}) of
         [#ddPerm{value=Value}] -> Value;
         [] -> no_exists 
     end.
@@ -701,14 +701,14 @@ test(_) ->
 
         SeCoAdmin=?imem_test_admin_login(),
         ?Log("success ~p~n", [admin_login]),
-        ?assert(1 =< table_size(SeCoAdmin, ddSeCo)),
+        ?assert(1 =< table_size(SeCoAdmin, ddSeCo@)),
         ?Log("success ~p~n", [seco_table_size]), 
         AllTablesAdmin = all_tables(SeCoAdmin),
         ?assertEqual(true, lists:member(ddAccount,AllTablesAdmin)),
-        ?assertEqual(true, lists:member(ddPerm,AllTablesAdmin)),
-        ?assertEqual(true, lists:member(ddQuota,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddPerm@),AllTablesAdmin)),
+        ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddQuota@),AllTablesAdmin)),
         ?assertEqual(true, lists:member(ddRole,AllTablesAdmin)),
-        ?assertEqual(true, lists:member(ddSeCo,AllTablesAdmin)),
+        ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddSeCo@),AllTablesAdmin)),
         ?assertEqual(true, lists:member(ddTable,AllTablesAdmin)),
         ?Log("success ~p~n", [all_tables_admin]), 
 
@@ -766,30 +766,30 @@ test(_) ->
         ?Log("success ~p~n", [dba_tables_unauthorized]),
         {DbaTables, true} = select(SeCoAdmin, dba_tables, ?MatchAllKeys),
         ?assertEqual(true, lists:member({'Imem',ddAccount}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',ddPerm}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',ddQuota}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',imem_meta:physical_table_name(ddPerm@)}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',imem_meta:physical_table_name(ddQuota@)}, DbaTables)),
         ?assertEqual(true, lists:member({'Imem',ddRole}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',ddSeCo}, DbaTables)),
+        ?assertEqual(true, lists:member({'Imem',imem_meta:physical_table_name(ddSeCo@)}, DbaTables)),
         ?assertEqual(true, lists:member({'Imem',ddTable}, DbaTables)),
         ?assertEqual(true, lists:member({'Imem',user_table_123}, DbaTables)),
         ?Log("success ~p~n", [dba_tables]),
 
         {AdminTables, true} = select(SeCoAdmin, user_tables, ?MatchAllKeys),
         ?assertEqual(false, lists:member({'Imem',ddAccount}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',ddPerm}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',ddQuota}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',imem_meta:physical_table_name(ddPerm@)}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',imem_meta:physical_table_name(ddQuota@)}, AdminTables)),
         ?assertEqual(false, lists:member({'Imem',ddRole}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',ddSeCo}, AdminTables)),
+        ?assertEqual(false, lists:member({'Imem',imem_meta:physical_table_name(ddSeCo@)}, AdminTables)),
         ?assertEqual(false, lists:member({'Imem',ddTable}, AdminTables)),
         ?assertEqual(false, lists:member({'Imem',user_table_123}, AdminTables)),
         ?Log("success ~p~n", [admin_tables]),
 
         {UserTables, true} = select(SeCoUser, user_tables, ?MatchAllKeys),
         ?assertEqual(false, lists:member({'Imem',ddAccount}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddPerm}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddQuota}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddPerm@}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddQuota@}, UserTables)),
         ?assertEqual(false, lists:member({'Imem',ddRole}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddSeCo}, UserTables)),
+        ?assertEqual(false, lists:member({'Imem',ddSeCo@}, UserTables)),
         ?assertEqual(false, lists:member({'Imem',ddTable}, UserTables)),
         ?assertEqual(true, lists:member({'Imem',user_table_123}, UserTables)),
         ?Log("success ~p~n", [user_tables]),

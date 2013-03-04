@@ -69,13 +69,13 @@ init(_Args) ->
         imem_meta:create_check_table(ddRole, RDef, [], system),
 
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
-        imem_meta:create_check_table(ddSeCo, SDef, [{scope,local}, {local_content,true}], system),
+        imem_meta:create_check_table(ddSeCo@, SDef, [{scope,local}, {local_content,true},{record_name,ddSeCo}], system),
 
         PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
-        imem_meta:create_check_table(ddPerm, PDef, [{scope,local}, {local_content,true}], system),
+        imem_meta:create_check_table(ddPerm@, PDef, [{scope,local}, {local_content,true},{record_name,ddPerm}], system),
 
         QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
-        imem_meta:create_check_table(ddQuota, QDef, [{scope,local}, {local_content,true}], system),
+        imem_meta:create_check_table(ddQuota@, QDef, [{scope,local}, {local_content,true},{record_name,ddQuota}], system),
 
         UserName= <<"admin">>,
         case if_select_account_by_name(none, UserName) of
@@ -89,8 +89,9 @@ init(_Args) ->
                     if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
         end,        
-        if_truncate_table(none,ddSeCo),
-        if_truncate_table(none,ddPerm),
+        if_truncate_table(none,ddSeCo@),
+        if_truncate_table(none,ddPerm@),
+        if_truncate_table(none,ddQuota@),
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
@@ -138,13 +139,13 @@ if_select_seco_keys_by_pid(SKey, Pid) ->
     MatchHead = #ddSeCo{skey='$1', pid='$2', _='_'},
     Guard = {'==', '$2', Pid},
     Result = '$1',
-    if_select(SKey, ddSeCo, [{MatchHead, [Guard], [Result]}]).
+    if_select(SKey, ddSeCo@, [{MatchHead, [Guard], [Result]}]).
 
 if_select_perm_keys_by_skey(_SKeyM, SKey) ->      %% M=Monitor / MasterContext 
     MatchHead = #ddPerm{pkey='$1', skey='$2', _='_'},
     Guard = {'==', '$2', SKey},
     Result = '$1',
-    if_select(SKey, ddPerm, [{MatchHead, [Guard], [Result]}]).
+    if_select(SKey, ddPerm@, [{MatchHead, [Guard], [Result]}]).
 
 if_select_account_by_name(SKey, Name) -> 
     MatchHead = #ddAccount{name='$1', _='_'},
@@ -267,7 +268,7 @@ list_member([PermissionId|Rest], Permissions) ->
 drop_seco_tables(SKey) ->
     case have_permission(SKey, manage_system_tables) of
         true ->
-            if_drop_table(SKey, ddSeCo),     
+            if_drop_table(SKey, ddSeCo@),     
             if_drop_table(SKey, ddRole),         
             if_drop_table(SKey, ddAccount);   
         false ->
@@ -280,7 +281,7 @@ seco_create(SessionId, Name, {AuthMethod,_}) ->
     SeCo#ddSeCo{skey=SKey, state=unauthorized}.
 
 seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AccountId) when Pid == self() -> 
-    if_write(SKey, ddSeCo, SeCo#ddSeCo{accountId=AccountId}),
+    if_write(SKey, ddSeCo@, SeCo#ddSeCo{accountId=AccountId}),
     case if_select_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
         {[],true} ->    monitor(Pid);
         _ ->            ok
@@ -288,7 +289,7 @@ seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AccountId) when Pid == self() ->
     SKey.    %% hash is returned back to caller
 
 seco_authenticated(SKey) -> 
-    case if_read(SKey, ddSeCo, SKey) of
+    case if_read(SKey, ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{}] ->      
@@ -298,7 +299,7 @@ seco_authenticated(SKey) ->
     end.   
 
 seco_authorized(SKey) -> 
-    case if_read(SKey, ddSeCo, SKey) of
+    case if_read(SKey, ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{}] ->      
@@ -308,9 +309,9 @@ seco_authorized(SKey) ->
     end.   
 
 seco_update(#ddSeCo{skey=SKey,pid=Pid}=SeCo, #ddSeCo{skey=SKey,pid=Pid}=SeCoNew) when Pid == self() -> 
-    case if_read(SKey, ddSeCo, SKey) of
+    case if_read(SKey, ddSeCo@, SKey) of
         [] ->       ?SecurityException({"Not logged in", SKey});
-        [SeCo] ->   if_write(SKey, ddSeCo, SeCoNew);
+        [SeCo] ->   if_write(SKey, ddSeCo@, SeCoNew);
         [_] ->      ?SecurityException({"Security context is modified by someone else", SKey})
     end;
 seco_update(#ddSeCo{skey=SKey}, _) -> 
@@ -324,7 +325,7 @@ seco_delete(SKeyM, SKey) ->
     {Keys,true} = if_select_perm_keys_by_skey(SKeyM, SKey), 
     seco_perm_delete(SKeyM, Keys),
     try 
-        if_delete(SKeyM, ddSeCo, SKey)
+        if_delete(SKeyM, ddSeCo@, SKey)
     catch
         Class:Reason -> ?Log("~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, Class, Reason])
     end.
@@ -332,7 +333,7 @@ seco_delete(SKeyM, SKey) ->
 seco_perm_delete(_SKeyM, []) -> ok;
 seco_perm_delete(SKeyM, [PKey|PKeys]) ->
     try
-        if_delete(SKeyM, ddPerm, PKey)
+        if_delete(SKeyM, ddPerm@, PKey)
     catch
         Class:Reason -> ?Log("~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, Class, Reason])
     end,
@@ -431,7 +432,7 @@ clone_seco(SKeyParent, Pid) ->
     SeCoParent = seco_authenticated(SKeyParent),
     SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
     SKey = erlang:phash2(SeCo), 
-    if_write(SKeyParent, ddSeCo, SeCo#ddSeCo{skey=SKey}),
+    if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     monitor(Pid),
     SKey.
 
@@ -479,10 +480,10 @@ test(_) ->
 
         ?Log("----TEST--~p:test_database~n", [?MODULE]),
 
-        Seco0 = imem_meta:table_size(ddSeCo),
-        Perm0 = imem_meta:table_size(ddPerm),
-        ?assert(0 =< imem_meta:table_size(ddSeCo)),
-        ?assert(0 =< imem_meta:table_size(ddPerm)),
+        Seco0 = imem_meta:table_size(ddSeCo@),
+        Perm0 = imem_meta:table_size(ddPerm@),
+        ?assert(0 =< imem_meta:table_size(ddSeCo@)),
+        ?assert(0 =< imem_meta:table_size(ddPerm@)),
         ?Log("success ~p~n", [minimum_table_sizes]),
 
         ?Log("----TEST--~p:test_admin_login~n", [?MODULE]),
@@ -490,21 +491,21 @@ test(_) ->
         SeCoAdmin0=?imem_test_admin_login(),
         ?Log("success ~p~n", [test_admin_login]),
 
-        Seco1 = imem_meta:table_size(ddSeCo),
-        Perm1 = imem_meta:table_size(ddPerm),
+        Seco1 = imem_meta:table_size(ddSeCo@),
+        Perm1 = imem_meta:table_size(ddPerm@),
         ?assertEqual(Seco0+1,Seco1),
         ?assertEqual(Perm0,Perm1),        
         ?Log("success ~p~n", [status1]),
-        Seco2 = imem_sec:table_size(SeCoAdmin0, ddSeCo),
-        Perm2 = imem_sec:table_size(SeCoAdmin0, ddPerm),
+        Seco2 = imem_sec:table_size(SeCoAdmin0, ddSeCo@),
+        Perm2 = imem_sec:table_size(SeCoAdmin0, ddPerm@),
         ?assertEqual(Seco0+1,Seco2),
         ?assertEqual(Perm0+2,Perm2),        
         ?Log("success ~p~n", [status1]),
 
         imem_seco ! {'DOWN', simulated_reference, process, self(), simulated_exit},
         timer:sleep(2000),
-        Seco3 = imem_meta:table_size(ddSeCo),
-        Perm3 = imem_meta:table_size(ddPerm),
+        Seco3 = imem_meta:table_size(ddSeCo@),
+        Perm3 = imem_meta:table_size(ddPerm@),
         ?assertEqual(Seco0,Seco3),
         ?assertEqual(Perm0,Perm3),        
         ?Log("success ~p~n", [status2]),
