@@ -1,8 +1,8 @@
--define(_H,  element(1,erlang:time())).
--define(_M,  element(2,erlang:time())).
--define(_S,  element(3,erlang:time())).
--define(_MS, element(3, erlang:now()) div 1000 rem 1000).
+-define(__T,
+(fun() ->
+    {_,_,__McS} = __Now = erlang:now(),
+    {{__YYYY,__MM,__DD},{__H,__M,__S}} = calendar:now_to_local_time(__Now),
+    lists:flatten(io_lib:format("~2..0B.~2..0B.~4..0B ~2..0B:~2..0B:~2..0B.~6..0B", [__DD,__MM,__YYYY,__H,__M,__S,__McS rem 1000000]))
+end)()).
 
--define(_T, lists:flatten(io_lib:format("~2..0B:~2..0B:~2..0B.~3..0B", [?_H,?_M,?_S,?_MS]))).
-
--define(Log(__F,__A), io:format(user, ?_T++" [_IMEM_] "++__F, __A)).
+-define(Log(__F,__A), io:format(user, ?__T++" [_IMEM_] "++__F, __A)).
