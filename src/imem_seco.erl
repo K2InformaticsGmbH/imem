@@ -61,6 +61,7 @@ init(_Args) ->
     ?Log("~p starting...~n", [?MODULE]),
     Result = try %% try creating system tables, may fail if they exist, then check existence 
         if_check_table(none, ddTable),
+        if_check_table(none, ddLog@),
 
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
         imem_meta:create_check_table(ddAccount, ADef, [], system),
