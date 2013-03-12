@@ -13,20 +13,7 @@
                 , stmtRef             %% statement reference
                 , isSec               %% secure mode or not
                 , rowFun              %% RowFun
-                , reply               %% reply pid
-                }).
-
--record(bs,     { %% buffer state
-                  top = 0             %% sequence number of top buffer row (or 0)
-                , bottom = 0          %% sequence number of bottom buffer row (or 0)
-                , dirtyTop = 99999999 %% record id of first dirty row in buffer
-                , dirtyBottom = 0     %% record id of last dirty row in buffer
-                , dirtyCount = 0      %% count of dirty rows in buffer
-                }).
-
--record(gs,     { %% gui state
-                  top = 0             %% sequence number of top gui row (or 0)
-                , bottom = 0          %% sequence number of bottom gui row (or 0)
+                , replyTo             %% reply pid
                 }).
 
 -record(state,  { %% fsm combined state
@@ -36,27 +23,33 @@
                 , rowFun              %% RowFun
                 , bl                  %% block_length (passed to init)
                 , gl                  %% gui max length (row count) = gui_max(#state.bl)
-                , bs = #bs{}          %% buffer state
-                , gs = #gs{}          %% gui state
+                , bufTop = 0          %% sequence number of top buffer row (or 0)
+                , bufBot = 0          %% sequence number of bottom buffer row (or 0)
+                , dirtyTop = 99999999 %% record id of first dirty row in buffer
+                , dirtyBot = 0        %% record id of last dirty row in buffer
+                , dirtyCount = 0      %% count of dirty rows in buffer
+                , rawTop = 0          %% sequence number of top raw gui row (or 0)
+                , rawBot = 0          %% sequence number of bot raw gui row (or 0)
                 , tailMode = false    %% tailMode scheduled
                 , pfc=0               %% pending fetch count (in flight to DB or back)
-                , reply               %% reply pid
+                , replyTo             %% reply pid
+                , stack=undefined     %% command stack {Tab,button,Button,ReplyTo}
                 }).
 
 -record(gres,   { %% response sent back to gui
-                  operation           %% rep (replace) | app (append) | prp (prepend) | nop 
-                , bufBottom=0         %% current buffer bottom (last sequence number)
-                , guiTop=0            %% first row id in gui (smaller ones must be clipped away)
-                , guiBottom=0         %% last row id in gui (larger ones must be clipped away)
-                , guiFocus=undefined  %% make this row visible
+                  operation           %% rep (replace) | app (append) | prp (prepend) | nop | cre (create filter/sort table)
+                , bufBot=0            %% current buffer bottom (last sequence number)
+                , rawTop=0            %% first row id in gui (smaller ones must be clipped away)
+                , rawBot=0            %% last row id in gui (larger ones must be clipped away)
                 , message = []        %% help message
                 , beep = false        %% alert with a beep if true
-                , state = empty       %% color of buffer size indicator
+                , state = empty       %% determines color of buffer size indicator
                 , loop = undefined    %% gui should come back with this command
                 , rows = []           %% rows to show (append / prepend / merge)
                 }).
 
 -define(block_size,10).
+-define(MustCommit,"Please commit or rollback changes before clearing data").
 
 
 %% --------------------------------------------------------------------
@@ -98,37 +91,37 @@
 %% External functions
 %% ====================================================================
 
-start(SKey,Id,BL,IsSec,Sql,Reply) ->
+start(SKey,Id,BL,IsSec,Sql,ReplyTo) ->
     StmtResult = exec(SKey, Id, BL, IsSec, Sql),
     #stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,
-    Ctx = #ctx{skey=SKey,id=Id,bl=BL,stmtRef=StmtRef,rowFun=RowFun,isSec=IsSec,reply=Reply}, 
+    Ctx = #ctx{skey=SKey,id=Id,bl=BL,stmtRef=StmtRef,rowFun=RowFun,isSec=IsSec,replyTo=ReplyTo}, 
 	{ok,Pid} = gen_fsm:start(?MODULE,Ctx,[]),
     {?MODULE,Pid}.
 
-start_link(SKey,Id,BL,IsSec,Sql,Reply) ->
+start_link(SKey,Id,BL,IsSec,Sql,ReplyTo) ->
     StmtResult = exec(SKey, Id, BL, IsSec, Sql),
     #stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,
-    Ctx = #ctx{skey=SKey,id=Id,bl=BL,stmtRef=StmtRef,rowFun=RowFun,isSec=IsSec,reply=Reply}, 
+    Ctx = #ctx{skey=SKey,id=Id,bl=BL,stmtRef=StmtRef,rowFun=RowFun,isSec=IsSec,replyTo=ReplyTo}, 
 	{ok, Pid} = gen_fsm:start_link(?MODULE,Ctx,[]),
     {?MODULE,Pid}.
 
 stop(Pid) -> 
 	gen_fsm:send_event(Pid,stop).
 
-gui_req(Tab, button, Button, Reply, {?MODULE,Pid}) -> 
-    ?Log("~p button -- ~p~n", [erlang:now(),Button]),
-	gen_fsm:send_event(Pid,{Tab, button, Button, Reply});
-gui_req(Tab, update, ChangeList, Reply, {?MODULE,Pid}) -> 
-    ?Log("~p ChangeList -- ~p~n", [erlang:now(),ChangeList]),
-    gen_fsm:send_event(Pid,{Tab, update, ChangeList, Reply}).
+gui_req(Tab, button, Button, ReplyTo, {?MODULE,Pid}) -> 
+    ?Log("button -- ~p~n", [Button]),
+	gen_fsm:send_event(Pid,{Tab, button, Button, ReplyTo});
+gui_req(Tab, update, ChangeList, ReplyTo, {?MODULE,Pid}) -> 
+    ?Log("ChangeList -- ~p~n", [ChangeList]),
+    gen_fsm:send_event(Pid,{Tab, update, ChangeList, ReplyTo}).
 
 rows({Rows,Completed},{?MODULE,Pid}) -> 
-    % ?Log("~p rows ~p ~p~n", [erlang:now(), length(Rows),Completed]),
+    % ?Log("rows ~p ~p~n", [length(Rows),Completed]),
     gen_fsm:send_event(Pid,{rows, {Rows,Completed}}).
 
 
 exec(SKey, Id, BL, IsSec, Sql) ->
-    ?Log("~p exec -- ~p: ~s~n", [erlang:now(), Id, Sql]),
+    ?Log("exec -- ~p: ~s~n", [Id, Sql]),
     {ok, StmtResult} = imem_sql:exec(SKey, Sql, BL, 'Imem', IsSec),
     % #stmtResult{stmtCols=StmtCols} = StmtResult,
     % ?Log("Statement Cols : ~p~n", [StmtCols]),
@@ -142,7 +135,7 @@ fetch(FetchMode,TailMode, #state{ctx=Ctx,stmtRef=StmtRef}=State) ->
         {FM,TM} ->        [{fetch_mode,FM},{tailMode,TM}]
     end,
     Result = imem_statement:fetch_recs_async(SKey, StmtRef, self(), Opts, IsSec),
-    % ?Log("~p fetch (~p, ~p) ~p~n", [erlang:now(), FetchMode, TailMode, Result]),
+    % ?Log("fetch (~p, ~p) ~p~n", [FetchMode, TailMode, Result]),
     ok = Result,
     NewPfc=State#state.pfc +1,
     State#state{pfc=NewPfc}.
@@ -154,7 +147,7 @@ prefetch(_,State) ->                      State.
 fetch_close(#state{stmtRef=StmtRef}=State) ->
     #ctx{skey=SKey,isSec=IsSec} = State#state.ctx, 
     Result = imem_statement:fetch_close(SKey, StmtRef, IsSec),
-    ?Log("~p fetch_close -- ~p~n", [erlang:now(), Result]),
+    ?Log("fetch_close -- ~p~n", [Result]),
     State#state{pfc=0}.
 
 
@@ -170,9 +163,9 @@ fetch_close(#state{stmtRef=StmtRef}=State) ->
 %%          {stop, StopReason}
 %% --------------------------------------------------------------------
 
-init(#ctx{bl=BL,reply=Reply,stmtRef=StmtRef,rowFun=RowFun}=Ctx) ->
+init(#ctx{bl=BL,replyTo=ReplyTo,stmtRef=StmtRef,rowFun=RowFun}=Ctx) ->
     TableId=ets:new(results, [ordered_set, public]),
-    {ok, empty, #state{bl=BL, reply=Reply, gl=gui_max(BL), ctx=Ctx, stmtRef=StmtRef, rowFun=RowFun, tableId=TableId}}.
+    {ok, empty, #state{bl=BL, replyTo=ReplyTo, gl=gui_max(BL), ctx=Ctx, stmtRef=StmtRef, rowFun=RowFun, tableId=TableId}}.
 
 %% --------------------------------------------------------------------
 %% Func: SN/2	 non-synchronized event handling
@@ -182,200 +175,273 @@ init(#ctx{bl=BL,reply=Reply,stmtRef=StmtRef,rowFun=RowFun}=Ctx) ->
 %% --------------------------------------------------------------------
 
 
-empty({Tab, button, '>|', Reply}, State0) ->
+empty({Tab, button, '>|', ReplyTo}, State0) ->
     State1 = fetch(push,none,reset(State0,false)),
-    State2 = gui_nop(Tab, #gres{state=autofilling,loop='>|'},State1#state{reply=Reply}),
-    {next_state, autofilling, State2};
-empty({Tab, button, '>|...', Reply}, State0) ->
+    {next_state, autofilling, State1#state{stack={Tab,button,'>|',ReplyTo}}};
+empty({Tab, button, '>|...', ReplyTo}, State0) ->
     State1 = fetch(push,true,reset(State0,true)),
-    State2 = gui_nop(Tab, #gres{state=autofilling,loop='>|...'},State1#state{reply=Reply}),
-    {next_state, autofilling, State2};
-empty({Tab, button, '...', Reply}, State0) ->
+    {next_state, autofilling, State1#state{stack={Tab,button,'>|...',ReplyTo}}};
+empty({Tab, button, '...', ReplyTo}, State0) ->
     State1 = fetch(skip,true,reset(State0,true)),
-    State2 = gui_nop(Tab, #gres{state=tailing,loop='...'},State1#state{reply=Reply}),
-    {next_state, tailing, State2};
-empty({_Tab, button, 'x', Reply}, State0) ->
-    State1 = fetch_close(State0),
-    {stop, normal, State1#state{reply=Reply}};
-empty({Tab, button, Button, Reply}, State0) ->
+    {next_state, tailing, State1#state{stack={Tab,button,'...',ReplyTo}}};
+empty({Tab, button, Button, ReplyTo}, State0) ->
     State1 = fetch(none,none,reset(State0,false)),
-    State2 = gui_nop(Tab, #gres{state=filling,loop=Button},State1#state{reply=Reply}),
-    {next_state, filling, State2};
+    {next_state, filling, State1#state{stack={Tab,button,Button,ReplyTo}}};
 empty(Other, State) ->
-    ?Log("~p empty -- unexpected erlimem_fsm event ~p in empty state~n", [erlang:now(),Other]),
+    ?Log("empty -- unexpected erlimem_fsm event ~p in empty state~n", [Other]),
     {next_state, empty, State}.
 
-reset(State,TailMode) -> State#state{bs=#bs{}, gs=#gs{}, pfc=0, tailMode=TailMode}. 
+reset(State,TailMode) -> 
+    State#state{  bufTop = 0          
+                , bufBot = 0          
+                , dirtyTop = 99999999 
+                , dirtyBot = 0        
+                , dirtyCount = 0     
+                , rawTop = 0         
+                , rawBot = 0         
+                , pfc=0              
+                , stack=undefined    
+                , tailMode=TailMode
+                }. 
 
+reply_stack(_SN,ReplyTo, #state{stack=undefined}=State0) ->
+    State0#state{replyTo=ReplyTo};
+reply_stack(SN,ReplyTo, #state{stack={Tab,button,_Button,RT}}=State0) ->
+    State1 = gui_nop(Tab, #gres{state=SN},State0#state{stack=undefined,replyTo=RT}),
+    State1#state{replyTo=ReplyTo}.
 
-filling({Tab, button, '<', Reply}, State) ->
-    {next_state, filling, serve_bwd(Tab, filling, State#state{reply=Reply})};
-filling({Tab, button, '<<', Reply}, State)  ->
-    {next_state, filling, serve_fbwd(Tab, filling,State#state{reply=Reply})};
-filling({Tab, button, Button, Reply}, #state{bs=#bs{bottom=0}}=State0) ->
-    State1 = gui_nop(Tab, #gres{state=filling,loop=Button},State0#state{reply=Reply}),
+filling({Tab, button, '...', ReplyTo}, #state{dirtyCount=DC}=State0) when DC==0 ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    State2 = fetch_close(State1),
+    State3 = clear_data(State2),
+    State4 = fetch(skip,true,State3),
+    State5 = gui_replace(Tab, 0, 0, #gres{state=tailing,loop='...'}, State4#state{tailMode=true}),
+    {next_state, tailing, State5};
+filling({Tab, button, '...', ReplyTo}, State0) ->
+    State1 = gui_nop(Tab, #gres{state=filling,beep=true,message=?MustCommit},State0#state{replyTo=ReplyTo}),
     {next_state, filling, State1};
-filling({Tab, button, Button, Reply}, #state{bs=#bs{bottom=B},gs=#gs{bottom=B}}=State0) ->
-    State1 = gui_nop(Tab, #gres{state=filling,loop=Button},State0#state{reply=Reply}),
-    {next_state, filling, State1};
-filling({Tab, button, Target, Reply}, State) when is_integer(Target) ->
-    {next_state, filling, serve_target(Tab, filling,Target,State#state{reply=Reply})};
-filling({Tab, button, '>', Reply}, State) ->
-    {next_state, filling, serve_fwd(Tab, filling,State#state{reply=Reply})};
-filling({Tab, button, '>>', Reply}, State) ->
-    {next_state, filling, serve_ffwd(Tab, filling,State#state{reply=Reply})};
-filling({Tab, button, '>|', Reply}, State0) ->
-    State1 = fetch(push,none,State0),
-    State2 = gui_nop(Tab, #gres{state=autofilling,loop='>|'},State1#state{reply=Reply}),
-    {next_state, autofilling, State2};
-filling({Tab, button, '>|...', Reply}, State0) ->
-    State1 = fetch(push,true,State0),
-    State2 = gui_nop(Tab, #gres{state=autofilling,loop='>|...'},State1#state{tailMode=true,reply=Reply}),
-    {next_state, autofilling, State2};
-filling({Tab, button, '...', Reply}, State0) ->
-    State1 = fetch_close(State0),
-    State2 = clear_data(State1),
-    State3 = fetch(skip,true,State2),
-    State4 = gui_replace(Tab, 0, 0, #gres{state=tailing,loop='...'}, State3#state{tailMode=true,reply=Reply}),
-    {next_state, tailing, State4};
+filling({Tab, button, '<', ReplyTo}, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    {next_state, filling, serve_bwd(Tab, filling, State1)};
+filling({Tab, button, '<<', ReplyTo}, State0)  ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    {next_state, filling, serve_fbwd(Tab, filling, State1)};
+filling({_Tab, button, _Button, ReplyTo}=Cmd, #state{bufBot=0}=State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    {next_state, filling, State1#state{stack=Cmd}};
+filling({_Tab, button, _Button, ReplyTo}=Cmd, #state{bufBot=B,rawBot=B}=State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    {next_state, filling, State1#state{stack=Cmd}};
+filling({_Tab, button, '>|...', ReplyTo}=Cmd, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    State2 = fetch(push,true,State1),
+    {next_state, autofilling, State2#state{tailMode=true,stack=Cmd}};
+filling({Tab, button, Target, ReplyTo}, State0) when is_integer(Target) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    {next_state, filling, serve_target(Tab, filling, Target, State1)};
+filling({Tab, button, '>', ReplyTo}, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    {next_state, filling, serve_fwd(Tab, filling, State1)};
+filling({Tab, button, '>>', ReplyTo}, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    {next_state, filling, serve_ffwd(Tab, filling, State1)};
+filling({_Tab, button, '>|', ReplyTo}=Cmd, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    State2 = fetch(push,none,State1),
+    {next_state, autofilling, State2#state{stack=Cmd}};
+filling({rows, {Recs,false}}, #state{bl=BL,stack={_,button,Target,_}}=State0) when is_integer(Target) ->
+    State1 = append_data(filling, {Recs,false},State0),
+    NewBufBot = State1#state.bufBot,
+    State2 = if  
+        (Target+BL >= NewBufBot) ->
+            prefetch(filling,State1);
+        true ->
+            State1
+    end,    
+    {next_state, filling, State2};
 filling({rows, {Recs,false}}, State0) ->
-    State1 = append_data({Recs,false},State0),
+    State1 = append_data(filling, {Recs,false},State0),
     {next_state, filling, State1};
 filling({rows, {Recs,true}}, State0) ->
     State1 = fetch_close(State0),
-    State2 = append_data({Recs,true},State1),
+    State2 = append_data(completed, {Recs,true},State1),
     {next_state, completed, State2};
-filling({Tab, update, ChangeList, Reply}, State0) ->
-    State1 = update_data(Tab, filling, ChangeList, State0#state{reply=Reply}),
-    {next_state, filling, State1};
-filling({_Tab, button, 'x', Reply}, State0) ->
-    State1 = fetch_close(State0),
-    {stop, normal, State1#state{reply=Reply}};
+filling({Tab, update, ChangeList, ReplyTo}, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    State2 = update_data(Tab, filling, ChangeList, State1),
+    {next_state, filling, State2};
+filling({_Tab, button, 'x', ReplyTo}, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    State2 = fetch_close(State1),
+    {stop, normal, State2};
 filling(Other, State) ->
-    ?Log("~p filling -- unexpected event ~p~n", [erlang:now(),Other]),
+    ?Log("filling -- unexpected event ~p~n", [Other]),
     {next_state, filling, State}.
 
 
-autofilling({Tab, button, '...', Reply}, State0) ->
-    State1 = gui_nop(Tab, #gres{state=autofilling,beep=true},State0#state{reply=Reply}),
+autofilling({Tab, button, '...', ReplyTo}, State0) ->
+    State1 = gui_nop(Tab, #gres{state=autofilling,beep=true},State0#state{replyTo=ReplyTo}),
     {next_state, autofilling, State1};
-autofilling({Tab, button, Target, Reply}, State) when is_integer(Target) ->
-    {next_state, autofilling, serve_target(Tab, autofilling,Target,State#state{reply=Reply})};
-autofilling({Tab, button, '>|', Reply}, #state{bl=BL, bs=#bs{bottom=BufBottom},tailMode=TailMode}=State0) ->
-    State1 = if 
-      (TailMode == true) ->
-          gui_nop(Tab, #gres{state=autofilling,beep=true},State0#state{reply=Reply});
-      (BufBottom < BL) ->
-          gui_nop(Tab, #gres{state=autofilling,loop='>|'},State0#state{reply=Reply});
-      true ->
-          gui_replace(Tab, BufBottom-BL+1,BufBottom,#gres{state=autofilling,loop='>|'},State0#state{reply=Reply})
-    end,
-    {next_state, autofilling, State1};
-autofilling({Tab, button, '>|...', Reply}, #state{bl=BL, bs=#bs{bottom=BufBottom},tailMode=TailMode}=State0) ->
-    State1 = if 
-      (TailMode == false) ->
-          gui_nop(Tab, #gres{state=autofilling,beep=true},State0#state{reply=Reply});
-      (BufBottom < BL) ->
-          gui_nop(Tab, #gres{state=autofilling,loop='>|...'},State0#state{reply=Reply});
-      true ->
-          gui_replace(Tab, BufBottom-BL+1,BufBottom,#gres{state=autofilling,loop='>|...'},State0#state{reply=Reply})
-    end,
-    {next_state, autofilling, State1};
-autofilling({Tab, button, '>', Reply}, State) ->
-    {next_state, autofilling, serve_fwd(Tab, autofilling,State#state{reply=Reply})};
-autofilling({Tab, button, '>>', Reply}, State) ->
-    {next_state, autofilling, serve_ffwd(Tab, autofilling,State#state{reply=Reply})};
-autofilling({Tab, button, '<', Reply}, State) ->
-    {next_state, autofilling, serve_bwd(Tab, autofilling,State#state{reply=Reply})};
-autofilling({Tab, button, '<<', Reply}, State) ->
-    {next_state, autofilling, serve_fbwd(Tab, autofilling,State#state{reply=Reply})};
+autofilling({Tab, button, Target, ReplyTo}, State0) when is_integer(Target) ->
+    State1 = reply_stack(autofilling, ReplyTo, State0),
+    {next_state, autofilling, serve_target(Tab, autofilling, Target, State1)};
+autofilling({Tab, button, '>|', ReplyTo}=Cmd, #state{tailMode=TailMode}=State0) ->
+    if 
+        (TailMode == true) ->
+            State1 = gui_nop(Tab, #gres{state=autofilling,beep=true},State0#state{replyTo=ReplyTo}),
+            {next_state, autofilling, State1};
+        true ->
+            State1 = reply_stack(autofilling, ReplyTo, State0),
+            {next_state, autofilling, State1#state{stack=Cmd}}
+    end;
+autofilling({Tab, button, '>|...', ReplyTo}=Cmd, #state{tailMode=TailMode}=State0) ->
+    if 
+        (TailMode == false) ->
+            State1 = gui_nop(Tab, #gres{state=autofilling,beep=true},State0#state{replyTo=ReplyTo}),
+            {next_state, autofilling, State1};
+        true ->
+            State1 = reply_stack(autofilling, ReplyTo, State0),
+            {next_state, autofilling, State1#state{stack=Cmd}}
+    end;
+autofilling({Tab, button, '>', ReplyTo}, State0) ->
+    State1 = reply_stack(autofilling, ReplyTo, State0),
+    {next_state, autofilling, serve_fwd(Tab, autofilling, State1)};
+autofilling({Tab, button, '>>', ReplyTo}, State0) ->
+    State1 = reply_stack(autofilling, ReplyTo, State0),
+    {next_state, autofilling, serve_ffwd(Tab, autofilling, State1)};
+autofilling({Tab, button, '<', ReplyTo}, State0) ->
+    State1 = reply_stack(autofilling, ReplyTo, State0),
+    {next_state, autofilling, serve_bwd(Tab, autofilling, State1)};
+autofilling({Tab, button, '<<', ReplyTo}, State0) ->
+    State1 = reply_stack(autofilling, ReplyTo, State0),
+    {next_state, autofilling, serve_fbwd(Tab, autofilling, State1)};
 autofilling({rows, {Recs,false}}, State0) ->
-    State1 = append_data({Recs,false},State0),
-    {next_state, autofilling, State1};
-autofilling({rows, {Recs,true}}, #state{tailMode=true}=State0) ->
-    State1 = append_data({Recs,true},State0),
-    {next_state, tailing, State1};
-autofilling({rows, {Recs,true}}, State0) ->
-    State1 = append_data({Recs,true},State0),
-    {next_state, completed, State1};
-autofilling({Tab, update, ChangeList, Reply}, State0) ->
-    State1 = update_data(Tab, autofilling, ChangeList, State0#state{reply=Reply}),
-    {next_state, autofilling, State1};
-autofilling({_Tab, button, 'x', Reply}, State0) ->
+    State1 = append_data(autofilling,{Recs,false},State0),
+    {next_state, autofilling, State1#state{pfc=0}};
+autofilling({rows, {Recs,true}}, #state{tailMode=false}=State0) ->
     State1 = fetch_close(State0),
-    {stop, normal, State1#state{reply=Reply}};
+    State2 = append_data(completed,{Recs,true},State1),
+    {next_state, completed, State2#state{pfc=0}};
+autofilling({rows, {Recs,true}}, State0) ->
+    State1= append_data(tailing,{Recs,true},State0),
+    {next_state, tailing, State1#state{pfc=0}};
+autofilling({Tab, update, ChangeList, ReplyTo}, State0) ->
+    State1 = reply_stack(autofilling, ReplyTo, State0),
+    State2 = update_data(Tab, autofilling, ChangeList, State1),
+    {next_state, autofilling, State2};
+autofilling({_Tab, button, 'x', ReplyTo}, State0) ->
+    State1 = reply_stack(filling, ReplyTo, State0),
+    State2 = fetch_close(State1),
+    {stop, normal, State2};
 autofilling(Other, State) ->
-    ?Log("~p autofilling -- unexpected event ~p~n", [erlang:now(),Other]),
+    ?Log("autofilling -- unexpected event ~p~n", [Other]),
     {next_state, autofilling, State}.
 
-tailing({Tab, button, '...', Reply}, State0) ->
-    State1 = clear_data(State0),
-    State2 = gui_replace(Tab, 0, 0, #gres{state=tailing, loop='>|...'},State1#state{reply=Reply}),
+tailing({Tab, button, '...', ReplyTo}, #state{dirtyCount=DC}=State0) when DC==0->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    State2 = clear_data(State1),
+    State3 = gui_replace(Tab, 0, 0, #gres{state=tailing, loop='>|...'},State2),
+    {next_state, tailing, State3};
+tailing({Tab, button, '...', ReplyTo}, State0) ->
+    State1 = gui_nop(Tab, #gres{state=tailing,beep=true,message=?MustCommit},State0#state{replyTo=ReplyTo}),
+    {next_state, tailing, State1};
+tailing({Tab, button, '>|', ReplyTo}, State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    State2 = serve_last(Tab, tailing, State1),
     {next_state, tailing, State2};
-tailing({Tab, button, '>|', Reply}, State) ->
-    {next_state, tailing, serve_last(Tab, tailing,State#state{reply=Reply})};
-tailing({Tab, button, '>|...', Reply}, #state{bl=BL, bs=#bs{bottom=BufBottom}}=State0) ->
-    State1 = gui_replace(Tab, BufBottom-BL+1, BufBottom, #gres{state=tailing,loop='>|...'},State0#state{reply=Reply}), 
-    {next_state, tailing, State1};
-tailing({Tab, button, _, Reply}, #state{bs=#bs{bottom=0}}=State0) ->
-    State1 = gui_nop(Tab, #gres{state=completed,beep=true},State0#state{reply=Reply}),
-    {next_state, tailing, State1};
-tailing({Tab, button, Target, Reply}, State) when is_integer(Target) ->
-    {next_state, tailing, serve_target(Tab, tailing,Target,State#state{reply=Reply})};
-tailing({Tab, button, '>', Reply}, State) ->
-    {next_state, tailing, serve_fwd(Tab, tailing,State#state{reply=Reply})};
-tailing({Tab, button, '>>', Reply}, State) ->
-    {next_state, tailing, serve_ffwd(Tab, tailing,State#state{reply=Reply})};
-tailing({Tab, button, '<', Reply}, State) ->
-    {next_state, tailing, serve_bwd(Tab, tailing,State#state{reply=Reply})};
-tailing({Tab, button, '<<', Reply}, State) ->
-    {next_state, tailing, serve_fbwd(Tab, tailing,State#state{reply=Reply})};
+tailing({Tab, button, '>|...', ReplyTo}=Cmd, #state{bl=BL,bufBot=BufBot,rawBot=RawBot}=State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    State2 = if
+        (BufBot == RawBot) ->
+            State1#state{stack=Cmd}; 
+        (RawBot >= BufBot-BL) ->
+            gui_append(Tab, RawBot+1, BufBot, #gres{state=tailing,loop='>|...'},State1); 
+        (BufBot >= BL) ->
+            gui_replace(Tab, BufBot-BL+1, BufBot, #gres{state=tailing,loop='>|...'},State1);
+        true ->
+            gui_replace(Tab, 1, BufBot, #gres{state=tailing,loop='>|...'},State1)
+    end,
+    {next_state, tailing, State2};
+tailing({_Tab, button, _, ReplyTo}=Cmd, #state{bufBot=0}=State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    {next_state, tailing, State1#state{stack=Cmd}};
+tailing({Tab, button, Target, ReplyTo}, State0) when is_integer(Target) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    {next_state, tailing, serve_target(Tab, tailing, Target,State1)};
+tailing({Tab, button, '>', ReplyTo}, State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    {next_state, tailing, serve_fwd(Tab, tailing, State1)};
+tailing({Tab, button, '>>', ReplyTo}, State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    {next_state, tailing, serve_ffwd(Tab, tailing, State1)};
+tailing({Tab, button, '<', ReplyTo}, State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    {next_state, tailing, serve_bwd(Tab, tailing, State1)};
+tailing({Tab, button, '<<', ReplyTo}, State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    {next_state, tailing, serve_fbwd(Tab, tailing, State1)};
 tailing({rows, {Recs,tail}}, State0) ->
-    State1 = append_data({Recs,tail},State0),
-    {next_state, tailing, State1};
-tailing({Tab, update, ChangeList, Reply}, State0) ->
-    State1 = update_data(Tab, tailing, ChangeList, State0#state{reply=Reply}),
-    {next_state, tailing, State1};
-tailing({_Tab, button, 'x', Reply}, State0) ->
-    State1 = fetch_close(State0),
-    {stop, normal, State1#state{reply=Reply}};
+    State1 = append_data(tailing,{Recs,tail},State0),
+    {next_state, tailing, State1#state{pfc=0}};
+tailing({Tab, update, ChangeList, ReplyTo}, State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),
+    State2 = update_data(Tab, tailing, ChangeList, State1),
+    {next_state, tailing, State2};
+tailing({_Tab, button, 'x', ReplyTo}, State0) ->
+    State1 = reply_stack(tailing, ReplyTo, State0),    
+    State2 = fetch_close(State1),
+    {stop, normal, State2};
 tailing(Other, State) ->
-    ?Log("~p tailing -- unexpected event ~p in state~n~p~n", [erlang:now(),Other,State]),
+    ?Log("tailing -- unexpected event ~p in state~n~p~n", [Other,State]),
     {next_state, tailing, State}.
 
-completed({Tab, button, '...', Reply}, State0) ->
-    State1 = fetch(skip,true,State0),
-    State2 = clear_data(State1),
-    State3 = gui_replace(Tab, 0, 0, #gres{state=tailing},State2#state{tailMode=true,reply=Reply}),
+completed({Tab, button, '...', ReplyTo}, #state{dirtyCount=DC}=State0) when DC==0 ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    State2 = fetch(skip,true,State1),
+    State3 = clear_data(State2),
+    State4 = gui_replace(Tab, 0, 0, #gres{state=tailing,loop='>|...'},State3#state{tailMode=true}),
+    {next_state, tailing, State4};
+completed({Tab, button, '...', ReplyTo}, State0) ->
+    State1 = gui_nop(Tab, #gres{state=completed,beep=true,message=?MustCommit},State0#state{replyTo=ReplyTo}),
+    {next_state, completed, State1};
+completed({Tab, button, '>|...', ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    State2 = fetch(skip,true,State1),
+    State3 = gui_nop(Tab, #gres{state=tailing,loop='>|...'},State2#state{tailMode=true}),
     {next_state, tailing, State3};
-completed({Tab, button, '>|...', Reply}, State0) ->
-    State1 = fetch(skip,true,State0),
-    State2 = gui_nop(Tab, #gres{state=tailing,loop='>|...'},State1#state{tailMode=true,reply=Reply}),
-    {next_state, tailing, State2};
-completed({Tab, button, _, Reply}, #state{bs=#bs{bottom=0}}=State0) ->
-    State1 = gui_nop(Tab, #gres{state=completed,beep=true},State0#state{reply=Reply}),
-    {next_state, tailing, State1};
-completed({Tab, button, '>|', Reply}, State) ->
-    {next_state, completed, serve_last(Tab, completed,State#state{reply=Reply})};
-completed({Tab, button, Target, Reply}, State) when is_integer(Target) ->
-    {next_state, completed, serve_target(Tab, completed,Target,State#state{reply=Reply})};
-completed({Tab, button, '>', Reply}, State) ->
-    {next_state, completed, serve_fwd(Tab, completed,State#state{reply=Reply})};
-completed({Tab, button, '>>', Reply}, State) ->
-    {next_state, completed, serve_ffwd(Tab, completed,State#state{reply=Reply})};
-completed({Tab, button, '<', Reply}, State) ->
-    {next_state, completed, serve_bwd(Tab, completed,State#state{reply=Reply})};
-completed({Tab, button, '<<', Reply}, State) ->
-    {next_state, completed, serve_fbwd(Tab, completed,State#state{reply=Reply})};
+completed({Tab, button, _, ReplyTo}, #state{bufBot=0}=State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    State1 = gui_nop(Tab, #gres{state=completed,beep=true},State1),
+    {next_state, completed, State1};
+completed({Tab, button, '>|', ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    {next_state, completed, serve_last(Tab, completed, State1)};
+completed({Tab, button, Target, ReplyTo}, State0) when is_integer(Target) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    {next_state, completed, serve_target(Tab, completed, Target, State1)};
+completed({Tab, button, '>', ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    {next_state, completed, serve_fwd(Tab, completed, State1)};
+completed({Tab, button, '>>', ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    {next_state, completed, serve_ffwd(Tab, completed, State1)};
+completed({Tab, button, '<', ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    {next_state, completed, serve_bwd(Tab, completed, State1)};
+completed({Tab, button, '<<', ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    {next_state, completed, serve_fbwd(Tab, completed, State1)};
 completed({rows, _}, State) ->
     {next_state, completed, State};
-completed({Tab, update, ChangeList, Reply}, State0) ->
-    State1 = update_data(Tab, completed, ChangeList, State0#state{reply=Reply}),
-    {next_state, completed, State1};
-completed({_Tab, button, 'x', Reply}, State) ->
-    {stop, normal, State#state{reply=Reply}};
+completed({Tab, update, ChangeList, ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    State2 = update_data(Tab, completed, ChangeList, State1),
+    {next_state, completed, State2};
+completed({_Tab, button, 'x', ReplyTo}, State0) ->
+    State1 = reply_stack(completed, ReplyTo, State0),
+    {stop, normal, State1};
 completed(Other, State) ->
-    ?Log("~p completed -- unexpected event ~p~n", [erlang:now(),Other]),
+    ?Log("completed -- unexpected event ~p~n", [Other]),
     {next_state, completed, State}.
 
 
@@ -383,10 +449,10 @@ completed(Other, State) ->
 %% Func: SN/3	 synchronized event handling
 %% Returns: {next_state, NextSN, NextStateData}            |
 %%          {next_state, NextSN, NextStateData, Timeout}   |
-%%          {reply, Reply, NextSN, NextStateData}          |
-%%          {reply, Reply, NextSN, NextStateData, Timeout} |
+%%          {reply, ReplyTo, NextSN, NextStateData}          |
+%%          {reply, ReplyTo, NextSN, NextStateData, Timeout} |
 %%          {stop, Reason, NewStateData}                          |
-%%          {stop, Reason, Reply, NewStateData}
+%%          {stop, Reason, ReplyTo, NewStateData}
 %% --------------------------------------------------------------------
 
 
@@ -404,10 +470,10 @@ handle_event(_Event, empty, StateData) ->
 %% Func: handle_sync_event/4 handling sync "send_all_state_event""
 %% Returns: {next_state, NextSN, NextStateData}            |
 %%          {next_state, NextSN, NextStateData, Timeout}   |
-%%          {reply, Reply, NextSN, NextStateData}          |
-%%          {reply, Reply, NextSN, NextStateData, Timeout} |
+%%          {reply, ReplyTo, NextSN, NextStateData}          |
+%%          {reply, ReplyTo, NextSN, NextStateData, Timeout} |
 %%          {stop, Reason, NewStateData}                          |
-%%          {stop, Reason, Reply, NewStateData}
+%%          {stop, Reason, ReplyTo, NewStateData}
 %% --------------------------------------------------------------------
 handle_sync_event(_Event, _From, empty, StateData) ->
     {no_reply, empty, StateData,infinity}.
@@ -445,53 +511,48 @@ code_change(_OldVsn, SN, StateData, _Extra) ->
 gui_max(BL) when BL < 10 -> 30;
 gui_max(BL) -> 3 * BL.
 
-gui_response(_Tab,Reply,Gres) ->
-    Reply ! Gres.
+gui_response(_Tab,ReplyTo,Gres) ->
+    ReplyTo ! Gres.
 
-gui_nop(Tab,GuiResult,#state{gs=GS,reply=Reply}=State) -> 
-    ?Log("~p gui_nop () ~p ~p~n", [erlang:now(), GuiResult#gres.state, GuiResult#gres.loop]),
-    #bs{bottom=BufBottom} = State#state.bs,
-    #gs{top=GuiTop,bottom=GuiBottom}=GS,
-    gui_response(Tab,Reply,GuiResult#gres{bufBottom=BufBottom,guiTop=GuiTop,guiBottom=GuiBottom}),
+gui_nop(Tab,GuiResult,#state{bufBot=BufBot,rawTop=RawTop,rawBot=RawBot,replyTo=ReplyTo}=State) -> 
+    ?Log("gui_nop () ~p ~p~n", [GuiResult#gres.state, GuiResult#gres.loop]),
+    gui_response(Tab,ReplyTo,GuiResult#gres{bufBot=BufBot,rawTop=RawTop,rawBot=RawBot}),
     State.
 
-gui_replace(Tab,GuiTop,GuiBottom,GuiResult,#state{gs=GS,reply=Reply}=State) ->
-    ?Log("~p gui_replace (~p ~p) ~p ~p~n", [erlang:now(), GuiTop, GuiBottom, GuiResult#gres.state, GuiResult#gres.loop]),
-    #bs{bottom=BufBottom} = State#state.bs,
-    Rows=gui_rows(Tab,GuiTop,GuiBottom,State),
-    gui_response(Tab,Reply,GuiResult#gres{operation=rpl,rows=Rows,bufBottom=BufBottom,guiTop=GuiTop,guiBottom=GuiBottom}),
-    State#state{gs=GS#gs{top=GuiTop,bottom=GuiBottom}}.
+gui_replace(Tab,GuiTop,GuiBot,GuiResult,#state{bufBot=BufBot,replyTo=ReplyTo}=State) ->
+    ?Log("gui_replace (~p ~p) ~p ~p~n", [GuiTop, GuiBot, GuiResult#gres.state, GuiResult#gres.loop]),
+    Rows=gui_rows(Tab,GuiTop,GuiBot,State),
+    gui_response(Tab,ReplyTo,GuiResult#gres{operation=rpl,rows=Rows,bufBot=BufBot,rawTop=GuiTop,rawBot=GuiBot}),
+    State#state{rawTop=GuiTop,rawBot=GuiBot}.
 
-gui_prepend(Tab,GuiTop,GuiBottom,GuiResult,#state{gl=GL,gs=GS,reply=Reply}=State) ->
-    case GS#gs.top-1 of
-        GuiBottom ->    ?Log("~p gui_prepend (~p ~p) ~p ~p~n", [erlang:now(), GuiTop, GuiBottom, GuiResult#gres.state, GuiResult#gres.loop]);
-        GB ->           ?Log("~p gui_prepend (~p ~p) ~p ~p EXPECTED GuiBottom ~p~n", [erlang:now(), GuiTop, GuiBottom, GuiResult#gres.state, GuiResult#gres.loop, GB])
+gui_prepend(Tab,GuiTop,GuiBot,GuiResult,#state{gl=GL,bufBot=BufBot,rawTop=RawTop,rawBot=RawBot,replyTo=ReplyTo}=State) ->
+    case RawTop-1 of
+        GuiBot ->       ?Log("gui_prepend (~p ~p) ~p ~p~n", [GuiTop, GuiBot, GuiResult#gres.state, GuiResult#gres.loop]);
+        GB ->           ?Log("gui_prepend (~p ~p) ~p ~p EXPECTED RawBot ~p~n", [GuiTop, GuiBot, GuiResult#gres.state, GuiResult#gres.loop, GB])
     end,
-    #bs{bottom=BufBottom} = State#state.bs,
-    NewGuiBottom = if 
-        (GS#gs.bottom >= GuiTop+GL) ->  GuiTop+GL-1;
-        true ->                         GS#gs.bottom
+    NewRawBot = if 
+        (RawBot >= GuiTop+GL) ->        GuiTop+GL-1;
+        true ->                         RawBot
     end,
-    Rows=gui_rows(Tab,GuiTop,GuiBottom,State),
-    gui_response(Tab,Reply,GuiResult#gres{operation=prp,rows=Rows,bufBottom=BufBottom,guiTop=GuiTop,guiBottom=NewGuiBottom}),
-    State#state{gs=GS#gs{top=GuiTop,bottom=NewGuiBottom}}.
+    Rows=gui_rows(Tab,GuiTop,GuiBot,State),
+    gui_response(Tab,ReplyTo,GuiResult#gres{operation=prp,rows=Rows,bufBot=BufBot,rawTop=GuiTop,rawBot=NewRawBot}),
+    State#state{rawTop=GuiTop,rawBot=NewRawBot}.
 
-gui_append(Tab,GuiTop,GuiBottom,GuiResult,#state{gl=GL, gs=GS,reply=Reply}=State) ->
-    case GS#gs.bottom+1 of
-        GuiTop ->   ?Log("~p gui_append (~p ~p) ~p ~p~n", [erlang:now(), GuiTop, GuiBottom, GuiResult#gres.state, GuiResult#gres.loop]);
-        GT ->       ?Log("~p gui_append (~p ~p) ~p ~p EXPECTED GuiTop ~p~n", [erlang:now(), GuiTop, GuiBottom, GuiResult#gres.state, GuiResult#gres.loop, GT])
+gui_append(Tab,GuiTop,GuiBot,GuiResult,#state{gl=GL,bufBot=BufBot,rawTop=RawTop,rawBot=RawBot,replyTo=ReplyTo}=State) ->
+    case RawBot+1 of
+        GuiTop ->   ?Log("gui_append (~p ~p) ~p ~p~n", [GuiTop, GuiBot, GuiResult#gres.state, GuiResult#gres.loop]);
+        GT ->       ?Log("gui_append (~p ~p) ~p ~p EXPECTED RawTop ~p~n", [GuiTop, GuiBot, GuiResult#gres.state, GuiResult#gres.loop, GT])
     end,
-    #bs{bottom=BufBottom} = State#state.bs,
-    NewGuiTop = if 
-        (GS#gs.top =< GuiBottom-GL) ->  GuiBottom-GL+1;
-        true ->                         GS#gs.top
+    NewRawTop = if 
+        (RawTop =< GuiBot-GL) ->        GuiBot-GL+1;
+        true ->                         RawTop
     end,
-    Rows=gui_rows(Tab,GuiTop, GuiBottom, State),
-    gui_response(Tab,Reply,GuiResult#gres{operation=app,rows=Rows,bufBottom=BufBottom,guiTop=NewGuiTop,guiBottom=GuiBottom}),
-    State#state{gs=GS#gs{top=NewGuiTop,bottom=GuiBottom}}.
+    Rows=gui_rows(Tab,GuiTop,GuiBot,State),
+    gui_response(Tab,ReplyTo,GuiResult#gres{operation=app,rows=Rows,bufBot=BufBot,rawTop=NewRawTop,rawBot=GuiBot}),
+    State#state{rawTop=NewRawTop,rawBot=GuiBot}.
 
 gui_rows(_Tab,Top,Bottom,#state{rowFun=RowFun,tableId=TableId}) ->
-    % ?Log("~p RowFun ~p~n", [erlang:now(),RowFun]),
+    % ?Log("RowFun ~p~n", [RowFun]),
     Rows = ets:select(TableId,[{'$1',[{'>=',{element,1,'$1'},Top},{'=<',{element,1,'$1'},Bottom}],['$_']}]),
     [gui_row_expand(R, TableId, RowFun) || R <- Rows].
 
@@ -517,64 +578,70 @@ gui_row_expand(FullRowTuple, _TableId, _RowFun) ->
     % ).
 
 clear_data(#state{tableId=TableId}=State) -> 
-    ?Log("~p clear_data~n", [erlang:now()]),
+    ?Log("clear_data~n", []),
     true = ets:delete_all_objects(TableId),    
-    State#state{bs=#bs{}}.
+    State#state{  bufTop = 0          
+                , bufBot = 0          
+                , dirtyTop = 99999999 
+                , dirtyBot = 0        
+                , dirtyCount = 0     
+                , rawTop = 0         
+                , rawBot = 0         
+                }. 
 
-append_data({[],_Complete},State) -> 
+append_data(SN, {[],_Complete},State) -> 
     NewPfc=State#state.pfc-1,
     case NewPfc of
-        0 ->    ?Log("~p append_data -- count ~p~n", [erlang:now(), 0]);
-        _ ->    ?Log("~p append_data -- count ~p PendingFetchCount ~p~n", [erlang:now(), 0, NewPfc])
+        0 ->    ?Log("append_data -- count ~p~n", [0]);
+        _ ->    ?Log("append_data -- count ~p PendingFetchCount ~p~n", [0, NewPfc])
     end,
-    State#state{pfc=NewPfc};
-append_data({Recs,_Complete},#state{tableId=TableId,bs=BS}=State) ->
+    serve_stack(SN, State#state{pfc=NewPfc});
+append_data(SN, {Recs,_Complete},#state{tableId=TableId,bufBot=BufBot}=State) ->
     NewPfc=State#state.pfc-1,
     Count = length(Recs),
-    Bottom = BS#bs.bottom,
-    NewBottom = Bottom+Count,
+    NewBufBot = BufBot+Count,
     case NewPfc of
-        0 ->    ?Log("~p append_data -- count ~p bottom ~p~n", [erlang:now(),Count,NewBottom]);
-        _ ->    ?Log("~p append_data -- count ~p bottom ~p pfc ~p~n", [erlang:now(),Count,NewBottom, NewPfc])
+        0 ->    ?Log("append_data -- count ~p bufBottom ~p~n", [Count,NewBufBot]);
+        _ ->    ?Log("append_data -- count ~p bufBottom ~p pfc ~p~n", [Count,NewBufBot,NewPfc])
     end,
-    ets:insert(TableId, [list_to_tuple([I,nop|[R]])||{I,R}<-lists:zip(lists:seq(Bottom+1, NewBottom), Recs)]),
-    State#state{pfc=NewPfc,bs=BS#bs{bottom=NewBottom}}.
+    ets:insert(TableId, [list_to_tuple([I,nop|[R]])||{I,R}<-lists:zip(lists:seq(BufBot+1, NewBufBot), Recs)]),
+    %% ToDo: insert into filter/sort table
+    serve_stack(SN, State#state{pfc=NewPfc,bufBot=NewBufBot}).
 
-update_data(Tab,SN,ChangeList,#state{bs=BS0,tableId=TableId}=State0) ->
-    BS1 = update_data_rows(ChangeList, TableId, BS0),
-    gui_nop(Tab,#gres{state=SN},State0#state{bs=BS1}).
+update_data(Tab,SN,ChangeList,State0) ->
+    State1 = update_data_rows(ChangeList,State0),
+    gui_nop(Tab,#gres{state=SN},State1).  %% ToDo: return list of Ids chosen by fsm for inserts
 
-update_data_rows([], _, BS) -> BS;
-update_data_rows([Ch|ChangeList], TableId, BS0) ->
-    BS1 = update_data_row(Ch, TableId, BS0),
-    update_data_rows(ChangeList, TableId, BS1).
+update_data_rows([], State) -> State;
+update_data_rows([Ch|ChangeList], State0) ->
+    State1 = update_data_row(Ch, State0),
+    update_data_rows(ChangeList, State1).
 
-update_data_row([_,ins,Fields], TableId, #bs{bottom=BufBottom,dirtyTop=DT0,dirtyCount=DC0}=BS0) ->
-    Id = BufBottom+1,
-    ets:insert(TableId, list_to_tuple([Id,ins,{}|Fields])),
-    BS0#bs{bottom=Id,dirtyTop=int_min(DT0,Id),dirtyBottom=Id,dirtyCount=DC0+1};
-update_data_row([IdStr,Op,Fields], TableId, BS0) ->
-    Id = list_to_integer(IdStr),
+update_data_row([undefined,Fields], #state{tableId=TableId,bufBot=BufBot,dirtyTop=DT0,dirtyCount=DC0}=State0) ->
+    Id = BufBot+1,          %% ToDo: map Fields to complete rows ("" for undefined fields)
+    ets:insert(TableId, list_to_tuple([Id,ins,{}|Fields])),    
+    State0#state{dirtyTop=int_min(DT0,Id),dirtyBot=Id,dirtyCount=DC0+1};
+update_data_row([Id,Op,Fields], #state{tableId=TableId}=State0) when is_integer(Id) ->
     OldRow = ets:lookup(TableId, Id),
-    {O,BS1} = case {element(2,OldRow),Op} of
-        {nop,nop} ->    {nop,BS0};
-        {nop,_} ->      DT = int_min(BS0#bs.dirtyTop,Id),
-                        DB = int_max(BS0#bs.dirtyBottom,Id),
-                        DC = BS0#bs.dirtyCount + 1,
-                        {Op, BS0#bs{dirtyTop=DT,dirtyBottom=DB,dirtyCount=DC}};
-        {_,nop} ->      DC = BS0#bs.dirtyCount - 1,
-                        {nop,BS0#bs{dirtyCount=DC}};
-        {ins,upd} ->    {ins,BS0};
-        {ins,ins} ->    {ins,BS0};
-        {ins,del} ->    DC = BS0#bs.dirtyCount - 1,
-                        {nop,BS0#bs{dirtyCount=DC}};
-        {del,del} ->    {del,BS0};
-        {del,upd} ->    {upd,BS0};
-        {upd,upd} ->    {upd,BS0};        
-        {upd,del} ->    {del,BS0}        
+    {O,State1} = case {element(2,OldRow),Op} of
+        {nop,nop} ->    {nop,State0};
+        {nop,_} ->      DT = int_min(State0#state.dirtyTop,Id),
+                        DB = int_max(State0#state.dirtyBot,Id),
+                        DC = State0#state.dirtyCount+1,
+                        {Op, State0#state{dirtyTop=DT,dirtyBot=DB,dirtyCount=DC}};
+        {_,nop} ->      DC = State0#state.dirtyCount-1,
+                        {nop,State0#state{dirtyCount=DC}};
+        {ins,upd} ->    {ins,State0};
+        {ins,ins} ->    {ins,State0};
+        {ins,del} ->    DC = State0#state.dirtyCount-1,
+                        {nop,State0#state{dirtyCount=DC}};
+        {del,del} ->    {del,State0};
+        {del,upd} ->    {upd,State0};
+        {upd,upd} ->    {upd,State0};        
+        {upd,del} ->    {del,State0}        
     end,
     ets:insert(TableId, list_to_tuple([Id,O,element(2,OldRow)|Fields])),
-    BS1.
+    State1.
 
 int_min(A,B) when A=<B -> A;
 int_min(_,B) -> B.
@@ -582,6 +649,31 @@ int_min(_,B) -> B.
 int_max(A,B) when A>=B -> A;
 int_max(_,B) -> B.
 
+serve_stack(_SN, #state{stack=undefined}=State) -> State;
+serve_stack(SN, #state{stack={Tab,button,'>',RT}}=State0) ->
+    State1 = serve_fwd(Tab,SN,State0#state{replyTo=RT}),
+    State1#state{stack=undefined};
+serve_stack(SN, #state{bufBot=BufBot,stack={Tab,button,Target,RT}}=State0) when is_integer(Target), (BufBot>=Target) ->
+    State1 = serve_target(Tab,SN,Target,State0#state{replyTo=RT}),
+    State1#state{stack=undefined};
+serve_stack(completed, #state{stack={Tab,button,_,RT}}=State0) ->
+    State1 = serve_last(Tab,complete,State0#state{replyTo=RT}),
+    State1#state{stack=undefined};
+serve_stack(tailing, #state{stack={Tab,button,'>|',RT}}=State0) ->
+    State1 = serve_last(Tab,tailing,State0#state{replyTo=RT}),
+    State1#state{stack=undefined};
+serve_stack(tailing, #state{bl=BL,bufBot=BufBot,rawBot=RawBot,stack={Tab,button,'>|...',RT}}=State0) ->
+    if
+        (BufBot == RawBot) ->
+            State0#state{stack={Tab,button,'>|...',RT}}; 
+        (RawBot >= BufBot-BL) ->
+            gui_append(Tab, RawBot+1, BufBot, #gres{state=tailing,loop='>|...'},State0#state{stack=undefined}); 
+        (BufBot >= BL) ->
+            gui_replace(Tab, BufBot-BL+1, BufBot, #gres{state=tailing,loop='>|...'},State0#state{stack=undefined});
+        true ->
+            gui_replace(Tab, 1, BufBot, #gres{state=tailing,loop='>|...'},State0#state{stack=undefined})
+    end;
+serve_stack(_ , State) -> State.
 
 serve_empty(Tab,SN,true,State0) ->
     State1 = prefetch(SN,State0),          %% only when filling
@@ -590,133 +682,138 @@ serve_empty(Tab,SN,false,State0) ->
     State1 = prefetch(SN,State0),          %% only when filling
     gui_nop(Tab,#gres{state=SN},State1).
 
-serve_fwd(Tab,SN,#state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{bottom=GuiBottom}}=State0) ->
+serve_fwd(Tab,SN,#state{bl=BL,bufBot=BufBot,rawBot=RawBot}=State0) ->
     if
-      (BufBottom == 0) ->
+      (BufBot == 0) ->
           serve_empty(Tab,SN,false,State0);
-      (BufBottom =< BL) ->
+      (BufBot =< BL) ->
           serve_first(Tab,SN,State0);
-      (GuiBottom+BL+BL =< BufBottom) ->
-          gui_append(Tab,GuiBottom+1,GuiBottom+BL,#gres{state=SN},State0);
+      (BufBot >= RawBot+BL+BL) ->
+          gui_append(Tab,RawBot+1,RawBot+BL,#gres{state=SN},State0);
+      (BufBot >= RawBot+BL) ->
+          State1 = prefetch(SN,State0),          %% only when filling
+          gui_append(Tab,RawBot+1,RawBot+BL,#gres{state=SN},State1);
+      (BufBot == RawBot) ->
+          State1 = prefetch(SN,State0),          %% only when filling
+          gui_nop(Tab,#gres{state=SN},State1);
       true ->
           State1 = prefetch(SN,State0),          %% only when filling
-          gui_append(Tab,BufBottom-BL+1,BufBottom,#gres{state=SN},State1)
+          gui_append(Tab,RawBot+1,BufBot,#gres{state=SN},State1)
     end.
 
-serve_ffwd(Tab,SN,#state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{bottom=GuiBottom}}=State0) ->
+serve_ffwd(Tab,SN,#state{bl=BL,bufBot=BufBot,rawBot=RawBot,replyTo=ReplyTo}=State0) ->
     if
-      (BufBottom == 0) ->
+      (BufBot == 0) ->
           serve_empty(Tab,SN,false,State0);
-      (BufBottom =< BL) ->
+      (BufBot =< BL) ->
           serve_fwd(Tab,SN,State0);
-      (GuiBottom =< BL) ->
+      (RawBot =< BL) ->
           serve_fwd(Tab,SN,State0);
-      (GuiBottom+GuiBottom+BL =< BufBottom) ->
-          gui_replace(Tab,GuiBottom+GuiBottom-BL+1,GuiBottom+GuiBottom,#gres{state=SN},State0);
-      (GuiBottom+GuiBottom =< BufBottom) ->
+      (RawBot+RawBot+BL =< BufBot) ->
+          gui_replace(Tab,RawBot+RawBot-BL+1,RawBot+RawBot,#gres{state=SN},State0);
+      (RawBot+RawBot =< BufBot) ->
           State1 = prefetch(SN,State0),          %% only when filling
-          gui_replace(Tab,GuiBottom+GuiBottom-BL+1,GuiBottom+GuiBottom,#gres{state=SN},State1);
+          gui_replace(Tab,RawBot+RawBot-BL+1,RawBot+RawBot,#gres{state=SN},State1);
       true ->
           State1 = prefetch(SN,State0),          %% only when filling
-          gui_nop(Tab,#gres{state=SN,loop=GuiBottom+GuiBottom},State1)
+          State1#state{stack={Tab,button,RawBot+RawBot,ReplyTo}}
     end.
 
-serve_first(Tab,SN,#state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{top=GuiTop,bottom=GuiBottom}}=State0) ->
+serve_first(Tab,SN,#state{bl=BL,bufBot=BufBot,rawTop=RawTop,rawBot=RawBot}=State0) ->
     if
-      (BufBottom == 0) ->
+      (BufBot == 0) ->
           serve_empty(Tab,SN,false,State0);
-      (BufBottom >= BL+BL) and (GuiTop == 1) and (GuiBottom >= BL) ->
+      (BufBot >= BL+BL) and (RawTop == 1) and (RawBot >= BL) ->
           gui_nop(Tab,#gres{state=SN},State0);
-      (BufBottom >= BL+BL) and (GuiTop > 1) and (GuiTop =< BL+1) ->
-          gui_prepend(Tab,1,GuiTop-1,#gres{state=SN},State0);
-      (BufBottom >= BL+BL) ->
+      (BufBot >= BL+BL) and (RawTop > 1) and (RawTop =< BL+1) ->
+          gui_prepend(Tab,1,RawTop-1,#gres{state=SN},State0);
+      (BufBot >= BL+BL) ->
           gui_replace(Tab,1,BL,#gres{state=SN},State0);
-      (BufBottom >= BL) and (GuiTop == 1) and (GuiBottom >= BL) ->
+      (BufBot >= BL) and (RawTop == 1) and (RawBot >= BL) ->
           State1 = prefetch(SN,State0),          %% only when filling
           gui_nop(Tab,#gres{state=SN},State1);
-      (BufBottom >= BL) and (GuiTop =< BL) ->
+      (BufBot >= BL) and (RawTop =< BL) ->
           State1 = prefetch(SN,State0),          %% only when filling
           gui_replace(Tab,1,BL,#gres{state=SN},State1);
-      (BufBottom >= BL) ->
+      (BufBot >= BL) ->
           State1 = prefetch(SN,State0),          %% only when filling
           gui_replace(Tab,1,BL,#gres{state=SN},State1);
-      (BufBottom < BL) and (GuiTop == 1) and (GuiBottom == BufBottom) ->
+      (BufBot < BL) and (RawTop == 1) and (RawBot == BufBot) ->
           State1 = prefetch(SN,State0),          %% only when filling
           gui_nop(Tab,#gres{state=SN},State1);
-      (BufBottom < BL) ->
+      (BufBot < BL) ->
           State1 = prefetch(SN,State0),          %% only when filling
-          gui_replace(Tab,1,BufBottom,#gres{state=SN},State1)
+          gui_replace(Tab,1,BufBot,#gres{state=SN},State1)
     end.
 
-serve_last(Tab,SN,#state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{top=GuiTop,bottom=GuiBottom}}=State0) ->
+serve_last(Tab,SN,#state{bl=BL,bufBot=BufBot,rawTop=RawTop,rawBot=RawBot}=State0) ->
     State1 = prefetch(SN,State0),          %% only when filling
     if
-      (BufBottom == 0) ->
-          serve_empty(Tab,SN,false,State0);
-      (BufBottom =< BL) and (GuiTop == 1) and (GuiBottom == BufBottom) ->
+      (BufBot == 0) ->
+          serve_empty(Tab,SN,false,State1);
+      (RawBot == BufBot) ->
           gui_nop(Tab,#gres{state=SN},State1);
-      (BufBottom =< BL) ->
-          gui_replace(Tab,1,BufBottom,#gres{state=SN},State1);
-      (GuiBottom == BufBottom) and (GuiTop == BufBottom-BL+1) ->
-          gui_nop(Tab,#gres{state=SN},State1);
-      (GuiBottom >= BufBottom-BL+1) ->
-          gui_append(Tab,GuiBottom+1,BufBottom,#gres{state=SN},State1);
+      (BufBot =< BL) ->
+          gui_replace(Tab,1,BufBot,#gres{state=SN},State1);
+      (RawBot >= BufBot-BL+1) ->
+          gui_append(Tab,RawBot+1,BufBot,#gres{state=SN},State1);
       true ->
-          gui_replace(Tab,BufBottom-BL+1,BufBottom,#gres{state=SN},State1)
+          gui_replace(Tab,BufBot-BL+1,BufBot,#gres{state=SN},State1)
     end.
 
-serve_bwd(Tab,SN,#state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{top=GuiTop}}=State0) ->
+serve_bwd(Tab,SN,#state{bl=BL,bufBot=BufBot,rawTop=RawTop}=State0) ->
     if
-      (BufBottom == 0) ->
+      (BufBot == 0) ->
           serve_empty(Tab,SN,true,State0);
-      (BufBottom =< BL) ->
+      (BufBot =< BL) ->
           serve_first(Tab,SN,State0);
-      (GuiTop > BL) ->
-          gui_prepend(Tab,GuiTop-BL,GuiTop-1,#gres{state=SN},State0);
+      (RawTop > BL) ->
+          gui_prepend(Tab,RawTop-BL,RawTop-1,#gres{state=SN},State0);
       true ->
           serve_first(Tab,SN,State0)
     end.
 
-serve_fbwd(Tab,SN,#state{bl=BL,bs=#bs{bottom=BufBottom},gs=#gs{top=GuiTop}}=State0) ->
+serve_fbwd(Tab,SN,#state{bl=BL,bufBot=BufBot,rawTop=RawTop}=State0) ->
     if
-      (BufBottom == 0) ->
+      (BufBot == 0) ->
           serve_empty(Tab,SN,true,State0);
-      (GuiTop >= BL+BL) and (GuiTop div 2+BL == GuiTop-1)  ->
-          gui_prepend(Tab,GuiTop div 2+1,GuiTop div 2+BL,#gres{state=SN},State0);
-      (GuiTop >= BL+BL) ->
-          gui_replace(Tab,GuiTop div 2+1,GuiTop div 2+BL,#gres{state=SN},State0);
+      (RawTop >= BL+BL) and (RawTop div 2+BL == RawTop-1)  ->
+          gui_prepend(Tab,RawTop div 2+1,RawTop div 2+BL,#gres{state=SN},State0);
+      (RawTop >= BL+BL) ->
+          gui_replace(Tab,RawTop div 2+1,RawTop div 2+BL,#gres{state=SN},State0);
       true ->
           serve_first(Tab,SN,State0)
     end.
 
-serve_target(Tab,SN,Target,#state{bl=BL, bs=#bs{bottom=BufBottom}, gs=#gs{top=GuiTop,bottom=GuiBottom}}=State0) ->
+serve_target(Tab,SN,Target,#state{bl=BL,bufBot=BufBot,rawTop=RawTop,rawBot=RawBot,replyTo=ReplyTo}=State0) ->
     if
-      (BufBottom == 0) and (SN == complete) ->
+      (BufBot == 0) and (SN == complete) ->
           serve_empty(Tab,SN,true,State0);
-      (BufBottom == 0) ->         
+      (BufBot == 0) ->         
           %% no_data now, com back later 
           State1 = prefetch(SN,State0),          %% only when filling
-          gui_nop(Tab,#gres{state=SN,loop=Target},State1);
-      (Target =< 0) and (BufBottom+Target > 0) ->
-          %% target given relative to BufBottom, retry with absolute target position 
+          % gui_nop(Tab,#gres{state=SN,loop=Target},State1);
+          State1#state{stack={Tab,button,Target,ReplyTo}};
+      (Target =< 0) and (BufBot+Target > 0) ->
+          %% target given relative to BufBot, retry with absolute target position 
           serve_target(Tab,SN,Target,State0);
       (Target =< 0)  ->
           serve_first(Tab,SN,State0);
-      (Target =< BufBottom) and (BufBottom < BL) ->
+      (Target =< BufBot) and (BufBot < BL) ->
           serve_first(Tab,SN,State0);
-      (Target =< BufBottom) and (GuiTop > Target) ->
+      (Target =< BufBot) and (RawTop > Target) ->
           %% serve block backward
           gui_replace(Tab,Target,Target+BL-1,#gres{state=SN},State0);
-      (Target =< BufBottom) and (GuiBottom < Target) and (Target > BufBottom-BL-BL) ->
+      (Target =< BufBot) and (RawBot < Target) and (Target > BufBot-BL-BL) ->
           %% serve block forward
           State1 = prefetch(SN,State0),          %% only when filling
           gui_replace(Tab,Target-BL+1,Target,#gres{state=SN},State1);
-      (Target =< BufBottom) and (GuiBottom < Target) ->
+      (Target =< BufBot) and (RawBot < Target) ->
           %% serve block forward
           gui_replace(Tab,Target-BL+1,Target,#gres{state=SN},State0);
-      (Target > BufBottom) and (SN == completed) ->
+      (Target > BufBot) and (SN == completed) ->
           serve_last(Tab,SN,State0);
-      (Target > BufBottom) ->
+      (Target > BufBot) ->
           State1 = prefetch(SN,State0),          %% only when filling
           gui_nop(Tab,#gres{state=SN,loop=Target},State1);
       true ->
@@ -784,22 +881,22 @@ test_with_or_without_sec(IsSec) ->
                 );"
                 , 0, 'Imem', IsSec)),
 
-        ?assertEqual(ok, insert_range(SKey, 100, def, 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 11, def, 'Imem', IsSec)),
 
         Fsm = start(SKey,"fsm test",10,false,"select * from def;",self()),
-        Fsm:?button('>>'),
+        Fsm:?button('>'),
         receive_respond(Fsm),
-        Fsm:?button('>>'),
+        Fsm:?button('>'),
         receive_respond(Fsm),
-        Fsm:?button('>>'),
+        Fsm:?button('>'),
         receive_respond(Fsm),
         Fsm:?button('>>'),
         receive_respond(Fsm),
         Fsm:?button('>|...'),
         receive_respond(Fsm),
-        Fsm:?button('>|'),
+        Fsm:?button('<<'),
         receive_respond(Fsm),
-        Fsm:?button('<'),
+        Fsm:?button('>|'),
         receive_respond(Fsm),
         Fsm:?button('<<'),
         receive_respond(Fsm),
@@ -847,7 +944,7 @@ receive_raw() ->
 
 receive_raw(Timeout,Acc) ->    
     case receive 
-            R ->    % ?Log("~p got:~n~p~n", [erlang:now(),R]),
+            R ->    % ?Log("got:~n~p~n", [R]),
                     R
         after Timeout ->
             stop
@@ -865,7 +962,7 @@ process_responses(Fsm,[R|Responses]) ->
       #gres{loop=undefined} ->  ok;
       #gres{loop='>|...'} ->    ok;
       #gres{loop=Loop} ->
-          timer:sleep(1),       
+          timer:sleep(30),       
           Fsm:?button(Loop),
           receive_respond(Fsm)
     end,
