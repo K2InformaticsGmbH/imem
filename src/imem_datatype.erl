@@ -1,4 +1,6 @@
 -module(imem_datatype).
+-compile(inline).
+-compile({inline_size,1000}).
 
 -include_lib("eunit/include/eunit.hrl").
 
