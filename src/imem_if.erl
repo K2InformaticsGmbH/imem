@@ -439,10 +439,7 @@ update_tables(UpdatePlan, Lock) ->
     Update = fun() ->
         [update_xt(Table, Item, Lock, Old, New) || [Table, Item, Old, New] <- UpdatePlan]
     end,
-    KeyUpdate = return_atomic(transaction(Update)),
-    % ?Log("KeyUpdate ~p~n", [KeyUpdate]),
-    Pred = fun({_,{_,{}}}) -> false; (_) -> true end,
-    lists:filter(Pred,KeyUpdate).
+    return_atomic(transaction(Update)).
 
 update_xt({_Table,bag}, _Item, _Lock, {}, {}) ->
     ok;
