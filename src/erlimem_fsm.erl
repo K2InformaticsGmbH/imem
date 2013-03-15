@@ -757,18 +757,21 @@ serve_fwd(SN,#state{bl=BL,bufCnt=BufCnt,bufBot=BufBot,guiCnt=GuiCnt,guiBot=GuiBo
             State1 = prefetch(SN,State0),          %% only when filling
             gui_nop(#gres{state=SN,beep=true},State1);
         true ->
-            State1 = prefetch(SN,State0),          %% only when filling
+            %% go forward
+            State1 = prefetch(SN,State0),        %% ToDo: avoid prefetch if not close to the end
             gui_append(#gres{state=SN},State1)
     end.
 
 serve_bwd(SN,#state{bl=BL,bufCnt=BufCnt,guiCnt=GuiCnt,guiTop=GuiTop}=State0) ->
     if
-      (BufCnt == 0) ->
-          serve_empty(SN,true,State0);
-      (GuiCnt == 0) ->
-          serve_top(SN,State0);
-      true ->
-          gui_prepend(#gres{state=SN},State0)
+        (BufCnt == 0) ->
+            %% no data, serve empty gui
+            serve_empty(SN,true,State0);
+        (GuiCnt == 0) ->
+            %% (re)initialize buffer
+            serve_top(SN,State0);
+        true ->
+            gui_prepend(#gres{state=SN},State0)
     end.
 
 serve_ffwd(SN,#state{bl=BL,rawBot=RawBot,guiBot=GuiBot,replyTo=ReplyTo}=State0) ->
