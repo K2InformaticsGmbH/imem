@@ -333,7 +333,7 @@ create_table(Table, ColumnNames, Opts, Owner) ->
     create_physical_table(Table,ColumnInfos,Opts,Owner).
 
 create_check_table(Table, Columns, Opts) ->
-    create_check_table(Table, Columns, Opts, #ddTable{}#ddTable.owner).
+    create_check_table(Table, Columns, Opts, (#ddTable{})#ddTable.owner).
 
 create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
@@ -354,6 +354,7 @@ create_check_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
                 [] ->
                     create_physical_table(Table,ColumnInfos,Opts,Owner);
                 [#ddTable{opts=Opts,owner=Owner}] ->
+                    catch create_physical_table(Table,ColumnInfos,Opts,Owner),
                     ok;
                 [#ddTable{opts=Opt,owner=Owner}] ->
                     ?SystemException({"Wrong table options",{Table,Opt}});        

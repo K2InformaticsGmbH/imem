@@ -13,8 +13,9 @@
                 , data       :: list()      %% remaining to be imported 
         }).
 
-create_from_string(SKey, Str, Opts, Schema, IsSec) when is_list(Str) ->
+create_from_string(_SKey, Str, _Opts, _Schema, _IsSec) when is_list(Str) ->
     HS = process_header(#state{data=re:split(Str,"[\n]",[{return,list}])}),       %% HeaderState
+    %% ToDo: implement
     % Table = list_to_atom(HS#state.table),
     % Names = list_to_atom(HS#state.names),
     % Types = [list_to_atom(T) || T <- HS#state.types],
@@ -22,20 +23,22 @@ create_from_string(SKey, Str, Opts, Schema, IsSec) when is_list(Str) ->
     % if_call_mfa(IsSec, 'create_table', [SKey, Table, {Names,Types,DefaultRecord}, Opts]),
     import_data(HS).
 
-process_header(S) ->
+process_header(_S) ->
+    %% ToDo: implement
     ok.
 
-import_data(HS) ->
+import_data(_HS) ->
+    %% ToDo: implement
     ok.
 
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
-if_call_mfa(IsSec,Fun,Args) ->
-    case IsSec of
-        true -> apply(imem_sec, Fun, Args);
-        _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
-    end.
+% if_call_mfa(IsSec,Fun,Args) ->
+%     case IsSec of
+%         true -> apply(imem_sec, Fun, Args);
+%         _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
+%     end.
 
 %% TESTS ------------------------------------------------------------------
 
@@ -69,7 +72,7 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        ClEr = 'ClientError',
+        _ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
         ?Log("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
