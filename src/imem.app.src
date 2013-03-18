@@ -22,7 +22,7 @@
             {if_server, {imem_if, []}},
             {meta_server, {imem_meta, []}},
             {seco_server, {imem_seco, []}},
-%%            {sql_server, {imem_sql, []}},
+            {test_writer, {imem_test_writer, []}},
             {tcp_server, {imem_server, [
             	            {tcp_ip, localhost},
             	            {tcp_port, 8124}

@@ -9,8 +9,7 @@
 
 -behavior(gen_server).
 
--record(state, {
-        }).
+-record(state, {}).
 
 -export([ start_link/1
         ]).
@@ -128,8 +127,6 @@ init(_Args) ->
         check_table(dual),
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
         check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
-
-        %% create_type_tables(?DataTypes),
 
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
