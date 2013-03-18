@@ -62,3 +62,5 @@
                   , sortSpec = []                   ::list()
                   }
        ).
+
+-define(TAIL_VALID_OPTS, [fetch_mode, tail_mode]).

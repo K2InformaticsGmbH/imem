@@ -130,7 +130,10 @@ fetch_recs_async(SKey, Pid, Sock, IsSec) ->
 fetch_recs_async(SKey, #stmtResult{stmtRef=Pid}, Sock, Opts, IsSec) ->
     fetch_recs_async(SKey, Pid, Sock, Opts, IsSec);
 fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}).
+    case [{M,V} || {M,V} <- Opts, true =/= lists:member(M, ?TAIL_VALID_OPTS)] of
+        [] -> gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
+        InvalidOpt -> ?ClientError({"Invalid option for fetch", InvalidOpt})
+    end.
 
 fetch_close(SKey,  #stmtResult{stmtRef=Pid}, IsSec) ->
     fetch_close(SKey, Pid, IsSec);
@@ -334,7 +337,7 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     end;        
 handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
-    %?Log("~p - received mnesia subscription event ~p ~p~n", [?MODULE, write, Record]),
+    % ?Log("received mnesia subscription event ~p ~p~n", [write, Record]),
     #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec}=FetchCtx0,
     case Status of
         tailing ->
@@ -497,7 +500,7 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};           
         true ->     
             {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
-%           ?Log("~p - fetch complete, switching to tail_mode~p~n", [?MODULE,Opts]), 
+            % ?Log("fetch complete, switching to tail_mode~p~n", [Opts]), 
             case  catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
                 ok ->
                     % ?Log("~p - Subscribed to table changes ~p~n", [?MODULE, Table]),    

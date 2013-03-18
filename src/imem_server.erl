@@ -102,20 +102,19 @@ handle_info({tcp, Sock, Data}, #state{buf=Buf}=State) ->
             case Term of
                 [Mod,Fun|Args] ->
                     % replace penultimate pid wih socket (if present)
-                    % ?Log(" call ~p:~p(~p)~n", [Mod,Fun,Args]),
-                    % ?Log(" call ~p:~p~n", [Mod,Fun]),
-                    case Fun of
-                        fetch_recs_async ->
-                            NewArgs = lists:sublist(Args, length(Args)-1) ++ [Sock],
-                            catch apply(Mod,Fun,NewArgs);
-                        _ ->
-                            ApplyRes = try apply(Mod,Fun,Args)
-                            catch 
-                                _Class:Reason ->
-                                    {error, Reason}
-                            end,
-                            send_resp(ApplyRes, Sock)
-                    end
+                    NewArgs = case Fun of
+                        fetch_recs_async -> lists:sublist(Args, length(Args)-1) ++ [Sock];
+                        _ -> Args
+                    end,
+                    ApplyRes = try
+                                   apply(Mod,Fun,NewArgs)
+                               catch 
+                                   _Class:Reason ->
+                                       {error, Reason}
+                               end,
+                    %?Log("MFA -> R -- ~p:~p(~p) -> ~p~n", [Mod,Fun,NewArgs,ApplyRes]),
+                    %?Log("MF -> R -- ~p:~p -> ~p~n", [Mod,Fun,ApplyRes]),
+                    send_resp(ApplyRes, Sock)
             end,
             TSize = byte_size(term_to_binary(Term)),
             RestSize = byte_size(NewBuf)-TSize,
