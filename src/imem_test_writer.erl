@@ -54,7 +54,7 @@ init(_Args) ->
     imem_meta:create_check_table(ddTest, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set}], system),
     imem_meta:write(ddTest, #ddTest{time=erlang:now(), comment="start"}),
     random:seed(now()),
-    erlang:send_after(200, self(), write_record),    
+    erlang:send_after(800, self(), write_record),    
     ?Log("~p started!~n", [?MODULE]),
     {ok,#state{}}.
 
@@ -69,10 +69,11 @@ fac(N) -> N * fac(N-1).
 
 handle_info(write_record, State) ->
     Ran = random:uniform(),       %% 0..1
-    X = round(50*Ran),
+    X = round(20*Ran)+1,
     FX = fac(X), 
     imem_test_writer:write_test_record(X,FX),
-    erlang:send_after(400, self(), write_record),
+    erlang:send_after(1000, self(), write_record),
+    % erlang:send(self(), write_record),
     {noreply, State}.
 
 terminate(_Reason, _State) -> ok.
@@ -95,7 +96,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 %     X = N,
 %     FX = L2+L1, 
 %     imem_test_writer:write_test_record(X,FX),
-%     erlang:send_after(800, self(), write_record),
+%     erlang:send_after(500, self(), write_record),
 %     {noreply, #state1{fib_2=L1, fib_1=FX, n=N+1}}.
 
 
