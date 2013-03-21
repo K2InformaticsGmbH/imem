@@ -25,8 +25,11 @@
 		]).
 
 start_srv(HostIf, Port) when is_integer(Port) ->
-    {ok, IfIpAddr} = inet:getaddr(HostIf, inet),
-    gen_server:call(?MODULE, {start_listen, IfIpAddr, Port}).
+    case inet:getaddr(HostIf, inet) of
+        {error, Error} -> ?Log("[ERROR] not started ~p~n", [Error]);
+        {ok, IfIpAddr} ->
+            gen_server:call(?MODULE, {start_listen, IfIpAddr, Port})
+    end.
 
 stop_srv() -> gen_server:call(?MODULE, {stop_listen}).
 
@@ -41,6 +44,7 @@ init(Params) ->
     {_, ListenPort} = lists:keyfind(tcp_port,1,Params),
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
+            ?Log("~p [ERROR] not started ~p~n", [self(), Reason]),
             {stop, Reason};
         {ok, ListenIf} when is_integer(ListenPort) ->
             case gen_tcp:listen(ListenPort, [binary, {packet, 0}, {active, false}, {ip, ListenIf}]) of
