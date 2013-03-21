@@ -21,8 +21,8 @@
         , build_sort_fun/2
         , build_sort_spec/2
         , filter_spec_where/3
-        , sort_spec_order/2
-        , sort_spec_fun/2
+        , sort_spec_order/3
+        , sort_spec_fun/3
         ]).
 
 parse(Statement) when is_list(Statement) ->
@@ -491,6 +491,8 @@ filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree) ->
     FCond = filter_condition(ColF, ColMaps),
     filter_spec_where({FType,ColFs}, ColMaps, WhereTree, FCond). 
 
+filter_spec_where({_FType,[]}, _ColMaps, [], LeftTree) ->
+    LeftTree;
 filter_spec_where({_FType,[]}, _ColMaps, WhereTree, LeftTree) ->
     {'and', LeftTree, WhereTree};
 filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree, LeftTree) ->
@@ -512,26 +514,61 @@ filter_field_value(_Tag,integer,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,float,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,_Type,_Len,_Prec,_Def,Val) -> imem_datatype:add_squotes(Val).    
 
-sort_spec_order([],_) -> [];
-sort_spec_order(SortSpec,ColMaps) ->    
-    [sort_order(Ti,Ci,Direction,ColMaps) || {Ti,Ci,Direction} <- SortSpec].
+sort_spec_order([],_,_) -> [];
+sort_spec_order(SortSpec,FullMaps,ColMaps) ->
+    sort_spec_order(SortSpec,FullMaps,ColMaps,[]).
 
-sort_order(Ti,Ci,Direction,ColMaps) ->
-    case [{S,T,N} || #ddColMap{tind=Tind,cind=Cind,schema=S,table=T,name=N} <- ColMaps, Tind==Ti, Cind==Ci] of
+sort_spec_order([],_,_,Acc) -> 
+    lists:reverse(Acc);        
+sort_spec_order([SS|SortSpecs],FullMaps,ColMaps, Acc) ->
+    sort_spec_order(SortSpecs,FullMaps,ColMaps,[sort_order(SS,FullMaps)|Acc]).
+
+sort_order({Ti,Ci,Direction},FullMaps) ->
+    %% SortSpec given referencing FullMap Ti,Ci    
+    case [{S,T,N} || #ddColMap{tind=Tind,cind=Cind,schema=S,table=T,name=N} <- FullMaps, Tind==Ti, Cind==Ci] of
         [QN] -> {list_to_binary(field_name(QN)),list_to_binary(atom_to_list(Direction))};
-        Else -> ?ClientError({"Bad sort field qualified name", Else})
+        _ ->    ?ClientError({"Bad sort field reference", {Ti,Ci}})
+    end;
+sort_order({Cp,Direction},ColMaps) when is_integer(Cp) ->
+    %% SortSpec given referencing ColMap position    
+    #ddColMap{schema=S,table=T,name=N} = lists:nth(Cp,ColMaps),
+    {list_to_binary(field_name({S,T,N})),list_to_binary(atom_to_list(Direction))};
+sort_order({CName,Direction},FullMaps) ->
+    %% SortSpec given referencing FullMap alias    
+    case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
+        #ddColMap{schema=S,table=T,name=N} ->
+            {list_to_binary(field_name({S,T,N})),list_to_binary(atom_to_list(Direction))};
+        _ -> 
+            ?ClientError({"Bad sort field name", CName})
     end.
 
-sort_spec_fun([],_) -> 
+sort_spec_fun([],_,_) -> 
     fun(_X) -> {} end;
-sort_spec_fun(SortSpec,ColMap) ->    
-    SortFuns = [sort_fun_any(Ti,Ci,Direction,ColMap) || {Ti,Ci,Direction} <- SortSpec],
+sort_spec_fun(SortSpec,FullMaps,ColMaps) ->
+    SortFuns = sort_spec_fun(SortSpec,FullMaps,ColMaps,[]),
     fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end.
 
-sort_fun_any(Ti,Ci,Direction,ColMaps) ->
-    case [Type || #ddColMap{tind=Tind,cind=Cind,type=Type} <- ColMaps, Tind==Ti, Cind==Ci] of
+sort_spec_fun([],_,_,Acc) -> lists:reverse(Acc);
+sort_spec_fun([SS|SortSpecs],FullMaps,ColMaps,Acc) ->
+    sort_spec_fun(SortSpecs,FullMaps,ColMaps,[sort_fun_any(SS,FullMaps,ColMaps)|Acc]).
+
+sort_fun_any({Ti,Ci,Direction},FullMaps,_) ->
+    %% SortSpec given referencing FullMap Ti,Ci    
+    case [Type || #ddColMap{tind=Tind,cind=Cind,type=Type} <- FullMaps, Tind==Ti, Cind==Ci] of
         [Typ] ->    sort_fun(Typ,Ti,Ci,Direction);
         Else ->     ?ClientError({"Bad sort field type", Else})
+    end;
+sort_fun_any({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
+    %% SortSpec given referencing ColMap position    
+    #ddColMap{tind=Ti,cind=Ci,type=Type} = lists:nth(Cp,ColMaps),
+    sort_fun(Type,Ti,Ci,Direction);
+sort_fun_any({CName,Direction},FullMaps,_) ->
+    %% SortSpec given referencing FullMap alias    
+    case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
+        #ddColMap{tind=Ti,cind=Ci,type=Type} ->
+            sort_fun(Type,Ti,Ci,Direction);
+        Else ->     
+            ?ClientError({"Bad sort field", Else})
     end.
 
 sort_fun(integer,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
@@ -733,18 +770,18 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsF, {wt})),
         ?Log("success ~p~n", [filter_spec_where]),
 
-        ?assertEqual([], sort_spec_order([], ColsF)),
+        ?assertEqual([], sort_spec_order([], ColsF, ColsF)),
         SA = {1,1,'desc'},
         OA = {<<"Imem.meta_table_1.a">>,<<"desc">>},
-        ?assertEqual([OA], sort_spec_order([SA], ColsF)),
+        ?assertEqual([OA], sort_spec_order([SA], ColsF, ColsF)),
         SB = {1,2,'asc'},
         OB = {<<"meta_table_1.b1">>,<<"asc">>},
-        ?assertEqual([OB], sort_spec_order([SB], ColsF)),
+        ?assertEqual([OB], sort_spec_order([SB], ColsF, ColsF)),
         SC = {1,3,'desc'},
         OC = {<<"c1">>,<<"desc">>},
-        ?assertEqual([OC], sort_spec_order([SC], ColsF)),
-        ?assertEqual([OC,OA], sort_spec_order([SC,SA], ColsF)),
-        ?assertEqual([OB,OC,OA], sort_spec_order([SB,SC,SA], ColsF)),
+        ?assertEqual([OC], sort_spec_order([SC], ColsF, ColsF)),
+        ?assertEqual([OC,OA], sort_spec_order([SC,SA], ColsF, ColsF)),
+        ?assertEqual([OB,OC,OA], sort_spec_order([SB,SC,SA], ColsF, ColsF)),
         ?Log("success ~p~n", [sort_spec_order]),
 
         ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}

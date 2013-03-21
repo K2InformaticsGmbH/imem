@@ -219,9 +219,9 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #stat
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
     % ?Log("~p - SelectSections ~p~n", [?MODULE, SelectSections]),
     Reply = try
-        NewSortFun = imem_sql:sort_spec_fun(SortSpec, FullMaps),
+        NewSortFun = imem_sql:sort_spec_fun(SortSpec, FullMaps, ColMaps),
         % ?Log("~p - NewSortFun ~p~n", [?MODULE, NewSortFun]),
-        OrderBy = imem_sql:sort_spec_order(SortSpec, FullMaps),
+        OrderBy = imem_sql:sort_spec_order(SortSpec, FullMaps, ColMaps),
         % ?Log("~p - OrderBy ~p~n", [?MODULE, OrderBy]),
         Filter =  imem_sql:filter_spec_where(FilterSpec, ColMaps, WhereTree),
         % ?Log("~p - Filter ~p~n", [?MODULE, Filter]),
