@@ -64,7 +64,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
     % ?Log("JoinSpecs: ~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
-    SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap),
+    SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
     Statement = Stmt#statement{
                     stmtParse = {select, SelectSections},
                     tables=Tables, fullMaps=FullMap,

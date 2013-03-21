@@ -19,7 +19,7 @@
         , operand_member/2
         , un_escape_sql/1
         , build_sort_fun/2
-        , build_sort_spec/2
+        , build_sort_spec/3
         , filter_spec_where/3
         , sort_spec_order/3
         , sort_spec_fun/3
@@ -443,28 +443,31 @@ build_sort_fun(SelectSections,FullMap) ->
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
     end.
 
-build_sort_spec(SelectSections,FullMap) ->
+build_sort_spec(SelectSections,FullMaps,ColMaps) ->
     case lists:keyfind('order by', 1, SelectSections) of
         {_, []} ->      [];
         {_, Sorts} ->   % ?Log("Sorts  : ~p~n", [Sorts]),
-                        [sort_spec_item(Name,Direction,FullMap) || {Name,Direction} <- Sorts];
+                        [sort_spec_item(Name,Direction,FullMaps,ColMaps) || {Name,Direction} <- Sorts];
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
     end.
 
-sort_spec_item(Name,<<>>,FullMap) ->
-    sort_spec_item(Name,<<"asc">>,FullMap);
-sort_spec_item(Name,Direction,FullMap) ->
+sort_spec_item(Name,<<>>,FullMaps,ColMaps) ->
+    sort_spec_item(Name,<<"asc">>,FullMaps,ColMaps);
+sort_spec_item(Name,Direction,FullMaps,ColMaps) ->
     U = undefined,
     ML = case imem_sql:field_qname(Name) of
-        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
-        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMaps, Nam==N];
+        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMaps, (Nam==N), (Tab==T1)];
+        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMaps, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
         {} ->       []
     end,
     case length(ML) of
         0 ->    ?ClientError({"Bad sort expression", Name});
-        1 ->    #ddColMap{tind=Ti, cind=Ci} = hd(ML),
-                {Ti,Ci,list_to_atom(binary_to_list(Direction))};
+        1 ->    #ddColMap{tind=Ti,cind=Ci,alias=A} = hd(ML),
+                case [Cp || {Cp,#ddColMap{tind=Tind,cind=Cind}} <- lists:zip(lists:seq(1,length(ColMaps)),ColMaps), Tind==Ti, Cind==Ci] of
+                    [CP|_] ->   {CP,list_to_atom(binary_to_list(Direction))};
+                     _ ->       {A,list_to_atom(binary_to_list(Direction))}
+                end;
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
 
