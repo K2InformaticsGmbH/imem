@@ -1497,7 +1497,7 @@ test_with_or_without_sec(IsSec) ->
         ?Log("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
         ?Log("StmtCols8 ~p~n", [SR8#stmtResult.stmtCols]),
         ?Log("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
-        ?assertEqual([{1,3,desc}], SR8#stmtResult.sortSpec),
+        ?assertEqual([{2,desc}], SR8#stmtResult.sortSpec),
         try
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
