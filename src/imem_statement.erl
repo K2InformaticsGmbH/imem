@@ -157,15 +157,15 @@ update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, none) ->
     update_cursor_prepare(SKey, Pid, IsSec, none);
 update_cursor_execute(SKey, Pid, IsSec, none) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, none}) of
-        %% ok ->       ok;
         KeyUpd when is_list(KeyUpd) -> KeyUpd;
         Error ->    throw(Error)
     end; 
 update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, optimistic) ->
     update_cursor_execute(SKey, Pid, IsSec, optimistic);
 update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
-    case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}) of
-        %% ok ->       ok;
+    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}),
+    ?Log("~p - update_cursor_execute ~p~n", [?MODULE, Result]),
+    case Result of
         KeyUpd when is_list(KeyUpd) -> KeyUpd;
         Error ->    throw(Error)
     end.
@@ -1006,8 +1006,8 @@ update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     UpdPlan.
 
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
-update_prepare(_IsSec, _SKey, [{Schema,Table,bag}|_], _ColMap, _CList, _Acc) ->
-    ?UnimplementedException({"Bag table cursor update not supported", {Schema,Table}});
+% update_prepare(_IsSec, _SKey, [{Schema,Table,bag}|_], _ColMap, _CList, _Acc) ->
+%    ?UnimplementedException({"Bag table cursor update not supported", {Schema,Table}});
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), element(1,Recs)],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);

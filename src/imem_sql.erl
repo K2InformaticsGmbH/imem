@@ -246,7 +246,7 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
             ?ClientError({"Ambiguous column name", {Schema, Table, Name}});
         true ->         
             {Ti, Ci, S, T, Name, #ddColumn{type=Type, len=Len, prec=P, default=D}} = hd(Lmatch),
-            R = ((Ti > 1) or (Ci < 3)),
+            R = (Ti > 1),   %% Only first table is editable, key not editable -> (Ci < 3),
             Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;

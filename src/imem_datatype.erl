@@ -862,6 +862,8 @@ datetime_to_string(Datetime, Fmt) ->
 timestamp_to_string(TS) ->
     timestamp_to_string(TS,6,eu).
 
+timestamp_to_string(TS,0) ->
+    timestamp_to_string(TS,6,eu);
 timestamp_to_string(TS,Prec) ->
     timestamp_to_string(TS,Prec,eu).
 
