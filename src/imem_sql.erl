@@ -7,6 +7,8 @@
         , parse/1
         ]).
 
+-define(MaxChar,16#FFFFFF).
+
 -export([ field_qname/1
         , field_name/1
         , field_name/3
@@ -524,23 +526,23 @@ sort_spec_order(SortSpec,FullMaps,ColMaps) ->
 sort_spec_order([],_,_,Acc) -> 
     lists:reverse(Acc);        
 sort_spec_order([SS|SortSpecs],FullMaps,ColMaps, Acc) ->
-    sort_spec_order(SortSpecs,FullMaps,ColMaps,[sort_order(SS,FullMaps)|Acc]).
+    sort_spec_order(SortSpecs,FullMaps,ColMaps,[sort_order(SS,FullMaps,ColMaps)|Acc]).
 
-sort_order({Ti,Ci,Direction},FullMaps) ->
+sort_order({Ti,Ci,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap Ti,Ci    
     case [{S,T,N} || #ddColMap{tind=Tind,cind=Cind,schema=S,table=T,name=N} <- FullMaps, Tind==Ti, Cind==Ci] of
-        [QN] -> {list_to_binary(field_name(QN)),list_to_binary(atom_to_list(Direction))};
+        [QN] -> {list_to_binary(field_name(QN)),Direction};
         _ ->    ?ClientError({"Bad sort field reference", {Ti,Ci}})
     end;
-sort_order({Cp,Direction},ColMaps) when is_integer(Cp) ->
+sort_order({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position    
     #ddColMap{schema=S,table=T,name=N} = lists:nth(Cp,ColMaps),
-    {list_to_binary(field_name({S,T,N})),list_to_binary(atom_to_list(Direction))};
-sort_order({CName,Direction},FullMaps) ->
+    {list_to_binary(field_name({S,T,N})),Direction};
+sort_order({CName,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap alias    
     case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
         #ddColMap{schema=S,table=T,name=N} ->
-            {list_to_binary(field_name({S,T,N})),list_to_binary(atom_to_list(Direction))};
+            {list_to_binary(field_name({S,T,N})),Direction};
         _ -> 
             ?ClientError({"Bad sort field name", CName})
     end.
@@ -562,13 +564,15 @@ sort_fun_any({Ti,Ci,Direction},FullMaps,_) ->
         Else ->     ?ClientError({"Bad sort field type", Else})
     end;
 sort_fun_any({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
-    %% SortSpec given referencing ColMap position    
+    %% SortSpec given referencing ColMap position
     #ddColMap{tind=Ti,cind=Ci,type=Type} = lists:nth(Cp,ColMaps),
+    ?Log("sort on col position ~p Ti=~p Ci=~p ~p~n",[Cp,Ti,Ci,lists:nth(Cp,ColMaps)]),    
     sort_fun(Type,Ti,Ci,Direction);
 sort_fun_any({CName,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap alias    
     case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
         #ddColMap{tind=Ti,cind=Ci,type=Type} ->
+            ?Log("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
             sort_fun(Type,Ti,Ci,Direction);
         Else ->     
             ?ClientError({"Bad sort field", Else})
@@ -610,6 +614,15 @@ sort_fun(ipadr,Ti,Ci,<<"desc">>) ->
                 {-A,-B,-C,-D};
             {A,B,C,D,E,F,G,H} when is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
                 {-A,-B,-C,-D,-E,-F,-G,-H};
+            _ ->
+                element(Ci,element(Ti,X))
+        end
+    end;
+sort_fun(string,Ti,Ci,<<"desc">>) -> 
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            [H|T] when is_integer(H) ->
+                [ -Item || Item <- [H|T]] ++ [?MaxChar];
             _ ->
                 element(Ci,element(Ti,X))
         end
