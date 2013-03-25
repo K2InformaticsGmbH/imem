@@ -467,8 +467,8 @@ sort_spec_item(Name,Direction,FullMaps,ColMaps) ->
         0 ->    ?ClientError({"Bad sort expression", Name});
         1 ->    #ddColMap{tind=Ti,cind=Ci,alias=A} = hd(ML),
                 case [Cp || {Cp,#ddColMap{tind=Tind,cind=Cind}} <- lists:zip(lists:seq(1,length(ColMaps)),ColMaps), Tind==Ti, Cind==Ci] of
-                    [CP|_] ->   {CP,list_to_atom(binary_to_list(Direction))};
-                     _ ->       {A,list_to_atom(binary_to_list(Direction))}
+                    [CP|_] ->   {CP,Direction};
+                     _ ->       {A,Direction}
                 end;
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
@@ -787,13 +787,13 @@ test_with_or_without_sec(IsSec) ->
         ?Log("success ~p~n", [filter_spec_where]),
 
         ?assertEqual([], sort_spec_order([], ColsF, ColsF)),
-        SA = {1,1,'desc'},
+        SA = {1,1,<<"desc">>},
         OA = {<<"Imem.meta_table_1.a">>,<<"desc">>},
         ?assertEqual([OA], sort_spec_order([SA], ColsF, ColsF)),
-        SB = {1,2,'asc'},
+        SB = {1,2,<<"asc">>},
         OB = {<<"meta_table_1.b1">>,<<"asc">>},
         ?assertEqual([OB], sort_spec_order([SB], ColsF, ColsF)),
-        SC = {1,3,'desc'},
+        SC = {1,3,<<"desc">>},
         OC = {<<"c1">>,<<"desc">>},
         ?assertEqual([OC], sort_spec_order([SC], ColsF, ColsF)),
         ?assertEqual([OC,OA], sort_spec_order([SC,SA], ColsF, ColsF)),
