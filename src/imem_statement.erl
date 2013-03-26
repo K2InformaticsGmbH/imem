@@ -1299,7 +1299,7 @@ test_with_or_without_sec(IsSec) ->
         [4,upd,{{def,"12",12},{}},"112",12]     %% update {def,"12","'12'"} to {def,"112","'12'"}
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)),
-        ChangedKeys2 = update_cursor_execute(SKey, SR1, IsSec, optimistic),        
+        update_cursor_execute(SKey, SR1, IsSec, optimistic),        
         TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         ?Log("changed table~n~p~n", [TableRows2]),
         ?assert(TableRows1 /= TableRows2),
