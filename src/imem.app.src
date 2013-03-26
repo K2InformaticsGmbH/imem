@@ -16,6 +16,8 @@
          {mnesia_timeout, 30000},
          % {mnesia_bulk_sleep_time, 501},
          {default_admin_pswd, <<"change_on_install">>},
+         {node_shard,node_shard_fun},
+         {node_shard_fun,"fun(N) -> imem_meta:host_name(N) -- \"msk2e\" end"},
          {if_mod, imem_sec},
          {if_sec, true},
          {servers, [

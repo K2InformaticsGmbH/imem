@@ -34,10 +34,13 @@
         , schema/1
         , system_id/0
         , data_nodes/0
+        , host_fqdn/1
+        , host_name/1
+        , node_name/1
+        , node_hash/1
         , all_tables/0
         , tables_starting_with/1
         , node_shard/0
-        , node_shard/1
         , physical_table_name/1
         , physical_table_names/1
         , table_type/1
@@ -113,6 +116,7 @@ start_link(Params) ->
 init(_Args) ->
     ?Log("~p starting...~n", [?MODULE]),
     Result = try
+        application:set_env(imem, node_shard, node_shard()),
         catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
         check_table(ddTable),
         check_table_columns(ddTable, record_info(fields, ddTable)),
@@ -135,6 +139,7 @@ init(_Args) ->
                         {stop, "Insufficient/invalid resources for start"}
     end,
     Result.
+
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -545,10 +550,56 @@ all_tables() ->
     imem_if:all_tables().
 
 node_shard() ->
-    node_shard(node()).
+    case application:get_env(imem, node_shard) of
+        {ok,NS} when is_list(NS) ->      NS;
+        {ok,NI} when is_integer(NI) ->   integer_to_list(NI);
+        undefined ->                     node_hash(node());    
+        {ok,node_shard_fun} ->  
+            try 
+                node_shard_value(application:get_env(imem, node_shard_fun),node())
+            catch
+                _:_ ->  ?Log("bad config parameter ~p~n", [node_shard_fun]),
+                        "nohost"
+            end;
+        {ok,host_name} ->                host_name(node());    
+        {ok,host_fqdn} ->                host_fqdn(node());    
+        {ok,node_name} ->                node_name(node());    
+        {ok,node_hash} ->                node_hash(node());    
+        {ok,NA} when is_atom(NA) ->      atom_to_list(NA);
+        Else ->     ?Log("bad config parameter ~p ~p~n", [node_shard, Else]),
+                    node_hash(node())
+    end.
 
-node_shard(Node) when is_atom(Node) ->
+node_shard_value({ok,FunStr},Node) ->
+    ?Log("node_shard calculated for ~p~n", [FunStr]),
+    Code = case [lists:last(string:strip(FunStr))] of
+        "." -> FunStr;
+        _ -> FunStr ++ "."
+    end,
+    {ok,ErlTokens,_}=erl_scan:string(Code),    
+    {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
+    {value,Value,_}=erl_eval:exprs(ErlAbsForm,[]),    
+    Result = Value(Node),
+    ?Log("node_shard_value ~p~n", [Result]),
+    Result.
+
+host_fqdn(Node) when is_atom(Node) -> 
+    NodeStr = atom_to_list(Node),
+    [_,Fqdn] = string:tokens(NodeStr, "@"),
+    Fqdn.
+
+host_name(Node) when is_atom(Node) -> 
+    [Host|_] = string:tokens(host_fqdn(Node), "."),
+    Host.
+
+node_name(Node) when is_atom(Node) -> 
+    NodeStr = atom_to_list(Node),
+    [Name,_] = string:tokens(NodeStr, "@"),
+    Name.
+
+node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
+
 
 table_type({_Schema,Table}) ->
     table_type(Table);          %% ToDo: may depend on schema
@@ -817,8 +868,8 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
         
         LogTable = physical_table_name(ddLog@),
-        ?assertEqual([LogTable],physical_table_names(ddLog@)),
-        ?assertEqual([LogTable],physical_table_names("ddLog@")),
+        ?assert(lists:member(LogTable,physical_table_names(ddLog@))),
+        ?assert(lists:member(LogTable,physical_table_names("ddLog@"))),
 
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
