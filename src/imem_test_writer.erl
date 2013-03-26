@@ -14,7 +14,7 @@
        ).
 -define(ddTest, [timestamp,integer,integer,float,string]).
 
--record(state, {}).
+-record(state, {wait = 1000}).
 
 % gen_server API calls
 
@@ -49,14 +49,14 @@ write_test_record(X,FX) ->
 
 % gen_server behavior callbacks
 
-init(_Args) ->
+init(Wait) ->
     ?Log("~p starting...~n", [?MODULE]),
     imem_meta:create_check_table(ddTest, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set}], system),
     imem_meta:write(ddTest, #ddTest{time=erlang:now(), comment="start"}),
     random:seed(now()),
-    erlang:send_after(800, self(), write_record),    
+    erlang:send_after(Wait, self(), write_record),    
     ?Log("~p started!~n", [?MODULE]),
-    {ok,#state{}}.
+    {ok,#state{wait=Wait}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -67,13 +67,12 @@ handle_cast(_Request, State) ->
 fac(0) -> 1;
 fac(N) -> N * fac(N-1). 
 
-handle_info(write_record, State) ->
+handle_info(write_record, #state{wait=Wait}=State) ->
     Ran = random:uniform(),       %% 0..1
-    X = round(20*Ran)+1,
+    X = round(19*Ran)+1,
     FX = fac(X), 
     imem_test_writer:write_test_record(X,FX),
-    erlang:send_after(1000, self(), write_record),
-    % erlang:send(self(), write_record),
+    erlang:send_after(Wait, self(), write_record),
     {noreply, State}.
 
 terminate(_Reason, _State) -> ok.

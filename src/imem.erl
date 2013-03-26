@@ -12,6 +12,7 @@
 -export([start/0
         , stop/0
         , start_test_writer/1
+        , stop_test_writer/0
         ]).
 
 %% ====================================================================
@@ -30,3 +31,8 @@ start_test_writer(Param) ->
                                                    , permanent, ImemTimeout, worker, [imem_test_writer]}),
     [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)],
     {ok, SupPid}.
+
+stop_test_writer() ->
+    ok = supervisor:terminate_child(imem_sup, imem_test_writer),
+    ok = supervisor:delete_child(imem_sup, imem_test_writer),
+    [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)].
