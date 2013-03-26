@@ -13,8 +13,7 @@
          {mnesia_schema_name, 'Imem'},
          {mnesia_wait_table_config, {30, 30000}},
          {mnesia_node_type, undefined},
-         {mnesia_timeout, 30000},
-         % {mnesia_bulk_sleep_time, 501},
+         {imem_timeout, 30000},
          {default_admin_pswd, <<"change_on_install">>},
          {node_shard,node_shard_fun},
          {node_shard_fun,"fun(N) -> imem_meta:host_name(N) -- \"msk2e\" end"},
@@ -24,7 +23,6 @@
             {if_server, {imem_if, []}},
             {meta_server, {imem_meta, []}},
             {seco_server, {imem_seco, []}},
-            {test_writer, {imem_test_writer, []}},
             {tcp_server, {imem_server, [
             	            {tcp_ip, localhost},
             	            {tcp_port, 8124}
