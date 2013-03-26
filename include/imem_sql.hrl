@@ -1,7 +1,8 @@
 
 -define(ComparisonOperators, ['==','/=','>=','=<','<','>']).	%% as supported here in matchspecs 
 
--define(NoFilter,{undefined,[]}).   %% empty filter spec $$$ must macth macro in erlimem_fsm.erl $$$
+-define(NoFilter,{undefined,[]}).   %% empty filter spec $$$ also used in erlimem_fsm.erl $$$
+-define(NoMoreFilter,{_,[]}).       %% empty filter spec $$$ also used in erlimem_fsm.erl $$$
 
 -record(scanSpec,                                   %% scanner specification 
                     { sspec = []                	::list()            %% scan matchspec for raw scan  [{MatchHead, Guards, [Result]}]

@@ -490,15 +490,15 @@ sort_fun_item(Name,Direction,FullMap) ->
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
 
-filter_spec_where(?NoFilter, _, WhereTree) -> 
+filter_spec_where(?NoMoreFilter, _, WhereTree) -> 
     WhereTree;
 filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree) ->
     FCond = filter_condition(ColF, ColMaps),
     filter_spec_where({FType,ColFs}, ColMaps, WhereTree, FCond). 
 
-filter_spec_where(?NoFilter, _ColMaps, [], LeftTree) ->
+filter_spec_where(?NoMoreFilter, _, [], LeftTree) ->
     LeftTree;
-filter_spec_where(?NoFilter, _ColMaps, WhereTree, LeftTree) ->
+filter_spec_where(?NoMoreFilter, _, WhereTree, LeftTree) ->
     {'and', LeftTree, WhereTree};
 filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree, LeftTree) ->
     FCond = filter_condition(ColF, ColMaps),

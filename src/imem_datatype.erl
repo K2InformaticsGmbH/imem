@@ -482,8 +482,9 @@ string_to_timestamp(Val,6) ->
         _:_ ->  ?ClientError({"Data conversion format error",{timestamp,Val}})
     end;   
 string_to_timestamp(Val,0) ->
-    {Megas,Secs,_} = string_to_timestamp(Val,6),
-    {Megas,Secs,0};
+    % {Megas,Secs,_} = string_to_timestamp(Val,6),
+    % {Megas,Secs,0};
+    string_to_timestamp(Val,6);
 string_to_timestamp(Val,Prec) when Prec > 0 ->
     {Megas,Secs,Micros} = string_to_timestamp(Val,6),
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
