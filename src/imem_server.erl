@@ -17,20 +17,19 @@ start_link(Params) ->
             ?Log("~p [ERROR] not started ~p~n", [self(), Reason]),
             {error, Reason};
         {ok, ListenIf} when is_integer(ListenPort) ->
+            ?Log("~p listening on ~p:~p~n", [self(), ListenIf, ListenPort]),
             ranch:start_listener(?MODULE, 1, ranch_tcp, [{ip, ListenIf}, {port, ListenPort}], ?MODULE, []);
         _ ->
             {stop, disabled}
     end.
 
-stop() -> ranch:stop_listener(?MODULE).
-
 start_link(ListenerPid, Socket, Transport, Opts) ->
     Pid = spawn_link(?MODULE, init, [ListenerPid, Socket, Transport, Opts]),
-    ?Log("~p acceptor spawning ~p~n", [self(), Pid]),
     {ok, Pid}.
  
 init(ListenerPid, Socket, Transport, _Opts = []) ->
-    ?Log("~p Connect ~p~n", [self(), Socket]),
+    {ok, {Address, Port}} = inet:peername(Socket),
+    ?Log("~p received connection from ~p:~p~n", [self(), Address, Port]),
     ok = ranch:accept_ack(ListenerPid),
     loop(Socket, Transport, <<>>).
  
