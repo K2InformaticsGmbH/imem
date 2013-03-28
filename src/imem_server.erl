@@ -7,6 +7,7 @@
         , start_link/1
         , init/4
         , send_resp/2
+        , mfa/2
         ]).
  
 start_link(Params) ->
@@ -43,34 +44,46 @@ loop(Socket, Transport, Buf) ->
                     ?Log(" ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
                     loop(Socket, Transport, NewBuf);
                 Term ->
-                    case Term of
-                        [Mod,Fun|Args] ->
-                            % replace penultimate pid wih socket (if present)
-                            NewArgs = case Fun of
-                                fetch_recs_async -> lists:sublist(Args, length(Args)-1) ++ [{Transport, Socket}];
-                                _ -> Args
-                            end,
-                            ApplyRes = try
-                                           apply(Mod,Fun,NewArgs)
-                                       catch 
-                                           _Class:Reason ->
-                                               {error, Reason}
-                                       end,
-                            %?Log("MFA -> R -- ~p:~p(~p) -> ~p~n", [Mod,Fun,NewArgs,ApplyRes]),
-                            %?Log("MF -> R -- ~p:~p -> ~p~n", [Mod,Fun,ApplyRes]),
-                            send_resp(ApplyRes, {Transport, Socket})
-                    end,
+                    mfa(Term, {Transport, Socket, element(1, Term)}),
                     TSize = byte_size(term_to_binary(Term)),
                     RestSize = byte_size(NewBuf)-TSize,
                     loop(Socket, Transport, binary_part(NewBuf, {TSize, RestSize}))
             end;
         close ->
+            ?Log("closing socket...~n", [Socket]),
             Transport:close(Socket)
     end.
 
-send_resp(Resp, {Transport, Socket}) ->
-    %?Log("Async Tx ~p~n", [Resp]),
-    RespBin = term_to_binary(Resp),
+mfa({Ref, Mod, Fun, Args}, Transport) ->
+    NewArgs = args(Ref,Fun,Args,Transport),
+    ApplyRes = try
+                   apply(Mod,Fun,NewArgs)
+               catch 
+                   _Class:Reason ->
+                       {error, Reason}
+               end,
+    %?Log("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
+    %?Log("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
+    send_resp(ApplyRes, Transport),
+    ok.
+
+args(R, fetch_recs_async, A, {_,_,R} = T) ->
+    Args = lists:sublist(A, length(A)-1) ++ [T],
+    %?Log("fetch_recs_async, Args for TCP~n ~p~n", [Args]),
+    Args;
+args(R, fetch_recs_async, A, {_,R} = T) ->
+    Args = lists:sublist(A, length(A)-1) ++ [T],
+    %?Log("fetch_recs_async, Args for direct~n ~p~n", [Args]),
+    Args;
+args(_, _F, A, _) ->
+    %?Log("~p(~p)~n", [_F, A]),
+    A.
+
+send_resp(Resp, {Transport, Socket, Ref}) ->
+    RespBin = term_to_binary({Ref, Resp}),
+    %?Log("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
+    %%PayloadSize = byte_size(RespBin),
+    %%Transport:send(Socket, << 0,0,0,0,1,1,1,1, PayloadSize:32, RespBin/binary >>);
     Transport:send(Socket, RespBin);
-send_resp(Resp, Pid) when is_pid(Pid) ->
-    Pid ! Resp.
+send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
+    Pid ! {Ref, Resp}.
