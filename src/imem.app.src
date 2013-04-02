@@ -20,14 +20,14 @@
          {if_mod, imem_sec},
          {if_sec, true},
          {servers, [
-            {if_server, {imem_if, []}},
-            {meta_server, {imem_meta, []}},
-            {seco_server, {imem_seco, []}},
-            {tcp_server, {imem_server, [
-            	            {tcp_ip, localhost},
-            	            {tcp_port, 8124}
-                         ]}
-            }
+              {if_server, {imem_if, []}}
+            , {meta_server, {imem_meta, []}}
+            , {seco_server, {imem_seco, []}}
+            %, {tcp_server, {imem_server, [
+            %	            {tcp_ip, localhost},
+            %	            {tcp_port, 8124}
+            %             ]}
+            %  }
          ]}
         ]}
  ]}.
