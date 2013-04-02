@@ -14,7 +14,6 @@
         , all_tables/1
         , tables_starting_with/2
         , node_shard/1
-        , node_shard/2
         , physical_table_name/2
         , physical_table_names/2
         , table_type/2
@@ -229,9 +228,6 @@ atoms_starting_with(Prefix,[A|Atoms],Acc) ->
 
 node_shard(_SKey) ->
     imem_meta:node_shard().
-
-node_shard(_SKey,Node) ->
-    imem_meta:node_shard(Node).
 
 table_type(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of

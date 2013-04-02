@@ -150,7 +150,7 @@ schema(Node) ->
     list_to_atom(Schema).
 
 system_id() ->
-    lists:flatten(atom_to_list(schema()),"@",atom_to_list(node())).
+    lists:flatten(atom_to_list(schema()) ++ "@",atom_to_list(node())).
 
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 

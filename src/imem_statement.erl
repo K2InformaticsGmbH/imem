@@ -164,7 +164,7 @@ update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, optimistic) ->
     update_cursor_execute(SKey, Pid, IsSec, optimistic);
 update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
     Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}),
-    ?Log("update_cursor_execute ~p~n", [Result]),
+    % ?Log("update_cursor_execute ~p~n", [Result]),
     case Result of
         KeyUpd when is_list(KeyUpd) -> KeyUpd;
         Error ->    throw(Error)
@@ -185,7 +185,7 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
     {Reply, UpdatePlan1} = try
         {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.colMaps, ChangeList)}
     catch
-        _:Reason ->  {Reason, []}
+        _:Reason ->  {{error,Reason}, []}
     end,
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
@@ -209,7 +209,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
                 lists:map(Wrap, KeyUpdateRaw)
         end
     catch
-        _:Reason ->  Reason
+        _:Reason ->  {error,Reason}
     end,
     % ?Log("update_cursor_execute result ~p~n", [Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined
@@ -233,7 +233,7 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #stat
         % ?Log("NewSql ~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
     catch
-        _:Reason ->  Reason
+        _:Reason ->  {error,Reason}
     end,
     % ?Log("replace_sort result ~p~n", [Reply]),
     {reply, Reply, State};
@@ -1498,7 +1498,9 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
             ?assertEqual([{"11","11"},{"10","10"},{"3","3"},{"2","2"},{"1","1"}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
-            {ok, Sql8b, SF8b} = filter_and_sort(SKey, SR8, {}, [{1,2,<<"asc">>}], IsSec),
+            Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{1,2,<<"asc">>}], IsSec),
+            ?Log("Result8a ~p~n", [Result8a]),
+            {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{"1","1"},{"10","10"},{"11","11"},{"2","2"},{"3","3"}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
             ?Log("Sql8b ~p~n", [Sql8b]),
