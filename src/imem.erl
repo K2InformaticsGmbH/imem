@@ -24,6 +24,7 @@ start() ->
     application:start(?MODULE).
 
 stop()  ->
+    stop_tcp(),
     application:stop(?MODULE).
 
 

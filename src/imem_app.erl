@@ -67,5 +67,5 @@ start(_Type, StartArgs) ->
 %% Returns: any
 %% --------------------------------------------------------------------
 stop(_State) ->
-	?Log("Stopping ~p~n", [?MODULE]),
+	?Log("stopping ~p~n", [?MODULE]),
 	ok.

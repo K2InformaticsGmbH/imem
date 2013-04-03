@@ -1209,6 +1209,7 @@ setup() ->
 
 teardown(_SKey) -> 
     catch imem_meta:drop_table(def),
+    ?Log("test teardown....~n",[]),
     ?imem_test_teardown().
 
 db_test_() ->

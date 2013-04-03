@@ -624,7 +624,7 @@ setup() ->
 teardown(_) ->
     catch drop_table(imem_table_bag),
     catch drop_table(imem_table_123),
-    application:stop(imem).
+    imem:stop().
 
 db_test_() ->
     {

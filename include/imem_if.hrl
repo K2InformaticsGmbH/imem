@@ -48,11 +48,11 @@
 -define(imem_test_setup, fun() ->
       application:load(imem),
       application:set_env(imem, mnesia_node_type, disc),
-      application:start(imem)
+      imem:start()
     end
     ).
 
 -define(imem_test_teardown, fun() ->
-      application:stop(imem)
+      imem:stop()
     end
     ).
