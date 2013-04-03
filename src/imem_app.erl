@@ -42,11 +42,11 @@
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
-    % case application:start(ranch) of
-    %     ok -> ok;
-    %     {error, {already_started, ranch}} -> ok;
-    %     Err -> ?Log("ranch start failed ~p~n", [Err])
-    % end,
+    case application:start(ranch) of
+        ok -> ok;
+        {error, {already_started, ranch}} -> ok;
+        Err -> ?Log("ranch start failed ~p~n", [Err])
+    end,
     case application:get_env(erl_cluster_mgr) of
         {ok, undefined} -> ?Log("~p - CM not defined!~n", [?MODULE]);
         {ok, CMNode} ->

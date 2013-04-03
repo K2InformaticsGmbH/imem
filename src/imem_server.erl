@@ -86,6 +86,4 @@ send_resp(Resp, {Transport, Socket, Ref}) ->
     %%Transport:send(Socket, << 0,0,0,0,1,1,1,1, PayloadSize:32, RespBin/binary >>);
     Transport:send(Socket, RespBin);
 send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
-    Pid ! {Ref, Resp};
-send_resp(Resp, Pid) when is_pid(Pid) ->
-    Pid ! Resp.
+    Pid ! {Ref, Resp}.

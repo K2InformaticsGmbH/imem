@@ -85,23 +85,23 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
             gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
             ?ClientError({"Fetch timeout, increase timeout and retry",Timeout})
         end of
-            {Pid,{List, true}} ->   List;
-            {Pid,{List, false}} ->  
+            {_, {Pid,{List, true}}} ->   List;
+            {_, {Pid,{List, false}}} ->  
                 ?Log("fetch_recs too much data~n", []),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
                 ?ClientError({"Too much data, increase block size or receive in streaming mode",length(List)});
-            {Pid,{error, {'SystemException', Reason}}} ->
+            {_, {Pid,{error, {'SystemException', Reason}}}} ->
                 ?Log("fetch_recs exception ~p ~p~n", ['SystemException', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?SystemException(Reason);            
-            {Pid,{error, {'ClientError', Reason}}} ->
+            {_, {Pid,{error, {'ClientError', Reason}}}} ->
                 ?Log("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?ClientError(Reason);            
-            {Pid,{error, {'ClientError', Reason}}} ->
+            {_, {Pid,{error, {'ClientError', Reason}}}} ->
                 ?Log("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
-                ?ClientError(Reason);            
+                ?ClientError(Reason);
             Error ->
                 ?Log("fetch_recs bad async receive~n~p~n", [Error]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
@@ -1093,7 +1093,7 @@ receive_raw(Timeout,Acc) ->
             stop
         end of
         stop ->     lists:reverse(Acc);
-        Result ->   receive_raw(Timeout,[Result|Acc])
+        {_,Result} ->   receive_raw(Timeout,[Result|Acc])
     end.
 
 receive_recs(StmtResult, Complete) ->
@@ -1115,7 +1115,7 @@ receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->
                     [{StmtRef,[],Complete}];
                 [{StmtRef,{_,Complete}}|_] -> 
                     lists:reverse(Acc);
-                [{StmtRef,{L1,C1}}|_] ->      
+                [{StmtRef,{L1,C1}}|_] ->
                     throw({bad_complete,{StmtRef,{L1,C1}}});
                 Res ->                      
                     throw({bad_receive,lists:reverse(Res)})
@@ -1133,7 +1133,7 @@ receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->
                 StmtRefs ->
                     throw({bad_stmtref,lists:delete(StmtRef, StmtRefs)})
             end;
-        Result ->   
+        {_, Result} ->   
             receive_recs(StmtResult,Complete,Timeout,[Result|Acc])
     end.
 
@@ -1157,7 +1157,7 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                     [{StmtRef,[],Complete}];
                 [{StmtRef,{_,Complete}}|_] -> 
                     lists:reverse(Acc);
-                [{StmtRef,{L1,C1}}|_] ->      
+                [{StmtRef,{L1,C1}}|_] ->
                     throw({bad_complete,{StmtRef,{L1,C1}}});
                 Res ->                      
                     throw({bad_receive,lists:reverse(Res)})
@@ -1176,7 +1176,7 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                 StmtRefs ->
                     throw({bad_stmtref,lists:delete(StmtRef, StmtRefs)})
             end;
-        Result ->   
+        {_,Result} ->   
             receive_tuples(StmtResult,Complete,Timeout,[Result|Acc])
     end.
 
@@ -1450,10 +1450,10 @@ test_with_or_without_sec(IsSec) ->
             ?Log("second read success (async)~n", []),
             ?assertException(throw,
                 {'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},
-                fetch_recs_sort(SKey, SR5, self(), 1000, IsSec)
+                fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec)
             ),
             ?assertEqual(ok, fetch_close(SKey, SR5, IsSec)), % actually not needed here, fetch_recs does it
-            List5c = fetch_recs_sort(SKey, SR5, self(), 1000, IsSec),
+            List5c = fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec),
             ?assertEqual(length(List5b), length(List5c)),
             ?assertEqual(lists:sort(List5b), lists:sort(result_tuples(List5c,SR5#stmtResult.rowFun))),
             ?Log("third read success (sync)~n", [])
@@ -1618,7 +1618,7 @@ exec(SKey,Id, BS, IsSec, Sql) ->
     StmtResult.
 
 fetch_async(SKey, StmtResult, Opts, IsSec) ->
-    ?assertEqual(ok, fetch_recs_async(SKey, StmtResult#stmtResult.stmtRef, self(), Opts, IsSec)).
+    ?assertEqual(ok, fetch_recs_async(SKey, StmtResult#stmtResult.stmtRef, {self(), make_ref()}, Opts, IsSec)).
 
     % {M1,S1,Mic1} = erlang:now(),
     % {M2,S2,Mic2} = erlang:now(),
