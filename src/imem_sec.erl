@@ -88,6 +88,7 @@
         ]).
 
 -export([ have_table_permission/3   %% includes table ownership and readonly
+        , have_module_permission/3  
         , have_permission/2    
         ]).
 
@@ -548,7 +549,7 @@ admin_exec(SKey, imem_account, Function, Params) ->
 admin_exec(SKey, imem_role, Function, Params) ->
     admin_apply(SKey, imem_role, Function, Params, [manage_accounts, manage_system]);
 admin_exec(SKey, Module, Function, Params) ->
-    admin_apply(SKey, Module, Function, Params, [manage_system]).
+    admin_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}]).
 
 admin_apply(SKey, Module, Function, Params, Permissions) ->
     case imem_seco:have_permission(SKey, Permissions) of
@@ -589,6 +590,16 @@ have_table_permission(SKey, Table, Operation) ->
             Result
     end.      
 
+have_module_permission(SKey, Module, Operation) ->
+    case get_permission_cache(SKey, {module,Module,Operation}) of
+        true ->         true;
+        false ->        false;
+        no_exists ->
+            Result = imem_seco:have_permission(SKey, {module,Module,Operation}),
+            set_permission_cache(SKey, {module,Module,Operation}, Result),
+            Result
+    end.      
+
 %% ------- local private security extension for sql and tables (do not export!!) ------------
 
 seco_authorized(SKey) -> 
@@ -618,10 +629,10 @@ have_table_permission(SKey, {Schema,Table,_Alias}, Operation, Type) ->
 have_table_permission(_SKey, dual, select, _) ->  true;
 have_table_permission(_SKey, dual, _, _) ->  false;
 have_table_permission(SKey, Table, Operation, true) ->
-    imem_seco:have_permission(SKey, [manage_system_tables, {Table,Operation}]);
+    imem_seco:have_permission(SKey, [manage_system_tables, {table,Table,Operation}]);
 
 have_table_permission(SKey, {Schema,Table}, select, false) ->
-    case imem_seco:have_permission(SKey, [manage_user_tables, {Table,select}]) of
+    case imem_seco:have_permission(SKey, [manage_user_tables, {table,Table,select}]) of
         true ->     true;
         false ->    have_table_ownership(SKey,{Schema,Table}) 
     end;
@@ -634,7 +645,7 @@ have_table_permission(SKey, {Schema,Table}, Operation, false) ->
         [#ddTable{qname={Schema,Table}, readonly=false}] ->
             case have_table_ownership(SKey,{Schema,Table}) of
                 true ->     true;
-                false ->    imem_seco:have_permission(SKey, [manage_user_tables, {Table,Operation}])
+                false ->    imem_seco:have_permission(SKey, [manage_user_tables, {table,Table,Operation}])
             end;
         _ ->    false
     end;
