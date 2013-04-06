@@ -79,7 +79,8 @@
         , insert/2    
         , write/2           %% write single key
         , dirty_write/2
-        , delete/2          %% delete rows by key
+        , delete/2          %% delete row by key
+        , delete_object/2   %% delete single row in bag table 
         ]).
 
 -export([ update_prepare/3          %% stateless creation of update plan from change list
@@ -719,6 +720,11 @@ delete({_Schema,Table}, Key) ->
     delete(Table, Key);             %% ToDo: may depend on schema
 delete(Table, Key) ->
     imem_if:delete(physical_table_name(Table), Key).
+
+delete_object({_Schema,Table}, Row) ->
+    delete_object(Table, Row);             %% ToDo: may depend on schema
+delete_object(Table, Row) ->
+    imem_if:delete_object(physical_table_name(Table), Row).
 
 truncate_table({_Schema,Table}) ->
     truncate_table(Table);                %% ToDo: may depend on schema

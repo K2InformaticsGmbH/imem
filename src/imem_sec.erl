@@ -58,6 +58,7 @@
         , dirty_write/3    
         , write/3
         , delete/3
+        , delete_object/3
         , admin_exec/4
         ]).
 
@@ -462,6 +463,12 @@ dirty_write(SKey, Table, Row) ->
 delete(SKey, Table, Key) ->
     case have_table_permission(SKey, Table, delete) of
         true ->     imem_meta:delete(Table, Key);
+        false ->    ?SecurityException({"Delete unauthorized", SKey})
+    end.
+
+delete_object(SKey, Table, Row) ->
+    case have_table_permission(SKey, Table, delete) of
+        true ->     imem_meta:delete_object(Table, Row);
         false ->    ?SecurityException({"Delete unauthorized", SKey})
     end.
 

@@ -54,6 +54,7 @@
         , dirty_write/2
         , insert/2    
         , delete/2
+        , delete_object/2
         , update_tables/2
         ]).
 
@@ -345,6 +346,13 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
 
 delete(Table, Key) when is_atom(Table) ->
     Result = case transaction(delete,[{Table, Key}]) of
+        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
+        Res ->                      Res 
+    end,
+    return_atomic_ok(Result).
+
+delete_object(Table, Row) when is_atom(Table) ->
+    Result = case transaction(delete_object,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
         Res ->                      Res 
     end,
