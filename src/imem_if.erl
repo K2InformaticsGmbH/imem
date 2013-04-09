@@ -52,7 +52,6 @@
         , fetch_start/5
         , write/2
         , dirty_write/2
-        , insert/2    
         , delete/2
         , delete_object/2
         , update_tables/2
@@ -289,21 +288,6 @@ drop_index(Table, Column) when is_atom(Table) ->
 truncate_table(Table) when is_atom(Table) ->
     return_atomic_ok(mnesia:clear_table(Table)).
 
-insert(Table, Row) when is_atom(Table), is_tuple(Row) ->
-    Row1 = case element(1, Row) of
-        Table ->
-            [_|R] = tuple_to_list(Row),
-            R;
-        _ -> tuple_to_list(Row)
-    end,
-    insert(Table, Row1);
-insert(Table, Row) when is_atom(Table), is_list(Row) ->
-    RowLen = length(Row),
-    TableRowLen = length(mnesia:table_info(Table, attributes)),
-    case TableRowLen of 
-        RowLen ->   return_atomic_ok(transaction(write,[list_to_tuple([Table|Row])]));
-        _ ->        ?ClientError({"Wrong number of columns",RowLen})
-    end.
 
 read(Table) when is_atom(Table) ->
     Trans = fun() ->      
@@ -329,7 +313,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
         % ?Log("mnesia:dirty_write ~p ~p~n", [Table,Row]),
         mnesia:dirty_write(Table, Row)
     catch
-        exit:{aborted, {no_exists,_}} ->    ?ClientError({"Table does not exist",Table});
+        exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         _:Reason ->                         ?SystemException({"Mnesia dirty_write failure",Reason})
     end.
 
@@ -337,8 +321,8 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     % ?Log("mnesia:write ~p ~p~n", [Table,Row]),
     Result = case transaction(write,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->
-            ?Log("cannot write ~p to ~p~n", [Row,Table]),  
-            ?ClientError({"Table does not exist",Table}); 
+            % ?Log("cannot write ~p to ~p~n", [Row,Table]),  
+            ?ClientErrorNoLogging({"Table does not exist",Table}); 
         Res ->                      
             Res 
     end,
@@ -675,15 +659,15 @@ table_operations(_) ->
         ?Log("success ~p~n", [create_set_table]),
         ?assertEqual(0, table_size(imem_table_123)),
         ?Log("success ~p~n", [table_size_empty]),
-        ?assertEqual(ok, insert(imem_table_123, {"A","B","C"})),
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123,"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_123)),
-        ?Log("success ~p~n", [insert_table]),
-        ?assertEqual(ok, insert(imem_table_123, {"AA","BB","CC"})),
+        ?Log("success ~p~n", [write_table]),
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123,"AA","BB","CC"})),
         ?assertEqual(2, table_size(imem_table_123)),
-        ?Log("success ~p~n", [insert_table]),
-        ?assertEqual(ok, insert(imem_table_123, {"AA","BB","cc"})),
+        ?Log("success ~p~n", [write_table]),
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123,"AA","BB","cc"})),
         ?assertEqual(2, table_size(imem_table_123)),
-        ?Log("success ~p~n", [insert_table]),
+        ?Log("success ~p~n", [write_table]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
         ?Log("success ~p~n", [write_table]),
@@ -752,15 +736,15 @@ table_operations(_) ->
         ?assertEqual(ok, create_table(imem_table_bag, [a,b,c], [{type, bag}])),
         ?Log("success ~p~n", [create_bag_table]),
 
-        ?assertEqual(ok, insert(imem_table_bag, {"A","B","C"})),
+        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag,"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_bag)),
-        ?assertEqual(ok, insert(imem_table_bag, {"AA","BB","CC"})),
+        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag,"AA","BB","CC"})),
         ?assertEqual(2, table_size(imem_table_bag)),
-        ?assertEqual(ok, insert(imem_table_bag, {imem_table_bag,"AA","BB","cc"})),
+        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag,"AA","BB","cc"})),
         ?assertEqual(3, table_size(imem_table_bag)),
-        ?assertEqual(ok, insert(imem_table_bag, {imem_table_bag, "AAA","BB","CC"})),
+        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag, "AAA","BB","CC"})),
         ?assertEqual(4, table_size(imem_table_bag)),
-        ?assertEqual(ok, insert(imem_table_bag, {imem_table_bag, "AAA","BB","CC"})),
+        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag, "AAA","BB","CC"})),
         ?assertEqual(bag, table_info(imem_table_bag, type)),
         ?assertEqual(4, table_size(imem_table_bag)),
         ?Log("data in table ~p~n~p~n", [imem_table_bag, lists:sort(read(imem_table_bag))]),

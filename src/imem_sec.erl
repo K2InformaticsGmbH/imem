@@ -832,10 +832,10 @@ test(_) ->
         ?assertEqual([],tables_starting_with(SeCoUser,ddTable)),
         ?assertEqual([],tables_starting_with(SeCoAdmin,"akkahadöl_")),
 
-        ?assertEqual(ok, insert(SeCoUser, user_table_123, {"A","B","C"})),
+        ?assertEqual(ok, insert(SeCoUser, user_table_123, {user_table_123,"A","B","C"})),
         ?assertEqual(1, table_size(SeCoUser, user_table_123)),
         ?Log("success ~p~n", [insert_own_table]),
-        ?assertEqual(ok, insert(SeCoUser, user_table_123, {"AA","BB","CC"})),
+        ?assertEqual(ok, insert(SeCoUser, user_table_123, {user_table_123,"AA","BB","CC"})),
         ?assertEqual(2, table_size(SeCoUser, user_table_123)),
         ?Log("success ~p~n", [insert_own_table]),
         ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),

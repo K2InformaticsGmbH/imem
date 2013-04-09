@@ -42,6 +42,7 @@
         , tables_starting_with/1
         , node_shard/0
         , physical_table_name/1
+        , physical_table_name/2
         , physical_table_names/1
         , table_type/1
         , table_columns/1
@@ -66,6 +67,7 @@
 
 -export([ create_table/3
         , create_table/4
+        , create_partitioned_table/1
         , create_check_table/3
         , create_check_table/4
 		, drop_table/1
@@ -136,17 +138,64 @@ init(_Args) ->
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
-        Class:Reason -> ?Log("~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
+        Class:Reason -> ?Log("failed with ~p:~p~n", [Class,Reason]),
                         {stop, "Insufficient/invalid resources for start"}
     end,
     Result.
 
+create_partitioned_table(Name) when is_atom(Name) ->
+    gen_server:call(?MODULE, {create_partitioned_table, Name}). 
 
+handle_call({create_partitioned_table, Name}, _From, State) ->
+    case imem_if:read(ddTable,{schema(), Name}) of
+        [#ddTable{}] ->
+            % Table exists, may need to load it
+            case catch(check_table(Name)) of
+                ok ->       
+                    {reply, ok, State};
+                _ ->
+                    % ToDo: try to load table and wait for it
+                    case mnesia:wait_for_tables([Name], 10000) of
+                        ok ->   
+                            {reply, ok, State};
+                        Error ->            
+                            ?Log("Create partitioned table failed with ~p~n", [Error]),
+                            {reply, Error, State}
+                    end
+            end;
+        [] ->   
+            % Table does not exist, must create it similar to existing
+            NS = node_shard(),
+            case string:tokens(atom_to_list(Name), "@") of
+                [NameStr,NS] ->
+                    % choose template table name (name pattern with highest timestamp)
+                    {Prefix,_} = lists:split(length(NameStr)-10, NameStr),
+                    Tail = "@" ++ NS,
+                    LenNS = length(NameStr),
+                    Pred = fun(TN) -> (lists:nthtail(LenNS, atom_to_list(TN)) == Tail) end,
+                    Template = lists:last(lists:sort(lists:filter(Pred,tables_starting_with(Prefix)))),
+                    % find out ColumnsInfos, Opts, Owner from template table definition
+                    case imem_if:read(ddTable,{schema(), Template}) of
+                        [] ->   
+                            {reply, {error, {"Table template not found", Template}}, State}; 
+                        [#ddTable{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
+                            try
+                                create_table(Name, ColumnInfos, Opts, Owner),
+                                {reply, ok, State}
+                            catch
+                                _:Reason -> 
+                                    {reply, {error, Reason}, State}
+                            end
+                    end;                      
+                _ -> 
+                    {reply, {error, {"Invalid table name",Name}}, State}
+            end
+    end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-% handle_cast({stop, Reason}, State) ->
 %     {stop,{shutdown,Reason},State};
+% handle_cast({stop, Reason}, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -406,15 +455,58 @@ drop_table({Schema,Table}) ->
 drop_table(ddTable) -> 
     imem_if:drop_table(ddTable);
 drop_table(ddLog@ = Table) ->
-    PhysicalName=physical_table_name(Table),
-    imem_if:drop_table(PhysicalName),
-    imem_if:delete(ddTable, {schema(),PhysicalName});
-drop_table(Table) ->
-    log_to_db(info,?MODULE,drop_table,[{table,Table}],"drop table"), 
-    PhysicalName=physical_table_name(Table),
+    drop_table_and_info(physical_table_name(Table));
+drop_table(Alias) ->
+    log_to_db(info,?MODULE,drop_table,[{table,Alias}],"drop table"),
+    drop_partitioned_tables_and_infos(lists:sort(simple_or_local_node_sharded_tables(Alias))).
+
+drop_partitioned_tables_and_infos([]) -> ok;
+drop_partitioned_tables_and_infos([PhName|PhNames]) ->
+    drop_table_and_info(PhName),
+    drop_partitioned_tables_and_infos(PhNames).
+
+drop_table_and_info(PhysicalName) ->
     imem_if:drop_table(PhysicalName),
     imem_if:delete(ddTable, {schema(),PhysicalName}).
 
+simple_or_local_node_sharded_tables(Alias) ->    
+    case is_node_sharded_alias(Alias) of
+        true ->
+            case is_time_partitioned_alias(Alias) of
+                true ->
+                    Tail = lists:reverse("@" ++ node_shard()),
+                    Pred = fun(TN) -> lists:prefix(Tail, lists:reverse(atom_to_list(TN))) end,
+                    lists:filter(Pred,physical_table_names(Alias));
+                false ->
+                    [physical_table_name(Alias)]
+            end;        
+        false ->
+            [physical_table_name(Alias)]
+    end.
+
+is_node_sharded_alias(Alias) when is_atom(Alias) -> 
+    is_node_sharded_alias(atom_to_list(Alias));
+is_node_sharded_alias(Alias) when is_list(Alias) -> (lists:last(Alias) == $@).
+
+is_time_partitioned_alias(Alias) when is_atom(Alias) ->
+    is_time_partitioned_alias(atom_to_list(Alias));
+is_time_partitioned_alias(Alias) when is_list(Alias) ->
+    case is_node_sharded_alias(Alias) of
+        false -> 
+            false;
+        true ->
+            case string:tokens(lists:reverse(Alias), "_") of
+                [[$@|RN]|_] -> 
+                    try 
+                        _ = list_to_integer(lists:reverse(RN)),
+                        true    % timestamp partitioned and node sharded alias
+                    catch
+                        _:_ -> false
+                    end;
+                 _ ->      
+                    false       % node sharded alias only
+            end
+    end.
 
 physical_table_name({_S,N,_A}) -> physical_table_name(N);
 physical_table_name({_S,N}) -> physical_table_name(N);
@@ -428,8 +520,26 @@ physical_table_name(Name) when is_atom(Name) ->
     end;
 physical_table_name(Name) when is_list(Name) ->
     case lists:last(Name) of
-        $@ ->   list_to_atom(lists:flatten(Name ++ node_shard()));
+        $@ ->   partitioned_table_name(Name,erlang:now());
         _ ->    list_to_atom(Name)
+    end.
+
+physical_table_name({_S,N,_A},Key) -> physical_table_name(N,Key);
+physical_table_name({_S,N},Key) -> physical_table_name(N,Key);
+physical_table_name(dba_tables,_) -> ddTable;
+physical_table_name(all_tables,_) -> ddTable;
+physical_table_name(user_tables,_) -> ddTable;
+physical_table_name(Name,Key) when is_atom(Name) ->
+    case lists:member(Name,?DataTypes) of
+        true ->     Name;
+        false ->    physical_table_name(atom_to_list(Name),Key)
+    end;
+physical_table_name(Name,Key) when is_list(Name) ->
+    case lists:last(Name) of
+        $@ ->
+            partitioned_table_name(Name,Key);
+        _ ->    
+            list_to_atom(Name)
     end.
 
 physical_table_names({_S,N,_A}) -> physical_table_names(N);
@@ -444,8 +554,42 @@ physical_table_names(Name) when is_atom(Name) ->
     end;
 physical_table_names(Name) when is_list(Name) ->
     case lists:last(Name) of
-        $@ ->   tables_starting_with(Name);
-        _ ->    [list_to_atom(Name)]
+        $@ ->   
+            case string:tokens(lists:reverse(Name), "_") of
+                [[$@|RN]|_] ->
+                    % timestamp sharded node sharded tables 
+                    try 
+                        _ = list_to_integer(lists:reverse(RN)),
+                        {BaseName,_} = lists:split(length(Name)-length(RN)-1, Name),
+                        Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
+                        lists:filter(Pred,tables_starting_with(BaseName))
+                    catch
+                        _:_ -> tables_starting_with(Name)
+                    end;
+                 _ ->   
+                    % node sharded tables only   
+                    tables_starting_with(Name)
+            end;
+        _ ->    
+            [list_to_atom(Name)]
+    end.
+
+partitioned_table_name(Name,Key) ->
+    case string:tokens(lists:reverse(Name), "_") of
+        [[$@|RN]|_] ->
+            % timestamp sharded node sharded table 
+            try 
+                Period = list_to_integer(lists:reverse(RN)),
+                {Mega,Sec,_} = Key,
+                PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
+                {BaseName,_} = lists:split(length(Name)-length(RN)-1, Name),
+                list_to_atom(lists:flatten(BaseName ++ PartitionEnd ++ "@" ++ node_shard()))
+            catch
+                _:_ -> list_to_atom(lists:flatten(Name ++ node_shard()))
+            end;
+         _ ->
+            % node sharded table only   
+            list_to_atom(lists:flatten(Name ++ node_shard()))
     end.
 
 tables_starting_with(Prefix) when is_atom(Prefix) ->
@@ -691,7 +835,22 @@ write(ddLog@, Record) ->
     imem_if:write(physical_table_name(ddLog@), Record);
 write(Table, Record) ->
     % log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
-    imem_if:write(physical_table_name(Table), Record).
+    PTN = physical_table_name(Table,element(2,Record)),
+    try
+        imem_if:write(PTN, Record)
+    catch
+        throw:{'ClientError',{"Table does not exist",T}} ->
+            % ToDo: instruct imem_meta gen_server to create the table
+            case is_time_partitioned_alias(Table) of
+                true ->
+                    create_partitioned_table(PTN);
+                false ->
+                    ?ClientError({"Table does not exist",T})
+            end;
+        Class:Reason ->
+            ?Log("Write error ~p:~p~n", [Class,Reason]),
+            throw(Reason)
+    end. 
 
 dirty_write({_Schema,Table}, Record) -> 
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
@@ -699,20 +858,29 @@ dirty_write(ddLog@, Record) ->
     imem_if:dirty_write(physical_table_name(ddLog@), Record);
 dirty_write(Table, Record) -> 
     % log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
-    imem_if:dirty_write(physical_table_name(Table), Record).
+    PTN = physical_table_name(Table,element(2,Record)),
+    try
+        imem_if:dirty_write(PTN, Record)
+    catch
+        throw:{'ClientError',{"Table does not exist",T}} ->
+            case is_time_partitioned_alias(Table) of
+                true ->
+                    create_partitioned_table(PTN);
+                false ->
+                    ?ClientError({"Table does not exist",T})
+            end;
+        Class:Reason ->
+            ?Log("Dirty write error ~p:~p~n", [Class,Reason]),
+            throw(Reason)
+    end. 
 
 insert({_Schema,Table}, Row) ->
     insert(Table, Row);             %% ToDo: may depend on schema
 insert(ddTable, Row) ->
-    imem_if:insert(ddTable, Row);
-insert(Table, Row) when is_list(Row) ->
-    case lists:member(?nav,Row) of
-        false ->    imem_if:insert(physical_table_name(Table), Row);
-        true ->     ?ClientError({"Not null constraint violation", {Table,Row}})
-    end;
+    write(ddTable, Row);
 insert(Table, Row) when is_tuple(Row) ->
     case lists:member(?nav,tuple_to_list(Row)) of
-        false ->    imem_if:insert(physical_table_name(Table), Row);
+        false ->    write(physical_table_name(Table), Row);
         true ->     ?ClientError({"Not null constraint violation", {Table,Row}})
     end.
 
@@ -726,11 +894,18 @@ delete_object({_Schema,Table}, Row) ->
 delete_object(Table, Row) ->
     imem_if:delete_object(physical_table_name(Table), Row).
 
+truncate_table({_Schema,Table,_Alias}) ->
+    truncate_table({_Schema,Table});    
 truncate_table({_Schema,Table}) ->
     truncate_table(Table);                %% ToDo: may depend on schema
-truncate_table(Table) ->
-    log_to_db(debug,?MODULE,truncate_table,[{table,Table}],"truncate table"),
-    imem_if:truncate_table(physical_table_name(Table)).
+truncate_table(Alias) ->
+    log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
+    truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias))).
+
+truncate_partitioned_tables([]) -> ok;
+truncate_partitioned_tables([PhName|PhNames]) ->
+    imem_if:truncate_table(PhName),
+    truncate_partitioned_tables(PhNames).
 
 subscribe({table, Tab, Mode}) ->
     log_to_db(info,?MODULE,subscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"subscribe to mnesia"),
@@ -834,7 +1009,7 @@ meta_operations(_) ->
         ?Log("ddLog@ count ~p~n", [LogCount2]),
         ?assertEqual(LogCount1+1,LogCount2),
         Log1=read(ddLog@,Now),
-        ?Log("ddLog@ content ~p~n", [Log1]),
+        % ?Log("ddLog@ content ~p~n", [Log1]),
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
@@ -857,11 +1032,11 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?Log("success ~p~n", [create_table_not_null]),
 
-        ?assertEqual(ok, insert(meta_table_3, {{{2000,01,01},{12,45,55}},undefined})),
+        ?assertEqual(ok, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},undefined})),
         ?assertEqual(1, table_size(meta_table_3)),
         LogCount3 = table_size(ddLog@),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {?nav,undefined})),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {{{2000,01,01},{12,45,56}},?nav})),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
         LogCount4 = table_size(ddLog@),
         ?Log("success ~p~n", [not_null_constraint]),
         ?assertEqual(LogCount3+2, LogCount4),
@@ -876,6 +1051,26 @@ meta_operations(_) ->
         LogTable = physical_table_name(ddLog@),
         ?assert(lists:member(LogTable,physical_table_names(ddLog@))),
         ?assert(lists:member(LogTable,physical_table_names("ddLog@"))),
+
+        TimePartTable0 = physical_table_name(tpTest_1000@),
+        ?Log("TimePartTable ~p~n", [TimePartTable0]),
+        ?assertEqual(TimePartTable0, physical_table_name(tpTest_1000@,erlang:now())),
+        ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertEqual(ok, check_table(TimePartTable0)),
+        ?assertEqual(0, table_size(TimePartTable0)),
+        ?assertEqual(ok, write(tpTest_1000@, LogRec1)),
+        ?assertEqual(1, table_size(TimePartTable0)),
+        {Megs,Secs,Mics} = erlang:now(),
+        FutureSecs = Megs*1000000 + Secs + 2000,
+        Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
+        LogRec2 = #ddLog{logTime=Future,logLevel=info,pid=self()
+                            ,module=?MODULE,function=meta_operations,node=node()
+                            ,fields=Fields,message= <<"some log message 2">>},
+        ?assertEqual(ok, write(tpTest_1000@, LogRec2)),
+        ?Log("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
+        ?assertEqual(ok, drop_table(tpTest_1000@)),
+        ?assertEqual([],physical_table_names(tpTest_1000@)),
+        ?Log("success ~p~n", [tpTest_1000@]),
 
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
