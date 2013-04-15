@@ -77,15 +77,34 @@ init(_StartArgs) ->
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
     ?Log("~p initializing with ImemTimeout ~p~n", [?MODULE, ImemTimeout]),
     {ok, NodeType} = application:get_env(mnesia_node_type),
-    {ok, Mod} = application:get_env(if_mod),
-    {ok, IsSec} = application:get_env(if_sec),
-    DefParams = [{schema_name, SchemaName}, {node_type, NodeType}, {if_mod, Mod}, {if_sec, IsSec}],
-    {ok, Servers} = application:get_env(servers),
-    Children = [
-        {SMod, {SMod, start_link, [DefParams ++ SParams]}, permanent, ImemTimeout, worker, [SMod]}
-        || {_SName, {SMod, SParams}} <- Servers],
-    {ok, {{one_for_one, 3, 10}, Children}}.
+    {ok, NodeType} = application:get_env(mnesia_node_type),
 
+    Children =
+    % imem_if
+    [{imem_if, {imem_if, start_link, [[{schema_name, SchemaName}, {node_type, NodeType}]]}, permanent, ImemTimeout, worker, [imem_if]}]
+    % imem_meta
+    ++
+    case application:get_env(meta_server) of
+        {ok, true} -> [{imem_meta, {imem_meta, start_link, [[]]}, permanent, ImemTimeout, worker, [imem_meta]}];
+        _ -> []
+    end
+    % imem_seco
+    ++
+    case application:get_env(seco_server) of
+        {ok, true} -> [{imem_seco, {imem_seco, start_link, [[]]}, permanent, ImemTimeout, worker, [imem_seco]}];
+        _ -> []
+    end
+    % imem_server
+    ++
+    case application:get_env(tcp_server) of
+        {ok, true} ->
+            {ok, TcpIf} = application:get_env(tcp_ip),
+            {ok, TcpPort} = application:get_env(tcp_port),
+            [{imem_server, {imem_server, start_link, [[{tcp_ip, TcpIf},{tcp_port, TcpPort}]]}, permanent, ImemTimeout, worker, [imem_server]}];
+        _ -> []
+    end,
+
+    {ok, {{one_for_one, 3, 10}, Children}}.
 
 %% ====================================================================
 %% Internal functions
