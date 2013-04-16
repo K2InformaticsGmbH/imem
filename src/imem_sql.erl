@@ -84,6 +84,10 @@ exec(SKey, 'alter user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
 exec(SKey, 'drop user', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+exec(SKey, 'grant', ParseTree, Stmt, Schema, IsSec) ->
+    imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
+exec(SKey, 'revoke', ParseTree, Stmt, Schema, IsSec) ->
+    imem_sql_account:exec(SKey, ParseTree, Stmt, Schema, IsSec);
     
 exec(SKey, 'create table', ParseTree, Stmt, Schema, IsSec) ->
     imem_sql_table:exec(SKey, ParseTree, Stmt, Schema, IsSec);

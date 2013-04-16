@@ -579,7 +579,8 @@ have_permission(SKey, Permission) ->
     end.      
 
 have_table_permission(SKey, Table, Operation) ->
-    case get_permission_cache(SKey, {Table,Operation}) of
+    Permission = {table,Table,Operation},
+    case get_permission_cache(SKey, Permission) of
         true ->         true;
         false ->        false;
         no_exists ->
@@ -593,17 +594,18 @@ have_table_permission(SKey, Table, Operation) ->
                 _ ->    
                     have_table_permission(SKey, Table, Operation, if_system_table(SKey, Table))
             end,
-            set_permission_cache(SKey, {Table,Operation}, Result),
+            set_permission_cache(SKey, Permission, Result),
             Result
     end.      
 
 have_module_permission(SKey, Module, Operation) ->
-    case get_permission_cache(SKey, {module,Module,Operation}) of
+    Permission = {module,Module,Operation},
+    case get_permission_cache(SKey, Permission) of
         true ->         true;
         false ->        false;
         no_exists ->
             Result = imem_seco:have_permission(SKey, {module,Module,Operation}),
-            set_permission_cache(SKey, {module,Module,Operation}, Result),
+            set_permission_cache(SKey, Permission, Result),
             Result
     end.      
 
