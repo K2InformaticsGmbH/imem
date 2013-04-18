@@ -552,16 +552,16 @@ select(SKey, Table, MatchSpec, Limit) ->
     end.
 
 admin_exec(SKey, imem_account, Function, Params) ->
-    admin_apply(SKey, imem_account, Function, Params, [manage_accounts, manage_system]);
+    admin_apply(SKey, imem_account, Function, [SKey|Params], [manage_accounts, manage_system]);
 admin_exec(SKey, imem_role, Function, Params) ->
-    admin_apply(SKey, imem_role, Function, Params, [manage_accounts, manage_system]);
+    admin_apply(SKey, imem_role, Function, [SKey|Params], [manage_accounts, manage_system]);
 admin_exec(SKey, Module, Function, Params) ->
     admin_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}]).
 
 admin_apply(SKey, Module, Function, Params, Permissions) ->
     case imem_seco:have_permission(SKey, Permissions) of
-        true ->     
-            apply(Module, Function, [SKey|Params]);
+        true ->
+            apply(Module,Function,Params);
         false ->
             ?SecurityException({"Admin execute unauthorized", {SKey, Module, Function, Params}})
     end.

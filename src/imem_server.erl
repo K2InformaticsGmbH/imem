@@ -44,7 +44,11 @@ loop(Socket, Transport, Buf) ->
                     ?Log(" ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
                     loop(Socket, Transport, NewBuf);
                 Term ->
-                    mfa(Term, {Transport, Socket, element(1, Term)}),
+                    if element(2, Term) =:= imem_sec ->
+                        mfa(Term, {Transport, Socket, element(1, Term)});
+                    true ->
+                        send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
+                    end,
                     TSize = byte_size(term_to_binary(Term)),
                     RestSize = byte_size(NewBuf)-TSize,
                     loop(Socket, Transport, binary_part(NewBuf, {TSize, RestSize}))
@@ -59,13 +63,12 @@ mfa({Ref, Mod, Fun, Args}, Transport) ->
     ApplyRes = try
                    apply(Mod,Fun,NewArgs)
                catch 
-                   _Class:Reason ->
-                       {error, Reason}
+                    _Class:Reason -> {error, {Reason, erlang:get_stacktrace()}}
                end,
     %?Log("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
     %?Log("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
     send_resp(ApplyRes, Transport),
-    ok.
+    ok. % for erlimem compatibility
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
