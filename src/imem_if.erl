@@ -10,6 +10,7 @@
 
 -record(user_properties, {
             last_write
+            , last_snap
         }).
 
 -export([ init/1
@@ -233,12 +234,14 @@ create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);    
 create_table(Table, Opts) when is_atom(Table) ->
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
+    Now = erlang:now(),
    	case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
             ?Log("table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
+            mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, Node}} ->
             ?Log("table ~p exists at ~p~n", [Table, Node]),
@@ -246,11 +249,13 @@ create_table(Table, Opts) when is_atom(Table) ->
                 yes -> ok;
                 Error -> ?ClientError({"Loading table(s) timeout~p", Error})
             end,
+            mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result -> 
             ?Log("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
+            mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
             return_atomic_ok(Result)
 	end.
 
@@ -316,7 +321,8 @@ read(Table, Key) when is_atom(Table) ->
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     try 
         % ?Log("mnesia:dirty_write ~p ~p~n", [Table,Row]),
-        mnesia:dirty_write(Table, Row)
+        %mnesia:dirty_write(Table, Row)
+        mnesia_table_action(dirty_write, [Table, Row])
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         _:Reason ->                         ?SystemException({"Mnesia dirty_write failure",Reason})
@@ -445,7 +451,8 @@ update_xt({Table,bag}, Item, Lock, Old, {}) when is_atom(Table) ->
     Exists = lists:member(Old,Current),
     if  
         Exists ->
-            mnesia:delete_object(Table, Old, write),   
+            %mnesia:delete_object(Table, Old, write),   
+            mnesia_table_action(delete_object, [Table, Old, write]),
             {Item,{}};
         Lock == none ->
             {Item,{}};
@@ -461,7 +468,8 @@ update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
         Exists ->
             ?ConcurrencyException({"Record already exists", {Item, New}});
         true ->
-            mnesia:write(Table, New, write),
+            %mnesia:write(Table, New, write),
+            mnesia_table_action(write, [Table, New, write]),
             {Item,New}
     end;
 update_xt({Table,bag}, Item, Lock, Old, Old) when is_atom(Table) ->
@@ -482,7 +490,8 @@ update_xt({Table,bag}, Item, Lock, Old, New) when is_atom(Table) ->
 update_xt({_Table,_}, _Item, _Lock, {}, {}) ->
     ok;
 update_xt({Table,_}, Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
-    mnesia:delete(Table, element(2, Old), write),
+    %mnesia:delete(Table, element(2, Old), write),
+    mnesia_table_action(delete, [Table, element(2, Old), write]),
     {Item,{}};
 update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
     if
@@ -495,7 +504,8 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
                 Current ->  ?ConcurrencyException({"Key violation", {Item,{Current, New}}})
             end
     end,
-    mnesia:write(Table,New,write),
+    %mnesia:write(Table,New,write),
+    mnesia_table_action(write, [Table, New, write]),
     {Item,New};
 update_xt({Table,_}, Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
     {Item,Old};    
@@ -520,15 +530,20 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
     NewKey = element(2,New),
     case NewKey of
         OldKey ->   
-            mnesia:write(Table,New,write),
+            %mnesia:write(Table,New,write),
+            mnesia_table_action(write, [Table, New, write]),
             {Item,New};
         NewKey ->           
             case mnesia:read(Table, NewKey) of
-                [New] ->    mnesia:delete(Table,OldKey,write),
-                            mnesia:write(Table,New,write),
+                [New] ->    %mnesia:delete(Table,OldKey,write),
+                            mnesia_table_action(delete, [Table, OldKey, write]),
+                            %mnesia:write(Table,New,write),
+                            mnesia_table_action(write, [Table, New, write]),
                             {Item,New};
-                [] ->       mnesia:delete(Table,OldKey,write),
-                            mnesia:write(Table,New,write),
+                [] ->       %mnesia:delete(Table,OldKey,write),
+                            mnesia_table_action(delete, [Table, OldKey, write]),
+                            %mnesia:write(Table,New,write),
+                            mnesia_table_action(write, [Table, New, write]),
                             {Item,New};
                 Curr2 ->    ?ConcurrencyException({"Modified key already exists", {Item,Curr2}})
             end
@@ -592,25 +607,37 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
+timestamp({Mega, Secs, Micro}) -> Mega*1000*1000*1000*1000 + Secs*1000*1000 + Micro.
+
 handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
-    {_,_,McS} = Now = erlang:now(),
-    {{Y,Mon,D},{H,M,S}} = calendar:now_to_local_time(Now),
-    LogDir = lists:flatten(io_lib:format("~2..0B~2..0B~4..0B_~2..0B~2..0B~2..0B.~6..0B", [D,Mon,Y,H,M,S,McS])),
     ExistsBkpRootDir = filelib:is_dir("snapshot"),
     if ExistsBkpRootDir -> ok;
     true ->
-        ?Log("creating roto  backup dir...~n", []),
         ok = file:make_dir("snapshot")
     end,
-    BackupDirPath = filename:join(["snapshot", LogDir]),
-    ?Log("backing up at ~p~n", [BackupDirPath]),
-    ok = file:make_dir(BackupDirPath),
     Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
-    [mnesia:transaction(fun() ->
-                            Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
-                            BackFile = filename:join([BackupDirPath, atom_to_list(T)++".bkp"]),
-                            ok = file:write_file(BackFile, term_to_binary(Rows))
-                        end)
+    [(fun() ->
+        [#user_properties {
+            last_write = Wt
+            , last_snap = St
+        } = Up |_] = mnesia:table_info(T, user_properties),
+        LastWriteTime = timestamp(Wt),
+        LastSnapTime = timestamp(St),
+        %io:format(user, "~p times ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]),
+        if LastSnapTime =< LastWriteTime ->
+            mnesia:transaction(fun() ->
+                                Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
+                                BackFile = filename:join(["snapshot", atom_to_list(T)++".bkp"]),
+                                NewBackFile = filename:join(["snapshot", atom_to_list(T)++".bkp.new"]),
+                                ok = file:write_file(NewBackFile, term_to_binary(Rows)),
+                                {ok, _} = file:copy(NewBackFile, BackFile),
+                                ok = file:delete(NewBackFile),
+                                ?Log("backed up ~p~n", [T])
+                               end),
+            {atomic, ok} = mnesia:write_table_property(T,Up#user_properties{last_snap = erlang:now()});
+        true -> ok % no backup needed
+        end
+      end)()
     || T <- Tabs],
     erlang:send_after(SnapInterval, self(), snapshot),
     {noreply, State};
@@ -808,3 +835,10 @@ table_operations(_) ->
         throw ({Class, Reason})
     end,
     ok.
+
+mnesia_table_action(Fun, Args) when is_atom(Fun), is_list(Args) ->
+    [Table|_] = Args,
+    [Up|_] = mnesia:table_info(Table, user_properties),
+    mnesia:write_table_property(Table,Up#user_properties{last_write = erlang:now()}),
+    apply(mnesia, Fun, Args).
+
