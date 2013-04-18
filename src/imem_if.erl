@@ -5,6 +5,7 @@
 
 % gen_server
 -record(state, {
+            snap_interval = 0
         }).
 
 -export([ init/1
@@ -554,6 +555,7 @@ start_link(Params) ->
 init(Params) ->
     {_, NodeType} = lists:keyfind(node_type,1,Params),
     {_, SchemaName} = lists:keyfind(schema_name,1,Params),
+    {_, SnapInterval} = lists:keyfind(snap_interval,1,Params),
     SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
     {ok, Cwd} = file:get_cwd(),
     LastFolder = lists:last(filename:split(Cwd)),
@@ -577,13 +579,37 @@ init(Params) ->
     end,
     mnesia:subscribe(system),
     ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
-    {ok,#state{}}.
+    if SnapInterval > 0 -> erlang:send_after(SnapInterval, self(), snapshot); true -> ok end,
+    {ok,#state{snap_interval = SnapInterval}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(_Request, State) ->
     {noreply, State}.
+
+handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
+    {_,_,McS} = Now = erlang:now(),
+    {{Y,Mon,D},{H,M,S}} = calendar:now_to_local_time(Now),
+    LogDir = lists:flatten(io_lib:format("~2..0B~2..0B~4..0B_~2..0B~2..0B~2..0B.~6..0B", [D,Mon,Y,H,M,S,McS])),
+    ExistsBkpRootDir = filelib:is_dir("snapshot"),
+    if ExistsBkpRootDir -> ok;
+    true ->
+        ?Log("creating roto  backup dir...~n", []),
+        ok = file:make_dir("snapshot")
+    end,
+    BackupDirPath = filename:join(["snapshot", LogDir]),
+    ?Log("backing up at ~p~n", [BackupDirPath]),
+    ok = file:make_dir(BackupDirPath),
+    Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
+    [mnesia:transaction(fun() ->
+                            Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
+                            BackFile = filename:join([BackupDirPath, atom_to_list(T)++".bkp"]),
+                            ok = file:write_file(BackFile, term_to_binary(Rows))
+                        end)
+    || T <- Tabs],
+    erlang:send_after(SnapInterval, self(), snapshot),
+    {noreply, State};
 
 handle_info(Info, State) ->
     case Info of

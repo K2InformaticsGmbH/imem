@@ -35,6 +35,10 @@
 
 -define(SERVER, ?MODULE).
 
+%% Helper macro for declaring children of supervisor
+-define(CHILD(I, Type, Args, Timeout), {I, {I, start_link, [Args]}, permanent, Timeout, Type, [I]}).
+
+
 %% --------------------------------------------------------------------
 %% Records
 %% --------------------------------------------------------------------
@@ -77,21 +81,21 @@ init(_StartArgs) ->
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
     ?Log("~p initializing with ImemTimeout ~p~n", [?MODULE, ImemTimeout]),
     {ok, NodeType} = application:get_env(mnesia_node_type),
-    {ok, NodeType} = application:get_env(mnesia_node_type),
+    {ok, SnapInterval} = application:get_env(mnesia_snap_interval),
 
     Children =
-    % imem_if
-    [{imem_if, {imem_if, start_link, [[{schema_name, SchemaName}, {node_type, NodeType}]]}, permanent, ImemTimeout, worker, [imem_if]}]
+    % imem_if    
+    [?CHILD(imem_if, worker, [{schema_name, SchemaName}, {node_type, NodeType}, {snap_interval, SnapInterval}], ImemTimeout)]
     % imem_meta
     ++
     case application:get_env(meta_server) of
-        {ok, true} -> [{imem_meta, {imem_meta, start_link, [[]]}, permanent, ImemTimeout, worker, [imem_meta]}];
+        {ok, true} -> [?CHILD(imem_meta, worker, [], ImemTimeout)];
         _ -> []
     end
     % imem_seco
     ++
     case application:get_env(seco_server) of
-        {ok, true} -> [{imem_seco, {imem_seco, start_link, [[]]}, permanent, ImemTimeout, worker, [imem_seco]}];
+        {ok, true} -> [?CHILD(imem_seco, worker, [], ImemTimeout)];
         _ -> []
     end
     % imem_server
@@ -99,8 +103,8 @@ init(_StartArgs) ->
     case application:get_env(tcp_server) of
         {ok, true} ->
             {ok, TcpIf} = application:get_env(tcp_ip),
-            {ok, TcpPort} = application:get_env(tcp_port),
-            [{imem_server, {imem_server, start_link, [[{tcp_ip, TcpIf},{tcp_port, TcpPort}]]}, permanent, ImemTimeout, worker, [imem_server]}];
+            {ok, TcpPort} = application:get_env(tcp_port),            
+            [?CHILD(imem_server, worker, [{tcp_ip, TcpIf},{tcp_port, TcpPort}], ImemTimeout)];
         _ -> []
     end,
 
