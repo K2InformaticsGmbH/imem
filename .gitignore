@@ -8,3 +8,4 @@ Mnesia*
 deps
 .eunit/*
 *@*/
+snapshot/
