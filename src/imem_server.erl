@@ -32,26 +32,38 @@ init(ListenerPid, Socket, Transport, _Opts = []) ->
     {ok, {Address, Port}} = inet:peername(Socket),
     ?Log("~p received connection from ~p:~p~n", [self(), Address, Port]),
     ok = ranch:accept_ack(ListenerPid),
-    loop(Socket, Transport, <<>>).
+    loop(Socket, Transport, <<>>, 0).
  
-loop(Socket, Transport, Buf) ->
+loop(Socket, Transport, Buf, Len) ->
     inet:setopts(Socket, [{active, once}]),
     receive
         {tcp, Socket, Data} ->
-            NewBuf = <<Buf/binary, Data/binary>>,
-            case (catch binary_to_term(NewBuf)) of
-                {'EXIT', _} ->
-                    ?Log(" ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
-                    loop(Socket, Transport, NewBuf);
-                Term ->
-                    if element(2, Term) =:= imem_sec ->
-                        mfa(Term, {Transport, Socket, element(1, Term)});
-                    true ->
-                        send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
-                    end,
-                    TSize = byte_size(term_to_binary(Term)),
-                    RestSize = byte_size(NewBuf)-TSize,
-                    loop(Socket, Transport, binary_part(NewBuf, {TSize, RestSize}))
+            {NewLen, NewBuf} =
+                if Buf =:= <<>> ->
+                    << L:32, PayLoad/binary >> = Data,
+                    %?Log(" term size ~p~n", [<< L:32 >>]),
+                    {L, PayLoad};
+                true -> {Len, <<Buf/binary, Data/binary>>}
+            end,
+            case {byte_size(NewBuf), NewLen} of
+                {NewLen, NewLen} ->
+                    case (catch binary_to_term(NewBuf)) of
+                        {'EXIT', _} ->
+                            ?Log(" [MALFORMED] ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
+                            loop(Socket, Transport, NewBuf, NewLen);
+                        Term ->
+                            if element(2, Term) =:= imem_sec ->
+                                mfa(Term, {Transport, Socket, element(1, Term)});
+                            true ->
+                                send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
+                            end,
+                            TSize = byte_size(term_to_binary(Term)),
+                            RestSize = byte_size(NewBuf)-TSize,
+                            loop(Socket, Transport, binary_part(NewBuf, {TSize, RestSize}), NewLen)
+                    end;
+                _ ->
+                    ?Log(" [INCOMPLETE] ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
+                    loop(Socket, Transport, NewBuf, NewLen)
             end;
         close ->
             ?Log("closing socket...~n", [Socket]),
@@ -84,9 +96,8 @@ args(_, _F, A, _) ->
 
 send_resp(Resp, {Transport, Socket, Ref}) ->
     RespBin = term_to_binary({Ref, Resp}),
-    %?Log("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
-    %%PayloadSize = byte_size(RespBin),
-    %%Transport:send(Socket, << 0,0,0,0,1,1,1,1, PayloadSize:32, RespBin/binary >>);
-    Transport:send(Socket, RespBin);
+    %% - ?Log("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
+    PayloadSize = byte_size(RespBin),
+    Transport:send(Socket, << PayloadSize:32, RespBin/binary >>);
 send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
     Pid ! {Ref, Resp}.
