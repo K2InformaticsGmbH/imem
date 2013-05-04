@@ -1022,7 +1022,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         true ->                                 ok    
     end,            
     ValMap = lists:usort(
-        [{Ci,imem_datatype:value_to_db(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
+        [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
     % ?Log("value map~n~p~n", [ValMap]),
@@ -1053,7 +1053,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         true ->                                 ok    
     end,            
     ValMap = lists:usort(
-        [{Ci,imem_datatype:value_to_db(Item,?nav,T,L,P,D,false,Value)} || 
+        [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==1]),    
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
@@ -1435,8 +1435,8 @@ test_with_or_without_sec(IsSec) ->
         try
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             List5a = receive_tuples(SR5,true),
-            ?assert(lists:member({"Imem.def"},List5a)),
-            ?assert(lists:member({"Imem.ddTable"},List5a)),
+            ?assert(lists:member({<<"Imem.def">>},List5a)),
+            ?assert(lists:member({<<"Imem.ddTable">>},List5a)),
             ?Log("first read success (async)~n", []),
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             [{StmtRef5, {error, Reason5a}}] = receive_raw(),
@@ -1498,11 +1498,11 @@ test_with_or_without_sec(IsSec) ->
         try
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
-            ?assertEqual([{"11","11"},{"10","10"},{"3","3"},{"2","2"},{"1","1"}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
+            ?assertEqual([{<<"11">>,<<"11">>},{<<"10">>,<<"10">>},{<<"3">>,<<"3">>},{<<"2">>,<<"2">>},{<<"1">>,<<"1">>}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
             Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{1,2,<<"asc">>}], IsSec),
             ?Log("Result8a ~p~n", [Result8a]),
             {ok, Sql8b, SF8b} = Result8a,
-            Sorted8b = [{"1","1"},{"10","10"},{"11","11"},{"2","2"},{"3","3"}],
+            Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
             ?Log("Sql8b ~p~n", [Sql8b]),
 

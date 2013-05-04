@@ -325,6 +325,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
         mnesia_table_action(dirty_write, [Table, Row])
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
+        exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         _:Reason ->                         ?SystemException({"Mnesia dirty_write failure",Reason})
     end.
 
@@ -631,8 +632,8 @@ handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
                                 NewBackFile = filename:join(["snapshot", atom_to_list(T)++".bkp.new"]),
                                 ok = file:write_file(NewBackFile, term_to_binary(Rows)),
                                 {ok, _} = file:copy(NewBackFile, BackFile),
-                                ok = file:delete(NewBackFile),
-                                ?Log("backed up ~p~n", [T])
+                                % ?Log("snapshot created for ~p~n", [T]),
+                                ok = file:delete(NewBackFile)
                                end),
             {atomic, ok} = mnesia:write_table_property(T,Up#user_properties{last_snap = erlang:now()});
         true -> ok % no backup needed

@@ -133,7 +133,7 @@ test_with_or_without_sec(IsSec) ->
         ?Log("Sql3f: ~p~n", [Sql4f]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql4f, 0, 'Imem', IsSec)),
 
-        Sql4g = "insert into def (col1,col3) values ('M', 'und''efined');",  
+        Sql4g = "insert into def (col1,col3) values (\"M''s\", 'undefined');",  
         ?Log("Sql3g: ~p~n", [Sql4g]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql4g, 0, 'Imem', IsSec)),
 
@@ -152,15 +152,15 @@ test_with_or_without_sec(IsSec) ->
         ?assert(lists:member({def,"C",7,undefined},List1)),
         ?assert(lists:member({def,"E",undefined,undefined},List1)),
         ?assert(lists:member({def,"F",undefined,[1,2,3]},List1)),
-        ?assert(lists:member({def,"G",undefined,"[1,2,3]"},List1)),
+        ?assert(lists:member({def,"G",undefined,'[1,2,3]'},List1)),
         ?assert(lists:member({def,"H",undefined,undefined},List1)),
         ?assert(lists:member({def,"I",undefined,an_atom},List1)),
         ?assert(lists:member({def,"J",undefined,'AnAtom'},List1)),
         ?assert(lists:member({def,"K",undefined,undefined},List1)),
         ?assert(lists:member({def,"L",undefined,undefined},List1)),
-        ?assert(lists:member({def,"M",undefined,"und'efined"},List1)),
+        ?assert(lists:member({def,"M's",undefined,undefined},List1)),
         ?assert(lists:member({def,"D's",undefined,undefined},List1)),
-        ?assert(lists:member({def,"N",undefined,"not quite undefined"},List1)),
+        ?assert(lists:member({def,"N",undefined,'not quite undefined'},List1)),
 
         Sql5 = "insert into def (col1) values ('C', 5);",
         ?Log("Sql5: ~p~n", [Sql5]),

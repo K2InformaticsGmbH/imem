@@ -12,7 +12,7 @@ exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}
     if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
 exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Schema, IsSec) ->
-    ?Log("Parse Tree ~p~n", [_ParseTree]),
+    % ?Log("Parse Tree ~p~n", [_ParseTree]),
     if_call_mfa(IsSec, 'truncate_table', [SKey, imem_sql:table_qname(TableName)]);
 
 exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Schema, IsSec) ->
@@ -23,7 +23,7 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) ->
     {T,L,P} = case Type of
-        B when is_binary(B) ->      {imem_datatype:string_to_term(imem_datatype:strip_squotes(binary_to_list(B))),0,0};
+        B when is_binary(B) ->      {imem_datatype:io_to_term(imem_datatype:strip_squotes(binary_to_list(B))),0,0};
         A when is_atom(A) ->        {imem_datatype:imem_type(A),0,0};
         {float,SPrec} ->            {float,0,list_to_integer(SPrec)};
         {timestamp,SPrec} ->        {timestamp,0,list_to_integer(SPrec)};
@@ -43,18 +43,18 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
                 {match,[Body]} ->
                     try 
                         % ?Log("body ~p~n", [Body]),
-                        {imem_datatype:string_to_term(Body),lists:keydelete(default, 1, COpts)}
+                        {imem_datatype:io_to_term(Body),lists:keydelete(default, 1, COpts)}
                     catch
                         _:_ ->  try
                                     % ?Log("str ~p~n", [Str]),
-                                    Fun = imem_datatype:string_to_fun(Str,0),
+                                    Fun = imem_datatype:io_to_fun(Str,0),
                                     {Fun(),lists:keydelete(default, 1, COpts)}
                                 catch
                                     _:Reason -> ?ClientError({"Default evaluation fails",{Str,Reason}})
                                 end
                     end;
                 nomatch ->  
-                    {imem_datatype:string_to_term(Str),lists:keydelete(default, 1, COpts)}
+                    {imem_datatype:io_to_term(Str),lists:keydelete(default, 1, COpts)}
             end
     end,
     C = #ddColumn{  name=?binary_to_atom(Name)

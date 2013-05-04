@@ -716,7 +716,7 @@ node_shard() ->
     end.
 
 node_shard_value({ok,FunStr},Node) ->
-    ?Log("node_shard calculated for ~p~n", [FunStr]),
+    % ?Log("node_shard calculated for ~p~n", [FunStr]),
     Code = case [lists:last(string:strip(FunStr))] of
         "." -> FunStr;
         _ -> FunStr ++ "."
@@ -725,7 +725,7 @@ node_shard_value({ok,FunStr},Node) ->
     {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
     {value,Value,_}=erl_eval:exprs(ErlAbsForm,[]),    
     Result = Value(Node),
-    ?Log("node_shard_value ~p~n", [Result]),
+    % ?Log("node_shard_value ~p~n", [Result]),
     Result.
 
 host_fqdn(Node) when is_atom(Node) -> 

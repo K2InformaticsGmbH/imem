@@ -570,13 +570,13 @@ sort_fun_any({Ti,Ci,Direction},FullMaps,_) ->
 sort_fun_any({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position
     #ddColMap{tind=Ti,cind=Ci,type=Type} = lists:nth(Cp,ColMaps),
-    ?Log("sort on col position ~p Ti=~p Ci=~p ~p~n",[Cp,Ti,Ci,lists:nth(Cp,ColMaps)]),    
+    % ?Log("sort on col position ~p Ti=~p Ci=~p ~p~n",[Cp,Ti,Ci,lists:nth(Cp,ColMaps)]),    
     sort_fun(Type,Ti,Ci,Direction);
 sort_fun_any({CName,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap alias    
     case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
         #ddColMap{tind=Ti,cind=Ci,type=Type} ->
-            ?Log("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
+            % ?Log("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
             sort_fun(Type,Ti,Ci,Direction);
         Else ->     
             ?ClientError({"Bad sort field", Else})
