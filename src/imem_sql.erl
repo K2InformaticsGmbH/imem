@@ -27,41 +27,21 @@
         , sort_spec_fun/3
         ]).
 
-parse(Statement) when is_list(Statement) ->
-    Sql =
-    case [lists:last(string:strip(Statement))] of
-        ";" -> Statement;
-        _ -> Statement ++ ";"
-    end,
-    case (catch sql_lex:string(Sql)) of
-        {ok, Tokens, _} ->
-            case (catch sql_parse:parse(Tokens)) of
-                {ok, [ParseTree|_]} ->  ParseTree;
-                {'EXIT', Error} ->      ?ClientError({"SQL parser error", Error});
-                Error ->                ?ClientError({"SQL parser error", Error})
-            end;
-        {'EXIT', Error} -> ?ClientError({"SQL lexer error", Error})
+parse(Sql) ->
+    case sql_parse:parsetree(Sql) of
+        {ok, {[ParseTree|_], _Tokens}}  ->  ParseTree;
+        {lex_error, Error}              -> ?ClientError({"SQL lexer error", Error});
+        {parse_error, Error}            -> ?ClientError({"SQL parser error", Error})
     end.
 
-exec(SKey, Statement, BlockSize, Schema, IsSec) when is_list(Statement) ->
-    Sql =
-    case [lists:last(string:strip(Statement))] of
-        ";" -> Statement;
-        _ -> Statement ++ ";"
-    end,
-    case (catch sql_lex:string(Sql)) of
-        {ok, Tokens, _} ->
-            case (catch sql_parse:parse(Tokens)) of
-                {ok, [ParseTree|_]} -> 
-                    exec(SKey, element(1,ParseTree), ParseTree, 
-                        #statement{stmtStr=Statement, stmtParse=ParseTree, blockSize=BlockSize}, 
-                        Schema, IsSec);
-                {'EXIT', Error} -> 
-                    ?ClientError({"SQL parser error", Error});
-                Error -> 
-                    ?ClientError({"SQL parser error", Error})
-            end;
-        {'EXIT', Error} -> ?ClientError({"SQL lexer error", Error})
+exec(SKey, Sql, BlockSize, Schema, IsSec) ->
+    case sql_parse:parsetree(Sql) of
+        {ok, {[ParseTree|_], _Tokens}} -> 
+            exec(SKey, element(1,ParseTree), ParseTree, 
+                #statement{stmtStr=Sql, stmtParse=ParseTree, blockSize=BlockSize}, 
+                Schema, IsSec);
+        {lex_error, Error}      -> ?ClientError({"SQL lexer error", Error});
+        {parse_error, Error}    -> ?ClientError({"SQL parser error", Error})
     end.
 
 exec(SKey, select, ParseTree, Stmt, Schema, IsSec) ->
