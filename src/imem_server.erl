@@ -35,9 +35,10 @@ init(ListenerPid, Socket, Transport, _Opts = []) ->
     loop(Socket, Transport, <<>>, 0).
  
 loop(Socket, Transport, Buf, Len) ->
-    inet:setopts(Socket, [{active, once}]),
+    {OK, Closed, Error} = Transport:messages(),
+    Transport:setopts(Socket, [{active, once}]),   
     receive
-        {tcp, Socket, Data} ->
+        {OK, Socket, Data} ->
             {NewLen, NewBuf} =
                 if Buf =:= <<>> ->
                     << L:32, PayLoad/binary >> = Data,
@@ -65,6 +66,10 @@ loop(Socket, Transport, Buf, Len) ->
                     ?Log(" [INCOMPLETE] ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
                     loop(Socket, Transport, NewBuf, NewLen)
             end;
+        {Closed, Socket} ->
+            ?Log("socket ~p got closed!~n", [Socket]);
+        {Error, Socket, Reason} ->
+            ?Log("socket ~p error: ~p", [Socket, Reason]);
         close ->
             ?Log("closing socket...~n", [Socket]),
             Transport:close(Socket)
@@ -80,7 +85,7 @@ mfa({Ref, Mod, Fun, Args}, Transport) ->
     %?Log("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
     %?Log("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
     send_resp(ApplyRes, Transport),
-    ok. % for erlimem compatibility
+    ok. % 'ok' returned for erlimem compatibility
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
