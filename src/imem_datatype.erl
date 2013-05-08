@@ -54,11 +54,13 @@
 -export([ io_to_db/8
         , io_to_binary/2
         , io_to_binstr/1
+        , io_to_boolean/1
         , io_to_datetime/1
         , io_to_decimal/3
         , io_to_float/2
         , io_to_fun/2
         , io_to_integer/3
+        , io_to_ipaddr/1        
         , io_to_ipaddr/2
         , io_to_list/2
         , io_to_string/1
@@ -73,6 +75,7 @@
         , atom_to_io/1
         , binary_to_io/1
         , binstr_to_io/1
+        , boolean_to_io/1
         , datetime_to_io/1
         , datetime_to_io/2
         , decimal_to_io/2
@@ -257,7 +260,7 @@ io_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_binary(Val);is_list(Val) ->
             (Type == atom) ->           io_to_atom(Unquoted);
             (Type == binary) ->         io_to_binary(Unquoted,Len);
             (Type == binstr) ->         io_to_binstr(Unquoted,Len);
-            (Type == boolean) ->        io_to_term(Unquoted);
+            (Type == boolean) ->        io_to_boolean(Unquoted);
             (Type == datetime) ->       io_to_datetime(Unquoted);
             (Type == decimal) ->        io_to_decimal(Unquoted,Len,Prec);
             (Type == float) ->          io_to_float(Unquoted,Prec);
@@ -721,6 +724,9 @@ validate_date(Date) ->
         false ->    ?ClientError({})
     end.    
 
+io_to_ipaddr(Val) ->
+    io_to_ipaddr(Val,undefined).
+    
 io_to_ipaddr(Val,Len) when is_binary(Val) ->
     io_to_ipaddr(binary_to_list(Val),Len);
 io_to_ipaddr(Val,undefined) -> 
@@ -832,6 +838,13 @@ io_to_tuple(Val,Len) ->
             ?ClientError({"Data conversion format error",{tuple,Len,Val}})
     end.
 
+io_to_boolean(Val) ->
+    case io_to_term(Val) of
+        V when is_boolean(V) ->     V;
+        _ ->
+            ?ClientError({"Data conversion format error",{boolean,Val}})
+    end.
+
 io_to_term(Val) -> 
     try
         erl_value(io_to_string(Val))
@@ -867,6 +880,7 @@ db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
             (Type == atom) andalso is_atom(Val) ->          atom_to_io(Val);
             (Type == binary) andalso is_binary(Val) ->      binary_to_io(Val);
             (Type == binstr) andalso is_binary(Val) ->      binstr_to_io(Val);
+            (Type == boolean) andalso is_boolean(Val) ->    boolean_to_io(Val);
             (Type == datetime) andalso is_tuple(Val) ->     datetime_to_io(Val,DateFmt);
             (Type == decimal) andalso is_integer(Val) ->    decimal_to_io(Val,Prec);
             (Type == float) andalso is_float(Val) ->        float_to_io(Val,Prec,NumFmt);
@@ -983,6 +997,9 @@ ipaddr_to_io(IpAddr) ->
 
 float_to_io(Val,_Prec,_NumFmt) ->
     list_to_binary(float_to_list(Val)).                    %% ToDo: implement rounding to db precision
+
+boolean_to_io(T) ->
+    list_to_binary(io_lib:format("~w",[T])).
 
 term_to_io(T) ->
     list_to_binary(io_lib:format("~w",[T])).
@@ -1148,8 +1165,9 @@ data_types(_) ->
         ?assertEqual(<<"ddäöü"/utf8>>, item(2,{'Imem',<<"ddäöü">>})),
         ?Log("name success~n", []),
         ?assertEqual(<<"ABC">>, concat("A","B","C")),
-        ?assertEqual(<<"abc">>, concat(a,b,c)),
+        ?assertEqual(<<"aabbcc">>, concat(aa,bb,cc)),
         ?assertEqual(<<"123">>, concat(1,2,3)),
+        ?assertEqual(<<"1.a.A">>, concat(1,<<".">>,a,".",<<"A">>)),
         ?Log("concat success~n", []),
 
         ?assertEqual(<<"123">>, decimal_to_io(123,0)),
@@ -1361,13 +1379,20 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{term,<<"[a|]">>}}}}, io_to_db(Item,OldTerm,TermType,Len,Prec,Def,RW,<<"[a|]">>)),
         ?Log("io_to_db success 9~n", []),
 
+        ?assertEqual(true, io_to_db(Item,OldTerm,boolean,Len,Prec,Def,RW,<<"true">>)),
+        ?assertEqual(false, io_to_db(Item,OldTerm,boolean,Len,Prec,Def,RW,<<"\"false\"">>)),
+        ?assertEqual(false, io_to_db(Item,OldTerm,boolean,Len,Prec,Def,RW,<<"\"'false'\"">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{boolean,<<"something">>}}}}, io_to_db(Item,OldTerm,boolean,Len,Prec,Def,RW,<<"something">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{boolean,<<"TRUE">>}}}}, io_to_db(Item,OldTerm,boolean,Len,Prec,Def,RW,<<"TRUE">>)),
+        ?Log("io_to_db success 10~n", []),
+
         ?assertEqual({1,2,3}, io_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,<<"{1,2,3}">>)),
         ?assertEqual({}, io_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,<<"{}">>)),
         ?assertEqual({1}, io_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,<<"{1}">>)),
         ?assertEqual({1,2}, io_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,<<"{1,2}">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{tuple,Len,<<"[a]">>}}}}, io_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,<<"[a]">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{tuple,Len,<<"{a}">>}}}}, io_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,<<"{a}">>)),
-        ?Log("io_to_db success 10~n", []),
+        ?Log("io_to_db success 11~n", []),
 
         ?assertEqual([a,b,c], io_to_db(Item,OldTerm,elist,Len,Prec,Def,RW,<<"[a,b,c]">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{list,Len,<<"[a]">>}}}}, io_to_db(Item,OldTerm,list,Len,Prec,Def,RW,<<"[a]">>)),
@@ -1376,7 +1401,7 @@ data_types(_) ->
         ?assertEqual([], io_to_db(Item,OldTerm,list,0,Prec,Def,RW,<<"[]">>)),
         ?assertEqual([a], io_to_db(Item,OldTerm,list,0,Prec,Def,RW,<<"[a]">>)),
         ?assertEqual([a,b], io_to_db(Item,OldTerm,list,0,Prec,Def,RW,<<"[a,b]">>)),
-        ?Log("io_to_db success 11~n", []),
+        ?Log("io_to_db success 12~n", []),
 
         ?assertEqual({10,132,7,92}, io_to_db(Item,OldTerm,ipaddr,0,Prec,Def,RW,<<"10.132.7.92">>)),
         ?assertEqual({0,0,0,0}, io_to_db(Item,OldTerm,ipaddr,4,Prec,Def,RW,<<"0.0.0.0">>)),
@@ -1385,7 +1410,7 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,4,"1.2.-1.4"}}}}, io_to_db(Item,OldTerm,ipaddr,4,0,Def,RW,<<"1.2.-1.4">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,6,"1.256.1.4"}}}}, io_to_db(Item,OldTerm,ipaddr,6,0,Def,RW,<<"1.256.1.4">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, io_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,<<"1.2.1.4">>)),
-        ?Log("io_to_db success 12~n", []),
+        ?Log("io_to_db success 13~n", []),
 
         AdminId = io_to_db('Item','OldTerm',userid,0,0,0,RW,<<"admin">>),
         ?assert(is_integer(AdminId)),
