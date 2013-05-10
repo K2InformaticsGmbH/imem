@@ -506,8 +506,11 @@ purge_time_partitioned_table(Alias, Opts) ->
                 PhName >= KeepName ->
                     0; %% no memory could be freed       
                 true ->
+                    % ?Log("Purge PhName KeepName ~p ~p~n",[PhName,KeepName]),
                     case Rest of
-                        [] ->   create_partitioned_table(partitioned_table_name(Alias,erlang:now()));
+                        [] ->   DummyName = partitioned_table_name(Alias,erlang:now()),
+                                % ?Log("Purge DummyName ~p~n",[DummyName]),
+                                create_partitioned_table(DummyName);
                         _ ->    ok
                     end,
                     FreedMemory = table_memory(PhName),
