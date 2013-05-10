@@ -6,6 +6,7 @@
 % gen_server
 -record(state, {
             snap_interval = 0
+            , last_accessed = ets:new(?MODULE, [public, named_table])
         }).
 
 -record(user_properties, {
@@ -36,7 +37,7 @@
         , check_table/1
         , check_table_columns/2
         , system_table/1
-        , meta_field_value/1        
+        , meta_field_value/1
         , subscribe/1
         , unsubscribe/1
         ]).
@@ -44,7 +45,7 @@
 -export([ add_attribute/2
         , update_opts/2
         ]).
-        
+
 -export([ create_table/3
 		, drop_table/1
         , create_index/2
@@ -55,7 +56,7 @@
         , select_sort/2
         , select_sort/3
         , read/1
-        , read/2                 
+        , read/2
         , fetch_start/5
         , write/2
         , dirty_write/2
@@ -90,24 +91,24 @@ disc_schema_nodes(Schema) when is_atom(Schema) ->
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
 return_atomic_list({atomic, L}) when is_list(L) -> L;
-return_atomic_list({aborted,{throw,{Exception,Reason}}}) -> 
+return_atomic_list({aborted,{throw,{Exception,Reason}}}) ->
     throw({Exception,Reason});
-return_atomic_list({aborted,{exit,{Exception,Reason}}}) -> 
+return_atomic_list({aborted,{exit,{Exception,Reason}}}) ->
     exit({Exception,Reason});
 return_atomic_list(Error) -> ?SystemException(Error).
 
 return_atomic_ok({atomic, ok}) -> ok;
-return_atomic_ok({aborted,{throw,{Exception,Reason}}}) -> 
+return_atomic_ok({aborted,{throw,{Exception,Reason}}}) ->
     throw({Exception,Reason});
-return_atomic_ok({aborted,{exit,{Exception,Reason}}}) -> 
+return_atomic_ok({aborted,{exit,{Exception,Reason}}}) ->
     exit({Exception,Reason});
-return_atomic_ok(Error) -> 
+return_atomic_ok(Error) ->
     ?SystemException(Error).
 
 return_atomic({atomic, Result}) -> Result;
-return_atomic({aborted, {throw,{Exception, Reason}}}) -> 
+return_atomic({aborted, {throw,{Exception, Reason}}}) ->
     throw({Exception, Reason});
-return_atomic({aborted, {exit, {Exception, Reason}}}) -> 
+return_atomic({aborted, {exit, {Exception, Reason}}}) ->
     exit({Exception, Reason});
 return_atomic(Error) ->  ?SystemException(Error).
 
@@ -142,8 +143,8 @@ meta_field_value(node) -> node();
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(username) -> <<"unknown">>;
 meta_field_value(schema) -> schema();
-meta_field_value(sysdate) -> calendar:local_time();    
-meta_field_value(systimestamp) -> erlang:now();         
+meta_field_value(sysdate) -> calendar:local_time();
+meta_field_value(systimestamp) -> erlang:now();
 meta_field_value(Name) -> ?ClientError({"Undefined meta value",Name}).
 
 schema() ->
@@ -199,12 +200,12 @@ check_table(Table) ->
     table_size(Table).
 
 check_table_columns(Table, ColumnNames) ->
-    TableColumns = table_columns(Table),    
+    TableColumns = table_columns(Table),
     if
         ColumnNames =:= TableColumns ->
-            ok;  
-        true ->                 
-            ?SystemException({"Column names do not match table structure",Table})             
+            ok;
+        true ->
+            ?SystemException({"Column names do not match table structure",Table})
     end.
 
 
@@ -213,7 +214,7 @@ check_table_columns(Table, ColumnNames) ->
 create_table(Table, ColumnNames, Opts) ->
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
-    if 
+    if
         Local ->    create_local_table(Table, ColumnNames, Opts);
         Cluster ->  create_cluster_table(Table, ColumnNames, Opts);
         true ->     create_schema_table(Table, ColumnNames, Opts)
@@ -240,7 +241,7 @@ create_cluster_table(Table,ColumnNames,Opts) when is_atom(Table) ->
     create_local_table(Table,ColumnNames,CompleteOpts).
 
 create_table(Table, Opts) when is_list(Table) ->
-    create_table(list_to_atom(Table), Opts);    
+    create_table(list_to_atom(Table), Opts);
 create_table(Table, Opts) when is_atom(Table) ->
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
     Now = erlang:now(),
@@ -261,7 +262,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
-        Result -> 
+        Result ->
             ?Log("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
             mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
@@ -309,26 +310,26 @@ truncate_table(Table) when is_atom(Table) ->
 
 
 read(Table) when is_atom(Table) ->
-    Trans = fun() ->      
-        Keys = mnesia:all_keys(Table), 
+    Trans = fun() ->
+        Keys = mnesia:all_keys(Table),
         % [lists:nth(1, mnesia:read(Table, X)) || X <- Keys]
         lists:flatten([mnesia:read(Table, X) || X <- Keys])
     end,
     case transaction(Trans) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});    
+        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
         {atomic, Result} ->         Result;
         Error ->                    ?SystemException(Error)
     end.
 
 read(Table, Key) when is_atom(Table) ->
     Result = case transaction(read,[Table, Key]) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
-        Res ->                      Res 
+        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        Res ->                      Res
     end,
     return_atomic_list(Result).
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
-    try 
+    try
         % ?Log("mnesia:dirty_write ~p ~p~n", [Table,Row]),
         %mnesia:dirty_write(Table, Row)
         mnesia_table_action(dirty_write, [Table, Row])
@@ -342,32 +343,32 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     % ?Log("mnesia:write ~p ~p~n", [Table,Row]),
     Result = case transaction(write,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->
-            % ?Log("cannot write ~p to ~p~n", [Row,Table]),  
-            ?ClientErrorNoLogging({"Table does not exist",Table}); 
-        Res ->                      
-            Res 
+            % ?Log("cannot write ~p to ~p~n", [Row,Table]),
+            ?ClientErrorNoLogging({"Table does not exist",Table});
+        Res ->
+            Res
     end,
     return_atomic_ok(Result).
 
 delete(Table, Key) when is_atom(Table) ->
     Result = case transaction(delete,[{Table, Key}]) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
-        Res ->                      Res 
+        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        Res ->                      Res
     end,
     return_atomic_ok(Result).
 
 delete_object(Table, Row) when is_atom(Table) ->
     Result = case transaction(delete_object,[Table, Row, write]) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table}); 
-        Res ->                      Res 
+        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        Res ->                      Res
     end,
     return_atomic_ok(Result).
 
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of
         {atomic, L}     ->              {L, true};
-        {aborted,{no_exists,_}} ->      ?ClientError({"Table does not exist",Table});    
-        Error ->                        ?SystemException(Error)        
+        {aborted,{no_exists,_}} ->      ?ClientError({"Table does not exist",Table});
+        Error ->                        ?SystemException(Error)
     end.
 
 select_sort(Table, MatchSpec) ->
@@ -380,21 +381,21 @@ select(Table, MatchSpec, Limit) when is_atom(Table) ->
             '$end_of_table' ->              {[], true};
             {L, Cont} when is_list(L) ->    N(N, L, Cont);
             Error ->                        Error
-        end 
+        end
     end,
     Next = fun(N, Acc0, Cont0) ->
         if  length(Acc0) >= Limit ->
                 {Acc0, false};
-            true ->         
+            true ->
                 case mnesia:select(Cont0) of
                     '$end_of_table' ->              {Acc0, true};
                     {L, Cont1} when is_list(L) ->   N(N, [L|Acc0], Cont1);
                     Error ->                        Error
-                end 
+                end
         end
     end,
     case transaction(Start, [Next]) of
-        {aborted,{no_exists,_}} ->              ?ClientError({"Table does not exist",Table});    
+        {aborted,{no_exists,_}} ->              ?ClientError({"Table does not exist",Table});
         {atomic, {Result, AllRead}} ->          {Result, AllRead};
         Error ->                                ?SystemException(Error)
     end.
@@ -414,10 +415,10 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                 case Contd0 of
                         undefined ->
                             case mnesia:select(Table, MatchSpec, BlockSize, read) of
-                                '$end_of_table' -> 
+                                '$end_of_table' ->
                                     Pid ! {row, [?sot,?eot]};
                                 {Rows, Contd1} ->
-                                    % ?Log("First continuation object ~p~n",[Contd1]), 
+                                    % ?Log("First continuation object ~p~n",[Contd1]),
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
                                             Pid ! {row, [?sot|[?eot|Rows]]};
@@ -426,10 +427,10 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                             F(F,Contd1)
                                     end
                             end;
-                        Contd0 ->       
+                        Contd0 ->
                             case mnesia:select(Contd0) of
                                 '$end_of_table' ->
-                                    % ?Log("Last continuation object ~p~n",[Contd0]), 
+                                    % ?Log("Last continuation object ~p~n",[Contd0]),
                                     Pid ! {row, ?eot};
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
@@ -439,7 +440,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                             Pid ! {row, Rows},
                                             F(F,Contd1)
                                     end
-                            end                                
+                            end
                 end
         end
     end,
@@ -459,20 +460,20 @@ update_xt({_Table,bag}, _Item, _Lock, {}, {}) ->
 update_xt({Table,bag}, Item, Lock, Old, {}) when is_atom(Table) ->
     Current = mnesia:read(Table, element(2,Old)),
     Exists = lists:member(Old,Current),
-    if  
+    if
         Exists ->
-            %mnesia:delete_object(Table, Old, write),   
+            %mnesia:delete_object(Table, Old, write),
             mnesia_table_action(delete_object, [Table, Old, write]),
             {Item,{}};
         Lock == none ->
             {Item,{}};
-        true ->             
+        true ->
             ?ConcurrencyException({"Data is modified by someone else", {Item, Old}})
     end;
 update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
     Current = mnesia:read(Table, element(2,New)),  %% may be expensive
     Exists = lists:member(New,Current),
-    if  
+    if
         (Exists and (Lock==none)) ->
             {Item,New};
         Exists ->
@@ -485,12 +486,12 @@ update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
 update_xt({Table,bag}, Item, Lock, Old, Old) when is_atom(Table) ->
     Current = mnesia:read(Table, element(2,Old)),  %% may be expensive
     Exists = lists:member(Old,Current),
-    if  
+    if
         Exists ->
             {Item,Old};
         Lock == none ->
             {Item,Old};
-        true ->             
+        true ->
             ?ConcurrencyException({"Data is modified by someone else", {Item, Old}})
     end;
 update_xt({Table,bag}, Item, Lock, Old, New) when is_atom(Table) ->
@@ -518,7 +519,7 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
     mnesia_table_action(write, [Table, New, write]),
     {Item,New};
 update_xt({Table,_}, Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
-    {Item,Old};    
+    {Item,Old};
 update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
     case mnesia:read(Table, element(2,Old)) of
         [Old] ->    {Item,Old};
@@ -539,11 +540,11 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
     end,
     NewKey = element(2,New),
     case NewKey of
-        OldKey ->   
+        OldKey ->
             %mnesia:write(Table,New,write),
             mnesia_table_action(write, [Table, New, write]),
             {Item,New};
-        NewKey ->           
+        NewKey ->
             case mnesia:read(Table, NewKey) of
                 [New] ->    %mnesia:delete(Table,OldKey,write),
                             mnesia_table_action(delete, [Table, OldKey, write]),
@@ -693,9 +694,9 @@ db_test_() ->
         {with, [
             fun table_operations/1
             %%, fun test_create_account/1
-        ]}}.    
+        ]}}.
 
-table_operations(_) -> 
+table_operations(_) ->
     try
         ClEr = 'ClientError',
         SyEx = 'SystemException',
@@ -788,7 +789,7 @@ table_operations(_) ->
         ?Log("----TEST--~p:test_transactions~n", [?MODULE]),
 
         ?Log("data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
-    
+
         Update1 = fun(X) ->
             update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X}),
             update_xt({imem_table_123,set}, 2, optimistic, {}, {imem_table_123, "XXX","11","22"}),
@@ -862,7 +863,6 @@ table_operations(_) ->
 
 mnesia_table_action(Fun, Args) when is_atom(Fun), is_list(Args) ->
     [Table|_] = Args,
-    [Up|_] = mnesia:table_info(Table, user_properties),
-    mnesia:write_table_property(Table,Up#user_properties{last_write = erlang:now()}),
+    ets:insert(?MODULE, {Table, os:timestamp()}),
     apply(mnesia, Fun, Args).
 
