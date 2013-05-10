@@ -47,6 +47,7 @@
         , table_type/1
         , table_columns/1
         , table_size/1
+        , table_memory/1        
         , check_table/1
         , check_table_meta/2
         , check_table_columns/2
@@ -71,6 +72,8 @@
         , create_check_table/3
         , create_check_table/4
 		, drop_table/1
+        , purge_table/1
+        , purge_table/2
         , truncate_table/1  %% truncate table
         , read/1            %% read whole table, only use for small tables 
         , read/2            %% read by key
@@ -469,6 +472,52 @@ drop_table_and_info(PhysicalName) ->
     imem_if:drop_table(PhysicalName),
     imem_if:delete(ddTable, {schema(),PhysicalName}).
 
+purge_table(Name) ->
+    purge_table(Name, []).
+
+purge_table({Schema,Table,_Alias}, Opts) -> 
+    purge_table({Schema,Table}, Opts);
+purge_table({Schema,Table}, Opts) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> purge_table(Table, Opts);
+        _ ->        ?UnimplementedException({"Purge table in foreign schema",{Schema,Table}})
+    end;
+purge_table(Alias, Opts) ->
+    case is_time_partitioned_alias(Alias) of
+        false ->    
+            ?UnimplementedException({"Purge not supported on this table type",Alias});
+        true ->
+            purge_time_partitioned_table(Alias, Opts)
+    end.
+
+purge_time_partitioned_table(Alias, Opts) ->
+    case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
+        [] ->
+            ?ClientError({"Table to be purged does not exist",Alias});
+        [PhName|Rest] ->
+            KeepTime = case proplists:get_value(keep_duration, Opts) of
+                undefined ->    erlang:now();
+                Seconds ->      {Mega,Secs,Micro} = erlang:now(),
+                                {Mega,Secs-Seconds,Micro}
+            end,
+            KeepName = partitioned_table_name(Alias,KeepTime),
+            if  
+                PhName >= KeepName ->
+                    0; %% no memory could be freed       
+                true ->
+                    case Rest of
+                        [] ->   create_partitioned_table(partitioned_table_name(Alias,erlang:now()));
+                        _ ->    ok
+                    end,
+                    FreedMemory = table_memory(PhName),
+                    Fields = [{table,PhName},{table_size,table_size(PhName)},{table_memory,FreedMemory}],   
+                    log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
+                    drop_table_and_info(PhName),
+                    FreedMemory
+            end
+    end.
+
 simple_or_local_node_sharded_tables(Alias) ->    
     case is_node_sharded_alias(Alias) of
         true ->
@@ -574,7 +623,9 @@ physical_table_names(Name) when is_list(Name) ->
             [list_to_atom(Name)]
     end.
 
-partitioned_table_name(Name,Key) ->
+partitioned_table_name(Name,Key) when is_atom(Name) ->
+    partitioned_table_name(atom_to_list(Name),Key);
+partitioned_table_name(Name,Key) when is_list(Name) ->
     case string:tokens(lists:reverse(Name), "_") of
         [[$@|RN]|_] ->
             % timestamp sharded node sharded table 
@@ -759,7 +810,14 @@ table_columns(Table) ->
 table_size({_Schema,Table}) ->
     table_size(Table);          %% ToDo: may depend on schema
 table_size(Table) ->
+    %% ToDo: sum should be returned for all local time partitions
     imem_if:table_size(physical_table_name(Table)).
+
+table_memory({_Schema,Table}) ->
+    table_memory(Table);          %% ToDo: may depend on schema
+table_memory(Table) ->
+    %% ToDo: sum should be returned for all local time partitions
+    imem_if:table_memory(physical_table_name(Table)).
 
 exec(Statement, BlockSize, Schema) ->
     imem_sql:exec(none, Statement, BlockSize, Schema, false).   
@@ -968,6 +1026,7 @@ teardown(_) ->
     catch drop_table(meta_table_3),
     catch drop_table(meta_table_2),
     catch drop_table(meta_table_1),
+    catch drop_table(tpTest_1000@),
     ?imem_test_teardown().
 
 db_test_() ->
@@ -983,6 +1042,7 @@ meta_operations(_) ->
     try 
         ClEr = 'ClientError',
         SyEx = 'SystemException', 
+        UiEx = 'UnimplementedException', 
 
         ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
 
@@ -1052,6 +1112,13 @@ meta_operations(_) ->
         ?assert(lists:member(LogTable,physical_table_names(ddLog@))),
         ?assert(lists:member(LogTable,physical_table_names("ddLog@"))),
 
+        ?assertEqual([],physical_table_names(tpTest_1000@)),
+
+        ?assertException(throw, {ClEr,{"Table to be purged does not exist",tpTest_1000@}}, purge_table(tpTest_1000@)),
+        ?assertException(throw, {UiEx,{"Purge not supported on this table type",not_existing_table}}, purge_table(not_existing_table)),
+        ?assertException(throw, {UiEx,{"Purge not supported on this table type",ddLog@}}, purge_table(ddLog@)),
+        ?assertException(throw, {UiEx,{"Purge not supported on this table type",ddTable}}, purge_table(ddTable)),
+
         TimePartTable0 = physical_table_name(tpTest_1000@),
         ?Log("TimePartTable ~p~n", [TimePartTable0]),
         ?assertEqual(TimePartTable0, physical_table_name(tpTest_1000@,erlang:now())),
@@ -1060,6 +1127,7 @@ meta_operations(_) ->
         ?assertEqual(0, table_size(TimePartTable0)),
         ?assertEqual(ok, write(tpTest_1000@, LogRec1)),
         ?assertEqual(1, table_size(TimePartTable0)),
+        ?assertEqual(0, purge_table(tpTest_1000@)),
         {Megs,Secs,Mics} = erlang:now(),
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
@@ -1068,6 +1136,12 @@ meta_operations(_) ->
                             ,fields=Fields,message= <<"some log message 2">>},
         ?assertEqual(ok, write(tpTest_1000@, LogRec2)),
         ?Log("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
+        ?assertEqual(0, purge_table(tpTest_1000@,[{keep_duration,10000}])),
+        ?assertEqual(0, purge_table(tpTest_1000@)),
+        PurgeResult = purge_table(tpTest_1000@,[{keep_duration,-3000}]),
+        ?Log("PurgeResult ~p~n", [PurgeResult]),
+        ?assert(PurgeResult>0),
+        ?assertEqual(0, purge_table(tpTest_1000@)),
         ?assertEqual(ok, drop_table(tpTest_1000@)),
         ?assertEqual([],physical_table_names(tpTest_1000@)),
         ?Log("success ~p~n", [tpTest_1000@]),

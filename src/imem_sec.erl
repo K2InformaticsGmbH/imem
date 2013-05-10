@@ -49,6 +49,8 @@
 -export([ create_table/4
         , create_check_table/4
 		, drop_table/2
+        , purge_table/2
+        , purge_table/3
         , truncate_table/2
         , read/2
         , read/3
@@ -355,6 +357,16 @@ drop_table(SKey, Table) ->
         false -> drop_user_table(SKey, Table, AccountId)
     end.
 
+purge_table(SKey, Table) ->
+    purge_table(SKey, Table, []).
+
+purge_table(SKey, Table, Opts) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    case if_system_table(SKey, Table) of
+        true  -> purge_system_table(SKey, Table, Opts, AccountId);
+        false -> purge_user_table(SKey, Table, Opts, AccountId)
+    end.
+
 drop_user_table(SKey, Table, AccountId) ->
     case have_table_permission(SKey, Table, drop) of
         true ->
@@ -370,12 +382,35 @@ drop_user_table(SKey, Table, AccountId) ->
             end
     end. 
 
+purge_user_table(SKey, Table, Opts, AccountId) ->
+    case have_table_permission(SKey, Table, drop) of
+        true ->
+            imem_meta:purge_table(Table, Opts);
+        false ->
+            case imem_meta:read(ddTable, Table) of
+                [] ->
+                    ?ClientError({"Purge table not found", SKey});
+                [#ddTable{owner=AccountId}] -> 
+                    imem_meta:purge_table(Table, Opts);
+                _ ->     
+                    ?SecurityException({"Purge table unauthorized", SKey})
+            end
+    end. 
+
 drop_system_table(SKey, Table, _AccountId) ->
     case imem_seco:have_permission(SKey, manage_system_tables) of
         true ->
             imem_meta:drop_table(Table);
         false ->
             ?SecurityException({"Drop system table unauthorized", SKey})
+    end. 
+
+purge_system_table(SKey, Table, Opts, _AccountId) ->
+    case imem_seco:have_permission(SKey, manage_system_tables) of
+        true ->
+            imem_meta:purge_table(Table, Opts);
+        false ->
+            ?SecurityException({"Purge system table unauthorized", SKey})
     end. 
 
 %% imem_if but security context added --- DATA ACCESS CRUD -----

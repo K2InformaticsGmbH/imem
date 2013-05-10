@@ -14,12 +14,15 @@
        ).
 -define(ddTest, [timestamp,integer,integer,float,string]).
 
+-define(ddTestName,ddTest_100@).   %% time partitioned 100 seconds
+
 -record(state, {wait = 1000}).
 
 % gen_server API calls
 
 -export([ start_link/1
         , start/1
+        , wait/1
         , write_test_record/2
         ]).
 
@@ -42,24 +45,27 @@ start_link(Params) ->
 start(Params) ->
     gen_server:start({local, ?MODULE}, ?MODULE, Params, []).
 
+wait(Wait) when is_integer(Wait) ->
+    gen_server:call(?MODULE, {wait, Wait}). 
+
 write_test_record(X,FX) ->
     Record = #ddTest{time=erlang:now()
       , x=X, fX=FX, oneOverX=1.0/X},
-    imem_meta:write(ddTest, Record).
+    imem_meta:write(?ddTestName, Record).
 
 % gen_server behavior callbacks
 
 init(Wait) ->
     ?Log("~p starting...~n", [?MODULE]),
-    imem_meta:create_check_table(ddTest, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set}], system),
-    imem_meta:write(ddTest, #ddTest{time=erlang:now(), comment="start"}),
+    imem_meta:create_check_table(?ddTestName, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set},{record_name,ddTest}], system),
+    imem_meta:write(?ddTestName, #ddTest{time=erlang:now(), comment="start"}),
     random:seed(now()),
     erlang:send_after(Wait, self(), write_record),    
     ?Log("~p started!~n", [?MODULE]),
     {ok,#state{wait=Wait}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call({wait, Wait}, _From, State) ->
+    {reply, ok, State#state{wait=Wait}}.
 
 handle_cast(_Request, State) ->
     {noreply, State}.
