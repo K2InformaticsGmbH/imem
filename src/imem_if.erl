@@ -32,6 +32,7 @@
         , table_columns/1
         , table_info/2
         , table_size/1
+        , table_memory/1
         , check_table/1
         , check_table_columns/2
         , system_table/1
@@ -178,9 +179,17 @@ table_info(Table, InfoKey) ->
 
 table_size(Table) ->
     try
-        % mnesia:wait_for_tables([Table], 2000),
-        mnesia:table_info(Table, all),
-        mnesia:table_info(Table, size)
+        proplists:get_value(size,mnesia:table_info(Table, all))
+        % mnesia:table_info(Table, size) %% would return 0 for unloaded table
+    catch
+        exit:{aborted,{no_exists,_,all}} -> ?ClientError({"Table does not exist", Table});
+        throw:Error ->                      ?SystemException(Error)
+    end.
+
+table_memory(Table) ->
+    try
+        proplists:get_value(memory,mnesia:table_info(Table, all))
+        % mnesia:table_info(Table, memory) %% would return 0 for unloaded table
     catch
         exit:{aborted,{no_exists,_,all}} -> ?ClientError({"Table does not exist", Table});
         throw:Error ->                      ?SystemException(Error)
@@ -703,6 +712,8 @@ table_operations(_) ->
 
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
         ?Log("success ~p~n", [table_size_no_exists]),
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_memory(non_existing_table)),
+        ?Log("success ~p~n", [table_memory_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table)),
         ?Log("success ~p~n", [table_read_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
@@ -717,6 +728,9 @@ table_operations(_) ->
         ?Log("success ~p~n", [create_set_table]),
         ?assertEqual(0, table_size(imem_table_123)),
         ?Log("success ~p~n", [table_size_empty]),
+        BaseMemory = table_memory(imem_table_123),
+        ?assert(BaseMemory < 500),    %% got value of 303 words on 10.05.2013
+        ?Log("success ~p ~p~n", [table_memory_empty, BaseMemory]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123,"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_123)),
         ?Log("success ~p~n", [write_table]),
@@ -732,6 +746,10 @@ table_operations(_) ->
         ?assertEqual(ok, dirty_write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
         ?Log("success ~p~n", [write_table]),
+        FullMemory = table_memory(imem_table_123),
+        ?assert(FullMemory > BaseMemory),
+        ?assert(FullMemory < BaseMemory + 100),  %% got 362 words on 10.5.2013
+        ?Log("success ~p ~p~n", [table_memory_full, FullMemory]),
         ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
         ?Log("success ~p~n", [read_table_1]),
         ?assertEqual([{imem_table_123,"AA","BB","cc"}], read(imem_table_123,"AA")),
@@ -787,6 +805,11 @@ table_operations(_) ->
         UR1a = return_atomic(transaction(Update1a, ["xx"])),
         ?Log("updated key ~p~n", [UR1a]),
         ?assertEqual({1,{imem_table_123, "AAA","BB","xx"}},UR1a),
+
+
+        ?assertEqual(ok, truncate_table(imem_table_123)),
+        ?assertEqual(0,table_size(imem_table_123)),
+        ?assertEqual(BaseMemory, table_memory(imem_table_123)),
 
         ?assertEqual(ok, drop_table(imem_table_123)),
         ?Log("success ~p~n", [drop_table]),
