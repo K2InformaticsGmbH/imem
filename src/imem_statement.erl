@@ -185,7 +185,9 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
     {Reply, UpdatePlan1} = try
         {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.colMaps, ChangeList)}
     catch
-        _:Reason ->  {{error,Reason}, []}
+        _:Reason ->  
+            imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{changeList,ChangeList}],"update_cursor_prepare error"),
+            {{error,Reason}, []}
     end,
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
@@ -209,7 +211,9 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
                 lists:map(Wrap, KeyUpdateRaw)
         end
     catch
-        _:Reason ->  {error,Reason}
+        _:Reason ->  
+            imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{updPlan,UpdatePlan}],"update_cursor_execute error"),
+            {error,Reason}
     end,
     % ?Log("update_cursor_execute result ~p~n", [Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined
@@ -233,7 +237,9 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #stat
         % ?Log("NewSql ~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
     catch
-        _:Reason ->  {error,Reason}
+        _:Reason ->
+            imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{filter_spec,FilterSpec},{sort_spec,SortSpec}],"filter_and_sort error"),
+            {error,Reason}
     end,
     % ?Log("replace_sort result ~p~n", [Reply]),
     {reply, Reply, State};
@@ -268,7 +274,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % ?Log("fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     #statement{tables=[{_Schema,Table,_Alias}|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
     #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit} = MainSpec,
-    imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     % ?Log("Table  : ~p~n", [Table]),
     % ?Log("SBinds : ~p~n", [SBinds]),
     % ?Log("MBinds : ~p~n", [MBinds]),
@@ -313,7 +319,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
 handle_cast({close, _SKey}, State) ->
-    imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
+    % imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
     % ?Log("received close in state ~p~n", [State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->

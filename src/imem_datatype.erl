@@ -291,12 +291,12 @@ io_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_binary(Val);is_list(Val) ->
 % io_to_db(_Item,_Old,_Type,_Len,_Prec,_Def,_RO,Val) -> Val.    
 
 add_squotes(<<>>) -> <<"''">>;
-add_squotes(B) when is_binary(B) -> <<$',B,$'>>;
+add_squotes(B) when is_binary(B) -> <<$',B/binary,$'>>;
 add_squotes([]) -> "''";
 add_squotes(String) when is_list(String) -> "'" ++ String ++ "'".
 
 add_dquotes(<<>>) -> <<"\"\"">>;
-add_dquotes(B) when is_binary(B) -> <<$",B,$">>;
+add_dquotes(B) when is_binary(B) -> <<$",B/binary,$">>;
 add_dquotes([]) -> "\"\"";
 add_dquotes(String) when is_list(String) -> "\"" ++ String ++ "\"".
 

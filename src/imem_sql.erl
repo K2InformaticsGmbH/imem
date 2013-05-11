@@ -491,12 +491,12 @@ filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree, LeftTree) ->
 filter_condition({Idx,[Val]}, ColMaps) ->
     #ddColMap{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
     Tag = "Col" ++ integer_to_list(Idx),
-    Value = list_to_binary(filter_field_value(Tag,Type,L,P,D,Val)),
+    Value = filter_field_value(Tag,Type,L,P,D,Val),     % list_to_binary(
     {'=',list_to_binary(field_name(S,T,N)),Value};
 filter_condition({Idx,Vals}, ColMaps) ->
     #ddColMap{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
     Tag = "Col" ++ integer_to_list(Idx),
-    Values = [list_to_binary(filter_field_value(Tag,Type,L,P,D,Val)) || Val <- Vals],
+    Values = [filter_field_value(Tag,Type,L,P,D,Val) || Val <- Vals],       % list_to_binary(
     {'in',list_to_binary(field_name(S,T,N)),{'list',Values}}.
 
 filter_field_value(_Tag,integer,_Len,_Prec,_Def,Val) -> Val;

@@ -726,16 +726,20 @@ failing_function(Other) ->
     {undefined,undefined}.
 
 log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
+    StackTrace = if
+        (Level == error) -> erlang:get_stacktrace();
+        true ->             []
+    end,
     LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
                         ,module=Module,function=Function,node=node()
-                        ,fields=Fields,message= Message
+                        ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
     dirty_write(ddLog@, LogRec);
 log_to_db(Level,Module,Function,Fields,Message) ->
     BinStr = try 
         list_to_binary(Message)
     catch
-        _:_ ->  list_to_binary(lists:flatten(io_lib:format("~p",[Message])))
+        _:_ ->  list_to_binary(lists:flatten(io_lib:format("~tp",[Message])))
     end,
     log_to_db(Level,Module,Function,Fields,BinStr).
 
