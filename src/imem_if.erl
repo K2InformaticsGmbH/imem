@@ -6,11 +6,11 @@
 % gen_server
 -record(state, {
             snap_interval = 0
-            , last_accessed = ets:new(?MODULE, [public, named_table])
         }).
 
 -record(user_properties, {
-            last_write
+            table
+            , last_write
             , last_snap
         }).
 
@@ -251,7 +251,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
-            mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
+            true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, Node}} ->
             ?Log("table ~p exists at ~p~n", [Table, Node]),
@@ -259,13 +259,13 @@ create_table(Table, Opts) when is_atom(Table) ->
                 yes -> ok;
                 Error -> ?ClientError({"Loading table(s) timeout~p", Error})
             end,
-            mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
+            true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result ->
             ?Log("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
-            mnesia:write_table_property(Table, #user_properties{last_write = Now, last_snap = Now}),
+            true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             return_atomic_ok(Result)
 	end.
 
@@ -282,7 +282,9 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
 
 drop_table(Table) when is_atom(Table) ->
     case mnesia:delete_table(Table) of
-        {atomic,ok} ->                  ok;
+        {atomic,ok} ->
+            true = ets:delete(?MODULE, Table),
+            ok;
         {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
         Error ->                        ?SystemException(Error)
     end.
@@ -346,6 +348,8 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
             % ?Log("cannot write ~p to ~p~n", [Row,Table]),
             ?ClientErrorNoLogging({"Table does not exist",Table});
         Res ->
+            [#user_properties { table = Table } = Up |_] =  ets:lookup(?MODULE, Table),
+            true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()}),
             Res
     end,
     return_atomic_ok(Result).
@@ -580,6 +584,7 @@ unsubscribe(EventCategory) ->
 %% ----- gen_server -------------------------------------------
 
 start_link(Params) ->
+    ets:new(?MODULE, [public, named_table, {keypos,2}]),
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init(Params) ->
@@ -629,9 +634,10 @@ handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
     Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
     [(fun() ->
         [#user_properties {
-            last_write = Wt
+            table = T
+            , last_write = Wt
             , last_snap = St
-        } = Up |_] = mnesia:table_info(T, user_properties),
+        } = Up |_] =  ets:lookup(?MODULE, T),
         LastWriteTime = timestamp(Wt),
         LastSnapTime = timestamp(St),
         %io:format(user, "~p times ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]),
@@ -642,10 +648,10 @@ handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
                                 NewBackFile = filename:join(["snapshot", atom_to_list(T)++".bkp.new"]),
                                 ok = file:write_file(NewBackFile, term_to_binary(Rows)),
                                 {ok, _} = file:copy(NewBackFile, BackFile),
-                                % ?Log("snapshot created for ~p~n", [T]),
+                                ?Log("snapshot created for ~p~n", [T]),
                                 ok = file:delete(NewBackFile)
                                end),
-            {atomic, ok} = mnesia:write_table_property(T,Up#user_properties{last_snap = erlang:now()});
+            true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
         true -> ok % no backup needed
         end
       end)()
@@ -673,6 +679,13 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 format_status(_Opt, [_PDict, _State]) -> ok.
+
+%% ----- Private functions ------------------------------------
+mnesia_table_action(Fun, Args) when is_atom(Fun), is_list(Args) ->
+    [Table|_] = Args,
+    [#user_properties { table = Table } = Up |_] =  ets:lookup(?MODULE, Table),
+    true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()}),
+    apply(mnesia, Fun, Args).
 
 %% ----- TESTS ------------------------------------------------
 
@@ -860,9 +873,3 @@ table_operations(_) ->
         throw ({Class, Reason})
     end,
     ok.
-
-mnesia_table_action(Fun, Args) when is_atom(Fun), is_list(Args) ->
-    [Table|_] = Args,
-    ets:insert(?MODULE, {Table, os:timestamp()}),
-    apply(mnesia, Fun, Args).
-
