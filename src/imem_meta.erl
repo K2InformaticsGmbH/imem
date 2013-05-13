@@ -3,7 +3,7 @@
 -define(META_TABLES,[ddTable,ddLog@,dual]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
--define(PURGE_CYCLE_WAIT, 10000).
+-define(PURGE_CYCLE_WAIT, 10000). % 10000
 -define(PURGE_ITEM_WAIT, 10).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -141,7 +141,7 @@ init(_Args) ->
         check_table(dual),
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
         check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
-        % erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
+        erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -208,6 +208,7 @@ handle_cast(_Request, State) ->
 
 handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
+    ?Log("Purge collect start~n",[]), 
     Pred = fun imem_meta:is_time_partitioned_alias/1,
     case lists:sort(lists:filter(Pred,tables_ending_with("@" ++ node_shard()))) of
         [] ->   erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
@@ -216,6 +217,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     end;
 handle_info(purge_partitioned_tables, State=#state{purgeList=[Tab|Rest]}) ->
     % process one purge candidate
+    ?Log("Purge try table ~p~n",[Tab]), 
     case imem_if:read(ddTable,{schema(), Tab}) of
         [] ->   
             ?Log("Table deleted before it could be purged ~p~n",[Tab]); 

@@ -57,7 +57,7 @@ write_test_record(X,FX) ->
 
 init(Wait) ->
     ?Log("~p starting...~n", [?MODULE]),
-    imem_meta:create_check_table(?ddTestName, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set},{record_name,ddTest}], system),
+    imem_meta:create_check_table(?ddTestName, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set},{record_name,ddTest},{purge_delay,500}], system),
     imem_meta:write(?ddTestName, #ddTest{time=erlang:now(), comment="start"}),
     random:seed(now()),
     erlang:send_after(Wait, self(), write_record),    
