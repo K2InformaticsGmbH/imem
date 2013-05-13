@@ -95,7 +95,7 @@ return_atomic_list({aborted,{throw,{Exception,Reason}}}) ->
     throw({Exception,Reason});
 return_atomic_list({aborted,{exit,{Exception,Reason}}}) ->
     exit({Exception,Reason});
-return_atomic_list(Error) -> ?SystemException(Error).
+return_atomic_list(Error) -> ?SystemExceptionNoLogging(Error).
 
 return_atomic_ok({atomic, ok}) -> ok;
 return_atomic_ok({aborted,{throw,{Exception,Reason}}}) ->
@@ -103,14 +103,14 @@ return_atomic_ok({aborted,{throw,{Exception,Reason}}}) ->
 return_atomic_ok({aborted,{exit,{Exception,Reason}}}) ->
     exit({Exception,Reason});
 return_atomic_ok(Error) ->
-    ?SystemException(Error).
+    ?SystemExceptionNoLogging(Error).
 
 return_atomic({atomic, Result}) -> Result;
 return_atomic({aborted, {throw,{Exception, Reason}}}) ->
     throw({Exception, Reason});
 return_atomic({aborted, {exit, {Exception, Reason}}}) ->
     exit({Exception, Reason});
-return_atomic(Error) ->  ?SystemException(Error).
+return_atomic(Error) ->  ?SystemExceptionNoLogging(Error).
 
 
 transaction(Function) when is_atom(Function)->
@@ -258,7 +258,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             ?Log("table ~p exists at ~p~n", [Table, Node]),
             case mnesia:force_load_table(Table) of
                 yes -> ok;
-                Error -> ?ClientError({"Loading table(s) timeout~p", Error})
+                Error -> ?ClientErrorNoLogging({"Loading table(s) timeout~p", Error})
             end,
             true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
@@ -271,14 +271,14 @@ create_table(Table, Opts) when is_atom(Table) ->
     end.
 
 wait_table_tries(Tables, {0, _}) ->
-    ?ClientError({"Loading table(s) timeout~p", Tables});
+    ?ClientErrorNoLogging({"Loading table(s) timeout~p", Tables});
 wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
     case mnesia:wait_for_tables(Tables, Timeout) of
         ok -> ok;
         {timeout, BadTabList} ->
             ?Log("table ~p load time out attempt ~p~n", [BadTabList, Count]),
             wait_table_tries(Tables, {Count-1,Timeout});
-        {error, Reason} -> ?ClientError({"Error loading table~p", Reason})
+        {error, Reason} -> ?ClientErrorNoLogging({"Error loading table~p", Reason})
     end.
 
 drop_table(Table) when is_atom(Table) ->
@@ -287,7 +287,7 @@ drop_table(Table) when is_atom(Table) ->
             true = ets:delete(?MODULE, Table),
             ok;
         {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
-        Error ->                        ?SystemException(Error)
+        Error ->                        ?SystemExceptionNoLogging(Error)
     end.
 
 create_index(Table, Column) when is_atom(Table) ->
@@ -319,9 +319,9 @@ read(Table) when is_atom(Table) ->
         lists:flatten([mnesia:read(Table, X) || X <- Keys])
     end,
     case transaction(Trans) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
         {atomic, Result} ->         Result;
-        Error ->                    ?SystemException(Error)
+        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        Error ->                    ?SystemExceptionNoLogging(Error)
     end.
 
 read(Table, Key) when is_atom(Table) ->
@@ -338,7 +338,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        _:Reason ->                         ?SystemException({"Mnesia dirty_write failure",Reason})
+        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_write failure",Reason})
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
@@ -349,7 +349,8 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
             ?ClientErrorNoLogging({"Table does not exist",Table});
         {atomic,ok} ->
             [Up] = ets:lookup(?MODULE, Table),
-            true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()});
+            true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()}),
+            {atomic,ok};
         Error ->
             Error   
     end,
@@ -357,23 +358,23 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
 
 delete(Table, Key) when is_atom(Table) ->
     Result = case transaction(delete,[{Table, Key}]) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
-        Res ->                      Res
+        {aborted,{no_exists,_}} ->          ?ClientError({"Table does not exist",Table});
+        Res ->                              Res
     end,
     return_atomic_ok(Result).
 
 delete_object(Table, Row) when is_atom(Table) ->
     Result = case transaction(delete_object,[Table, Row, write]) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
-        Res ->                      Res
+        {aborted,{no_exists,_}} ->          ?ClientError({"Table does not exist",Table});
+        Res ->                              Res
     end,
     return_atomic_ok(Result).
 
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of
-        {atomic, L}     ->              {L, true};
-        {aborted,{no_exists,_}} ->      ?ClientError({"Table does not exist",Table});
-        Error ->                        ?SystemException(Error)
+        {atomic, L}     ->                  {L, true};
+        {aborted,{no_exists,_}} ->          ?ClientError({"Table does not exist",Table});
+        Error ->                            ?SystemExceptionNoLogging(Error)
     end.
 
 select_sort(Table, MatchSpec) ->
@@ -400,9 +401,9 @@ select(Table, MatchSpec, Limit) when is_atom(Table) ->
         end
     end,
     case transaction(Start, [Next]) of
-        {aborted,{no_exists,_}} ->              ?ClientError({"Table does not exist",Table});
         {atomic, {Result, AllRead}} ->          {Result, AllRead};
-        Error ->                                ?SystemException(Error)
+        {aborted,{no_exists,_}} ->              ?ClientError({"Table does not exist",Table});
+        Error ->                                ?SystemExceptionNoLogging(Error)
     end.
 
 select_sort(Table, MatchSpec, Limit) ->
@@ -645,8 +646,9 @@ handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
         LastWriteTime = timestamp(Wt),
         LastSnapTime = timestamp(St),
         %io:format(user, "~p times ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]),
-        if LastSnapTime =< LastWriteTime ->
-            mnesia:transaction(fun() ->
+        if 
+            LastSnapTime =< LastWriteTime ->
+                mnesia:transaction(fun() ->
                                 Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
                                 BackFile = filename:join(["snapshot", atom_to_list(T)++".bkp"]),
                                 NewBackFile = filename:join(["snapshot", atom_to_list(T)++".bkp.new"]),
@@ -655,8 +657,9 @@ handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
                                 ?Log("snapshot created for ~p~n", [T]),
                                 ok = file:delete(NewBackFile)
                                end),
-            true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
-        true -> ok % no backup needed
+                true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
+            true -> 
+                ok % no backup needed
         end
       end)()
     || T <- Tabs],
@@ -689,7 +692,8 @@ mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
     case apply(mnesia, Fun, Args) of
         {atomic,ok} ->
             [Up] = ets:lookup(?MODULE, hd(Args)),
-            true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()});
+            true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()}),
+            {atomic,ok};
         Error ->
             Error   
     end.
@@ -751,7 +755,7 @@ table_operations(_) ->
         ?assertEqual(0, table_size(imem_table_123)),
         ?Log("success ~p~n", [table_size_empty]),
         BaseMemory = table_memory(imem_table_123),
-        ?assert(BaseMemory < 500),    %% got value of 303 words on 10.05.2013
+        ?assert(BaseMemory < 4000),    %% got value of 303 words x 8 bytes on 10.05.2013
         ?Log("success ~p ~p~n", [table_memory_empty, BaseMemory]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123,"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_123)),
@@ -770,7 +774,7 @@ table_operations(_) ->
         ?Log("success ~p~n", [write_table]),
         FullMemory = table_memory(imem_table_123),
         ?assert(FullMemory > BaseMemory),
-        ?assert(FullMemory < BaseMemory + 100),  %% got 362 words on 10.5.2013
+        ?assert(FullMemory < BaseMemory + 800),  %% got 362 words on 10.5.2013
         ?Log("success ~p ~p~n", [table_memory_full, FullMemory]),
         ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
         ?Log("success ~p~n", [read_table_1]),

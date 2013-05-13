@@ -777,7 +777,7 @@ throw_exception(Ex,Reason,Level,Stacktrace) ->
                         ,module=Module,function=Function,node=node()
                         ,fields=[{ex,Ex}|Fields],message= Message
                         ,stacktrace = Stacktrace},
-    imem_meta:write(ddLog@, LogRec),
+    catch imem_meta:write(ddLog@, LogRec),
     case Ex of
         'SecurityViolation' ->  exit({Ex,Reason});
         _ ->                    throw({Ex,Reason})
