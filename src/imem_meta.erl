@@ -2,6 +2,9 @@
 
 -define(META_TABLES,[ddTable,ddLog@,dual]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
+-define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
+-define(PURGE_CYCLE_WAIT, 10000).
+-define(PURGE_ITEM_WAIT, 10).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -9,7 +12,7 @@
 
 -behavior(gen_server).
 
--record(state, {}).
+-record(state, {purgeList=[]}).
 
 -export([ start_link/1
         ]).
@@ -40,10 +43,13 @@
         , node_hash/1
         , all_tables/0
         , tables_starting_with/1
+        , tables_ending_with/1
         , node_shard/0
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
+        , is_time_partitioned_alias/1
+        , is_node_sharded_alias/1
         , table_type/1
         , table_columns/1
         , table_size/1
@@ -127,9 +133,7 @@ init(_Args) ->
         check_table(ddTable),
         check_table_columns(ddTable, record_info(fields, ddTable)),
         check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
-
         create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
-
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
             ok ->   write(dual,#dual{});
             _ ->    ok
@@ -137,7 +141,7 @@ init(_Args) ->
         check_table(dual),
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
         check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
-
+        % erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -202,6 +206,57 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
+handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
+    % restart purge cycle by collecting list of candidates
+    Pred = fun imem_meta:is_time_partitioned_alias/1,
+    case lists:sort(lists:filter(Pred,tables_ending_with("@" ++ node_shard()))) of
+        [] ->   erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
+                {noreply, State};
+        PL ->   handle_info(purge_partitioned_tables, State=#state{purgeList=PL})   
+    end;
+handle_info(purge_partitioned_tables, State=#state{purgeList=[Tab|Rest]}) ->
+    % process one purge candidate
+    case imem_if:read(ddTable,{schema(), Tab}) of
+        [] ->   
+            ?Log("Table deleted before it could be purged ~p~n",[Tab]); 
+        [#ddTable{opts=Opts}] ->
+            case lists:keyfind(purge_delay, 1, Opts) of
+                false ->
+                    ok;             %% no purge delay in table create options, do not purge this file
+                {purge_delay,PD} ->
+                    Name = atom_to_list(Tab),
+                    {BaseName,PartitionName} = lists:split(length(Name)-length(node_shard())-11, Name),
+                    case Rest of
+                        [] ->   
+                            ok;                     %% no follower, do not purge this file
+                        [Next|_] ->
+                            NextName = atom_to_list(Next),
+                            case lists:prefix(BaseName,NextName) of
+                                false -> 
+                                    ok;             %% no follower, do not purge this file
+                                true ->
+                                    {Mega,Sec,_} = erlang:now(),
+                                    PurgeEnd=1000000*Mega+Sec-PD,
+                                    PartitionEnd=list_to_integer(lists:sublist(PartitionName,10)),
+                                    if
+                                        (PartitionEnd >= PurgeEnd) ->
+                                            ok;     %% too young, do not purge this file  
+                                        true ->                     
+                                            FreedMemory = table_memory(Tab),
+                                            Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
+                                            log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
+                                            drop_table_and_info(Tab)
+                                    end
+                            end
+                    end
+            end
+    end,  
+    case Rest of
+        [] ->   erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
+                {noreply, State=#state{purgeList=[]}};
+        Rest -> erlang:send_after(?PURGE_ITEM_WAIT, self(), purge_partitioned_tables),
+                {noreply, State=#state{purgeList=Rest}}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -214,12 +269,6 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 
 %% ------ META implementation -------------------------------------------------------
-
-% create_type_tables([]) -> ok;
-% create_type_tables([Type|Types]) ->
-%     catch create_table(Type, {[item], [Type], {Type,undefined}}, [{virtual,true}], system),
-%     check_table_meta(Type, {[item], [Type], {Type,undefined}}),
-%     create_type_tables(Types).
 
 system_table({_S,Table,_A}) -> system_table(Table);
 system_table({_,Table}) -> system_table(Table);
@@ -441,11 +490,17 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
         {_,BadT} -> ?ClientError({"Invalid data type",BadT})
     end,
     PhysicalName=physical_table_name(Table),
-    case lists:member({virtual,true},Opts) of
-        true ->     ok;
-        false ->    imem_if:create_table(PhysicalName, column_names(ColumnInfos), Opts)
-    end,
+    imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts)),
     imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner}).
+
+if_opts(Opts) ->
+    % Remove imem_meta table options which are not recognized by imem_if
+    if_opts(Opts,?META_OPTS).
+
+if_opts([],_) -> [];
+if_opts(Opts,[]) -> Opts;
+if_opts(Opts,[MO|Others]) ->
+    if_opts(lists:keydelete(MO, 1, Opts),Others).
 
 drop_table({Schema,Table,_Alias}) -> 
     drop_table({Schema,Table});
@@ -496,7 +551,7 @@ purge_time_partitioned_table(Alias, Opts) ->
         [] ->
             ?ClientError({"Table to be purged does not exist",Alias});
         [PhName|Rest] ->
-            KeepTime = case proplists:get_value(keep_duration, Opts) of
+            KeepTime = case proplists:get_value(purge_delay, Opts) of
                 undefined ->    erlang:now();
                 Seconds ->      {Mega,Secs,Micro} = erlang:now(),
                                 {Mega,Secs-Seconds,Micro}
@@ -660,6 +715,22 @@ atoms_starting_with(Prefix,[A|Atoms],Acc) ->
         true ->     atoms_starting_with(Prefix,Atoms,[A|Acc]);
         false ->    atoms_starting_with(Prefix,Atoms,Acc)
     end.
+
+tables_ending_with(Suffix) when is_atom(Suffix) ->
+    tables_ending_with(atom_to_list(Suffix));
+tables_ending_with(Suffix) when is_list(Suffix) ->
+    atoms_ending_with(Suffix,all_tables()).
+
+atoms_ending_with(Suffix,Atoms) ->
+    atoms_ending_with(Suffix,Atoms,[]).
+
+atoms_ending_with(_,[],Acc) -> lists:sort(Acc);
+atoms_ending_with(Suffix,[A|Atoms],Acc) ->
+    case lists:suffix(Suffix,atom_to_list(A)) of
+        true ->     atoms_ending_with(Suffix,Atoms,[A|Acc]);
+        false ->    atoms_ending_with(Suffix,Atoms,Acc)
+    end.
+
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
@@ -1143,9 +1214,9 @@ meta_operations(_) ->
                             ,fields=Fields,message= <<"some log message 2">>},
         ?assertEqual(ok, write(tpTest_1000@, LogRec2)),
         ?Log("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
-        ?assertEqual(0, purge_table(tpTest_1000@,[{keep_duration,10000}])),
+        ?assertEqual(0, purge_table(tpTest_1000@,[{purge_delay,10000}])),
         ?assertEqual(0, purge_table(tpTest_1000@)),
-        PurgeResult = purge_table(tpTest_1000@,[{keep_duration,-3000}]),
+        PurgeResult = purge_table(tpTest_1000@,[{purge_delay,-3000}]),
         ?Log("PurgeResult ~p~n", [PurgeResult]),
         ?assert(PurgeResult>0),
         ?assertEqual(0, purge_table(tpTest_1000@)),

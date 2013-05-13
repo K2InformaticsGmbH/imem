@@ -47,7 +47,7 @@
         ]).
 
 -export([ create_table/3
-		, drop_table/1
+        , drop_table/1
         , create_index/2
         , drop_index/2
         , truncate_table/1
@@ -246,7 +246,7 @@ create_table(Table, Opts) when is_list(Table) ->
 create_table(Table, Opts) when is_atom(Table) ->
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
     Now = erlang:now(),
-   	case mnesia:create_table(Table, Opts) of
+    case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
             ?Log("table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
@@ -268,7 +268,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             wait_table_tries([Table], Conf),
             true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             return_atomic_ok(Result)
-	end.
+    end.
 
 wait_table_tries(Tables, {0, _}) ->
     ?ClientError({"Loading table(s) timeout~p", Tables});
@@ -880,3 +880,4 @@ table_operations(_) ->
         throw ({Class, Reason})
     end,
     ok.
+
