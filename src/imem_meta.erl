@@ -49,7 +49,9 @@
         , physical_table_name/2
         , physical_table_names/1
         , is_time_partitioned_alias/1
+        , is_local_time_partitioned_table/1
         , is_node_sharded_alias/1
+        , is_local_node_sharded_table/1
         , table_type/1
         , table_columns/1
         , table_size/1
@@ -208,16 +210,16 @@ handle_cast(_Request, State) ->
 
 handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
-    ?Log("Purge collect start~n",[]), 
-    Pred = fun imem_meta:is_time_partitioned_alias/1,
+    % ?Log("Purge collect start~n",[]), 
+    Pred = fun imem_meta:is_local_time_partitioned_table/1,
     case lists:sort(lists:filter(Pred,tables_ending_with("@" ++ node_shard()))) of
         [] ->   erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
                 {noreply, State};
-        PL ->   handle_info(purge_partitioned_tables, State=#state{purgeList=PL})   
+        PL ->   handle_info(purge_partitioned_tables, State#state{purgeList=PL})   
     end;
 handle_info(purge_partitioned_tables, State=#state{purgeList=[Tab|Rest]}) ->
     % process one purge candidate
-    ?Log("Purge try table ~p~n",[Tab]), 
+    % ?Log("Purge try table ~p~n",[Tab]), 
     case imem_if:read(ddTable,{schema(), Tab}) of
         [] ->   
             ?Log("Table deleted before it could be purged ~p~n",[Tab]); 
@@ -246,6 +248,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeList=[Tab|Rest]}) ->
                                         true ->                     
                                             FreedMemory = table_memory(Tab),
                                             Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
+                                            ?Log("Purge time partition ~p~n",[Tab]),
                                             log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
                                             drop_table_and_info(Tab)
                                     end
@@ -255,9 +258,9 @@ handle_info(purge_partitioned_tables, State=#state{purgeList=[Tab|Rest]}) ->
     end,  
     case Rest of
         [] ->   erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
-                {noreply, State=#state{purgeList=[]}};
+                {noreply, State#state{purgeList=[]}};
         Rest -> erlang:send_after(?PURGE_ITEM_WAIT, self(), purge_partitioned_tables),
-                {noreply, State=#state{purgeList=Rest}}
+                {noreply, State#state{purgeList=Rest}}
     end;
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -615,6 +618,21 @@ is_time_partitioned_alias(Alias) when is_list(Alias) ->
                  _ ->      
                     false       % node sharded alias only
             end
+    end.
+
+is_local_node_sharded_table(Name) when is_atom(Name) -> 
+    is_local_node_sharded_table(atom_to_list(Name));
+is_local_node_sharded_table(Name) when is_list(Name) -> 
+    lists:suffix([$@|node_shard()],Name).
+
+is_local_time_partitioned_table(Name) when is_atom(Name) ->
+    is_local_time_partitioned_table(atom_to_list(Name));
+is_local_time_partitioned_table(Name) when is_list(Name) ->
+    case is_local_node_sharded_table(Name) of
+        false -> 
+            false;
+        true ->
+            is_time_partitioned_alias(lists:sublist(Name, length(Name)-length(node_shard())))
     end.
 
 physical_table_name({_S,N,_A}) -> physical_table_name(N);
