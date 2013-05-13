@@ -184,7 +184,7 @@ table_size(Table) ->
         % mnesia:table_info(Table, size) %% would return 0 for unloaded table
     catch
         exit:{aborted,{no_exists,_,all}} -> ?ClientErrorNoLogging({"Table does not exist", Table});
-        throw:Error ->                      ?SystemException(Error)
+        throw:Error ->                      ?SystemExceptionNoLogging(Error)
     end.
 
 table_memory(Table) ->
@@ -194,7 +194,7 @@ table_memory(Table) ->
         % mnesia:table_info(Table, memory) %% would return 0 for unloaded table
     catch
         exit:{aborted,{no_exists,_,all}} -> ?ClientErrorNoLogging({"Table does not exist", Table});
-        throw:Error ->                      ?SystemException(Error)
+        throw:Error ->                      ?SystemExceptionNoLogging(Error)
     end.
 
 check_table(Table) ->
@@ -730,11 +730,12 @@ table_operations(_) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
-        % timer:sleep(5000),
+
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
         ?Log("success ~p~n", [table_size_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_memory(non_existing_table)),
         ?Log("success ~p~n", [table_memory_no_exists]),
+
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table)),
         ?Log("success ~p~n", [table_read_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
@@ -880,4 +881,3 @@ table_operations(_) ->
         throw ({Class, Reason})
     end,
     ok.
-

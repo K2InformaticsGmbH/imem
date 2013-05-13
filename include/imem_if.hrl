@@ -12,6 +12,7 @@
 -define(ClientError(__Reason), imem_meta:throw_exception('ClientError',__Reason)).
 -define(ClientErrorNoLogging(__Reason), throw({'ClientError',__Reason})).
 -define(SystemException(__Reason), imem_meta:throw_exception('SystemException',__Reason)).
+-define(SystemExceptionNoLogging(__Reason), throw({'SystemException',__Reason})).
 -define(ConcurrencyException(__Reason), imem_meta:throw_exception('ConcurrencyException',__Reason)).
 -define(UnimplementedException(__Reason), imem_meta:throw_exception('UnimplementedException',__Reason)).
 
