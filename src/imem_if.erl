@@ -42,6 +42,7 @@
         , unsubscribe/1
         , snap_info/0
         , restore_snap/2
+        , snapshot/1
         ]).
 
 -export([ add_attribute/2
@@ -92,9 +93,9 @@ snap_info() ->
             STabs = [S || {S, _, _} <- SnapTables],
             RestorableTables = sets:to_list(sets:intersection(sets:from_list(MTabs), sets:from_list(STabs))),
             [
-              {dbtables, MnesiaTables}
-            , {snaptables, SnapTables}
-            , {restorabletables, RestorableTables}
+              {dbtables, lists:sort(MnesiaTables)}
+            , {snaptables, lists:sort(SnapTables)}
+            , {restorabletables, lists:sort(RestorableTables)}
             ];
         false -> throw({error, "no snapshot dir found"})
     end.
@@ -132,6 +133,22 @@ restore_snap([T|Tabs], Replace) when is_atom(T) ->
             ?Log("file not found ~s~n", [SnapFile])
     end,
     restore_snap(Tabs, Replace).
+
+snapshot(Tab) when is_atom(Tab) -> snapshot(atom_to_list(Tab));
+snapshot(TabRegExp) when is_list(TabRegExp) ->
+    Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), TabRegExp) =/= nomatch],
+    [{atomic, ok} = mnesia:transaction(fun() ->
+                        Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
+                        BackFile = filename:join(["snapshot", atom_to_list(T)++".bkp"]),
+                        NewBackFile = filename:join(["snapshot", atom_to_list(T)++".bkp.new"]),
+                        ok = file:write_file(NewBackFile, term_to_binary(Rows)),
+                        {ok, _} = file:copy(NewBackFile, BackFile),
+                        ?Log("snapshot created for ~p~n", [T]),
+                        ok = file:delete(NewBackFile)
+                    end)
+    || T <- Tabs].
+
+    
 
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
