@@ -40,6 +40,8 @@
         , meta_field_value/1
         , subscribe/1
         , unsubscribe/1
+        , snap_info/0
+        , restore_snap/2
         ]).
 
 -export([ add_attribute/2
@@ -72,6 +74,64 @@
         , return_atomic_ok/1
         , return_atomic/1
         ]).
+
+snap_info() ->
+    MTabs = mnesia:system_info(tables),
+    MnesiaTables = [{M, mnesia:table_info(M, size), mnesia:table_info(M, memory)} || M <- MTabs],
+    case filelib:is_dir("snapshot") of
+        true ->
+            SnapTables = [
+                case re:run(F,"(.*)\.bkp", [{capture, [1], list}]) of
+                    {match, [T|_]} ->
+                        Fn = filename:join("snapshot",F),
+                        {list_to_existing_atom(T), filelib:file_size(Fn), filelib:last_modified(Fn)};
+                    _ -> throw({error, "bad snapshot"})
+                end
+                || F <- filelib:wildcard("*.bkp", "snapshot"), re:run(F,"(.*)\.bkp", [{capture, [1], list}]) =/= nomatch
+            ],
+            STabs = [S || {S, _, _} <- SnapTables],
+            RestorableTables = sets:to_list(sets:intersection(sets:from_list(MTabs), sets:from_list(STabs))),
+            [
+              {dbtables, MnesiaTables}
+            , {snaptables, SnapTables}
+            , {restorabletables, RestorableTables}
+            ];
+        false -> throw({error, "no snapshot dir found"})
+    end.
+
+restore_snap([], _) -> ?Log("restore finished!~n", []);
+restore_snap([T|Tabs], Replace) when is_atom(T) ->
+    SnapFile = filename:join(["snapshot", atom_to_list(T) ++ ".bkp"]),
+    case filelib:is_file(SnapFile) of
+        true ->
+            {ok, Bin} = file:read_file(SnapFile),
+            ?Log("------------ processing ~s @ ~p~n", [SnapFile, T]),
+            {IdExt, ExDiff, Append} =
+            lists:foldl(fun(R, {I, E, A}) ->
+                K = element(2, R),
+                {atomic, RepRows} = mnesia:sync_transaction(fun() ->
+                    case mnesia:read(T, K) of
+                        [R] -> %?Log("found identical existing row ~p~n", [K]),
+                            {[R|I], E, A};
+                        [R1] -> %?Log("existing row with different content ~p~n", [K]),
+                            if Replace =:= true -> ok = mnesia:write(R); true -> ok end,
+                            {I, [{R,R1}|E], A};
+                        [] -> %?Log("row not found, appending ~p~n", [K]),
+                            ok = mnesia:write(R),
+                            {I, E, [R|A]}
+                    end
+                end),
+                RepRows
+            end
+            , {[],[],[]}
+            , binary_to_term(Bin)),
+            %?Log("rows ~s ~p~nfull match ~p~nappended ~p~n", [if Replace =:= true -> "replaced"; true -> "collided" end, ExDiff, IdExt, Append]),
+            ?Log("rows ~s ~p, full match ~p, appended ~p~n", [if Replace =:= true -> "replaced"; true -> "collided" end,
+                                                            length(ExDiff), length(IdExt), length(Append)]);
+        _ ->
+            ?Log("file not found ~s~n", [SnapFile])
+    end,
+    restore_snap(Tabs, Replace).
 
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
