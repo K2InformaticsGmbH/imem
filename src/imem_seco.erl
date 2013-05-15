@@ -413,6 +413,9 @@ login(SKey) ->
             ?SecurityException({"Invalid account credentials. Please retry", AccountId})
     end.
 
+change_credentials(SKey, {pwdmd5,_}=OldCred, {pwdmd5,_}=OldCred) ->
+    #ddSeCo{accountId=AccountId} = seco_authenticated(SKey),
+    ?SecurityException({"The same password cannot be re-used. Please retry", AccountId});
 change_credentials(SKey, {pwdmd5,_}=OldCred, {pwdmd5,_}=NewCred) ->
     #ddSeCo{accountId=AccountId} = seco_authenticated(SKey),
     LocalTime = calendar:local_time(),

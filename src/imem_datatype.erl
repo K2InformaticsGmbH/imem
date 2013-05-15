@@ -999,10 +999,10 @@ float_to_io(Val,_Prec,_NumFmt) ->
     list_to_binary(float_to_list(Val)).                    %% ToDo: implement rounding to db precision
 
 boolean_to_io(T) ->
-    list_to_binary(io_lib:format("~w",[T])).
+    list_to_binary(io_lib:format("~p",[T])).
 
 term_to_io(T) ->
-    list_to_binary(io_lib:format("~w",[T])).
+    list_to_binary(io_lib:format("~tw",[T])).
     
 string_to_io(Val) when is_list(Val) ->
     IsString = io_lib:printable_unicode_list(Val),
