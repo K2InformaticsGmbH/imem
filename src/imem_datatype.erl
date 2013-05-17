@@ -1002,7 +1002,7 @@ boolean_to_io(T) ->
     list_to_binary(io_lib:format("~p",[T])).
 
 term_to_io(T) ->
-    list_to_binary(io_lib:format("~tw",[T])).
+    list_to_binary(io_lib:format("~w",[T])).
     
 string_to_io(Val) when is_list(Val) ->
     IsString = io_lib:printable_unicode_list(Val),
