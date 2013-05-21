@@ -6,13 +6,13 @@
 % gen_server
 -record(state, {
             snap_interval = 0
+            , snapdir
         }).
 
 -record(user_properties, {
             table
             , last_write
             , last_snap
-            , snapdir
         }).
 
 -export([ init/1
