@@ -12,6 +12,7 @@
             table
             , last_write
             , last_snap
+            , snapdir
         }).
 
 -export([ init/1
@@ -79,16 +80,17 @@
 snap_info() ->
     MTabs = mnesia:system_info(tables),
     MnesiaTables = [{M, mnesia:table_info(M, size), mnesia:table_info(M, memory)} || M <- MTabs],
-    case filelib:is_dir("snapshot") of
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    case filelib:is_dir(SnapDir) of
         true ->
             SnapTables = [
                 case re:run(F,"(.*)\.bkp", [{capture, [1], list}]) of
                     {match, [T|_]} ->
-                        Fn = filename:join("snapshot",F),
+                        Fn = filename:join(SnapDir,F),
                         {list_to_existing_atom(T), filelib:file_size(Fn), filelib:last_modified(Fn)};
                     _ -> throw({error, "bad snapshot"})
                 end
-                || F <- filelib:wildcard("*.bkp", "snapshot"), re:run(F,"(.*)\.bkp", [{capture, [1], list}]) =/= nomatch
+                || F <- filelib:wildcard("*.bkp", SnapDir), re:run(F,"(.*)\.bkp", [{capture, [1], list}]) =/= nomatch
             ],
             STabs = [S || {S, _, _} <- SnapTables],
             RestorableTables = sets:to_list(sets:intersection(sets:from_list(MTabs), sets:from_list(STabs))),
@@ -97,12 +99,13 @@ snap_info() ->
             , {snaptables, lists:sort(SnapTables)}
             , {restorabletables, lists:sort(RestorableTables)}
             ];
-        false -> throw({error, "no snapshot dir found"})
+        false -> throw({error, "no snapshot dir found", SnapDir})
     end.
 
 restore_snap([], _) -> ?Log("restore finished!~n", []);
 restore_snap([T|Tabs], Replace) when is_atom(T) ->
-    SnapFile = filename:join(["snapshot", atom_to_list(T) ++ ".bkp"]),
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    SnapFile = filename:join([SnapDir, atom_to_list(T) ++ ".bkp"]),
     case filelib:is_file(SnapFile) of
         true ->
             {ok, Bin} = file:read_file(SnapFile),
@@ -136,11 +139,12 @@ restore_snap([T|Tabs], Replace) when is_atom(T) ->
 
 snapshot(Tab) when is_atom(Tab) -> snapshot(atom_to_list(Tab));
 snapshot(TabRegExp) when is_list(TabRegExp) ->
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), TabRegExp) =/= nomatch],
     [{atomic, ok} = mnesia:transaction(fun() ->
                         Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
-                        BackFile = filename:join(["snapshot", atom_to_list(T)++".bkp"]),
-                        NewBackFile = filename:join(["snapshot", atom_to_list(T)++".bkp.new"]),
+                        BackFile = filename:join([SnapDir, atom_to_list(T)++".bkp"]),
+                        NewBackFile = filename:join([SnapDir, atom_to_list(T)++".bkp.new"]),
                         ok = file:write_file(NewBackFile, term_to_binary(Rows)),
                         {ok, _} = file:copy(NewBackFile, BackFile),
                         ?Log("snapshot created for ~p~n", [T]),
@@ -670,6 +674,7 @@ init(Params) ->
     {_, NodeType} = lists:keyfind(node_type,1,Params),
     {_, SchemaName} = lists:keyfind(schema_name,1,Params),
     {_, SnapInterval} = lists:keyfind(snap_interval,1,Params),
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
     {ok, Cwd} = file:get_cwd(),
     LastFolder = lists:last(filename:split(Cwd)),
@@ -694,7 +699,7 @@ init(Params) ->
     mnesia:subscribe(system),
     ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
     if SnapInterval > 0 -> erlang:send_after(SnapInterval, self(), snapshot); true -> ok end,
-    {ok,#state{snap_interval = SnapInterval}}.
+    {ok,#state{snap_interval = SnapInterval, snapdir=SnapDir}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -704,13 +709,13 @@ handle_cast(_Request, State) ->
 
 timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
-handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
-    ExistsBkpRootDir = filelib:is_dir("snapshot"),
+handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = State) ->
+    ExistsBkpRootDir = filelib:is_dir(SnapDir),
     if 
         ExistsBkpRootDir -> 
             ok;
         true ->
-            ok = file:make_dir("snapshot")
+            ok = file:make_dir(SnapDir)
     end,
     Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
     [(fun() ->
@@ -727,8 +732,8 @@ handle_info(snapshot, #state{snap_interval = SnapInterval} = State) ->
             LastSnapTime =< LastWriteTime ->
                 mnesia:transaction(fun() ->
                                 Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
-                                BackFile = filename:join(["snapshot", atom_to_list(T)++".bkp"]),
-                                NewBackFile = filename:join(["snapshot", atom_to_list(T)++".bkp.new"]),
+                                BackFile = filename:join([SnapDir, atom_to_list(T)++".bkp"]),
+                                NewBackFile = filename:join([SnapDir, atom_to_list(T)++".bkp.new"]),
                                 ok = file:write_file(NewBackFile, term_to_binary(Rows)),
                                 {ok, _} = file:copy(NewBackFile, BackFile),
                                 ?Log("snapshot created for ~p~n", [T]),
