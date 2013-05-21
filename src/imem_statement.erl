@@ -1303,7 +1303,7 @@ test_with_or_without_sec(IsSec) ->
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
         %% ?Log("change list~n~p~n", [ChangeList2]),
         ChangeList2 = [
-        [4,upd,{{def,"12",12},{}},"112",12]     %% update {def,"12","'12'"} to {def,"112","'12'"}
+        [4,upd,{{def,"12",12},{}},<<"112">>,<<"12">>] 
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)),
         update_cursor_execute(SKey, SR1, IsSec, optimistic),        
@@ -1312,11 +1312,11 @@ test_with_or_without_sec(IsSec) ->
         ?assert(TableRows1 /= TableRows2),
 
         ChangeList3 = [
-        [1,nop,{{def,"2",2},{}},"2",2],         %% no operation on this line
-        [5,ins,{},"99", "undefined"],           %% insert {def,"99", undefined}
-        [3,del,{{def,"5",5},{}},"5",5],         %% delete {def,"5",5}
-        [4,upd,{{def,"112",12},{}},"112",12],   %% nop update {def,"112",12}
-        [6,upd,{{def,"10",10},{}},"10","110"]   %% update {def,"10",10} to {def,"10",110}
+        [1,nop,{{def,"2",2},{}},<<"2">>,<<"2">>],         %% no operation on this line
+        [5,ins,{},<<"99">>, <<"undefined">>],             %% insert {def,"99", undefined}
+        [3,del,{{def,"5",5},{}},<<"5">>,<<"5">>],         %% delete {def,"5",5}
+        [4,upd,{{def,"112",12},{}},<<"112">>,<<"12">>],   %% nop update {def,"112",12}
+        [6,upd,{{def,"10",10},{}},<<"10">>,<<"110">>]     %% update {def,"10",10} to {def,"10",110}
         ],
         ExpectedRows3 = [
         {def,"2",2},                            %% no operation on this line
@@ -1512,19 +1512,19 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
             ?Log("Sql8b ~p~n", [Sql8b]),
 
-            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,["1","2","3"]}]}, [{1,2,<<"asc">>}], IsSec),
+            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{1,2,<<"asc">>}], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?Log("Sql8c ~p~n", [Sql8c]),
             Expected8c = "select col1, col2 from def where Imem.def.col1 in ('1', '2', '3') and col1 < '4' order by Imem.def.col1 asc",
             ?assertEqual(Expected8c, string:strip(Sql8c)),
 
-            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,["3"]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], IsSec),
+            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
             ?Log("Sql8d ~p~n", [Sql8d]),
             Expected8d = "select col1, col2 from def where Imem.def.col1 = '3' and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",
             ?assertEqual(Expected8d, string:strip(Sql8d)),
 
-            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,["3"]},{2,["3"]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], IsSec),
+            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?Log("Sql8e ~p~n", [Sql8e]),
             Expected8e = "select col1, col2 from def where (Imem.def.col1 = '3' or Imem.def.col2 = 3) and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",

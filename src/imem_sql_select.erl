@@ -350,7 +350,7 @@ test_with_sec(_) ->
 test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
+        SeEx = 'SecurityException',
 
         ?Log("~n----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
@@ -368,6 +368,11 @@ test_with_or_without_sec(IsSec) ->
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none
+        end,
+
+        if
+            IsSec ->    ?assertEqual(<<"admin">>, imem_seco:account_name(SKey));
+            true ->     ?assertException(throw,{SeEx,{"Not logged in",none}}, imem_seco:account_name(SKey))
         end,
 
         case {IsSec,catch(imem_meta:check_table(ddView))} of
@@ -482,7 +487,8 @@ test_with_or_without_sec(IsSec) ->
         ),
         case IsSec of
             false ->    ?assertEqual([{<<"unknown">>}], R1d);
-            true ->     ?assertEqual([{<<"admin">>}], R1d)
+            true ->     Acid = imem_datatype:integer_to_io(imem_seco:account_id(SKey)),
+                        ?assertEqual([{Acid}], R1d)
         end,
 
         R1e = exec_fetch_sort(SKey, query1e, 100, IsSec, 
@@ -905,7 +911,7 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
     if 
-        length(RT) =< 10 ->
+        length(RT) =< 3 ->
             ?Log("Result  : ~p~n", [RT]);
         true ->
             ?Log("Result  :  ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])

@@ -233,15 +233,16 @@ raw_type(Type) -> Type.
 %% ----- CAST Data to become compatible with DB  ------------------
 
 io_to_db(_Item,Old,_Type,_Len,_Prec,_Def,true,_) -> Old;
-io_to_db(_Item,Old,_Type,_Len,_Prec,_Def,_RO, Old) -> Old;
-io_to_db(_Item,_Old,_Type,_Len,_Prec,Def,_RO, Def) -> Def;
-io_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_function(Def,0) ->
-    io_to_db(Item,Old,Type,Len,Prec,Def(),_RO,Val);
-io_to_db(Item,Old,Type,Len,Prec,Def,_RO,Val) when is_binary(Val);is_list(Val) ->
+% io_to_db(_Item,Old,_Type,_Len,_Prec,_Def,false, Old) -> Old;
+% io_to_db(_Item,_Old,_Type,_Len,_Prec,Def,false, Def) -> Def;
+io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_function(Def,0) ->
+    io_to_db(Item,Old,Type,Len,Prec,Def(),false,Val);
+io_to_db(_Item,_Old,_Type,_Len,_Prec,Def,false,?emptyStr) -> Def;
+io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_binary(Val);is_list(Val) ->
     try
-        DefAsStr = strip_dquotes(io_to_binstr(io_lib:format("~tp", [Def]))),
+        DefAsStr = strip_dquotes(io_to_binstr(io_lib:format("~p", [Def]))),
         % ?Log("DefAsStr ~tp ~ts~n",[<<DefAsStr/binary,1>>,<<DefAsStr/binary,1>>]),
-        OldAsStr = strip_dquotes(io_to_binstr(io_lib:format("~tp", [Old]))),
+        OldAsStr = strip_dquotes(io_to_binstr(io_lib:format("~p", [Old]))),
         % ?Log("OldAsStr ~tp ~ts~n",[<<OldAsStr/binary,1>>,<<OldAsStr/binary,1>>]),
         ValAsStr = io_to_binstr(io_lib:format("~ts", [Val])),
         % ?Log("ValAsStr ~tp ~ts~n",[<<ValAsStr/binary,1>>,<<ValAsStr/binary,1>>]),
@@ -300,7 +301,7 @@ add_dquotes(B) when is_binary(B) -> <<$",B/binary,$">>;
 add_dquotes([]) -> "\"\"";
 add_dquotes(String) when is_list(String) -> "\"" ++ String ++ "\"".
 
-strip_dquotes(<<>>) -> <<>>;
+strip_dquotes(<<>>) -> ?emptyStr;
 strip_dquotes(<<H:8>>) -> <<H:8>>; 
 strip_dquotes(B) when is_binary(B) ->
     F = binary:first(B),
@@ -322,7 +323,7 @@ strip_dquotes([H|T]=Str) ->
             Str
     end.
 
-strip_squotes(<<>>) -> <<>>;
+strip_squotes(<<>>) -> ?emptyStr;
 strip_squotes(<<H:8>>) -> <<H:8>>; 
 strip_squotes(B) when is_binary(B) ->
     F = binary:first(B),
@@ -342,7 +343,7 @@ strip_squotes([H|T]=Str) ->
         true ->                     Str
     end.
 
-strip_quotes(<<>>) -> <<>>;
+strip_quotes(<<>>) -> ?emptyStr;
 strip_quotes(<<H:8>>) -> <<H:8>>; 
 strip_quotes(B) when is_binary(B) ->
     F = binary:first(B),
@@ -408,8 +409,8 @@ io_to_float(Val,Prec) ->
         true ->         erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec)
     end.
 
-io_to_binary(<<>>,_Len) -> <<>>;
-io_to_binary([],_Len) -> <<>>;
+io_to_binary(<<>>,_Len) -> ?emptyStr;
+io_to_binary([],_Len) -> ?emptyStr;
 io_to_binary(Val,Len) when is_binary(Val) ->
     S = size(Val),
     F = binary:first(Val),
@@ -1042,16 +1043,16 @@ item(I,T) when is_tuple(T) ->
         size(T) >= I ->
             io_to_binstr(name(element(I,T)));
         true ->
-            <<>>        %% ?ClientError({"Tuple too short",{T,I}})
+            ?emptyStr        %% ?ClientError({"Tuple too short",{T,I}})
     end;
 item(I,L) when is_list(L) ->
     if 
         length(L) >= I ->
             io_to_binstr(name(lists:nth(I,L)));
         true ->
-            <<>>        %% ?ClientError({"List too short",{L,I}})
+            ?emptyStr        %% ?ClientError({"List too short",{L,I}})
     end;
-item(_,_) -> <<>>.      %% ?ClientError({"Tuple or list expected",T}).
+item(_,_) -> ?emptyStr.      %% ?ClientError({"Tuple or list expected",T}).
 
 item1(T) -> item(1,T).
 item2(T) -> item(2,T).
@@ -1262,7 +1263,8 @@ data_types(_) ->
         ?assertEqual(OldString, io_to_db(Item,OldString,StringType,Len,Prec,Def,RO,<<"NewVal">>)),
         ?Log("io_to_db success 1~n", []),
         ?assertEqual(io_to_string(<<"NöVal">>), io_to_db(Item,OldString,StringType,6,Prec,Def,RW,<<"NöVal">>)),
-        ?assertEqual([], io_to_db(Item,OldString,StringType,Len,Prec,Def,RW,<<>>)),
+        ?assertEqual(default, io_to_db(Item,OldString,StringType,Len,Prec,Def,RW,?emptyStr)),
+        ?assertEqual([], io_to_db(Item,OldString,StringType,Len,Prec,[],RW,?emptyStr)),
         ?assertEqual("{}", io_to_db(Item,OldString,StringType,Len,Prec,Def,RW,<<"{}">>)),
         ?assertEqual("[atom,atom]", io_to_db(Item,OldString,StringType,30,Prec,Def,RW,<<"[atom,atom]">>)),
         ?assertEqual("12", io_to_db(Item,OldString,StringType,Len,Prec,Def,RW,<<"12">>)),
@@ -1287,14 +1289,16 @@ data_types(_) ->
         ?assertEqual(OldString, io_to_db(Item,OldString,BinStrType,Len,Prec,Def,RO,<<"NewVal">>)),
         ?Log("io_to_db success 4a~n", []),
         ?assertEqual(<<"NöVal">>, io_to_db(Item,OldString,BinStrType,6,Prec,Def,RW,<<"NöVal">>)),
-        ?assertEqual(<<>>, io_to_db(Item,OldString,BinStrType,Len,Prec,Def,RW,<<>>)),
+        ?assertEqual(default, io_to_db(Item,OldString,BinStrType,Len,Prec,Def,RW,?emptyStr)),
+        ?assertEqual(<<>>, io_to_db(Item,OldString,BinStrType,Len,Prec,<<>>,RW,?emptyStr)),
         ?assertEqual(<<"{}">>, io_to_db(Item,OldString,BinStrType,Len,Prec,Def,RW,<<"{}">>)),
         ?assertEqual(<<"[atom,atom]">>, io_to_db(Item,OldString,BinStrType,30,Prec,Def,RW,<<"[atom,atom]">>)),
         ?assertEqual(<<"12">>, io_to_db(Item,OldString,BinStrType,Len,Prec,Def,RW,<<"12">>)),
         ?assertEqual(<<"-3.14">>, io_to_db(Item,OldString,BinStrType,5,Prec,Def,RW,<<"-3.14">>)),
         ?Log("io_to_db success 4b~n", []),
 
-        ?assertEqual(<<"OldäString">>, io_to_db(Item,<<"OldäString">>,BinStrType,Len,Prec,Def,RW,<<"OldäString">>)),
+        ?assertEqual(<<"OldäString">>, io_to_db(Item,<<"OldäString">>,BinStrType,11,Prec,Def,RW,<<"OldäString">>)),
+        ?assertException(throw,{ClEr,{"String is too long",{0,{<<"OldäString">>,3}}}},  io_to_db(Item,<<"OldäString">>,BinStrType,Len,Prec,Def,RW,<<"OldäString">>)),
         ?assertException(throw,{ClEr,{"String is too long",{0,{<<"NewVal">>,3}}}}, io_to_db(Item,<<"OldäString">>,BinStrType,Len,Prec,Def,RW,<<"NewVal">>)),
         ?assertEqual(<<"NewVal">>, io_to_db(Item,OldString,BinStrType,6,Prec,Def,RW,<<"NewVal">>)),
         ?assertEqual(<<"[NewVal]">>, io_to_db(Item,OldString,BinStrType,8,Prec,Def,RW,<<"[NewVal]">>)),
@@ -1319,7 +1323,7 @@ data_types(_) ->
         ?assertEqual(12, io_to_db(Item,OldInteger,IntegerType,20,0,Def,RW,<<"120/10.0001">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"1234">>}}}}, io_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,<<"1234">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,<<"-">>}}}}, io_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,<<"-">>)),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,<<>>}}}}, io_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,<<>>)),
+        ?assertEqual(default, io_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,?emptyStr)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"-100">>}}}}, io_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,<<"-100">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"9999">>}}}}, io_to_db(Item,OldInteger,IntegerType,Len,Prec,Def,RW,<<"9999">>)),
 
