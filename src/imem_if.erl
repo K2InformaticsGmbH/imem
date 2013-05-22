@@ -674,7 +674,6 @@ init(Params) ->
     {_, NodeType} = lists:keyfind(node_type,1,Params),
     {_, SchemaName} = lists:keyfind(schema_name,1,Params),
     {_, SnapInterval} = lists:keyfind(snap_interval,1,Params),
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
     {ok, Cwd} = file:get_cwd(),
     LastFolder = lists:last(filename:split(Cwd)),
@@ -699,7 +698,10 @@ init(Params) ->
     mnesia:subscribe(system),
     ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
     if SnapInterval > 0 -> erlang:send_after(SnapInterval, self(), snapshot); true -> ok end,
-    {ok,#state{snap_interval = SnapInterval, snapdir=SnapDir}}.
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    SnapshotDir = filename:absname(SnapDir),
+    ?Log("SnapshotDir ~p~n", [SnapshotDir]),
+    {ok,#state{snap_interval = SnapInterval, snapdir=SnapshotDir}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -710,12 +712,9 @@ handle_cast(_Request, State) ->
 timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
 handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = State) ->
-    ExistsBkpRootDir = filelib:is_dir(SnapDir),
-    if 
-        ExistsBkpRootDir -> 
-            ok;
-        true ->
-            ok = file:make_dir(SnapDir)
+    case filelib:is_dir(SnapDir) of
+        false -> ok = file:make_dir(SnapDir);
+        _ -> ok
     end,
     Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
     [(fun() ->
@@ -736,7 +735,7 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
                                 NewBackFile = filename:join([SnapDir, atom_to_list(T)++".bkp.new"]),
                                 ok = file:write_file(NewBackFile, term_to_binary(Rows)),
                                 {ok, _} = file:copy(NewBackFile, BackFile),
-                                ?Log("snapshot created for ~p~n", [T]),
+                                ?Log("snap ~p -> ~p~n", [T, BackFile]),
                                 ok = file:delete(NewBackFile)
                                end),
                 true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
