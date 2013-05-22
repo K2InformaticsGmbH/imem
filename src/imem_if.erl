@@ -713,7 +713,11 @@ timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
 handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = State) ->
     case filelib:is_dir(SnapDir) of
-        false -> ok = file:make_dir(SnapDir);
+        false ->
+            case file:make_dir(SnapDir) of
+                ok -> ok;
+                {error, Error} -> ?Log("unable to create directory ~p : ~p~n", [SnapDir, Error])
+            end;
         _ -> ok
     end,
     Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
