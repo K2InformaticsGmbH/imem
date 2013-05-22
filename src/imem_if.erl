@@ -715,8 +715,15 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
     case filelib:is_dir(SnapDir) of
         false ->
             case filelib:ensure_dir(SnapDir) of
-                ok -> ok;
-                {error, Error} -> ?Log("unable to create directory ~p : ~p~n", [SnapDir, Error])
+                ok ->
+                    case file:make_dir(SnapDir) of
+                        ok -> ok
+                        {error, eexists} -> ok;
+                        {error, Error} ->
+                            ?Log("unable to create directory ~p : ~p~n", [SnapDir, Error])
+                    end;
+                {error, Error} ->
+                    ?Log("unable to create directory ~p : ~p~n", [SnapDir, Error])
             end;
         _ -> ok
     end,
