@@ -52,12 +52,12 @@ start() ->
         {ok, _} = supervisor:start_link({local,?MODULE}, ?MODULE, _Arg = []),
         [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)]
     end).
-    
+
 start_in_shell() ->
     {ok, SupPid} = supervisor:start_link({local,?MODULE}, ?MODULE, _Arg = []),
     [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)],
     unlink(SupPid).
-    
+
 start_link(Args) ->
     case Result=supervisor:start_link({local,?MODULE}, ?MODULE, Args) of
         {ok,_} ->
@@ -84,7 +84,7 @@ init(_StartArgs) ->
     {ok, SnapInterval} = application:get_env(mnesia_snap_interval),
 
     Children =
-    % imem_if    
+    % imem_if
     [?CHILD(imem_if, worker, [{schema_name, SchemaName}, {node_type, NodeType}, {snap_interval, SnapInterval}], ImemTimeout)]
     % imem_meta
     ++
@@ -96,15 +96,6 @@ init(_StartArgs) ->
     ++
     case application:get_env(seco_server) of
         {ok, true} -> [?CHILD(imem_seco, worker, [], ImemTimeout)];
-        _ -> []
-    end
-    % imem_server
-    ++
-    case application:get_env(tcp_server) of
-        {ok, true} ->
-            {ok, TcpIf} = application:get_env(tcp_ip),
-            {ok, TcpPort} = application:get_env(tcp_port),            
-            [?CHILD(imem_server, worker, [{tcp_ip, TcpIf},{tcp_port, TcpPort}], ImemTimeout)];
         _ -> []
     end,
 
