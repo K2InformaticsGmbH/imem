@@ -110,22 +110,31 @@ restore_snap([T|Tabs], Replace) when is_atom(T) ->
         true ->
             {ok, Bin} = file:read_file(SnapFile),
             ?Log("------------ processing ~s @ ~p~n", [SnapFile, T]),
+            TableSize = proplists:get_value(size,mnesia:table_info(T, all)),
+            TableType = proplists:get_value(type,mnesia:table_info(T, all)),
             {IdExt, ExDiff, Append} =
             lists:foldl(fun(R, {I, E, A}) ->
-                K = element(2, R),
-                {atomic, RepRows} = mnesia:sync_transaction(fun() ->
-                    case mnesia:read(T, K) of
-                        [R] -> %?Log("found identical existing row ~p~n", [K]),
-                            {[R|I], E, A};
-                        [R1] -> %?Log("existing row with different content ~p~n", [K]),
-                            if Replace =:= true -> ok = mnesia:write(R); true -> ok end,
-                            {I, [{R,R1}|E], A};
-                        [] -> %?Log("row not found, appending ~p~n", [K]),
-                            ok = mnesia:write(R),
-                            {I, E, [R|A]}
-                    end
-                end),
-                RepRows
+                if (TableSize > 0) andalso (TableType =/= bag) ->
+                    K = element(2, R),
+                    {atomic, RepRows} = mnesia:sync_transaction(fun() ->
+                        case mnesia:read(T, K) of
+                            [R] -> %?Log("found identical existing row ~p~n", [K]),
+                                {[R|I], E, A};
+                            [R1] -> %?Log("existing row with different content ~p~n", [K]),
+                                if Replace =:= true -> ok = mnesia:write(R); true -> ok end,
+                                {I, [{R,R1}|E], A};
+                            [] -> %?Log("row not found, appending ~p~n", [K]),
+                                ok = mnesia:write(R),
+                                {I, E, [R|A]}
+                        end
+                    end),
+                    RepRows;
+                true ->
+                    {atomic, ok} = mnesia:sync_transaction(fun() ->
+                        mnesia:write(R)
+                    end),
+                    {I, E, [R|A]}
+                end
             end
             , {[],[],[]}
             , binary_to_term(Bin)),
