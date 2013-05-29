@@ -5,6 +5,7 @@
 
 -export([ start_link/4
         , start_link/1
+        , stop/0
         , init/4
         , send_resp/2
         , mfa/2
@@ -27,6 +28,9 @@ start_link(Params) ->
 start_link(ListenerPid, Socket, Transport, Opts) ->
     Pid = spawn_link(?MODULE, init, [ListenerPid, Socket, Transport, Opts]),
     {ok, Pid}.
+
+stop() ->
+    ranch:stop_listener(?MODULE).
  
 init(ListenerPid, Socket, Transport, _Opts = []) ->
     {ok, {Address, Port}} = inet:peername(Socket),

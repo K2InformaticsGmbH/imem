@@ -30,18 +30,10 @@ stop()  ->
 
 % start stop query imem tcp server
 start_tcp(Ip, Port) ->
-    {ok, ImemTimeout} = application:get_env(imem, imem_timeout),
-    {ok, SupPid} = supervisor:start_child(imem_sup, {imem_server
-                                                    , {imem_server, start_link, [[{tcp_ip, Ip}, {tcp_port, Port}]]}
-                                                    , permanent, ImemTimeout, worker, [imem_server]}),
-    [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)],
-    {ok, SupPid}.
+    imem_server:start_link([{tcp_ip, Ip},{tcp_port, Port}]).
 
 stop_tcp() ->
-    ok = ranch:stop_listener(imem_server),
-    ok = supervisor:terminate_child(imem_sup, imem_server),
-    ok = supervisor:delete_child(imem_sup, imem_server),
-    [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)].
+    imem_server:stop().
 
 
 % start/stop test writer
