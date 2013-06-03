@@ -17,6 +17,7 @@
         , update_cursor_prepare/4   %% stateful creation of update plan (stored in state)
         , update_cursor_execute/4   %% stateful execution of update plan (fetch aborted first)
         , filter_and_sort/5         %% apply FilterSpec and SortSpec and return new SQL and SortFun
+        , filter_and_sort/6         %% apply FilterSpec and SortSpec and return new SQL and SortFun
         , fetch_recs/5              %% simulation of synchronous fetch
         , fetch_recs_sort/5         %% simulation of synchronous fetch followed by a lists:sort
         , fetch_recs_async/4        %% async streaming fetch
@@ -140,10 +141,13 @@ fetch_close(SKey,  #stmtResult{stmtRef=Pid}, IsSec) ->
 fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {fetch_close, IsSec, SKey}).
 
-filter_and_sort(SKey, #stmtResult{stmtRef=Pid}, FilterSpec, SortSpec, IsSec) ->
-    filter_and_sort(SKey, Pid, FilterSpec, SortSpec, IsSec);    
-filter_and_sort(SKey, Pid, FilterSpec, SortSpec, IsSec) when is_pid(Pid) ->
-    gen_server:call(Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, SKey}).
+filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, IsSec) ->
+    filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, [], IsSec).
+
+filter_and_sort(SKey, #stmtResult{stmtRef=Pid}, FilterSpec, SortSpec, Cols, IsSec) ->
+    filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec);    
+filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec) when is_pid(Pid) ->
+    gen_server:call(Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, Cols, SKey}).
 
 update_cursor_prepare(SKey, #stmtResult{stmtRef=Pid}, IsSec, ChangeList) ->
     update_cursor_prepare(SKey, Pid, IsSec, ChangeList);
@@ -218,7 +222,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     % ?Log("update_cursor_execute result ~p~n", [Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};    
-handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #state{statement=Stmt}=State) ->
+handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols, _SKey}, _From, #state{statement=Stmt}=State) ->
     #statement{stmtParse={select,SelectSections}, colMaps=ColMaps, fullMaps=FullMaps} = Stmt,
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
     % ?Log("SelectSections ~p~n", [SelectSections]),
@@ -229,7 +233,15 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #stat
         % ?Log("OrderBy ~p~n", [OrderBy]),
         Filter =  imem_sql:filter_spec_where(FilterSpec, ColMaps, WhereTree),
         % ?Log("Filter ~p~n", [Filter]),
-        NewSections1 = lists:keyreplace('where', 1, SelectSections, {'where',Filter}),
+        NewSections0 = case Cols of
+            [] ->   SelectSections;
+            _ ->    {_, AllFields} = lists:keyfind(fields, 1, SelectSections),
+                    % ?Log("AllFields ~p~n", [AllFields]),
+                    NewFields =  [ lists:nth(N,AllFields) || N <- Cols],
+                    % ?Log("NewFields ~p~n", [NewFields]),
+                    lists:keyreplace('fields', 1, SelectSections, {'fields',NewFields})
+        end,
+        NewSections1 = lists:keyreplace('where', 1, NewSections0, {'where',Filter}),
         % ?Log("NewSections1 ~p~n", [NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
         % ?Log("NewSections2 ~p~n", [NewSections2]),
@@ -238,7 +250,7 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, _SKey}, _From, #stat
         {ok, NewSql, NewSortFun}
     catch
         _:Reason ->
-            imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{filter_spec,FilterSpec},{sort_spec,SortSpec}],"filter_and_sort error"),
+            imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{filter_spec,FilterSpec},{sort_spec,SortSpec},{cols,Cols}],"filter_and_sort error"),
             {error,Reason}
     end,
     % ?Log("replace_sort result ~p~n", [Reply]),
@@ -1496,7 +1508,7 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, close(SKey, SR7))
         end,
 
-        SR8 = exec(SKey,query8, 100, IsSec, "select col1, col2 from def where col1 < '4' order by col2 desc;"),
+        SR8 = exec(SKey,query8, 100, IsSec, "select col1 as c1, col2 from def where col1 < '4' order by col2 desc;"),
         ?Log("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
         ?Log("StmtCols8 ~p~n", [SR8#stmtResult.stmtCols]),
         ?Log("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
@@ -1505,29 +1517,29 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
             ?assertEqual([{<<"11">>,<<"11">>},{<<"10">>,<<"10">>},{<<"3">>,<<"3">>},{<<"2">>,<<"2">>},{<<"1">>,<<"1">>}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
-            Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{1,2,<<"asc">>}], IsSec),
+            Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{1,2,<<"asc">>}], [], IsSec),
             ?Log("Result8a ~p~n", [Result8a]),
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
             ?Log("Sql8b ~p~n", [Sql8b]),
 
-            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{1,2,<<"asc">>}], IsSec),
+            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{1,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?Log("Sql8c ~p~n", [Sql8c]),
-            Expected8c = "select col1, col2 from def where Imem.def.col1 in ('1', '2', '3') and col1 < '4' order by Imem.def.col1 asc",
+            Expected8c = "select col1 c1 from def where Imem.def.col1 in ('1', '2', '3') and col1 < '4' order by Imem.def.col1 asc",
             ?assertEqual(Expected8c, string:strip(Sql8c)),
 
-            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], IsSec),
+            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
             ?Log("Sql8d ~p~n", [Sql8d]),
-            Expected8d = "select col1, col2 from def where Imem.def.col1 = '3' and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",
+            Expected8d = "select col2 from def where Imem.def.col1 = '3' and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",
             ?assertEqual(Expected8d, string:strip(Sql8d)),
 
-            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], IsSec),
+            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?Log("Sql8e ~p~n", [Sql8e]),
-            Expected8e = "select col1, col2 from def where (Imem.def.col1 = '3' or Imem.def.col2 = 3) and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",
+            Expected8e = "select col2, col1 c1 from def where (Imem.def.col1 = '3' or Imem.def.col2 = 3) and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",
             ?assertEqual(Expected8e, string:strip(Sql8e)),
 
             ?assertEqual(ok, fetch_close(SKey, SR8, IsSec))
