@@ -104,6 +104,7 @@
         , fetch_recs_async/2        
         , fetch_recs_async/3 
         , filter_and_sort/3       
+        , filter_and_sort/4       
         , fetch_close/1
         , exec/3
         , close/1
@@ -934,6 +935,9 @@ fetch_recs_async(Opts, Pid, Sock) ->
 
 filter_and_sort(Pid, FilterSpec, SortSpec) ->
     imem_statement:filter_and_sort(none, Pid, FilterSpec, SortSpec, false).
+
+filter_and_sort(Pid, FilterSpec, SortSpec, Cols) ->
+    imem_statement:filter_and_sort(none, Pid, FilterSpec, SortSpec, Cols, false).
 
 fetch_close(Pid) ->
     imem_statement:fetch_close(none, Pid, false).
