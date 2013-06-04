@@ -158,6 +158,8 @@ column_map_items(Map, len) ->
     [C#ddColMap.len || C <- Map];
 column_map_items(Map, prec) ->
     [C#ddColMap.prec || C <- Map];
+column_map_items(Map, ptree) ->
+    [C#ddColMap.ptree || C <- Map];
 column_map_items(_Map, Item) ->
     ?ClientError({"Invalid item",Item}).
 
@@ -171,34 +173,36 @@ column_map(Tables, Columns) ->
 column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     column_map([{imem_meta:schema(),Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
 column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
-    % Cols = case imem_meta:read(ddTable,{Schema,Table}) of
-    %     [#ddTable{columns=C}] ->    C;
-    %     [] ->                       ?ClientError({"Table does not exist",{Schema,Table}})
-    % end,
     Cols = imem_meta:column_infos({Schema,Table}),
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
     % ?Log("column_map lookup ~p~n", [Lookup++L]),
+    % ?Log("column_map columns ~p~n", [Columns]),
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    % ?Log("column_map 1 ~p~n", [Cmap0]),
     Cmaps = [Cmap0#ddColMap{
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N, 
-                alias=?atom_to_binary(N)
+                alias=?atom_to_binary(N), ptree=?atom_to_binary(N)
             } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    ?Log("column_map 2 ~p~n", [Cmap0]),
     column_map([], [Cmap0#ddColMap{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    % ?Log("column_map 3 ~p~n", [Cmap0]),
     Prefix = case imem_meta:schema() of
         Schema ->   atom_to_list(Table);
         _ ->        atom_to_list(Schema) ++ "." ++ atom_to_list(Table)
     end,
     Cmaps = [Cmap0#ddColMap{
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N, 
-                alias=list_to_binary(Prefix ++ "." ++ atom_to_list(N)) 
+                alias=list_to_binary([Prefix, ".", atom_to_list(N)]),
+                ptree=list_to_binary([Prefix, ".", atom_to_list(N)])
             } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, S==Schema, T==Table],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    % ?Log("column_map 4 ~p~n", [Cmap0]),
     Pred = fun(L) ->
         (Name == element(5, L)) andalso
         ((Table == undefined) or (Table == element(4, L))) andalso
@@ -236,20 +240,25 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
             Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
-column_map([], [{'fun',Fname,[Name]}|Columns], Tindex, Lookup, Meta, Acc) ->
+column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
+    % ?Log("column_map 5 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
     Alias = list_to_binary(atom_to_list(Fname) ++ "(" ++ binary_to_list(Name) ++ ")"),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=Fname}|Columns], Tindex, Lookup, Meta, Acc);    
-column_map([], [{as, {'fun',Fname,[Name]}, Alias}|Columns], Tindex, Lookup, Meta, Acc) ->
+    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=Fname, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);    
+column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
+    % ?Log("column_map 6 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias}|Columns], Tindex, Lookup, Meta, Acc);
-column_map([], [{as, Name, Alias}|Columns], Tindex, Lookup, Meta, Acc) ->
+    column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+column_map([], [{as, Name, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
+    % ?Log("column_map 7 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias}|Columns], Tindex, Lookup, Meta, Acc);
+    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
+    % ?Log("column_map 8 ~p~n", [Name]),
     {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Name}|Columns], Tindex, Lookup, Meta, Acc);
+    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
+    % ?Log("column_map 9 ~p~n", [Expression]),
     ?UnimplementedException({"Expressions not supported", Expression});
 column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
     lists:reverse(Acc);

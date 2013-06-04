@@ -27,7 +27,8 @@
                   , prec = 0                ::integer()
                   , default                 ::any()
                   , readonly = false        ::true|false
-                  , func = undefined        ::any()     
+                  , func = undefined        ::any()
+                  , ptree = undefined       ::any()     
                   }                  
        ).
 
