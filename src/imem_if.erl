@@ -432,7 +432,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
-    % ?Log("mnesia:write ~p ~p~n", [Table,Row]),
+    %if Table =:= ddTable -> ?Log("mnesia:write ~p ~p~n", [Table,Row]); true -> ok end,
     Result = case transaction(write,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->
             % ?Log("cannot write ~p to ~p~n", [Row,Table]),
@@ -440,6 +440,7 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
         {atomic,ok} ->
             [Up] = ets:lookup(?MODULE, Table),
             true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()}),
+            %if Table =:= ddTable -> io:format(user, "ddTable written ~p~n", [Up]); true -> ok end,
             {atomic,ok};
         Error ->
             Error   
@@ -706,6 +707,9 @@ init(Params) ->
     end,
     mnesia:subscribe(system),
     ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
+
+    % backup any existing snapshots and start new snapshoting
+    backup_snap(),
     if SnapInterval > 0 -> erlang:send_after(SnapInterval, self(), snapshot); true -> ok end,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
@@ -717,8 +721,6 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(_Request, State) ->
     {noreply, State}.
-
-timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
 handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = State) ->
     case filelib:is_dir(SnapDir) of
@@ -738,29 +740,28 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
     end,
     Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
     [(fun() ->
-        % io:format(user, "snapshotting ~p~n", [T]),
-        [#user_properties {
-            table = T
-            , last_write = Wt
-            , last_snap = St
-        } = Up |_] =  ets:lookup(?MODULE, T),
-        LastWriteTime = timestamp(Wt),
-        LastSnapTime = timestamp(St),
-        %io:format(user, "~p times ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]),
-        if 
-            LastSnapTime =< LastWriteTime ->
-                mnesia:transaction(fun() ->
-                                Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
-                                BackFile = filename:join([SnapDir, atom_to_list(T)++".bkp"]),
-                                NewBackFile = filename:join([SnapDir, atom_to_list(T)++".bkp.new"]),
-                                ok = file:write_file(NewBackFile, term_to_binary(Rows)),
-                                {ok, _} = file:copy(NewBackFile, BackFile),
-                                ?Log("snap ~p -> ~p~n", [T, BackFile]),
-                                ok = file:delete(NewBackFile)
-                               end),
-                true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
-            true -> 
-                ok % no backup needed
+        case ets:lookup(?MODULE, T) of
+            [] -> ok;
+            [#user_properties { table = T, last_write = Wt, last_snap = St} = Up | _] ->
+                LastWriteTime = timestamp(Wt),
+                LastSnapTime = timestamp(St),
+                if 
+                    LastSnapTime < LastWriteTime ->
+                        %if T =:= ddTable -> io:format(user, "snap ~p timestamps ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]); true -> ok end,
+                        mnesia:transaction(fun() ->
+                                        Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
+                                        BackFile = filename:join([SnapDir, atom_to_list(T)++".bkp"]),
+                                        NewBackFile = filename:join([SnapDir, atom_to_list(T)++".bkp.new"]),
+                                        ok = file:write_file(NewBackFile, term_to_binary(Rows)),
+                                        {ok, _} = file:copy(NewBackFile, BackFile),
+                                        ?Log("snap ~p -> ~p~n", [T, BackFile]),
+                                        ok = file:delete(NewBackFile)
+                                       end),
+                        true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
+                    true -> 
+                        %if T =:= ddTable -> io:format(user, "nosnap ~p timestamps ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]); true -> ok end,
+                        ok % no backup needed
+                end
         end
       end)()
     || T <- Tabs],
@@ -797,6 +798,19 @@ mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
             {atomic,ok};
         Error ->
             Error   
+    end.
+
+timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
+
+backup_snap() ->
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    SnapFiles = filelib:wildcard(filename:join([SnapDir, "*.bkp"])),
+    ZipCandidates =  [SF || SF <- SnapFiles, filelib:file_size(SF) > 0],
+    if ZipCandidates =:= [] -> ok;        
+        true ->
+            ZipFileName = filename:join([SnapDir, "snapshot_"++integer_to_list(timestamp(erlang:now()))++".zip"]),
+            zip:zip(ZipFileName, ZipCandidates),
+            ?Log("~p old snapshots are backed up to ~p~n", [?MODULE, ZipFileName])
     end.
 
 %% ----- TESTS ------------------------------------------------
