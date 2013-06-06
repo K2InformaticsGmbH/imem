@@ -647,6 +647,41 @@ sort_fun(timestamp,Ti,Ci,<<"desc">>) ->
                 element(Ci,element(Ti,X))
         end    
     end;
+sort_fun({atom,atom},Ti,Ci,<<"desc">>) ->
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {T,A} when is_atom(T), is_atom(A) ->
+                {[ -ItemT || ItemT <- atom_to_list(T)] ++ [?MaxChar]
+                ,[ -ItemA || ItemA <- atom_to_list(A)] ++ [?MaxChar]
+                };
+            _ ->
+                element(Ci,element(Ti,X))
+        end    
+    end;
+sort_fun({atom,integer},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
+sort_fun({atom,decimal},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
+sort_fun({atom,float},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
+sort_fun({atom,userid},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
+sort_fun({atom,number},Ti,Ci,<<"desc">>) ->
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {T,N} when is_atom(T), is_number(N) ->
+                {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-N};
+            _ ->
+                element(Ci,element(Ti,X))
+        end    
+    end;
+sort_fun({atom,ipaddr},Ti,Ci,<<"desc">>) ->
+    fun(X) -> 
+        case element(Ci,element(Ti,X)) of 
+            {T,{A,B,C,D}} when is_atom(T), is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
+                {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D};
+            {T,{A,B,C,D,E,F,G,H}} when is_atom(T),is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
+                {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D,-E,-F,-G,-H};
+            _ ->
+                element(Ci,element(Ti,X))
+        end    
+    end;
 sort_fun(tuple,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
         case element(Ci,element(Ti,X)) of 
