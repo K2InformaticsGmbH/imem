@@ -95,7 +95,8 @@ init(Wait) ->
 
 handle_info(write_record, #state{wait=Wait}) ->
     Ran = random:uniform(),       %% 0..1
-    X = round(30*Ran),
+    %% X = round(30*Ran),         %% bad version causing 1/0
+    X = round(29*Ran) +1 ,
     FX = fac(X),
     OneOverX = 1.0/X, 
     imem_test_writer:write_test_record(X,FX,OneOverX,"fac next"),
