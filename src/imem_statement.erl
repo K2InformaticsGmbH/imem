@@ -248,7 +248,7 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From
         %?Log("NewSections1 ~p~n", [NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
         %?Log("NewSections2 ~p~n", [NewSections2]),
-        NewSql = sql_parse:fold({select,NewSections2}),     % sql_box:flat_from_pt({select,NewSections2}),
+        NewSql = sqlparse:fold({select,NewSections2}),     % sql_box:flat_from_pt({select,NewSections2}),
         %?Log("NewSql ~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
     catch
