@@ -1,6 +1,8 @@
 
 -include("imem_if.hrl").
 
+-define(LOG_TABLE,ddLog_86400@).                    %% 1 Day
+
 -type ddEntityId() :: 	reference() | integer() | atom().
 -type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 

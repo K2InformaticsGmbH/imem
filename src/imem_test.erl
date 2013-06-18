@@ -52,7 +52,6 @@ test(_) ->
         ?assert(0 =< imem_meta:table_size(ddPerm@)),
         ?assert(0 =< imem_meta:table_size(ddQuota@)),
         ?assert(6 =< imem_meta:table_size(ddTable)),
-        ?assert(0 =< imem_meta:table_size(ddLog@)),
         ?Log("success ~p~n", [minimum_table_sizes]),
 
         ?Log("----TEST--~p:test_admin_login~n", [?MODULE]),

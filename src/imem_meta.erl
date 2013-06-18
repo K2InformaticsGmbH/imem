@@ -1,6 +1,5 @@
 -module(imem_meta).
 
--define(LOG_TABLE,ddLog_86400@).                    %% 1 Day
 -define(LOG_TABLE_OPTS,[{record_name,ddLog}
                        ,{type,ordered_set}
                        ,{purge_delay,432000}        %% 5 Days
@@ -150,6 +149,7 @@ init(_Args) ->
         check_table(ddTable),
         check_table_columns(ddTable, record_info(fields, ddTable)),
         check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
+        create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
         create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
         create_check_table(?MONITOR_TABLE, {record_info(fields, ddMonitor),?ddMonitor, #ddMonitor{}}, ?MONITOR_TABLE_OPTS, system),    
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
@@ -942,6 +942,8 @@ table_columns(Table) ->
 
 table_size({_Schema,Table}) ->
     table_size(Table);          %% ToDo: may depend on schema
+table_size(ddNode) ->
+    length(read(ddNode));
 table_size(Table) ->
     %% ToDo: sum should be returned for all local time partitions
     imem_if:table_size(physical_table_name(Table)).
@@ -1231,19 +1233,20 @@ meta_operations(_) ->
 
         ?assertEqual(ok, check_table_columns(ddTable, record_info(fields, ddTable))),
 
-        ?assertEqual(ok, create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertEqual(ok, create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),
         ?assertException(throw,{SyEx,{"Wrong table owner",{?LOG_TABLE,system}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], admin)),
-        ?assertException(throw,{SyEx,{"Wrong table options",{ddLog@,_}}} ,create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog1},{type,ordered_set}], system)),
+        ?assertException(throw,{SyEx,{"Wrong table options",{?LOG_TABLE,_}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog1},{type,ordered_set}], system)),
+        ?assertEqual(ok, check_table(?LOG_TABLE)),
 
         Now = erlang:now(),
-        LogCount1 = table_size(physical_table_name(?LOG_TABLE)),
+        LogCount1 = table_size(?LOG_TABLE),
         ?Log("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
         ?assertEqual(ok, write(?LOG_TABLE, LogRec1)),
-        LogCount2 = table_size(physical_table_name(?LOG_TABLE)),
+        LogCount2 = table_size(?LOG_TABLE),
         ?Log("ddLog@ count ~p~n", [LogCount2]),
         ?assertEqual(LogCount1+1,LogCount2),
         Log1=read(?LOG_TABLE,Now),
@@ -1252,7 +1255,7 @@ meta_operations(_) ->
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],{stupid_error_message,2})),        
-        LogCount2a = table_size(physical_table_name(?LOG_TABLE)),
+        LogCount2a = table_size(?LOG_TABLE),
         ?assertEqual(LogCount2+4,LogCount2a),
 
         ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
@@ -1272,10 +1275,10 @@ meta_operations(_) ->
 
         ?assertEqual(ok, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},undefined})),
         ?assertEqual(1, table_size(meta_table_3)),
-        LogCount3 = table_size(physical_table_name(?LOG_TABLE)),
+        LogCount3 = table_size(?LOG_TABLE),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
-        LogCount4 = table_size(physical_table_name(?LOG_TABLE)),
+        LogCount4 = table_size(?LOG_TABLE),
         ?Log("success ~p~n", [not_null_constraint]),
         ?assertEqual(LogCount3+2, LogCount4),
 

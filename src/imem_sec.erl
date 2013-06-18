@@ -253,7 +253,7 @@ physical_table_names(SKey,Name) ->
     lists:filter(Pred,PhysicalNames).
 
 log_to_db(SKey,Level,Module,Function,Fields,Message) ->
-    case have_table_permission(SKey, ddLog@, insert) of
+    case have_table_permission(SKey, ?LOG_TABLE, insert) of
         true ->     imem_meta:log_to_db(Level,Module,Function,Fields,Message);
         false ->    ?SecurityException({"Insert into ddLog@ unauthorized", SKey})
     end.    
@@ -849,24 +849,24 @@ test(_) ->
         ?assertEqual(true, lists:member({'Imem',user_table_123}, UserTables)),
         ?Log("success ~p~n", [user_tables]),
 
-        LogCount1 = table_size(SeCoAdmin,ddLog@),
+        LogCount1 = table_size(SeCoAdmin,?LOG_TABLE),
         ?assertEqual(ok, log_to_db(SeCoAdmin,info,?MODULE,test,[{test_1,value2},{test_3,value4}],"Message")),        
-        LogCount2 = table_size(SeCoAdmin,ddLog@),
+        LogCount2 = table_size(SeCoAdmin,?LOG_TABLE),
         ?assertEqual(LogCount1+1,LogCount2),
         ?assertException(throw, {SeEx,{"Insert into ddLog@ unauthorized",SeCoUser}}, log_to_db(SeCoUser,info,?MODULE,test,[{test_5,value6},{test_7,value8}],"Message")),        
-        LogCount3 = table_size(SeCoAdmin,ddLog@),
+        LogCount3 = table_size(SeCoAdmin,?LOG_TABLE),
         ?assertEqual(LogCount2+1,LogCount3),
 
 
-        LogTable = physical_table_name(SeCoAdmin,ddLog@),
+        LogTable = physical_table_name(SeCoAdmin,?LOG_TABLE),
         ?Log("success ~p ~p~n", [physical_table_name,LogTable]),
-        ?assertException(throw, {SeEx,{"Select unauthorized",SeCoUser}}, physical_table_name(SeCoUser,ddLog@)),    
-        LogTables = physical_table_names(SeCoAdmin,ddLog@),
+        ?assertException(throw, {SeEx,{"Select unauthorized",SeCoUser}}, physical_table_name(SeCoUser,?LOG_TABLE)),    
+        LogTables = physical_table_names(SeCoAdmin,?LOG_TABLE),
         ?assert(lists:member(LogTable,LogTables)),        
-        ?assertEqual(LogTables,physical_table_names(SeCoAdmin,"ddLog@")),
-        ?assertEqual([],physical_table_names(SeCoUser,"ddLog@")),
+        ?assertEqual(LogTables,physical_table_names(SeCoAdmin,atom_to_list(?LOG_TABLE))),
+        ?assertEqual([],physical_table_names(SeCoUser,atom_to_list(?LOG_TABLE))),
 
-        ?assertEqual(LogTables,tables_starting_with(SeCoAdmin,ddLog@)),
+        ?assertEqual(LogTables,tables_starting_with(SeCoAdmin,"ddLog_")),
         ?assertEqual([user_table_123],tables_starting_with(SeCoUser,"user_table_")),
         ?assertEqual([user_table_123],tables_starting_with(SeCoAdmin,user_table_)),
         ?assertEqual([ddTable],tables_starting_with(SeCoAdmin,ddTable)),

@@ -566,7 +566,7 @@ test_with_or_without_sec(IsSec) ->
 
         R2g = exec_fetch(SKey, query2g, 100, IsSec, 
             "select logTime, logLevel, module, function, fields, message 
-             from ddLog@ 
+             from " ++ atom_to_list(?LOG_TABLE) ++ "  
              where logTime > systimestamp - 1.1574074074074073e-5 
              and rownum <= 100"   %% 1.0 * ?OneSecond
         ),
@@ -642,6 +642,21 @@ test_with_or_without_sec(IsSec) ->
             "select col3, item from def, integer where is_member(item,\"'$_'\") and col1 <> 100"
         ),
         ?assertEqual(10, length(R3b)),
+
+        R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, 
+            "select * from ddNode"
+        ),
+        ?assertEqual(1, length(R3c)),
+
+        R3d = exec_fetch_sort(SKey, query3d, 100, IsSec, 
+            "select time, wall_clock from ddNode"
+        ),
+        ?assertEqual(1, length(R3d)),
+
+        R3e = exec_fetch_sort(SKey, query3e, 100, IsSec, 
+            "select time, wall_clock from ddNode where name = '" ++ atom_to_list(node()) + "'"
+        ),
+        ?assertEqual(1, length(R3e)),
 
         %% self joins 
 
