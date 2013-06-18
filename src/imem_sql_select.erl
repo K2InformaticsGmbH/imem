@@ -654,9 +654,30 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(1, length(R3d)),
 
         R3e = exec_fetch_sort(SKey, query3e, 100, IsSec, 
-            "select time, wall_clock from ddNode where name = '" ++ atom_to_list(node()) + "'"
+            "select time, wall_clock from ddNode where name = '" ++ atom_to_list(node()) ++ "'"
         ),
         ?assertEqual(1, length(R3e)),
+
+        ?assertEqual(ok , imem_meta:monitor()),
+
+        R3f = exec_fetch_sort(SKey, query3f, 100, IsSec, 
+            "select * from " ++ atom_to_list(?MONITOR_TABLE) ++ " m, ddNode n where rownum < 2 and m.node = n.name"
+        ),
+        ?assertEqual(1, length(R3f)),
+
+        % exec_fetch_sort_equal(SKey, query3g, 100, IsSec, 
+        %     "select col1, col5 from def, ddNode where element(2,col5) = node",
+        %     []
+        % ),
+
+        if_call_mfa(IsSec, write,[SKey,def,
+            {def,0,integer_to_list(0),calendar:local_time(),{10,132,7,0},{list_to_atom("Atom" ++ integer_to_list(0)),node()}}
+        ]),
+
+        % exec_fetch_sort_equal(SKey, query3h, 100, IsSec, 
+        %     "select col1, col5 from def, ddNode where element(2,col5) = node",
+        %     [{<<"0">>,<<"{'Atom0',nonode@nohost}">>}]
+        % ),
 
         %% self joins 
 
@@ -715,6 +736,7 @@ test_with_or_without_sec(IsSec) ->
              from def t1, def t2 
              where t1.col1 <> 5 
              and t1.col1 <= 10
+             and t1.col1 <> 0
              and not (t2.col2 = '7') 
              and t2.col1 = t1.col1", 
             [
@@ -785,7 +807,7 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query5i, 100, IsSec, 
-            "select d.col1, m.col1 from def as d, member_test as m where is_member(d.col1+1,m.col2)",
+            "select d.col1, m.col1 from def as d, member_test as m where d.col1 <> 0 and is_member(d.col1+1,m.col2)",
             [
                 {<<"1">>,<<"2">>},
                 {<<"2">>,<<"2">>},{<<"2">>,<<"3">>},
@@ -849,6 +871,7 @@ test_with_or_without_sec(IsSec) ->
             "select col1, col2 
              from def
              where col1 <> 100 
+             and col1 <> 0 
              order by col1 desc, col2"
             , 
             [

@@ -5,7 +5,6 @@
                        ,{purge_delay,432000}        %% 5 Days
                        ]).          
 
--define(MONITOR_TABLE,ddMonitor_86400@).            %% 1 Day
 -define(MONITOR_TABLE_OPTS,[{record_name,ddMonitor}
                            ,{type,ordered_set}
                            ,{purge_delay,432000}    %% 5 Days
@@ -989,6 +988,16 @@ update_cursor_execute(Pid, Lock) ->
 
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
+fetch_start(Pid, ddNode, MatchSpec, _BlockSize, _Opts) ->
+    {Rows,true} = select(ddNode, MatchSpec),
+    spawn(
+        fun() ->
+            receive
+                abort ->    ok;
+                next ->     Pid ! {row, [?sot,?eot|Rows]}
+            end
+        end
+    );
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
@@ -998,7 +1007,7 @@ close(Pid) ->
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) -> 
-    lists:flatten([read(ddNode,Node) || Node <- nodes()]);
+    lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
 read(Table) -> 
     imem_if:read(physical_table_name(Table)).
 
@@ -1007,13 +1016,15 @@ read({_Schema,Table}, Key) ->
 read(ddNode,Node) when is_atom(Node) ->
     try  
         [#ddNode{ name=Node
-                , wall_clock=element(1,rpc:call(Node,erlang,statistics,[wall_clock]))
-                , time=rpc:call(Node,erlang,now,[])
-                , extra=[]     
-                }
-        ]        
+                 , wall_clock=element(1,rpc:call(Node,erlang,statistics,[wall_clock]))
+                 , time=rpc:call(Node,erlang,now,[])
+                 , extra=[]     
+                 }       
+        ]
     catch
-        _:_ -> []
+        Class:Reason ->
+            ?Log("ddNode evaluation error ~p:~p~n", [Class,Reason]),
+            []
     end;
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
@@ -1022,6 +1033,13 @@ select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(ddNode, ?MatchAllRecords) ->
     {read(ddNode),true};
+select(ddNode, [{_,[],['$_']}]) ->
+    {read(ddNode),true};                %% used in select * from ddNode
+select(ddNode, [{_,[{'==',Tag,Key}],['$_']}]) when is_atom(Tag), is_atom(Key) ->
+    case hd(atom_to_list(Tag)) of
+        $$ ->   {read(ddNode,Key),true};    %% used in select * from ddNode where name = Key
+        _ ->    {read(ddNode,Tag),true}     %% or used in ddNode join to simple field of master table
+    end;
 select(ddNode, MatchSpec) ->
     ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddNode}});
 select(Table, MatchSpec) ->
@@ -1031,10 +1049,8 @@ select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
-select(ddNode, ?MatchAllRecords, Limit) ->
-    {lists:sublist(read(ddNode),Limit),true};
 select(ddNode, MatchSpec, _Limit) ->
-    ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddNode}});
+    select(ddNode, MatchSpec);
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
@@ -1074,18 +1090,18 @@ monitor() ->
         Now = erlang:now(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
         Moni = #ddMonitor{ time=Now
-                         , name = node()
+                         , node = node()
                          , memory=erlang:memory(total)
                          , process_count=erlang:system_info(process_count)          
                          , port_count=erlang:system_info(port_count)
                          , run_queue=erlang:statistics(run_queue)
-                         , wall_clock=erlang:statistics(wall_clock)
-                         , reductions=erlang:statistics(reductions)
+                         , wall_clock=element(1,erlang:statistics(wall_clock))
+                         , reductions=element(1,erlang:statistics(reductions))
                          , input_io=Input
                          , output_io=Output
                          , extra=[]      
                          },
-        imem_if:write(?MONITOR_TABLE, Moni)        
+        imem_if:write(physical_table_name(?MONITOR_TABLE), Moni)        
     catch
         _:E ->     log_to_db(warning,?MODULE,monitor,[{error,E}],"cannot monitor")
     end.
@@ -1329,8 +1345,20 @@ meta_operations(_) ->
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
 
-        DdNode = read(ddNode,node()),
-        ?Log("ddNode ~p~n", [DdNode]),
+        DdNode0 = read(ddNode),
+        ?Log("ddNode0 ~p~n", [DdNode0]),
+        DdNode1 = read(ddNode,node()),
+        ?Log("ddNode1 ~p~n", [DdNode1]),
+        DdNode2 = select(ddNode,?MatchAllRecords),
+        ?Log("ddNode2 ~p~n", [DdNode2]),
+
+        ?assertEqual(ok, monitor()),
+        MonRecs = read(?MONITOR_TABLE),
+        ?Log("MonRecs count ~p~n", [length(MonRecs)]),
+        ?Log("MonRecs last ~p~n", [lists:last(MonRecs)]),
+        % ?Log("MonRecs[1] ~p~n", [hd(MonRecs)]),
+        % ?Log("MonRecs ~p~n", [MonRecs]),
+        ?assert(length(MonRecs) > 0),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),

@@ -401,7 +401,6 @@ drop_index(Table, Column) when is_atom(Table) ->
 truncate_table(Table) when is_atom(Table) ->
     return_atomic_ok(mnesia:clear_table(Table)).
 
-
 read(Table) when is_atom(Table) ->
     Trans = fun() ->
         Keys = mnesia:all_keys(Table),

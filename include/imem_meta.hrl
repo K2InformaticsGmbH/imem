@@ -2,6 +2,7 @@
 -include("imem_if.hrl").
 
 -define(LOG_TABLE,ddLog_86400@).                    %% 1 Day
+-define(MONITOR_TABLE,ddMonitor_86400@).            %% 1 Day
 
 -type ddEntityId() :: 	reference() | integer() | atom().
 -type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
@@ -37,7 +38,7 @@
 
 -record(ddMonitor,                          %% monitor    
                   { time                    ::ddTimestamp()             %% erlang:now()
-                  , name=0                  ::atom()                    %% erlang node name
+                  , node=0                  ::atom()                    %% erlang node name
                   , memory=0                ::integer()                 %% erlang:memory(total)
                   , process_count=0         ::integer()                 %% erlang:system_info(process_count)          
                   , port_count=0            ::integer()                 %% erlang:system_info(port_count)
