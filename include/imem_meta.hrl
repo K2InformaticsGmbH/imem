@@ -24,6 +24,31 @@
        ).
 -define(ddTable, [tuple,list,list,userid,boolean]).
 
+-record(ddNode,                             %% node    
+                  { name                    ::atom()                    %% erlang node name
+                  , wall_clock              ::integer()                 %% erlang:statistics(wall_clock)
+                  , time                    ::ddTimestamp()             %% erlang:now()
+                  , extra                   ::list()      
+                  }
+       ).
+-define(ddNode, [atom,integer,timestamp,list]).
+
+-record(ddMonitor,                          %% monitor    
+                  { time                    ::ddTimestamp()             %% erlang:now()
+                  , name=0                  ::atom()                    %% erlang node name
+                  , memory=0                ::integer()                 %% erlang:memory(total)
+                  , process_count=0         ::integer()                 %% erlang:system_info(process_count)          
+                  , port_count=0            ::integer()                 %% erlang:system_info(port_count)
+                  , run_queue=0             ::integer()                 %% erlang:statistics(run_queue)
+                  , wall_clock=0            ::integer()                 %% erlang:statistics(wall_clock)
+                  , reductions=0            ::integer()                 %% erlang:statistics(reductions)
+                  , input_io=0              ::integer()                 %% erlang:statistics(Item :: io)
+                  , output_io=0             ::integer()                 %% erlang:statistics(Item :: io)
+                  , extra=[]                ::list()      
+                  }
+       ).
+-define(ddMonitor, [timestamp,atom,integer,integer,integer,integer,integer,integer,integer,integer,list]).
+
 -define(nav, '$not_a_value').    %% used as default value which must not be used (not null columns)
 -define(nac, '$not_a_column').   %% used as value column name for key only tables
 
@@ -59,3 +84,4 @@
                   , tuple
                   , userid
                   ]).
+

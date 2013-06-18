@@ -1,6 +1,19 @@
 -module(imem_meta).
 
--define(META_TABLES,[ddTable,ddLog@,dual]).
+-define(LOG_TABLE,ddLog_86400@).                    %% 1 Day
+-define(LOG_TABLE_OPTS,[{record_name,ddLog}
+                       ,{type,ordered_set}
+                       ,{purge_delay,432000}        %% 5 Days
+                       ]).          
+
+-define(MONITOR_TABLE,ddMonitor_86400@).            %% 1 Day
+-define(MONITOR_TABLE_OPTS,[{record_name,ddMonitor}
+                           ,{type,ordered_set}
+                           ,{purge_delay,432000}    %% 5 Days
+                           ]).  
+-define(MONITOR_CYCLE_WAIT, 2000). 
+
+-define(META_TABLES,[ddTable,ddNode,dual,?LOG_TABLE,?MONITOR_TABLE]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 -define(PURGE_CYCLE_WAIT, 10000). % 10000
@@ -72,6 +85,7 @@
         , update_opts/2
         , throw_exception/2
         , log_to_db/5
+        , monitor/0
         ]).
 
 -export([ create_table/3
@@ -136,7 +150,8 @@ init(_Args) ->
         check_table(ddTable),
         check_table_columns(ddTable, record_info(fields, ddTable)),
         check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
-        create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system),     %% , {type,bag}
+        create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
+        create_check_table(?MONITOR_TABLE, {record_info(fields, ddMonitor),?ddMonitor, #ddMonitor{}}, ?MONITOR_TABLE_OPTS, system),    
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
             ok ->   write(dual,#dual{});
             _ ->    ok
@@ -145,6 +160,7 @@ init(_Args) ->
         check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
         check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
         erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
+        erlang:send_after(?MONITOR_CYCLE_WAIT, self(), monitor_loop),
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -209,6 +225,12 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
+handle_info(monitor_loop, State) ->
+    % save one monitor record and trigger the nxt one
+    % ?Log("monitor_loop start~n",[]), 
+    monitor(),
+    erlang:send_after(?MONITOR_CYCLE_WAIT, self(), monitor_loop),
+    {noreply, State};
 handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
     % ?Log("Purge collect start~n",[]), 
@@ -351,7 +373,8 @@ check_table_columns(Table, ColumnNames) when is_atom(Table) ->
     end.
 
 drop_meta_tables() ->
-    drop_table(ddLog@),
+    drop_table(?MONITOR_TABLE),
+    drop_table(?LOG_TABLE),
     drop_table(ddTable).     
 
 meta_field_list() -> ?META_FIELDS.
@@ -466,8 +489,16 @@ create_check_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
                 [#ddTable{opts=Opts,owner=Owner}] ->
                     catch create_physical_table(Table,ColumnInfos,Opts,Owner),
                     ok;
-                [#ddTable{opts=Opt,owner=Owner}] ->
-                    ?SystemException({"Wrong table options",{Table,Opt}});        
+                [#ddTable{opts=Old,owner=Owner}] ->
+                    OldOpts = lists:sort(lists:keydelete(purge_delay,1,Old)),
+                    NewOpts = lists:sort(lists:keydelete(purge_delay,1,Opts)),
+                    case NewOpts of
+                        OldOpts ->
+                            catch create_physical_table(Table,ColumnInfos,Opts,Owner),
+                            ok;
+                        _ -> 
+                            ?SystemException({"Wrong table options",{Table,Old}})
+                    end;        
                 [#ddTable{owner=Own}] ->
                     ?SystemException({"Wrong table owner",{Table,Own}})        
             end;
@@ -482,10 +513,13 @@ create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
     case Schema of
         MySchema ->
             case Table of
-                ddTable ->  create_physical_table(Table,ColumnInfos,Opts,Owner);
-                ddLog@ ->   create_physical_table(Table,ColumnInfos,Opts,Owner);
-                _ ->        log_to_db(info,?MODULE,create_table,[{table,Table},{ops,Opts},{owner,Owner}],"create table"),  
-                            create_physical_table(Table,ColumnInfos,Opts,Owner)
+                ddTable ->  
+                    create_physical_table(Table,ColumnInfos,Opts,Owner);
+                ?LOG_TABLE ->   
+                    create_physical_table(Table,ColumnInfos,Opts,Owner);
+                _ ->        
+                    log_to_db(info,?MODULE,create_table,[{table,Table},{ops,Opts},{owner,Owner}],"create table"),  
+                    create_physical_table(Table,ColumnInfos,Opts,Owner)
             end;
         _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
@@ -518,7 +552,7 @@ drop_table({Schema,Table}) ->
     end;
 drop_table(ddTable) -> 
     imem_if:drop_table(ddTable);
-drop_table(ddLog@ = Table) ->
+drop_table(?LOG_TABLE = Table) ->
     drop_table_and_info(physical_table_name(Table));
 drop_table(Alias) ->
     log_to_db(info,?MODULE,drop_table,[{table,Alias}],"drop table"),
@@ -798,7 +832,7 @@ throw_exception(Ex,Reason,Level,Stacktrace) ->
                         ,module=Module,function=Function,node=node()
                         ,fields=[{ex,Ex}|Fields],message= Message
                         ,stacktrace = Stacktrace},
-    catch imem_meta:write(ddLog@, LogRec),
+    catch imem_meta:write(?LOG_TABLE, LogRec),
     case Ex of
         'SecurityViolation' ->  exit({Ex,Reason});
         _ ->                    throw({Ex,Reason})
@@ -826,7 +860,7 @@ log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
                         ,module=Module,function=Function,node=node()
                         ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
-    dirty_write(ddLog@, LogRec);
+    dirty_write(?LOG_TABLE, LogRec);
 log_to_db(Level,Module,Function,Fields,Message) ->
     BinStr = try 
         list_to_binary(Message)
@@ -960,17 +994,34 @@ close(Pid) ->
     imem_statement:close(none, Pid).
 
 read({_Schema,Table}) -> 
-    read(Table);            %% ToDo: may depend on schema 
+    read(Table);            %% ToDo: may depend on schema
+read(ddNode) -> 
+    lists:flatten([read(ddNode,Node) || Node <- nodes()]);
 read(Table) -> 
     imem_if:read(physical_table_name(Table)).
 
 read({_Schema,Table}, Key) -> 
-    read(Table, Key); 
+    read(Table, Key);
+read(ddNode,Node) when is_atom(Node) ->
+    try  
+        [#ddNode{ name=Node
+                , wall_clock=element(1,rpc:call(Node,erlang,statistics,[wall_clock]))
+                , time=rpc:call(Node,erlang,now,[])
+                , extra=[]     
+                }
+        ]        
+    catch
+        _:_ -> []
+    end;
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
 
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
+select(ddNode, ?MatchAllRecords) ->
+    {read(ddNode),true};
+select(ddNode, MatchSpec) ->
+    ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddNode}});
 select(Table, MatchSpec) ->
     imem_if:select(physical_table_name(Table), MatchSpec).
 
@@ -978,6 +1029,10 @@ select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
+select(ddNode, ?MatchAllRecords, Limit) ->
+    {lists:sublist(read(ddNode),Limit),true};
+select(ddNode, MatchSpec, _Limit) ->
+    ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddNode}});
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
@@ -991,8 +1046,8 @@ select_sort(Table, MatchSpec, Limit) ->
 
 write({_Schema,Table}, Record) -> 
     write(Table, Record);           %% ToDo: may depend on schema 
-write(ddLog@, Record) ->
-    imem_if:write(physical_table_name(ddLog@), Record);
+write(?LOG_TABLE, Record) ->
+    imem_if:write(physical_table_name(?LOG_TABLE), Record);
 write(Table, Record) ->
     % log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
     PTN = physical_table_name(Table,element(2,Record)),
@@ -1012,10 +1067,31 @@ write(Table, Record) ->
             throw(Reason)
     end. 
 
+monitor() ->
+    try  
+        Now = erlang:now(),
+        {{input,Input},{output,Output}} = erlang:statistics(io),
+        Moni = #ddMonitor{ time=Now
+                         , name = node()
+                         , memory=erlang:memory(total)
+                         , process_count=erlang:system_info(process_count)          
+                         , port_count=erlang:system_info(port_count)
+                         , run_queue=erlang:statistics(run_queue)
+                         , wall_clock=erlang:statistics(wall_clock)
+                         , reductions=erlang:statistics(reductions)
+                         , input_io=Input
+                         , output_io=Output
+                         , extra=[]      
+                         },
+        imem_if:write(?MONITOR_TABLE, Moni)        
+    catch
+        _:E ->     log_to_db(warning,?MODULE,monitor,[{error,E}],"cannot monitor")
+    end.
+
 dirty_write({_Schema,Table}, Record) -> 
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
-dirty_write(ddLog@, Record) -> 
-    imem_if:dirty_write(physical_table_name(ddLog@), Record);
+dirty_write(?LOG_TABLE, Record) -> 
+    imem_if:dirty_write(physical_table_name(?LOG_TABLE), Record);
 dirty_write(Table, Record) -> 
     % log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
     PTN = physical_table_name(Table,element(2,Record)),
@@ -1155,28 +1231,28 @@ meta_operations(_) ->
 
         ?assertEqual(ok, check_table_columns(ddTable, record_info(fields, ddTable))),
 
-        ?assertEqual(ok, create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
-        ?assertException(throw,{SyEx,{"Wrong table owner",{ddLog@,system}}} ,create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], admin)),
+        ?assertEqual(ok, create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertException(throw,{SyEx,{"Wrong table owner",{?LOG_TABLE,system}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], admin)),
         ?assertException(throw,{SyEx,{"Wrong table options",{ddLog@,_}}} ,create_check_table(ddLog@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog1},{type,ordered_set}], system)),
 
         Now = erlang:now(),
-        LogCount1 = table_size(ddLog@),
+        LogCount1 = table_size(physical_table_name(?LOG_TABLE)),
         ?Log("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
-        ?assertEqual(ok, write(ddLog@, LogRec1)),
-        LogCount2 = table_size(ddLog@),
+        ?assertEqual(ok, write(?LOG_TABLE, LogRec1)),
+        LogCount2 = table_size(physical_table_name(?LOG_TABLE)),
         ?Log("ddLog@ count ~p~n", [LogCount2]),
         ?assertEqual(LogCount1+1,LogCount2),
-        _Log1=read(ddLog@,Now),
-        % ?Log("ddLog@ content ~p~n", [_Log1]),
+        Log1=read(?LOG_TABLE,Now),
+        ?Log("ddLog@ content ~p~n", [Log1]),
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],{stupid_error_message,2})),        
-        LogCount2a = table_size(ddLog@),
+        LogCount2a = table_size(physical_table_name(?LOG_TABLE)),
         ?assertEqual(LogCount2+4,LogCount2a),
 
         ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
@@ -1196,10 +1272,10 @@ meta_operations(_) ->
 
         ?assertEqual(ok, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},undefined})),
         ?assertEqual(1, table_size(meta_table_3)),
-        LogCount3 = table_size(ddLog@),
+        LogCount3 = table_size(physical_table_name(?LOG_TABLE)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
-        LogCount4 = table_size(ddLog@),
+        LogCount4 = table_size(physical_table_name(?LOG_TABLE)),
         ?Log("success ~p~n", [not_null_constraint]),
         ?assertEqual(LogCount3+2, LogCount4),
 
@@ -1210,15 +1286,14 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
         
-        LogTable = physical_table_name(ddLog@),
-        ?assert(lists:member(LogTable,physical_table_names(ddLog@))),
-        ?assert(lists:member(LogTable,physical_table_names("ddLog@"))),
+        LogTable = physical_table_name(?LOG_TABLE),
+        ?assert(lists:member(LogTable,physical_table_names(?LOG_TABLE))),
 
         ?assertEqual([],physical_table_names(tpTest_1000@)),
 
         ?assertException(throw, {ClEr,{"Table to be purged does not exist",tpTest_1000@}}, purge_table(tpTest_1000@)),
         ?assertException(throw, {UiEx,{"Purge not supported on this table type",not_existing_table}}, purge_table(not_existing_table)),
-        ?assertException(throw, {UiEx,{"Purge not supported on this table type",ddLog@}}, purge_table(ddLog@)),
+        ?assert(purge_table(?LOG_TABLE) >= 0),
         ?assertException(throw, {UiEx,{"Purge not supported on this table type",ddTable}}, purge_table(ddTable)),
 
         TimePartTable0 = physical_table_name(tpTest_1000@),
@@ -1250,6 +1325,9 @@ meta_operations(_) ->
 
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
+
+        DdNode = read(ddNode,node()),
+        ?Log("ddNode ~p~n", [DdNode]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
