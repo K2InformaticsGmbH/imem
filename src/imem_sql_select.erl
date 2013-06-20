@@ -61,7 +61,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
     % ?Log("MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    ?Log("JoinSpecs: ~p~n", [JoinSpecs]),
+    %?Log("JoinSpecs: ~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
     SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
     Statement = Stmt#statement{
