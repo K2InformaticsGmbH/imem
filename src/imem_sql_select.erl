@@ -149,23 +149,25 @@ tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
     end.
 
 condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
-    ExA = try 
-        expr_lookup(SKey,Tmax,Ti,A,FullMap)
+    try 
+        ExA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
+        ExB = try 
+            expr_lookup(SKey,Tmax,Ti,B,FullMap)
+        catch
+            throw:{'JoinEvent','join_condition'} -> true;
+            _:Reason2 ->
+                ?Log("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+                ?Log("Failing expression B: ~p~n", [B]),
+                throw(Reason2)
+        end,
+        compguard(Tmax,Ti,OP,ExA,ExB)
     catch
+        throw:{'JoinEvent','join_condition'} -> true;
         _:Reason1 ->
             ?Log("Failing expression lookup in Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
             ?Log("Failing expression A: ~p~n", [A]),
             throw(Reason1)
-    end,
-    ExB = try 
-        expr_lookup(SKey,Tmax,Ti,B,FullMap)
-    catch
-        _:Reason2 ->
-            ?Log("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-            ?Log("Failing expression B: ~p~n", [B]),
-            throw(Reason2)
-    end,
-    compguard(Tmax,Ti,OP,ExA,ExB).
+    end.
 
 compguard(Tmax,Ti,OP,ExA,ExB) ->
     {O,A,B} = if  
@@ -184,40 +186,21 @@ compguard(Tmax,Ti,OP,ExA,ExB) ->
             throw(Reason)
     end.
 
-
 compg(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> join;   %% join condition
-compg(_ ,1, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
-compg(_ ,1, is_member, {0,A,string,_,_,_,_},{1,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
-compg(_ ,1, is_member, {_,A,_,_,_,_,_},     {0,B,_,_,_,_,_}) ->     {is_member,A,field_value(A,term,0,0,?nav,B)};           
-compg(_ ,1, is_member, {_,A,_,_,_,_,_},     {_,B,_,_,_,_,_}) ->     {is_member,A,B};           
-compg(_ ,1, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
-compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,?nav,A),B};
-compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,datetime,_,_,_,_}) ->  {OP,field_value(B,float,0,0,?nav,A),B};
-compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
-compg(_ ,1, OP, {0,A,_,_,_,_,_},        {1,B,term,_,_,_,_}) ->      {OP,A,B};
-compg(_ ,1, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
-compg(_ ,1, _,  {0,_,AT,_,_,_,AN},      {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},{BN,BT}}});
-compg(_ ,1, OP, {1,A,_,_,_,_,_},        {1,B,_,_,_,_,_}) ->         {OP,A,B};
-compg(_ ,1, OP, A, B) ->                                            ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
-
-compg(Tm,J, _,  {N,A,_,_,_,_,_},{J,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
-compg(Tm,J, _,  {J,A,_,_,_,_,_},{N,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
 compg(_ ,_, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
 compg(_ ,_, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
 compg(_ ,_, is_member, {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->         {is_member,A,field_value(A,term,0,0,?nav,B)};           
 compg(_ ,_, is_member, {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->         {is_member,A,B};           
 compg(_ ,_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
 compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
-compg(_ ,_, OP, {_,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,A,field_value(A,string,0,0,?nav,B)};           
+compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,?nav,A),B};
+compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,datetime,_,_,_,_}) ->  {OP,field_value(B,float,0,0,?nav,A),B};
+compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
 compg(_ ,_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
-compg(_ ,J, OP, {J,A,T,L,P,D,_},        {0,B,string,_,_,_,_})->     {OP,A,field_value(A,T,L,P,D,B)};
-compg(_ ,J, OP, {0,A,string,_,_,_,_},   {J,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
-compg(_ ,_, OP, {_,A,term,_,_,_,_},     {_,B,atom,_,_,_,_}) ->      {OP,A,B};  %% remove
-compg(_ ,J, _,  {J,_,AT,_,_,_,AN},      {J,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types in join clause", {{AN,AT},{BN,BT}}});
-compg(_ ,J, _,  {J,_,AT,_,_,_,AN},      {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types in join clause", {{AN,AT},{BN,BT}}});
-compg(_ ,J, _,  {_,_,AT,_,_,_,AN},      {J,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types in join clause", {{AN,AT},{BN,BT}}});
-compg(_ ,_, _,  {_,_,_,_,_,_,_},        {_,_,_,_,_,_,_}) ->         join.
+compg(_ ,_, OP, {_,_,string,_,_,_,AN},  {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,string},OP,{BN,BT}}});
+compg(_ ,_, OP, {_,_,AT,_,_,_,AN},      {_,_,string,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},OP,{BN,string}}});
+compg(_ ,T, _,  {J,_,_,_,_,_,_},   {K,_,_,_,_,_,_}) when J>T;K>T -> join;
+compg(_ ,_, OP, {_,A,_,_,_,_,_},        {_,B,_,_,_,_,_}) ->         {OP,A,B}.
 
 reverse('==') -> '==';
 reverse('/=') -> '/=';
@@ -537,10 +520,6 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assert(length(R1e) =< AllTableCount),
         ?assert(length(R1e) >= 5),
-        % case IsSec of
-        %     false -> ?assertEqual(AllTableCount, length(R1e));
-        %     true ->  ?assertEqual(AllTableCount-2, length(R1e))
-        % end,
 
         R1f = exec_fetch_sort(SKey, query1f, 100, IsSec, 
             "select qname as qn from all_tables where owner=user"
@@ -575,7 +554,7 @@ test_with_or_without_sec(IsSec) ->
             R2
         ),
 
-        ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"5">>,integer},{<<"col2">>,string}}}}, 
+        ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"5">>,integer},'==',{<<"col2">>,string}}}}, 
             exec_fetch_sort(SKey, query2c, 100, IsSec, "select col1, col2 from def where col2 in (5,6)")
         ), 
 
@@ -703,15 +682,25 @@ test_with_or_without_sec(IsSec) ->
             {def,0,integer_to_list(0),calendar:local_time(),{10,132,7,0},{list_to_atom("Atom" ++ integer_to_list(0)),node()}}
         ]),
 
-        % exec_fetch_sort_equal(SKey, query3h, 100, IsSec, 
-        %     "select col1, col5 from def, ddNode where element(2,col5) = node",
-        %     [{<<"0">>,<<"{'Atom0',nonode@nohost}">>}]
-        % ),
+        exec_fetch_sort_equal(SKey, query3h, 100, IsSec, 
+            "select col1, col5 from def, ddNode where element(2,col5) = name",
+            [{<<"0">>,<<"{'Atom0',nonode@nohost}">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3i, 100, IsSec, 
+            "select col1, col5 from def, ddNode where element(2,col5) = 'nonode@nohost'",
+            [{<<"0">>,<<"{'Atom0',nonode@nohost}">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3j, 100, IsSec, 
+            "select col1, col5 from def, ddNode where element(2,col5) = 'nonode@snotherhost'",
+            []
+        ),
 
         %% self joins 
 
         exec_fetch_sort_equal(SKey, query4, 100, IsSec, 
-            "select t1.col1, t2.col1 
+            "select t1.col1, t2.col1 j
              from def t1, def t2 
              where t1.col1 in (5,6,7)
              and t2.col1 > t1.col1 
@@ -738,16 +727,16 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        % exec_fetch_sort_equal(SKey, query4b, 100, IsSec, 
-        %     "select t1.col1, t2.col1 
-        %      from def t1, def t2 
-        %      where t1.col1 in (5,7) 
-        %      and abs(t2.col1-t1.col1) = 1", 
-        %     [
-        %         {<<"5">>,<<"4">>},{<<"5">>,<<"6">>},
-        %         {<<"7">>,<<"6">>},{<<"7">>,<<"8">>}
-        %     ]
-        % ),
+        exec_fetch_sort_equal(SKey, query4b, 100, IsSec, 
+            "select t1.col1, t2.col1 
+             from def t1, def t2 
+             where t1.col1 in (5,7) 
+             and abs(t2.col1-t1.col1) = 1", 
+            [
+                {<<"5">>,<<"4">>},{<<"5">>,<<"6">>},
+                {<<"7">>,<<"6">>},{<<"7">>,<<"8">>}
+            ]
+        ),
 
         exec_fetch_sort_equal(SKey, query4c, 100, IsSec, 
             "select t1.col1, t2.col1 

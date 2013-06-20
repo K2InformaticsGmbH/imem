@@ -523,10 +523,19 @@ create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
         _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
 create_physical_table(Table,ColumnInfos,Opts,Owner) ->
+    case sqlparse:is_reserved(Table) of
+        false ->    ok;
+        true ->     ?ClientError({"Reserved table name",Table})
+    end,     
     TypeCheck = [{imem_datatype:is_datatype(Type),Type} || Type <- column_info_items(ColumnInfos, type)],
     case lists:keyfind(false, 1, TypeCheck) of
         false ->    ok;
         {_,BadT} -> ?ClientError({"Invalid data type",BadT})
+    end,
+    ReservedCheck = [{sqlparse:is_reserved(Name),Name} || Name <- column_info_items(ColumnInfos, name)],
+    case lists:keyfind(true, 1, ReservedCheck) of
+        false ->    ok;
+        {_,BadC} -> ?ClientError({"Reserved column name",BadC})
     end,
     PhysicalName=physical_table_name(Table),
     imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts)),

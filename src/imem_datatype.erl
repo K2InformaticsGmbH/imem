@@ -2,8 +2,6 @@
 -compile(inline).
 -compile({inline_size,1000}).
 
--include_lib("eunit/include/eunit.hrl").
-
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
