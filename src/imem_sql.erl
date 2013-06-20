@@ -29,14 +29,14 @@
 
 parse(Sql) ->
     case sqlparse:parsetree(Sql) of
-        {ok, {[ParseTree|_], _Tokens}}  ->  ParseTree;
+        {ok, {[{ParseTree,_}|_], _Tokens}}  ->  ParseTree;
         {lex_error, Error}              -> ?ClientError({"SQL lexer error", Error});
         {parse_error, Error}            -> ?ClientError({"SQL parser error", Error})
     end.
 
 exec(SKey, Sql, BlockSize, Schema, IsSec) ->
     case sqlparse:parsetree(Sql) of
-        {ok, {[ParseTree|_], _Tokens}} -> 
+        {ok, {[{ParseTree,_}|_], _Tokens}} -> 
             exec(SKey, element(1,ParseTree), ParseTree, 
                 #statement{stmtStr=Sql, stmtParse=ParseTree, blockSize=BlockSize}, 
                 Schema, IsSec);
