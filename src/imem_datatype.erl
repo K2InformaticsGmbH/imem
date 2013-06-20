@@ -1138,6 +1138,7 @@ hex(X) ->
 
 
 %% ----- TESTS ------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -1463,3 +1464,5 @@ data_types(_) ->
         throw ({Class, Reason})
     end,
     ok.
+
+-endif.

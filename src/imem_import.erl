@@ -41,6 +41,7 @@ import_data(_HS) ->
 %     end.
 
 %% TESTS ------------------------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -129,3 +130,4 @@ test_with_or_without_sec(IsSec) ->
     end,
     ok. 
 
+-endif.

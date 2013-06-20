@@ -440,6 +440,7 @@ clone_seco(SKeyParent, Pid) ->
     SKey.
 
 %% ----- TESTS ------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -520,5 +521,5 @@ test(_) ->
     end,
     ok.
 
-
+-endif.
 

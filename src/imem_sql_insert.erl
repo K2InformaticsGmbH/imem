@@ -28,6 +28,7 @@ if_call_mfa(IsSec,Fun,Args) ->
     end.
 
 %% TESTS ------------------------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -232,3 +233,5 @@ insert_range(_SKey, 0, _TableName, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, TableName, Schema, IsSec) when is_integer(N), N > 0 ->
     imem_sql:exec(SKey, "insert into " ++ TableName ++ " values ('" ++ integer_to_list(N) ++ "', " ++ integer_to_list(N) ++ ", undefined);", 0, Schema, IsSec),
     insert_range(SKey, N-1, TableName, Schema, IsSec).
+
+-endif.

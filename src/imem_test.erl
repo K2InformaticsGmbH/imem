@@ -1,5 +1,7 @@
 -module(imem_test).
 
+-ifdef(TEST).
+
 -include("imem_seco.hrl").
 
 %% ----- TESTS ------------------------------------------------
@@ -400,3 +402,4 @@ test(_) ->
     end,
     ok.
 
+-endif.

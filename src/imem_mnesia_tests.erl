@@ -1,7 +1,10 @@
 -module(imem_mnesia_tests).
 
+-ifdef(TEST).
+
 %% Application callbacks
 -compile(export_all).
+
 
 -include("imem.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -97,3 +100,5 @@ start_trans(Pid, Title, Limit) ->
         end
     end,
     spawn(mnesia, async_dirty, [F, [F,undefined]]).
+
+-endif. 

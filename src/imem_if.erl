@@ -813,6 +813,7 @@ backup_snap() ->
     end.
 
 %% ----- TESTS ------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -999,3 +1000,5 @@ table_operations(_) ->
         throw ({Class, Reason})
     end,
     ok.
+
+-endif.

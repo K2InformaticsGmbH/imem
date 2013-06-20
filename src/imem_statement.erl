@@ -1222,6 +1222,7 @@ if_call_mfa(IsSec,Fun,Args) ->
     end.
 
 %% TESTS ------------------------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -1664,3 +1665,5 @@ fetch_async(SKey, StmtResult, Opts, IsSec) ->
     % Delta = Mic2 - Mic1 + 1000000 * ((S2-S1) + 1000000 * (M2-M1)),
     % Message = io_lib:format("fetch_recs latency per record: ~p usec",[Delta div Count]),
     % imem_meta:log_to_db(debug,?MODULE,fetch_recs,[{rec_count,Count},{fetch_duration,Delta}], Message),
+
+-endif.

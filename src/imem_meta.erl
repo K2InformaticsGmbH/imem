@@ -1026,6 +1026,7 @@ read(ddNode,Node) when is_atom(Node) ->
             ?Log("ddNode evaluation error ~p:~p~n", [Class,Reason]),
             []
     end;
+read(ddNode,_) -> [];
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
 
@@ -1035,10 +1036,14 @@ select(ddNode, ?MatchAllRecords) ->
     {read(ddNode),true};
 select(ddNode, [{_,[],['$_']}]) ->
     {read(ddNode),true};                %% used in select * from ddNode
-select(ddNode, [{_,[{'==',Tag,Key}],['$_']}]) when is_atom(Tag), is_atom(Key) ->
-    case hd(atom_to_list(Tag)) of
-        $$ ->   {read(ddNode,Key),true};    %% used in select * from ddNode where name = Key
-        _ ->    {read(ddNode,Tag),true}     %% or used in ddNode join to simple field of master table
+select(ddNode, [{_,[{'==',{element,N,Tuple},_}],['$_']}]) when is_tuple(Tuple) ->
+    {read(ddNode,element(N,Tuple)),true};
+select(ddNode, [{_,[{'==',_,{element,N,Tuple}}],['$_']}]) when is_tuple(Tuple) ->
+    {read(ddNode,element(N,Tuple)),true};
+select(ddNode, [{_,[{'==',K1,K2}],['$_']}]) when is_atom(K1), is_atom(K2) ->
+    case atom_to_list(K1) of
+        [$$|_] ->   {read(ddNode,K2),true};   % Key cannot match '$_'
+        _ ->        {read(ddNode,K1),true}
     end;
 select(ddNode, MatchSpec) ->
     ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddNode}});
@@ -1212,6 +1217,7 @@ return_atomic(Result) ->
 
 
 %% ----- TESTS ------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -1369,3 +1375,5 @@ meta_operations(_) ->
         throw ({Class, Reason})
     end,
     ok.
+    
+-endif.

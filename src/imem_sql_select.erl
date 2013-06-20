@@ -61,7 +61,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
     % ?Log("MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    % ?Log("JoinSpecs: ~p~n", [JoinSpecs]),
+    ?Log("JoinSpecs: ~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
     SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
     Statement = Stmt#statement{
@@ -149,55 +149,83 @@ tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
     end.
 
 condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
+    ExA = try 
+        expr_lookup(SKey,Tmax,Ti,A,FullMap)
+    catch
+        _:Reason1 ->
+            ?Log("Failing expression lookup in Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+            ?Log("Failing expression A: ~p~n", [A]),
+            throw(Reason1)
+    end,
+    ExB = try 
+        expr_lookup(SKey,Tmax,Ti,B,FullMap)
+    catch
+        _:Reason2 ->
+            ?Log("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+            ?Log("Failing expression B: ~p~n", [B]),
+            throw(Reason2)
+    end,
+    compguard(Tmax,Ti,OP,ExA,ExB).
+
+compguard(Tmax,Ti,OP,ExA,ExB) ->
+    {O,A,B} = if  
+        (OP =='is_member') ->                   {OP,ExA,ExB};
+        (element(1,ExA) =< element(1,ExB)) ->   {OP,ExA,ExB};
+        true ->                                 {reverse(OP),ExB,ExA}
+    end,
     try 
-        ExA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
-        ExB = expr_lookup(SKey,Tmax,Ti,B,FullMap),
-        compguard(Tmax,Ti,OP,ExA,ExB)
+        compg(Tmax,Ti,O,A,B)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason ->
-            ?Log("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-            ?Log("Failing condition eval A: ~p~n", [A]),
-            ?Log("Failing condition eval B: ~p~n", [B]),
+            ?Log("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,O]),
+            ?Log("Failing condition A: ~p~n", [A]),
+            ?Log("Failing condition B: ~p~n", [B]),
             throw(Reason)
     end.
 
-compguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> join;   %% join condition
-compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
-compguard(_ ,1, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
-compguard(_ ,1, is_member, {_,A,_,_,_,_,_},     {0,B,_,_,_,_,_}) ->     {is_member,A,field_value(A,term,0,0,?nav,B)};           
-compguard(_ ,1, is_member, {_,A,_,_,_,_,_},     {_,B,_,_,_,_,_}) ->     {is_member,A,B};           
-compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
-compguard(_ ,1, OP, {_,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,A,field_value(A,string,0,0,?nav,B)};           
-compguard(_ ,1, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
-compguard(_ ,1, OP, {1,A,timestamp,_,_,_,_}, {0,B,string,_,_,_,_}) ->   {OP,A,field_value(A,float,0,0,?nav,B)};
-compguard(_ ,1, OP, {1,A,datetime,_,_,_,_}, {0,B,string,_,_,_,_}) ->    {OP,A,field_value(A,float,0,0,?nav,B)};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,timestamp,_,_,_,_}) ->   {OP,field_value(B,float,0,0,?nav,A),B};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_}, {1,B,datetime,_,_,_,_}) ->    {OP,field_value(B,float,0,0,?nav,A),B};
-compguard(_ ,1, OP, {1,A,T,L,P,D,_},      {0,B,string,_,_,_,_}) ->      {OP,A,field_value(A,T,L,P,D,B)};
-compguard(_ ,1, OP, {1,A,term,_,_,_,_},     {0,B,_,_,_,_,_}) ->         {OP,A,B};
-compguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
-compguard(_ ,1, OP, {0,A,_,_,_,_,_},        {1,B,term,_,_,_,_}) ->      {OP,A,B};
-compguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},{BN,BT}}});
-compguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
 
-compguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
-compguard(Tm,J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
-compguard(_ ,_, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
-compguard(_ ,_, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
-compguard(_ ,_, is_member, {_,A,_,_,_,_,_},     {0,B,_,_,_,_,_}) ->     {is_member,A,field_value(A,term,0,0,?nav,B)};           
-compguard(_ ,_, is_member, {_,A,_,_,_,_,_},     {_,B,_,_,_,_,_}) ->     {is_member,A,B};           
-compguard(_ ,_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compguard(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
-compguard(_ ,_, OP, {_,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,A,field_value(A,string,0,0,?nav,B)};           
-compguard(_ ,_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
-compguard(_ ,J, OP, {J,A,T,L,P,D,_},        {0,B,string,_,_,_,_})->     {OP,A,field_value(A,T,L,P,D,B)};
-compguard(_ ,J, OP, {0,A,string,_,_,_,_},   {J,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
-compguard(_ ,J, _,  {J,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-compguard(_ ,J, _,  {J,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-compguard(_ ,J, _,  {_,_,AT,_,_,_,AN}, {J,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-compguard(_ ,_, _,  {_,_,_,_,_,_,_},   {_,_,_,_,_,_,_}) ->              join.
+compg(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> join;   %% join condition
+compg(_ ,1, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
+compg(_ ,1, is_member, {0,A,string,_,_,_,_},{1,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
+compg(_ ,1, is_member, {_,A,_,_,_,_,_},     {0,B,_,_,_,_,_}) ->     {is_member,A,field_value(A,term,0,0,?nav,B)};           
+compg(_ ,1, is_member, {_,A,_,_,_,_,_},     {_,B,_,_,_,_,_}) ->     {is_member,A,B};           
+compg(_ ,1, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
+compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
+compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,?nav,A),B};
+compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,datetime,_,_,_,_}) ->  {OP,field_value(B,float,0,0,?nav,A),B};
+compg(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
+compg(_ ,1, OP, {0,A,_,_,_,_,_},        {1,B,term,_,_,_,_}) ->      {OP,A,B};
+compg(_ ,1, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
+compg(_ ,1, _,  {0,_,AT,_,_,_,AN},      {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},{BN,BT}}});
+compg(_ ,1, OP, {1,A,_,_,_,_,_},        {1,B,_,_,_,_,_}) ->         {OP,A,B};
+compg(_ ,1, OP, A, B) ->                                            ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
+
+compg(Tm,J, _,  {N,A,_,_,_,_,_},{J,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
+compg(Tm,J, _,  {J,A,_,_,_,_,_},{N,B,_,_,_,_,_}) when N>J, N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
+compg(_ ,_, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
+compg(_ ,_, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
+compg(_ ,_, is_member, {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->         {is_member,A,field_value(A,term,0,0,?nav,B)};           
+compg(_ ,_, is_member, {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->         {is_member,A,B};           
+compg(_ ,_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
+compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
+compg(_ ,_, OP, {_,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,A,field_value(A,string,0,0,?nav,B)};           
+compg(_ ,_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
+compg(_ ,J, OP, {J,A,T,L,P,D,_},        {0,B,string,_,_,_,_})->     {OP,A,field_value(A,T,L,P,D,B)};
+compg(_ ,J, OP, {0,A,string,_,_,_,_},   {J,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
+compg(_ ,_, OP, {_,A,term,_,_,_,_},     {_,B,atom,_,_,_,_}) ->      {OP,A,B};  %% remove
+compg(_ ,J, _,  {J,_,AT,_,_,_,AN},      {J,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types in join clause", {{AN,AT},{BN,BT}}});
+compg(_ ,J, _,  {J,_,AT,_,_,_,AN},      {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types in join clause", {{AN,AT},{BN,BT}}});
+compg(_ ,J, _,  {_,_,AT,_,_,_,AN},      {J,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types in join clause", {{AN,AT},{BN,BT}}});
+compg(_ ,_, _,  {_,_,_,_,_,_,_},        {_,_,_,_,_,_,_}) ->         join.
+
+reverse('==') -> '==';
+reverse('/=') -> '/=';
+reverse('>=') -> '=<';
+reverse('=<') -> '>=';
+reverse('<') -> '>';
+reverse('>') -> '<';
+reverse(OP) -> ?UnimplementedException({"Cannot reverse operator",OP}).
 
 in_condition(SKey,Tmax,Ti,A,InList,FullMap) ->
     in_condition_loop(SKey,Tmax,Ti,expr_lookup(SKey,Tmax,Ti,A,FullMap),InList,FullMap).
@@ -319,6 +347,7 @@ if_call_mfa(IsSec,Fun,Args) ->
 
 
 %% TESTS ------------------------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -368,6 +397,18 @@ test_with_or_without_sec(IsSec) ->
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none
+        end,
+
+        % TestTime = erlang:now(),
+
+        R2f = exec_fetch_sort(SKey, query2f, 100, IsSec, 
+            "select name, lastLoginTime 
+             from ddAccount 
+             where lastLoginTime > sysdate - 1.1574074074074073e-5"   %% 1.0 * ?OneSecond
+        ),
+        case IsSec of
+            false -> ?assertEqual(0, length(R2f));
+            true ->  ?assertEqual(1, length(R2f))
         end,
 
         if
@@ -534,7 +575,7 @@ test_with_or_without_sec(IsSec) ->
             R2
         ),
 
-        ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"col2">>,string},{<<"5">>,integer}}}}, 
+        ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"5">>,integer},{<<"col2">>,string}}}}, 
             exec_fetch_sort(SKey, query2c, 100, IsSec, "select col1, col2 from def where col2 in (5,6)")
         ), 
 
@@ -551,18 +592,6 @@ test_with_or_without_sec(IsSec) ->
             "select * from def where col4 < \"10.132.7.3\""
         ),
         ?assertEqual(2, length(R2e)),
-
-        % TestTime = erlang:now(),
-
-        R2f = exec_fetch_sort(SKey, query2f, 100, IsSec, 
-            "select name, lastLoginTime 
-             from ddAccount 
-             where lastLoginTime > sysdate - 1.1574074074074073e-4"   %% 10.0 * ?OneSecond
-        ),
-        case IsSec of
-            false -> ?assertEqual(0, length(R2f));
-            true ->  ?assertEqual(1, length(R2f))
-        end,
 
         R2g = exec_fetch(SKey, query2g, 100, IsSec, 
             "select logTime, logLevel, module, function, fields, message 
@@ -665,10 +694,10 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assertEqual(1, length(R3f)),
 
-        % exec_fetch_sort_equal(SKey, query3g, 100, IsSec, 
-        %     "select col1, col5 from def, ddNode where element(2,col5) = node",
-        %     []
-        % ),
+        exec_fetch_sort_equal(SKey, query3g, 100, IsSec, 
+            "select col1, col5 from def, ddNode where element(2,col5) = name",
+            []
+        ),
 
         if_call_mfa(IsSec, write,[SKey,def,
             {def,0,integer_to_list(0),calendar:local_time(),{10,132,7,0},{list_to_atom("Atom" ++ integer_to_list(0)),node()}}
@@ -709,16 +738,16 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query4b, 100, IsSec, 
-            "select t1.col1, t2.col1 
-             from def t1, def t2 
-             where t1.col1 in (5,7) 
-             and abs(t2.col1-t1.col1) = 1", 
-            [
-                {<<"5">>,<<"4">>},{<<"5">>,<<"6">>},
-                {<<"7">>,<<"6">>},{<<"7">>,<<"8">>}
-            ]
-        ),
+        % exec_fetch_sort_equal(SKey, query4b, 100, IsSec, 
+        %     "select t1.col1, t2.col1 
+        %      from def t1, def t2 
+        %      where t1.col1 in (5,7) 
+        %      and abs(t2.col1-t1.col1) = 1", 
+        %     [
+        %         {<<"5">>,<<"4">>},{<<"5">>,<<"6">>},
+        %         {<<"7">>,<<"6">>},{<<"7">>,<<"8">>}
+        %     ]
+        % ),
 
         exec_fetch_sort_equal(SKey, query4c, 100, IsSec, 
             "select t1.col1, t2.col1 
@@ -973,3 +1002,5 @@ exec_fetch(SKey,Id, BS, IsSec, Sql) ->
             ?Log("Result  : ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
     end,            
     RT.
+
+-endif.

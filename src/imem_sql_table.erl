@@ -75,6 +75,7 @@ if_call_mfa(IsSec,Fun,Args) ->
     end.
 
 %% TESTS ------------------------------------------------------------------
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -165,3 +166,4 @@ test_with_or_without_sec(IsSec) ->
     end,
     ok. 
 
+-endif.

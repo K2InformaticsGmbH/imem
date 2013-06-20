@@ -3,8 +3,6 @@
 -define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo@,ddPerm@,ddQuota@]).
 -define(SECO_FIELDS,[user,username]).
 
--include_lib("eunit/include/eunit.hrl").
-
 -include("imem_seco.hrl").
 
 -export([ schema/1
@@ -713,6 +711,9 @@ get_permission_cache(SKey, Permission) ->
 
 
 %% ----- TESTS ------------------------------------------------
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
     ?imem_test_setup().
@@ -893,4 +894,4 @@ test(_) ->
     end,
     ok.
 
-
+-endif.
