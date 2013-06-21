@@ -1016,7 +1016,7 @@ t2s(T) when is_tuple(T) ->
     ,"}"];
 t2s(T) when is_list(T) ->
     case io_lib:printable_list(T) of
-        true -> lists:flatten(io_lib:format("~p", [T]));
+        true -> io_lib:format("~p", [T]);
         _    -> ["["
                 ,string:join([t2s(Te) || Te <- T], ",")
                 ,"]"]
