@@ -1007,8 +1007,22 @@ boolean_to_io(T) ->
     list_to_binary(io_lib:format("~p",[T])).
 
 term_to_io(T) ->
-    list_to_binary(io_lib:format("~w",[T])).
-    
+    %list_to_binary(io_lib:format("~w",[T])).
+    list_to_binary(t2s(T)).
+
+t2s(T) when is_tuple(T) ->
+    ["{"
+    ,string:join([t2s(Te) || Te <- tuple_to_list(T)], ",")
+    ,"}"];
+t2s(T) when is_list(T) ->
+    case io_lib:printable_list(T) of
+        true -> lists:flatten(io_lib:format("~p", [T]));
+        _    -> ["["
+                ,string:join([t2s(Te) || Te <- T], ",")
+                ,"]"]
+    end;
+t2s(T) -> io_lib:format("~p", [T]).
+
 string_to_io(Val) when is_list(Val) ->
     IsString = io_lib:printable_unicode_list(Val),
     if 
