@@ -1027,8 +1027,6 @@ update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     UpdPlan.
 
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
-% update_prepare(_IsSec, _SKey, [{Schema,Table,bag}|_], _ColMap, _CList, _Acc) ->
-%    ?UnimplementedException({"Bag table cursor update not supported", {Schema,Table}});
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), element(1,Recs)],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
@@ -1043,21 +1041,28 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         true ->                                 ok    
     end,            
     ValMap = lists:usort(
-        [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(1,Recs)),T,L,P,D,false,Value), R} || 
-            {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R},Value} 
-            <- lists:zip(ColMap,Values), Ti==1]),    
+        [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(Ti,Recs)),T,L,P,D,false,Value), R} || 
+            {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R, func=F},Value} 
+            <- lists:zip(ColMap,Values), Ti==1, F==undefined]),    
     % ?Log("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
     % ?Log("ind map~n~p~n", [IndMap]),
-    ROViol = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
+    TupleItemMap = lists:usort(
+                lists:flatten([tuple_item_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])
+            ),    
+    % ?Log("tuple item map~n~p~n", [TupleItemMap]),
+    ROViolV = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
+    ROViolT = [{element(Ci,element(1,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleItemMap, R==true, element(Xi,element(Ci,element(1,Recs))) /= NewVal],   
+    ROViol = ROViolV ++ ROViolT,
     % ?Log("key change~n~p~n", [ROViol]),
     if  
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});        
         length(ROViol) /= 0 ->                  ?ClientError({"Cannot update readonly field",{Item,hd(ROViol)}});        
         true ->                                 ok    
     end,            
-    NewRec = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(1,Recs), ValMap),    
-    Action = [hd(Tables), Item, element(1,Recs), NewRec],     
+    NewRec1 = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(1,Recs), ValMap),    
+    NewRec2 = lists:foldl(fun({Ci,Xi,Value,_},Rec) -> setelement(Ci,Rec,setelement(Xi,element(Ci,Rec),Value)) end, NewRec1, TupleItemMap),    
+    Action = [hd(Tables), Item, element(1,Recs), NewRec2],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
@@ -1067,7 +1072,18 @@ update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
 
+tuple_item_map(Item,I,Recs,ColMap,Values) ->
+    FuncName = list_to_atom("item" ++ integer_to_list(I)),
+    [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),term,0,0,undefined,false,Value), R} || 
+        {#ddColMap{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
+        <- lists:zip(ColMap,Values), Ti==1, T==tuple, F==FuncName]
+    .
+
 update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
+    case [Name || #ddColMap{tind=Ti,name=Name,func=F} <- ColMap, Ti==1, F/=undefined] of
+        [] ->   ok;
+        L ->    ?ClientError({"Need a complete value to insert into column",{Item,hd(L)}})
+    end,
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        
@@ -1231,6 +1247,7 @@ setup() ->
 
 teardown(_SKey) -> 
     catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(tuple_test),
     ?Log("test teardown....~n",[]),
     ?imem_test_teardown().
 
@@ -1271,6 +1288,87 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
+    %% test table tuple_test
+
+        ?assertEqual(ok, imem_sql:exec(SKey, 
+                "create table tuple_test (
+                    col1 tuple, 
+                    col2 list,
+                    col3 term,
+                    col4 integer
+                );"
+                , 0, 'Imem', IsSec)),
+
+        Sql1a = "insert into tuple_test (
+                    col1,col2,col3,col4
+                ) values (
+                     '{key1,nonode@nohost}'
+                    ,'[key1a,key1b,key1c]'
+                    ,'{key1,{key1a,key1b}}'
+                    , 1 
+                );",  
+        ?Log("Sql1a: ~p~n", [Sql1a]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1a, 0, 'Imem', IsSec)),
+
+        Sql1b = "insert into tuple_test (
+                    col1,col2,col3,col4
+                ) values (
+                     '{key2,somenode@somehost}'
+                    ,'[key2a,key2b,3,4]'
+                    ,2
+                    ,2 
+                );",  
+        ?Log("Sql1b: ~p~n", [Sql1b]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1b, 0, 'Imem', IsSec)),
+
+        Sql1c = "insert into tuple_test (
+                    col1,col2,col3,col4
+                ) values (
+                     '{key3,''nonode@nohost''}'
+                    ,'[key3a,key3b]'
+                    ,'<<\"term3\">>'
+                    ,3 
+                );",  
+        ?Log("Sql1c: ~p~n", [Sql1c]),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1c, 0, 'Imem', IsSec)),
+
+        TT1aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
+        ?Log("original table~n~p~n", [TT1aRows1]),
+
+        TT1a = exec(SKey,tt1, 4, IsSec, "select item1(col1), col4 from tuple_test where col4=1"),
+        ?assertEqual(ok, fetch_async(SKey,TT1a,[],IsSec)),
+        ListTT1a = receive_tuples(TT1a,true),
+        ?assertEqual(1, length(ListTT1a)),
+
+        O1 = {tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],'{key1,{key1a,key1b}}',1},
+        O2 = {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],2,2},
+        O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],'<<"term3">>',3},
+
+        TT1aChange = [
+          [1,upd,{O1,{}},<<"keyX">>,<<"1">>] 
+        , [2,upd,{O2,{}},<<"key2">>,<<"22">>] 
+        , [3,upd,{O3,{}},<<"key3">>,<<"3">>]
+        ],
+        ?assertEqual(ok, update_cursor_prepare(SKey, TT1a, IsSec, TT1aChange)),
+        update_cursor_execute(SKey, TT1a, IsSec, optimistic),        
+        TT1aRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
+        ?assertNotEqual(TT1aRows1,TT1aRows2),
+        ?Log("changed table~n~p~n", [TT1aRows2]),
+
+        TT1bChange = [[4,ins,{},<<"key4">>, <<"4">>]],
+        ?assertException(throw,
+            {error,
+            {'ClientError',
+            "Need a complete value to insert into column",{4,col1}
+            }},
+            update_cursor_prepare(SKey, TT1a, IsSec, TT1bChange)
+        ),
+
+        TT1aRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
+        ?Log("unchanged table~n~p~n", [TT1aRows3]),
+        ?assertEqual(TT1aRows2,TT1aRows3),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, 'Imem', IsSec)),
 
     %% test table def
 
@@ -1652,7 +1750,7 @@ exec(SKey,Id, BS, IsSec, Sql) ->
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,
-    ?Log("Statement Cols : ~p~n", [StmtCols]),
+    %?Log("Statement Cols : ~p~n", [StmtCols]),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     StmtResult.
 

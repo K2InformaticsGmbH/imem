@@ -1,6 +1,6 @@
 -module(imem_test_writer).
 
--ifdef(TEST).
+%% -ifdef(TEST).
 
 -include("imem_meta.hrl").
 
@@ -117,24 +117,7 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 format_status(_Opt, [_PDict, _State]) -> ok.
 
--endif.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+%% -endif.
 
 
 %% -----------------------------------------------------------------------------
