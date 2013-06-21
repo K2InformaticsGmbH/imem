@@ -1357,10 +1357,8 @@ test_with_or_without_sec(IsSec) ->
 
         TT1bChange = [[4,ins,{},<<"key4">>, <<"4">>]],
         ?assertException(throw,
-            {error,
-            {'ClientError',
-            "Need a complete value to insert into column",{4,col1}
-            }},
+            {error, {'ClientError',
+             {"Need a complete value to insert into column",{4,col1}}}},
             update_cursor_prepare(SKey, TT1a, IsSec, TT1bChange)
         ),
 
