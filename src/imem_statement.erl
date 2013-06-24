@@ -1110,9 +1110,9 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==1, Value/=<<"">>]),
-    ?Log("value map~n~p~n", [ValMap]),
+    %?Log("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
-    ?Log("ind map~n~p~n", [IndMap]),
+    %?Log("ind map~n~p~n", [IndMap]),
     HasKey = lists:member(2,IndMap),
     if 
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column insert",{Item,ValMap}});
