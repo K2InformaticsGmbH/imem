@@ -79,6 +79,9 @@ loop(Socket, Transport, Buf, Len) ->
             Transport:close(Socket)
     end.
 
+mfa({Ref, Mod, which_applications, Args}, Transport) when Mod =:= imem_sec;
+                                                          Mod =:= imem_meta ->
+    mfa({Ref, application, which_applications, Args}, Transport);
 mfa({Ref, Mod, Fun, Args}, Transport) ->
     NewArgs = args(Ref,Fun,Args,Transport),
     ApplyRes = try
