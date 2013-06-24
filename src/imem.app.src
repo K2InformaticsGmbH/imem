@@ -1,7 +1,7 @@
 {application, imem,
  [
   {description, "A replication Mnesia table cluster"},
-  {vsn, "1.0.1"},
+  {vsn, "1.0.0"},
   {registered, []},
   {applications, [
                   kernel,
