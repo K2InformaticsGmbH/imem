@@ -1047,12 +1047,12 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
     % ?Log("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
     % ?Log("ind map~n~p~n", [IndMap]),
-    TupleItemMap = lists:usort(
-                lists:flatten([tuple_item_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])
+    TupleUpdMap = lists:usort(
+                lists:flatten([tuple_update_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])
             ),    
     % ?Log("tuple item map~n~p~n", [TupleItemMap]),
     ROViolV = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
-    ROViolT = [{element(Ci,element(1,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleItemMap, R==true, element(Xi,element(Ci,element(1,Recs))) /= NewVal],   
+    ROViolT = [{element(Ci,element(1,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleUpdMap, R==true, element(Xi,element(Ci,element(1,Recs))) /= NewVal],   
     ROViol = ROViolV ++ ROViolT,
     % ?Log("key change~n~p~n", [ROViol]),
     if  
@@ -1061,7 +1061,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         true ->                                 ok    
     end,            
     NewRec1 = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(1,Recs), ValMap),    
-    NewRec2 = lists:foldl(fun({Ci,Xi,Value,_},Rec) -> setelement(Ci,Rec,setelement(Xi,element(Ci,Rec),Value)) end, NewRec1, TupleItemMap),    
+    NewRec2 = lists:foldl(fun({Ci,Xi,Value,_},Rec) -> setelement(Ci,Rec,setelement(Xi,element(Ci,Rec),Value)) end, NewRec1, TupleUpdMap),    
     Action = [hd(Tables), Item, element(1,Recs), NewRec2],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
@@ -1072,28 +1072,47 @@ update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
 
-tuple_item_map(Item,I,Recs,ColMap,Values) ->
+tuple_update_map(Item,I,Recs,ColMap,Values) ->
     FuncName = list_to_atom("item" ++ integer_to_list(I)),
     [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),term,0,0,undefined,false,Value), R} || 
         {#ddColMap{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
-        <- lists:zip(ColMap,Values), Ti==1, T==tuple, F==FuncName]
+        <- lists:zip(ColMap,Values), Ti==1, T==tuple, F==FuncName, Value/=<<"">>]
+    ++
+    [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),element(I,T),0,0,undefined,false,Value), R} || 
+        {#ddColMap{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
+        <- lists:zip(ColMap,Values), Ti==1, is_tuple(T), F==FuncName, Value/=<<"">>]
     .
 
+% tuple_insert_map(Item,I,ColMap,Values) ->
+%     FuncName = list_to_atom("item" ++ integer_to_list(I)),
+%     case [{Name,T,Ci,F,L,Value} || {#ddColMap{tind=Ti,cind=Ci,name=Name,type=T,len=L,func=F},Value} <- lists:zip(ColMap,Values), Ti==1, F/=undefined, Value/=<<"">>] of
+%         [] ->   
+%             [];
+%         EMap ->
+%             TupleMap1 = [{Name,T,Ci,F,L,imem_datatype:io_to_db(Item,?nav,term,0,0,undefined,false,Value)} || {Name,T,Ci,F,L,Value} <- EMap, T==tuple],
+%             TupleMap2 = [{Name,T,Ci,F,L,imem_datatype:io_to_db(Item,?nav,element(I,T),0,0,undefined,false,Value)} || {Name,T,Ci,F,L,Value} <- EMap, is_tuple(T)],
+%             TupleMap = TupleMap1 ++ TupleMap2,
+
+%             ?ClientError({"Need a complete value to insert into column",{Item,element(1,hd(L))}})
+%     end.
+
 update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
-    case [Name || #ddColMap{tind=Ti,name=Name,func=F} <- ColMap, Ti==1, F/=undefined] of
-        [] ->   ok;
-        L ->    ?ClientError({"Need a complete value to insert into column",{Item,hd(L)}})
-    end,
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        
         true ->                                 ok    
     end,            
+    case [Name || {#ddColMap{tind=Ti,name=Name,func=F},Value} <- lists:zip(ColMap,Values), Ti==1, F/=undefined, Value/=<<"">>] of
+        [] ->   ok;
+        L ->    ?ClientError({"Need a complete value to insert into column",{Item,hd(L)}})
+    end,    
     ValMap = lists:usort(
         [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
-            <- lists:zip(ColMap,Values), Ti==1]),    
+            <- lists:zip(ColMap,Values), Ti==1, Value/=<<"">>]),
+    ?Log("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
+    ?Log("ind map~n~p~n", [IndMap]),
     HasKey = lists:member(2,IndMap),
     if 
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column insert",{Item,ValMap}});
@@ -1294,7 +1313,7 @@ test_with_or_without_sec(IsSec) ->
                 "create table tuple_test (
                     col1 tuple, 
                     col2 list,
-                    col3 term,
+                    col3 tuple(2),
                     col4 integer
                 );"
                 , 0, 'Imem', IsSec)),
@@ -1315,7 +1334,7 @@ test_with_or_without_sec(IsSec) ->
                 ) values (
                      '{key2,somenode@somehost}'
                     ,'[key2a,key2b,3,4]'
-                    ,2
+                    ,'{a,2}'
                     ,2 
                 );",  
         ?Log("Sql1b: ~p~n", [Sql1b]),
@@ -1326,7 +1345,7 @@ test_with_or_without_sec(IsSec) ->
                 ) values (
                      '{key3,''nonode@nohost''}'
                     ,'[key3a,key3b]'
-                    ,'<<\"term3\">>'
+                    ,undefined
                     ,3 
                 );",  
         ?Log("Sql1c: ~p~n", [Sql1c]),
@@ -1335,36 +1354,59 @@ test_with_or_without_sec(IsSec) ->
         TT1aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?Log("original table~n~p~n", [TT1aRows1]),
 
-        TT1a = exec(SKey,tt1, 4, IsSec, "select item1(col1), col4 from tuple_test where col4=1"),
+        TT1a = exec(SKey,tt1, 4, IsSec, "select item1(col1), item1(col3), item2(col3), col4 from tuple_test where col4=1"),
         ?assertEqual(ok, fetch_async(SKey,TT1a,[],IsSec)),
         ListTT1a = receive_tuples(TT1a,true),
         ?assertEqual(1, length(ListTT1a)),
 
-        O1 = {tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],'{key1,{key1a,key1b}}',1},
-        O2 = {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],2,2},
-        O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],'<<"term3">>',3},
+        O1 = {tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
+        O1X= {tuple_test,{keyX,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
+        O2 = {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,2},2},
+        O2X= {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,2},undefined},
+        O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3},
 
         TT1aChange = [
-          [1,upd,{O1,{}},<<"keyX">>,<<"1">>] 
-        , [2,upd,{O2,{}},<<"key2">>,<<"22">>] 
-        , [3,upd,{O3,{}},<<"key3">>,<<"3">>]
+          [1,upd,{O1,{}},<<"keyX">>,<<"key1">>,<<"{key1a,key1b}">>,<<"1">>] 
+        , [2,upd,{O2,{}},<<"key2">>,<<"a">>,<<"">>,<<"">>] 
+        , [3,upd,{O3,{}},<<"key3">>,<<"">>,<<"">>,<<"3">>]
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1a, IsSec, TT1aChange)),
         update_cursor_execute(SKey, TT1a, IsSec, optimistic),        
         TT1aRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?assertNotEqual(TT1aRows1,TT1aRows2),
         ?Log("changed table~n~p~n", [TT1aRows2]),
+        ?assert(lists:member(O1X,TT1aRows2)),
+        ?assert(lists:member(O2X,TT1aRows2)),
+        ?assert(lists:member(O3,TT1aRows2)),
 
-        TT1bChange = [[4,ins,{},<<"key4">>, <<"4">>]],
+        TT1bChange = [[4,ins,{},<<"key4">>,<<"">>,<<"">>,<<"4">>]],
         ?assertException(throw,
             {error, {'ClientError',
              {"Need a complete value to insert into column",{4,col1}}}},
             update_cursor_prepare(SKey, TT1a, IsSec, TT1bChange)
         ),
-
         TT1aRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?Log("unchanged table~n~p~n", [TT1aRows3]),
         ?assertEqual(TT1aRows2,TT1aRows3),
+
+
+        TT2a = exec(SKey,tt2, 4, IsSec, "select col1, item1(col3), item2(col3), col4 from tuple_test where col4=1"),
+        ?assertEqual(ok, fetch_async(SKey,TT2a,[],IsSec)),
+        ListTT2a = receive_tuples(TT2a,true),
+        ?assertEqual(1, length(ListTT2a)),
+
+
+        TT2aChange = [
+         [4,ins,{},<<"{key4,nonode@nohost}">>,<<"">>,<<"">>,<<"4">>]
+%        ,[5,ins,{},<<"{key5,somenode@somehost}">>,<<"a">>,<<"5">>,<<"">>]
+        ],
+        O4 = {tuple_test,{key4,nonode@nohost},undefined,undefined,4},
+        % O5 = {tuple_test,{key5,somenode@somehost},undefined,{a,5},undefined},
+        ?assertEqual(ok, update_cursor_prepare(SKey, TT2a, IsSec, TT2aChange)),
+        update_cursor_execute(SKey, TT2a, IsSec, optimistic),        
+        TT2aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
+        ?Log("appended table~n~p~n", [TT2aRows1]),
+        ?assert(lists:member(O4,TT2aRows1)),
+%        ?assert(lists:member(O5,TT2aRows1)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, 'Imem', IsSec)),
 
@@ -1744,7 +1786,7 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 exec(SKey,Id, BS, IsSec, Sql) ->
-    ?Log("~p : ~s~n", [Id,Sql]),
+    ?Log("~p : ~s~n", [Id,lists:flatten(Sql)]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,

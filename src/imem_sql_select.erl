@@ -31,7 +31,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             ?ClientError({"Invalid select structure", CError})
     end,
     ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
-    ?Log("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
+    % ?Log("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
     % ?Log("Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
@@ -57,7 +57,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    ?Log("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
+    % ?Log("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
     % ?Log("MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),

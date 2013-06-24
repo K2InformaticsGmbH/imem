@@ -1053,14 +1053,16 @@ name(N) -> lists:flatten(io_lib:format("~tp",[N])).
 item(I,T) when is_tuple(T) ->
     if 
         size(T) >= I ->
-            io_to_binstr(name(element(I,T)));
+            % io_to_binstr(name(element(I,T)));
+            term_to_io(element(I,T));
         true ->
             ?emptyStr        %% ?ClientError({"Tuple too short",{T,I}})
     end;
 item(I,L) when is_list(L) ->
     if 
         length(L) >= I ->
-            io_to_binstr(name(lists:nth(I,L)));
+            % io_to_binstr(name(lists:nth(I,L)));
+            term_to_io(lists:nth(I,L));
         true ->
             ?emptyStr        %% ?ClientError({"List too short",{L,I}})
     end;
@@ -1179,10 +1181,14 @@ data_types(_) ->
 
         ?assertEqual(<<"Imem.ddTable">>, name({'Imem',ddTable})),
         ?assertEqual(<<"Imem.ddäöü"/utf8>>, name({'Imem',<<"ddäöü">>})),
-        ?assertEqual(<<"Imem">>, item1({'Imem',ddTable})),
-        ?assertEqual(<<"Imem">>, item(1,{'Imem',ddTable})),
+        ?assertEqual(<<"'Imem'">>, item1({'Imem',ddTable})),
+        ?assertEqual(<<"'Imem'">>, item(1,{'Imem',ddTable})),
         ?assertEqual(<<"ddTable">>, item2({'Imem',ddTable})),
-        ?assertEqual(<<"ddäöü"/utf8>>, item(2,{'Imem',<<"ddäöü">>})),
+        ?assertEqual(<<"12.45">>, item2({'Imem',12.45})),
+        ?assertEqual(<<"\"ddTable\"">>, item2({'Imem',"ddTable"})),
+        ?assertEqual(<<"{1,2,3,4}">>, item2({'Imem',{1,2,3,4}})),
+        ?assertEqual(<<"<<\"abcd\">>">>, item(2,{'Imem',<<"abcd">>})),
+        %% ?assertEqual(<<"<<\"ddäöü\">>/utf8">>, item(2,{'Imem',<<"ddäöü"/utf8>>})),
         ?Log("name success~n", []),
         ?assertEqual(<<"ABC">>, concat("A","B","C")),
         ?assertEqual(<<"aabbcc">>, concat(aa,bb,cc)),
