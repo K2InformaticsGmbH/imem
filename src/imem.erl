@@ -21,6 +21,7 @@
 %% External functions
 %% ====================================================================
 start() ->
+    application:start(sqlparse),
     application:start(?MODULE).
 
 stop()  ->

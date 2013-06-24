@@ -42,7 +42,6 @@
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
-    application:start(sqlparse),
     case application:get_env(erl_cluster_mgr) of
         {ok, undefined} -> ?Log("~p - CM not defined!~n", [?MODULE]);
         {ok, CMNode} ->
