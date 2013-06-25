@@ -573,38 +573,35 @@ sort_fun_any({CName,Direction},FullMaps,_) ->
 
 sort_fun(atom,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             A when is_atom(A) ->
                 [ -Item || Item <- atom_to_list(A)] ++ [?MaxChar];
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end
     end;
 sort_fun(binstr,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             B when is_binary(B) ->
                 [ -Item || Item <- binary_to_list(B)] ++ [?MaxChar];
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end
     end;
 sort_fun(boolean,Ti,Ci,<<"desc">>) ->
     fun(X) -> 
-        V = element(Ci,element(Ti,X)),
+        V = pick(Ci,Ti,X),
         case V of
             true ->         false;
             false ->        true;
-            _ ->            element(Ci,element(Ti,X))
+            _ ->            V
         end 
     end;
 sort_fun(datetime,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             {{Y,M,D},{Hh,Mm,Ss}} when is_integer(Y), is_integer(M), is_integer(D), is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
                 {{-Y,-M,-D},{-Hh,-Mm,-Ss}};
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end 
     end;
 sort_fun(decimal,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
@@ -612,50 +609,46 @@ sort_fun(float,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
 sort_fun(integer,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
 sort_fun(ipadr,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             {A,B,C,D} when is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
                 {-A,-B,-C,-D};
             {A,B,C,D,E,F,G,H} when is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
                 {-A,-B,-C,-D,-E,-F,-G,-H};
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end
     end;
 sort_fun(number,Ti,Ci,<<"desc">>) ->
     fun(X) -> 
-        V = element(Ci,element(Ti,X)),
+        V = pick(Ci,Ti,X),
         case is_number(V) of
             true ->         (-V);
-            false ->        element(Ci,element(Ti,X))
+            false ->        V
         end 
     end;
 sort_fun(string,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             [H|T] when is_integer(H) ->
                 [ -Item || Item <- [H|T]] ++ [?MaxChar];
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end
     end;
 sort_fun(timestamp,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             {Meg,Sec,Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
                 {-Meg,-Sec,-Micro};
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end    
     end;
 sort_fun({atom,atom},Ti,Ci,<<"desc">>) ->
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             {T,A} when is_atom(T), is_atom(A) ->
                 {[ -ItemT || ItemT <- atom_to_list(T)] ++ [?MaxChar]
                 ,[ -ItemA || ItemA <- atom_to_list(A)] ++ [?MaxChar]
                 };
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end    
     end;
 sort_fun({atom,integer},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
@@ -664,27 +657,25 @@ sort_fun({atom,float},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc"
 sort_fun({atom,userid},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
 sort_fun({atom,number},Ti,Ci,<<"desc">>) ->
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             {T,N} when is_atom(T), is_number(N) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-N};
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end    
     end;
 sort_fun({atom,ipaddr},Ti,Ci,<<"desc">>) ->
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             {T,{A,B,C,D}} when is_atom(T), is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D};
             {T,{A,B,C,D,E,F,G,H}} when is_atom(T),is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D,-E,-F,-G,-H};
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V   
         end    
     end;
 sort_fun(tuple,Ti,Ci,<<"desc">>) -> 
     fun(X) -> 
-        case element(Ci,element(Ti,X)) of 
+        case pick(Ci,Ti,X) of 
             {T,A} when is_atom(T), is_atom(A) ->
                 {[ -ItemT || ItemT <- atom_to_list(T)] ++ [?MaxChar]
                 ,[ -ItemA || ItemA <- atom_to_list(A)] ++ [?MaxChar]
@@ -697,8 +688,7 @@ sort_fun(tuple,Ti,Ci,<<"desc">>) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D,-E,-F,-G,-H};
             {T,R} when is_atom(T) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar], R};
-            _ ->
-                element(Ci,element(Ti,X))
+            V -> V
         end    
     end;
 sort_fun(userid,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
@@ -706,7 +696,13 @@ sort_fun(Type,_Ti,_Ci,<<"desc">>) ->
     ?SystemException({"Unsupported datatype for sort desc", Type});
 sort_fun(_Type,Ti,Ci,_) -> 
     % ?Log("Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
-    fun(X) -> element(Ci,element(Ti,X)) end.
+    fun(X) -> pick(Ci,Ti,X) end.
+
+pick(Ci,Ti,X) -> pick(Ci,element(Ti,X)).
+
+pick(_,undefined) -> ?nav;
+pick(Ci,Tuple) -> element(Ci,Tuple).
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
