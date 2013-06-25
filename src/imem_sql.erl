@@ -187,7 +187,7 @@ column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Col
             } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Log("column_map 2 ~p~n", [Cmap0]),
+    % ?Log("column_map 2 ~p~n", [Cmap0]),
     column_map([], [Cmap0#ddColMap{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Log("column_map 3 ~p~n", [Cmap0]),
@@ -708,16 +708,6 @@ sort_fun(_Type,Ti,Ci,_) ->
     % ?Log("Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
     fun(X) -> element(Ci,element(Ti,X)) end.
 
-
-
-%% --Interface functions  (calling imem_if for now, not exported) ---------
-
-if_call_mfa(IsSec,Fun,Args) ->
-    case IsSec of
-        true -> apply(imem_sec,Fun,Args);
-        _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
-    end.
-
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
 
@@ -937,5 +927,11 @@ test_with_or_without_sec(IsSec) ->
         ?assert( true == "all tests completed")
     end,
     ok. 
+
+if_call_mfa(IsSec,Fun,Args) ->
+    case IsSec of
+        true -> apply(imem_sec,Fun,Args);
+        _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
+    end.
 
 -endif.

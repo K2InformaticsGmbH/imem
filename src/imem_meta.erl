@@ -16,6 +16,7 @@
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 -define(PURGE_CYCLE_WAIT, 10000). % 10000
 -define(PURGE_ITEM_WAIT, 10).
+-define(BAD_NAME_CHARACTERS,"!?#*:+-\\<|>/").
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -523,23 +524,40 @@ create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
         _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
 create_physical_table(Table,ColumnInfos,Opts,Owner) ->
+    case is_valid_table_name(Table) of
+        true ->     ok;
+        false ->    ?ClientError({"Invalid character(s) in table name",Table})
+    end,    
     case sqlparse:is_reserved(Table) of
         false ->    ok;
         true ->     ?ClientError({"Reserved table name",Table})
-    end,     
-    TypeCheck = [{imem_datatype:is_datatype(Type),Type} || Type <- column_info_items(ColumnInfos, type)],
-    case lists:keyfind(false, 1, TypeCheck) of
+    end,
+    CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColumnInfos, name)],
+    case lists:keyfind(false, 1, CharsCheck) of
         false ->    ok;
-        {_,BadT} -> ?ClientError({"Invalid data type",BadT})
+        {_,BadN} -> ?ClientError({"Invalid character(s) in column name",BadN})
     end,
     ReservedCheck = [{sqlparse:is_reserved(Name),Name} || Name <- column_info_items(ColumnInfos, name)],
     case lists:keyfind(true, 1, ReservedCheck) of
         false ->    ok;
         {_,BadC} -> ?ClientError({"Reserved column name",BadC})
     end,
+    TypeCheck = [{imem_datatype:is_datatype(Type),Type} || Type <- column_info_items(ColumnInfos, type)],
+    case lists:keyfind(false, 1, TypeCheck) of
+        false ->    ok;
+        {_,BadT} -> ?ClientError({"Invalid data type",BadT})
+    end,
     PhysicalName=physical_table_name(Table),
     imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts)),
     imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner}).
+
+is_valid_table_name(Table) when is_atom(Table) ->
+    is_valid_table_name(atom_to_list(Table));
+is_valid_table_name(Table) when is_list(Table) ->
+    (length(Table) == length(Table -- ?BAD_NAME_CHARACTERS)).   
+
+is_valid_column_name(Column) ->
+    is_valid_table_name(atom_to_list(Column)).
 
 if_opts(Opts) ->
     % Remove imem_meta table options which are not recognized by imem_if
@@ -1298,11 +1316,25 @@ meta_operations(_) ->
                     , #ddColumn{name=b2, type=float, len=8, prec=3}   %% value
                     ],
 
+        BadTypes1 = [ #ddColumn{name='a:b', type=integer, len=10}  
+                    ],
+        BadTypes2 = [ #ddColumn{name=current, type=integer, len=10}
+                    ],
+        BadTypes3 = [ #ddColumn{name=a, type=iinteger, len=10}
+                    ],
+
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?Log("success ~p~n", [create_table_not_null]),
+
+        ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
+        ?assertException(throw, {ClEr,{"Reserved table name", select}}, create_table(select, BadTypes2, [])),
+
+        ?assertException(throw, {ClEr,{"Invalid character(s) in column name", 'a:b'}}, create_table(bad_table_1, BadTypes1, [])),
+        ?assertException(throw, {ClEr,{"Reserved column name", current}}, create_table(bad_table_1, BadTypes2, [])),
+        ?assertException(throw, {ClEr,{"Invalid data type", iinteger}}, create_table(bad_table_1, BadTypes3, [])),
 
         ?assertEqual(ok, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},undefined})),
         ?assertEqual(1, table_size(meta_table_3)),

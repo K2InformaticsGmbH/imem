@@ -141,9 +141,10 @@ tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) ->
 tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)};
 tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
+    ?Log("tree_walk expression lookup Expr: ~p~n", [Expr]),
     case expr_lookup(SKey,Tmax,Ti,Expr,FullMap) of
         {0,V1,integer,_,_,_,_} ->   field_value(0,integer,0,0,?nav,V1);   
-        {0,V2,float,_,_,_,_} ->     field_value(0,float,0,0,?nav,V2);   
+        {0,V2,float,_,_,_,_} ->     field_value(0,float,0,0,?nav,V2);     
         {0,V3,string,_,_,_,_} ->    field_value(0,term,0,0,?nav,V3);   
         {_,Tag,_,_,_,_,_} ->        Tag
     end.
@@ -176,6 +177,7 @@ compguard(Tmax,Ti,OP,ExA,ExB) ->
         true ->                                 {reverse(OP),ExB,ExA}
     end,
     try 
+        % ?Log("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
         compg(Tmax,Ti,O,A,B)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
@@ -293,22 +295,26 @@ expr_lookup(SKey,Tmax,Ti,{'fun','element'=F,[P1,P2]},FullMap) ->  %% F = binary 
     {Tb,B,_,_,_,_,BN} = expr_lookup(SKey,Tmax,Ti,P2,FullMap),
     {Tb,{F,A,B},term,0,0,0,BN};          
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
-    % ?Log("expr_lookup {OP,A,B}: ~p ~p ~p ~p ~p~n", [Tmax,Ti,OP,A,B]),
-    exprguard(Tmax,Ti,OP,expr_lookup(SKey,Tmax,Ti,A,FullMap), expr_lookup(SKey,Tmax,Ti,B,FullMap)).
-
+    EA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
+    % ?Log("expr_lookup Tmax,Ti,A:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,A,EA]),
+    EB = expr_lookup(SKey,Tmax,Ti,B,FullMap),
+    % ?Log("expr_lookup Tmax,Ti,B:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,B,EB]),
+    Res = exprguard(Tmax,Ti,OP,EA,EB),
+    % ?Log("exprguard Tmax,Ti,OP,EA,EB~n~p ~p ~p ~p ~p -> Result:~n ~p~n", [Tmax,Ti,OP,EA,EB,Res]),
+    Res.
 exprguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1, A=<Tm; B>1,B=<Tm -> throw({'JoinEvent','join_condition'});
 exprguard(_ ,1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
 exprguard(_ ,1, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,integer,_,_,_,_}) ->     {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {0,B,float,_,_,_,_}) ->       {X,{OP,A,field_value(A,float,0,0,0.0,B)},timestamp,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,integer,_,_,_,_}) ->      {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {0,B,float,_,_,_,_}) ->        {X,{OP,A,field_value(A,float,0,0,0.0,B)},datetime,L,P,D,AN};
-exprguard(_ ,1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->     {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
-exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,timestamp,L,P,D,BN}) ->       {1,{OP,field_value(B,float,0,0,0.0,A),B},timestamp,L,P,D,BN};
-exprguard(_ ,1, OP, {0,A,integer,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->      {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
-exprguard(_ ,1, OP, {0,A,float,_,_,_,_}, {1,B,datetime,L,P,D,BN}) ->        {1,{OP,field_value(B,float,0,0,0.0,A),B},datetime,L,P,D,BN};
-exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->     {X,{OP,A,B},timestamp,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {_,B,float,_,_,_,_}) ->       {X,{OP,A,B},timestamp,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->      {X,{OP,A,B},datetime,L,P,D,AN};
+exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {_,B,float,_,_,_,_}) ->        {X,{OP,A,B},datetime,L,P,D,AN};
+% exprguard(_ ,1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(_ ,1, OP, {_,A,integer,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->     {X,{OP,A,B},timestamp,L,P,D,BN};
+exprguard(_ ,1, OP, {_,A,float,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->       {X,{OP,A,B},timestamp,L,P,D,BN};
+exprguard(_ ,1, OP, {_,A,integer,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->      {X,{OP,A,B},datetime,L,P,D,BN};
+exprguard(_ ,1, OP, {_,A,float,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->        {X,{OP,A,B},datetime,L,P,D,BN};
+% exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
 exprguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
 exprguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J,N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
@@ -635,6 +641,34 @@ test_with_or_without_sec(IsSec) ->
             [{<<"100">>,<<"{'Atom100',100}">>}]
         ),
 
+        ?assertEqual(ok , imem_meta:monitor()),
+
+        R2h = exec_fetch(SKey, query2h, 100, IsSec, 
+            "select time 
+             from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
+             where time > systimestamp - 1.1574074074074073e-6 
+            " 
+        ),
+        ?assert(length(R2h) >= 1),
+        ?assert(length(R2h) =< 6),
+
+        R2i = exec_fetch(SKey, query2i, 100, IsSec, 
+            "select time 
+             from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
+             where time >  1 + systimestamp
+            " 
+        ),
+        ?assert(length(R2i) == 0),
+
+        R2j = exec_fetch(SKey, query2j, 100, IsSec, 
+            "select time 
+             from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
+             where time >  -1.0/24.0  + systimestamp
+            " 
+        ),
+        ?assert(length(R2j) > 0),
+        ?assert(length(R2j) < 2000),
+
     %% joins with virtual (datatype) tables
 
         ?assertException(throw,{ClEr,{"Virtual table can only be joined",integer}}, 
@@ -665,8 +699,6 @@ test_with_or_without_sec(IsSec) ->
             "select time, wall_clock from ddNode where name = '" ++ atom_to_list(node()) ++ "'"
         ),
         ?assertEqual(1, length(R3e)),
-
-        ?assertEqual(ok , imem_meta:monitor()),
 
         R3f = exec_fetch_sort(SKey, query3f, 100, IsSec, 
             "select * from " ++ atom_to_list(?MONITOR_TABLE) ++ " m, ddNode n where rownum < 2 and m.node = n.name"
