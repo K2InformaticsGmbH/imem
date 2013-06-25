@@ -202,15 +202,21 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
             MonitorRef ->   kill_fetch(MonitorRef, FetchCtx0#fetchCtx.pid)
         end,
         KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
+        % ?Log("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
             1 ->    
                 Wrap = fun({Tag,X}) -> {Tag,{X, MetaRec}} end,
                 lists:map(Wrap, KeyUpdateRaw);
-            _ ->
+            _ ->            
                 Wrap = fun({Tag,X}) ->
-                    TabCount = length(Stmt#statement.tables),
-                    Rec = erlang:make_tuple(TabCount+1, undefined, [{1,X},{TabCount+1,MetaRec}]), 
-                    {Tag,Rec}
+                    case join_rows([X], FetchCtx0, Stmt) of
+                        [] ->
+                            TabCount = length(Stmt#statement.tables),
+                            Rec = erlang:make_tuple(TabCount+1, undefined, [{1,X},{TabCount+1,MetaRec}]), 
+                            {Tag,Rec};
+                        [R|_] ->
+                            {Tag,R}
+                    end
                 end,
                 lists:map(Wrap, KeyUpdateRaw)
         end
@@ -1704,6 +1710,19 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, close(SKey, SR9))
         end,
 
+        SR10 = exec(SKey,query10, 100, IsSec, "select a.col1,b.col1 from def a, def b where a.col1=b.col1;"),
+        ?assertEqual(ok, fetch_async(SKey,SR10,[],IsSec)),
+        List10a = receive_tuples(SR10,true),
+        ?Log("Result10a ~p~n", [List10a]),
+        ?assertEqual(11, length(List10a)),
+
+        ChangeList10 = [
+          [1,upd,{{def,"5",5},{def,"5",5},{}},<<"X">>,<<"Y">>] 
+        ],
+        ?assertEqual(ok, update_cursor_prepare(SKey, SR10, IsSec, ChangeList10)),
+        Result10b = update_cursor_execute(SKey, SR10, IsSec, optimistic),        
+        ?Log("Result10b ~p~n", [Result10b]),
+        ?assertEqual([{1,{{def,"X",5},{def,"X",5},{}}}],Result10b), 
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
 
