@@ -46,7 +46,7 @@
                     , status    ::atom()            %% undefined | waiting | fetching | done | tailing | aborted
                     , metarec   ::tuple()
                     , blockSize=100 ::integer()     %% could be adaptive
-                    , remaining ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
+                    , remaining=0   ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
                     , opts = [] ::list()            %% fetch options like {tail_mode,true}
                     , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
                     , filter    ::any()             %% filter specification {Guard,Binds}
@@ -170,8 +170,10 @@ update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
     Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}),
     % ?Log("update_cursor_execute ~p~n", [Result]),
     case Result of
-        KeyUpd when is_list(KeyUpd) -> KeyUpd;
-        Error ->    throw(Error)
+        KeyUpd when is_list(KeyUpd) -> 
+            KeyUpd;
+        Error ->
+            throw(Error)
     end.
 
 close(SKey, #stmtResult{stmtRef=Pid}) ->
@@ -196,11 +198,13 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{metarec=MetaRec}=FetchCtx0,
+    ?Log("UpdateMetaRec ~p~n", [MetaRec]),
     Reply = try 
         case FetchCtx0#fetchCtx.monref of
             undefined ->    ok;
             MonitorRef ->   kill_fetch(MonitorRef, FetchCtx0#fetchCtx.pid)
         end,
+        % ?Log("UpdatePlan ~p~n", [UpdatePlan]),
         KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
         % ?Log("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
@@ -212,12 +216,13 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
                     case join_rows([X], FetchCtx0, Stmt) of
                         [] ->
                             TabCount = length(Stmt#statement.tables),
-                            Rec = erlang:make_tuple(TabCount+1, undefined, [{1,X},{TabCount+1,MetaRec}]), 
-                            {Tag,Rec};
-                        [R|_] ->
-                            {Tag,R}
+                            R1 = erlang:make_tuple(TabCount+1, undefined, [{1,X},{TabCount+1,MetaRec}]), 
+                            {Tag,R1};
+                        [R2|_] ->
+                            {Tag,R2}
                     end
                 end,
+                ?Log("map KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
                 lists:map(Wrap, KeyUpdateRaw)
         end
     catch
@@ -225,7 +230,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
             imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{updPlan,UpdatePlan}],"update_cursor_execute error"),
             {error,Reason}
     end,
-    % ?Log("update_cursor_execute result ~p~n", [Reply]),
+    ?Log("update_cursor_execute result ~p~n", [Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};    
 handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From, #state{statement=Stmt}=State) ->
@@ -816,11 +821,14 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
     % ?Log("Rec used for join bind ~p~n", [Rec]),
-    [{MatchHead, [Guard0], [Result]}] = SSpec,
-    Guard1 = join_bind(Rec, Guard0, SBinds),
+    [{MatchHead, Guard0, [Result]}] = SSpec,
+    Guard1 = case Guard0 of
+        [] ->   [];
+        _ ->    [join_bind(Rec, hd(Guard0), SBinds)]
+    end,
     MaxSize = Limit+1000,
     % ?Log("Join guard after bind : ~p~n", [Guard1]),
-    case imem_meta:select(Table, [{MatchHead, [Guard1], [Result]}], MaxSize) of
+    case imem_meta:select(Table, [{MatchHead, Guard1, [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->
             case FGuard of
