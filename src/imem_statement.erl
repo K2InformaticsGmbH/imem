@@ -198,7 +198,7 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{metarec=MetaRec}=FetchCtx0,
-    ?Log("UpdateMetaRec ~p~n", [MetaRec]),
+    % ?Log("UpdateMetaRec ~p~n", [MetaRec]),
     Reply = try 
         case FetchCtx0#fetchCtx.monref of
             undefined ->    ok;
@@ -222,7 +222,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
                             {Tag,R2}
                     end
                 end,
-                ?Log("map KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
+                % ?Log("map KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
                 lists:map(Wrap, KeyUpdateRaw)
         end
     catch
@@ -230,7 +230,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
             imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{updPlan,UpdatePlan}],"update_cursor_execute error"),
             {error,Reason}
     end,
-    ?Log("update_cursor_execute result ~p~n", [Reply]),
+    % ?Log("update_cursor_execute result ~p~n", [Reply]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined
     {reply, Reply, State#state{fetchCtx=FetchCtx1}};    
 handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From, #state{statement=Stmt}=State) ->
@@ -269,8 +269,9 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From
     end,
     % ?Log("replace_sort result ~p~n", [Reply]),
     {reply, Reply, State};
-handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef, status=Status}}=State) ->
+handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=FetchCtx0}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
+    #fetchCtx{pid=Pid, monref=MonitorRef, status=Status} = FetchCtx0,
     case Status of
         undefined ->    ok;                             % close is ignored
         done ->         ok;                             % normal close after completed fetch
@@ -279,7 +280,8 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=
         tailing ->      unsubscribe(Stmt);              % client stops tail mode
         aborted ->      ok                              % client acknowledges abort
     end,
-    {reply, ok, State#state{fetchCtx=#fetchCtx{}}}.     % client may restart the fetch now
+    FetchCtx1 = FetchCtx0#fetchCtx{pid=undefined, monref=undefined, status=undefined},   
+    {reply, ok, State#state{fetchCtx=FetchCtx1}}.      % client may restart the fetch now
 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=done}}=State) ->
     % ?Log("fetch_recs_async called in status done~n", []),
@@ -512,9 +514,10 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             ?Log("in unexpected state ~n~p~n", [State]),
             {noreply, State}
     end;
-handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined}=State) ->
+handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetchCtx=FetchCtx0}=State) ->
     % ?Log("received expected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
-    {noreply, State#state{fetchCtx=#fetchCtx{}}}; 
+    FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=undefined},   
+    {noreply, State#state{fetchCtx=FetchCtx1}}; 
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
     ?Log("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [Pid, Ref, Reason]),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
