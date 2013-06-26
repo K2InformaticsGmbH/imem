@@ -50,6 +50,7 @@
                     , opts = [] ::list()            %% fetch options like {tail_mode,true}
                     , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
                     , filter    ::any()             %% filter specification {Guard,Binds}
+                    , recName   ::atom()
                     }).
 
 -record(state,                  %% state for statment process, including fetch subprocess
@@ -324,15 +325,22 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     SkipFetch = lists:member({fetch_mode,skip},Opts),
     case {SkipFetch,FetchCtx0#fetchCtx.pid} of
         {true,undefined} ->     %% skip fetch
-            FetchSkip = #fetchCtx{status=undefined,metarec=MetaRec,blockSize=BlockSize,remaining=Limit,opts=Opts,filter=Filter,tailSpec=TailSpec},
+            RecName = imem_meta:table_record_name(Table), 
+            FetchSkip = #fetchCtx{status=undefined,metarec=MetaRec,blockSize=BlockSize
+                                 ,remaining=Limit,opts=Opts,filter=Filter
+                                 ,tailSpec=TailSpec,recName=RecName},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkip}); 
         {false,undefined} ->    %% start fetch
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
-                    % ?Log("fetch opts ~p~n", [Opts]), 
-                    FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting,metarec=MetaRec,blockSize=BlockSize,remaining=Limit,opts=Opts,filter=Filter,tailSpec=TailSpec},
+                    % ?Log("fetch opts ~p~n", [Opts]),
+                    RecName = imem_meta:table_record_name(Table), 
+                    FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
+                                          ,metarec=MetaRec,blockSize=BlockSize,remaining=Limit
+                                          ,opts=Opts,filter=Filter,tailSpec=TailSpec
+                                          ,recName=RecName},
                     {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
@@ -369,13 +377,14 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             {noreply, State}
     end;        
-handle_info({mnesia_table_event,{write,Record,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
+handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
     % ?Log("received mnesia subscription event ~p ~p~n", [write, Record]),
-    #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec}=FetchCtx0,
+    #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
+    Record1 = erlang:setelement(1,Record0,RecName),
     case Status of
         tailing ->
-            case ets:match_spec_run([Record],TailSpec) of
+            case ets:match_spec_run([Record1],TailSpec) of
                 [] ->  
                     {noreply, State};
                 [Rec] ->       

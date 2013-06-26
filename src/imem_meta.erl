@@ -67,7 +67,8 @@
         , table_type/1
         , table_columns/1
         , table_size/1
-        , table_memory/1        
+        , table_memory/1
+        , table_record_name/1        
         , check_table/1
         , check_table_meta/2
         , check_table_columns/2
@@ -960,6 +961,12 @@ table_type({_Schema,Table}) ->
     table_type(Table);          %% ToDo: may depend on schema
 table_type(Table) when is_atom(Table) ->
     imem_if:table_type(physical_table_name(Table)).
+
+table_record_name({_Schema,Table}) ->
+    table_record_name(Table);   %% ToDo: may depend on schema
+table_record_name(ddNode)  -> ddNode;
+table_record_name(Table) when is_atom(Table) ->
+    imem_if:table_record_name(physical_table_name(Table)).
 
 table_columns({_Schema,Table}) ->
     table_columns(Table);       %% ToDo: may depend on schema
