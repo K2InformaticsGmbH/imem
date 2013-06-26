@@ -1,0 +1,28 @@
+#!/bin/sh
+# -*- tab-width:4;indent-tabs-mode:nil -*-
+# ex: ts=4 sw=4 et
+
+. "{{runner_base_dir}}/lib/env.sh"
+
+# Make sure the user running this script is the owner and/or su to that user
+check_user $@
+ES=$?
+if [ "$ES" -ne 0 ]; then
+    exit $ES
+fi
+
+# Make sure CWD is set to runner run dir
+cd $RUNNER_BASE_DIR
+
+# Make sure a node IS running
+RES=`ping_node`
+if [ "$?" -ne 0 ]; then
+    echo "Node is not running!"
+    exit 1
+fi
+
+NODE_NAME=${NAME_ARG#* }
+erlang_cookie=`echo $COOKIE_ARG | awk '{print $2}'`
+exec $ERTS_PATH/escript $RUNNER_SCRIPT_DIR/imem.escript $NODE_NAME $erlang_cookie $2 $3
+
+exit 0
