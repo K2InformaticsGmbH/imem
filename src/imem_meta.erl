@@ -67,7 +67,8 @@
         , table_type/1
         , table_columns/1
         , table_size/1
-        , table_memory/1        
+        , table_memory/1
+        , table_record_name/1        
         , check_table/1
         , check_table_meta/2
         , check_table_columns/2
@@ -92,7 +93,7 @@
         , create_partitioned_table/1
         , create_check_table/3
         , create_check_table/4
-		, drop_table/1
+        , drop_table/1
         , purge_table/1
         , purge_table/2
         , truncate_table/1  %% truncate table
@@ -960,6 +961,12 @@ table_type({_Schema,Table}) ->
     table_type(Table);          %% ToDo: may depend on schema
 table_type(Table) when is_atom(Table) ->
     imem_if:table_type(physical_table_name(Table)).
+
+table_record_name({_Schema,Table}) ->
+    table_record_name(Table);   %% ToDo: may depend on schema
+table_record_name(ddNode)  -> ddNode;
+table_record_name(Table) when is_atom(Table) ->
+    imem_if:table_record_name(physical_table_name(Table)).
 
 table_columns({_Schema,Table}) ->
     table_columns(Table);       %% ToDo: may depend on schema
