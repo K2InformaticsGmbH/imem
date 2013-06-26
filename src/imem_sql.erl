@@ -181,10 +181,22 @@ column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Log("column_map 1 ~p~n", [Cmap0]),
-    Cmaps = [Cmap0#ddColMap{
-                schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N, 
-                alias=?atom_to_binary(N), ptree=?atom_to_binary(N)
-            } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup],
+    NameList = [N ||  {_, _, _, _, N, _} <- Lookup],
+    NameDups = length(Lookup) - length(lists:usort(NameList)),
+    Cmaps = case NameDups of
+        0 -> [Cmap0#ddColMap{
+                schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
+                , alias=?atom_to_binary(N)
+                , ptree=?atom_to_binary(N)
+              } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup
+             ];
+        _ -> [Cmap0#ddColMap{
+                schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
+                , alias=list_to_binary([atom_to_list(T), ".", atom_to_list(N)])
+                , ptree=list_to_binary([atom_to_list(T), ".", atom_to_list(N)])
+              } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup
+             ]
+    end,
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Log("column_map 2 ~p~n", [Cmap0]),
@@ -196,10 +208,11 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], 
         _ ->        atom_to_list(Schema) ++ "." ++ atom_to_list(Table)
     end,
     Cmaps = [Cmap0#ddColMap{
-                schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N, 
-                alias=list_to_binary([Prefix, ".", atom_to_list(N)]),
-                ptree=list_to_binary([Prefix, ".", atom_to_list(N)])
-            } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, S==Schema, T==Table],
+                schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
+                , alias=list_to_binary([Prefix, ".", atom_to_list(N)])
+                , ptree=list_to_binary([Prefix, ".", atom_to_list(N)])
+             } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, S==Schema, T==Table
+            ],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Log("column_map 4 ~p~n", [Cmap0]),
@@ -521,23 +534,29 @@ sort_spec_order([],_,_,Acc) ->
 sort_spec_order([SS|SortSpecs],FullMaps,ColMaps, Acc) ->
     sort_spec_order(SortSpecs,FullMaps,ColMaps,[sort_order(SS,FullMaps,ColMaps)|Acc]).
 
-sort_order({Ti,Ci,Direction},FullMaps,_) ->
+sort_order({Ti,Ci,Direction},FullMaps,ColMaps) ->
     %% SortSpec given referencing FullMap Ti,Ci    
     case [{S,T,N} || #ddColMap{tind=Tind,cind=Cind,schema=S,table=T,name=N} <- FullMaps, Tind==Ti, Cind==Ci] of
-        [QN] -> {list_to_binary(field_name(QN)),Direction};
-        _ ->    ?ClientError({"Bad sort field reference", {Ti,Ci}})
+        [QN] ->    {sort_name_short(QN,FullMaps,ColMaps),Direction};
+        _ ->       ?ClientError({"Bad sort field reference", {Ti,Ci}})
     end;
-sort_order({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
+sort_order({Cp,Direction},FullMaps,ColMaps) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position    
     #ddColMap{schema=S,table=T,name=N} = lists:nth(Cp,ColMaps),
-    {list_to_binary(field_name({S,T,N})),Direction};
-sort_order({CName,Direction},FullMaps,_) ->
+    {sort_name_short({S,T,N},FullMaps,ColMaps),Direction};
+sort_order({CName,Direction},FullMaps,ColMaps) ->
     %% SortSpec given referencing FullMap alias    
     case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
         #ddColMap{schema=S,table=T,name=N} ->
-            {list_to_binary(field_name({S,T,N})),Direction};
+            {sort_name_short({S,T,N},FullMaps,ColMaps),Direction};
         _ -> 
             ?ClientError({"Bad sort field name", CName})
+    end.
+
+sort_name_short({_S,T,N},FullMaps,_ColMaps) ->
+    case length(lists:usort([{Su,Tu,Nu} || #ddColMap{schema=Su,table=Tu,name=Nu} <- FullMaps, Nu==N])) of
+        1 ->    list_to_binary(field_name({undefined,undefined,N}));
+        _ ->    list_to_binary(field_name({undefined,T,N}))
     end.
 
 sort_spec_fun([],_,_) -> 
@@ -850,10 +869,10 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual([], sort_spec_order([], ColsF, ColsF)),
         SA = {1,1,<<"desc">>},
-        OA = {<<"Imem.meta_table_1.a">>,<<"desc">>},
+        OA = {<<"a">>,<<"desc">>},
         ?assertEqual([OA], sort_spec_order([SA], ColsF, ColsF)),
         SB = {1,2,<<"asc">>},
-        OB = {<<"meta_table_1.b1">>,<<"asc">>},
+        OB = {<<"b1">>,<<"asc">>},
         ?assertEqual([OB], sort_spec_order([SB], ColsF, ColsF)),
         SC = {1,3,<<"desc">>},
         OC = {<<"c1">>,<<"desc">>},
