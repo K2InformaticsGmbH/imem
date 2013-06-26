@@ -1680,25 +1680,25 @@ test_with_or_without_sec(IsSec) ->
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
-            Expected8b = "select col1 c1, col2 from def where col1 < '4' order by Imem.def.col1 asc",
+            Expected8b = "select col1 c1, col2 from def where col1 < '4' order by col1 asc",
             ?assertEqual(Expected8b, string:strip(Sql8b)),
 
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{1,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?Log("Sql8c ~p~n", [Sql8c]),
-            Expected8c = "select col1 c1 from def where Imem.def.col1 in ('1', '2', '3') and col1 < '4' order by Imem.def.col1 asc",
+            Expected8c = "select col1 c1 from def where Imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(Sql8c)),
 
             {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
             ?Log("Sql8d ~p~n", [Sql8d]),
-            Expected8d = "select col2 from def where Imem.def.col1 = '3' and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",
+            Expected8d = "select col2 from def where Imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(Sql8d)),
 
             {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?Log("Sql8e ~p~n", [Sql8e]),
-            Expected8e = "select col2, col1 c1 from def where (Imem.def.col1 = '3' or Imem.def.col2 = 3) and col1 < '4' order by Imem.def.col1 asc, Imem.def.col2 desc",
+            Expected8e = "select col2, col1 c1 from def where (Imem.def.col1 = '3' or Imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8e, string:strip(Sql8e)),
 
             ?assertEqual(ok, fetch_close(SKey, SR8, IsSec))
@@ -1720,6 +1720,22 @@ test_with_or_without_sec(IsSec) ->
         after
             ?assertEqual(ok, close(SKey, SR9))
         end,
+
+        SR9a = exec(SKey,query9a, 100, IsSec, "select * from def a, def b where a.col1 = b.col1;"),
+        ?Log("StmtCols9a ~p~n", [SR9a#stmtResult.stmtCols]),
+        try
+            Result9a = filter_and_sort(SKey, SR9a, {undefined,[]}, [{1,<<"asc">>},{3,<<"desc">>}], [1,3,2], IsSec),
+            ?Log("Result9a ~p~n", [Result9a]),
+            {ok, Sql9a, _SF9a} = Result9a,
+            ?Log("Sql9a ~p~n", [Sql9a]),
+            Expected9a = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by a.col1 asc, b.col1 desc",
+            ?assertEqual(Expected9a, string:strip(Sql9a)),
+
+            ?assertEqual(ok, fetch_close(SKey, SR9a, IsSec))
+        after
+            ?assertEqual(ok, close(SKey, SR9))
+        end,
+
 
         SR10 = exec(SKey,query10, 100, IsSec, "select a.col1,b.col1 from def a, def b where a.col1=b.col1;"),
         ?assertEqual(ok, fetch_async(SKey,SR10,[],IsSec)),

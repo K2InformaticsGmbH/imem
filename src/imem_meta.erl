@@ -16,7 +16,7 @@
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 -define(PURGE_CYCLE_WAIT, 10000). % 10000
 -define(PURGE_ITEM_WAIT, 10).
--define(BAD_NAME_CHARACTERS,"!?#*:+-\\<|>/").
+-define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").
 
 -include_lib("eunit/include/eunit.hrl").
 
