@@ -90,6 +90,7 @@
 
 -export([ map/3
         , name/1
+        , text/1
         , item/2
         , item1/1
         , item2/1
@@ -167,6 +168,7 @@ select_rowfun_str(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
             try
                 case F of
                     name ->     name(X);
+                    text ->     text(X);
                     item1 ->    item1(X);
                     item2 ->    item2(X);
                     item3 ->    item3(X);
@@ -1050,6 +1052,24 @@ name(N) when is_binary(N) -> binary_to_list(N);
 name(N) when is_list(N) -> lists:flatten(N);
 name(N) -> lists:flatten(io_lib:format("~tp",[N])).
 
+text(T) when is_binary(T) ->
+    text(binary_to_list(T));
+text(T) when is_list(T) ->
+    Mask=fun(X) ->
+            case unicode:characters_to_list([X], unicode) of
+                [X] when (X<16#20) ->   $.;
+                [X]  ->   X;
+                 _ -> 
+                    case unicode:characters_to_list([X], latin1) of
+                        [Y] -> Y;
+                         _ ->  $.
+                    end
+            end
+        end,
+    unicode:characters_to_binary(lists:map(Mask,T),unicode);
+text(T) ->
+    term_to_io(T).
+
 item(I,T) when is_tuple(T) ->
     if 
         size(T) >= I ->
@@ -1190,6 +1210,16 @@ data_types(_) ->
         ?assertEqual(<<"<<\"abcd\">>">>, item(2,{'Imem',<<"abcd">>})),
         %% ?assertEqual(<<"<<\"ddäöü\">>/utf8">>, item(2,{'Imem',<<"ddäöü"/utf8>>})),
         ?Log("name success~n", []),
+        ?assertEqual(<<"">>, text([])),
+        ?assertEqual(<<"SomeText1234">>, text("SomeText1234")),
+        ?assertEqual(<<"SomeText1234">>, text(<<"SomeText1234">>)),
+        ?assertEqual(<<".SomeText1234.">>, text([2|"SomeText1234"]++[3])),
+        ?assertEqual(<<"ddäöü"/utf8>>, text(<<"ddäöü">>)),
+        ?assertEqual(<<".ddäöü."/utf8>>, text(<<2,"ddäöü",3>>)),
+
+        ?assertEqual(<<"{'Imem',ddTable}">>, text({'Imem',ddTable})),
+
+
         ?assertEqual(<<"ABC">>, concat("A","B","C")),
         ?assertEqual(<<"aabbcc">>, concat(aa,bb,cc)),
         ?assertEqual(<<"123">>, concat(1,2,3)),

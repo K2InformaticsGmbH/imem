@@ -867,7 +867,7 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         % exec_fetch_sort_equal(SKey, query5j, 100, IsSec, 
-        %     "select d.col1, m.col1 from def d, member_test m where is_member(d.col1,m.\"'$_'\")",
+        %     "select d.col1, m.col1 from def d, member_test m where is_member(d.col1,m.\"$_\")",
         %     [
         %         {<<"1">>,<<"1">>},{<<"1">>,<<"3">>},
         %         {<<"2">>,<<"2">>},
