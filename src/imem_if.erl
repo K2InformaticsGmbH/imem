@@ -732,7 +732,7 @@ cmd([]) ->
     % print usage
     io:format(user, "cmd       arguments~n", []),
     io:format(user, "-----------------------------------~n", []),
-    io:format(user, "backup    pattern | file names list~n", []).
+    io:format(user, "backup    pattern | file names list~n", []);
 cmd(Args) ->
     io:format(user, "arguments ~p~n", [Args]).
 
