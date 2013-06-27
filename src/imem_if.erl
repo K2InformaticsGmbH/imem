@@ -36,6 +36,7 @@
         , table_info/2
         , table_size/1
         , table_memory/1
+        , table_record_name/1        
         , check_table/1
         , check_table_columns/2
         , system_table/1
@@ -189,6 +190,9 @@ table_columns(Table) ->
 table_info(Table, InfoKey) ->
     mnesia:table_info(Table, InfoKey).
 
+table_record_name(Table) ->
+    table_info(Table, record_name).
+    
 table_size(Table) ->
     try
         proplists:get_value(size,mnesia:table_info(Table, all))

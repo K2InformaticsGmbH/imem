@@ -1,8 +1,8 @@
 %%% -------------------------------------------------------------------
-%%% Author		: Bikram Chatterjee
-%%% Description	: 
-%%% Version		: 
-%%% Created		: 30.09.2011
+%%% Author      : Bikram Chatterjee
+%%% Description : 
+%%% Version     : 
+%%% Created     : 30.09.2011
 %%% -------------------------------------------------------------------
 
 -module(imem).
