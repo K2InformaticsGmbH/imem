@@ -79,7 +79,7 @@
         , snap_info/1
         , snap_format/1
         , restore_snap/2
-        , snap_cmd/1
+        , cmd/1
         , snapshot/1
         , backup_snap/1
         ]).
@@ -724,12 +724,13 @@ timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
 %% ----- SNAPSHOT INTERFACE ------------------------------------------------
 
-snap_cmd(undefined) ->
+cmd([]) ->
     % print usage
     io:format(user, "cmd       arguments~n", []),
     io:format(user, "-----------------------------------~n", []),
-    io:format(user, "backup    pattern | file names list~n", []),
-    ok.
+    io:format(user, "backup    pattern | file names list~n", []).
+cmd(Args) ->
+    io:format(user, "arguments ~p~n", [Args]).
 
 backup_snap({files, SnapFiles}) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
