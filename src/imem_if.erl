@@ -80,8 +80,8 @@
         , snap_info/1
         , snap_format/1
         , restore_snap/2
-        , snapshot/1
         , backup_snap/1
+        , snapshot/1
         ]).
 
 disc_schema_nodes(Schema) when is_atom(Schema) ->

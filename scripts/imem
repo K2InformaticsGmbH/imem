@@ -23,6 +23,6 @@ fi
 
 NODE_NAME=${NAME_ARG#* }
 erlang_cookie=`echo $COOKIE_ARG | awk '{print $2}'`
-exec $ERTS_PATH/escript $RUNNER_SCRIPT_DIR/imem.escript $NODE_NAME $erlang_cookie $2 $3
+exec $ERTS_PATH/escript $RUNNER_SCRIPT_DIR/imem.escript $NODE_NAME $erlang_cookie $@
 
 exit 0
