@@ -4,13 +4,10 @@
 %% ex: ft=erlang ts=4 sw=4 et
 
 -define(TIMEOUT, 60000).
--define(INFO(Fmt,Args), io:format(Fmt,Args)).
-
 
 main([NodeName, Cookie | Args]) ->
     TargetNode = start_distribution(NodeName, Cookie),
-    Schema = rpc:call(TargetNode, imem_if, schema, [], ?TIMEOUT),
-    ?INFO("schema ~p args ~p~n", [Schema, Args]);
+    io:format(rpc:call(TargetNode, imem_if, cmd, Args, ?TIMEOUT));
 main(_) ->
     init:stop(1).
 

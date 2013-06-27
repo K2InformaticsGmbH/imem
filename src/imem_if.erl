@@ -730,11 +730,13 @@ timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
 cmd([]) ->
     % print usage
-    io:format(user, "cmd       arguments~n", []),
-    io:format(user, "-----------------------------------~n", []),
-    io:format(user, "backup    pattern | file names list~n", []);
+    lists:flatten([
+        io_lib:format("cmd       arguments~n", []),
+        io_lib:format("-----------------------------------~n", []),
+        io_lib:format("backup    pattern | file names list~n", [])
+    ]);
 cmd(Args) ->
-    io:format(user, "arguments ~p~n", [Args]).
+    lists:flatten([io_lib:format("arguments ~p~n", [Args])]).
 
 backup_snap({files, SnapFiles}) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -812,9 +814,9 @@ snap_format({bkp, [ {dbtables, DbTables}
     MTLen = lists:max([length(atom_to_list(MTab)) || {MTab, _, _} <- DbTables]),
     Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s  ~-20s ~7s", [-MTLen, "name", "rows", "memory", "snap_size", "snap_time", "restore"])),
     Sep = lists:duplicate(length(Header),$-),
-    io:format(user, "~s~n", [Sep]),
-    io:format(user, "~s~n", [Header]),
-    io:format(user, "~s~n", [Sep]),
+    lists:flatten([io_lib:format("~s~n", [Sep]),
+    io_lib:format("~s~n", [Header]),
+    io_lib:format("~s~n", [Sep]),
     [(fun() ->
         {SnapSize,SnapTime} = case proplists:lookup(_MTab, SnapTables) of
             {_MTab, Sz, Tm} -> {integer_to_list(Sz), ?FMTTIME(Tm)};
@@ -824,32 +826,31 @@ snap_format({bkp, [ {dbtables, DbTables}
             true -> "Y";
             _ -> ""
         end,
-        io:format(user, "~*s ~-10B ~-10B ~-10s ~20s ~7s~n", [-MTLen, atom_to_list(_MTab), Rows, Mem, SnapSize, SnapTime, Restotable])
+        io_lib:format("~*s ~-10B ~-10B ~-10s ~20s ~7s~n", [-MTLen, atom_to_list(_MTab), Rows, Mem, SnapSize, SnapTime, Restotable])
     end)() || {_MTab, Rows, Mem} <- DbTables],
-    io:format(user, "~s~n", [Sep]),
-    %?Log("DbTables ~p~nSnapTables ~p~nRestorableTables ~p~n", [DbTables, SnapTables, RestorableTables]);
-    ok;
+    io_lib:format("~s~n", [Sep])]);
 snap_format({zip, ContentFiles}) ->
-    [(fun() ->
-        FLen = lists:max([length(filename:basename(_F)) || {_F,_} <- CntFiles]),
-        Header = lists:flatten(io_lib:format("~*s ~-10s  ~-20s ~-20s ~-20s", [-FLen, "name", "size", "created", "accessed", "modified"])),
-        Sep = lists:duplicate(length(Header),$-),
-        io:format(user, "~s~n", [Sep]),
-        io:format(user, "File : ~s~n", [Z]),
-        io:format(user, "~s~n", [Header]),
-        io:format(user, "~s~n", [Sep]),
-        [(fun()->
-            io:format(user, "~*s ~-10B ~20s ~20s ~20s~n",
-                                [-FLen, filename:basename(F), Fi#file_info.size
-                                  , ?FMTTIME(Fi#file_info.ctime)
-                                  , ?FMTTIME(Fi#file_info.atime)
-                                  , ?FMTTIME(Fi#file_info.mtime)])
+    lists:flatten(
+        [(fun() ->
+            FLen = lists:max([length(filename:basename(_F)) || {_F,_} <- CntFiles]),
+            Header = lists:flatten(io_lib:format("~*s ~-10s  ~-20s ~-20s ~-20s", [-FLen, "name", "size", "created", "accessed", "modified"])),
+            Sep = lists:duplicate(length(Header),$-),
+            [io_lib:format("~s~n", [Sep]),
+            io_lib:format("File : ~s~n", [Z]),
+            io_lib:format("~s~n", [Header]),
+            io_lib:format("~s~n", [Sep]),
+            [(fun()->
+                io_lib:format("~*s ~-10B ~20s ~20s ~20s~n",
+                                    [-FLen, filename:basename(F), Fi#file_info.size
+                                      , ?FMTTIME(Fi#file_info.ctime)
+                                      , ?FMTTIME(Fi#file_info.atime)
+                                      , ?FMTTIME(Fi#file_info.mtime)])
+            end)()
+            || {F,Fi} <- CntFiles],
+            io_lib:format("~s~n", [Sep])]
         end)()
-        || {F,Fi} <- CntFiles],
-        io:format(user, "~s~n", [Sep])
-    end)()
-    || {Z,CntFiles} <- ContentFiles],
-    ok.
+        || {Z,CntFiles} <- ContentFiles]
+    ).
 
 restore_snap([], _) -> ?Log("restore finished!~n", []);
 restore_snap([T|Tabs], Replace) when is_atom(T) ->
