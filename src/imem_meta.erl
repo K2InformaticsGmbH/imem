@@ -83,8 +83,8 @@
 
 -export([ add_attribute/2
         , update_opts/2
-        , throw_exception/4
         , log_to_db/5
+        , failing_function/1
         , monitor/0
         ]).
 
@@ -126,6 +126,7 @@
 
 -export([ fetch_start/5
         , update_tables/2  
+        , update_bound_counter/6
         , subscribe/1
         , unsubscribe/1
         ]).
@@ -831,31 +832,6 @@ add_attribute(A, Opts) ->
 update_opts(T, Opts) ->
     imem_if:update_opts(T, Opts).
 
-throw_exception(Ex,Reason,Level,Stacktrace) ->
-    {Head,Fields} = case Reason of
-        {H4,{P41,P42,P43,P44}} ->   {H4,[{ep1,P41},{ep2,P42},{ep3,P43},{ep4,P44}]};
-        {H3,{P31,P32,P33}} ->       {H3,[{ep1,P31},{ep2,P32},{ep3,P33}]};
-        {H2,{P21,P22}} ->           {H2,[{ep1,P21},{ep2,P22}]};
-        {H1,P1} ->                  {H1,[{ep1,P1}]};
-        {H0} ->                     {H0,[]};
-        Else ->                     {Level,[{ep1,Else}]}
-    end,
-    Message = if 
-        is_atom(Head) ->    list_to_binary(atom_to_list(Head));
-        is_list(Head) ->    list_to_binary(Head);
-        true ->             <<"invalid exception head">>
-    end,
-    {Module,Function} = failing_function(Stacktrace),
-    LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
-                        ,module=Module,function=Function,node=node()
-                        ,fields=[{ex,Ex}|Fields],message= Message
-                        ,stacktrace = Stacktrace},
-    catch imem_meta:write(?LOG_TABLE, LogRec),
-    case Ex of
-        'SecurityViolation' ->  exit({Ex,Reason});
-        _ ->                    throw({Ex,Reason})
-    end.
-
 failing_function([]) -> 
     {undefined,undefined};
 failing_function([{imem_meta,throw_exception,_,_}|STrace]) -> 
@@ -1208,9 +1184,8 @@ unsubscribe(EventCategory) ->
 update_tables(UpdatePlan, Lock) ->
     update_tables(schema(), UpdatePlan, Lock, []).
 
-update_counter(Table, Field, Key, Incr, Limit) ->
-    imem_if:update_counter(physical_table_name(Table), Field, Key, Incr, Limit).
-
+update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax) ->
+    imem_if:update_bound_counter(physical_table_name(Table), Field, Key, Incr, LimitMin, LimitMax).
 
 update_tables(_MySchema, [], Lock, Acc) ->
     imem_if:update_tables(Acc, Lock);  

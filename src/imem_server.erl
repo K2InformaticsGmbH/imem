@@ -85,6 +85,7 @@ mfa({Ref, Mod, which_applications, Args}, Transport) when Mod =:= imem_sec;
 mfa({Ref, Mod, Fun, Args}, Transport) ->
     NewArgs = args(Ref,Fun,Args,Transport),
     ApplyRes = try
+                   %?Log("~p MFA -> R ~n ~p:~p(~p)~n", [Transport,Mod,Fun,NewArgs]),
                    apply(Mod,Fun,NewArgs)
                catch 
                     _Class:Reason -> {error, {Reason, erlang:get_stacktrace()}}

@@ -409,6 +409,7 @@ login(SKey) ->
             SKey;            
         {[], _} ->                    
             logout(SKey),
+?Log("~n----------------------~n~p~n----------------------~n", [erlang:get_stacktrace()]),
             ?SecurityException({"Invalid account credentials. Please retry", AccountId})
     end.
 

@@ -65,7 +65,7 @@
         , delete/2
         , delete_object/2
         , update_tables/2
-        , update_counter/5
+        , update_bound_counter/6
         ]).
 
 -export([ transaction/1
@@ -468,31 +468,35 @@ update_tables(UpdatePlan, Lock) ->
     return_atomic(transaction(Update)).
 
 % Field as column name into tuple
-update_counter(Table, Field, Key, Incr, Limit) when is_atom(Table),
-                                               is_atom(Field),
-                                               is_number(Incr),
-                                               is_number(Limit) ->
+update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax)
+    when is_atom(Table),
+         is_atom(Field),
+         is_number(Incr),
+         is_number(LimitMin),
+         is_number(LimitMax) ->
     Attrs = mnesia:table_info(Table, attributes),
     case lists:keyfind(Field, 1, lists:zip(Attrs, lists:seq(1,length(Attrs)))) of
-        {Field, FieldIdx} -> update_counter(Table, FieldIdx, Key, Incr, Limit);
+        {Field, FieldIdx} -> update_bound_counter(Table, FieldIdx, Key, Incr, LimitMin, LimitMax);
         _ -> field_not_found
     end;
 % Field as index into the tuple
-update_counter(Table, Field, Key, Incr, Limit) when is_atom(Table),
-                                               is_integer(Field),
-                                               is_number(Incr),
-                                               is_number(Limit) ->
+update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax)
+    when is_atom(Table),
+         is_integer(Field),
+         is_number(Incr),
+         is_number(LimitMin),
+         is_number(LimitMax) ->
     mnesia:transaction(fun() ->
         case mnesia:read(Table, Key) of
             [Row|_] ->
                 N = element(Field+1, Row),
                 if
-                    ((N + Incr) =< Limit) andalso is_number(N) ->
+                    ((N + Incr) =< LimitMax) andalso is_number(N) ->
                         ok = mnesia:write(setelement(Field+1, Row, N + Incr)),
                         Incr;
-                    ((N + Incr) > Limit) andalso is_number(N) ->
-                        ok = mnesia:write(setelement(Field+1, Row, Limit)),
-                        Limit - N;
+                    ((N + Incr) > LimitMax) andalso is_number(N) ->
+                        ok = mnesia:write(setelement(Field+1, Row, LimitMax)),
+                        LimitMax - N;
                     true -> {field_not_number, N}
                 end;
             _ -> no_rows
