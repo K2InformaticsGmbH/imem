@@ -23,11 +23,11 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) ->
     {T,L,P} = case Type of
-        B when is_binary(B) ->      {imem_datatype:io_to_term(imem_datatype:strip_squotes(binary_to_list(B))),0,0};
-        A when is_atom(A) ->        {imem_datatype:imem_type(A),0,0};
-        {float,SPrec} ->            {float,0,list_to_integer(SPrec)};
-        {timestamp,SPrec} ->        {timestamp,0,list_to_integer(SPrec)};
-        {Typ,SLen} ->               {imem_datatype:imem_type(Typ),list_to_integer(SLen),0};
+        B when is_binary(B) ->      {imem_datatype:io_to_term(imem_datatype:strip_squotes(binary_to_list(B))),undefined,undefined};
+        A when is_atom(A) ->        {imem_datatype:imem_type(A),undefined,undefined};
+        {float,SPrec} ->            {float,undefined,list_to_integer(SPrec)};
+        {timestamp,SPrec} ->        {timestamp,undefined,list_to_integer(SPrec)};
+        {Typ,SLen} ->               {imem_datatype:imem_type(Typ),list_to_integer(SLen),undefined};
         {Typ,SLen,SPrec} ->         {imem_datatype:imem_type(Typ),list_to_integer(SLen),list_to_integer(SPrec)};
         Else ->                     ?SystemException({"Unexpected parse tree structure",Else})
     end,
@@ -119,9 +119,9 @@ test_with_or_without_sec(IsSec) ->
         SKey=?imem_test_admin_login(),
         Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [] end.);",
         Expected = 
-                [   {ddColumn,col1,string,10,0,?nav,[]},
-                    {ddColumn,col2,integer,0,0,12,[]},
-                    {ddColumn,col3,list,0,0,[],[]}
+                [   {ddColumn,col1,string,10,undefined,?nav,[]},
+                    {ddColumn,col2,integer,undefined,undefined,12,[]},
+                    {ddColumn,col3,list,undefined,undefined,[],[]}
                 ],
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, 'Imem', IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),

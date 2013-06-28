@@ -381,6 +381,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual([imem], field_value(tag,list,0,0,[],<<"[imem]">>)),
 
+        timer:sleep(1100),
         % {TMega,TSec,TMicro} = erlang:now(),
 
         SKey=case IsSec of

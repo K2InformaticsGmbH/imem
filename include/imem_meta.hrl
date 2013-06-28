@@ -10,9 +10,9 @@
 -record(ddColumn,                           %% column definition    
                   { name                    ::atom()
                   , type = term             ::ddType()
-                  , len = 0  	              ::integer()
-                  , prec = 0		        ::integer()
-                  , default                 ::any()
+                  , len = undefined 	  ::integer()
+                  , prec = undefined        ::integer()
+                  , default = undefined     ::any()
                   , opts = []               ::list()
                   }
         ).
@@ -38,7 +38,7 @@
 
 -record(ddMonitor,                          %% monitor    
                   { time                    ::ddTimestamp()             %% erlang:now()
-                  , node=0                  ::atom()                    %% erlang node name
+                  , node                    ::atom()                    %% erlang node name
                   , memory=0                ::integer()                 %% erlang:memory(total)
                   , process_count=0         ::integer()                 %% erlang:system_info(process_count)          
                   , port_count=0            ::integer()                 %% erlang:system_info(port_count)
