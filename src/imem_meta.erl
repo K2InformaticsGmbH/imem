@@ -83,7 +83,7 @@
 
 -export([ add_attribute/2
         , update_opts/2
-        , throw_exception/2
+        , throw_exception/4
         , log_to_db/5
         , monitor/0
         ]).
@@ -831,15 +831,6 @@ add_attribute(A, Opts) ->
 update_opts(T, Opts) ->
     imem_if:update_opts(T, Opts).
 
-throw_exception(Ex,Reason) ->
-    Level = case Ex of
-        'UnimplementedException' -> warning;
-        'ConcurrencyException' ->   warning;
-        'ClientError' ->            warning;
-        _ ->                        error
-    end,
-    throw_exception(Ex,Reason,Level,erlang:get_stacktrace()).
-
 throw_exception(Ex,Reason,Level,Stacktrace) ->
     {Head,Fields} = case Reason of
         {H4,{P41,P42,P43,P44}} ->   {H4,[{ep1,P41},{ep2,P42},{ep3,P43},{ep4,P44}]};
@@ -1216,6 +1207,10 @@ unsubscribe(EventCategory) ->
 
 update_tables(UpdatePlan, Lock) ->
     update_tables(schema(), UpdatePlan, Lock, []).
+
+update_counter(Table, Field, Key, Incr, Limit) ->
+    imem_if:update_counter(physical_table_name(Table), Field, Key, Incr, Limit).
+
 
 update_tables(_MySchema, [], Lock, Acc) ->
     imem_if:update_tables(Acc, Lock);  

@@ -9,12 +9,23 @@
 -define(sot,'$start_of_table').		%% defined in mnesia, signals start of fetch transaction here 
 -define(eot,'$end_of_table').		  %% defined in mnesia, signals end of fetch transaction here
 
--define(ClientError(__Reason), imem_meta:throw_exception('ClientError',__Reason)).
+-define(THROW_EXCEPTION(Ex,Reason),
+(fun(ST) ->
+    Level = case Ex of
+        'UnimplementedException' -> warning;
+        'ConcurrencyException' ->   warning;
+        'ClientError' ->            warning;
+        _ ->                        error
+    end,
+    imem_meta:throw_exception(Ex,Reason,Level,ST)
+end)(erlang:get_stacktrace())
+).
+-define(ClientError(__Reason), ?THROW_EXCEPTION('ClientError',__Reason)).
 -define(ClientErrorNoLogging(__Reason), throw({'ClientError',__Reason})).
--define(SystemException(__Reason), imem_meta:throw_exception('SystemException',__Reason)).
+-define(SystemException(__Reason),  ?THROW_EXCEPTION('SystemException',__Reason)).
 -define(SystemExceptionNoLogging(__Reason), throw({'SystemException',__Reason})).
--define(ConcurrencyException(__Reason), imem_meta:throw_exception('ConcurrencyException',__Reason)).
--define(UnimplementedException(__Reason), imem_meta:throw_exception('UnimplementedException',__Reason)).
+-define(ConcurrencyException(__Reason),  ?THROW_EXCEPTION('ConcurrencyException',__Reason)).
+-define(UnimplementedException(__Reason),  ?THROW_EXCEPTION('UnimplementedException',__Reason)).
 
 -record(ddLog,                              %% log table    
                   { logTime                 ::ddTimestamp()             %% erlang timestamp {Mega,Sec,Micro}
