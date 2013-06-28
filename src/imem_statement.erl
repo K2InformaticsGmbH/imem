@@ -207,7 +207,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
         % end,
         % ?Log("UpdatePlan ~p~n", [UpdatePlan]),
         KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
-        ?Log("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
+        % ?Log("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
             1 ->    
                 Wrap = fun({Tag,X}) -> {Tag,{X, MetaRec}} end,
