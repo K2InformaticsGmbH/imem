@@ -207,13 +207,18 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
         end,
         % ?Log("UpdatePlan ~p~n", [UpdatePlan]),
         KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
-        % ?Log("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
+        ?Log("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
             1 ->    
                 Wrap = fun({Tag,X}) -> {Tag,{X, MetaRec}} end,
                 lists:map(Wrap, KeyUpdateRaw);
             _ ->            
-                Wrap = fun({Tag,X}) ->
+                Wrap = fun
+                    ({Tag,{}}) ->
+                            TabCount = length(Stmt#statement.tables),
+                            R0 = erlang:make_tuple(TabCount+1, undefined, [{1,{}},{TabCount+1,MetaRec}]), 
+                            {Tag,R0};                        
+                    ({Tag,X}) ->
                     case join_rows([X], FetchCtx0, Stmt) of
                         [] ->
                             TabCount = length(Stmt#statement.tables),
@@ -397,6 +402,7 @@ handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,
                                     unsubscribe(Stmt),
                                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                                 true ->
+                                    ?Log("sending tail row~n", []),
                                     send_reply_to_client(Sock, {lists:map(Wrap, [Rec]),tail}),
                                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}}
                             end;
@@ -411,6 +417,7 @@ handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,
                                             unsubscribe(Stmt),
                                             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                                         true ->
+                                            ?Log("sending tail row~n", []),
                                             send_reply_to_client(Sock, {Result, tail}),
                                             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}}
                                     end
@@ -574,7 +581,12 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 unsubscribe(Stmt) ->
     {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
-    catch if_call_mfa(false,unsubscribe,[none,{table,Table,simple}]).
+    case catch if_call_mfa(false,unsubscribe,[none,{table,Table,simple}]) of
+        ok ->   ok;
+        Error ->
+            ?Log("Cannot unsubscribe table changes~n~p~n", [{Table,Error}]),    
+            imem_meta:log_to_db(error,?MODULE,unsubscribe,[{table,Table},{error,Error}],"Cannot unsubscribe table changes")
+    end.
 
 kill_fetch(undefined, undefined) -> ok;
 kill_fetch(MonitorRef, Pid) ->

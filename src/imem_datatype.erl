@@ -8,14 +8,22 @@
 -define(rawTypeStr,binary).
 -define(emptyStr,<<>>).
 
+-define(ROWFUN_EXTENSIONS,[{name,1},{text,1}
+                          ,{item1,1},{item2,1},{item3,1},{item4,1}
+                          ,{item5,1},{item6,1},{item7,1},{item8,1},{item9,1}
+                          % ,{item,2},{concat,2},{concat,3},{concat,4}
+                          % ,{concat,5},{concat,6},{concat,7},{concat,8},{concat,9}
+                          ]).
+
 -define(H(X), (hex(X)):16).
 
--define(BinaryMaxLen,250).  %% more represented by "..." suffix
+-define(BinaryMaxLen,250).          %% more represented by "..." suffix
 
 -export([ raw_type/1
         , imem_type/1
         , is_datatype/1
-        , is_unicode_binary/1 
+        , is_unicode_binary/1
+        , is_rowfun_extension/2 
         ]).
 
 -export([ add_squotes/1
@@ -204,6 +212,9 @@ is_datatype(Types) when is_list(Types) ->
     (not lists:member(false,[is_datatype(T) || T <- Types]));
 is_datatype(Type) when is_tuple(Type) -> is_datatype(tuple_to_list(Type));
 is_datatype(_) -> false.
+
+is_rowfun_extension(Func,Arity) ->
+    lists:member({Func,Arity},?ROWFUN_EXTENSIONS).
 
 imem_type(raw) -> binary; 
 imem_type(blob) -> binary; 
@@ -1055,18 +1066,22 @@ name(N) -> lists:flatten(io_lib:format("~tp",[N])).
 text(T) when is_binary(T) ->
     text(binary_to_list(T));
 text(T) when is_list(T) ->
-    Mask=fun(X) ->
-            case unicode:characters_to_list([X], unicode) of
-                [X] when (X<16#20) ->   $.;
-                [X]  ->   X;
-                 _ -> 
-                    case unicode:characters_to_list([X], latin1) of
-                        [Y] -> Y;
-                         _ ->  $.
-                    end
-            end
-        end,
-    unicode:characters_to_binary(lists:map(Mask,T),unicode);
+    try
+        Mask=fun(X) ->
+                case unicode:characters_to_list([X], unicode) of
+                    [X] when (X<16#20) ->   $.;
+                    [X]  ->   X;
+                     _ -> 
+                        case unicode:characters_to_list([X], latin1) of
+                            [Y] -> Y;
+                             _ ->  $.
+                        end
+                end
+            end,
+        unicode:characters_to_binary(lists:map(Mask,T),unicode)
+    catch
+        _:_ -> term_to_io(T)
+    end;
 text(T) ->
     term_to_io(T).
 
