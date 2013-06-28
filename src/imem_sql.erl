@@ -255,13 +255,23 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
     end;
 column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Log("column_map 5 ~p~n", [PTree]),
-    {S,T,N} = field_qname(Name),
-    Alias = list_to_binary(atom_to_list(Fname) ++ "(" ++ binary_to_list(Name) ++ ")"),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=Fname, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);    
+    case imem_datatype:is_rowfun_extension(Fname,1) of
+        true ->
+            {S,T,N} = field_qname(Name),
+            Alias = list_to_binary(atom_to_list(Fname) ++ "(" ++ binary_to_list(Name) ++ ")"),
+            column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=Fname, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+        false ->
+            ?UnimplementedException({"Unimplemented row function",{Fname,1}})
+    end;        
 column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Log("column_map 6 ~p~n", [PTree]),
-    {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+    case imem_datatype:is_rowfun_extension(Fname,1) of
+        true ->
+            {S,T,N} = field_qname(Name),
+            column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+        false ->
+            ?UnimplementedException({"Unimplemented row function",{Fname,1}})
+    end;                    
 column_map([], [{as, Name, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Log("column_map 7 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
