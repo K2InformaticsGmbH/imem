@@ -105,6 +105,7 @@
         , select_sort/3
         , insert/2    
         , write/2           %% write single key
+        , write_log/1
         , dirty_write/2
         , delete/2          %% delete row by key
         , delete_object/2   %% delete single row in bag table 
@@ -1067,6 +1068,8 @@ select_sort(Table, MatchSpec)->
 select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
+
+write_log(Record) -> write(?LOG_TABLE, Record).
 
 write({_Schema,Table}, Record) -> 
     write(Table, Record);           %% ToDo: may depend on schema 
