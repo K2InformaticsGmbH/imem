@@ -65,6 +65,7 @@
         , delete/2
         , delete_object/2
         , update_tables/2
+        , update_counter/5
         ]).
 
 -export([ transaction/1
@@ -465,6 +466,38 @@ update_tables(UpdatePlan, Lock) ->
         [update_xt(Table, Item, Lock, Old, New) || [Table, Item, Old, New] <- UpdatePlan]
     end,
     return_atomic(transaction(Update)).
+
+% Field as column name into tuple
+update_counter(Table, Field, Key, Incr, Limit) when is_atom(Table),
+                                               is_atom(Field),
+                                               is_number(Incr),
+                                               is_number(Limit) ->
+    Attrs = mnesia:table_info(Table, attributes),
+    case lists:keyfind(Field, 1, lists:zip(Attrs, lists:seq(1,length(Attrs)))) of
+        {Field, FieldIdx} -> update_counter(Table, FieldIdx, Key, Incr, Limit);
+        _ -> field_not_found
+    end;
+% Field as index into the tuple
+update_counter(Table, Field, Key, Incr, Limit) when is_atom(Table),
+                                               is_integer(Field),
+                                               is_number(Incr),
+                                               is_number(Limit) ->
+    mnesia:transaction(fun() ->
+        case mnesia:read(Table, Key) of
+            [Row|_] ->
+                N = element(Field+1, Row),
+                if
+                    ((N + Incr) =< Limit) andalso is_number(N) ->
+                        ok = mnesia:write(setelement(Field+1, Row, N + Incr)),
+                        Incr;
+                    ((N + Incr) > Limit) andalso is_number(N) ->
+                        ok = mnesia:write(setelement(Field+1, Row, Limit)),
+                        Limit - N;
+                    true -> {field_not_number, N}
+                end;
+            _ -> no_rows
+        end
+    end).
 
 update_xt({_Table,bag}, _Item, _Lock, {}, {}) ->
     ok;
