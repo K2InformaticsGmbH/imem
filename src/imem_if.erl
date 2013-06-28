@@ -623,7 +623,7 @@ init(Params) ->
     ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
 
     % backup any existing snapshots and start new snapshoting
-    imem_snap:zip_snap("*.bkp"),
+    imem_snap:zip_snap({re, "*.bkp"}),
     if SnapInterval > 0 -> erlang:send_after(SnapInterval, self(), snapshot); true -> ok end,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
