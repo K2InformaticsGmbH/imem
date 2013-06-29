@@ -63,19 +63,19 @@ init(_Args) ->
         if_check_table(none, ddTable),
 
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
-        imem_meta:create_check_table(ddAccount, ADef, [], system),
+        catch imem_meta:create_check_table(ddAccount, ADef, [], system),
 
         RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
-        imem_meta:create_check_table(ddRole, RDef, [], system),
+        catch imem_meta:create_check_table(ddRole, RDef, [], system),
 
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
-        imem_meta:create_check_table(ddSeCo@, SDef, [{scope,local}, {local_content,true},{record_name,ddSeCo}], system),
+        catch imem_meta:create_check_table(ddSeCo@, SDef, [{scope,local}, {local_content,true},{record_name,ddSeCo}], system),
 
         PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
-        imem_meta:create_check_table(ddPerm@, PDef, [{scope,local}, {local_content,true},{record_name,ddPerm}], system),
+        catch imem_meta:create_check_table(ddPerm@, PDef, [{scope,local}, {local_content,true},{record_name,ddPerm}], system),
 
         QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
-        imem_meta:create_check_table(ddQuota@, QDef, [{scope,local}, {local_content,true},{record_name,ddQuota}], system),
+        catch imem_meta:create_check_table(ddQuota@, QDef, [{scope,local}, {local_content,true},{record_name,ddQuota}], system),
 
         UserName= <<"admin">>,
         case if_select_account_by_name(none, UserName) of
@@ -95,7 +95,7 @@ init(_Args) ->
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
-        Class:Reason -> ?Log("~p failed with ~p:~p~n", [?MODULE,Class,Reason]),
+        Class:Reason -> ?Log("~p failed with ~p:~n~p~n", [?MODULE,Class,Reason]),
                         {stop, "Insufficient resources for start"} 
     end,
     Result.
