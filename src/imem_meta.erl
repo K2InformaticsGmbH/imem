@@ -7,7 +7,7 @@
 
 -define(MONITOR_TABLE_OPTS,[{record_name,ddMonitor}
                            ,{type,ordered_set}
-                           ,{purge_delay,432000}    %% 5 Days
+                           ,{purge_delay,432000}    %% 5  Days
                            ]).  
 -define(MONITOR_CYCLE_WAIT, 2000). 
 
