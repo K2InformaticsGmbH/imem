@@ -1,6 +1,7 @@
 
 -include("imem_if.hrl").
 
+-define(CONFIG_TABLE,ddConfig).                    
 -define(LOG_TABLE,ddLog_86400@).                    %% 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 1 Day
 
@@ -35,6 +36,23 @@
                   }
        ).
 -define(ddNode, [atom,integer,timestamp,list]).
+
+-record(ddConfig,                           %% config record    
+                  { hkl                     ::list()                    %% hierarchical key list [item,context1,context2,...]
+                  , val                     ::any()                     
+                  , remark= <<"">>          ::binary()                  %% create comments     
+                  }
+       ).
+-define(ddConfig, [list,term,binstr]).
+
+-record(ddConfigHistory,                    %% config history record    
+                  { hkl_time                ::tuple()                   %% {[item,context1,context2,...],erlang:now()}
+                  , val                     ::any()                     
+                  , remark= <<"">>          ::binary()                  %% comments     
+                  , user                    ::integer()                     
+                  }
+       ).
+-define(ddConfigHistory, [{list,timestamp},term,binstr,integer]).
 
 -record(ddMonitor,                          %% monitor    
                   { time                    ::ddTimestamp()             %% erlang:now()

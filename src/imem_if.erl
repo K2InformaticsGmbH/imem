@@ -59,6 +59,7 @@
         , select_sort/3
         , read/1
         , read/2
+        , read_hlk/2            %% read using hierarchical list key
         , fetch_start/5
         , write/2
         , dirty_write/2
@@ -335,6 +336,25 @@ read(Table, Key) when is_atom(Table) ->
         Res ->                      Res
     end,
     return_atomic_list(Result).
+
+
+read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
+    % read using HierarchicalListKey 
+    Trans = fun
+        ([],_) ->
+            [];
+        (HLK,Tra) ->
+            case mnesia:read(Table,HLK) of
+                [] ->   Tra(lists:sublist(HLK, length(HLK)-1),Tra);
+                R ->    R
+            end
+    end,
+    case transaction(Trans,[HListKey,Trans]) of
+        {atomic, Result} ->         Result;
+        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        Error ->                    ?SystemExceptionNoLogging(Error)
+    end.
+
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     try
@@ -934,7 +954,24 @@ table_operations(_) ->
         ?assertEqual({1, {imem_table_bag, "AB","11","11"}}, return_atomic(transaction(Update4))),
 
         ?assertEqual(ok, drop_table(imem_table_bag)),
-        ?Log("success ~p~n", [drop_table])
+        ?Log("success ~p~n", [drop_table]),
+
+        ?assertEqual(ok, create_table(imem_table_123, [hlk,val], [])),
+        ?Log("success ~p~n", [imem_table_123]),
+        ?assertEqual([], read_hlk(imem_table_123, [some_key])),
+        HlkR1 = {imem_table_123, [some_key],some_value},
+        ?assertEqual(ok, write(imem_table_123, HlkR1)),
+        ?assertEqual([HlkR1], read_hlk(imem_table_123, [some_key])),
+        ?assertEqual([HlkR1], read_hlk(imem_table_123, [some_key,some_context])),
+        ?assertEqual([], read_hlk(imem_table_123, [some_wrong_key])),
+        HlkR2 = {imem_table_123, [some_key],some_value},        
+        ?assertEqual(ok, write(imem_table_123, HlkR2)),
+        ?assertEqual([HlkR2], read_hlk(imem_table_123, [some_key,over_context])),
+        ?assertEqual([], read_hlk(imem_table_123, [])),
+
+        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read_hlk(non_existing_table, [some_key,over_context])),
+
+        ?assertEqual(ok, drop_table(imem_table_123))
 
     catch
         Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),

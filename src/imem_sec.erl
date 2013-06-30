@@ -34,7 +34,9 @@
 
 -export([ update_opts/3
         , add_attribute/3
-        , log_to_db/6
+   %     , log_to_db/6
+        , get_config_hlk/5  %% get single config value and put default if not found
+        , put_config_hlk/6  %% put single config value with remark
         ]).
 
 -export([ authenticate/4
@@ -52,6 +54,7 @@
         , truncate_table/2
         , read/2
         , read/3
+        , read_hlk/3        %% read hierarchical list key
         , select/3
         , select/4
         , insert/3
@@ -235,14 +238,14 @@ node_shard(_SKey) ->
 table_type(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_type(Table);
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
 physical_table_name(SKey,Name) ->
     PhysicalName = imem_meta:physical_table_name(Name),
     case have_table_permission(SKey, PhysicalName, select) of
         true ->     PhysicalName;
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {PhysicalName,SKey}})
     end.
 
 physical_table_names(SKey,Name) ->
@@ -250,22 +253,22 @@ physical_table_names(SKey,Name) ->
     Pred = fun(PN) -> have_table_permission(SKey, PN, select) end,
     lists:filter(Pred,PhysicalNames).
 
-log_to_db(SKey,Level,Module,Function,Fields,Message) ->
-    case have_table_permission(SKey, ?LOG_TABLE, insert) of
-        true ->     imem_meta:log_to_db(Level,Module,Function,Fields,Message);
-        false ->    ?SecurityException({"Insert into ddLog@ unauthorized", SKey})
-    end.    
+% log_to_db(SKey,Level,Module,Function,Fields,Message) ->
+%     case have_table_permission(SKey, ?LOG_TABLE, insert) of
+%         true ->     imem_meta:log_to_db(Level,Module,Function,Fields,Message);
+%         false ->    ?SecurityException({"Insert into ddLog@ unauthorized", SKey})
+%     end.    
 
 table_columns(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_columns(Table);
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
 table_size(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_size(Table);
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
 check_table(_SKey, Table) ->
@@ -423,14 +426,32 @@ insert(SKey, Table, Row) ->
 read(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:read(Table);
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
 read(SKey, Table, Key) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:read(Table, Key);
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
+
+read_hlk(SKey, Table, HListKey) ->
+    case have_table_permission(SKey, Table, select) of
+        true ->     imem_meta:read_hlk(Table, HListKey);
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
+    end.
+
+get_config_hlk(SKey, Table, Key, Context, Default) ->
+    case have_table_permission(SKey, Table, select) of
+        true ->     imem_meta:get_config_hlk(Table, Key, Context, Default);
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
+    end.
+
+put_config_hlk(SKey, Table, Key, Context, Value, Remark) ->
+    case have_table_permission(SKey, Table, update) of
+        true ->     imem_meta:put_config_hlk(Table, Key, Context, Value, Remark);
+        false ->    ?SecurityException({"Insert/update unauthorized", {Table,SKey}})
+    end.    
 
 exec(SKey, Statement, BlockSize, Schema) ->
     imem_sql:exec(SKey, Statement, BlockSize, Schema, true).   
@@ -461,7 +482,7 @@ fetch_start(SKey, Pid, dba_tables, MatchSpec, BlockSize, Opts) ->
         true ->     
             imem_meta:fetch_start(Pid, dba_tables, MatchSpec, BlockSize, Opts);
         false ->
-            ?SecurityException({"Select unauthorized", SKey})
+            ?SecurityException({"Select unauthorized", {dba_tables,SKey}})
     end;
 fetch_start(SKey, Pid, user_tables, MatchSpec, BlockSize, Opts) ->
     seco_authorized(SKey),
@@ -549,7 +570,7 @@ select(SKey, dba_tables, MatchSpec) ->
         true ->     
             imem_meta:select(ddTable, MatchSpec);
         false ->
-            ?SecurityException({"Select unauthorized", SKey})
+            ?SecurityException({"Select unauthorized", {dba_tables,SKey}})
     end;
 select(SKey, user_tables, MatchSpec) ->
     seco_authorized(SKey),
@@ -562,7 +583,7 @@ select(SKey, all_tables, MatchSpec) ->
 select(SKey, Table, MatchSpec) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:select(Table, MatchSpec) ;
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
 select(SKey, Table, MatchSpec, 0) ->
@@ -572,7 +593,7 @@ select(SKey, dba_tables, MatchSpec, Limit) ->
         true ->     
             imem_meta:select(ddTable, MatchSpec, Limit);
         false ->
-            ?SecurityException({"Select unauthorized", SKey})
+            ?SecurityException({"Select unauthorized", {dba_tables,SKey}})
     end;
 select(SKey, user_tables, MatchSpec, Limit) ->
     seco_authorized(SKey),
@@ -585,7 +606,7 @@ select(SKey, all_tables, MatchSpec, Limit) ->
 select(SKey, Table, MatchSpec, Limit) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:select(Table, MatchSpec, Limit) ;
-        false ->    ?SecurityException({"Select unauthorized", SKey})
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
 admin_exec(SKey, imem_account, Function, Params) ->
@@ -818,7 +839,7 @@ test(_) ->
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, alter)),
         ?Log("success ~p~n", [permissions_own_table]),
 
-        ?assertException(throw, {SeEx,{"Select unauthorized", SeCoUser}}, select(SeCoUser, dba_tables, ?MatchAllKeys)),
+        ?assertException(throw, {SeEx,{"Select unauthorized", {dba_tables,SeCoUser}}}, select(SeCoUser, dba_tables, ?MatchAllKeys)),
         ?Log("success ~p~n", [dba_tables_unauthorized]),
         {DbaTables, true} = select(SeCoAdmin, dba_tables, ?MatchAllKeys),
         ?assertEqual(true, lists:member({'Imem',ddAccount}, DbaTables)),
@@ -850,18 +871,18 @@ test(_) ->
         ?assertEqual(true, lists:member({'Imem',user_table_123}, UserTables)),
         ?Log("success ~p~n", [user_tables]),
 
-        LogCount1 = table_size(SeCoAdmin,?LOG_TABLE),
-        ?assertEqual(ok, log_to_db(SeCoAdmin,info,?MODULE,test,[{test_1,value2},{test_3,value4}],"Message")),        
-        LogCount2 = table_size(SeCoAdmin,?LOG_TABLE),
-        ?assertEqual(LogCount1+1,LogCount2),
-        ?assertException(throw, {SeEx,{"Insert into ddLog@ unauthorized",SeCoUser}}, log_to_db(SeCoUser,info,?MODULE,test,[{test_5,value6},{test_7,value8}],"Message")),        
-        LogCount3 = table_size(SeCoAdmin,?LOG_TABLE),
-        ?assertEqual(LogCount2+1,LogCount3),
+        % LogCount1 = table_size(SeCoAdmin,?LOG_TABLE),
+        % ?assertEqual(ok, log_to_db(SeCoAdmin,info,?MODULE,test,[{test_1,value2},{test_3,value4}],"Message")),        
+        % LogCount2 = table_size(SeCoAdmin,?LOG_TABLE),
+        % ?assertEqual(LogCount1+1,LogCount2),
+        % ?assertException(throw, {SeEx,{"Insert into ddLog@ unauthorized",SeCoUser}}, log_to_db(SeCoUser,info,?MODULE,test,[{test_5,value6},{test_7,value8}],"Message")),        
+        % LogCount3 = table_size(SeCoAdmin,?LOG_TABLE),
+        % ?assertEqual(LogCount2+1,LogCount3),
 
 
         LogTable = physical_table_name(SeCoAdmin,?LOG_TABLE),
         ?Log("success ~p ~p~n", [physical_table_name,LogTable]),
-        ?assertException(throw, {SeEx,{"Select unauthorized",SeCoUser}}, physical_table_name(SeCoUser,?LOG_TABLE)),    
+        ?assertException(throw, {SeEx,{"Select unauthorized",{_,SeCoUser}}}, physical_table_name(SeCoUser,?LOG_TABLE)),    
         LogTables = physical_table_names(SeCoAdmin,?LOG_TABLE),
         ?assert(lists:member(LogTable,LogTables)),        
         ?assertEqual(LogTables,physical_table_names(SeCoAdmin,atom_to_list(?LOG_TABLE))),

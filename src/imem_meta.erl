@@ -1,24 +1,36 @@
 -module(imem_meta).
 
--define(LOG_TABLE_OPTS,[{record_name,ddLog}
-                       ,{type,ordered_set}
-                       ,{purge_delay,432000}        %% 5 Days
-                       ]).          
+%% HARD CODED CONFIGURATIONS
+
+-define(META_TABLES,[ddTable,ddNode,dual,?LOG_TABLE,?MONITOR_TABLE]).
+-define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
+-define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
+
+-define(CONFIG_TABLE_OPTS, [{record_name,ddConfig}
+                           ,{type,ordered_set}
+                           ]).          
+
+-define(LOG_TABLE_OPTS,    [{record_name,ddLog}
+                           ,{type,ordered_set}
+                           ,{purge_delay,432000}        %% 5 Days
+                           ]).          
 
 -define(MONITOR_TABLE_OPTS,[{record_name,ddMonitor}
                            ,{type,ordered_set}
                            ,{purge_delay,432000}    %% 5 Days
                            ]).  
+
+-define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
+
+%% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
+
 -define(MONITOR_CYCLE_WAIT, 2000). 
+-define(GET_MONITOR_CYCLE_WAIT,get_config_hlk(?CONFIG_TABLE,{?MODULE,monitorCycleWait},[node()],?MONITOR_CYCLE_WAIT)).
 
--define(META_TABLES,[ddTable,ddNode,dual,?LOG_TABLE,?MONITOR_TABLE]).
--define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
--define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
--define(PURGE_CYCLE_WAIT, 10000). % 10000
+-define(PURGE_CYCLE_WAIT, 10000).
+-define(GET_PURGE_CYCLE_WAIT,get_config_hlk(?CONFIG_TABLE,{?MODULE,purgeCycleWait},[node()],?PURGE_CYCLE_WAIT)).
 -define(PURGE_ITEM_WAIT, 10).
--define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").
-
--include_lib("eunit/include/eunit.hrl").
+-define(GET_PURGE_ITEM_WAIT,get_config_hlk(?CONFIG_TABLE,{?MODULE,purgeItemWait},[node()],?PURGE_ITEM_WAIT)).
 
 -include("imem_meta.hrl").
 
@@ -86,6 +98,8 @@
         , log_to_db/5
         , failing_function/1
         , monitor/0
+        , get_config_hlk/4 
+        , put_config_hlk/5 
         ]).
 
 -export([ create_table/3
@@ -99,6 +113,7 @@
         , truncate_table/1  %% truncate table
         , read/1            %% read whole table, only use for small tables 
         , read/2            %% read by key
+        , read_hlk/2        %% read using hierarchical list key
         , select/2          %% select without limit, only use for small result sets
         , select/3          %% select with limit
         , select_sort/2
@@ -153,6 +168,7 @@ init(_Args) ->
         check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
         catch create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
+        catch create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
         catch create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
         catch create_check_table(?MONITOR_TABLE, {record_info(fields, ddMonitor),?ddMonitor, #ddMonitor{}}, ?MONITOR_TABLE_OPTS, system),    
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
@@ -230,20 +246,31 @@ handle_cast(_Request, State) ->
 
 handle_info(monitor_loop, State) ->
     % save one monitor record and trigger the nxt one
-    % ?Log("monitor_loop start~n",[]), 
-    monitor(),
-    erlang:send_after(?MONITOR_CYCLE_WAIT, self(), monitor_loop),
+    % ?Log("monitor_loop start~n",[]),
+    case ?GET_MONITOR_CYCLE_WAIT of
+        MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
+            monitor(),
+            erlang:send_after(MCW, self(), monitor_loop);
+        _ ->
+            erlang:send_after(?MONITOR_CYCLE_WAIT, self(), monitor_loop)
+    end,        
     {noreply, State};
 handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
     % ?Log("Purge collect start~n",[]), 
-    Pred = fun imem_meta:is_local_time_partitioned_table/1,
-    case lists:sort(lists:filter(Pred,tables_ending_with("@" ++ node_shard()))) of
-        [] ->   erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
-                {noreply, State};
-        PL ->   handle_info(purge_partitioned_tables, State#state{purgeList=PL})   
+    case ?GET_PURGE_CYCLE_WAIT of
+        PCW when (is_integer(PCW) andalso PCW > 1000) ->    
+            Pred = fun imem_meta:is_local_time_partitioned_table/1,
+            case lists:sort(lists:filter(Pred,tables_ending_with("@" ++ node_shard()))) of
+                [] ->   erlang:send_after(PCW, self(), purge_partitioned_tables),
+                        {noreply, State};
+                PL ->   handle_info({purge_partitioned_tables, PCW, ?GET_PURGE_ITEM_WAIT}, State#state{purgeList=PL})   
+            end;
+        _ ->  
+            erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
+            {noreply, State}
     end;
-handle_info(purge_partitioned_tables, State=#state{purgeList=[Tab|Rest]}) ->
+handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#state{purgeList=[Tab|Rest]}) ->
     % process one purge candidate
     % ?Log("Purge try table ~p~n",[Tab]), 
     case imem_if:read(ddTable,{schema(), Tab}) of
@@ -283,9 +310,9 @@ handle_info(purge_partitioned_tables, State=#state{purgeList=[Tab|Rest]}) ->
             end
     end,  
     case Rest of
-        [] ->   erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
+        [] ->   erlang:send_after(PurgeCycleWait, self(), purge_partitioned_tables),
                 {noreply, State#state{purgeList=[]}};
-        Rest -> erlang:send_after(?PURGE_ITEM_WAIT, self(), purge_partitioned_tables),
+        Rest -> erlang:send_after(PurgeItemWait, self(), {purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}),
                 {noreply, State#state{purgeList=Rest}}
     end;
 handle_info(_Info, State) ->
@@ -378,6 +405,7 @@ check_table_columns(Table, ColumnNames) when is_atom(Table) ->
 drop_meta_tables() ->
     drop_table(?MONITOR_TABLE),
     drop_table(?LOG_TABLE),
+    drop_table(?CONFIG_TABLE),
     drop_table(ddTable).     
 
 meta_field_list() -> ?META_FIELDS.
@@ -1032,6 +1060,27 @@ read(ddNode,_) -> [];
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
 
+read_hlk({_Schema,Table}, HListKey) -> 
+    read_hlk(Table, HListKey);
+read_hlk(Table,HListKey) ->
+    imem_if:read_hlk(Table,HListKey).
+
+get_config_hlk({_Schema,Table}, Key, Context, Default) ->
+    get_config_hlk(Table, Key, Context, Default);
+get_config_hlk(Table, Key, Context, Default) when is_atom(Table), is_list(Context) ->
+    case read_hlk(Table, [Key|Context]) of
+        [] ->
+            catch put_config_hlk(Table, Key, [], Default, <<"auto_provisioned">>),
+            Default;
+        [#ddConfig{val=Val}] ->
+            Val
+    end.
+
+put_config_hlk({_Schema,Table}, Key, Context, Value, Remark) ->
+    put_config_hlk(Table, Key, Context, Value, Remark);
+put_config_hlk(Table, Key, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
+    write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark}).   
+
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(ddNode, ?MatchAllRecords) ->
@@ -1073,8 +1122,6 @@ write_log(Record) -> write(?LOG_TABLE, Record).
 
 write({_Schema,Table}, Record) -> 
     write(Table, Record);           %% ToDo: may depend on schema 
-write(?LOG_TABLE, Record) ->
-    imem_if:write(physical_table_name(?LOG_TABLE), Record);
 write(Table, Record) ->
     % log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
     PTN = physical_table_name(Table,element(2,Record)),
@@ -1085,7 +1132,8 @@ write(Table, Record) ->
             % ToDo: instruct imem_meta gen_server to create the table
             case is_time_partitioned_alias(Table) of
                 true ->
-                    create_partitioned_table(PTN);
+                    create_partitioned_table(PTN),
+                    imem_if:write(PTN, Record);
                 false ->
                     ?ClientError({"Table does not exist",T})
             end;
@@ -1110,15 +1158,13 @@ monitor() ->
                          , output_io=Output
                          , extra=[]      
                          },
-        imem_if:write(physical_table_name(?MONITOR_TABLE), Moni)        
+        write(?MONITOR_TABLE, Moni)        
     catch
-        _:E ->     log_to_db(warning,?MODULE,monitor,[{error,E}],"cannot monitor")
+        _:E -> log_to_db(warning,?MODULE,monitor,[{error,E}],"cannot monitor")
     end.
 
 dirty_write({_Schema,Table}, Record) -> 
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
-dirty_write(?LOG_TABLE, Record) -> 
-    imem_if:dirty_write(physical_table_name(?LOG_TABLE), Record);
 dirty_write(Table, Record) -> 
     % log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
     PTN = physical_table_name(Table,element(2,Record)),
@@ -1128,7 +1174,8 @@ dirty_write(Table, Record) ->
         throw:{'ClientError',{"Table does not exist",T}} ->
             case is_time_partitioned_alias(Table) of
                 true ->
-                    create_partitioned_table(PTN);
+                    create_partitioned_table(PTN),
+                    imem_if:dirty_write(PTN, Record);
                 false ->
                     ?ClientError({"Table does not exist",T})
             end;
@@ -1236,6 +1283,7 @@ teardown(_) ->
     catch drop_table(meta_table_2),
     catch drop_table(meta_table_1),
     catch drop_table(tpTest_1000@),
+    catch drop_table(test_config),
     ?imem_test_teardown().
 
 db_test_() ->
@@ -1387,9 +1435,19 @@ meta_operations(_) ->
         % ?Log("MonRecs ~p~n", [MonRecs]),
         ?assert(length(MonRecs) > 0),
 
+        ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
+        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)),
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, [test_context],context_value,<<"Test Remark">>)),
+        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value)),
+        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context,details], test_value)),
+        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, [another_context,details], another_value)),
+
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
+        ?assertEqual(ok, drop_table(test_config)),
+
         ?Log("success ~p~n", [drop_tables])
     catch
         Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
