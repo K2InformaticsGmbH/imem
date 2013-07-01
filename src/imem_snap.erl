@@ -239,13 +239,13 @@ restore(zip, ZFile, TabRegEx, Strategy, Simulate) when is_list(ZFile) ->
 
 % private real restore function
 restore(Tab, {prop, TabProp}, {rows, Rows}, Strategy, Simulate) when is_atom(Tab) ->
-    Ret = mnesia:sync_transaction(fun() ->
-        % restore the properties
-        [mnesia:write_table_properties(Tab,P) || P <- TabProp],
-        if (Simulate /= true) andalso (Strategy =:= destroy)
-            -> {atomic, ok} = mnesia:clear_table(Tab);
-            true -> ok
-        end,
+    % restore the properties
+    [mnesia:write_table_properties(Tab,P) || P <- TabProp],
+    if (Simulate /= true) andalso (Strategy =:= destroy)
+        -> {atomic, ok} = mnesia:clear_table(Tab);
+        true -> ok
+    end,
+    Ret = mnesia:transaction(fun() ->
         TableSize = proplists:get_value(size,mnesia:table_info(Tab, all)),
         TableType = proplists:get_value(type,mnesia:table_info(Tab, all)),
         lists:foldl(fun(Row, {I, E, A}) ->
