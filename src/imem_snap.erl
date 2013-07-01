@@ -5,7 +5,8 @@
 
 -export([ info/1
         , format/1
-        , restore/2
+        , restore/4
+        , restore/5
         , zip/1
         , take/1
         ]).
@@ -15,6 +16,7 @@
 
 %% ----- SNAPSHOT INTERFACE ------------------------------------------------
 
+% backup existing snapshot
 zip(all) -> zip({re, "*"++?BKP_EXTN});
 zip({files, SnapFiles}) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -50,10 +52,11 @@ zip({re, MatchPattern}) ->
     ],
     zip({files, SnapFiles}).
 
+% display information of existing snapshot or a snapshot bundle (.zip)
 info(bkp) ->
     MTabs = mnesia:system_info(tables),
     BytesPerWord =  erlang:system_info(wordsize),
-    MnesiaTables = [{M, mnesia:table_info(M, size), mnesia:table_info(M, memory) * BytesPerWord} || M <- MTabs],
+    MnesiaTables = [{atom_to_list(M), mnesia:table_info(M, size), mnesia:table_info(M, memory) * BytesPerWord} || M <- MTabs],
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     case filelib:is_dir(SnapDir) of
         true ->
@@ -67,7 +70,8 @@ info(bkp) ->
                 || F <- filelib:wildcard("*"++?BKP_EXTN, SnapDir), re:run(F,"(.*)\\"++?BKP_EXTN, [{capture, [1], list}]) =/= nomatch
             ],
             STabs = [S || {S, _, _} <- SnapTables],
-            RestorableTables = sets:to_list(sets:intersection(sets:from_list(MTabs), sets:from_list(STabs))),
+            RestorableTables = sets:to_list(sets:intersection(sets:from_list([atom_to_list(M) || M <- MTabs])
+                                                             , sets:from_list(STabs))),
             {bkp, [ {dbtables, lists:sort(MnesiaTables)}
                   , {snaptables, lists:sort(SnapTables)}
                   , {restorabletables, lists:sort(RestorableTables)}]
@@ -88,6 +92,11 @@ info({zip, [Z|ZipFiles]}, ContentFiles) ->
                                , Z),
     info({zip, ZipFiles}, [{Z,CntFiles}|ContentFiles]).
 
+% formatting
+% - snapshot info
+% - restore info
+% for better display
+% (a wrapper around info/1 and restore/* interfaces)
 -define(FMTTIME(DT),
 (fun() ->
     {{_Y,_M,_D},{_H,_Mm,_S}} = DT,
@@ -98,7 +107,7 @@ format({bkp, [ {dbtables, DbTables}
              , {snaptables, SnapTables}
              , {restorabletables, RestorableTables}]
             }) ->
-    MTLen = lists:max([length(atom_to_list(MTab)) || {MTab, _, _} <- DbTables]),
+    MTLen = lists:max([length(MTab) || {MTab, _, _} <- DbTables]),
     Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s  ~-20s ~7s", [-MTLen, "name", "rows", "memory", "snap_size", "snap_time", "restore"])),
     Sep = lists:duplicate(length(Header),$-),
     lists:flatten([
@@ -114,7 +123,7 @@ format({bkp, [ {dbtables, DbTables}
                 true -> "Y";
                 _ -> ""
             end,
-            io_lib:format("~*s ~-10B ~-10B ~-10s ~20s ~7s~n", [-MTLen, atom_to_list(_MTab), Rows, Mem, SnapSize, SnapTime, Restotable])
+            io_lib:format("~*s ~-10B ~-10B ~-10s ~20s ~7s~n", [-MTLen, _MTab, Rows, Mem, SnapSize, SnapTime, Restotable])
         end)() || {_MTab, Rows, Mem} <- DbTables],
     io_lib:format("~s~n", [Sep])
     ]);
@@ -139,10 +148,26 @@ format({zip, ContentFiles}) ->
          io_lib:format("~s~n", [Sep])]
     end)()
     || {Z,CntFiles} <- ContentFiles]
+    );
+format({restore, RestoreRes}) ->
+    FLen = lists:max([length(atom_to_list(_F)) || {_F, _} <- RestoreRes]),
+    Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s", [-FLen, "name", "identical", "replaced", "added"])),
+    Sep = lists:duplicate(length(Header),$-),
+    lists:flatten(
+        [io_lib:format("~s~n", [Sep]),
+         io_lib:format("~s~n", [Header]),
+         io_lib:format("~s~n", [Sep]),
+         [case Res of
+            {atomic, {I,E,A}} ->
+                io_lib:format("~*s ~-10B ~-10B ~-10B~n", [-FLen, atom_to_list(T), length(I), length(E), length(A)]);
+            Error -> io_lib:format("~*s ~p~n", [-FLen, atom_to_list(T), Error])
+         end
+         || {T, Res} <- RestoreRes],
+        io_lib:format("~s~n", [Sep])]
     ).
 
 
-% all
+% take snapshot of all/some of the current in memory mnesia table
 take([all]) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     take({ tabs
@@ -173,8 +198,7 @@ take({tabs, SnapDir, Tabs}) ->
                 NewBackFile = filename:join([SnapDir, atom_to_list(T)++?BKP_TMP_EXTN]),
                 ok = file:write_file(NewBackFile, term_to_binary(TblContent)),
                 {ok, _} = file:copy(NewBackFile, BackFile),
-                ok = file:delete(NewBackFile),
-                ok
+                ok = file:delete(NewBackFile)
             end) of
         {atomic, ok}      -> io_lib:format("snapshot created for ~p~n", [T]);
         {aborted, Reason} -> io_lib:format("snapshot failed for ~p, reason ~p~n", [T, Reason])
@@ -182,67 +206,77 @@ take({tabs, SnapDir, Tabs}) ->
     || T <- Tabs]).
 
 % snapshot restore interface
-restore([_T|_] = Tabs, Strategy) when is_list(_T); is_atom(_T) ->
+restore(bkp, [_T|_] = Tabs, Strategy, Simulate) when is_list(_T) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    restore(SnapDir, {tabs, [(fun() ->                            
-                            list_to_atom(filename:rootname(filename:basename(
-                                case T of
-                                    T when is_list(T) -> T;
-                                    T when is_atom(T) -> atom_to_list(T);
-                                    _ -> ""
-                                end)))
-                        end)()
-                        || T <- Tabs]}, Strategy).
+    [(fun() ->
+        Table = filename:rootname(filename:basename(Tab)),
+        SnapFile = filename:join([SnapDir, Table++?BKP_EXTN]),
+        {ok, Bin} = file:read_file(SnapFile),
+        [{prop, TabProp}, {rows, Rows}] = binary_to_term(Bin),
+        restore(list_to_atom(Table), {prop, TabProp}, {rows, Rows}, Strategy, Simulate)
+    end)()
+    || Tab <- Tabs].
 
-restore(SnapDir, {tabs, Tabs}, Strategy) ->
-    [(fun(T) ->
-        SnapFile = filename:join([SnapDir, atom_to_list(T)++?BKP_EXTN]),
-        case filelib:is_file(SnapFile) of
+restore(zip, ZFile, TabRegEx, Strategy, Simulate) when is_list(ZFile) ->
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    ZipFile = filename:join([SnapDir, ZFile]),
+    case filelib:is_file(ZipFile) of
+        true ->
+            case zip:foldl(fun(File, _, GBin, Acc) ->
+                    case [File || R <- TabRegEx, re:run(File, R) /= nomatch] of
+                        [] when length(TabRegEx) > 0 -> Acc;
+                        _ ->
+                            Tab = list_to_atom(filename:rootname(filename:basename(File))),
+                            [{prop, TabProp}, {rows, Rows}] = binary_to_term(GBin()),
+                            [restore(Tab, {prop, TabProp}, {rows, Rows}, Strategy, Simulate) | Acc]
+                    end
+                end, [], ZipFile) of
+                {ok, Res} -> Res;
+                Error -> {filename:absname(ZipFile), Error}
+            end;
+        _ -> {filename:absname(ZipFile), "not found"}
+    end;
+
+% private real restore function
+restore(Tab, {prop, TabProp}, {rows, Rows}, Strategy, Simulate) when is_atom(Tab) ->
+    Ret = mnesia:sync_transaction(fun() ->
+        % restore the properties
+        [mnesia:write_table_properties(Tab,P) || P <- TabProp],
+        if (Simulate /= true) andalso (Strategy =:= destroy)
+            -> {atomic, ok} = mnesia:clear_table(Tab);
+            true -> ok
+        end,
+        TableSize = proplists:get_value(size,mnesia:table_info(Tab, all)),
+        TableType = proplists:get_value(type,mnesia:table_info(Tab, all)),
+        lists:foldl(fun(Row, {I, E, A}) ->
+            if (TableSize > 0) andalso (TableType =/= bag) ->
+                K = element(2, Row),
+                case mnesia:read(Tab, K) of
+                    [Row] ->    % found identical existing row
+                            {[Row|I], E, A}; 
+                    [RowN] ->   % existing row with different content,
+                        case Strategy of
+                            replace ->
+                                if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                                {I, [{Row,RowN}|E], A};
+                            destroy ->
+                                if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                                {I, E, [Row|A]};
+                            _ -> {I, E, A}
+                        end;
+                    [] -> % row not found, appending
+                        if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                        {I, E, [Row|A]}
+                end;
             true ->
-                {ok, Bin} = file:read_file(SnapFile),
-                [{prop, TabProp}, {prop, Rows}] = binary_to_term(Bin),
-                restore({prop, TabProp}, {prop, Rows}, Strategy);
-            _ ->
-                ?Log("file not found ~s~n", [SnapFile])
-        end
-    end)(__T)
-    || __T <- Tabs].
-
-% - % private real restore function
-% - restore(Tab, {prop, TabProp}, {prop, Rows}, Strategy) ->
-% -     TableSize = proplists:get_value(size,mnesia:table_info(Tab, all)),
-% -     TableType = proplists:get_value(type,mnesia:table_info(Tab, all)),
-% -     mnesia:sync_transaction(fun() ->
-% -         % restore the properties
-% -         [mnesia:write_table_properties(Tab,P) || P <- TabProp],
-% -         case Strategy of
-% -             destroy -> {atomic, ok} = mnesia:clear_table(Tab)
-% -         end,
-% -         [(fun(Row) ->
-% -             if (TableSize > 0) andalso (TableType =/= bag) ->
-% -                 K = element(2, Row),
-% -                 case mnesia:read(Tab, K) of
-% -                     [Row] -> {[R|I], E, A}; % found identical existing row
-% -                     [RowN] ->               % existing row with different content,
-% -                         case Strategy of
-% -                             replace -> ok = mnesia:write(R);
-% -                             destroy -> ok = mnesia:write(R);
-% -                             _ -> ok
-% -                         end;
-% -                     [] -> % row not found, appending
-% -                         ok = mnesia:write(R)
-% -                 end,
-% -                 RepRows;
-% -             true ->
-% -                 ok = mnesia:write(R)
-% -             end
-% -         end)(Row)
-% -         || Row <- Rows]
-% -     end),
-% -     {IdExt, ExDiff, Append} =
-% -     %?Log("rows ~s ~p~nfull match ~p~nappended ~p~n", [if Replace =:= true -> "replaced"; true -> "collided" end, ExDiff, IdExt, Append]),
-% -     ?Log("rows ~s ~p, full match ~p, appended ~p~n", [if Replace =:= true -> "replaced"; true -> "collided" end,
-% -                                                     length(ExDiff), length(IdExt), length(Append)]).
+                if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                {I, E, [Row|A]}
+            end
+        end,
+        {[], [], []},
+        Rows)
+    end),
+    {Tab, Ret}.
 
 
 %%

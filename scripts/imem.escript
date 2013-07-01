@@ -20,36 +20,51 @@ main(_) ->
 cmd(_, []) ->
     % print usage
     ?P("Usage: ~s snap info [zip]~n", [?SCRIPT]),
+    ?P("       ~*s      take [_regex1_ _regex2_ ...]~n", ?PADARG),
     ?P("       ~*s      zip re _pattern_~n", ?PADARG),
     ?P("       ~*s          [table_name1, ...]~n", ?PADARG),
-    ?P("       ~*s      restore [simulate] zip file_path | file_name [table_name1, ...]~n", ?PADARG),
-    ?P("       ~*s              [table_name1, ...]~n", ?PADARG);
+    ?P("       ~*s      restore zip [simulate|destroy|replace|none] zip_file_path [table_name1, ...]~n", ?PADARG),
+    ?P("       ~*s              bkp [simulate|destroy|replace|none] [table_name1, ...]~n", ?PADARG);
 
 % print snap info
 cmd(Node, ["snap", "info"]) ->
-    SI = rpc:call(Node, imem_snap, snap_info, [], ?TIMEOUT),
+    SI = rpc:call(Node, imem_snap, info, [bkp], ?TIMEOUT),
     ?P(rpc:call(Node, imem_snap, format, [SI], ?TIMEOUT));
 cmd(Node, ["snap", "info", "zip"]) ->
-    SZI = rpc:call(Node, imem_snap, snap_info, [zip], ?TIMEOUT),
+    SZI = rpc:call(Node, imem_snap, info, [zip], ?TIMEOUT),
     ?P(rpc:call(Node, imem_snap, format, [SZI], ?TIMEOUT));
 
-% take snapshot
+% taek snapshots
+cmd(Node, ["snap", "take"]) ->
+    ?P(rpc:call(Node, imem_snap, take, [[all]], ?TIMEOUT));
+cmd(Node, ["snap", "take" | OptTableRegExs]) ->
+    ?P(rpc:call(Node, imem_snap, take, [{tabs, OptTableRegExs}], ?TIMEOUT));
+
+% backup snapshots
 cmd(Node, ["snap", "zip", "re", Pattern]) ->
-    ?P(rpc:call(Node, imem_snap, zip_snap, [{re, Pattern}], ?TIMEOUT));
+    ?P(rpc:call(Node, imem_snap, zip, [{re, Pattern}], ?TIMEOUT));
 cmd(Node, ["snap", "zip", OptTables]) ->
-    ?P(rpc:call(Node, imem_snap, zip_snap, [{files, OptTables}], ?TIMEOUT));
+    ?P(rpc:call(Node, imem_snap, zip, [{files, OptTables}], ?TIMEOUT));
 
 % restore from snap
-cmd(_Node, ["snap", "restore", "simulate", "zip", FileNameOrPath | OptTables]) ->
-    ?P("coming soon restore simulate zip ~p tables ~p~n", [FileNameOrPath, OptTables]);
-cmd(_Node, ["snap", "restore", "zip", FileNameOrPath | OptTables]) ->
-    ?P("coming soon restore zip ~p tables ~p~n", [FileNameOrPath, OptTables]);
-cmd(_Node, ["snap", "restore" | OptTables]) ->
-    ?P("coming soon restore bkp tables ~p~n", [OptTables]);
+cmd(Node, ["snap", "restore", "zip", "simulate", FileNameWithPath | OptTables]) ->
+    RR = rpc:call(Node, imem_snap, restore, [zip, FileNameWithPath, OptTables, replace, true], ?TIMEOUT),
+    ?P(rpc:call(Node, imem_snap, format, [{restore,RR}], ?TIMEOUT));
+cmd(Node, ["snap", "restore", "bkp", "simulate" | OptTables]) ->
+    RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, replace, true], ?TIMEOUT),
+    ?P(rpc:call(Node, imem_snap, format, [{restore,RR}], ?TIMEOUT));
+
+cmd(Node, ["snap", "restore", "zip" | ZipArgs]) -> cmd(Node, ["snap", "restore", "destroy", "zip" | ZipArgs]);
+cmd(Node, ["snap", "restore", Type, "zip", FileNameWithPath | OptTables]) ->
+    ?P(rpc:call(Node, imem_snap, restore, [zip, FileNameWithPath, OptTables, list_to_atom(Type), false], ?TIMEOUT));
+cmd(Node, ["snap", "restore", "bkp" | BkpArgs]) -> cmd(Node, ["snap", "restore", "destroy", "bkp" | BkpArgs]);
+cmd(Node, ["snap", "restore", Type, "bkp" | OptTables]) ->
+    ?P(rpc:call(Node, imem_snap, restore, [bkp, OptTables, list_to_atom(Type), false], ?TIMEOUT));
 
 % unsupported
-cmd(_, Args) ->
-    ?P("Errpr: unknown command ~p~n", [Args]).
+cmd(Node, Args) ->
+    ?P("Error: unknown command ~p~n", [Args]),
+    cmd(Node, []).
 
 start_distribution(NodeName, Cookie) ->
     MyNode = make_script_node(NodeName),

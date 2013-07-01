@@ -2,7 +2,7 @@
 Pa=ebin
 cmNode=$1
 CMErlCmd=""
-ErlCookie=zt4Rw67f3
+ErlCookie=imem
 
 if [ $# == 2 ]; then
      cmNode=$2
