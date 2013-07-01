@@ -680,10 +680,11 @@ init(Params) ->
     ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
 
     % backup any existing snapshots and start new snapshoting
-    imem_snap:zip_snap({re, "*.bkp"}),
+    imem_snap:zip({re, "*.bkp"}),
     if SnapInterval > 0 -> erlang:send_after(SnapInterval, self(), snapshot); true -> ok end,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
+    file:make_dir(SnapshotDir),
     ?Log("SnapshotDir ~p~n", [SnapshotDir]),
     {ok,#state{snap_interval = SnapInterval, snapdir=SnapshotDir}}.
 
@@ -718,19 +719,9 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
                 LastSnapTime = timestamp(St),
                 if 
                     LastSnapTime < LastWriteTime ->
-                        %if T =:= ddTable -> io:format(user, "snap ~p timestamps ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]); true -> ok end,
-                        mnesia:transaction(fun() ->
-                                        Rows = mnesia:select(T, [{'$1', [], ['$1']}], write),
-                                        BackFile = filename:join([SnapDir, atom_to_list(T)++".bkp"]),
-                                        NewBackFile = filename:join([SnapDir, atom_to_list(T)++".bkp.new"]),
-                                        ok = file:write_file(NewBackFile, term_to_binary(Rows)),
-                                        {ok, _} = file:copy(NewBackFile, BackFile),
-                                        ?Log("snap ~p -> ~p~n", [T, BackFile]),
-                                        ok = file:delete(NewBackFile)
-                                       end),
+                        ?Log("~s", [imem_snap:take(T)]),
                         true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
                     true -> 
-                        %if T =:= ddTable -> io:format(user, "nosnap ~p timestamps ~p ~p~n", [T, {LastWriteTime, LastSnapTime}, {Wt, St}]); true -> ok end,
                         ok % no backup needed
                 end
         end
