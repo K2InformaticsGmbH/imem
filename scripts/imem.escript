@@ -47,11 +47,21 @@ cmd(Node, ["snap", "zip", OptTables]) ->
     ?P(rpc:call(Node, imem_snap, zip, [{files, OptTables}], ?TIMEOUT));
 
 % restore from snap
-cmd(Node, ["snap", "restore", "zip", "simulate", FileNameWithPath | OptTables]) ->
-    RR = rpc:call(Node, imem_snap, restore, [zip, FileNameWithPath, OptTables, replace, true], ?TIMEOUT),
+cmd(Node, ["snap", "restore", "zip", Type, FileNameWithPath | OptTables]) when
+    Type /= "simulate";
+    Type /= "destroy";
+    Type /= "replace";
+    Type /= "none" ->
+    Simulate = (if Type =:= "simulate" -> true; true -> false end),
+    RR = rpc:call(Node, imem_snap, restore, [zip, FileNameWithPath, OptTables, replace, Simulate], ?TIMEOUT),
     ?P(rpc:call(Node, imem_snap, format, [{restore,RR}], ?TIMEOUT));
-cmd(Node, ["snap", "restore", "bkp", "simulate" | OptTables]) ->
-    RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, replace, true], ?TIMEOUT),
+cmd(Node, ["snap", "restore", "bkp", Type | OptTables]) when
+    Type /= "simulate";
+    Type /= "destroy";
+    Type /= "replace";
+    Type /= "none" ->
+    Simulate = (if Type =:= "simulate" -> true; true -> false end),
+    RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, replace, Simulate], ?TIMEOUT),
     ?P(rpc:call(Node, imem_snap, format, [{restore,RR}], ?TIMEOUT));
 
 cmd(Node, ["snap", "restore", "zip" | ZipArgs]) -> cmd(Node, ["snap", "restore", "destroy", "zip" | ZipArgs]);
