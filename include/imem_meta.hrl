@@ -5,6 +5,10 @@
 -define(LOG_TABLE,ddLog_86400@).                    %% 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 1 Day
 
+-define(GET_IMEM_CONFIG(__PName,__Context,__Default),
+        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},lists:flatten([__Context,node()]),__Default)
+       ).
+
 -type ddEntityId() :: 	reference() | integer() | atom().
 -type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 
