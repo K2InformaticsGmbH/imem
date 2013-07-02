@@ -7,12 +7,12 @@ ErlCookie=imem
 if [ $# == 2 ]; then
      cmNode=$2
      if [ $1 == $2 ]; then
-         CMErlCmd="erl -name CM@$2 -pa $Pa -setcookie $ErlCookie -detached"
+         CMErlCmd="erl -sname CM@$2 -pa $Pa -setcookie $ErlCookie -detached"
          eval $CMErlCmd
      fi
  else
      echo "Starting CM on same machine"
-     CMErlCmd="erl -name CM@$1 -pa $Pa -setcookie $ErlCookie -detached"
+     CMErlCmd="erl -sname CM@$1 -pa $Pa -setcookie $ErlCookie -detached"
      eval $CMErlCmd
  fi
 
@@ -20,7 +20,7 @@ echo "CM on $cmNode"
 
 Opts="-pa deps/*/ebin -setcookie $ErlCookie -env ERL_MAX_ETS_TABLES 10000 -s imem start -imem start_monitor true -imem erl_cluster_mgr 'CM@$cmNode'"
 
-start //MAX werl.exe -name M@$1 -pa $Pa $Opts
+start //MAX werl.exe -sname imem@$1 -pa $Pa $Opts
 
 # Cmd="gnome-terminal \
 #     --tab -e \"$CMErlCmd\" \
