@@ -24,13 +24,12 @@
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
--define(MONITOR_CYCLE_WAIT, 2000). 
--define(GET_MONITOR_CYCLE_WAIT,get_config_hlk(?CONFIG_TABLE,{?MODULE,monitorCycleWait},[node()],?MONITOR_CYCLE_WAIT)).
-
--define(PURGE_CYCLE_WAIT, 10000).
--define(GET_PURGE_CYCLE_WAIT,get_config_hlk(?CONFIG_TABLE,{?MODULE,purgeCycleWait},[node()],?PURGE_CYCLE_WAIT)).
--define(PURGE_ITEM_WAIT, 10).
--define(GET_PURGE_ITEM_WAIT,get_config_hlk(?CONFIG_TABLE,{?MODULE,purgeItemWait},[node()],?PURGE_ITEM_WAIT)).
+-define(GET_IMEM_CONFIG(__PName,__Context,__Default),
+        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},lists:flatten([__Context,node()]),__Default)
+       ).
+-define(GET_MONITOR_CYCLE_WAIT,?GET_IMEM_CONFIG(monitorCycleWait,[],2000)).
+-define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],10000)).
+-define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).
 
 -include("imem_meta.hrl").
 
@@ -178,8 +177,8 @@ init(_Args) ->
         % check_table(dual),
         % check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
         % check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
-        erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
-        erlang:send_after(?MONITOR_CYCLE_WAIT, self(), monitor_loop),
+        erlang:send_after(10000, self(), purge_partitioned_tables),
+        erlang:send_after(2000, self(), monitor_loop),
         ?Log("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -252,7 +251,7 @@ handle_info(monitor_loop, State) ->
             monitor(),
             erlang:send_after(MCW, self(), monitor_loop);
         _ ->
-            erlang:send_after(?MONITOR_CYCLE_WAIT, self(), monitor_loop)
+            erlang:send_after(2000, self(), monitor_loop)
     end,        
     {noreply, State};
 handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
@@ -267,7 +266,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
                 PL ->   handle_info({purge_partitioned_tables, PCW, ?GET_PURGE_ITEM_WAIT}, State#state{purgeList=PL})   
             end;
         _ ->  
-            erlang:send_after(?PURGE_CYCLE_WAIT, self(), purge_partitioned_tables),
+            erlang:send_after(10000, self(), purge_partitioned_tables),
             {noreply, State}
     end;
 handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#state{purgeList=[Tab|Rest]}) ->
