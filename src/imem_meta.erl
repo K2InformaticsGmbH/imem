@@ -24,9 +24,6 @@
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
--define(GET_IMEM_CONFIG(__PName,__Context,__Default),
-        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},lists:flatten([__Context,node()]),__Default)
-       ).
 -define(GET_MONITOR_CYCLE_WAIT,?GET_IMEM_CONFIG(monitorCycleWait,[],2000)).
 -define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],10000)).
 -define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).

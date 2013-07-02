@@ -255,14 +255,14 @@ create_table(Table, Opts) when is_atom(Table) ->
     Now = erlang:now(),
     case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
-            ?Log("table ~p locally exists~n", [Table]),
+            % ?Log("table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
             true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, Node}} ->
-            ?Log("table ~p exists at ~p~n", [Table, Node]),
+            % ?Log("table ~p exists at ~p~n", [Table, Node]),
             case mnesia:force_load_table(Table) of
                 yes -> ok;
                 Error -> ?ClientErrorNoLogging({"Loading table(s) timeout~p", Error})
@@ -271,7 +271,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result ->
-            ?Log("create_table ~p for ~p~n", [Result, Table]),
+            % ?Log("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
             true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             return_atomic_ok(Result)
