@@ -19,7 +19,9 @@ main(_) ->
 % help
 cmd(_, []) ->
     % print usage
-    ?P("~nThis command helps to take backup of in memory IMEM tables.~n"),
+    ?P("~nThe command ~s supports two classes of sub commands 'snap' and 'log'.~n", [?SCRIPT]),
+    ?P("~n'log' helps to manage lager interface if used my host application.~n"),
+    ?P("~n'snap' helps to take backup of in memory IMEM tables.~n"),
     ?P("A .bkp file is created for a regular backup in the snapshot~n"),
     ?P("folder as configured for the installed rpm. The existing or~n"),
     ?P("or a subset of .bkp files can also be bundled into a .zip file.~n"),
@@ -27,7 +29,9 @@ cmd(_, []) ->
     ?P("Tables data can also be restored from these .bkp and .zip files~n"),
     ?P("using extensive 'restore' command with various option.~n"),
     ?P("See the Examples section below the usage for some usecases.~n"),
-    ?P("~nUsage: ~s snap info [zip]~n", [?SCRIPT]),
+    ?P("~nUsage:"),
+    ?P("~n       ~s log [id] [level]~n", [?SCRIPT]),
+    ?P("~n       ~s snap info [zip]~n", [?SCRIPT]),
     ?P("       ~*s      take [_regex1_, _regex2_ ...]~n", ?PADARG),
     ?P("       ~*s      zip [re _pattern_]~n", ?PADARG),
     ?P("       ~*s          [table_name1, ...]~n", ?PADARG),
@@ -45,48 +49,114 @@ cmd(_, []) ->
     ?P("            table are added/appended.~n"),
     ?P("'none'      no delete or replace, only new rows are added/appended.~n"),
     ?P("~nExamples:~n"),
-    ?P("    list information about the current .bkp files~n"),
-    ?P("    ~*s info~n", ?PADARG),
+    ?P("    get lager active handler - loglevel list~n"),
+    ?P("    ~*s log~n", ?PADARG),
+    ?P("    set lager loglevel to handler id as given by handler list~n"),
+    ?P("    ~*s log 1 debug~n", ?PADARG),
+    ?P("~n    list information about the current .bkp files~n"),
+    ?P("    ~*s snap info~n", ?PADARG),
     ?P("    list information about the current .zip files~n"),
-    ?P("    ~*s info zip~n", ?PADARG),
+    ?P("    ~*s snap info zip~n", ?PADARG),
     ?P("~n    create .bkp files for all tables in IMEM DB~n"),
-    ?P("    ~*s take~n", ?PADARG),
+    ?P("    ~*s snap take~n", ?PADARG),
     ?P("    create .bkp files for tables table1 table2 etc~n"),
-    ?P("    ~*s take table1 table2~n", ?PADARG),
+    ?P("    ~*s snap take table1 table2~n", ?PADARG),
     ?P("    create .bkp files for tables matching table name patterns~n"),
     ?P("    tab.* and tbl.*~n"),
-    ?P("    ~*s take tab.* tbl.*~n", ?PADARG),
+    ?P("    ~*s snap take tab.* tbl.*~n", ?PADARG),
     ?P("~n    bundle all .bkp to .zip~n"),
-    ?P("    ~*s zip~n", ?PADARG),
+    ?P("    ~*s snap zip~n", ?PADARG),
     ?P("    bundle table1.bkp, table2.bkp files to .zip~n"),
-    ?P("    ~*s zip table1 table2~n", ?PADARG),
+    ?P("    ~*s snap zip table1 table2~n", ?PADARG),
     ?P("    bundle .bkp files matching name pattern tab.* to .zip~n"),
-    ?P("    ~*s zip re tab.*~n", ?PADARG),
+    ?P("    ~*s snap zip re tab.*~n", ?PADARG),
     ?P("~n    simulate restore of all bkp files into IMEM DB~n"),
-    ?P("    ~*s restore bkp simulate~n", ?PADARG),
+    ?P("    ~*s snap restore bkp simulate~n", ?PADARG),
     ?P("    simulate restore all from snapshot_YYYYMMDD_HHMMSS.mmm.zip~n"),
-    ?P("    ~*s restore zip simulate snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
+    ?P("    ~*s snap restore zip simulate snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
     ?P("    restore all .bkp files into IMEM DB~n"),
-    ?P("    ~*s restore bkp destroy~n", ?PADARG),
+    ?P("    ~*s snap restore bkp destroy~n", ?PADARG),
     ?P("    restore of tabel1.bkp into IMEM DB~n"),
-    ?P("    ~*s restore bkp destroy table1~n", ?PADARG),
-    ?P("    replace-appned from tabel1.bkp into IMEM DB~n"),
-    ?P("    ~*s restore bkp replace table1~n", ?PADARG),
-    ?P("    only appned new rows from tabel1.bkp into IMEM DB~n"),
-    ?P("    ~*s restore bkp none table1~n", ?PADARG),
+    ?P("    ~*s snap restore bkp destroy table1~n", ?PADARG),
+    ?P("    replace-appned from tabel1.bkp~n"),
+    ?P("    ~*s snap restore bkp replace table1~n", ?PADARG),
+    ?P("    only appned new rows from tabel1.bkp~n"),
+    ?P("    ~*s snap restore bkp none table1~n", ?PADARG),
     ?P("    restore all from .zip~n"),
-    ?P("    ~*s restore zip destroy snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
+    ?P("    ~*s snap restore zip destroy snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
     ?P("    replace-appned all tables from .zip~n"),
-    ?P("    ~*s restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
+    ?P("    ~*s snap restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
     ?P("    only appned new rows of all tables from .zip~n"),
-    ?P("    ~*s restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
+    ?P("    ~*s snap restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip~n", ?PADARG),
     ?P("    restore tabe1, table2 from .zip~n"),
-    ?P("    ~*s restore zip destroy snapshot_YYYYMMDD_HHMMSS.mmm.zip table1 table2~n", ?PADARG),
+    ?P("    ~*s snap restore zip destroy snapshot_YYYYMMDD_HHMMSS.mmm.zip table1 table2~n", ?PADARG),
     ?P("    replace and appned rows of tabe1 and table2 from .zip~n"),
-    ?P("    ~*s restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip tabe1 and table2~n", ?PADARG),
+    ?P("    ~*s snap restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip tabe1 and table2~n", ?PADARG),
     ?P("    only appned new rows of tabe1 and table2 from .zip~n"),
-    ?P("    ~*s restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip tabe1 and table2~n", ?PADARG),
+    ?P("    ~*s snap restore zip replace snapshot_YYYYMMDD_HHMMSS.mmm.zip tabe1 and table2~n", ?PADARG),
     ?P("~n");
+
+% lager
+cmd(Node, ["log"]) ->
+    ?P(lists:flatten(
+        case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
+            {badrpc, Error} -> io_lib:format("~p~n",[Error]);
+            Handlers ->
+                HndlNameLen = lists:max([length(lists:flatten(io_lib:format("~p", [H]))) || H <-  Handlers]),
+                Header = lists:flatten(io_lib:format("index ~*s level~n", [-HndlNameLen, "handler"])),
+                Seperator = lists:duplicate(length(Header), $-),
+                [
+                    io_lib:format(Seperator++"~n", []),
+                    io_lib:format(Header, []),
+                    io_lib:format(Seperator++"~n", []),
+                    [io_lib:format("~*B ~*s ~p~n",
+                                  [-5,N, -HndlNameLen, lists:flatten(io_lib:format("~p", [H])), rpc:call(Node, lager, get_loglevel, [H], ?TIMEOUT)]
+                                  )
+                    || {N,H} <- lists:zip(lists:seq(1,length(Handlers)), Handlers)],
+                    io_lib:format(Seperator++"~n", [])
+                ]
+        end
+    ));
+cmd(Node, ["log", Id]) ->
+    ?P(lists:flatten(
+        case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
+            {badrpc, Error} -> io_lib:format("~p~n",[Error]);
+            Handlers ->
+                case lists:nth(list_to_integer(Id), Handlers) of
+                    {'EXIT', Error} -> io_lib:format("~p~n",[Error]);
+                    H ->
+                        HndlNameLen = length(lists:flatten(io_lib:format("~p", [H]))),
+                        Header = lists:flatten(io_lib:format("index ~*s level~n", [-HndlNameLen, "handler"])),
+                        Seperator = lists:duplicate(length(Header), $-),
+                        [
+                            io_lib:format(Seperator++"~n", []),
+                            io_lib:format(Header, []),
+                            io_lib:format(Seperator++"~n", []),
+                            io_lib:format("~*B ~*s ~p~n",
+                                          [-5,list_to_integer(Id), -HndlNameLen
+                                          , lists:flatten(io_lib:format("~p", [H])), rpc:call(Node, lager, get_loglevel, [H], ?TIMEOUT)
+                                          ]),
+                            io_lib:format(Seperator++"~n", [])
+                        ]
+                end
+        end
+    ));
+cmd(Node, ["log", Id, Val]) when  Val =:= "debug"
+                                ; Val =:= "info"
+                                ; Val =:= "error"
+                                ; Val =:= "none" ->
+    ?P(lists:flatten(
+        case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
+            {badrpc, Error} -> io_lib:format("~p~n",[Error]);
+            Handlers ->
+                case lists:nth(list_to_integer(Id), Handlers) of
+                    {'EXIT', Error} -> io_lib:format("~p~n",[Error]);
+                    H ->
+                        io_lib:format("~p ~p~n", [lists:flatten(io_lib:format("~p", [H]))
+                                            , rpc:call(Node, lager, set_loglevel, [H, list_to_atom(Val)], ?TIMEOUT)])
+                end
+        end
+    ));
 
 % print snap info
 cmd(Node, ["snap", "info"]) ->
@@ -151,7 +221,7 @@ start_distribution(NodeName, Cookie) ->
             ok;
         {_, pang} ->
             io:format("Node ~p not responding to pings.\n", [TargetNode]),
-            init:stop(1)
+            halt(1)
     end,
     TargetNode.
 
