@@ -2,7 +2,7 @@
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
-. "/opt/dderl/lib/dderl/lib/env.sh"
+. "{{runner_base_dir}}/lib/env.sh"
 
 # Make sure the user running this script is the owner and/or su to that user
 check_user $@
