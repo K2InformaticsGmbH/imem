@@ -313,7 +313,7 @@ db_test_() ->
 
 test_snapshot(_) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    ?Log("snapshots :~n~s", [snapshot(all)]),
+    ?Log("snapshots :~n~s", [take([all])]),
     ?assertEqual(?TABLES, ?FILENAMES("*"++?BKP_EXTN, SnapDir)),
     ?EMPTY_DIR(SnapDir),
     ?Log("snapshot tests complted!~n", []).
