@@ -261,8 +261,8 @@ create_table(Table, Opts) when is_atom(Table) ->
             wait_table_tries([Table], Conf),
             true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
-        {aborted, {already_exists, Table, Node}} ->
-            % ?Log("table ~p exists at ~p~n", [Table, Node]),
+        {aborted, {already_exists, Table, _Node}} ->
+            % ?Log("table ~p exists at ~p~n", [Table, _Node]),
             case mnesia:force_load_table(Table) of
                 yes -> ok;
                 Error -> ?ClientErrorNoLogging({"Loading table(s) timeout~p", Error})
