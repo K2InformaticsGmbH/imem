@@ -217,9 +217,7 @@ restore(bkp, [_T|_] = Tabs, Strategy, Simulate) when is_list(_T) ->
     end)()
     || Tab <- Tabs].
 
-restore(zip, ZFile, TabRegEx, Strategy, Simulate) when is_list(ZFile) ->
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    ZipFile = filename:join([SnapDir, ZFile]),
+restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
             case zip:foldl(fun(File, _, GBin, Acc) ->
@@ -296,7 +294,7 @@ setup() ->
     application:set_env(imem, mnesia_node_type, ram),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     imem:start(),
-    ?EMPTY_DIR(SnapDir),
+    _ = ?EMPTY_DIR(SnapDir),
     ?Log("after deleteing files ~p~n", [?FILENAMES("*.*", SnapDir)]).
 
 teardown(_) ->
@@ -315,7 +313,7 @@ test_snapshot(_) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     ?Log("snapshots :~n~s", [take([all])]),
     ?assertEqual(?TABLES, ?FILENAMES("*"++?BKP_EXTN, SnapDir)),
-    ?EMPTY_DIR(SnapDir),
+    _ = ?EMPTY_DIR(SnapDir),
     ?Log("snapshot tests complted!~n", []).
 
 -endif.
