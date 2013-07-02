@@ -10,7 +10,7 @@
                     , fguard = true               ::tuple()|true      %% condition tree for filtering scan results
                     , mbinds = []                 ::list()            %% map for binding the filter guard to meta values
                     , fbinds = []              	  ::list()      		  %% map for binding the filter guard to main fields
-                    , limit = 10000               ::integer()         %% limit the total number or returned rows approximately
+                    , limit = undefined           ::integer()         %% limit the total number or returned rows approximately
                     }).
 
 

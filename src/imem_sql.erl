@@ -7,6 +7,8 @@
         , parse/1
         ]).
 
+-define(GET_ROWNUM_LIMIT,?GET_IMEM_CONFIG(rownumDefaultLimit,[],10000)).
+
 -define(MaxChar,16#FFFFFF).
 
 -export([ field_qname/1
@@ -361,11 +363,11 @@ simplify_once(Result) ->                Result.
 
 create_scan_spec(_Tmax,Ti,FullMap,[]) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
-    #scanSpec{sspec=[{MatchHead, [], ['$_']}]};
+    #scanSpec{sspec=[{MatchHead, [], ['$_']}], limit=?GET_ROWNUM_LIMIT};
 create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
     % ?Log("SGuard0 ~p~n", [SGuard0]),
     Limit = case operand_match(rownum,SGuard0) of
-        false ->  #scanSpec{}#scanSpec.limit;
+        false ->  ?GET_ROWNUM_LIMIT;            % #scanSpec{}#scanSpec.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
         {'=<',rownum,L} when is_integer(L) ->   L;
         {'>',L,rownum} when is_integer(L) ->    L-1;

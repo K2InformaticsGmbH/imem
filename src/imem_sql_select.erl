@@ -4,9 +4,10 @@
 -include("imem_sql.hrl").
 
 -define(DefaultRendering, str ).         %% gui (strings when necessary) | str (always strings) | raw (erlang terms) 
--define(DefaultDateFormat, eu ).         %% eu | us | iso | raw
--define(DefaultStrFormat, []).           %% escaping not implemented
--define(DefaultNumFormat, [{prec,2}]).   %% prec, no 
+
+-define(GET_DATE_FORMAT(__IsSec),?GET_IMEM_CONFIG(dateFormat,[__IsSec],eu)).            %% eu | us | iso | raw
+-define(GET_NUM_FORMAT(__IsSec),?GET_IMEM_CONFIG(numberFormat,[__IsSec],{prec,2})).     %% not used yet
+-define(GET_STR_FORMAT(__IsSec),?GET_IMEM_CONFIG(stringFormat,[__IsSec],[])).           %% not used yet
 
 -export([ exec/5
         ]).
@@ -36,7 +37,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     % ?Log("Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
-        str ->  imem_datatype:select_rowfun_str(ColMaps1, ?DefaultDateFormat, ?DefaultNumFormat, ?DefaultStrFormat)
+        str ->  imem_datatype:select_rowfun_str(ColMaps1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
         {_, WT} ->  WT;

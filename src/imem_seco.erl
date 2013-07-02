@@ -2,8 +2,7 @@
 
 -include("imem_seco.hrl").
 
--define(PASSWORD_VALIDITY,100).
--define(GET_PASSWORD_VALIDITY,imem_meta:get_config_hlk(?CONFIG_TABLE,{?MODULE,passwordValidity},[node()],?PASSWORD_VALIDITY)).
+-define(GET_PASSWORD_LIFE_TIME(__AccountId),?GET_IMEM_CONFIG(passwordLifeTime,[__AccountId],100)).
 
 -behavior(gen_server).
 
@@ -396,7 +395,7 @@ login(SKey) ->
     #ddSeCo{accountId=AccountId, authMethod=AuthenticationMethod} = SeCo = seco_authenticated(SKey),
     LocalTime = calendar:local_time(),
     PwdExpireSecs = calendar:datetime_to_gregorian_seconds(LocalTime),
-    PwdExpireDate = case ?GET_PASSWORD_VALIDITY of
+    PwdExpireDate = case ?GET_PASSWORD_LIFE_TIME(AccountId) of
         infinity -> 0;
         PVal ->     calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*PVal)
     end,
