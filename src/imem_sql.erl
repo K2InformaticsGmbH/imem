@@ -556,14 +556,17 @@ sort_order({Cp,Direction},FullMaps,ColMaps) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position    
     #ddColMap{schema=S,table=T,name=N} = lists:nth(Cp,ColMaps),
     {sort_name_short({S,T,N},FullMaps,ColMaps),Direction};
-sort_order({CName,Direction},FullMaps,ColMaps) ->
-    %% SortSpec given referencing FullMap alias    
-    case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
-        #ddColMap{schema=S,table=T,name=N} ->
-            {sort_name_short({S,T,N},FullMaps,ColMaps),Direction};
-        _ -> 
-            ?ClientError({"Bad sort field name", CName})
-    end.
+sort_order({CName,Direction},_,_) ->
+    {CName,Direction}.
+    
+% sort_order({CName,Direction},FullMaps,ColMaps) ->
+%     %% SortSpec given referencing FullMap alias    
+%     case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
+%         #ddColMap{schema=S,table=T,name=N} ->
+%             {sort_name_short({S,T,N},FullMaps,ColMaps),Direction};
+%         _ -> 
+%             ?ClientError({"Bad sort field name", CName})
+%     end.
 
 sort_name_short({_S,T,N},FullMaps,_ColMaps) ->
     case length(lists:usort([{Su,Tu,Nu} || #ddColMap{schema=Su,table=Tu,name=Nu} <- FullMaps, Nu==N])) of
@@ -595,7 +598,7 @@ sort_fun_any({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
 sort_fun_any({CName,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap alias    
     case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
-        #ddColMap{tind=Ti,cind=Ci,type=Type} ->
+        {value,#ddColMap{tind=Ti,cind=Ci,type=Type}} ->
             % ?Log("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
             sort_fun(Type,Ti,Ci,Direction);
         Else ->     
@@ -860,9 +863,9 @@ test_with_or_without_sec(IsSec) ->
         ?Log("success ~p~n", [empty_select_columns]),
 
 
-        ColsF =     [ #ddColMap{tag="A", tind=1, cind=1, schema='Imem', table=meta_table_1, name=a, type=integer}
-                    , #ddColMap{tag="B", tind=1, cind=2, table=meta_table_1, name=b1, type=string}
-                    , #ddColMap{tag="C", tind=1, cind=3, name=c1, type=ipaddr}
+        ColsF =     [ #ddColMap{tag="A", tind=1, cind=1, schema='Imem', table=meta_table_1, name=a, type=integer, alias= <<"a">>}
+                    , #ddColMap{tag="B", tind=1, cind=2, table=meta_table_1, name=b1, type=string, alias= <<"b1">>}
+                    , #ddColMap{tag="C", tind=1, cind=3, name=c1, type=ipaddr, alias= <<"c1">>}
                     ],
 
         ?assertEqual([], filter_spec_where(?NoFilter, ColsF, [])),
@@ -891,11 +894,17 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([OC], sort_spec_order([SC], ColsF, ColsF)),
         ?assertEqual([OC,OA], sort_spec_order([SC,SA], ColsF, ColsF)),
         ?assertEqual([OB,OC,OA], sort_spec_order([SB,SC,SA], ColsF, ColsF)),
+
+        ?assertEqual([OC], sort_spec_order([OC], ColsF, ColsF)),
+        ?assertEqual([OC,OA], sort_spec_order([OC,SA], ColsF, ColsF)),
+        ?assertEqual([OC,OA], sort_spec_order([SC,OA], ColsF, ColsF)),
+        ?assertEqual([OB,OC,OA], sort_spec_order([OB,OC,OA], ColsF, ColsF)),
+
         ?Log("success ~p~n", [sort_spec_order]),
 
-        ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
-                    , #ddColMap{tag="A2", table=meta_table_1, name=b1}
-                    , #ddColMap{tag="A3", name=c1}
+        ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a, alias= <<"a">>}
+                    , #ddColMap{tag="A2", table=meta_table_1, name=b1, alias= <<"b1">>}
+                    , #ddColMap{tag="A3", name=c1, alias= <<"c1">>}
                     ],
 
         ?assertException(throw, {ClEr,{"Empty table list", _}}, column_map([], ColsA)),
