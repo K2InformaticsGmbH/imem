@@ -1,4 +1,4 @@
-
+-include("imem.hrl").
 -include("imem_meta.hrl").
 
 -type ddIdentity() :: binary().                 %% Account name

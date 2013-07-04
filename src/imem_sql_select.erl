@@ -22,7 +22,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
                         end;
         TError ->       ?ClientError({"Invalid from in select structure", TError})
     end,
-    % ?Log("Tables: ~p~n", [Tables]),
+    % ?Debug("Tables: ~p~n", [Tables]),
     ColMaps0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql:column_map(Tables,[]);
@@ -32,9 +32,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             ?ClientError({"Invalid select structure", CError})
     end,
     ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
-    % ?Log("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
+    % ?Debug("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
-    % ?Log("Statement rows: ~p~n", [StmtCols]),
+    % ?Debug("Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
         str ->  imem_datatype:select_rowfun_str(ColMaps1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
@@ -43,26 +43,26 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         {_, WT} ->  WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
-    % ?Log("WhereTree ~p~n", [WhereTree]),
+    % ?Debug("WhereTree ~p~n", [WhereTree]),
     MetaTabIdx = length(Tables) + 1,
     MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps1, C#ddColMap.tind==MetaTabIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
-    % ?Log("MetaFields: ~p~n", [MetaFields]),
+    % ?Debug("MetaFields: ~p~n", [MetaFields]),
     RawMap = case MetaFields1 of
         [] ->   
             imem_sql:column_map(Tables,[]);
         MF ->   
-            % ?Log("MetaFields (~p)~n~p~n", [length(MF),MF]),
+            % ?Debug("MetaFields (~p)~n~p~n", [length(MF),MF]),
             MetaMap0 = [{#ddColMap{name=N,tind=MetaTabIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
             MetaMap1 = [CM#ddColMap{type=T,len=L,prec=P} || {CM,#ddColumn{type=T, len=L, prec=P}} <- MetaMap0],
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    % ?Log("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
+    % ?Debug("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
-    % ?Log("MainSpec  : ~p~n", [MainSpec]),
+    % ?Debug("MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    %?Log("JoinSpecs: ~p~n", [JoinSpecs]),
+    %?Debug("JoinSpecs: ~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
     SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
     Statement = Stmt#statement{
@@ -102,11 +102,11 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
 
 query_guards(_SKey,_Tmax,_Ti,[],_FullMap) -> [];
 query_guards(SKey,Tmax,Ti,WhereTree,FullMap) ->
-    % ?Log("WhereTree  : ~p~n", [WhereTree]),
+    % ?Debug("WhereTree  : ~p~n", [WhereTree]),
     Walked = tree_walk(SKey,Tmax,Ti,WhereTree,FullMap),
-    % ?Log("Walked     : ~p~n", [Walked]),
+    % ?Debug("Walked     : ~p~n", [Walked]),
     Simplified = imem_sql:simplify_guard(Walked), 
-    % ?Log("Simplified : ~p~n", [Simplified]),
+    % ?Debug("Simplified : ~p~n", [Simplified]),
     [Simplified].
 
 tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
@@ -131,9 +131,9 @@ tree_walk(SKey,Tmax,Ti,{'>=',A,B},FullMap) ->
 tree_walk(SKey,Tmax,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
     in_condition(SKey,Tmax,Ti,A,InList,FullMap);
 tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
-    % ?Log("Function Arg: ~p~n", [P1]),
+    % ?Debug("Function Arg: ~p~n", [P1]),
     Arg = tree_walk(SKey,Tmax,Ti,P1,FullMap),
-    % ?Log("Unary function Arg: ~p~n", [Arg]),
+    % ?Debug("Unary function Arg: ~p~n", [Arg]),
     {F,Arg};                 %% F = unary function like abs | is_list | to_atom
 tree_walk(SKey,Tmax,Ti,{'fun',is_member,[P1,P2]},FullMap) ->
     condition(SKey,Tmax,Ti,is_member,P1,P2,FullMap); 
@@ -142,7 +142,7 @@ tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) ->
 tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)};
 tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
-    ?Log("tree_walk expression lookup Expr: ~p~n", [Expr]),
+    ?Debug("tree_walk expression lookup Expr: ~p~n", [Expr]),
     case expr_lookup(SKey,Tmax,Ti,Expr,FullMap) of
         {0,V1,integer,_,_,_,_} ->   field_value(0,integer,0,0,?nav,V1);   
         {0,V2,float,_,_,_,_} ->     field_value(0,float,0,0,?nav,V2);     
@@ -158,16 +158,16 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
         catch
             throw:{'JoinEvent','join_condition'} -> true;
             _:Reason2 ->
-                ?Log("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-                ?Log("Failing expression B: ~p~n", [B]),
+                ?Debug("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+                ?Debug("Failing expression B: ~p~n", [B]),
                 throw(Reason2)
         end,
         compguard(Tmax,Ti,OP,ExA,ExB)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason1 ->
-            ?Log("Failing expression lookup in Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-            ?Log("Failing expression A: ~p~n", [A]),
+            ?Debug("Failing expression lookup in Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+            ?Debug("Failing expression A: ~p~n", [A]),
             throw(Reason1)
     end.
 
@@ -178,14 +178,14 @@ compguard(Tmax,Ti,OP,ExA,ExB) ->
         true ->                                 {reverse(OP),ExB,ExA}
     end,
     try 
-        % ?Log("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
+        % ?Debug("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
         compg(Tmax,Ti,O,A,B)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason ->
-            ?Log("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,O]),
-            ?Log("Failing condition A: ~p~n", [A]),
-            ?Log("Failing condition B: ~p~n", [B]),
+            ?Debug("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,O]),
+            ?Debug("Failing condition A: ~p~n", [A]),
+            ?Debug("Failing condition B: ~p~n", [B]),
             throw(Reason)
     end.
 
@@ -268,7 +268,7 @@ field_lookup(Name,FullMap) ->
 expr_lookup(_SKey,_Tmax,_Ti,A,FullMap) when is_binary(A)->
     field_lookup(A,FullMap);
 expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
-    % ?Log("expr_lookup {'fun',F,[Param]}: ~p ~p ~p ~p~n", [Tmax,Ti,F,Param]),
+    % ?Debug("expr_lookup {'fun',F,[Param]}: ~p ~p ~p ~p~n", [Tmax,Ti,F,Param]),
     {Ta,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
     case {Ta,F,T} of
         {0,to_integer,integer} ->   {Ta,A,integer,L,P,D,AN};
@@ -303,11 +303,11 @@ expr_lookup(SKey,Tmax,Ti,{'fun','element'=F,[P1,P2]},FullMap) ->  %% F = binary 
     {Tb,{F,A,B},term,0,0,0,BN};          
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
     EA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
-    % ?Log("expr_lookup Tmax,Ti,A:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,A,EA]),
+    % ?Debug("expr_lookup Tmax,Ti,A:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,A,EA]),
     EB = expr_lookup(SKey,Tmax,Ti,B,FullMap),
-    % ?Log("expr_lookup Tmax,Ti,B:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,B,EB]),
+    % ?Debug("expr_lookup Tmax,Ti,B:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,B,EB]),
     Res = exprguard(Tmax,Ti,OP,EA,EB),
-    % ?Log("exprguard Tmax,Ti,OP,EA,EB~n~p ~p ~p ~p ~p -> Result:~n ~p~n", [Tmax,Ti,OP,EA,EB,Res]),
+    % ?Debug("exprguard Tmax,Ti,OP,EA,EB~n~p ~p ~p ~p ~p -> Result:~n ~p~n", [Tmax,Ti,OP,EA,EB,Res]),
     Res.
 exprguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1, A=<Tm; B>1,B=<Tm -> throw({'JoinEvent','join_condition'});
 exprguard(_ ,1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           

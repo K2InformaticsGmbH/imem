@@ -58,7 +58,7 @@ start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init(_Args) ->
-    ?Log("~p starting...~n", [?MODULE]),
+    ?Info("~p starting...~n", [?MODULE]),
     Result = try %% try creating system tables, may fail if they exist, then check existence 
         if_check_table(none, ddTable),
 
@@ -92,16 +92,16 @@ init(_Args) ->
         if_truncate_table(none,ddSeCo@),
         if_truncate_table(none,ddPerm@),
         if_truncate_table(none,ddQuota@),
-        ?Log("~p started!~n", [?MODULE]),
+        ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
-        Class:Reason -> ?Log("~p failed with ~p:~n~p~n", [?MODULE,Class,Reason]),
+        Class:Reason -> ?Error("~p failed with ~p:~n~p~n", [?MODULE,Class,Reason]),
                         {stop, "Insufficient resources for start"} 
     end,
     Result.
 
 handle_call({monitor, Pid}, _From, State) ->
-    %% ?Log("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
+    %% ?Debug("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
     {reply, erlang:monitor(process, Pid), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -112,11 +112,11 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, normal}, State) ->
-    % ?Log("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
+    % ?Debug("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
-    ?Log("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+    ?Debug("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info(_Info, State) ->
@@ -327,7 +327,7 @@ seco_delete(SKeyM, SKey) ->
     try 
         if_delete(SKeyM, ddSeCo@, SKey)
     catch
-        Class:Reason -> ?Log("~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, Class, Reason])
+        Class:Reason -> ?Debug("~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, Class, Reason])
     end.
 
 seco_perm_delete(_SKeyM, []) -> ok;
@@ -335,7 +335,7 @@ seco_perm_delete(SKeyM, [PKey|PKeys]) ->
     try
         if_delete(SKeyM, ddPerm@, PKey)
     catch
-        Class:Reason -> ?Log("~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, Class, Reason])
+        Class:Reason -> ?Debug("~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, Class, Reason])
     end,
     seco_perm_delete(SKeyM, PKeys).
 
@@ -412,7 +412,7 @@ login(SKey) ->
             SKey;            
         {[], _} ->                    
             logout(SKey),
-?Log("~n----------------------~n~p~n----------------------~n", [erlang:get_stacktrace()]),
+?Debug("~n----------------------~n~p~n----------------------~n", [erlang:get_stacktrace()]),
             ?SecurityException({"Invalid account credentials. Please retry", AccountId})
     end.
 
@@ -526,4 +526,3 @@ test(_) ->
     ok.
 
 -endif.
-

@@ -178,12 +178,12 @@ column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc)
 column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     Cols = imem_meta:column_infos({Schema,Table}),
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
-    % ?Log("column_map lookup ~p~n", [Lookup++L]),
-    % ?Log("column_map columns ~p~n", [Columns]),
+    % ?Debug("column_map lookup ~p~n", [Lookup++L]),
+    % ?Debug("column_map columns ~p~n", [Columns]),
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Log("column_map 1 ~p~n", [Cmap0]),
+    % ?Debug("column_map 1 ~p~n", [Cmap0]),
     NameList = [N ||  {_, _, _, _, N, _} <- Lookup],
     NameDups = length(Lookup) - length(lists:usort(NameList)),
     Cmaps = case NameDups of
@@ -202,10 +202,10 @@ column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Col
     end,
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Log("column_map 2 ~p~n", [Cmap0]),
+    % ?Debug("column_map 2 ~p~n", [Cmap0]),
     column_map([], [Cmap0#ddColMap{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Log("column_map 3 ~p~n", [Cmap0]),
+    % ?Debug("column_map 3 ~p~n", [Cmap0]),
     Prefix = case imem_meta:schema() of
         Schema ->   atom_to_list(Table);
         _ ->        atom_to_list(Schema) ++ "." ++ atom_to_list(Table)
@@ -218,16 +218,16 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], 
             ],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Log("column_map 4 ~p~n", [Cmap0]),
+    % ?Debug("column_map 4 ~p~n", [Cmap0]),
     Pred = fun(L) ->
         (Name == element(5, L)) andalso
         ((Table == undefined) or (Table == element(4, L))) andalso
         ((Schema == undefined) or (Schema == element(3, L)))
     end,
     Lmatch = lists:filter(Pred, Lookup),
-    %% ?Log("column_map matching tables ~p~n", [Lmatch]),
+    %% ?Debug("column_map matching tables ~p~n", [Lmatch]),
     Tcount = length(lists:usort([{element(3, X), element(4, X)} || X <- Lmatch])),
-    %% ?Log("column_map matching table count ~p~n", [Tcount]),
+    %% ?Debug("column_map matching table count ~p~n", [Tcount]),
     MetaField = imem_meta:meta_field(Name),
     if 
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined) andalso MetaField ->
@@ -257,7 +257,7 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
 column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Log("column_map 5 ~p~n", [PTree]),
+    % ?Debug("column_map 5 ~p~n", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
@@ -267,7 +267,7 @@ column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) 
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;        
 column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Log("column_map 6 ~p~n", [PTree]),
+    % ?Debug("column_map 6 ~p~n", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
@@ -276,25 +276,25 @@ column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;                    
 column_map([], [{as, Name, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Log("column_map 7 ~p~n", [PTree]),
+    % ?Debug("column_map 7 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
-    % ?Log("column_map 8 ~p~n", [Name]),
+    % ?Debug("column_map 8 ~p~n", [Name]),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
-    % ?Log("column_map 9 ~p~n", [Expression]),
+    % ?Debug("column_map 9 ~p~n", [Expression]),
     ?UnimplementedException({"Expressions not supported", Expression});
 column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
     lists:reverse(Acc);
 column_map(Tables, Columns, Tmax, Lookup, Meta, Acc) ->
-    ?Log("column_map error Tables ~p~n", [Tables]),
-    ?Log("column_map error Columns ~p~n", [Columns]),
-    ?Log("column_map error Tmax ~p~n", [Tmax]),
-    ?Log("column_map error Lookup ~p~n", [Lookup]),
-    ?Log("column_map error Meta ~p~n", [Meta]),
-    ?Log("column_map error Acc ~p~n", [Acc]),
+    ?Debug("column_map error Tables ~p~n", [Tables]),
+    ?Debug("column_map error Columns ~p~n", [Columns]),
+    ?Debug("column_map error Tmax ~p~n", [Tmax]),
+    ?Debug("column_map error Lookup ~p~n", [Lookup]),
+    ?Debug("column_map error Meta ~p~n", [Meta]),
+    ?Debug("column_map error Acc ~p~n", [Acc]),
     ?ClientError({"Column map invalid parameter",{Tables,Columns}}).
 
 
@@ -366,7 +366,7 @@ create_scan_spec(_Tmax,Ti,FullMap,[]) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     #scanSpec{sspec=[{MatchHead, [], ['$_']}], limit=?GET_ROWNUM_LIMIT};
 create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
-    % ?Log("SGuard0 ~p~n", [SGuard0]),
+    % ?Debug("SGuard0 ~p~n", [SGuard0]),
     Limit = case operand_match(rownum,SGuard0) of
         false ->  ?GET_ROWNUM_LIMIT;            % #scanSpec{}#scanSpec.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
@@ -377,9 +377,9 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
-    % ?Log("MatchHead (~p) ~p~n", [Ti,MatchHead]),
+    % ?Debug("MatchHead (~p) ~p~n", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
-    % ?Log("SGuard1 ~p~n", [SGuard1]),
+    % ?Debug("SGuard1 ~p~n", [SGuard1]),
     {FGuard,SGuard2} = case operator_match('is_member',SGuard1) of
         false ->    case operator_match('nis_member',SGuard1) of
                         false ->    {true,SGuard1};   %% no filtering needed
@@ -388,13 +388,13 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
         F ->        {F,simplify_guard(replace_is_member(SGuard1))}
     end,
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
-    % ?Log("FGuard ~p~n", [FGuard]),
+    % ?Debug("FGuard ~p~n", [FGuard]),
     SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
-    % ?Log("SBinds ~p~n", [SBinds]),
+    % ?Debug("SBinds ~p~n", [SBinds]),
     MBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [FGuard],[]),
-    % ?Log("MBinds ~p~n", [MBinds]),
+    % ?Debug("MBinds ~p~n", [MBinds]),
     FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
-    % ?Log("FBinds ~p~n", [FBinds]),
+    % ?Debug("FBinds ~p~n", [FBinds]),
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
 
 operand_member(Tx,{_,R}) -> operand_member(Tx,R);
@@ -465,7 +465,7 @@ un_escape_sql(Bin) when is_binary(Bin) ->
 build_sort_fun(SelectSections,FullMap) ->
     case lists:keyfind('order by', 1, SelectSections) of
         {_, []} ->      fun(_X) -> {} end;
-        {_, Sorts} ->   % ?Log("Sorts  : ~p~n", [Sorts]),
+        {_, Sorts} ->   % ?Debug("Sorts  : ~p~n", [Sorts]),
                         SortFuns = [sort_fun_item(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
                         fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end;
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
@@ -474,7 +474,7 @@ build_sort_fun(SelectSections,FullMap) ->
 build_sort_spec(SelectSections,FullMaps,ColMaps) ->
     case lists:keyfind('order by', 1, SelectSections) of
         {_, []} ->      [];
-        {_, Sorts} ->   % ?Log("Sorts  : ~p~n", [Sorts]),
+        {_, Sorts} ->   % ?Debug("Sorts  : ~p~n", [Sorts]),
                         [sort_spec_item(Name,Direction,FullMaps,ColMaps) || {Name,Direction} <- Sorts];
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
     end.
@@ -601,13 +601,13 @@ sort_fun_any({Ti,Ci,Direction},FullMaps,_) ->
 sort_fun_any({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position
     #ddColMap{tind=Ti,cind=Ci,type=Type} = lists:nth(Cp,ColMaps),
-    % ?Log("sort on col position ~p Ti=~p Ci=~p ~p~n",[Cp,Ti,Ci,lists:nth(Cp,ColMaps)]),    
+    % ?Debug("sort on col position ~p Ti=~p Ci=~p ~p~n",[Cp,Ti,Ci,lists:nth(Cp,ColMaps)]),    
     sort_fun(Type,Ti,Ci,Direction);
 sort_fun_any({CName,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap alias    
     case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
         {value,#ddColMap{tind=Ti,cind=Ci,type=Type}} ->
-            % ?Log("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
+            % ?Debug("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
             sort_fun(Type,Ti,Ci,Direction);
         Else ->     
             ?ClientError({"Bad sort field", Else})
@@ -737,7 +737,7 @@ sort_fun(userid,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
 sort_fun(Type,_Ti,_Ci,<<"desc">>) ->
     ?SystemException({"Unsupported datatype for sort desc", Type});
 sort_fun(_Type,Ti,Ci,_) -> 
-    % ?Log("Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
+    % ?Debug("Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
     fun(X) -> pick(Ci,Ti,X) end.
 
 pick(Ci,Ti,X) -> pick(Ci,element(Ti,X)).

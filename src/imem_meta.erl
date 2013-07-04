@@ -28,6 +28,7 @@
 -define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],10000)).
 -define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).
 
+-include("imem.hrl").
 -include("imem_meta.hrl").
 
 -behavior(gen_server).
@@ -156,7 +157,7 @@ start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
 init(_Args) ->
-    ?Log("~p starting...~n", [?MODULE]),
+    ?Info("~p starting...~n", [?MODULE]),
     Result = try
         application:set_env(imem, node_shard, node_shard()),
         catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
@@ -177,10 +178,10 @@ init(_Args) ->
         % check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
         erlang:send_after(10000, self(), purge_partitioned_tables),
         erlang:send_after(2000, self(), monitor_loop),
-        ?Log("~p started!~n", [?MODULE]),
+        ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
-        Class:Reason -> ?Log("failed with ~p:~p~n", [Class,Reason]),
+        Class:Reason -> ?Error("failed with ~p:~p~n", [Class,Reason]),
                         {stop, {"Insufficient/invalid resources for start", Class, Reason}}
     end,
     Result.
@@ -201,7 +202,7 @@ handle_call({create_partitioned_table, Name}, _From, State) ->
                         ok ->   
                             {reply, ok, State};
                         Error ->            
-                            ?Log("Create partitioned table failed with ~p~n", [Error]),
+                            ?Debug("Create partitioned table failed with ~p~n", [Error]),
                             {reply, Error, State}
                     end
             end;
@@ -243,7 +244,7 @@ handle_cast(_Request, State) ->
 
 handle_info(monitor_loop, State) ->
     % save one monitor record and trigger the nxt one
-    % ?Log("monitor_loop start~n",[]),
+    % ?Debug("monitor_loop start~n",[]),
     case ?GET_MONITOR_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
             monitor(),
@@ -254,7 +255,7 @@ handle_info(monitor_loop, State) ->
     {noreply, State};
 handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
-    % ?Log("Purge collect start~n",[]), 
+    % ?Debug("Purge collect start~n",[]), 
     case ?GET_PURGE_CYCLE_WAIT of
         PCW when (is_integer(PCW) andalso PCW > 1000) ->    
             Pred = fun imem_meta:is_local_time_partitioned_table/1,
@@ -269,10 +270,10 @@ handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     end;
 handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#state{purgeList=[Tab|Rest]}) ->
     % process one purge candidate
-    % ?Log("Purge try table ~p~n",[Tab]), 
+    % ?Debug("Purge try table ~p~n",[Tab]), 
     case imem_if:read(ddTable,{schema(), Tab}) of
         [] ->   
-            ?Log("Table deleted before it could be purged ~p~n",[Tab]); 
+            ?Debug("Table deleted before it could be purged ~p~n",[Tab]); 
         [#ddTable{opts=Opts}] ->
             case lists:keyfind(purge_delay, 1, Opts) of
                 false ->
@@ -298,7 +299,7 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
                                         true ->                     
                                             FreedMemory = table_memory(Tab),
                                             Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
-                                            ?Log("Purge time partition ~p~n",[Tab]),
+                                            ?Debug("Purge time partition ~p~n",[Tab]),
                                             log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
                                             drop_table_and_info(Tab)
                                     end
@@ -655,10 +656,10 @@ purge_time_partitioned_table(Alias, Opts) ->
                 PhName >= KeepName ->
                     0; %% no memory could be freed       
                 true ->
-                    % ?Log("Purge PhName KeepName ~p ~p~n",[PhName,KeepName]),
+                    % ?Debug("Purge PhName KeepName ~p ~p~n",[PhName,KeepName]),
                     case Rest of
                         [] ->   DummyName = partitioned_table_name(Alias,erlang:now()),
-                                % ?Log("Purge DummyName ~p~n",[DummyName]),
+                                % ?Debug("Purge DummyName ~p~n",[DummyName]),
                                 create_partitioned_table(DummyName);
                         _ ->    ok
                     end,
@@ -868,7 +869,7 @@ failing_function([{M,N,_,_}|STrace]) ->
         false ->    failing_function(STrace)
     end;
 failing_function(Other) ->
-    ?Log("unexpected stack trace ~p~n", [Other]),
+    ?Debug("unexpected stack trace ~p~n", [Other]),
     {undefined,undefined}.
 
 log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
@@ -907,7 +908,7 @@ node_shard() ->
             try 
                 node_shard_value(application:get_env(imem, node_shard_fun),node())
             catch
-                _:_ ->  ?Log("bad config parameter ~p~n", [node_shard_fun]),
+                _:_ ->  ?Debug("bad config parameter ~p~n", [node_shard_fun]),
                         "nohost"
             end;
         {ok,host_name} ->                host_name(node());    
@@ -915,12 +916,12 @@ node_shard() ->
         {ok,node_name} ->                node_name(node());    
         {ok,node_hash} ->                node_hash(node());    
         {ok,NA} when is_atom(NA) ->      atom_to_list(NA);
-        Else ->     ?Log("bad config parameter ~p ~p~n", [node_shard, Else]),
+        Else ->     ?Debug("bad config parameter ~p ~p~n", [node_shard, Else]),
                     node_hash(node())
     end.
 
 node_shard_value({ok,FunStr},Node) ->
-    % ?Log("node_shard calculated for ~p~n", [FunStr]),
+    % ?Debug("node_shard calculated for ~p~n", [FunStr]),
     Code = case [lists:last(string:strip(FunStr))] of
         "." -> FunStr;
         _ -> FunStr ++ "."
@@ -929,7 +930,7 @@ node_shard_value({ok,FunStr},Node) ->
     {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
     {value,Value,_}=erl_eval:exprs(ErlAbsForm,[]),    
     Result = Value(Node),
-    % ?Log("node_shard_value ~p~n", [Result]),
+    % ?Debug("node_shard_value ~p~n", [Result]),
     Result.
 
 host_fqdn(Node) when is_atom(Node) -> 
@@ -1055,7 +1056,7 @@ read(ddNode,Node) when is_atom(Node) ->
         ]
     catch
         Class:Reason ->
-            ?Log("ddNode evaluation error ~p:~p~n", [Class,Reason]),
+            ?Debug("ddNode evaluation error ~p:~p~n", [Class,Reason]),
             []
     end;
 read(ddNode,_) -> [];
@@ -1162,7 +1163,7 @@ write(Table, Record) ->
                     ?ClientError({"Table does not exist",T})
             end;
         Class:Reason ->
-            ?Log("Write error ~p:~p~n", [Class,Reason]),
+            ?Debug("Write error ~p:~p~n", [Class,Reason]),
             throw(Reason)
     end. 
 
@@ -1204,7 +1205,7 @@ dirty_write(Table, Record) ->
                     ?ClientError({"Table does not exist",T})
             end;
         Class:Reason ->
-            ?Log("Dirty write error ~p:~p~n", [Class,Reason]),
+            ?Debug("Dirty write error ~p:~p~n", [Class,Reason]),
             throw(Reason)
     end. 
 

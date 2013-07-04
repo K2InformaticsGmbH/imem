@@ -1,5 +1,3 @@
--include("imem.hrl").
-
 -type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
 -type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 

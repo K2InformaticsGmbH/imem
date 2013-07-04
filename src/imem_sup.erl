@@ -50,20 +50,20 @@
 start() ->
     spawn(fun() ->
         {ok, _} = supervisor:start_link({local,?MODULE}, ?MODULE, _Arg = []),
-        [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)]
+        [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)]
     end).
 
 start_in_shell() ->
     {ok, SupPid} = supervisor:start_link({local,?MODULE}, ?MODULE, _Arg = []),
-    [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)],
+    [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)],
     unlink(SupPid).
 
 start_link(Args) ->
     case Result=supervisor:start_link({local,?MODULE}, ?MODULE, Args) of
         {ok,_} ->
-            [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)],
-            ?Log("~p started ~p~n", [?MODULE, Result]);
-        Error ->    ?Log("~p startup failed with ~p~n", [?MODULE, Error])
+            [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)],
+            ?Info("~p started ~p~n", [?MODULE, Result]);
+        Error ->    ?Info("~p startup failed with ~p~n", [?MODULE, Error])
     end,
     Result.
 
@@ -79,7 +79,7 @@ start_link(Args) ->
 init(_StartArgs) ->
     {ok, ImemTimeout} = application:get_env(imem_timeout),
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
-    ?Log("~p initializing with ImemTimeout ~p~n", [?MODULE, ImemTimeout]),
+    ?Info("~p initializing with ImemTimeout ~p~n", [?MODULE, ImemTimeout]),
     {ok, NodeType} = application:get_env(mnesia_node_type),
     {ok, SnapInterval} = application:get_env(mnesia_snap_interval),
 

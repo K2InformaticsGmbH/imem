@@ -22,12 +22,38 @@
 %% ====================================================================
 start() ->
     application:start(sqlparse),
+    config_if_lager(),
     application:start(?MODULE).
+
+-ifdef(LAGER).
+
+config_if_lager() ->
+    application:load(lager),
+    application:set_env(lager, handlers, [{lager_console_backend, info},
+                                          {lager_file_backend, [{file, "log/error.log"},
+                                                                {level, error},
+                                                                {size, 10485760},
+                                                                {date, "$D0"},
+                                                                {count, 5}]},
+                                          {lager_file_backend, [{file, "log/console.log"},
+                                                                {level, info},
+                                                                {size, 10485760},
+                                                                {date, "$D0"},
+                                                                {count, 5}]}]),
+    application:set_env(lager, error_logger_redirect, false),
+    application:start(lager),
+    ?Info("IMEM starting with lager!").
+
+-else. %LAGER
+
+config_if_lager() ->
+    ?Info("IMEM starting without lager!").
+
+-endif. %LAGER
 
 stop()  ->
     stop_tcp(),
     application:stop(?MODULE).
-
 
 % start stop query imem tcp server
 start_tcp(Ip, Port) ->
@@ -43,9 +69,9 @@ start_test_writer(Param) ->
     {ok, SupPid} = supervisor:start_child(imem_sup, {imem_test_writer
                                                     , {imem_test_writer, start_link, [Param]}
                                                     , permanent, ImemTimeout, worker, [imem_test_writer]}),
-    [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)],
+    [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)],
     {ok, SupPid}.
 stop_test_writer() ->
     ok = supervisor:terminate_child(imem_sup, imem_test_writer),
     ok = supervisor:delete_child(imem_sup, imem_test_writer),
-    [?Log("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)].
+    [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)].

@@ -1,4 +1,3 @@
-
 -include("imem_if.hrl").
 
 -define(CONFIG_TABLE,ddConfig).                    

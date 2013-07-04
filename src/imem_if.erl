@@ -1,6 +1,7 @@
 -module(imem_if).
 -behavior(gen_server).
 
+-include("imem.hrl").
 -include("imem_if.hrl").
 
 % gen_server
@@ -255,14 +256,14 @@ create_table(Table, Opts) when is_atom(Table) ->
     Now = erlang:now(),
     case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
-            % ?Log("table ~p locally exists~n", [Table]),
+            % ?Debug("table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
             true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, _Node}} ->
-            % ?Log("table ~p exists at ~p~n", [Table, _Node]),
+            % ?Debug("table ~p exists at ~p~n", [Table, _Node]),
             case mnesia:force_load_table(Table) of
                 yes -> ok;
                 Error -> ?ClientErrorNoLogging({"Loading table(s) timeout~p", Error})
@@ -271,7 +272,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result ->
-            % ?Log("create_table ~p for ~p~n", [Result, Table]),
+            % ?Debug("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
             true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
             return_atomic_ok(Result)
@@ -283,7 +284,7 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
     case mnesia:wait_for_tables(Tables, Timeout) of
         ok -> ok;
         {timeout, BadTabList} ->
-            ?Log("table ~p load time out attempt ~p~n", [BadTabList, Count]),
+            ?Debug("table ~p load time out attempt ~p~n", [BadTabList, Count]),
             wait_table_tries(Tables, {Count-1,Timeout});
         {error, Reason} -> ?ClientErrorNoLogging({"Error loading table~p", Reason})
     end.
@@ -358,7 +359,7 @@ read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     try
-        % ?Log("mnesia:dirty_write ~p ~p~n", [Table,Row]),
+        % ?Debug("mnesia:dirty_write ~p ~p~n", [Table,Row]),
         mnesia_table_write_access(dirty_write, [Table, Row])
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
@@ -367,10 +368,10 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
-    %if Table =:= ddTable -> ?Log("mnesia:write ~p ~p~n", [Table,Row]); true -> ok end,
+    %if Table =:= ddTable -> ?Debug("mnesia:write ~p ~p~n", [Table,Row]); true -> ok end,
     Result = case transaction(write,[Table, Row, write]) of
         {aborted,{no_exists,_}} ->
-            % ?Log("cannot write ~p to ~p~n", [Row,Table]),
+            % ?Debug("cannot write ~p to ~p~n", [Row,Table]),
             ?ClientErrorNoLogging({"Table does not exist",Table});
         {atomic,ok} ->
             [Up] = ets:lookup(?MODULE, Table),
@@ -441,7 +442,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     fun(F,Contd0) ->
         receive
             abort ->
-                % ?Log("Abort fetch on table ~p~n", [Table]),
+                % ?Debug("Abort fetch on table ~p~n", [Table]),
                 ok;
             next ->
                 case Contd0 of
@@ -450,7 +451,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 '$end_of_table' ->
                                     Pid ! {row, [?sot,?eot]};
                                 {Rows, Contd1} ->
-                                    % ?Log("First continuation object ~p~n",[Contd1]),
+                                    % ?Debug("First continuation object ~p~n",[Contd1]),
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
                                             Pid ! {row, [?sot|[?eot|Rows]]};
@@ -462,7 +463,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                         Contd0 ->
                             case mnesia:select(Contd0) of
                                 '$end_of_table' ->
-                                    % ?Log("Last continuation object ~p~n",[Contd0]),
+                                    % ?Debug("Last continuation object ~p~n",[Contd0]),
                                     Pid ! {row, ?eot};
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
@@ -659,17 +660,17 @@ init(Params) ->
     {ok, Cwd} = file:get_cwd(),
     LastFolder = lists:last(filename:split(Cwd)),
     SchemaDir = if LastFolder =:= ".eunit" -> filename:join([Cwd, "..", SDir]); true ->  filename:join([Cwd, SDir]) end,
-    ?Log("SchemaDir ~p~n", [SchemaDir]),
+    ?Info("SchemaDir ~p~n", [SchemaDir]),
     random:seed(now()),
     SleepTime = random:uniform(1000),
-    ?Log("~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
+    ?Info("~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
     timer:sleep(SleepTime),
     application:set_env(mnesia, dir, SchemaDir),
     ok = mnesia:start(),
     case disc_schema_nodes(SchemaName) of
-        [] -> ?Log("~p no node found at ~p for schema ~p in erlang cluster ~p~n", [?MODULE, node(), SchemaName, erlang:get_cookie()]);
+        [] -> ?Warn("~p no node found at ~p for schema ~p in erlang cluster ~p~n", [?MODULE, node(), SchemaName, erlang:get_cookie()]);
         [DiscSchemaNode|_] ->
-            ?Log("~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
+            ?Info("~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config, [extra_db_nodes, [node()]])
     end,
     case NodeType of
@@ -677,7 +678,7 @@ init(Params) ->
         _ -> ok
     end,
     mnesia:subscribe(system),
-    ?Log("~p started as ~p!~n", [?MODULE, NodeType]),
+    ?Info("~p started as ~p!~n", [?MODULE, NodeType]),
 
     % backup any existing snapshots and start new snapshoting
     imem_snap:zip({re, "*.bkp"}),
@@ -685,7 +686,7 @@ init(Params) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
     file:make_dir(SnapshotDir),
-    ?Log("SnapshotDir ~p~n", [SnapshotDir]),
+    ?Info("SnapshotDir ~p~n", [SnapshotDir]),
     {ok,#state{snap_interval = SnapInterval, snapdir=SnapshotDir}}.
 
 handle_call(_Request, _From, State) ->
@@ -703,10 +704,10 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
                         ok -> ok;
                         {error, eexists} -> ok;
                         {error, Error} ->
-                            ?Log("unable to create directory ~p : ~p~n", [SnapDir, Error])
+                            ?Warn("unable to create directory ~p : ~p~n", [SnapDir, Error])
                     end;
                 {error, Error} ->
-                    ?Log("unable to create directory ~p : ~p~n", [SnapDir, Error])
+                    ?Warn("unable to create directory ~p : ~p~n", [SnapDir, Error])
             end;
         _ -> ok
     end,
@@ -719,7 +720,11 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
                 LastSnapTime = timestamp(St),
                 if 
                     LastSnapTime < LastWriteTime ->
-                        ?Log("~s", [imem_snap:take(T)]),
+                        Res = imem_snap:take(T),
+                        [case R of
+                            {ok, T}             -> ?Info("snapshot created for ~p", [T]);
+                            {error, T, Reason}  -> ?Error("snapshot of ~p failed for ~p", [T, Reason])
+                        end || R <- Res],
                         true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
                     true -> 
                         ok % no backup needed
@@ -736,11 +741,11 @@ handle_info(Info, State) ->
             % BulkSleepTime0 = get(mnesia_bulk_sleep_time),
             % BulkSleepTime = trunc(1.1 * BulkSleepTime0),
             % put(mnesia_bulk_sleep_time, BulkSleepTime),
-            ?Log("Mnesia overload : ~p!~n",[Details]);
+            ?Warn("Mnesia overload : ~p!~n",[Details]);
         {mnesia_system_event,{Event,Node}} ->
-            ?Log("Mnesia event ~p from Node ~p!~n",[Event, Node]);
+            ?Info("Mnesia event ~p from Node ~p!~n",[Event, Node]);
         Error ->
-            ?Log("Mnesia error : ~p~n",[Error])
+            ?Warn("Mnesia error : ~p~n",[Error])
     end,
     {noreply, State}.
 

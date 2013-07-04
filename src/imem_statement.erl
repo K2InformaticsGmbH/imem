@@ -83,29 +83,29 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
         case receive 
             R ->    R
         after Timeout ->
-            ?Log("fetch_recs timeout ~p~n", [Timeout]),
+            ?Debug("fetch_recs timeout ~p~n", [Timeout]),
             gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
             ?ClientError({"Fetch timeout, increase timeout and retry",Timeout})
         end of
             {_, {Pid,{List, true}}} ->   List;
             {_, {Pid,{List, false}}} ->  
-                ?Log("fetch_recs too much data~n", []),
+                ?Debug("fetch_recs too much data~n", []),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
                 ?ClientError({"Too much data, increase block size or receive in streaming mode",length(List)});
             {_, {Pid,{error, {'SystemException', Reason}}}} ->
-                ?Log("fetch_recs exception ~p ~p~n", ['SystemException', Reason]),
+                ?Debug("fetch_recs exception ~p ~p~n", ['SystemException', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?SystemException(Reason);            
             {_, {Pid,{error, {'ClientError', Reason}}}} ->
-                ?Log("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
+                ?Debug("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?ClientError(Reason);            
             {_, {Pid,{error, {'ClientError', Reason}}}} ->
-                ?Log("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
+                ?Debug("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?ClientError(Reason);
             Error ->
-                ?Log("fetch_recs bad async receive~n~p~n", [Error]),
+                ?Debug("fetch_recs bad async receive~n~p~n", [Error]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?SystemException({"Bad async receive",Error})            
         end
@@ -169,7 +169,7 @@ update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, optimistic) ->
     update_cursor_execute(SKey, Pid, IsSec, optimistic);
 update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
     Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}),
-    % ?Log("update_cursor_execute ~p~n", [Result]),
+    % ?Debug("update_cursor_execute ~p~n", [Result]),
     case Result of
         KeyUpd when is_list(KeyUpd) -> 
             KeyUpd;
@@ -199,15 +199,15 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{metarec=MetaRec}=FetchCtx0,
-    % ?Log("UpdateMetaRec ~p~n", [MetaRec]),
+    % ?Debug("UpdateMetaRec ~p~n", [MetaRec]),
     Reply = try 
         % case FetchCtx0#fetchCtx.monref of
         %     undefined ->    ok;
         %     MonitorRef ->   kill_fetch(MonitorRef, FetchCtx0#fetchCtx.pid)
         % end,
-        % ?Log("UpdatePlan ~p~n", [UpdatePlan]),
+        % ?Debug("UpdatePlan ~p~n", [UpdatePlan]),
         KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
-        % ?Log("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
+        % ?Debug("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
             1 ->    
                 Wrap = fun({Tag,X}) -> {Tag,{X, MetaRec}} end,
@@ -228,7 +228,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
                             {Tag,R2}
                     end
                 end,
-                % ?Log("map KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
+                % ?Debug("map KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
                 lists:map(Wrap, KeyUpdateRaw)
         end
     catch
@@ -236,45 +236,45 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
             imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{updPlan,UpdatePlan}],"update_cursor_execute error"),
             {error,Reason}
     end,
-    % ?Log("update_cursor_execute result ~p~n", [Reply]),
+    % ?Debug("update_cursor_execute result ~p~n", [Reply]),
     % FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined
     % {reply, Reply, State#state{fetchCtx=FetchCtx1}};    
     {reply, Reply, State};    
 handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From, #state{statement=Stmt}=State) ->
     #statement{stmtParse={select,SelectSections}, colMaps=ColMaps, fullMaps=FullMaps} = Stmt,
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
-    % ?Log("SelectSections ~p~n", [SelectSections]),
-    % ?Log("Col Maps ~p~n", [ColMaps]),
-    % ?Log("Full Maps ~p~n", [FullMaps]),
+    % ?Debug("SelectSections ~p~n", [SelectSections]),
+    % ?Debug("Col Maps ~p~n", [ColMaps]),
+    % ?Debug("Full Maps ~p~n", [FullMaps]),
     Reply = try
         NewSortFun = imem_sql:sort_spec_fun(SortSpec, FullMaps, ColMaps),
-        %?Log("NewSortFun ~p~n", [NewSortFun]),
+        %?Debug("NewSortFun ~p~n", [NewSortFun]),
         OrderBy = imem_sql:sort_spec_order(SortSpec, FullMaps, ColMaps),
-        %?Log("OrderBy ~p~n", [OrderBy]),
+        %?Debug("OrderBy ~p~n", [OrderBy]),
         Filter =  imem_sql:filter_spec_where(FilterSpec, ColMaps, WhereTree),
-        %?Log("Filter ~p~n", [Filter]),
+        %?Debug("Filter ~p~n", [Filter]),
         Cols1 = case Cols0 of
             [] ->   lists:seq(1,length(ColMaps));
             _ ->    Cols0
         end,
         AllFields = imem_sql:column_map_items(ColMaps, ptree),
-        % ?Log("AllFields ~p~n", [AllFields]),
+        % ?Debug("AllFields ~p~n", [AllFields]),
         NewFields =  [lists:nth(N,AllFields) || N <- Cols1],
-        % ?Log("NewFields ~p~n", [NewFields]),
+        % ?Debug("NewFields ~p~n", [NewFields]),
         NewSections0 = lists:keyreplace('fields', 1, SelectSections, {'fields',NewFields}),
         NewSections1 = lists:keyreplace('where', 1, NewSections0, {'where',Filter}),
-        %?Log("NewSections1 ~p~n", [NewSections1]),
+        %?Debug("NewSections1 ~p~n", [NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
-        %?Log("NewSections2 ~p~n", [NewSections2]),
+        %?Debug("NewSections2 ~p~n", [NewSections2]),
         NewSql = sqlparse:fold({select,NewSections2}),     % sql_box:flat_from_pt({select,NewSections2}),
-        %?Log("NewSql ~p~n", [NewSql]),
+        %?Debug("NewSql ~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
     catch
         _:Reason ->
             imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{filter_spec,FilterSpec},{sort_spec,SortSpec},{cols,Cols0}],"filter_and_sort error"),
             {error,Reason}
     end,
-    % ?Log("replace_sort result ~p~n", [Reply]),
+    % ?Debug("replace_sort result ~p~n", [Reply]),
     {reply, Reply, State};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=FetchCtx0}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
@@ -291,42 +291,42 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=
     {reply, ok, State#state{fetchCtx=FetchCtx1}}.      % client may restart the fetch now
 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=done}}=State) ->
-    % ?Log("fetch_recs_async called in status done~n", []),
+    % ?Debug("fetch_recs_async called in status done~n", []),
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,done}],"fetch_recs_async rejected"),
     send_reply_to_client(Sock, {error,{'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"}}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=aborted}}=State) ->
-    % ?Log("fetch_recs_async called in status aborted~n", []),
+    % ?Debug("fetch_recs_async called in status aborted~n", []),
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,aborted}],"fetch_recs_async rejected"),
     send_reply_to_client(Sock, {error,{'SystemException',"Fetch is aborted, execute fetch_close before fetching from start again"}}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=tailing}}=State) ->
-    % ?Log("fetch_recs_async called in status tailing~n", []),
+    % ?Debug("fetch_recs_async called in status tailing~n", []),
     imem_meta:log_to_db(warning,?MODULE,handle_cast,[{sock,Sock},{opts,_Opts},{status,tailing}],"fetch_recs_async rejected"),
     send_reply_to_client(Sock, {error,{'ClientError',"Fetching in tail mode, execute fetch_close before fetching from start again"}}),
     {noreply, State}; 
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
-    % ?Log("fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
+    % ?Debug("fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     #statement{tables=[{_Schema,Table,_Alias}|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
     #scanSpec{sspec=SSpec0,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit} = MainSpec,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
-    % ?Log("Table  : ~p~n", [Table]),
-    % ?Log("SBinds : ~p~n", [SBinds]),
-    % ?Log("MBinds : ~p~n", [MBinds]),
-    % ?Log("FGuard : ~p~n", [FGuard]),    
+    % ?Debug("Table  : ~p~n", [Table]),
+    % ?Debug("SBinds : ~p~n", [SBinds]),
+    % ?Debug("MBinds : ~p~n", [MBinds]),
+    % ?Debug("FGuard : ~p~n", [FGuard]),    
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
-    % ?Log("MetaRec: ~p~n", [MetaRec]),
+    % ?Debug("MetaRec: ~p~n", [MetaRec]),
     [{SHead, SGuards0, [Result]}] = SSpec0,
-    % ?Log("SGuards before bind : ~p~n", [SGuards0]),
+    % ?Debug("SGuards before bind : ~p~n", [SGuards0]),
     SGuards1 = case SGuards0 of
         [] ->       [];
         [SGuard0]-> [imem_sql:simplify_guard(select_bind(MetaRec, SGuard0, SBinds))]
     end,
-    % ?Log("SGuards after meta bind : ~p~n", [SGuards1]),
+    % ?Debug("SGuards after meta bind : ~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
     TailSpec = ets:match_spec_compile(SSpec),
     FBound = select_bind(MetaRec, FGuard, MBinds),
-    % ?Log("FBound : ~p~n", [FBound]),
+    % ?Debug("FBound : ~p~n", [FBound]),
     Filter = make_filter_fun(1,FBound, FBinds),
     SkipFetch = lists:member({fetch_mode,skip},Opts),
     case {SkipFetch,FetchCtx0#fetchCtx.pid} of
@@ -341,7 +341,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
-                    % ?Log("fetch opts ~p~n", [Opts]),
+                    % ?Debug("fetch opts ~p~n", [Opts]),
                     RecName = imem_meta:table_record_name(Table), 
                     FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
                                           ,metarec=MetaRec,blockSize=BlockSize,remaining=Limit
@@ -356,37 +356,37 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
             Pid ! next,
-            % ?Log("fetch opts ~p~n", [Opts]),
+            % ?Debug("fetch opts ~p~n", [Opts]),
             FetchContinue = FetchCtx0#fetchCtx{metarec=MetaRec,opts=Opts,filter=Filter,tailSpec=TailSpec}, 
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
 handle_cast({close, _SKey}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
-    % ?Log("received close in state ~p~n", [State]),
+    % ?Debug("received close in state ~p~n", [State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
-    ?Log("receives unsolicited cast ~p~nin state ~p~n", [Request, State]),
+    ?Debug("receives unsolicited cast ~p~nin state ~p~n", [Request, State]),
     imem_meta:log_to_db(error,?MODULE,handle_cast,[{request,Request},{state,State}],"receives unsolicited cast"),
     {noreply, State}.
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
-    % ?Log("received end of table in status ~p~n", [FetchCtx0#fetchCtx.status]),
-    % ?Log("received end of table in state~n~p~n", [State]),
+    % ?Debug("received end of table in status ~p~n", [FetchCtx0#fetchCtx.status]),
+    % ?Debug("received end of table in state~n~p~n", [State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status,fetching},{sock,Sock}],"eot"),
             send_reply_to_client(Sock, {[],true}),  
-%            ?Log("late end of table received in state~n~p~n", [State]),
+%            ?Debug("late end of table received in state~n~p~n", [State]),
             handle_fetch_complete(State);
         _ ->
-            ?Log("unexpected end of table received in state~n~p~n", [State]),        
+            ?Debug("unexpected end of table received in state~n~p~n", [State]),        
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             {noreply, State}
     end;        
 handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
-    % ?Log("received mnesia subscription event ~p ~p~n", [write, Record]),
-    % ?Log("receiving tail row~n", []),
+    % ?Debug("received mnesia subscription event ~p ~p~n", [write, Record]),
+    % ?Debug("receiving tail row~n", []),
     #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
     Record1 = erlang:setelement(1,Record0,RecName),
     case Status of
@@ -404,7 +404,7 @@ handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,
                                     unsubscribe(Stmt),
                                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                                 true ->
-                                    % ?Log("sending tail row~n", []),
+                                    % ?Debug("sending tail row~n", []),
                                     send_reply_to_client(Sock, {lists:map(Wrap, [Rec]),tail}),
                                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}}
                             end;
@@ -419,7 +419,7 @@ handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,
                                             unsubscribe(Stmt),
                                             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                                         true ->
-                                            % ?Log("sending tail row~n", []),
+                                            % ?Debug("sending tail row~n", []),
                                             send_reply_to_client(Sock, {Result, tail}),
                                             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-length(Result)}}}
                                     end
@@ -431,16 +431,16 @@ handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,
     end;
 handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
-    % ?Log("received mnesia subscription event ~p ~p~n", [delete_object, _OldRecord]),
+    % ?Debug("received mnesia subscription event ~p ~p~n", [delete_object, _OldRecord]),
     {noreply, State};
 handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
-    % ?Log("received mnesia subscription event ~p ~p~n", [delete, {_Tab, _Key}]),
+    % ?Debug("received mnesia subscription event ~p ~p~n", [delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MetaRec,remaining=Remaining0,status=Status,filter=Filter, opts=Opts}=FetchCtx0,
-    % ?Log("received ~p rows~n", [length(Rows)]),
-    % ?Log("received rows~n~p~n", [Rows]),
+    % ?Debug("received ~p rows~n", [length(Rows)]),
+    % ?Debug("received rows~n~p~n", [Rows]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
@@ -508,7 +508,7 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
     end,
     case is_number(Remaining0) of
         true ->
-            % ?Log("sending rows ~p~n", [Result]),
+            % ?Debug("sending rows ~p~n", [Result]),
             case Remaining0 =< length(Result) of
                 true ->     
                     send_reply_to_client(Sock, {Result, true}),
@@ -528,38 +528,38 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
                     end
             end;
         false ->
-            ?Log("receiving rows ~n~p~n", [Rows0]),
-            ?Log("in unexpected state ~n~p~n", [State]),
+            ?Debug("receiving rows ~n~p~n", [Rows0]),
+            ?Debug("in unexpected state ~n~p~n", [State]),
             {noreply, State}
     end;
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetchCtx=FetchCtx0}=State) ->
-    % ?Log("received expected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
+    % ?Debug("received expected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=undefined},   
     {noreply, State#state{fetchCtx=FetchCtx1}}; 
 handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
-    ?Log("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [Pid, Ref, Reason]),
+    ?Debug("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [Pid, Ref, Reason]),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(Info, State) ->
-    ?Log("received unsolicited info ~p~nin state ~p~n", [Info, State]),
+    ?Debug("received unsolicited info ~p~nin state ~p~n", [Info, State]),
     {noreply, State}.
 
 handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State)->
     #fetchCtx{pid=Pid,monref=MonitorRef,opts=Opts}=FetchCtx0,
     kill_fetch(MonitorRef, Pid),
-    % ?Log("fetch complete, opts ~p~n", [Opts]), 
+    % ?Debug("fetch complete, opts ~p~n", [Opts]), 
     case lists:member({tail_mode,true},Opts) of
         false ->
-            % ?Log("fetch complete no tail ~p~n", [Opts]), 
+            % ?Debug("fetch complete no tail ~p~n", [Opts]), 
             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};           
         true ->     
             {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
-            % ?Log("fetch complete, switching to tail_mode~p~n", [Opts]), 
+            % ?Debug("fetch complete, switching to tail_mode~p~n", [Opts]), 
             case  catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
                 ok ->
-                    % ?Log("Subscribed to table changes ~p~n", [Table]),    
+                    % ?Debug("Subscribed to table changes ~p~n", [Table]),    
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
                 Error ->
-                    ?Log("Cannot subscribe to table changes~n~p~n", [{Table,Error}]),    
+                    ?Debug("Cannot subscribe to table changes~n~p~n", [{Table,Error}]),    
                     imem_meta:log_to_db(error,?MODULE,handle_fetch_complete,[{table,Table},{error,Error},{sock,Sock}],"Cannot subscribe to table changes"),
                     send_reply_to_client(Sock, {error,{'SystemException',{"Cannot subscribe to table changes",{Table,Error}}}}),
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}}   
@@ -567,15 +567,15 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
     end.
 
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) -> 
-    % ?Log("terminating monitor not found~n", []),
+    % ?Debug("terminating monitor not found~n", []),
     catch Pid ! abort, 
     ok;
 terminate(_Reason, #state{statement=Stmt,fetchCtx=#fetchCtx{status=tailing}}) -> 
-    % ?Log("terminating tail_mode~n", []),
+    % ?Debug("terminating tail_mode~n", []),
     unsubscribe(Stmt),
     ok;
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
-    % ?Log("demonitor and terminate~n", []),
+    % ?Debug("demonitor and terminate~n", []),
     kill_fetch(MonitorRef, Pid), 
     ok.
 
@@ -586,7 +586,7 @@ unsubscribe(Stmt) ->
     case catch if_call_mfa(false,unsubscribe,[none,{table,Table,simple}]) of
         ok ->   ok;
         Error ->
-            ?Log("Cannot unsubscribe table changes~n~p~n", [{Table,Error}]),    
+            ?Debug("Cannot unsubscribe table changes~n~p~n", [{Table,Error}]),    
             imem_meta:log_to_db(error,?MODULE,unsubscribe,[{table,Table},{error,Error}],"Cannot unsubscribe table changes")
     end.
 
@@ -826,8 +826,8 @@ join_rows(Rows, FetchCtx0, Stmt) ->
     #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
     Tables = tl(Stmt#statement.tables),
     JoinSpecs = Stmt#statement.joinSpecs,
-    % ?Log("Join Tables: ~p~n", [Tables]),
-    % ?Log("Join Specs: ~p~n", [JoinSpecs]),
+    % ?Debug("Join Tables: ~p~n", [Tables]),
+    % ?Debug("Join Specs: ~p~n", [JoinSpecs]),
     join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpecs, []).
 
 join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
@@ -846,14 +846,14 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
-    % ?Log("Rec used for join bind ~p~n", [Rec]),
+    % ?Debug("Rec used for join bind ~p~n", [Rec]),
     [{MatchHead, Guard0, [Result]}] = SSpec,
     Guard1 = case Guard0 of
         [] ->   [];
         _ ->    [join_bind(Rec, hd(Guard0), SBinds)]
     end,
     MaxSize = Limit+1000,
-    % ?Log("Join guard after bind : ~p~n", [Guard1]),
+    % ?Debug("Join guard after bind : ~p~n", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, Guard1, [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->
@@ -862,7 +862,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
                     [setelement(Ti, Rec, I) || I <- L];
                 _ ->
                     MboundGuard = join_bind(Rec, FGuard, MBinds),
-                    % ?Log("Join guard after MBind : ~p~n", [MboundGuard]),
+                    % ?Debug("Join guard after MBind : ~p~n", [MboundGuard]),
                     Filter = make_filter_fun(Ti, MboundGuard, FBinds),
                     Recs = [setelement(Ti, Rec, I) || I <- L],
                     lists:filter(Filter,Recs)
@@ -880,19 +880,19 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fgu
                 true ->
                     ?UnimplementedException({"Unsupported virtual join filter guard", FGuard}); 
                 _ ->
-                    % ?Log("Rec used for join bind ~p~n", [Rec]),
-                    % ?Log("MBinds used for join bind ~p~n", [MBinds]),
+                    % ?Debug("Rec used for join bind ~p~n", [Rec]),
+                    % ?Debug("MBinds used for join bind ~p~n", [MBinds]),
                     case join_bind(Rec, FGuard, MBinds) of
                         {is_member,Tag, '$_'} when is_atom(Tag) ->
                             Items = element(1,Rec),
-                            % ?Log("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+                            % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
                             Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-                            % ?Log("Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         {is_member,Tag, Items} when is_atom(Tag) ->
-                            % ?Log("generate_virtual table ~p from~n~p~n", [Table,Items]),
+                            % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
                             Virt = generate_virtual(Table,Items,MaxSize),
-                            % ?Log("Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         BadFG ->
                             ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
@@ -1051,7 +1051,7 @@ send_reply_to_client(SockOrPid, Result) ->
 
 update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     TableTypes = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table,_Alias} <- Tables],
-    % ?Log("received change list~n~p~n", [ChangeList]),
+    % ?Debug("received change list~n~p~n", [ChangeList]),
     %% transform a ChangeList
         % [1,nop,{{def,"2","'2'"},{}},"2"],                     %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
@@ -1063,7 +1063,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_prepare(IsSec, SKey, TableTypes, ColMap, ChangeList, []),
-    %?Log("prepared table changes~n~p~n", [UpdPlan]),
+    %?Debug("prepared table changes~n~p~n", [UpdPlan]),
     UpdPlan.
 
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
@@ -1074,7 +1074,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), {}],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % ?Log("ColMap~n~p~n", [ColMap]),
+    % ?Debug("ColMap~n~p~n", [ColMap]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1084,17 +1084,17 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(Ti,Recs)),T,L,P,D,false,Value), R} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R, func=F},Value} 
             <- lists:zip(ColMap,Values), Ti==1, F==undefined]),    
-    % ?Log("value map~n~p~n", [ValMap]),
+    % ?Debug("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
-    % ?Log("ind map~n~p~n", [IndMap]),
+    % ?Debug("ind map~n~p~n", [IndMap]),
     TupleUpdMap = lists:usort(
                 lists:flatten([tuple_update_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])
             ),    
-    % ?Log("tuple item map~n~p~n", [TupleItemMap]),
+    % ?Debug("tuple item map~n~p~n", [TupleItemMap]),
     ROViolV = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
     ROViolT = [{element(Ci,element(1,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleUpdMap, R==true, element(Xi,element(Ci,element(1,Recs))) /= NewVal],   
     ROViol = ROViolV ++ ROViolT,
-    % ?Log("key change~n~p~n", [ROViol]),
+    % ?Debug("key change~n~p~n", [ROViol]),
     if  
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});        
         length(ROViol) /= 0 ->                  ?ClientError({"Cannot update readonly field",{Item,hd(ROViol)}});        
@@ -1107,7 +1107,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
 update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
     DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    % ?Log("default record ~p~n", [DefRec]),     
+    % ?Debug("default record ~p~n", [DefRec]),     
     update_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
@@ -1150,9 +1150,9 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==1, Value/=<<"">>]),
-    %?Log("value map~n~p~n", [ValMap]),
+    %?Debug("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
-    %?Log("ind map~n~p~n", [IndMap]),
+    %?Debug("ind map~n~p~n", [IndMap]),
     HasKey = lists:member(2,IndMap),
     if 
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column insert",{Item,ValMap}});
@@ -1183,7 +1183,7 @@ receive_raw(Timeout) ->
 
 receive_raw(Timeout,Acc) ->    
     case receive 
-            R ->    ?Log("~p got:~n~p~n", [erlang:now(),R]),
+            R ->    ?Debug("~p got:~n~p~n", [erlang:now(),R]),
                     R
         after Timeout ->
             stop
@@ -1200,7 +1200,7 @@ receive_recs(StmtResult, Complete, Timeout) ->
 
 receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
-            R ->    % ?Log("~p got:~n~p~n", [erlang:now(),R]),
+            R ->    % ?Debug("~p got:~n~p~n", [erlang:now(),R]),
                     R
         after Timeout ->
             stop
@@ -1221,9 +1221,9 @@ receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->
                     List = lists:flatten([element(1,element(2, T)) || T <- Unchecked]),
                     if 
                         length(List) =< 10 ->
-                            ?Log("Received  : ~p~n", [List]);
+                            ?Debug("Received  : ~p~n", [List]);
                         true ->
-                            ?Log("Received  : ~p items [~p,~p,~p]~n", [length(List),hd(List), '...', lists:last(List)])
+                            ?Debug("Received  : ~p items [~p,~p,~p]~n", [length(List),hd(List), '...', lists:last(List)])
                     end,            
                     List;
                 StmtRefs ->
@@ -1242,7 +1242,7 @@ receive_tuples(StmtResult, Complete, Timeout) ->
 
 receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
-            R ->    % ?Log("~p got:~n~p~n", [erlang:now(),R]),
+            R ->    % ?Debug("~p got:~n~p~n", [erlang:now(),R]),
                     R
         after Timeout ->
             stop
@@ -1264,9 +1264,9 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                     RT = result_tuples(List,RowFun),
                     if 
                         length(RT) =< 10 ->
-                            ?Log("Received  : ~p~n", [RT]);
+                            ?Debug("Received  : ~p~n", [RT]);
                         true ->
-                            ?Log("Received  : ~p items [~p,~p,~p]~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                            ?Debug("Received  : ~p items [~p,~p,~p]~n", [length(RT),hd(RT), '...', lists:last(RT)])
                     end,            
                     RT;
                 StmtRefs ->

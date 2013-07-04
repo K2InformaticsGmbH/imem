@@ -164,8 +164,12 @@ format({restore, RestoreRes}) ->
          end
          || {T, Res} <- RestoreRes],
         io_lib:format("~s~n", [Sep])]
-    ).
-
+    );
+format({take, TakeRes}) ->
+    [case R of
+        {ok, T}             -> io_lib:format("snapshot created for ~p~n", [T]);
+        {error, T, Reason}  -> io_lib:format("snapshot of ~p failed for ~p~n", [T, Reason])
+    end || R <- TakeRes].
 
 % take snapshot of all/some of the current in memory mnesia table
 take([all]) ->
@@ -200,8 +204,8 @@ take({tabs, SnapDir, Tabs}) ->
                 {ok, _} = file:copy(NewBackFile, BackFile),
                 ok = file:delete(NewBackFile)
             end) of
-        {atomic, ok}      -> io_lib:format("snapshot created for ~p~n", [T]);
-        {aborted, Reason} -> io_lib:format("snapshot failed for ~p, reason ~p~n", [T, Reason])
+        {atomic, ok}      -> {ok, T};
+        {aborted, Reason} -> {error, T, Reason}
     end
     || T <- Tabs]).
 

@@ -2,6 +2,7 @@
 
 %% -ifdef(TEST).
 
+-include("imem.hrl").
 -include("imem_meta.hrl").
 
 -behavior(gen_server).
@@ -87,12 +88,12 @@ fac(N) -> N * fac(N-1).
 % gen_server behavior callbacks
 
 init(Wait) ->
-    ?Log("~p starting...~n", [?MODULE]),
+    ?Debug("~p starting...~n", [?MODULE]),
     imem_meta:create_check_table(?ddTestName, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set},{record_name,ddTest}], system),
     imem_test_writer:write_test_record(0,0,0.0,"fac start"),
     random:seed(now()),
     erlang:send_after(Wait, self(), write_record),    
-    ?Log("~p started!~n", [?MODULE]),
+    ?Debug("~p started!~n", [?MODULE]),
     {ok,#state{wait=Wait}}.
 
 handle_info(write_record, #state{wait=Wait}) ->
