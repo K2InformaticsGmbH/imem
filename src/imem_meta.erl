@@ -1061,8 +1061,8 @@ read(ddNode,Node) when is_atom(Node) ->
 read(ddNode,_) -> [];
 read(ddSize,Table) -> 
     case (catch table_size(physical_table_name(Table))) of
-        S when is_integer(S) -> S;
-        _ ->                    missing
+        S when is_integer(S) -> {Table,S};
+        _ ->                    {Table,missing}
     end;
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).

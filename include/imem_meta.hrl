@@ -84,12 +84,12 @@
        ).
 -define(dual, [string,atom]).
 
--record(ddSize,                             %% node    
-                  { size=missing            ::integer()                 
-                  , nac = ?nav              ::atom()        % not a column
+-record(ddSize,                             %% table size    
+                  { name                    ::atom()
+                  , size=missing            ::integer()                 
                   }
        ).
--define(ddSize, [integer,atom]).
+-define(ddSize, [atom, integer]).
 
 
 -define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)
