@@ -21,6 +21,7 @@
         , simplify_guard/1
         , create_scan_spec/4
         , operand_member/2
+        , escape_sql/1
         , un_escape_sql/1
         , build_sort_fun/2
         , build_sort_spec/3
@@ -450,8 +451,15 @@ replace_nis_member({Op,Left,Right})->           {Op,replace_nis_member(Left),rep
 replace_nis_member({Op,Result}) ->              {Op,replace_nis_member(Result)};
 replace_nis_member(Result) ->                   Result.
 
+escape_sql(Str) when is_list(Str) ->
+    re:replace(Str, "(')", "''", [global, {return, list}]);
+escape_sql(Bin) when is_binary(Bin) ->
+    re:replace(Bin, "(')", "''", [global, {return, binary}]).
+
 un_escape_sql(Str) when is_list(Str) ->
-    re:replace(Str, "('')", "'", [global, {return, list}]).
+    re:replace(Str, "('')", "'", [global, {return, list}]);
+un_escape_sql(Bin) when is_binary(Bin) ->
+    re:replace(Bin, "('')", "'", [global, {return, binary}]).
 
 
 build_sort_fun(SelectSections,FullMap) ->
@@ -535,7 +543,7 @@ filter_condition({Idx,Vals}, ColMaps) ->
 
 filter_field_value(_Tag,integer,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,float,_Len,_Prec,_Def,Val) -> Val;
-filter_field_value(_Tag,_Type,_Len,_Prec,_Def,Val) -> imem_datatype:add_squotes(Val).    
+filter_field_value(_Tag,_Type,_Len,_Prec,_Def,Val) -> imem_datatype:add_squotes(imem_sql:escape_sql(Val)).    
 
 sort_spec_order([],_,_) -> [];
 sort_spec_order(SortSpec,FullMaps,ColMaps) ->
@@ -785,6 +793,29 @@ test_with_or_without_sec(IsSec) ->
             true -> ?imem_test_admin_login();
             _ ->    ok
         end,
+
+
+        ?assertEqual("", escape_sql("")),
+        ?assertEqual(<<"">>, escape_sql(<<"">>)),
+        ?assertEqual("abc", escape_sql("abc")),
+        ?assertEqual(<<"abc">>, escape_sql(<<"abc">>)),
+        ?assertEqual("''abc", escape_sql("'abc")),
+        ?assertEqual(<<"''abc">>, escape_sql(<<"'abc">>)),
+        ?assertEqual("ab''c", escape_sql("ab'c")),
+        ?assertEqual(<<"ab''c">>, escape_sql(<<"ab'c">>)),
+        ?assertEqual(<<"''ab''''c''">>, escape_sql(<<"'ab''c'">>)),
+
+        ?assertEqual("", un_escape_sql("")),
+        ?assertEqual(<<"">>, un_escape_sql(<<"">>)),
+        ?assertEqual("abc", un_escape_sql("abc")),
+        ?assertEqual(<<"abc">>, un_escape_sql(<<"abc">>)),
+        ?assertEqual("'abc", un_escape_sql("'abc")),
+        ?assertEqual(<<"'abc">>, un_escape_sql(<<"'abc">>)),
+        ?assertEqual("ab'c", un_escape_sql("ab''c")),
+        ?assertEqual(<<"ab'c">>, un_escape_sql(<<"ab''c">>)),
+        ?assertEqual(<<"'ab'c'">>, un_escape_sql(<<"'ab''c'">>)),
+
+
         % field names
         ?assertEqual({undefined,undefined,field}, field_qname(<<"field">>)),
         ?assertEqual({undefined,table,field}, field_qname(<<"table.field">>)),
@@ -880,6 +911,11 @@ test_with_or_without_sec(IsSec) ->
         CC3 = {'in',<<"c1">>,{'list',[<<"'3.1.2.3'">>,<<"'3.3.2.1'">>]}},
         ?assertEqual({'and',{'or',{'or',CA1,CB2},CC3},{wt}}, filter_spec_where({'or',[FA1,FB2,FC3]}, ColsF, {wt})),
         ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsF, {wt})),
+
+        FB2a = {2,[<<"22'2">>]},
+        CB2a = {'=',<<"meta_table_1.b1">>,<<"'22''2'">>},
+        ?assertEqual({'and',{'and',CA1,CB2a},{wt}}, filter_spec_where({'and',[FA1,FB2a]}, ColsF, {wt})),
+
         ?Log("success ~p~n", [filter_spec_where]),
 
         ?assertEqual([], sort_spec_order([], ColsF, ColsF)),

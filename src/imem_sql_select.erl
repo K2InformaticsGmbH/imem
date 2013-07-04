@@ -213,6 +213,13 @@ reverse('<') -> '>';
 reverse('>') -> '<';
 reverse(OP) -> ?UnimplementedException({"Cannot reverse operator",OP}).
 
+guard_wrap(L) when is_list(L) ->
+    [guard_wrap(Item) || Item <- L];
+guard_wrap(T) when is_tuple(T) ->
+    {const,list_to_tuple(guard_wrap(tuple_to_list(T)))};
+guard_wrap(E) -> E.
+
+
 in_condition(SKey,Tmax,Ti,A,InList,FullMap) ->
     in_condition_loop(SKey,Tmax,Ti,expr_lookup(SKey,Tmax,Ti,A,FullMap),InList,FullMap).
 
@@ -225,7 +232,7 @@ in_condition_loop(SKey,Tmax,Ti,ALookup,[B|Rest],FullMap) ->
             in_condition_loop(SKey,Tmax,Ti,ALookup,Rest,FullMap)}.
 
 field_value(Tag,Type,Len,Prec,Def,Val) when is_binary(Val);is_list(Val) ->
-    case imem_datatype:io_to_db(Tag,?nav,Type,Len,Prec,Def,false,Val) of
+    case imem_datatype:io_to_db(Tag,?nav,Type,Len,Prec,Def,false,imem_sql:un_escape_sql(Val)) of
         T when is_tuple(T) ->   {const,T};
         V ->                    V
     end;
@@ -916,6 +923,26 @@ test_with_or_without_sec(IsSec) ->
              "
         ),
         ?assert(length(R5m) >= 5),
+
+        exec_fetch_sort_equal(SKey, query5n, 100, IsSec, 
+            "select col1 from member_test where col3 = '{a,d,e}'",
+            [{<<"4">>},{<<"5">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5o, 100, IsSec, 
+            "select col1 from member_test where col3 = '{x,d,e}'",
+            []
+        ),
+
+        exec_fetch_sort_equal(SKey, query5p, 100, IsSec, 
+            "select col1 from member_test where col3 = '{''a'',d,e}'",
+            [{<<"4">>},{<<"5">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5q, 100, IsSec, 
+            "select col1 from member_test where col3 = '{a,{\"d\"},e}'",
+            []
+        ),
 
     %% sorting
 
