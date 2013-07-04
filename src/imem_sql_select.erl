@@ -213,12 +213,11 @@ reverse('<') -> '>';
 reverse('>') -> '<';
 reverse(OP) -> ?UnimplementedException({"Cannot reverse operator",OP}).
 
-guard_wrap(L) when is_list(L) ->
-    [guard_wrap(Item) || Item <- L];
-guard_wrap(T) when is_tuple(T) ->
-    {const,list_to_tuple(guard_wrap(tuple_to_list(T)))};
-guard_wrap(E) -> E.
-
+% guard_wrap(L) when is_list(L) ->
+%     [guard_wrap(Item) || Item <- L];
+% guard_wrap(T) when is_tuple(T) ->
+%     {const,list_to_tuple(guard_wrap(tuple_to_list(T)))};
+% guard_wrap(E) -> E.
 
 in_condition(SKey,Tmax,Ti,A,InList,FullMap) ->
     in_condition_loop(SKey,Tmax,Ti,expr_lookup(SKey,Tmax,Ti,A,FullMap),InList,FullMap).

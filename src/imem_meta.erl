@@ -2,7 +2,7 @@
 
 %% HARD CODED CONFIGURATIONS
 
--define(META_TABLES,[ddTable,ddNode,dual,?LOG_TABLE,?MONITOR_TABLE]).
+-define(META_TABLES,[ddTable,ddNode,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 
@@ -160,15 +160,16 @@ init(_Args) ->
     Result = try
         application:set_env(imem, node_shard, node_shard()),
         catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
-        check_table(ddTable),
-        check_table_columns(ddTable, record_info(fields, ddTable)),
+        catch check_table(ddTable),
+        catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
         catch create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
+        catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
         catch create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
         catch create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
         catch create_check_table(?MONITOR_TABLE, {record_info(fields, ddMonitor),?ddMonitor, #ddMonitor{}}, ?MONITOR_TABLE_OPTS, system),    
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
-            ok ->   write(dual,#dual{});
+            ok ->   catch write(dual,#dual{});
             _ ->    ok
         end,
         % check_table(dual),
@@ -180,7 +181,7 @@ init(_Args) ->
         {ok,#state{}}
     catch
         Class:Reason -> ?Log("failed with ~p:~p~n", [Class,Reason]),
-                        {stop, "Insufficient/invalid resources for start"}
+                        {stop, {"Insufficient/invalid resources for start", Class, Reason}}
     end,
     Result.
 
@@ -957,6 +958,7 @@ table_type(Table) when is_atom(Table) ->
 table_record_name({_Schema,Table}) ->
     table_record_name(Table);   %% ToDo: may depend on schema
 table_record_name(ddNode)  -> ddNode;
+table_record_name(ddSize)  -> ddSize;
 table_record_name(Table) when is_atom(Table) ->
     imem_if:table_record_name(physical_table_name(Table)).
 
@@ -965,10 +967,9 @@ table_columns({_Schema,Table}) ->
 table_columns(Table) ->
     imem_if:table_columns(physical_table_name(Table)).
 
-table_size({_Schema,Table}) ->
-    table_size(Table);          %% ToDo: may depend on schema
-table_size(ddNode) ->
-    length(read(ddNode));
+table_size({_Schema,Table}) ->  table_size(Table);          %% ToDo: may depend on schema
+table_size(ddNode) ->           length(read(ddNode));
+table_size(ddSize) ->           1;
 table_size(Table) ->
     %% ToDo: sum should be returned for all local time partitions
     imem_if:table_size(physical_table_name(Table)).
@@ -1014,8 +1015,15 @@ update_cursor_execute(Pid, Lock) ->
 
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
-fetch_start(Pid, ddNode, MatchSpec, _BlockSize, _Opts) ->
-    {Rows,true} = select(ddNode, MatchSpec),
+fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
+    fetch_start_virtual(Pid, ddNode, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
+    fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
+    imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
+
+fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
+    {Rows,true} = select(VTable, MatchSpec),
     spawn(
         fun() ->
             receive
@@ -1023,9 +1031,7 @@ fetch_start(Pid, ddNode, MatchSpec, _BlockSize, _Opts) ->
                 next ->     Pid ! {row, [?sot,?eot|Rows]}
             end
         end
-    );
-fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
-    imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
+    ).
 
 close(Pid) ->
     imem_statement:close(none, Pid).
@@ -1053,6 +1059,11 @@ read(ddNode,Node) when is_atom(Node) ->
             []
     end;
 read(ddNode,_) -> [];
+read(ddSize,Table) -> 
+    case (catch table_size(physical_table_name(Table))) of
+        S when is_integer(S) -> S;
+        _ ->                    missing
+    end;
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
 
@@ -1094,6 +1105,21 @@ select(ddNode, [{_,[{'==',K1,K2}],['$_']}]) when is_atom(K1), is_atom(K2) ->
     end;
 select(ddNode, MatchSpec) ->
     ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddNode}});
+select(ddSize, ?MatchAllRecords) ->
+    {read(ddSize),true};
+select(ddSize, [{_,[],['$_']}]) ->
+    {read(ddSize),true};                %% used in select * from ddNode
+select(ddSize, [{_,[{'==',{element,N,Tuple},_}],['$_']}]) when is_tuple(Tuple) ->
+    {read(ddSize,element(N,Tuple)),true};
+select(ddSize, [{_,[{'==',_,{element,N,Tuple}}],['$_']}]) when is_tuple(Tuple) ->
+    {read(ddSize,element(N,Tuple)),true};
+select(ddSize, [{_,[{'==',K1,K2}],['$_']}]) when is_atom(K1), is_atom(K2) ->
+    case atom_to_list(K1) of
+        [$$|_] ->   {read(ddSize,K2),true};   % Key cannot match '$_'
+        _ ->        {read(ddSize,K1),true}
+    end;
+select(ddSize, MatchSpec) ->
+    ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddSize}});
 select(Table, MatchSpec) ->
     imem_if:select(physical_table_name(Table), MatchSpec).
 
@@ -1103,6 +1129,8 @@ select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(ddNode, MatchSpec, _Limit) ->
     select(ddNode, MatchSpec);
+select(ddSize, MatchSpec, _Limit) ->
+    select(ddSize, MatchSpec);
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 

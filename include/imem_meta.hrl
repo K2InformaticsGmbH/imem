@@ -84,6 +84,14 @@
        ).
 -define(dual, [string,atom]).
 
+-record(ddSize,                             %% node    
+                  { size=missing            ::integer()                 
+                  , nac = ?nav              ::atom()        % not a column
+                  }
+       ).
+-define(ddSize, [integer,atom]).
+
+
 -define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)
 -define(OneDay, 1.0).                       %% span of  datetime or timestamp (fraction of 1 day)
 -define(OneHour, 0.041666666666666664).     %% span of  datetime or timestamp (1.0/24.0 of 1 day)
