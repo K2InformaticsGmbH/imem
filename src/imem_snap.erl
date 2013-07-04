@@ -216,7 +216,11 @@ restore(bkp, [_T|_] = Tabs, Strategy, Simulate) when is_list(_T) ->
         Table = filename:rootname(filename:basename(Tab)),
         SnapFile = filename:join([SnapDir, Table++?BKP_EXTN]),
         {ok, Bin} = file:read_file(SnapFile),
-        [{prop, TabProp}, {rows, Rows}] = binary_to_term(Bin),
+        [{prop, TabProp}, {rows, Rows}] = 
+            case binary_to_term(Bin) of
+                [{prop,_},{rows,_}] = R -> R;
+                R -> [{prop,[]},{rows,R}]
+            end,
         restore(list_to_atom(Table), {prop, TabProp}, {rows, Rows}, Strategy, Simulate)
     end)()
     || Tab <- Tabs].
@@ -229,7 +233,11 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
                         [] when length(TabRegEx) > 0 -> Acc;
                         _ ->
                             Tab = list_to_atom(filename:rootname(filename:basename(File))),
-                            [{prop, TabProp}, {rows, Rows}] = binary_to_term(GBin()),
+                            [{prop, TabProp}, {rows, Rows}] = 
+                                case binary_to_term(GBin()) of
+                                    [{prop,_},{rows,_}] = R -> R;
+                                    R -> [{prop,[]},{rows,R}]
+                                end,
                             [restore(Tab, {prop, TabProp}, {rows, Rows}, Strategy, Simulate) | Acc]
                     end
                 end, [], ZipFile) of
