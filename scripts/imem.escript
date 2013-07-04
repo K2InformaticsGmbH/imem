@@ -168,9 +168,11 @@ cmd(Node, ["snap", "info", "zip"]) ->
 
 % taek snapshots
 cmd(Node, ["snap", "take"]) ->
-    ?P(rpc:call(Node, imem_snap, take, [[all]], ?TIMEOUT));
+    RR = rpc:call(Node, imem_snap, take, [[all]], ?TIMEOUT),
+    ?P(rpc:call(Node, imem_snap, format, [{take, RR}], ?TIMEOUT));
 cmd(Node, ["snap", "take" | OptTableRegExs]) ->
-    ?P(rpc:call(Node, imem_snap, take, [{tabs, OptTableRegExs}], ?TIMEOUT));
+    RR = rpc:call(Node, imem_snap, take, [{tabs, OptTableRegExs}], ?TIMEOUT),
+    ?P(rpc:call(Node, imem_snap, format, [{take, RR}], ?TIMEOUT));
 
 % backup snapshots
 cmd(Node, ["snap", "zip", "re", Pattern]) ->
