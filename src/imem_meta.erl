@@ -25,6 +25,12 @@
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
 -define(GET_MONITOR_CYCLE_WAIT,?GET_IMEM_CONFIG(monitorCycleWait,[],2000)).
+-define(GET_MONITOR_EXTRA,?GET_IMEM_CONFIG(monitorExtra,[],true)).
+-define(GET_MONITOR_EXTRA_FUN,?GET_IMEM_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,erlang:now()}] end.">>)).
+-define(GET_MONITOR_DUMP,?GET_IMEM_CONFIG(monitorDump,[],false)).
+-define(GET_MONITOR_DUMP_FUN,?GET_IMEM_CONFIG(monitorDumpFun,[],<<"">>)).
+
+
 -define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],10000)).
 -define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).
 
@@ -33,7 +39,14 @@
 
 -behavior(gen_server).
 
--record(state, {purgeList=[]}).
+-record(state, {
+                 purgeList=[]               :: list()
+               , extraFun = undefined       :: any()
+               , extraHash = undefined      :: any()
+               , dumpFun = <<"">>           :: binary()
+               , dumpHash = undefined       :: any()
+               }
+       ).
 
 -export([ start_link/1
         ]).
@@ -93,8 +106,10 @@
 -export([ add_attribute/2
         , update_opts/2
         , log_to_db/5
+        , log_to_db/6
         , failing_function/1
-        , monitor/0
+        , imem_monitor/0
+        , imem_monitor/2
         , get_config_hlk/4 
         , put_config_hlk/5 
         ]).
@@ -102,6 +117,7 @@
 -export([ create_table/3
         , create_table/4
         , create_partitioned_table/1
+        , create_partitioned_table_sync/1
         , create_check_table/3
         , create_check_table/4
         , drop_table/1
@@ -177,7 +193,7 @@ init(_Args) ->
         % check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
         % check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
         erlang:send_after(10000, self(), purge_partitioned_tables),
-        erlang:send_after(2000, self(), monitor_loop),
+        erlang:send_after(2000, self(), imem_monitor_loop),
         ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -186,25 +202,23 @@ init(_Args) ->
     end,
     Result.
 
-create_partitioned_table(Name) when is_atom(Name) ->
+create_partitioned_table_sync(Name) when is_atom(Name) ->
     gen_server:call(?MODULE, {create_partitioned_table, Name},35000). 
 
-handle_call({create_partitioned_table, Name}, _From, State) ->
+create_partitioned_table(Name) when is_atom(Name) ->
     try 
         case imem_if:read(ddTable,{schema(), Name}) of
             [#ddTable{}] ->
                 % Table seems to exist, may need to load it
                 case catch(check_table(Name)) of
-                    ok ->       
-                        {reply, ok, State};
+                    ok ->   ok;
                     Res ->
-                        ?Info("Waiting for partitioned table  ~p~n", [Name,Res]),
+                        ?Info("Waiting for partitioned table ~p results in ~p", [Name,Res]),
                         case mnesia:wait_for_tables([Name], 30000) of
-                            ok ->   
-                                {reply, ok, State};
+                            ok ->   ok;   
                             Error ->            
-                                ?Error("Waiting for partitioned table failed with ~p~n", [Error]),
-                                {reply, {error,Error}, State}
+                                ?Error("Waiting for partitioned table failed with ~p", [Error]),
+                                {error,Error}
                         end
                 end;
             [] ->   
@@ -219,32 +233,36 @@ handle_call({create_partitioned_table, Name}, _From, State) ->
                         Pred = fun(TN) -> (lists:nthtail(LenNS, atom_to_list(TN)) == Tail) end,
                         case lists:filter(Pred,tables_starting_with(Prefix)) of
                             [] ->   
-                                ?Error("No table template found starting/ending with ~p~n", [Prefix,Tail]),   
-                                {reply, {error, {"No table template found starting/ending with", {Prefix,Tail}}}, State}; 
+                                ?Error("No table template found starting/ending with  ~p / ~p", [Prefix,Tail]),   
+                                {error, {"No table template found starting/ending with", {Prefix,Tail}}}; 
                             Cand -> 
                                 Template = lists:last(lists:sort(Cand)),
                                 % find out ColumnsInfos, Opts, Owner from template table definition
                                 case imem_if:read(ddTable,{schema(), Template}) of
                                     [] ->
-                                        ?Error("Table template not found ~p~n", [Template]),   
-                                        {reply, {error, {"Table template not found", Template}}, State}; 
+                                        ?Error("Table template not found ~p", [Template]),   
+                                        {error, {"Table template not found", Template}}; 
                                     [#ddTable{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
                                         try
-                                            {reply, create_table(Name, ColumnInfos, Opts, Owner), State}
+                                            create_table(Name, ColumnInfos, Opts, Owner)
                                         catch
-                                            _:Reason2 -> {reply, {error, Reason2}, State}
+                                            _:Reason2 -> {error, Reason2}
                                         end
                                 end
                         end;                      
-                    _ -> 
-                        {reply, {error, {"Invalid table name",Name}}, State}
+                    _ ->
+                        ?Error("Invalid table name ~p", [Name]),   
+                        {error, {"Invalid table name",Name}}
                 end
         end
     catch
         _:Reason1 ->
-            ?Error("Create partitioned table failed with ~p~n", [Reason1]),
-            {reply, {error,Reason1}, State}
-    end;
+            ?Error("Create partitioned table failed with ~p", [Reason1]),
+            {error,Reason1}
+    end.
+
+handle_call({create_partitioned_table, Name}, _From, State) ->
+    {reply, create_partitioned_table(Name), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -253,17 +271,36 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(monitor_loop, State) ->
-    % save one monitor record and trigger the nxt one
-    % ?Debug("monitor_loop start~n",[]),
+handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHash=DH} = State) ->
+    % save one imem_monitor record and trigger the next one
+    % ?Debug("imem_monitor_loop start~n",[]),
     case ?GET_MONITOR_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
-            monitor(),
-            erlang:send_after(MCW, self(), monitor_loop);
+            {EHash,EFun} = case {?GET_MONITOR_EXTRA, ?GET_MONITOR_EXTRA_FUN} of
+                    {false, _} ->       {undefined,undefined};
+                    {true, <<"">>} ->   {undefined,undefined};
+                    {true, EFStr} ->
+                        case erlang:phash2(EFStr) of
+                            EH ->   {EH,EF};
+                            H1 ->   {H1,compile_fun(EFStr)}
+                        end      
+                end,
+            {DHash,DFun} = case {?GET_MONITOR_DUMP, ?GET_MONITOR_DUMP_FUN} of
+                    {false, _} ->       {undefined,undefined};
+                    {true, <<"">>} ->   {undefined,undefined};
+                    {true, DFStr} ->
+                        case erlang:phash2(DFStr) of
+                            DH ->   {DH,DF};
+                            H2 ->   {H2,compile_fun(DFStr)}
+                        end      
+                end,
+            imem_monitor(EFun,DFun),
+            erlang:send_after(MCW, self(), imem_monitor_loop),
+            {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
         _ ->
-            erlang:send_after(2000, self(), monitor_loop)
-    end,        
-    {noreply, State};
+            erlang:send_after(2000, self(), imem_monitor_loop),
+            {noreply, State}
+    end;        
 handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
     % ?Debug("Purge collect start~n",[]), 
@@ -308,10 +345,10 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
                                         (PartitionEnd >= PurgeEnd) ->
                                             ok;     %% too young, do not purge this file  
                                         true ->                     
-                                            FreedMemory = table_memory(Tab),
-                                            Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
-                                            ?Debug("Purge time partition ~p~n",[Tab]),
-                                            log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
+                                            ?Info("Purge time partition ~p~n",[Tab]),
+                                            % FreedMemory = table_memory(Tab),
+                                            % Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
+                                            % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
                                             drop_table_and_info(Tab)
                                     end
                             end
@@ -336,6 +373,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 
 %% ------ META implementation -------------------------------------------------------
+
 
 system_table({_S,Table,_A}) -> system_table(Table);
 system_table({_,Table}) -> system_table(Table);
@@ -552,16 +590,8 @@ create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
     case Schema of
         MySchema ->
-            case Table of
-                ddTable ->  
-                    create_physical_table(Table,ColumnInfos,Opts,Owner);
-                ?LOG_TABLE ->   
-                    create_physical_table(Table,ColumnInfos,Opts,Owner);
-                _ ->        
-                    log_to_db(info,?MODULE,create_table,[{table,Table},{ops,Opts},{owner,Owner}],"create table"),  
-                    create_physical_table(Table,ColumnInfos,Opts,Owner)
-            end;
-        _ ->        ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
+                create_physical_table(Table,ColumnInfos,Opts,Owner);
+        _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
 create_physical_table(Table,ColumnInfos,Opts,Owner) ->
     case is_valid_table_name(Table) of
@@ -675,8 +705,8 @@ purge_time_partitioned_table(Alias, Opts) ->
                         _ ->    ok
                     end,
                     FreedMemory = table_memory(PhName),
-                    Fields = [{table,PhName},{table_size,table_size(PhName)},{table_memory,FreedMemory}],   
-                    log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
+                    % Fields = [{table,PhName},{table_size,table_size(PhName)},{table_memory,FreedMemory}],   
+                    ?Info("Purge time partition ~p~n",[PhName]),
                     drop_table_and_info(PhName),
                     FreedMemory
             end
@@ -855,6 +885,25 @@ atoms_ending_with(Suffix,[A|Atoms],Acc) ->
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
+
+compile_fun(Binary) when is_binary(Binary) ->
+    compile_fun(binary_to_list(Binary)); 
+compile_fun(String) when is_list(String) ->
+    try  
+        Code = case [lists:last(string:strip(String))] of
+            "." -> String;
+            _ -> String ++ "."
+        end,
+        {ok,ErlTokens,_}=erl_scan:string(Code),    
+        {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
+        {value,Fun,_}=erl_eval:exprs(ErlAbsForm,[]),    
+        Fun
+    catch
+        _:Reason ->
+            ?Error("compiling imem_monitor function ~p results in ~p",[String,Reason]), 
+            undefined
+    end.
+
 schema() ->
     imem_if:schema().
 
@@ -883,23 +932,22 @@ failing_function(Other) ->
     ?Debug("unexpected stack trace ~p~n", [Other]),
     {undefined,undefined}.
 
-log_to_db(Level,Module,Function,Fields,Message) when is_binary(Message) ->
-    StackTrace = if
-        (Level == error) -> erlang:get_stacktrace();
-        true ->             []
-    end,
+log_to_db(Level,Module,Function,Fields,Message)  ->
+    log_to_db(Level,Module,Function,Fields,Message,[]).
+
+log_to_db(Level,Module,Function,Fields,Message,StackTrace) when is_binary(Message) ->
     LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
                         ,module=Module,function=Function,node=node()
                         ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
     dirty_write(?LOG_TABLE, LogRec);
-log_to_db(Level,Module,Function,Fields,Message) ->
+log_to_db(Level,Module,Function,Fields,Message,Stacktrace) ->
     BinStr = try 
         list_to_binary(Message)
     catch
         _:_ ->  list_to_binary(lists:flatten(io_lib:format("~tp",[Message])))
     end,
-    log_to_db(Level,Module,Function,Fields,BinStr).
+    log_to_db(Level,Module,Function,Fields,BinStr,Stacktrace).
 
 
 %% imem_if but security context added --- META INFORMATION ------
@@ -1168,7 +1216,7 @@ write(Table, Record) ->
             % ToDo: instruct imem_meta gen_server to create the table
             case is_time_partitioned_alias(Table) of
                 true ->
-                    create_partitioned_table(PTN),
+                    create_partitioned_table_sync(PTN),
                     imem_if:write(PTN, Record);
                 false ->
                     ?ClientError({"Table does not exist",T})
@@ -1178,11 +1226,13 @@ write(Table, Record) ->
             throw(Reason)
     end. 
 
-monitor() ->
+imem_monitor() -> imem_monitor(undefined,undefined).
+
+imem_monitor(ExtraFun,DumpFun) ->
     try  
         Now = erlang:now(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
-        Moni = #ddMonitor{ time=Now
+        Moni0 = #ddMonitor{ time=Now
                          , node = node()
                          , memory=erlang:memory(total)
                          , process_count=erlang:system_info(process_count)          
@@ -1192,11 +1242,26 @@ monitor() ->
                          , reductions=element(1,erlang:statistics(reductions))
                          , input_io=Input
                          , output_io=Output
-                         , extra=[]      
                          },
-        write(?MONITOR_TABLE, Moni)        
+        Moni1 = case ExtraFun of
+            undefined ->    Moni0;
+            E ->            Moni0#ddMonitor{extra=E(Moni0)}
+        end,
+        PTN = physical_table_name(?MONITOR_TABLE,Now),
+        try 
+            imem_if:table_size(PTN) 
+        catch
+            _:_ -> create_partitioned_table(PTN)  
+        end,
+        imem_if:dirty_write(PTN, Moni1),
+        case DumpFun of
+            undefined ->    ok;
+            D ->            D(Moni1)            
+        end
     catch
-        _:E -> log_to_db(warning,?MODULE,monitor,[{error,E}],"cannot monitor")
+        _:Err ->
+            ?Error("cannot monitor ~p", [Err]),
+            {error,{"cannot monitor",Err}}
     end.
 
 dirty_write({_Schema,Table}, Record) -> 
@@ -1210,7 +1275,7 @@ dirty_write(Table, Record) ->
         throw:{'ClientError',{"Table does not exist",T}} ->
             case is_time_partitioned_alias(Table) of
                 true ->
-                    create_partitioned_table(PTN),
+                    create_partitioned_table_sync(PTN),
                     imem_if:dirty_write(PTN, Record);
                 false ->
                     ?ClientError({"Table does not exist",T})
@@ -1463,7 +1528,7 @@ meta_operations(_) ->
         DdNode2 = select(ddNode,?MatchAllRecords),
         ?Log("ddNode2 ~p~n", [DdNode2]),
 
-        ?assertEqual(ok, monitor()),
+        ?assertEqual(ok, imem_monitor()),
         MonRecs = read(?MONITOR_TABLE),
         ?Log("MonRecs count ~p~n", [length(MonRecs)]),
         ?Log("MonRecs last ~p~n", [lists:last(MonRecs)]),
