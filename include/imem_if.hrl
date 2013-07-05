@@ -7,11 +7,15 @@
 -define(sot,'$start_of_table').		%% defined in mnesia, signals start of fetch transaction here 
 -define(eot,'$end_of_table').		  %% defined in mnesia, signals end of fetch transaction here
 
+-ifdef(TEST).
+-define(EXCP_LOG(__Warn),ok).
+-else.
 -ifdef(LAGER).
-  -define(LAGER_WARNING(__Warn),lager:warning("~p",[__Warn])).
+-define(EXCP_LOG(__Warn),lager:warning("~p",[__Warn])).
 -else. % CONSOLE
-  -define(LAGER_WARNING(__Warn),io:format(user,"~p~n",[__Warn])).
+-define(EXCP_LOG(__Warn),io:format(user,"~p~n",[__Warn])).
 -endif. %LAGER or CONSOLE
+-endif. %TEST
 
 
 -define(THROW_EXCEPTION(__Ex,__Reason),
@@ -47,7 +51,7 @@
                             ,fields=[{ex,__Ex}|__Fields],message= __Message
                             ,stacktrace = __ST},
         catch imem_meta:write_log(__LogRec),
-        ?LAGER_WARNING(__LogRec),
+        ?EXCP_LOG(__LogRec),
         case __Ex of
             'SecurityViolation' ->  exit({__Ex,__Reason});
             _ ->                    throw({__Ex,__Reason})
