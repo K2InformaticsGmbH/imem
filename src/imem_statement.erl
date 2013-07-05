@@ -846,14 +846,14 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
-    % ?Debug("Rec used for join bind ~p~n", [Rec]),
+    ?Debug("Rec used for join bind ~p", [Rec]),
     [{MatchHead, Guard0, [Result]}] = SSpec,
     Guard1 = case Guard0 of
         [] ->   [];
         _ ->    [join_bind(Rec, hd(Guard0), SBinds)]
     end,
     MaxSize = Limit+1000,
-    % ?Debug("Join guard after bind : ~p~n", [Guard1]),
+    ?Debug("Join guard after bind : ~p", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, Guard1, [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->
@@ -862,7 +862,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
                     [setelement(Ti, Rec, I) || I <- L];
                 _ ->
                     MboundGuard = join_bind(Rec, FGuard, MBinds),
-                    % ?Debug("Join guard after MBind : ~p~n", [MboundGuard]),
+                    ?Debug("Join guard after MBind : ~p", [MboundGuard]),
                     Filter = make_filter_fun(Ti, MboundGuard, FBinds),
                     Recs = [setelement(Ti, Rec, I) || I <- L],
                     lists:filter(Filter,Recs)
@@ -880,19 +880,19 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fgu
                 true ->
                     ?UnimplementedException({"Unsupported virtual join filter guard", FGuard}); 
                 _ ->
-                    % ?Debug("Rec used for join bind ~p~n", [Rec]),
-                    % ?Debug("MBinds used for join bind ~p~n", [MBinds]),
+                    ?Debug("Rec used for join bind ~p", [Rec]),
+                    ?Debug("MBinds used for join bind ~p", [MBinds]),
                     case join_bind(Rec, FGuard, MBinds) of
                         {is_member,Tag, '$_'} when is_atom(Tag) ->
                             Items = element(1,Rec),
-                            % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+                            ?Debug("generate_virtual table ~p from ~p~n~p", [Table,'$_',Items]),
                             Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-                            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            ?Debug("Generated virtual table ~p~n~p", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         {is_member,Tag, Items} when is_atom(Tag) ->
-                            % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
+                            ?Debug("generate_virtual table ~p from~n~p", [Table,Items]),
                             Virt = generate_virtual(Table,Items,MaxSize),
-                            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+                            ?Debug("Generated virtual table ~p~n~p", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         BadFG ->
                             ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
@@ -1051,7 +1051,7 @@ send_reply_to_client(SockOrPid, Result) ->
 
 update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     TableTypes = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table,_Alias} <- Tables],
-    % ?Debug("received change list~n~p~n", [ChangeList]),
+    ?Debug("received change list~n~p", [ChangeList]),
     %% transform a ChangeList
         % [1,nop,{{def,"2","'2'"},{}},"2"],                     %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
@@ -1063,7 +1063,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_prepare(IsSec, SKey, TableTypes, ColMap, ChangeList, []),
-    %?Debug("prepared table changes~n~p~n", [UpdPlan]),
+    ?Debug("prepared table changes~n~p", [UpdPlan]),
     UpdPlan.
 
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
@@ -1074,7 +1074,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
     Action = [hd(Tables), Item, element(1,Recs), {}],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % ?Debug("ColMap~n~p~n", [ColMap]),
+    ?Debug("ColMap~n~p", [ColMap]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1084,17 +1084,17 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(Ti,Recs)),T,L,P,D,false,Value), R} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R, func=F},Value} 
             <- lists:zip(ColMap,Values), Ti==1, F==undefined]),    
-    % ?Debug("value map~n~p~n", [ValMap]),
+    ?Debug("value map~n~p", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
-    % ?Debug("ind map~n~p~n", [IndMap]),
+    ?Debug("ind map~n~p", [IndMap]),
     TupleUpdMap = lists:usort(
                 lists:flatten([tuple_update_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])
             ),    
-    % ?Debug("tuple item map~n~p~n", [TupleItemMap]),
+    ?Debug("tuple item map~n~p", [TupleUpdMap]),
     ROViolV = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
     ROViolT = [{element(Ci,element(1,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleUpdMap, R==true, element(Xi,element(Ci,element(1,Recs))) /= NewVal],   
     ROViol = ROViolV ++ ROViolT,
-    % ?Debug("key change~n~p~n", [ROViol]),
+    ?Debug("key change~n~p", [ROViol]),
     if  
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});        
         length(ROViol) /= 0 ->                  ?ClientError({"Cannot update readonly field",{Item,hd(ROViol)}});        
@@ -1107,7 +1107,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
 update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
     DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    % ?Debug("default record ~p~n", [DefRec]),     
+    ?Debug("default record ~p", [DefRec]),     
     update_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
@@ -1150,9 +1150,9 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==1, Value/=<<"">>]),
-    %?Debug("value map~n~p~n", [ValMap]),
+    ?Debug("value map~n~p", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
-    %?Debug("ind map~n~p~n", [IndMap]),
+    ?Debug("ind map~n~p", [IndMap]),
     HasKey = lists:member(2,IndMap),
     if 
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column insert",{Item,ValMap}});
