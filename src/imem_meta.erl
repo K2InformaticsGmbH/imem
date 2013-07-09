@@ -1137,7 +1137,7 @@ get_config_hlk({_Schema,Table}, Key, Context, Default) ->
 get_config_hlk(Table, Key, Context, Default) when is_atom(Table), is_list(Context) ->
     case read_hlk(Table, [Key|Context]) of
         [] ->
-            catch put_config_hlk(Table, Key, [], Default, <<"auto_provisioned">>),
+            catch put_config_hlk(Table, Key, Context, Default, <<"auto_provisioned">>),
             Default;
         [#ddConfig{val=Val}] ->
             Val
