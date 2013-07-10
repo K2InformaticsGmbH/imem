@@ -42,6 +42,8 @@
 %%          {error, Reason}
 %% --------------------------------------------------------------------
 start(_Type, StartArgs) ->
+    % cluster manager node itself may not run any apps
+    % it only helps to build up the cluster
     case application:get_env(erl_cluster_mgr) of
         {ok, undefined} -> ?Info("~p - CM not defined!~n", [?MODULE]);
         {ok, CMNode} ->
