@@ -54,7 +54,7 @@ loop(Socket, Transport, Buf, Len) ->
                 {NewLen, NewLen} ->
                     case (catch binary_to_term(NewBuf)) of
                         {'EXIT', _} ->
-                            ?Info(" [MALFORMED] ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
+                            ?Info(" [MALFORMED] ~p received ~p bytes buffering...", [self(), byte_size(NewBuf)]),
                             loop(Socket, Transport, NewBuf, NewLen);
                         Term ->
                             if element(2, Term) =:= imem_sec ->
@@ -67,7 +67,7 @@ loop(Socket, Transport, Buf, Len) ->
                             loop(Socket, Transport, binary_part(NewBuf, {TSize, RestSize}), NewLen)
                     end;
                 _ ->
-                    ?Info(" [INCOMPLETE] ~p received ~p bytes buffering...~n", [self(), byte_size(NewBuf)]),
+                    ?Info(" [INCOMPLETE] ~p received ~p bytes buffering...", [self(), byte_size(NewBuf)]),
                     loop(Socket, Transport, NewBuf, NewLen)
             end;
         {Closed, Socket} ->
