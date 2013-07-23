@@ -34,7 +34,9 @@ stop() ->
  
 init(ListenerPid, Socket, Transport, _Opts = []) ->
     {ok, {Address, Port}} = inet:peername(Socket),
-    ?Info("~p received connection from ~p:~p~n", [self(), Address, Port]),
+    Str = lists:flatten(io_lib:format("~p received connection from ~p:~p", [self(), Address, Port])),
+    ?Log(Str++"~n", []),
+    imem_meta:log_to_db(info,?MODULE,init,[ListenerPid, Socket, Transport, _Opts], Str),
     ok = ranch:accept_ack(ListenerPid),
     loop(Socket, Transport, <<>>, 0).
  

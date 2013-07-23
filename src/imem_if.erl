@@ -722,7 +722,10 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
                     LastSnapTime < LastWriteTime ->
                         Res = imem_snap:take(T),
                         [case R of
-                            {ok, T}             -> ?Info("snapshot created for ~p", [T]);
+                            {ok, T} ->
+                                Str = lists:flatten(io_lib:format("snapshot created for ~p", [T])),
+                                ?Log(Str++"~n", []),
+                                imem_meta:log_to_db(info,?MODULE,handle_info,[snapshot],Str);
                             {error, T, Reason}  -> ?Error("snapshot of ~p failed for ~p", [T, Reason])
                         end || R <- Res],
                         true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
