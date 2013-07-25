@@ -85,10 +85,11 @@
 
 -record(ddSize,                             %% table size    
                   { name                    ::atom()
-                  , size=missing            ::integer()                 
+                  , size=missing            ::integer()
+                  , memory=missing          ::integer()                 
                   }
        ).
--define(ddSize, [atom, integer]).
+-define(ddSize, [atom, integer, integer]).
 
 
 -define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)

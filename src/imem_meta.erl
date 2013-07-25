@@ -31,8 +31,11 @@
 -define(GET_MONITOR_DUMP_FUN,?GET_IMEM_CONFIG(monitorDumpFun,[],<<"">>)).
 
 
+
 -define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],10000)).
 -define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).
+-define(GET_PURGE_SCRIPT,?GET_IMEM_CONFIG(purgeScript,[],false)).
+-define(GET_PURGE_SCRIPT_FUN,?GET_IMEM_CONFIG(purgeScriptFun,[],<<"fun(_) -> ok end.">>)).
 
 -include("imem.hrl").
 -include("imem_meta.hrl").
@@ -43,8 +46,10 @@
                  purgeList=[]               :: list()
                , extraFun = undefined       :: any()
                , extraHash = undefined      :: any()
-               , dumpFun = <<"">>           :: binary()
+               , dumpFun = undefined        :: any()
                , dumpHash = undefined       :: any()
+               , purgeFun = undefined       :: any()
+               , purgeHash = undefined      :: any()
                }
        ).
 
@@ -277,23 +282,23 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
     case ?GET_MONITOR_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
             {EHash,EFun} = case {?GET_MONITOR_EXTRA, ?GET_MONITOR_EXTRA_FUN} of
-                    {false, _} ->       {undefined,undefined};
-                    {true, <<"">>} ->   {undefined,undefined};
-                    {true, EFStr} ->
-                        case erlang:phash2(EFStr) of
-                            EH ->   {EH,EF};
-                            H1 ->   {H1,compile_fun(EFStr)}
-                        end      
-                end,
+                {false, _} ->       {undefined,undefined};
+                {true, <<"">>} ->   {undefined,undefined};
+                {true, EFStr} ->
+                    case erlang:phash2(EFStr) of
+                        EH ->   {EH,EF};
+                        H1 ->   {H1,compile_fun(EFStr)}
+                    end      
+            end,
             {DHash,DFun} = case {?GET_MONITOR_DUMP, ?GET_MONITOR_DUMP_FUN} of
-                    {false, _} ->       {undefined,undefined};
-                    {true, <<"">>} ->   {undefined,undefined};
-                    {true, DFStr} ->
-                        case erlang:phash2(DFStr) of
-                            DH ->   {DH,DF};
-                            H2 ->   {H2,compile_fun(DFStr)}
-                        end      
-                end,
+                {false, _} ->       {undefined,undefined};
+                {true, <<"">>} ->   {undefined,undefined};
+                {true, DFStr} ->
+                    case erlang:phash2(DFStr) of
+                        DH ->   {DH,DF};
+                        H2 ->   {H2,compile_fun(DFStr)}
+                    end      
+            end,
             imem_monitor(EFun,DFun),
             erlang:send_after(MCW, self(), imem_monitor_loop),
             {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
@@ -301,16 +306,35 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
             erlang:send_after(2000, self(), imem_monitor_loop),
             {noreply, State}
     end;        
-handle_info(purge_partitioned_tables, State=#state{purgeList=[]}) ->
+handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
     % ?Debug("Purge collect start~n",[]), 
     case ?GET_PURGE_CYCLE_WAIT of
         PCW when (is_integer(PCW) andalso PCW > 1000) ->    
             Pred = fun imem_meta:is_local_time_partitioned_table/1,
             case lists:sort(lists:filter(Pred,tables_ending_with("@" ++ node_shard()))) of
-                [] ->   erlang:send_after(PCW, self(), purge_partitioned_tables),
-                        {noreply, State};
-                PL ->   handle_info({purge_partitioned_tables, PCW, ?GET_PURGE_ITEM_WAIT}, State#state{purgeList=PL})   
+                [] ->   
+                    erlang:send_after(PCW, self(), purge_partitioned_tables),
+                    {noreply, State};
+                PL ->   
+                    {PHash,PFun} = case {?GET_PURGE_SCRIPT, ?GET_PURGE_SCRIPT_FUN} of
+                        {false, _} ->       {undefined,undefined};
+                        {true, <<"">>} ->   {undefined,undefined};
+                        {true, PFStr} ->
+                            case erlang:phash2(PFStr) of
+                                PH ->   {PH,PF};
+                                H1 ->   {H1,compile_fun(PFStr)}
+                            end      
+                    end,
+                    try
+                        case PFun of
+                            undefined ->    ok;
+                            P ->            P(PL)
+                        end
+                    catch
+                        _:Reason -> ?Error("Purge script Fun failed with reason ~p~n",[Reason])
+                    end,
+                    handle_info({purge_partitioned_tables, PCW, ?GET_PURGE_ITEM_WAIT}, State#state{purgeFun=PFun,purgeHash=PHash,purgeList=PL})   
             end;
         _ ->  
             erlang:send_after(10000, self(), purge_partitioned_tables),
@@ -900,7 +924,7 @@ compile_fun(String) when is_list(String) ->
         Fun
     catch
         _:Reason ->
-            ?Error("compiling imem_monitor function ~p results in ~p",[String,Reason]), 
+            ?Error("Compiling script function ~p results in ~p",[String,Reason]), 
             undefined
     end.
 
@@ -1119,10 +1143,13 @@ read(ddNode,Node) when is_atom(Node) ->
             []
     end;
 read(ddNode,_) -> [];
-read(ddSize,Table) -> 
-    case (catch table_size(physical_table_name(Table))) of
-        S when is_integer(S) -> [{ddSize,Table,S}];
-        _ ->                    [{ddSize,Table,missing}]
+read(ddSize,Table) ->
+    PhysicalTableName =  physical_table_name(Table),
+    case (catch {table_size(PhysicalTableName),table_memory(PhysicalTableName)}) of
+        {S,M} when is_integer(S),is_integer(M) -> 
+            [{ddSize,Table,S,M}];
+        _ ->                    
+            [{ddSize,Table,missing,missing}]
     end;
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
