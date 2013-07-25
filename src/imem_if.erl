@@ -187,23 +187,37 @@ table_record_name(Table) ->
     table_info(Table, record_name).
     
 table_size(Table) ->
-    try
-        proplists:get_value(size,mnesia:table_info(Table, all))
-        % mnesia:table_info(Table, size) %% would return 0 for unloaded table
+    Result = try
+        case mnesia:table_info(Table, storage_type) of
+            unknown ->  unknown;
+            _ ->        proplists:get_value(size,mnesia:table_info(Table, all))
+                        % mnesia:table_info(Table, size) %% would return 0 for unloaded table
+        end
     catch
-        exit:{aborted,{no_exists,_,all}} -> ?ClientErrorNoLogging({"Table does not exist", Table});
+        exit:{aborted,{no_exists,_,_}} ->   ?ClientErrorNoLogging({"Table does not exist", Table});
         throw:Error ->                      ?SystemExceptionNoLogging(Error)
-    end.
+    end,
+    case Result of
+        unknown ->      ?ClientErrorNoLogging({"Cannot evaluate size of remote table", Table});
+        _ ->            Result
+    end.  
 
 table_memory(Table) ->
     % memory in BYTES occupied by Table
-    try
-        proplists:get_value(memory,mnesia:table_info(Table, all)) * erlang:system_info(wordsize)
-        % mnesia:table_info(Table, memory) %% would return 0 for unloaded table
+    Result = try
+        case mnesia:table_info(Table, storage_type) of
+            unknown ->  unknown;
+            _ ->        proplists:get_value(memory,mnesia:table_info(Table, all)) * erlang:system_info(wordsize)
+                        % mnesia:table_info(Table, memory) %% would return 0 for unloaded table
+        end
     catch
-        exit:{aborted,{no_exists,_,all}} -> ?ClientErrorNoLogging({"Table does not exist", Table});
+        exit:{aborted,{no_exists,_,_}} ->   ?ClientErrorNoLogging({"Table does not exist", Table});
         throw:Error ->                      ?SystemExceptionNoLogging(Error)
-    end.
+    end,
+    case Result of
+        unknown ->      ?ClientErrorNoLogging({"Cannot evaluate memory of remote table", Table});
+        _ ->            Result
+    end.  
 
 check_table(Table) ->
     table_size(Table).
