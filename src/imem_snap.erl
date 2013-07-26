@@ -108,23 +108,23 @@ format({bkp, [ {dbtables, DbTables}
              , {restorabletables, RestorableTables}]
             }) ->
     MTLen = lists:max([length(MTab) || {MTab, _, _} <- DbTables]),
-    Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s  ~-20s ~7s", [-MTLen, "name", "rows", "memory", "snap_size", "snap_time", "restore"])),
+    Header = lists:flatten(io_lib:format("~*s ~-10s ~-15s ~-10s  ~-20s ~7s", [-MTLen, "name", "rows", "memory", "snap_size", "snap_time", "restore"])),
     Sep = lists:duplicate(length(Header),$-),
     lists:flatten([
         io_lib:format("~s~n", [Sep]),
         io_lib:format("~s~n", [Header]),
         io_lib:format("~s~n", [Sep]),
         [(fun() ->
-            {SnapSize,SnapTime} = case proplists:lookup(_MTab, SnapTables) of
-                {_MTab, Sz, Tm} -> {integer_to_list(Sz), ?FMTTIME(Tm)};
+            {SnapSize,SnapTime} = case proplists:lookup(Tab, SnapTables) of
+                {Tab, Sz, Tm} -> {integer_to_list(Sz), ?FMTTIME(Tm)};
                 none -> {"", ""}
             end,
-            Restotable = case lists:member(_MTab, RestorableTables) of
+            Restotable = case lists:member(Tab, RestorableTables) of
                 true -> "Y";
                 _ -> ""
             end,
-            io_lib:format("~*s ~-10B ~-10B ~-10s ~20s ~7s~n", [-MTLen, _MTab, Rows, Mem, SnapSize, SnapTime, Restotable])
-        end)() || {_MTab, Rows, Mem} <- DbTables],
+            io_lib:format("~*s ~-10B ~-15B ~-10s ~20s ~7s~n", [-MTLen, Tab, Rows, Mem, SnapSize, SnapTime, Restotable])
+        end)() || {Tab, Rows, Mem} <- DbTables],
     io_lib:format("~s~n", [Sep])
     ]);
 format({zip, ContentFiles}) ->
