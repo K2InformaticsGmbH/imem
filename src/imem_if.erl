@@ -762,9 +762,14 @@ handle_info(Info, State) ->
         {mnesia_system_event,{Event,Node}} ->
             ?Info("Mnesia event ~p from Node ~p!~n",[Event, Node]);
         Error ->
-            ?Warn("Mnesia error : ~p~n",[Error])
+            ?Error("Mnesia error : ~p~n",[Error])
     end,
-    {noreply, State}.
+    case application:ensure_started(mnesia) of
+        ok -> {noreply, State};
+        {error, Reason} ->
+            ?Error("Mnesia down : ~p~n",[Reason]),
+            {stop, mnesia_down, State}
+    end.
 
 terminate(_Reson, _State) -> ok.
 
