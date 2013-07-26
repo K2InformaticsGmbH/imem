@@ -98,81 +98,67 @@ cmd(_, []) ->
 
 % lager
 cmd(Node, ["log"]) ->
-    ?P(lists:flatten(
-        case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
-            {badrpc, Error} -> io_lib:format("~p~n",[Error]);
-            Handlers ->
-                HndlNameLen = lists:max([length(lists:flatten(io_lib:format("~p", [H]))) || H <-  Handlers]),
-                Header = lists:flatten(io_lib:format("index ~*s level~n", [-HndlNameLen, "handler"])),
-                Seperator = lists:duplicate(length(Header), $-),
-                [
-                    io_lib:format(Seperator++"~n", []),
-                    io_lib:format(Header, []),
-                    io_lib:format(Seperator++"~n", []),
-                    [io_lib:format("~*B ~*s ~p~n",
-                                  [-5,N, -HndlNameLen, lists:flatten(io_lib:format("~p", [H])), rpc:call(Node, lager, get_loglevel, [H], ?TIMEOUT)]
-                                  )
-                    || {N,H} <- lists:zip(lists:seq(1,length(Handlers)), Handlers)],
-                    io_lib:format(Seperator++"~n", [])
-                ]
-        end
-    ));
+    case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
+        {badrpc, Error} -> ?P("~p~n",[Error]);
+        Handlers ->
+            HndlNameLen = lists:max([length(lists:flatten(io_lib:format("~p", [H]))) || H <-  Handlers]),
+            Header = lists:flatten(io_lib:format("index ~*s level~n", [-HndlNameLen, "handler"])),
+            Seperator = lists:duplicate(length(Header), $-),
+            ?P(Seperator++"~n", []),
+            ?P(Header, []),
+            ?P(Seperator++"~n", []),
+            [?P("~*B ~*s ~p~n", [-5,N, -HndlNameLen, lists:flatten(io_lib:format("~p", [H])), rpc:call(Node, lager, get_loglevel, [H], ?TIMEOUT)])
+            || {N,H} <- lists:zip(lists:seq(1,length(Handlers)), Handlers)],
+            ?P(Seperator++"~n", [])
+    end;
 cmd(Node, ["log", Id]) ->
-    ?P(lists:flatten(
-        case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
-            {badrpc, Error} -> io_lib:format("~p~n",[Error]);
-            Handlers ->
-                case lists:nth(list_to_integer(Id), Handlers) of
-                    {'EXIT', Error} -> io_lib:format("~p~n",[Error]);
-                    H ->
-                        HndlNameLen = length(lists:flatten(io_lib:format("~p", [H]))),
-                        Header = lists:flatten(io_lib:format("index ~*s level~n", [-HndlNameLen, "handler"])),
-                        Seperator = lists:duplicate(length(Header), $-),
-                        [
-                            io_lib:format(Seperator++"~n", []),
-                            io_lib:format(Header, []),
-                            io_lib:format(Seperator++"~n", []),
-                            io_lib:format("~*B ~*s ~p~n",
-                                          [-5,list_to_integer(Id), -HndlNameLen
-                                          , lists:flatten(io_lib:format("~p", [H])), rpc:call(Node, lager, get_loglevel, [H], ?TIMEOUT)
-                                          ]),
-                            io_lib:format(Seperator++"~n", [])
-                        ]
-                end
-        end
-    ));
+    case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
+        {badrpc, Error} -> ?P("~p~n",[Error]);
+        Handlers ->
+            case lists:nth(list_to_integer(Id), Handlers) of
+                {'EXIT', Error} -> ?P("~p~n",[Error]);
+                H ->
+                    HndlNameLen = length(lists:flatten(io_lib:format("~p", [H]))),
+                    Header = lists:flatten(io_lib:format("index ~*s level~n", [-HndlNameLen, "handler"])),
+                    Seperator = lists:duplicate(length(Header), $-),
+                    ?P(Seperator++"~n", []),
+                    ?P(Header, []),
+                    ?P(Seperator++"~n", []),
+                    ?P("~*B ~*s ~p~n", [-5,list_to_integer(Id), -HndlNameLen
+                                       , lists:flatten(io_lib:format("~p", [H])), rpc:call(Node, lager, get_loglevel, [H], ?TIMEOUT)
+                                       ]),
+                    ?P(Seperator++"~n", [])
+            end
+    end;
 cmd(Node, ["log", Id, Val]) when  Val =:= "debug"
                                 ; Val =:= "info"
                                 ; Val =:= "error"
                                 ; Val =:= "none" ->
-    ?P(lists:flatten(
-        case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
-            {badrpc, Error} -> io_lib:format("~p~n",[Error]);
-            Handlers ->
-                case lists:nth(list_to_integer(Id), Handlers) of
-                    {'EXIT', Error} -> io_lib:format("~p~n",[Error]);
-                    H ->
-                        io_lib:format("~p ~p~n", [lists:flatten(io_lib:format("~p", [H]))
-                                            , rpc:call(Node, lager, set_loglevel, [H, list_to_atom(Val)], ?TIMEOUT)])
-                end
-        end
-    ));
+    case rpc:call(Node, gen_event, which_handlers, [lager_event], ?TIMEOUT) of
+        {badrpc, Error} -> ?P("~p~n",[Error]);
+        Handlers ->
+            case lists:nth(list_to_integer(Id), Handlers) of
+                {'EXIT', Error} -> ?P("~p~n",[Error]);
+                H -> ?P("~p ~p~n", [lists:flatten(io_lib:format("~p", [H]))
+                                   , rpc:call(Node, lager, set_loglevel, [H, list_to_atom(Val)], ?TIMEOUT)])
+            end
+    end;
 
 % print snap info
 cmd(Node, ["snap", "info"]) ->
     SI = rpc:call(Node, imem_snap, info, [bkp], ?TIMEOUT),
-    ?P(rpc:call(Node, imem_snap, format, [SI], ?TIMEOUT));
+    format(SI);
 cmd(Node, ["snap", "info", "zip"]) ->
     SZI = rpc:call(Node, imem_snap, info, [zip], ?TIMEOUT),
-    ?P(rpc:call(Node, imem_snap, format, [SZI], ?TIMEOUT));
+    format(SZI);
 
 % taek snapshots
 cmd(Node, ["snap", "take"]) ->
     RR = rpc:call(Node, imem_snap, take, [[all]], ?TIMEOUT),
-    ?P(rpc:call(Node, imem_snap, format, [{take, RR}], ?TIMEOUT));
+    format({take, RR});
 cmd(Node, ["snap", "take" | OptTableRegExs]) ->
     RR = rpc:call(Node, imem_snap, take, [{tabs, OptTableRegExs}], ?TIMEOUT),
-    ?P(rpc:call(Node, imem_snap, format, [{take, RR}], ?TIMEOUT));
+    format({take, RR});
 
 % backup snapshots
 cmd(Node, ["snap", "zip", "re", Pattern]) ->
@@ -188,9 +174,22 @@ cmd(Node, ["snap", "restore", "zip", Type, FileNameWithPath | OptTables]) when
     Type /= "destroy";
     Type /= "replace";
     Type /= "none" ->
+    ZipFile = case filelib:is_file(FileNameWithPath) of
+        true -> FileNameWithPath;
+        _ ->
+            ?P("zipfile ~p doesn't exists, trying current working dir...~n", [FileNameWithPath]),
+            {ok, CDir} = file:get_cwd(),
+            PossibleZipFile = filename:join([CDir, filename:basename(FileNameWithPath)]),
+            case filelib:is_file(PossibleZipFile) of
+                true -> PossibleZipFile;
+                _ ->
+                    ?P("zipfile ~p doesn't exists, trying default dir...~n", [PossibleZipFile]),
+                    filename:basename(FileNameWithPath)
+            end            
+    end,
     {Preserve, Simulate} = (if Type =:= "simulate" -> {replace, true}; true -> {list_to_atom(Type), false} end),
-    RR = rpc:call(Node, imem_snap, restore, [zip, FileNameWithPath, OptTables, Preserve, Simulate], ?TIMEOUT),
-    ?P(rpc:call(Node, imem_snap, format, [{restore,RR}], ?TIMEOUT));
+    RR = rpc:call(Node, imem_snap, restore, [zip, ZipFile, OptTables, Preserve, Simulate], ?TIMEOUT),
+    format({restore,RR});
 cmd(Node, ["snap", "restore", "bkp", Type | OptTables]) when
     Type /= "simulate";
     Type /= "destroy";
@@ -198,7 +197,7 @@ cmd(Node, ["snap", "restore", "bkp", Type | OptTables]) when
     Type /= "none" ->
     {Preserve, Simulate} = (if Type =:= "simulate" -> {replace, true}; true -> {list_to_atom(Type), false} end),
     RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, Preserve, Simulate], ?TIMEOUT),
-    ?P(rpc:call(Node, imem_snap, format, [{restore,RR}], ?TIMEOUT));
+    format({restore,RR});
 
 cmd(Node, ["snap", "restore", "zip" | ZipArgs]) -> cmd(Node, ["snap", "restore", "zip", "destroy" | ZipArgs]);
 cmd(Node, ["snap", "restore", "zip", Type, FileNameWithPath | OptTables]) ->
@@ -222,10 +221,84 @@ start_distribution(NodeName, Cookie) ->
         {true, pong} ->
             ok;
         {_, pang} ->
-            io:format("Node ~p not responding to pings.\n", [TargetNode]),
+            ?P("Node ~p not responding to pings.\n", [TargetNode]),
             halt(1)
     end,
     TargetNode.
 
 make_script_node(Node) ->
     list_to_atom(lists:concat(["config_", os:getpid(), Node])).
+
+% formatting
+% - snapshot info
+% - restore info
+% for better display
+% (a wrapper around info/1 and restore/* interfaces)
+-define(FMTTIME(DT),
+(fun() ->
+    {{_Y,_M,_D},{_H,_Mm,_S}} = DT,
+    lists:flatten(io_lib:format("~4..0B.~2..0B.~2..0B ~2..0B:~2..0B:~2..0B", [_Y,_M,_D,_H,_Mm,_S]))
+end)()
+).
+format({_, {error, Error}}) -> ?P(Error);
+format({bkp, [ {dbtables, DbTables}
+             , {snaptables, SnapTables}
+             , {restorabletables, RestorableTables}]
+            }) ->
+    MTLen = lists:max([length(MTab) || {MTab, _, _} <- DbTables]),
+    Header = lists:flatten(io_lib:format("~*s ~-10s ~-15s ~-10s  ~-20s ~7s", [-MTLen, "name", "rows", "memory", "snap_size", "snap_time", "restore"])),
+    Sep = lists:duplicate(length(Header),$-),
+    ?P("~s~n", [Sep]),
+    ?P("~s~n", [Header]),
+    ?P("~s~n", [Sep]),
+    [(fun() ->
+        {SnapSize,SnapTime} = case proplists:lookup(Tab, SnapTables) of
+            {Tab, Sz, Tm} -> {integer_to_list(Sz), ?FMTTIME(Tm)};
+            none -> {"", ""}
+        end,
+        Restotable = case lists:member(Tab, RestorableTables) of
+            true -> "Y";
+            _ -> ""
+        end,
+        ?P("~*s ~-10B ~-15B ~-10s ~20s ~7s~n", [-MTLen, Tab, Rows, Mem, SnapSize, SnapTime, Restotable])
+    end)() || {Tab, Rows, Mem} <- DbTables],
+    ?P("~s~n", [Sep]);
+format({zip, ContentFiles}) ->
+    [(fun() ->
+        FLen = lists:max([length(filename:basename(_F)) || {_F,_} <- CntFiles]),
+        Header = lists:flatten(io_lib:format("~*s ~-15s  ~-20s ~-20s ~-20s", [-FLen, "name", "size", "created", "accessed", "modified"])),
+        Sep = lists:duplicate(length(Header),$-),
+        [?P("~s~n", [Sep]),
+         ?P("File : ~s~n", [Z]),
+         ?P("~s~n", [Header]),
+         ?P("~s~n", [Sep]),
+         [(fun()->
+             ?P("~*s ~-15B ~20s ~20s ~20s~n",
+                                 [-FLen, filename:basename(F), Fi#file_info.size
+                                 , ?FMTTIME(Fi#file_info.ctime)
+                                 , ?FMTTIME(Fi#file_info.atime)
+                                 , ?FMTTIME(Fi#file_info.mtime)])
+         end)()
+         || {F,Fi} <- CntFiles],
+         ?P("~s~n", [Sep])]
+    end)()
+    || {Z,CntFiles} <- ContentFiles];
+format({restore, RestoreRes}) ->
+    FLen = lists:max([length(atom_to_list(_F)) || {_F, _} <- RestoreRes]),
+    Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s", [-FLen, "name", "identical", "replaced", "added"])),
+    Sep = lists:duplicate(length(Header),$-),
+    ?P("~s~n", [Sep]),
+    ?P("~s~n", [Header]),
+    ?P("~s~n", [Sep]),
+    [case Res of
+       {atomic, {I,E,A}} ->
+           ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, atom_to_list(T), length(I), length(E), length(A)]);
+       Error -> ?P("~*s ~p~n", [-FLen, atom_to_list(T), Error])
+    end
+    || {T, Res} <- RestoreRes],
+    ?P("~s~n", [Sep]);
+format({take, TakeRes}) ->
+    [case R of
+        {ok, T}             -> ?P("snapshot created for ~p~n", [T]);
+        {error, T, Reason}  -> ?P("snapshot of ~p failed for ~p~n", [T, Reason])
+    end || R <- TakeRes].

@@ -4,7 +4,6 @@
 -include_lib("kernel/include/file.hrl").
 
 -export([ info/1
-        , format/1
         , restore/4
         , restore/5
         , zip/1
@@ -76,7 +75,7 @@ info(bkp) ->
                   , {snaptables, lists:sort(SnapTables)}
                   , {restorabletables, lists:sort(RestorableTables)}]
             };
-        false -> throw({error, "no snapshot dir found", SnapDir})
+        false -> {error, lists:flatten(io_lib:format("snapshot dir ~p found", [SnapDir]))}
     end;
 info(zip) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -90,93 +89,15 @@ info({zip, [Z|ZipFiles]}, ContentFiles) ->
                                end
                                , []
                                , Z),
-    info({zip, ZipFiles}, [{Z,CntFiles}|ContentFiles]).
+    info({zip, ZipFiles}, [{filename:absname(Z),CntFiles}|ContentFiles]).
 
-% formatting
-% - snapshot info
-% - restore info
-% for better display
-% (a wrapper around info/1 and restore/* interfaces)
--define(FMTTIME(DT),
-(fun() ->
-    {{_Y,_M,_D},{_H,_Mm,_S}} = DT,
-    lists:flatten(io_lib:format("~4..0B.~2..0B.~2..0B ~2..0B:~2..0B:~2..0B", [_Y,_M,_D,_H,_Mm,_S]))
-end)()
-).
-format({bkp, [ {dbtables, DbTables}
-             , {snaptables, SnapTables}
-             , {restorabletables, RestorableTables}]
-            }) ->
-    MTLen = lists:max([length(MTab) || {MTab, _, _} <- DbTables]),
-    Header = lists:flatten(io_lib:format("~*s ~-10s ~-15s ~-10s  ~-20s ~7s", [-MTLen, "name", "rows", "memory", "snap_size", "snap_time", "restore"])),
-    Sep = lists:duplicate(length(Header),$-),
-    lists:flatten([
-        io_lib:format("~s~n", [Sep]),
-        io_lib:format("~s~n", [Header]),
-        io_lib:format("~s~n", [Sep]),
-        [(fun() ->
-            {SnapSize,SnapTime} = case proplists:lookup(Tab, SnapTables) of
-                {Tab, Sz, Tm} -> {integer_to_list(Sz), ?FMTTIME(Tm)};
-                none -> {"", ""}
-            end,
-            Restotable = case lists:member(Tab, RestorableTables) of
-                true -> "Y";
-                _ -> ""
-            end,
-            io_lib:format("~*s ~-10B ~-15B ~-10s ~20s ~7s~n", [-MTLen, Tab, Rows, Mem, SnapSize, SnapTime, Restotable])
-        end)() || {Tab, Rows, Mem} <- DbTables],
-    io_lib:format("~s~n", [Sep])
-    ]);
-format({zip, ContentFiles}) ->
-    lists:flatten(
-    [(fun() ->
-        FLen = lists:max([length(filename:basename(_F)) || {_F,_} <- CntFiles]),
-        Header = lists:flatten(io_lib:format("~*s ~-10s  ~-20s ~-20s ~-20s", [-FLen, "name", "size", "created", "accessed", "modified"])),
-        Sep = lists:duplicate(length(Header),$-),
-        [io_lib:format("~s~n", [Sep]),
-         io_lib:format("File : ~s~n", [Z]),
-         io_lib:format("~s~n", [Header]),
-         io_lib:format("~s~n", [Sep]),
-         [(fun()->
-             io_lib:format("~*s ~-10B ~20s ~20s ~20s~n",
-                                 [-FLen, filename:basename(F), Fi#file_info.size
-                                 , ?FMTTIME(Fi#file_info.ctime)
-                                 , ?FMTTIME(Fi#file_info.atime)
-                                 , ?FMTTIME(Fi#file_info.mtime)])
-         end)()
-         || {F,Fi} <- CntFiles],
-         io_lib:format("~s~n", [Sep])]
-    end)()
-    || {Z,CntFiles} <- ContentFiles]
-    );
-format({restore, RestoreRes}) ->
-    FLen = lists:max([length(atom_to_list(_F)) || {_F, _} <- RestoreRes]),
-    Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s", [-FLen, "name", "identical", "replaced", "added"])),
-    Sep = lists:duplicate(length(Header),$-),
-    lists:flatten(
-        [io_lib:format("~s~n", [Sep]),
-         io_lib:format("~s~n", [Header]),
-         io_lib:format("~s~n", [Sep]),
-         [case Res of
-            {atomic, {I,E,A}} ->
-                io_lib:format("~*s ~-10B ~-10B ~-10B~n", [-FLen, atom_to_list(T), length(I), length(E), length(A)]);
-            Error -> io_lib:format("~*s ~p~n", [-FLen, atom_to_list(T), Error])
-         end
-         || {T, Res} <- RestoreRes],
-        io_lib:format("~s~n", [Sep])]
-    );
-format({take, TakeRes}) ->
-    [case R of
-        {ok, T}             -> io_lib:format("snapshot created for ~p~n", [T]);
-        {error, T, Reason}  -> io_lib:format("snapshot of ~p failed for ~p~n", [T, Reason])
-    end || R <- TakeRes].
 
 % take snapshot of all/some of the current in memory mnesia table
 take([all]) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     take({ tabs
-             , SnapDir
-             , mnesia:system_info(tables) -- [schema]});
+         , SnapDir
+         , mnesia:system_info(tables) -- [schema]});
 
 % multiple tables as list of strings or regex strings
 take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
@@ -205,7 +126,7 @@ take({tabs, SnapDir, Tabs}) ->
                 ok = file:delete(NewBackFile)
             end) of
         {atomic, ok}      -> {ok, T};
-        {aborted, Reason} -> {error, T, Reason}
+        {aborted, Reason} -> {error, lists:flatten(io_lib:format("snapshot ~p failed for ~p~n", [T, Reason]))}
     end
     || T <- Tabs]).
 
@@ -242,9 +163,15 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
                     end
                 end, [], ZipFile) of
                 {ok, Res} -> Res;
-                Error -> {filename:absname(ZipFile), Error}
+                Error -> {error, lists:flatten(io_lib:format("restore error ~p for file ~p~n", [Error, filename:absname(ZipFile)]))}
             end;
-        _ -> {filename:absname(ZipFile), "not found"}
+        _ ->
+            {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+            PossibleZipFile = filename:join([SnapDir, filename:basename(ZipFile)]),
+            case filelib:is_file(PossibleZipFile) of
+                true -> restore(zip, PossibleZipFile, TabRegEx, Strategy, Simulate);
+                _ -> {error, lists:flatten(io_lib:format("file ~p not found~n", [filename:absname(PossibleZipFile)]))}
+            end
     end;
 
 % private real restore function
