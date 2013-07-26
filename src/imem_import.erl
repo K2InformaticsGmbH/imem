@@ -112,7 +112,7 @@ test_with_or_without_sec(IsSec) ->
         4,      ,           \n
         ",
 
-        ?assertEqual(ok, create_from_string(SKey, Imp1, [], "Imem", IsSec)),
+        ?assertEqual(ok, create_from_string(SKey, Imp1, [], "imem", IsSec)),
         % ?assertEqual(4,  if_call_mfa(IsSec, table_size, [SKey, import_test_1])),    
 
         % ?assertEqual(ok, imem_meta:drop_table(import_test_3)),

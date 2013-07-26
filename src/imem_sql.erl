@@ -817,15 +817,15 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual("schema.table.field", field_name(field_qname(<<"schema.table.field">>))),
 
         % table names without alias
-        ?assertEqual({'Imem',table,table}, table_qname(<<"table">>)),
+        ?assertEqual({imem,table,table}, table_qname(<<"table">>)),
         ?assertEqual({schema,table,table}, table_qname(<<"schema.table">>)),
         ?assertEqual({schema,table,alias}, table_qname(<<"schema.table">>, <<"alias">>)),
         ?assertEqual({schema,table,alias}, table_qname(<<"schema.table">>, "alias")),
 
         % table names with alias
-        ?assertEqual({'Imem',table,alias}, table_qname({<<"table">>,"alias"})),
+        ?assertEqual({imem,table,alias}, table_qname({<<"table">>,"alias"})),
         ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, "alias"})),
-        ?assertEqual({'Imem',table,alias}, table_qname({<<"table">>,<<"alias">>})),
+        ?assertEqual({imem,table,alias}, table_qname({<<"table">>,<<"alias">>})),
         ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, <<"alias">>})),
 
         ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
@@ -844,28 +844,28 @@ test_with_or_without_sec(IsSec) ->
                     , #ddColumn{name=b2, type=float, len=8, prec=3}   %% value
                     ],
 
-        ?assertEqual(ok, exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
 
-        ?assertEqual(ok, exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_2])),    
 
-        ?assertEqual(ok, exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "Imem", IsSec)),
+        ?assertEqual(ok, exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
         ?Log("success ~p~n", [create_tables]),
 
-        Table1 =    {'Imem', meta_table_1, meta_table_1},
+        Table1 =    {imem, meta_table_1, meta_table_1},
         Table2 =    {undefined, meta_table_2, meta_table_2},
         Table3 =    {undefined, meta_table_3, meta_table_3},
         TableX =    {undefined,meta_table_x, meta_table_1},
 
         Alias1 =    {undefined, meta_table_1, alias1},
-        Alias2 =    {'Imem', meta_table_1, alias2},
+        Alias2 =    {imem, meta_table_1, alias2},
 
-        ?assertException(throw, {ClEr, {"Table does not exist", {'Imem', meta_table_x}}}, column_map([TableX], [])),
+        ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, column_map([TableX], [])),
         ?Log("success ~p~n", [table_no_exists]),
 
-        ColsE1=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
+        ColsE1=     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", name=x}
                     , #ddColMap{tag="A3", name=c1}
                     ],
@@ -873,7 +873,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertException(throw, {ClEr,{"Unknown column name", x}}, column_map([Table1], ColsE1)),
         ?Log("success ~p~n", [unknown_column_name_1]),
 
-        ColsE2=     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a}
+        ColsE2=     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", table=meta_table_x, name=b1}
                     , #ddColMap{tag="A3", name=c1}
                     ],
@@ -885,7 +885,7 @@ test_with_or_without_sec(IsSec) ->
         ?Log("success ~p~n", [empty_select_columns]),
 
 
-        ColsF =     [ #ddColMap{tag="A", tind=1, cind=1, schema='Imem', table=meta_table_1, name=a, type=integer, alias= <<"a">>}
+        ColsF =     [ #ddColMap{tag="A", tind=1, cind=1, schema=imem, table=meta_table_1, name=a, type=integer, alias= <<"a">>}
                     , #ddColMap{tag="B", tind=1, cind=2, table=meta_table_1, name=b1, type=string, alias= <<"b1">>}
                     , #ddColMap{tag="C", tind=1, cind=3, name=c1, type=ipaddr, alias= <<"c1">>}
                     ],
@@ -893,7 +893,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([], filter_spec_where(?NoFilter, ColsF, [])),
         ?assertEqual({wt}, filter_spec_where(?NoFilter, ColsF, {wt})),
         FA1 = {1,[<<"111">>]},
-        CA1 = {'=',<<"Imem.meta_table_1.a">>,<<"111">>},
+        CA1 = {'=',<<"imem.meta_table_1.a">>,<<"111">>},
         ?assertEqual({'and',CA1,{wt}}, filter_spec_where({'or',[FA1]}, ColsF, {wt})),
         FB2 = {2,[<<"222">>]},
         CB2 = {'=',<<"meta_table_1.b1">>,<<"'222'">>},
@@ -929,7 +929,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?Log("success ~p~n", [sort_spec_order]),
 
-        ColsA =     [ #ddColMap{tag="A1", schema='Imem', table=meta_table_1, name=a, alias= <<"a">>}
+        ColsA =     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a, alias= <<"a">>}
                     , #ddColMap{tag="A2", table=meta_table_1, name=b1, alias= <<"b1">>}
                     , #ddColMap{tag="A3", name=c1, alias= <<"c1">>}
                     ],
@@ -973,7 +973,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertException(throw, {ClEr,{"Unknown column name", {any,sysdate}}}, column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{table=any, name=sysdate}])),
         ?Log("success ~p~n", [sysdate_reject]),
 
-        ?assertEqual(["'Imem'.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}]),qname)),
+        ?assertEqual(["imem.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}]),qname)),
         ?Log("success ~p~n", [user]),
 
         ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),

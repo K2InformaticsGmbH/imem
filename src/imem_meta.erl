@@ -128,7 +128,8 @@
         , drop_table/1
         , purge_table/1
         , purge_table/2
-        , truncate_table/1  %% truncate table
+        , truncate_table/1
+        , snapshot_table/1  %% dump local table to snapshot directory
         , read/1            %% read whole table, only use for small tables 
         , read/2            %% read by key
         , read_hlk/2        %% read using hierarchical list key
@@ -662,6 +663,44 @@ if_opts(Opts,[]) -> Opts;
 if_opts(Opts,[MO|Others]) ->
     if_opts(lists:keydelete(MO, 1, Opts),Others).
 
+truncate_table({_Schema,Table,_Alias}) ->
+    truncate_table({_Schema,Table});    
+truncate_table({Schema,Table}) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> truncate_table(Table);
+        _ ->        ?UnimplementedException({"Truncate table in foreign schema",{Schema,Table}})
+    end;
+truncate_table(Alias) when is_atom(Alias) ->
+    log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
+    truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias)));
+truncate_table(TableName) ->
+    truncate_table(imem_sql:table_qname(TableName)).
+
+truncate_partitioned_tables([]) -> ok;
+truncate_partitioned_tables([PhName|PhNames]) ->
+    imem_if:truncate_table(PhName),
+    truncate_partitioned_tables(PhNames).
+
+snapshot_table({_Schema,Table,_Alias}) ->
+    snapshot_table({_Schema,Table});    
+snapshot_table({Schema,Table}) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> snapshot_table(Table);
+        _ ->        ?UnimplementedException({"Snapshot table in foreign schema",{Schema,Table}})
+    end;
+snapshot_table(Alias) when is_atom(Alias) ->
+    log_to_db(debug,?MODULE,snapshot_table,[{table,Alias}],"snapshot table"),
+    snapshot_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias)));
+snapshot_table(TableName) ->
+    snapshot_table(imem_sql:table_qname(TableName)).
+
+snapshot_partitioned_tables([]) -> ok;
+snapshot_partitioned_tables([PhName|PhNames]) ->
+    imem_snap:take(PhName),
+    snapshot_partitioned_tables(PhNames).
+
 drop_table({Schema,Table,_Alias}) -> 
     drop_table({Schema,Table});
 drop_table({Schema,Table}) ->
@@ -672,11 +711,13 @@ drop_table({Schema,Table}) ->
     end;
 drop_table(ddTable) -> 
     imem_if:drop_table(ddTable);
-drop_table(?LOG_TABLE = Table) ->
-    drop_table_and_info(physical_table_name(Table));
-drop_table(Alias) ->
+drop_table(?LOG_TABLE) ->
+    drop_table_and_info(physical_table_name(?LOG_TABLE));
+drop_table(Alias) when is_atom(Alias) ->
     log_to_db(info,?MODULE,drop_table,[{table,Alias}],"drop table"),
-    drop_partitioned_tables_and_infos(lists:sort(simple_or_local_node_sharded_tables(Alias))).
+    drop_partitioned_tables_and_infos(lists:sort(simple_or_local_node_sharded_tables(Alias)));
+drop_table(TableName) ->
+    drop_table(imem_sql:table_qname(TableName)).
 
 drop_partitioned_tables_and_infos([]) -> ok;
 drop_partitioned_tables_and_infos([PhName|PhNames]) ->
@@ -687,16 +728,16 @@ drop_table_and_info(PhysicalName) ->
     imem_if:drop_table(PhysicalName),
     imem_if:delete(ddTable, {schema(),PhysicalName}).
 
-purge_table(Name) ->
-    purge_table(Name, []).
+purge_table(Alias) ->
+    purge_table(Alias, []).
 
-purge_table({Schema,Table,_Alias}, Opts) -> 
-    purge_table({Schema,Table}, Opts);
-purge_table({Schema,Table}, Opts) ->
+purge_table({Schema,Alias,_Alias}, Opts) -> 
+    purge_table({Schema,Alias}, Opts);
+purge_table({Schema,Alias}, Opts) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> purge_table(Table, Opts);
-        _ ->        ?UnimplementedException({"Purge table in foreign schema",{Schema,Table}})
+        MySchema -> purge_table(Alias, Opts);
+        _ ->        ?UnimplementedException({"Purge table in foreign schema",{Schema,Alias}})
     end;
 purge_table(Alias, Opts) ->
     case is_time_partitioned_alias(Alias) of
@@ -1332,19 +1373,6 @@ delete_object({_Schema,Table}, Row) ->
 delete_object(Table, Row) ->
     imem_if:delete_object(physical_table_name(Table), Row).
 
-truncate_table({_Schema,Table,_Alias}) ->
-    truncate_table({_Schema,Table});    
-truncate_table({_Schema,Table}) ->
-    truncate_table(Table);                %% ToDo: may depend on schema
-truncate_table(Alias) ->
-    log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
-    truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias))).
-
-truncate_partitioned_tables([]) -> ok;
-truncate_partitioned_tables([PhName|PhNames]) ->
-    imem_if:truncate_table(PhName),
-    truncate_partitioned_tables(PhNames).
-
 subscribe({table, Tab, Mode}) ->
     log_to_db(info,?MODULE,subscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"subscribe to mnesia"),
     imem_if:subscribe({table, physical_table_name(Tab), Mode});
@@ -1504,9 +1532,9 @@ meta_operations(_) ->
         Keys4 = [
         {1,{meta_table_3,{{2000,1,1},{12,45,59}},undefined}}
         ],
-        ?assertEqual(Keys4, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{'Imem',meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
+        ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
         
         LogTable = physical_table_name(?LOG_TABLE),
         ?assert(lists:member(LogTable,physical_table_names(?LOG_TABLE))),

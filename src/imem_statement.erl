@@ -1356,7 +1356,7 @@ test_with_or_without_sec(IsSec) ->
                     col3 tuple(2),
                     col4 integer
                 );"
-                , 0, 'Imem', IsSec)),
+                , 0, imem, IsSec)),
 
         Sql1a = "insert into tuple_test (
                     col1,col2,col3,col4
@@ -1367,7 +1367,7 @@ test_with_or_without_sec(IsSec) ->
                     , 1 
                 );",  
         ?Log("Sql1a: ~p~n", [Sql1a]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1a, 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1a, 0, imem, IsSec)),
 
         Sql1b = "insert into tuple_test (
                     col1,col2,col3,col4
@@ -1378,7 +1378,7 @@ test_with_or_without_sec(IsSec) ->
                     ,2 
                 );",  
         ?Log("Sql1b: ~p~n", [Sql1b]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1b, 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1b, 0, imem, IsSec)),
 
         Sql1c = "insert into tuple_test (
                     col1,col2,col3,col4
@@ -1389,7 +1389,7 @@ test_with_or_without_sec(IsSec) ->
                     ,3 
                 );",  
         ?Log("Sql1c: ~p~n", [Sql1c]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1c, 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1c, 0, imem, IsSec)),
 
         TT1aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?Log("original table~n~p~n", [TT1aRows1]),
@@ -1448,7 +1448,7 @@ test_with_or_without_sec(IsSec) ->
         ?assert(lists:member(O4,TT2aRows1)),
 %        ?assert(lists:member(O5,TT2aRows1)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, imem, IsSec)),
 
     %% test table def
 
@@ -1457,12 +1457,12 @@ test_with_or_without_sec(IsSec) ->
                     col1 varchar2(10), 
                     col2 integer
                 );"
-                , 0, 'Imem', IsSec)),
+                , 0, imem, IsSec)),
 
-        ?assertEqual(ok, insert_range(SKey, 15, def, 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 15, def, imem, IsSec)),
 
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {'Imem',def}]),
+        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
         ?Log("Meta table~n~p~n", [Meta]),
         ?Log("original table~n~p~n", [TableRows1]),
 
@@ -1538,7 +1538,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
         ?assertEqual(0,imem_meta:table_size(def)),
-        ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
         ?assertEqual(5,imem_meta:table_size(def)),
 
         ?assertEqual(ok, close(SKey, SR1)),
@@ -1553,12 +1553,12 @@ test_with_or_without_sec(IsSec) ->
             List2a = receive_tuples(SR2,true),
             ?assertEqual(5, length(List2a)),
             ?assertEqual([], receive_raw()),
-            ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 10, def, imem, IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),  %% unchanged, all updates
             List2b = receive_tuples(SR2,tail),
             ?assertEqual(5, length(List2b)),             %% 10 updates, 5 filtered with TailFun()           
             ?assertEqual(ok, fetch_close(SKey, SR2, IsSec)),
-            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
             ?assertEqual([], receive_raw())        
         after
             ?assertEqual(ok, close(SKey, SR2))
@@ -1566,7 +1566,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
         ?assertEqual(0,imem_meta:table_size(def)),
-        ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
         ?assertEqual(5,imem_meta:table_size(def)),
 
         SR3 = exec(SKey,query3, 2, IsSec, 
@@ -1582,12 +1582,12 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey,SR3,[{fetch_mode,push},{tail_mode,true}],IsSec)),
             List3b = receive_tuples(SR3,true),
             ?assertEqual(3, length(List3b)),
-            ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 10, def, imem, IsSec)),
             ?assertEqual(10,imem_meta:table_size(def)),
             List3c = receive_tuples(SR3,tail),
             ?assertEqual(5, length(List3c)),           
             ?assertEqual(ok, fetch_close(SKey, SR3, IsSec)),
-            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
             ?assertEqual([], receive_raw())        
         after
             ?assertEqual(ok, close(SKey, SR3))
@@ -1595,7 +1595,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
         ?assertEqual(0,imem_meta:table_size(def)),
-        ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 10, def, imem, IsSec)),
         ?assertEqual(10,imem_meta:table_size(def)),
 
         SR4 = exec(SKey,query4, 5, IsSec, "select col1 from def;"),
@@ -1604,16 +1604,16 @@ test_with_or_without_sec(IsSec) ->
             List4a = receive_tuples(SR4,false),
             ?assertEqual(5, length(List4a)),
             ?Log("trying to insert one row before fetch complete~n", []),
-            ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
             ?Log("completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),
             List4b = receive_tuples(SR4,true),
             ?assertEqual(5, length(List4b)),
-            ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
             List4c = receive_tuples(SR4,tail),
             ?assertEqual(1, length(List4c)),
-            ?assertEqual(ok, insert_range(SKey, 1, def, 'Imem', IsSec)),
-            ?assertEqual(ok, insert_range(SKey, 11, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 11, def, imem, IsSec)),
             ?assertEqual(11,imem_meta:table_size(def)),
             List4d = receive_tuples(SR4,tail),
             ?assertEqual(12, length(List4d)),
@@ -1625,7 +1625,7 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason4e),
             ?assertEqual(StmtRef4,SR4#stmtResult.stmtRef),
             ?assertEqual(ok, fetch_close(SKey, SR4, IsSec)),
-            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
             ?assertEqual([], receive_raw())
         after
             ?assertEqual(ok, close(SKey, SR4))
@@ -1635,8 +1635,8 @@ test_with_or_without_sec(IsSec) ->
         try
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             List5a = receive_tuples(SR5,true),
-            ?assert(lists:member({<<"Imem.def">>},List5a)),
-            ?assert(lists:member({<<"Imem.ddTable">>},List5a)),
+            ?assert(lists:member({<<"imem.def">>},List5a)),
+            ?assert(lists:member({<<"imem.ddTable">>},List5a)),
             ?Log("first read success (async)~n", []),
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             [{StmtRef5, {error, Reason5a}}] = receive_raw(),
@@ -1669,7 +1669,7 @@ test_with_or_without_sec(IsSec) ->
             List6a = receive_tuples(SR6,true),
             ?assertEqual(RowCount6, length(List6a)),
             ?assertEqual([], receive_raw()),
-            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
             ?assertEqual([], receive_raw())            
         after
             ?assertEqual(ok, close(SKey, SR6))
@@ -1679,12 +1679,12 @@ test_with_or_without_sec(IsSec) ->
         try
             ?assertEqual(ok, fetch_async(SKey, SR7, [{fetch_mode,skip},{tail_mode,true}], IsSec)),
             ?assertEqual([], receive_raw()),
-            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
             List7a = receive_tuples(SR7,tail),
             ?assertEqual(5, length(List7a)),
             ?assertEqual([], receive_raw()),
             ?assertEqual(ok, fetch_close(SKey, SR7, IsSec)),
-            ?assertEqual(ok, insert_range(SKey, 5, def, 'Imem', IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
             ?assertEqual([], receive_raw())
         after
             ?assertEqual(ok, close(SKey, SR7))
@@ -1709,19 +1709,19 @@ test_with_or_without_sec(IsSec) ->
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{1,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?Log("Sql8c ~p~n", [Sql8c]),
-            Expected8c = "select col1 c1 from def where Imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
+            Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(Sql8c)),
 
             {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
             ?Log("Sql8d ~p~n", [Sql8d]),
-            Expected8d = "select col2 from def where Imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
+            Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(Sql8d)),
 
             {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?Log("Sql8e ~p~n", [Sql8e]),
-            Expected8e = "select col2, col1 c1 from def where (Imem.def.col1 = '3' or Imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
+            Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8e, string:strip(Sql8e)),
 
             ?assertEqual(ok, fetch_close(SKey, SR8, IsSec))
@@ -1774,7 +1774,7 @@ test_with_or_without_sec(IsSec) ->
         ?Log("Result10b ~p~n", [Result10b]),
         ?assertEqual([{1,{{def,"X",5},{def,"X",5},{}}}],Result10b), 
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
 
         ?assertEqual({{2000,1,29},{12,13,14}}, offset_datetime('+', {{2000,1,28},{12,13,14}}, 1.0)),
         ?assertEqual({{2000,1,27},{12,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0)),
@@ -1856,7 +1856,7 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
 
 exec(SKey,Id, BS, IsSec, Sql) ->
     ?Log("~p : ~s~n", [Id,lists:flatten(Sql)]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,
     %?Log("Statement Cols : ~p~n", [StmtCols]),

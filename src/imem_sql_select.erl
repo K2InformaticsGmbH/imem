@@ -438,9 +438,9 @@ test_with_or_without_sec(IsSec) ->
                 col3 date,
                 col4 ipaddr,
                 col5 tuple
-            );", 0, 'Imem', IsSec)),
+            );", 0, imem, IsSec)),
 
-        ?assertEqual(ok, insert_range(SKey, 10, def, 'Imem', IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 10, def, imem, IsSec)),
 
         {L0, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
         ?Log("Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
@@ -450,7 +450,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, imem_sql:exec(SKey, 
             "create table member_test (col1 integer, col2 list, col3 tuple);"
-            , 0, 'Imem', IsSec)),
+            , 0, imem, IsSec)),
 
         if_call_mfa(IsSec, write,[SKey,member_test,
             {member_test,1, [a,b,c,[e]] ,   undefined}
@@ -893,10 +893,10 @@ test_with_or_without_sec(IsSec) ->
         ),
         % ?assert(length(R5k) >= 18),
         ?assert(length(R5k) == 0),      % not used any more for DataTypes
-        % ?assert(lists:member({"Imem.atom"},R5k)),
-        % ?assert(lists:member({"Imem.userid"},R5k)),
-        ?assertNot(lists:member({"Imem.ddTable"},R5k)),
-        ?assertNot(lists:member({"Imem.ddTable"},R5k)),
+        % ?assert(lists:member({"imem.atom"},R5k)),
+        % ?assert(lists:member({"imem.userid"},R5k)),
+        ?assertNot(lists:member({"imem.ddTable"},R5k)),
+        ?assertNot(lists:member({"imem.ddTable"},R5k)),
 
         R5l = exec_fetch_sort(SKey, query5l, 100, IsSec, 
             "select name(qname) 
@@ -904,10 +904,10 @@ test_with_or_without_sec(IsSec) ->
              where not is_member(\"{virtual,true}\",opts)"
         ),
         ?assert(length(R5l) >= 5),
-        ?assertNot(lists:member({<<"Imem.atom">>},R5l)),
-        ?assertNot(lists:member({<<"Imem.userid">>},R5l)),
-        ?assert(lists:member({<<"Imem.ddTable">>},R5l)),
-        ?assert(lists:member({<<"Imem.ddAccount">>},R5l)),
+        ?assertNot(lists:member({<<"imem.atom">>},R5l)),
+        ?assertNot(lists:member({<<"imem.userid">>},R5l)),
+        ?assert(lists:member({<<"imem.ddTable">>},R5l)),
+        ?assert(lists:member({<<"imem.ddAccount">>},R5l)),
 
         R5m = exec_fetch_sort(SKey, query5m, 100, IsSec, 
             "select 
@@ -966,9 +966,9 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, imem, IsSec)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, 'Imem', IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
 
         case IsSec of
             true ->     ?imem_logout(SKey);
@@ -991,7 +991,7 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
 exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),
@@ -1005,7 +1005,7 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
 exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
@@ -1019,7 +1019,7 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
 exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
@@ -1037,7 +1037,7 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
 exec_fetch(SKey,Id, BS, IsSec, Sql) ->
     ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, 'Imem', IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),

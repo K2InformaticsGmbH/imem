@@ -52,6 +52,7 @@
         , purge_table/2
         , purge_table/3
         , truncate_table/2
+        , snapshot_table/2  %% dump local table to snapshot directory
         , read/2
         , read/3
         , read_hlk/3        %% read hierarchical list key
@@ -536,6 +537,16 @@ truncate_table(SKey, Table) ->
         false ->    ?SecurityException({"Truncate unauthorized", SKey})
     end.
 
+snapshot_table(SKey, Table) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            imem_meta:snapshot_table(Table);
+        false ->
+            case have_table_permission(SKey, Table, export) of
+                true ->     imem_meta:snapshot_table(Table);
+                false ->    ?SecurityException({"Export unauthorized", SKey})
+            end
+    end.
 
 select_filter_all(_SKey, [], Acc) ->    Acc;
 select_filter_all(SKey, [#ddTable{qname=TableQN}=H|Tail], Acc0) ->
@@ -842,33 +853,33 @@ test(_) ->
         ?assertException(throw, {SeEx,{"Select unauthorized", {dba_tables,SeCoUser}}}, select(SeCoUser, dba_tables, ?MatchAllKeys)),
         ?Log("success ~p~n", [dba_tables_unauthorized]),
         {DbaTables, true} = select(SeCoAdmin, dba_tables, ?MatchAllKeys),
-        ?assertEqual(true, lists:member({'Imem',ddAccount}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',imem_meta:physical_table_name(ddPerm@)}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',imem_meta:physical_table_name(ddQuota@)}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',ddRole}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',imem_meta:physical_table_name(ddSeCo@)}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',ddTable}, DbaTables)),
-        ?assertEqual(true, lists:member({'Imem',user_table_123}, DbaTables)),
+        ?assertEqual(true, lists:member({imem,ddAccount}, DbaTables)),
+        ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddPerm@)}, DbaTables)),
+        ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddQuota@)}, DbaTables)),
+        ?assertEqual(true, lists:member({imem,ddRole}, DbaTables)),
+        ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddSeCo@)}, DbaTables)),
+        ?assertEqual(true, lists:member({imem,ddTable}, DbaTables)),
+        ?assertEqual(true, lists:member({imem,user_table_123}, DbaTables)),
         ?Log("success ~p~n", [dba_tables]),
 
         {AdminTables, true} = select(SeCoAdmin, user_tables, ?MatchAllKeys),
-        ?assertEqual(false, lists:member({'Imem',ddAccount}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',imem_meta:physical_table_name(ddPerm@)}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',imem_meta:physical_table_name(ddQuota@)}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',ddRole}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',imem_meta:physical_table_name(ddSeCo@)}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',ddTable}, AdminTables)),
-        ?assertEqual(false, lists:member({'Imem',user_table_123}, AdminTables)),
+        ?assertEqual(false, lists:member({imem,ddAccount}, AdminTables)),
+        ?assertEqual(false, lists:member({imem,imem_meta:physical_table_name(ddPerm@)}, AdminTables)),
+        ?assertEqual(false, lists:member({imem,imem_meta:physical_table_name(ddQuota@)}, AdminTables)),
+        ?assertEqual(false, lists:member({imem,ddRole}, AdminTables)),
+        ?assertEqual(false, lists:member({imem,imem_meta:physical_table_name(ddSeCo@)}, AdminTables)),
+        ?assertEqual(false, lists:member({imem,ddTable}, AdminTables)),
+        ?assertEqual(false, lists:member({imem,user_table_123}, AdminTables)),
         ?Log("success ~p~n", [admin_tables]),
 
         {UserTables, true} = select(SeCoUser, user_tables, ?MatchAllKeys),
-        ?assertEqual(false, lists:member({'Imem',ddAccount}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddPerm@}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddQuota@}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddRole}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddSeCo@}, UserTables)),
-        ?assertEqual(false, lists:member({'Imem',ddTable}, UserTables)),
-        ?assertEqual(true, lists:member({'Imem',user_table_123}, UserTables)),
+        ?assertEqual(false, lists:member({imem,ddAccount}, UserTables)),
+        ?assertEqual(false, lists:member({imem,ddPerm@}, UserTables)),
+        ?assertEqual(false, lists:member({imem,ddQuota@}, UserTables)),
+        ?assertEqual(false, lists:member({imem,ddRole}, UserTables)),
+        ?assertEqual(false, lists:member({imem,ddSeCo@}, UserTables)),
+        ?assertEqual(false, lists:member({imem,ddTable}, UserTables)),
+        ?assertEqual(true, lists:member({imem,user_table_123}, UserTables)),
         ?Log("success ~p~n", [user_tables]),
 
         % LogCount1 = table_size(SeCoAdmin,?LOG_TABLE),
