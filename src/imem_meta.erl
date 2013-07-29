@@ -130,6 +130,7 @@
         , purge_table/2
         , truncate_table/1
         , snapshot_table/1  %% dump local table to snapshot directory
+        , restore_table/1   %% replace local table by version in snapshot directory
         , read/1            %% read whole table, only use for small tables 
         , read/2            %% read by key
         , read_hlk/2        %% read using hierarchical list key
@@ -700,6 +701,20 @@ snapshot_partitioned_tables([]) -> ok;
 snapshot_partitioned_tables([PhName|PhNames]) ->
     imem_snap:take(PhName),
     snapshot_partitioned_tables(PhNames).
+
+restore_table({_Schema,Table,_Alias}) ->
+    restore_table({_Schema,Table});    
+restore_table({Schema,Table}) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> restore_table(Table);
+        _ ->        ?UnimplementedException({"Restore table in foreign schema",{Schema,Table}})
+    end;
+restore_table(Alias) when is_atom(Alias) ->
+    log_to_db(debug,?MODULE,restore_table,[{table,Alias}],"restore table"),
+    imem_snap:restore(bkp,lists:sort(simple_or_local_node_sharded_tables(Alias)),destroy,false);
+restore_table(TableName) ->
+    restore_table(imem_sql:table_qname(TableName)).
 
 drop_table({Schema,Table,_Alias}) -> 
     drop_table({Schema,Table});

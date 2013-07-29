@@ -53,6 +53,7 @@
         , purge_table/3
         , truncate_table/2
         , snapshot_table/2  %% dump local table to snapshot directory
+        , restore_table/2   %% replace local table by version in snapshot directory
         , read/2
         , read/3
         , read_hlk/3        %% read hierarchical list key
@@ -284,10 +285,10 @@ check_table_columns(_SKey, Table, ColumnInfo) ->
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
-        false ->    ?SecurityException({"Subscribe unauthorized", SKey})
+        false ->    ?SecurityException({"Subscribe unauthorized", {Table,SKey}})
     end;
-subscribe(_SKey, EventCategory) ->
-    ?SecurityException({"Unsupported event category", EventCategory}).
+subscribe(SKey, EventCategory) ->
+    ?SecurityException({"Unsupported event category", {EventCategory,SKey}}).
 
 unsubscribe(_SKey, EventCategory) ->
     imem_meta:unsubscribe(EventCategory).
@@ -330,7 +331,7 @@ create_table(SKey, Table, RecordInfo, Opts) ->
     end,
     case Owner of
         false ->
-            ?SecurityException({"Create table unauthorized", SKey});
+            ?SecurityException({"Create table unauthorized", {Table,SKey}});
         Owner ->        
             imem_meta:create_table(Table, RecordInfo, Opts, Owner)
     end.
@@ -348,7 +349,7 @@ create_check_table(SKey, Table, RecordInfo, Opts) ->
     end,
     case Owner of
         false ->
-            ?SecurityException({"Create table unauthorized", SKey});
+            ?SecurityException({"Create table unauthorized", {Table,SKey}});
         Owner ->        
             imem_meta:create_check_table(Table, RecordInfo, Opts, Owner)
     end.
@@ -381,7 +382,7 @@ drop_user_table(SKey, Table, AccountId) ->
                 [#ddTable{owner=AccountId}] -> 
                     imem_meta:drop_table(Table);
                 _ ->     
-                    ?SecurityException({"Drop table unauthorized", SKey})
+                    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
             end
     end. 
 
@@ -396,7 +397,7 @@ purge_user_table(SKey, Table, Opts, AccountId) ->
                 [#ddTable{owner=AccountId}] -> 
                     imem_meta:purge_table(Table, Opts);
                 _ ->     
-                    ?SecurityException({"Purge table unauthorized", SKey})
+                    ?SecurityException({"Purge table unauthorized", {Table,SKey}})
             end
     end. 
 
@@ -405,7 +406,7 @@ drop_system_table(SKey, Table, _AccountId) ->
         true ->
             imem_meta:drop_table(Table);
         false ->
-            ?SecurityException({"Drop system table unauthorized", SKey})
+            ?SecurityException({"Drop system table unauthorized", {Table,SKey}})
     end. 
 
 purge_system_table(SKey, Table, Opts, _AccountId) ->
@@ -413,7 +414,7 @@ purge_system_table(SKey, Table, Opts, _AccountId) ->
         true ->
             imem_meta:purge_table(Table, Opts);
         false ->
-            ?SecurityException({"Purge system table unauthorized", SKey})
+            ?SecurityException({"Purge system table unauthorized", {Table,SKey}})
     end. 
 
 %% imem_if but security context added --- DATA ACCESS CRUD -----
@@ -421,7 +422,7 @@ purge_system_table(SKey, Table, Opts, _AccountId) ->
 insert(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of
         true ->     imem_meta:insert(Table, Row) ;
-        false ->    ?SecurityException({"Insert unauthorized", SKey})
+        false ->    ?SecurityException({"Insert unauthorized", {Table,SKey}})
     end.
 
 read(SKey, Table) ->
@@ -510,31 +511,31 @@ update_cursor_execute(SKey, Pid, Lock) ->
 write(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of
         true ->     imem_meta:write(Table, Row);
-        false ->    ?SecurityException({"Insert/update unauthorized", SKey})
+        false ->    ?SecurityException({"Insert/update unauthorized", {Table,SKey}})
     end.
 
 dirty_write(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of
         true ->     imem_meta:dirty_write(Table, Row);
-        false ->    ?SecurityException({"Insert/update unauthorized", SKey})
+        false ->    ?SecurityException({"Insert/update unauthorized", {Table,SKey}})
     end.
 
 delete(SKey, Table, Key) ->
     case have_table_permission(SKey, Table, delete) of
         true ->     imem_meta:delete(Table, Key);
-        false ->    ?SecurityException({"Delete unauthorized", SKey})
+        false ->    ?SecurityException({"Delete unauthorized", {Table,SKey}})
     end.
 
 delete_object(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, delete) of
         true ->     imem_meta:delete_object(Table, Row);
-        false ->    ?SecurityException({"Delete unauthorized", SKey})
+        false ->    ?SecurityException({"Delete unauthorized", {Table,SKey}})
     end.
 
 truncate_table(SKey, Table) ->
     case have_table_permission(SKey, Table, delete) of
         true ->     imem_meta:truncate_table(Table);
-        false ->    ?SecurityException({"Truncate unauthorized", SKey})
+        false ->    ?SecurityException({"Truncate unauthorized", {Table,SKey}})
     end.
 
 snapshot_table(SKey, Table) ->
@@ -544,7 +545,18 @@ snapshot_table(SKey, Table) ->
         false ->
             case have_table_permission(SKey, Table, export) of
                 true ->     imem_meta:snapshot_table(Table);
-                false ->    ?SecurityException({"Export unauthorized", SKey})
+                false ->    ?SecurityException({"Snapshot table unauthorized", {Table,SKey}})
+            end
+    end.
+
+restore_table(SKey, Table) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            imem_meta:restore_table(Table);
+        false ->
+            case have_table_permission(SKey, Table, import) of
+                true ->     imem_meta:restore_table(Table);
+                false ->    ?SecurityException({"Restore table unauthorized", {Table,SKey}})
             end
     end.
 
@@ -632,7 +644,7 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
         true ->
             apply(Module,Function,Params);
         false ->
-            ?SecurityException({"Admin execute unauthorized", {SKey, Module, Function, Params}})
+            ?SecurityException({"Admin execute unauthorized", {Module,Function,Params,SKey}})
     end.
 
 %% ------- security extension for sql and tables (exported) ---------------------------------
