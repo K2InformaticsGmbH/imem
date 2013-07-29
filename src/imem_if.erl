@@ -5,16 +5,14 @@
 -include("imem_if.hrl").
 
 % gen_server
--record(state, {
-            snap_interval = 0
-            , snapdir
-        }).
+-record(state, { snap_interval = 0
+               , snapdir
+               }).
 
--record(user_properties, {
-            table
-            , last_write
-            , last_snap
-        }).
+-record(snap_properties, { table
+                         , last_write
+                         , last_snap
+                         }).
 
 -export([ init/1
         , handle_call/3
@@ -78,10 +76,15 @@
         , return_atomic/1
         ]).
 
--define(TOUCH_TABLE(__Table),                  
-            [__Up] = ets:lookup(?MODULE, __Table),
-            true = ets:insert(?MODULE, __Up#user_properties{last_write = erlang:now()})
+-define(INIT_SNAP(__Table,__Now),
+            true = ets:insert(?MODULE, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now})
        ).
+
+-define(TOUCH_SNAP(__Table),                  
+            [__Up] = ets:lookup(?MODULE, __Table),
+            true = ets:insert(?MODULE, __Up#snap_properties{last_write = erlang:now()})
+       ).
+
 
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
@@ -279,7 +282,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
-            true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
+            ?INIT_SNAP(Table,Now),
             ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, _Node}} ->
             % ?Debug("table ~p exists at ~p~n", [Table, _Node]),
@@ -287,13 +290,13 @@ create_table(Table, Opts) when is_atom(Table) ->
                 yes -> ok;
                 Error -> ?ClientErrorNoLogging({"Loading table(s) timeout~p", Error})
             end,
-            true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
+            ?INIT_SNAP(Table,Now),
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result ->
             % ?Debug("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
-            true = ets:insert(?MODULE, #user_properties{table=Table, last_write = Now, last_snap = Now}),
+            ?INIT_SNAP(Table,Now),
             return_atomic_ok(Result)
     end.
 
@@ -338,7 +341,7 @@ drop_index(Table, Column) when is_atom(Table) ->
 truncate_table(Table) when is_atom(Table) ->
     case mnesia:clear_table(Table) of
         {atomic,ok} ->
-            ?TOUCH_TABLE(Table),                  
+            ?TOUCH_SNAP(Table),                  
             ok;
         {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
         Error ->                        ?SystemExceptionNoLogging(Error)
@@ -399,7 +402,7 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
             % ?Debug("cannot write ~p to ~p~n", [Row,Table]),
             ?ClientErrorNoLogging({"Table does not exist",Table});
         {atomic,ok} ->
-            ?TOUCH_TABLE(Table),
+            ?TOUCH_SNAP(Table),
             %if Table =:= ddTable -> io:format(user, "ddTable written ~p~n", [Up]); true -> ok end,
             {atomic,ok};
         Error ->
@@ -410,7 +413,7 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
 delete(Table, Key) when is_atom(Table) ->
     Result = case transaction(delete,[{Table, Key}]) of
         {atomic,ok} ->
-            ?TOUCH_TABLE(Table),
+            ?TOUCH_SNAP(Table),
             {atomic,ok};
         {aborted,{no_exists,_}} ->          
             ?ClientError({"Table does not exist",Table});
@@ -422,7 +425,7 @@ delete(Table, Key) when is_atom(Table) ->
 delete_object(Table, Row) when is_atom(Table) ->
     Result = case transaction(delete_object,[Table, Row, write]) of
         {atomic,ok} ->
-            ?TOUCH_TABLE(Table),
+            ?TOUCH_SNAP(Table),
             {atomic,ok};
         {aborted,{no_exists,_}} ->          
             ?ClientError({"Table does not exist",Table});
@@ -749,7 +752,7 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
     [(fun() ->
         case ets:lookup(?MODULE, T) of
             [] -> ok;
-            [#user_properties { table = T, last_write = Wt, last_snap = St} = Up | _] ->
+            [#snap_properties{table=T, last_write=Wt, last_snap=St} = Up | _] ->
                 LastWriteTime = timestamp(Wt),
                 LastSnapTime = timestamp(St),
                 if 
@@ -762,7 +765,7 @@ handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = St
                                 imem_meta:log_to_db(info,?MODULE,handle_info,[snapshot],Str);
                             {error, T, Reason}  -> ?Error("snapshot of ~p failed for ~p", [T, Reason])
                         end || R <- Res],
-                        true = ets:insert(?MODULE, Up#user_properties{last_snap = erlang:now()});
+                        true = ets:insert(?MODULE, Up#snap_properties{last_snap = erlang:now()});
                     true -> 
                         ok % no backup needed
                 end
@@ -802,7 +805,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
     case apply(mnesia, Fun, Args) of
         {atomic,ok} ->
-            ?TOUCH_TABLE(hd(Args)),
+            ?TOUCH_SNAP(hd(Args)),
             {atomic,ok};
         Error ->
             Error   

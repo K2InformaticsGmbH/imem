@@ -695,7 +695,10 @@ snapshot_table(Alias) when is_atom(Alias) ->
     log_to_db(debug,?MODULE,snapshot_table,[{table,Alias}],"snapshot table"),
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
-        PTNs -> snapshot_partitioned_tables(PTNs)
+        PTNs -> case lists:usort([check_table(T) || T <- PTNs]) of
+                    [ok] -> snapshot_partitioned_tables(PTNs);
+                    _ ->    ?ClientError({"Table does not exist",Alias})
+                end
     end;
 snapshot_table(TableName) ->
     snapshot_table(imem_sql:table_qname(TableName)).
@@ -717,10 +720,14 @@ restore_table(Alias) when is_atom(Alias) ->
     log_to_db(debug,?MODULE,restore_table,[{table,Alias}],"restore table"),
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
-        PTNs -> case imem_snap:restore(bkp,PTNs,destroy,false) of
-                    L when is_list(L) ->    ok;
-                    E ->                    ?SystemException({"Restore table failed with",E})
+        PTNs -> case lists:usort([check_table(T) || T <- PTNs]) of
+                    [ok] -> case imem_snap:restore(bkp,PTNs,destroy,false) of
+                                L when is_list(L) ->    ok;
+                                E ->                    ?SystemException({"Restore table failed with",E})
+                            end;
+                    _ ->    ?ClientError({"Table does not exist",Alias})
                 end
+
     end;    
 restore_table(TableName) ->
     restore_table(imem_sql:table_qname(TableName)).
