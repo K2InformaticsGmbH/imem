@@ -131,10 +131,13 @@ take({tabs, SnapDir, Tabs}) ->
     || T <- Tabs]).
 
 % snapshot restore interface
-restore(bkp, [_T|_] = Tabs, Strategy, Simulate) when is_list(_T) ->
+restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     [(fun() ->
-        Table = filename:rootname(filename:basename(Tab)),
+        Table = if
+            is_atom(Tab) -> filename:rootname(filename:basename(atom_to_list(Tab)));
+            is_list(Tab) -> filename:rootname(filename:basename(Tab))
+        end,
         SnapFile = filename:join([SnapDir, Table++?BKP_EXTN]),
         {ok, Bin} = file:read_file(SnapFile),
         [{prop, TabProp}, {rows, Rows}] = 
