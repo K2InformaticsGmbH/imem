@@ -764,11 +764,11 @@ handle_info(Info, State) ->
         Error ->
             ?Error("Mnesia error : ~p~n",[Error])
     end,
-    case application:ensure_started(mnesia) of
-        ok -> {noreply, State};
-        {error, Reason} ->
-            ?Error("Mnesia down : ~p~n",[Reason]),
-            {stop, mnesia_down, State}
+    case lists:keyfind(mnesia, 1, application:which_applications()) of
+        false ->
+            ?Error("Mnesia down!~n"),
+            {stop, mnesia_down, State};
+        ok -> {noreply, State}
     end.
 
 terminate(_Reson, _State) -> ok.
