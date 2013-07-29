@@ -78,6 +78,11 @@
         , return_atomic/1
         ]).
 
+-define(TOUCH_TABLE(__Table),                  
+            [__Up] = ets:lookup(?MODULE, __Table),
+            true = ets:insert(?MODULE, __Up#user_properties{last_write = erlang:now()})
+       ).
+
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
             fun(N, Acc) ->
@@ -331,7 +336,13 @@ drop_index(Table, Column) when is_atom(Table) ->
     end.
 
 truncate_table(Table) when is_atom(Table) ->
-    return_atomic_ok(mnesia:clear_table(Table)).
+    case mnesia:clear_table(Table) of
+        {atomic,ok} ->
+            ?TOUCH_TABLE(Table),                  
+            ok;
+        {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
+        Error ->                        ?SystemExceptionNoLogging(Error)
+    end.
 
 read(Table) when is_atom(Table) ->
     Trans = fun() ->
@@ -388,8 +399,7 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
             % ?Debug("cannot write ~p to ~p~n", [Row,Table]),
             ?ClientErrorNoLogging({"Table does not exist",Table});
         {atomic,ok} ->
-            [Up] = ets:lookup(?MODULE, Table),
-            true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()}),
+            ?TOUCH_TABLE(Table),
             %if Table =:= ddTable -> io:format(user, "ddTable written ~p~n", [Up]); true -> ok end,
             {atomic,ok};
         Error ->
@@ -399,15 +409,25 @@ write(Table, Row) when is_atom(Table), is_tuple(Row) ->
 
 delete(Table, Key) when is_atom(Table) ->
     Result = case transaction(delete,[{Table, Key}]) of
-        {aborted,{no_exists,_}} ->          ?ClientError({"Table does not exist",Table});
-        Res ->                              Res
+        {atomic,ok} ->
+            ?TOUCH_TABLE(Table),
+            {atomic,ok};
+        {aborted,{no_exists,_}} ->          
+            ?ClientError({"Table does not exist",Table});
+        Res ->
+            Res
     end,
     return_atomic_ok(Result).
 
 delete_object(Table, Row) when is_atom(Table) ->
     Result = case transaction(delete_object,[Table, Row, write]) of
-        {aborted,{no_exists,_}} ->          ?ClientError({"Table does not exist",Table});
-        Res ->                              Res
+        {atomic,ok} ->
+            ?TOUCH_TABLE(Table),
+            {atomic,ok};
+        {aborted,{no_exists,_}} ->          
+            ?ClientError({"Table does not exist",Table});
+        Res ->                              
+            Res
     end,
     return_atomic_ok(Result).
 
@@ -782,8 +802,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
     case apply(mnesia, Fun, Args) of
         {atomic,ok} ->
-            [Up] = ets:lookup(?MODULE, hd(Args)),
-            true = ets:insert(?MODULE, Up#user_properties{last_write = erlang:now()}),
+            ?TOUCH_TABLE(hd(Args)),
             {atomic,ok};
         Error ->
             Error   
