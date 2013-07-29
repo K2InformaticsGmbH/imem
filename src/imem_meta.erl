@@ -712,7 +712,10 @@ restore_table({Schema,Table}) ->
     end;
 restore_table(Alias) when is_atom(Alias) ->
     log_to_db(debug,?MODULE,restore_table,[{table,Alias}],"restore table"),
-    imem_snap:restore(bkp,lists:sort(simple_or_local_node_sharded_tables(Alias)),destroy,false);
+    case imem_snap:restore(bkp,lists:sort(simple_or_local_node_sharded_tables(Alias)),destroy,false) of
+        L when is_list(L) ->    ok;
+        E ->                    ?SystemException({"Restore table failed with",E})
+    end;    
 restore_table(TableName) ->
     restore_table(imem_sql:table_qname(TableName)).
 
