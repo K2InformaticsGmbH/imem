@@ -235,17 +235,17 @@ create_partitioned_table(Name) when is_atom(Name) ->
             [] ->   
                 % Table does not exist in ddTable, must create it similar to existing
                 NS = node_shard(),
-                case string:tokens(atom_to_list(Name), "@") of
-                    [NameStr,NS] ->
+                case parse_table_name(Name) of
+                    [_,_,_,"",_,_] ->
+                        ?Error("Invalid table name ~p", [Name]),   
+                        {error, {"Invalid table name",Name}};
+                    ["","",BaseName,_,"@",NS] ->
                         % choose template table name (name pattern with highest timestamp)
-                        {Prefix,_} = lists:split(length(NameStr)-10, NameStr),
-                        Tail = "@" ++ NS,
-                        LenNS = length(NameStr),
-                        Pred = fun(TN) -> (lists:nthtail(LenNS, atom_to_list(TN)) == Tail) end,
-                        case lists:filter(Pred,tables_starting_with(Prefix)) of
+                        Pred = fun(TN) -> is_local_time_partitioned_table(TN) end,
+                        case lists:filter(Pred,tables_starting_with(BaseName)) of
                             [] ->   
-                                ?Error("No table template found starting/ending with  ~p / ~p", [Prefix,Tail]),   
-                                {error, {"No table template found starting/ending with", {Prefix,Tail}}}; 
+                                ?Error("No table template found starting/ending with  ~p / ~p", [BaseName,NS]),   
+                                {error, {"No table template found starting/ending with", {BaseName,NS}}}; 
                             Cand -> 
                                 Template = lists:last(lists:sort(Cand)),
                                 % find out ColumnsInfos, Opts, Owner from template table definition
@@ -260,10 +260,7 @@ create_partitioned_table(Name) when is_atom(Name) ->
                                             _:Reason2 -> {error, Reason2}
                                         end
                                 end
-                        end;                      
-                    _ ->
-                        ?Error("Invalid table name ~p", [Name]),   
-                        {error, {"Invalid table name",Name}}
+                        end
                 end
         end
     catch
@@ -870,49 +867,50 @@ parse_table_name(Table) when is_atom(Table) ->
     parse_table_name(atom_to_list(Table));
 parse_table_name(Table) when is_list(Table) -> 
     case string:tokens(Table, ".") of
-        [R2] ->         [""|parse_simple_name(R2)];
-        [Schema|R1] ->  [Schema|parse_simple_name(string:join(R1,"."))]
+        [R2] ->         ["",""|parse_simple_name(R2)];
+        [Schema|R1] ->  [Schema,"."|parse_simple_name(string:join(R1,"."))]
     end.
 
 parse_simple_name(Table) when is_list(Table) ->         
     case string:tokens(Table, "@") of
         [BaseName] ->    
-            [BaseName,"",""];
+            [BaseName,"","",""];
         [Name,Node] ->
             case string:tokens(Name, "_") of  
                 [Name] ->  
-                    [Name,"",Node];
+                    [Name,"","@",Node];
                 BL ->     
                     case catch list_to_integer(lists:last(BL)) of
                         I when is_integer(I) ->
-                            [string:join(lists:sublist(BL,length(BL)-1),"."),I,Node];
+                            [string:join(lists:sublist(BL,length(BL)-1),"."),lists:last(BL),"@",Node];
                         _ ->
-                            [Name,"",Node]
+                            [Name,"","@",Node]
                     end
             end;
         _ ->
-            [Table,"",""]
+            [Table,"","",""]
     end.
 
 time_to_partition_expiry(Table) when is_atom(Table) ->
     time_to_partition_expiry(atom_to_list(Table));
 time_to_partition_expiry(Table) when is_list(Table) ->
     case parse_table_name(Table) of
-        [_Schema,_BaseName,Number,_Shard] when is_integer(Number) ->
+        [_Schema,_Dot,_BaseName,"",_Aterate,_Shard] ->
+            ?ClientError({"Not a time partitioned table",Table});     
+        [_Schema,_Dot,_BaseName,Number,_Aterate,_Shard] ->
             {Mega,Secs,_} = erlang:now(),
-            Number - Mega * 1000000 - Secs;
-         _ -> 
-            ?ClientError({"Not a time partitioned table",Table})     
+            list_to_integer(Number) - Mega * 1000000 - Secs
     end.
 
 time_of_partition_expiry(Table) when is_atom(Table) ->
     time_of_partition_expiry(atom_to_list(Table));
 time_of_partition_expiry(Table) when is_list(Table) ->
     case parse_table_name(Table) of
-        [_Schema,_BaseName,Number,_Shard] when is_integer(Number) ->
-            { Number div 1000000, Number rem 1000000, 0};
-         _ -> 
-            ?ClientError({"Not a time partitioned table",Table})     
+        [_Schema,_Dot,_BaseName,"",_Aterate,_Shard] ->
+            ?ClientError({"Not a time partitioned table",Table});     
+        [_Schema,_Dot,_BaseName,N,_Aterate,_Shard] ->
+            Number = list_to_integer(N),
+            {Number div 1000000, Number rem 1000000, 0}
     end.
 
 physical_table_name({_S,N,_A}) -> physical_table_name(N);
