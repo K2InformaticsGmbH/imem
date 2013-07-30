@@ -78,14 +78,11 @@ start_link(Args) ->
 %% --------------------------------------------------------------------
 init(_StartArgs) ->
     {ok, ImemTimeout} = application:get_env(imem_timeout),
-    {ok, SchemaName} = application:get_env(mnesia_schema_name),
-    ?Info("~p initializing with ImemTimeout ~p~n", [?MODULE, ImemTimeout]),
-    {ok, NodeType} = application:get_env(mnesia_node_type),
-    {ok, SnapInterval} = application:get_env(mnesia_snap_interval),
+    ?Info("~p starting children with timeout ~p~n", [?MODULE, ImemTimeout]),
 
     Children =
     % imem_if
-    [?CHILD(imem_if, worker, [{schema_name, SchemaName}, {node_type, NodeType}, {snap_interval, SnapInterval}], ImemTimeout)]
+    [?CHILD(imem_if, worker, [], ImemTimeout)]
     % imem_meta
     ++
     case application:get_env(meta_server) of
@@ -96,6 +93,12 @@ init(_StartArgs) ->
     ++
     case application:get_env(seco_server) of
         {ok, true} -> [?CHILD(imem_seco, worker, [], ImemTimeout)];
+        _ -> []
+    end
+    % imem_snap
+    ++
+    case application:get_env(snap_server) of
+        {ok, true} -> [?CHILD(imem_snap, worker, [], ImemTimeout)];
         _ -> []
     end,
 

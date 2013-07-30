@@ -1,8 +1,17 @@
 -module(imem_snap).
+-behavior(gen_server).
 
--include("imem.hrl").
 -include_lib("kernel/include/file.hrl").
 
+-include("imem.hrl").
+-include("imem_meta.hrl").
+
+-record(state, { snapdir    = ""        :: list()
+               , snapFun    = undefined :: any()
+               , snapHash   = undefined :: any()
+               }).
+
+% snapshot interface
 -export([ info/1
         , restore/4
         , restore/5
@@ -10,12 +19,130 @@
         , take/1
         ]).
 
+% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        , format_status/2
+        , start_link/1
+        ]).
+
+% fun access exports
+-export([ timestamp/1
+        , get_snap_timestamps/1
+        , set_snap_timestamps/2
+        , snap_log/2
+        , snap_err/2
+        , do_snapshot/1
+        ]).
+
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
 
 -define(GET_SNAPSHOT_CYCLE_WAIT,?GET_IMEM_CONFIG(snapshotCycleWait,[],10000)).
--define(GET_SNAPSHOT_SCRIPT,?GET_IMEM_CONFIG(snapshotScript,[],false)).
--define(GET_SNAPSHOT_SCRIPT_FUN,?GET_IMEM_CONFIG(snapshotScriptFun,[],<<"fun() -> ok end.">>)).
+-define(GET_SNAPSHOT_SCRIPT,?GET_IMEM_CONFIG(snapshotScript,[],true)).
+-define(GET_SNAPSHOT_SCRIPT_FUN,?GET_IMEM_CONFIG(snapshotScriptFun,[],
+<<"fun() ->
+    [(fun() ->
+        case imem_snap:get_snap_timestamps(T) of
+            [] -> ok;
+            {Wt,St} ->
+                LastWriteTime = imem_snap:timestamp(Wt),
+                LastSnapTime = imem_snap:timestamp(St),
+                if 
+                    LastSnapTime < LastWriteTime ->
+                        Res = imem_snap:take(T),
+                        [case R of
+                            {ok, T} ->
+                                Str = lists:flatten(io_lib:format(\"snapshot created for ~p\", [T])),
+                                imem_snap:snap_log(Str++\"~n\",[]),
+                                imem_meta:log_to_db(info,imem_snap,handle_info,[snapshot],Str);
+                            {error, T, Reason}  -> imem_snap:snap_err(\"snapshot of ~p failed for ~p\", [T, Reason])
+                        end || R <- Res],
+                        true = imem_snap:set_snap_timestamps(T, erlang:now());
+                    true -> 
+                        ok % no backup needed
+                end
+        end
+      end)()
+    || T <- imem_meta:all_tables(), imem_meta:is_local_table(T) =:= true, imem_meta:is_local_time_partitioned_table(T) =/= true],
+    ok
+end.">>)).
+
+%% ----- SERVER INTERFACE ------------------------------------------------
+start_link(Params) ->
+    ets:new(?MODULE, [public, named_table, {keypos,2}]),
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+
+init(_) ->
+    ?Info("~p starting...~n", [?MODULE]),
+    zip({re, "*.bkp"}),
+    erlang:send_after(10000, self(), imem_snap_loop),
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    SnapshotDir = filename:absname(SnapDir),
+    case filelib:is_dir(SnapDir) of
+        false ->
+            case filelib:ensure_dir(SnapshotDir) of
+                ok ->
+                    case file:make_dir(SnapDir) of
+                        ok -> ok;
+                        {error, eexists} -> ok;
+                        {error, Error} ->
+                            ?Warn("unable to create snapshot directory ~p : ~p~n", [SnapDir, Error])
+                    end;
+                {error, Error} ->
+                    ?Warn("unable to create snaoshot directory ~p : ~p~n", [SnapDir, Error])
+            end;
+        _ -> ok
+    end,
+    ?Info("SnapshotDir ~p", [SnapshotDir]),
+    ?Info("~p started!", [?MODULE]),
+    {ok,#state{snapdir=SnapshotDir}}.
+
+handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
+    ?Debug("snapshot loop"),
+    case ?GET_SNAPSHOT_CYCLE_WAIT of
+        MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
+            {SnapHash,SnapFun} = case {?GET_SNAPSHOT_SCRIPT, ?GET_SNAPSHOT_SCRIPT_FUN} of
+                {false, _} ->       {undefined,undefined};
+                {true, <<"">>} ->   {undefined,undefined};
+                {true, SFunStr} ->
+                    case erlang:phash2(SFunStr) of
+                        SHash   -> {SHash,SFun};
+                        H1      -> {H1,imem_meta:compile_fun(SFunStr)}
+                    end
+            end,
+            ?Debug("snapshot snap hash ~p, snap fun ~p", [SnapHash, SnapFun]),
+            do_snapshot(SnapFun),
+            erlang:send_after(MCW, self(), imem_snap_loop),
+            {noreply, State#state{snapFun=SnapFun,snapHash=SnapHash}};
+        Other ->
+            ?Debug("snapshot unknown timeout ~p", [Other]),
+            erlang:send_after(10000, self(), imem_snap_loop),
+            {noreply, State}
+    end;
+
+handle_info(Info, State) ->
+    ?Info("Unknown info ~p!", [Info]),
+    {noreply, State}.
+
+handle_call(Request, From, State) ->
+    ?Info("Unknown request ~p from ~p!", [Request, From]),
+    {reply, ok, State}.
+
+handle_cast(Request, State) ->
+    ?Info("Unknown cast ~p!", [Request]),
+    {noreply, State}.
+
+terminate(_Reson, _State) -> ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ----- SNAPSHOT INTERFACE ------------------------------------------------
 
@@ -263,4 +390,34 @@ test_snapshot(_) ->
     ?Log("snapshot tests completed!~n", []).
 
 -endif.
+
+%% ----- PRIVATE APIS ------------------------------------------------
+
+timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
+
+do_snapshot(SnapFun) ->
+    try  
+        case SnapFun of
+            undefined ->    ok;
+            E ->            ok = E()
+        end,
+        ok
+    catch
+        _:Err ->
+            ?Error("cannot snap ~p", [Err]),
+            {error,{"cannot snap",Err}}
+    end.
+
+get_snap_timestamps(Tab) ->
+    case ets:lookup(?SNAP_ETS_TAB, Tab) of
+        [] -> [];
+        [#snap_properties{table=Tab, last_write=Wt, last_snap=St}|_] -> {Wt,St}
+    end.
+set_snap_timestamps(Tab,Time) ->
+    case ets:lookup(?SNAP_ETS_TAB, Tab) of
+        [] -> [];
+        [#snap_properties{table=Tab}=Up|_] -> ets:insert(?SNAP_ETS_TAB, Up#snap_properties{last_snap=Time})
+    end.
+snap_log(P,A) -> ?Log(P,A).
+snap_err(P,A) -> ?Error(P,A).
 

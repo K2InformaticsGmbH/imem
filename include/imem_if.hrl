@@ -1,6 +1,12 @@
 -type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
 -type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 
+-record(snap_properties, { table
+                         , last_write
+                         , last_snap
+                         }).
+-define(SNAP_ETS_TAB, snap_timer_tab).
+
 -define(MatchAllRecords,[{'$1', [], ['$_']}]).
 -define(MatchAllKeys,[{'$1', [], [{element,2,'$1'}]}]).
 

@@ -14,7 +14,6 @@
          {mnesia_schema_name, imem},
          {mnesia_wait_table_config, {30, 30000}},
          {mnesia_node_type, undefined},
-         {mnesia_snap_interval, 10000},
          {imem_timeout, 30000},
          {imem_snapshot_dir, "snapshot"},
          {default_admin_pswd, <<"change_on_install">>},
@@ -22,6 +21,7 @@
          {node_shard_fun,"fun(N) -> imem_meta:host_name(N) -- \"!?#*:+-\\<|>/\" end"},
          {meta_server, true},
          {seco_server, true},
+         {snap_server, true},
          {tcp_server, true},
          {tcp_ip, "0.0.0.0"},
          {tcp_port, 8124}

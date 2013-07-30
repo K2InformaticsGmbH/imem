@@ -1,5 +1,8 @@
 -module(imem_meta).
 
+-include("imem.hrl").
+-include("imem_meta.hrl").
+
 %% HARD CODED CONFIGURATIONS
 
 -define(META_TABLES,[ddTable,ddNode,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
@@ -36,9 +39,6 @@
 -define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).
 -define(GET_PURGE_SCRIPT,?GET_IMEM_CONFIG(purgeScript,[],false)).
 -define(GET_PURGE_SCRIPT_FUN,?GET_IMEM_CONFIG(purgeScriptFun,[],<<"fun(_) -> ok end.">>)).
-
--include("imem.hrl").
--include("imem_meta.hrl").
 
 -behavior(gen_server).
 
@@ -114,6 +114,7 @@
 
 -export([ add_attribute/2
         , update_opts/2
+        , compile_fun/1
         , log_to_db/5
         , log_to_db/6
         , failing_function/1
@@ -308,7 +309,7 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
         _ ->
             erlang:send_after(2000, self(), imem_monitor_loop),
             {noreply, State}
-    end;        
+    end;
 handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
     % ?Debug("Purge collect start~n",[]), 

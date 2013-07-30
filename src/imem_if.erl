@@ -5,14 +5,7 @@
 -include("imem_if.hrl").
 
 % gen_server
--record(state, { snap_interval = 0
-               , snapdir
-               }).
-
--record(snap_properties, { table
-                         , last_write
-                         , last_snap
-                         }).
+-record(state, {}).
 
 -export([ init/1
         , handle_call/3
@@ -78,12 +71,14 @@
         ]).
 
 -define(INIT_SNAP(__Table,__Now),
-            true = ets:insert(?MODULE, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now})
+            true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now})
        ).
 
 -define(TOUCH_SNAP(__Table),                  
-            [__Up] = ets:lookup(?MODULE, __Table),
-            true = ets:insert(?MODULE, __Up#snap_properties{last_write = erlang:now()})
+        (fun(__T) ->
+            [__Up] = ets:lookup(?SNAP_ETS_TAB, __T),
+            true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()})
+        end)(__Table)
        ).
 
 
@@ -313,7 +308,7 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
 drop_table(Table) when is_atom(Table) ->
     case mnesia:delete_table(Table) of
         {atomic,ok} ->
-            true = ets:delete(?MODULE, Table),
+            true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
         {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
         Error ->                        ?SystemExceptionNoLogging(Error)
@@ -685,13 +680,14 @@ unsubscribe(EventCategory) ->
 %% ----- gen_server -------------------------------------------
 
 start_link(Params) ->
-    ets:new(?MODULE, [public, named_table, {keypos,2}]),
+    ets:new(?SNAP_ETS_TAB, [public, named_table, {keypos,2}]),
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
 
-init(Params) ->
-    {_, NodeType} = lists:keyfind(node_type,1,Params),
-    {_, SchemaName} = lists:keyfind(schema_name,1,Params),
-    {_, SnapInterval} = lists:keyfind(snap_interval,1,Params),
+init(_) ->
+    ?Info("~p starting...~n", [?MODULE]),
+    {ok, SchemaName} = application:get_env(mnesia_schema_name),
+    {ok, NodeType} = application:get_env(mnesia_node_type),
+    ?Info("mnesia node type is '~p'~n", [NodeType]),
     SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
     {ok, Cwd} = file:get_cwd(),
     LastFolder = lists:last(filename:split(Cwd)),
@@ -714,65 +710,16 @@ init(Params) ->
         _ -> ok
     end,
     mnesia:subscribe(system),
-    ?Info("~p started as ~p!~n", [?MODULE, NodeType]),
+    ?Info("~p started!~n", [?MODULE]),
+    {ok,#state{}}.
 
-    % backup any existing snapshots and start new snapshoting
-    imem_snap:zip({re, "*.bkp"}),
-    if SnapInterval > 0 -> erlang:send_after(SnapInterval, self(), snapshot); true -> ok end,
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    SnapshotDir = filename:absname(SnapDir),
-    file:make_dir(SnapshotDir),
-    ?Info("SnapshotDir ~p~n", [SnapshotDir]),
-    {ok,#state{snap_interval = SnapInterval, snapdir=SnapshotDir}}.
-
-handle_call(_Request, _From, State) ->
+handle_call(Request, From, State) ->
+    ?Info("Unknown request ~p from ~p!", [Request, From]),
     {reply, ok, State}.
 
-handle_cast(_Request, State) ->
+handle_cast(Request, State) ->
+    ?Info("Unknown cast ~p!", [Request]),
     {noreply, State}.
-
-handle_info(snapshot, #state{snap_interval = SnapInterval, snapdir=SnapDir} = State) ->
-    case filelib:is_dir(SnapDir) of
-        false ->
-            case filelib:ensure_dir(SnapDir) of
-                ok ->
-                    case file:make_dir(SnapDir) of
-                        ok -> ok;
-                        {error, eexists} -> ok;
-                        {error, Error} ->
-                            ?Warn("unable to create directory ~p : ~p~n", [SnapDir, Error])
-                    end;
-                {error, Error} ->
-                    ?Warn("unable to create directory ~p : ~p~n", [SnapDir, Error])
-            end;
-        _ -> ok
-    end,
-    Tabs = [T || T <- mnesia:system_info(tables), re:run(atom_to_list(T), "(.*@.*)|schema") =:= nomatch],
-    [(fun() ->
-        case ets:lookup(?MODULE, T) of
-            [] -> ok;
-            [#snap_properties{table=T, last_write=Wt, last_snap=St} = Up | _] ->
-                LastWriteTime = timestamp(Wt),
-                LastSnapTime = timestamp(St),
-                if 
-                    LastSnapTime < LastWriteTime ->
-                        Res = imem_snap:take(T),
-                        [case R of
-                            {ok, T} ->
-                                Str = lists:flatten(io_lib:format("snapshot created for ~p", [T])),
-                                ?Log(Str++"~n", []),
-                                imem_meta:log_to_db(info,?MODULE,handle_info,[snapshot],Str);
-                            {error, T, Reason}  -> ?Error("snapshot of ~p failed for ~p", [T, Reason])
-                        end || R <- Res],
-                        true = ets:insert(?MODULE, Up#snap_properties{last_snap = erlang:now()});
-                    true -> 
-                        ok % no backup needed
-                end
-        end
-      end)()
-    || T <- Tabs],
-    erlang:send_after(SnapInterval, self(), snapshot),
-    {noreply, State};
 
 handle_info(Info, State) ->
     case Info of
@@ -809,8 +756,6 @@ mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
         Error ->
             Error   
     end.
-
-timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
