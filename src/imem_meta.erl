@@ -1236,7 +1236,8 @@ get_config_hlk({_Schema,Table}, Key, Context, Default) ->
 get_config_hlk(Table, Key, Context, Default) when is_atom(Table), is_list(Context) ->
     case read_hlk(Table, [Key|Context]) of
         [] ->
-            catch put_config_hlk(Table, Key, [], Default, <<"auto_provisioned">>),
+            Remark = ["auto_provisioned from",io_lib:format("~p",[Context])],
+            catch put_config_hlk(Table, Key, [], Default, list_to_binary(Remark)),
             Default;
         [#ddConfig{val=Val}] ->
             Val
