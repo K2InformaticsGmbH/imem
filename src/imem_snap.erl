@@ -13,6 +13,10 @@
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
 
+-define(GET_SNAPSHOT_CYCLE_WAIT,?GET_IMEM_CONFIG(snapshotCycleWait,[],10000)).
+-define(GET_SNAPSHOT_SCRIPT,?GET_IMEM_CONFIG(snapshotScript,[],false)).
+-define(GET_SNAPSHOT_SCRIPT_FUN,?GET_IMEM_CONFIG(snapshotScriptFun,[],<<"fun() -> ok end.">>)).
+
 %% ----- SNAPSHOT INTERFACE ------------------------------------------------
 
 % backup existing snapshot

@@ -88,10 +88,13 @@
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
+        , parse_table_name/1
         , is_time_partitioned_alias/1
         , is_local_time_partitioned_table/1
         , is_node_sharded_alias/1
         , is_local_node_sharded_table/1
+        , time_of_partition_expiry/1
+        , time_to_partition_expiry/1
         , table_type/1
         , table_columns/1
         , table_size/1
@@ -315,7 +318,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
     case ?GET_PURGE_CYCLE_WAIT of
         PCW when (is_integer(PCW) andalso PCW > 1000) ->    
             Pred = fun imem_meta:is_local_time_partitioned_table/1,
-            case lists:sort(lists:filter(Pred,tables_ending_with("@" ++ node_shard()))) of
+            case lists:sort(lists:filter(Pred,all_tables())) of
                 [] ->   
                     erlang:send_after(PCW, self(), purge_partitioned_tables),
                     {noreply, State};
@@ -863,6 +866,55 @@ is_local_time_partitioned_table(Name) when is_list(Name) ->
             is_time_partitioned_alias(lists:sublist(Name, length(Name)-length(node_shard())))
     end.
 
+parse_table_name(Table) when is_atom(Table) -> 
+    parse_table_name(atom_to_list(Table));
+parse_table_name(Table) when is_list(Table) -> 
+    case string:tokens(Table, ".") of
+        [R2] ->         [""|parse_simple_name(R2)];
+        [Schema|R1] ->  [Schema|parse_simple_name(string:join(R1,"."))]
+    end.
+
+parse_simple_name(Table) when is_list(Table) ->         
+    case string:tokens(Table, "@") of
+        [BaseName] ->    
+            [BaseName,"",""];
+        [Name,Node] ->
+            case string:tokens(Name, "_") of  
+                [Name] ->  
+                    [Name,"",Node];
+                BL ->     
+                    case catch list_to_integer(lists:last(BL)) of
+                        I when is_integer(I) ->
+                            [string:join(lists:sublist(BL,length(BL)-1),"."),I,Node];
+                        _ ->
+                            [Name,"",Node]
+                    end
+            end;
+        _ ->
+            [Table,"",""]
+    end.
+
+time_to_partition_expiry(Table) when is_atom(Table) ->
+    time_to_partition_expiry(atom_to_list(Table));
+time_to_partition_expiry(Table) when is_list(Table) ->
+    case parse_table_name(Table) of
+        [_Schema,_BaseName,Number,_Shard] when is_integer(Number) ->
+            {Mega,Secs,_} = erlang:now(),
+            Number - Mega * 1000000 - Secs;
+         _ -> 
+            ?ClientError({"Not a time partitioned table",Table})     
+    end.
+
+time_of_partition_expiry(Table) when is_atom(Table) ->
+    time_of_partition_expiry(atom_to_list(Table));
+time_of_partition_expiry(Table) when is_list(Table) ->
+    case parse_table_name(Table) of
+        [_Schema,_BaseName,Number,_Shard] when is_integer(Number) ->
+            { Number div 1000000, Number rem 1000000, 0};
+         _ -> 
+            ?ClientError({"Not a time partitioned table",Table})     
+    end.
+
 physical_table_name({_S,N,_A}) -> physical_table_name(N);
 physical_table_name({_S,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
@@ -1242,7 +1294,7 @@ get_config_hlk({_Schema,Table}, Key, Context, Default) ->
 get_config_hlk(Table, Key, Context, Default) when is_atom(Table), is_list(Context) ->
     case read_hlk(Table, [Key|Context]) of
         [] ->
-            Remark = ["auto_provisioned from",io_lib:format("~p",[Context])],
+            Remark = ["auto_provisioned from ",io_lib:format("~p",[Context])],
             catch put_config_hlk(Table, Key, [], Default, list_to_binary(Remark)),
             Default;
         [#ddConfig{val=Val}] ->
