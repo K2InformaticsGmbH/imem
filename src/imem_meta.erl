@@ -81,6 +81,7 @@
         , node_name/1
         , node_hash/1
         , all_tables/0
+        , is_local_table/1
         , tables_starting_with/1
         , tables_ending_with/1
         , node_shard/0
@@ -1053,6 +1054,11 @@ data_nodes() ->
 
 all_tables() ->
     imem_if:all_tables().
+
+is_local_table({_Schema,Table}) ->
+    is_local_table(Table);   %% ToDo: may depend on schema
+is_local_table(Table) ->
+    imem_if:is_local_table(Table).
 
 node_shard() ->
     case application:get_env(imem, node_shard) of

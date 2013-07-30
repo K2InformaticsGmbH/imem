@@ -29,6 +29,7 @@
         , system_id/0
         , data_nodes/0
         , all_tables/0
+        , is_local_table/1
         , table_type/1
         , table_columns/1
         , table_info/2
@@ -182,6 +183,17 @@ data_nodes() -> [{schema(N),N} || N <- mnesia:system_info(running_db_nodes)].
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
 
+is_local_table(Table) ->
+    try
+        case mnesia:table_info(Table, storage_type) of
+            unknown ->  false;
+            _ ->        true
+        end
+    catch
+        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table});
+        _:Error ->                      ?SystemExceptionNoLogging(Error)
+    end.  
+
 table_type(Table) ->
     mnesia:table_info(Table, type).
 
@@ -195,40 +207,27 @@ table_record_name(Table) ->
     table_info(Table, record_name).
     
 table_size(Table) ->
-    Result = try
-        case mnesia:table_info(Table, storage_type) of
-            unknown ->  unknown;
-            _ ->        proplists:get_value(size,mnesia:table_info(Table, all))
-                        % mnesia:table_info(Table, size) %% would return 0 for unloaded table
-        end
-    catch
-        exit:{aborted,{no_exists,_,_}} ->   ?ClientErrorNoLogging({"Table does not exist", Table});
-        throw:Error ->                      ?SystemExceptionNoLogging(Error)
-    end,
-    case Result of
-        unknown ->      ?ClientErrorNoLogging({"Cannot evaluate size of remote table", Table});
-        _ ->            Result
-    end.  
+    % record count in Table
+    case is_local_table(Table) of
+        false ->  ?ClientErrorNoLogging({"Cannot evaluate size of remote table", Table});
+        true  ->  mnesia:table_info(Table, size)
+                  %% is_local_table() needed to catch non existing table
+    end.
 
 table_memory(Table) ->
-    % memory in BYTES occupied by Table
-    Result = try
-        case mnesia:table_info(Table, storage_type) of
-            unknown ->  unknown;
-            _ ->        proplists:get_value(memory,mnesia:table_info(Table, all)) * erlang:system_info(wordsize)
-                        % mnesia:table_info(Table, memory) %% would return 0 for unloaded table
-        end
-    catch
-        exit:{aborted,{no_exists,_,_}} ->   ?ClientErrorNoLogging({"Table does not exist", Table});
-        throw:Error ->                      ?SystemExceptionNoLogging(Error)
-    end,
-    case Result of
-        unknown ->      ?ClientErrorNoLogging({"Cannot evaluate memory of remote table", Table});
-        _ ->            Result
+    % memory in bytes occupied by Table
+    case is_local_table(Table) of
+        false ->  ?ClientErrorNoLogging({"Cannot evaluate memory of remote table", Table});
+        true ->   mnesia:table_info(Table, memory) * erlang:system_info(wordsize)
+                  %% is_local_table() needed to catch non existing table
     end.  
 
 check_table(Table) ->
-    table_size(Table).
+    % return ok for local loaded table, throw exception 
+    case is_local_table(Table) of
+        false ->  ?ClientErrorNoLogging({"This is a remote table", Table});
+        true  ->  ok
+    end.
 
 check_table_columns(Table, ColumnNames) ->
     TableColumns = table_columns(Table),
