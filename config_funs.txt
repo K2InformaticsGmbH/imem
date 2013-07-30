@@ -1,0 +1,97 @@
+purgeScriptFun
+--------------
+<<"
+fun (PartTables) ->
+	MIN_FREE_MEM_PERCENT = 40,
+	TABLE_EXPIRY_MARGIN_SEC = -200,
+	CSV_SEP_PTRN = \"\\\",\\\"\",
+	SortedPartTables =
+	    lists:sort([{imem_meta:time_to_partition_expiry(T),
+			 imem_meta:table_size(T),
+			 lists:nth(3, imem_meta:parse_table_name(T)), T}
+			|| T <- PartTables]),
+	OsInfo = case os:type() of
+		   {win32, _} ->
+		       [H, C] = [[string:strip(R, both, $\")
+				  || R
+					 <- re:split(E, CSV_SEP_PTRN,
+						     [{return, list}])]
+				 || E
+					<- re:split(os:cmd(\"systeminfo /FO CSV\"),
+						    \"\r
+\", [{return, list}]),
+				    E /= []],
+		       SysPropList = lists:zip(H, C),
+		       [FreeMem, TotMem] =
+			   [list_to_integer(re:replace(lists:nth(1,
+								 re:split(R,
+									  \" \")),
+						       \"'\", \"\",
+						       [global,
+							{return, list}]))
+			    || R
+				   <- [proplists:get_value(\"Available Physical Memory\",
+							   SysPropList),
+				       proplists:get_value(\"Total Physical Memory\",
+							   SysPropList)]],
+		       {\"Windows\", FreeMem, TotMem};
+		   {unix, _} ->
+		       TotMem =
+			   list_to_integer(string:strip(os:cmd(\"cat /proc/meminfo | awk '/MemTotal:/ \"
+							       \"{print $2}'\"),
+							both, $
+)),
+		       FreeMem =
+			   list_to_integer(string:strip(os:cmd(\"cat /proc/meminfo | awk '/MemFree:/ \"
+							       \"{print $2}'\"),
+							both, $
+)),
+		       {\"Unix\", FreeMem, TotMem};
+		   Unknown ->
+		       {lists:flatten(io_lib:format(\"~p\", [Unknown])), 1, 1}
+		 end,
+	{Os, FreeMemory, TotalMemory} = OsInfo,
+	MemFreePerCent = FreeMemory / TotalMemory * 100,
+	io:format(user, \"[~s] Free ~p%~n\",
+		  [Os, MemFreePerCent]),
+	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
+	       io:format(user,
+			 \"[~s] Free mem ~p% required min ~p%~n Purging \"
+			 \"in tables ~p~n\",
+			 [Os, MemFreePerCent, MIN_FREE_MEM_PERCENT,
+			  SortedPartTables]),
+	       MapFun = fun ({TRemain, RCnt, Class, TName} = Itm, A) ->
+				if TRemain < TABLE_EXPIRY_MARGIN_SEC ->
+				       ClassCnt = length([Spt
+							  || Spt
+								 <- SortedPartTables,
+							     element(3, Spt) =:=
+							       Class]),
+				       if ClassCnt > 1 -> [Itm | A];
+					  true -> A
+				       end;
+				   true -> A
+				end
+			end,
+	       DelCandidates = lists:foldl(MapFun, [],
+					   SortedPartTables),
+	       if DelCandidates =:= [] ->
+		      _TruncCandidates = lists:sort(fun ({_, R1, _, _},
+							 {_, R2, _, _}) ->
+							    if R1 > R2 -> true;
+							       true -> false
+							    end
+						    end,
+						    SortedPartTables),
+		      [{_, _, _, T} | _] = _TruncCandidates,
+		      imem_meta:truncate_table(T),
+		      io:format(user, \"[~s] Truncated table ~p~n\", [Os, T]);
+		  true ->
+		      [{_, _, _, T} | _] = DelCandidates,
+		      imem_meta:drop_table(T),
+		      io:format(user, \"[~s] Deleted table ~p~n\", [Os, T])
+	       end;
+	   true -> ok
+	end
+end
+">>
