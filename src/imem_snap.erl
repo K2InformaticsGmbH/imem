@@ -236,7 +236,7 @@ take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
     take({tabs
          , SnapDir
          , lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
-                         || T <- imem_meta:all_tables(tables)])
+                         || T <- imem_meta:all_tables()])
         });
 
 % single table as atom (internal use)
