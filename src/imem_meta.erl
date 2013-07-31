@@ -47,24 +47,12 @@
 			 imem_meta:table_size(T),
 			 lists:nth(3, imem_meta:parse_table_name(T)), T}
 			|| T <- PartTables]),
-	OsInfo = case os:type() of
-		   {win32, _} ->
-               TotMem = list_to_integer(re:replace(os:cmd(\"wmic ComputerSystem get TotalPhysicalMemory\"),\"[[:space:]]+\",\"\",[global,{return,list}])--\"TotalPhysicalMemory\"),
-               FreeMem = list_to_integer(re:replace(os:cmd(\"wmic OS get FreePhysicalMemory\"),\"[[:space:]]+\",\"\",[global,{return,list}])--\"FreePhysicalMemory\") * 1024,
-		       {\"Windows\", FreeMem, TotMem};
-		   {unix, _} ->
-		       TotMem = list_to_integer(re:replace(os:cmd(\"free -b | sed -n 2p | awk '{print $2}'\"),\"[[:space:]]+\",\"\",[global,{return,list}])),
-		       FreeMem = list_to_integer(re:replace(os:cmd(\"free -b | sed -n 2p | awk '{print $4}'\"),\"[[:space:]]+\",\"\",[global,{return,list}])),
-		       {\"Unix\", FreeMem, TotMem};
-		   Unknown ->
-		       {lists:flatten(io_lib:format(\"~p\", [Unknown])), 1, 1}
-		 end,
-	{Os, FreeMemory, TotalMemory} = OsInfo,
+    {Os, FreeMemory, TotalMemory} = imem_if:get_os_memory(),
 	MemFreePerCent = FreeMemory / TotalMemory * 100,
-	%io:format(user, \"[~s] Free ~p%~n\", [Os, MemFreePerCent]),
+	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
 	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
 	       io:format(user,
-			 \"[~s] Free mem ~p% required min ~p%~n Purging \"
+			 \"[~p] Free mem ~p% required min ~p%~n Purging \"
 			 \"in tables ~p~n\",
 			 [Os, MemFreePerCent, MIN_FREE_MEM_PERCENT,
 			  SortedPartTables]),
@@ -93,11 +81,11 @@
 						    SortedPartTables),
 		      [{_, _, _, T} | _] = _TruncCandidates,
 		      imem_meta:truncate_table(T),
-		      io:format(user, \"[~s] Truncated table ~p~n\", [Os, T]);
+		      io:format(user, \"[~p] Truncated table ~p~n\", [Os, T]);
 		  true ->
 		      [{_, _, _, T} | _] = DelCandidates,
 		      imem_meta:drop_table(T),
-		      io:format(user, \"[~s] Deleted table ~p~n\", [Os, T])
+		      io:format(user, \"[~p] Deleted table ~p~n\", [Os, T])
 	       end;
 	   true -> ok
 	end
