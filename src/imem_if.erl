@@ -68,6 +68,7 @@
         , return_atomic_list/1
         , return_atomic_ok/1
         , return_atomic/1
+        , get_os_memory/0
         ]).
 
 -define(INIT_SNAP(__Table,__Now),
@@ -476,25 +477,28 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                 % ?Debug("Abort fetch on table ~p~n", [Table]),
                 ok;
             next ->
+                ?Debug("got start trigger ~p", [Pid]),
                 case Contd0 of
                         undefined ->
+                            ?Debug("[~p] got starting fetch...~n", [Pid]),
                             case mnesia:select(Table, MatchSpec, BlockSize, read) of
                                 '$end_of_table' ->
                                     Pid ! {row, [?sot,?eot]};
                                 {Rows, Contd1} ->
-                                    % ?Debug("First continuation object ~p~n",[Contd1]),
+                                    ?Debug("First continuation object ~p~n",[Contd1]),
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
-                                            Pid ! {row, [?sot|[?eot|Rows]]};
+                                            Pid ! {row, [?sot,?eot|Rows]};
                                         true ->
                                             Pid ! {row, [?sot|Rows]},
                                             F(F,Contd1)
                                     end
                             end;
                         Contd0 ->
+                            ?Debug("[~p] got continuing fetch...~n", [Pid]),
                             case mnesia:select(Contd0) of
                                 '$end_of_table' ->
-                                    % ?Debug("Last continuation object ~p~n",[Contd0]),
+                                    ?Debug("Last continuation object ~p~n",[Contd0]),
                                     Pid ! {row, ?eot};
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
@@ -746,6 +750,31 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 format_status(_Opt, [_PDict, _State]) -> ok.
+
+-spec get_os_memory() -> {any(), integer(), integer()}.
+get_os_memory() ->
+    case os:type() of
+        {win32, _} = Win ->
+            {Win
+            , list_to_integer(re:replace(os:cmd("wmic OS get FreePhysicalMemory")
+                                        ,"[[:space:]]+",""
+                                        ,[global,{return,list}])
+                             -- "FreePhysicalMemory") * 1024
+            , list_to_integer(re:replace(os:cmd("wmic ComputerSystem get TotalPhysicalMemory")
+                                        ,"[[:space:]]+",""
+                                        ,[global,{return,list}])
+                                -- "TotalPhysicalMemory")
+            };
+        {unix, _} = Unix ->
+            {Unix
+            , list_to_integer(re:replace(os:cmd("free -b | sed -n 2p | awk '{print $4}'")
+                                        ,"[[:space:]]+","",[global,{return,list}]))
+            , list_to_integer(re:replace(os:cmd("free -b | sed -n 2p | awk '{print $2}'")
+                                        ,"[[:space:]]+","",[global,{return,list}]))
+            };
+        Unknown ->
+		       {Unknown, 1, 1}
+    end.
 
 %% ----- Private functions ------------------------------------
 mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
