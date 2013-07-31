@@ -184,9 +184,9 @@ zip({re, MatchPattern}) ->
 
 % display information of existing snapshot or a snapshot bundle (.zip)
 info(bkp) ->
-    MTabs = mnesia:system_info(tables),
+    MTabs = imem_meta:all_tables(tables),
     BytesPerWord =  erlang:system_info(wordsize),
-    MnesiaTables = [{atom_to_list(M), mnesia:table_info(M, size), mnesia:table_info(M, memory) * BytesPerWord} || M <- MTabs],
+    MnesiaTables = [{atom_to_list(M), imem_meta:table_size(M), imem_meta:table_memory(M) * BytesPerWord} || M <- MTabs],
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     case filelib:is_dir(SnapDir) of
         true ->
@@ -223,12 +223,12 @@ info({zip, [Z|ZipFiles]}, ContentFiles) ->
     info({zip, ZipFiles}, [{filename:absname(Z),CntFiles}|ContentFiles]).
 
 
-% take snapshot of all/some of the current in memory mnesia table
+% take snapshot of all/some of the current in memory imem table
 take([all]) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     take({ tabs
          , SnapDir
-         , mnesia:system_info(tables) -- [schema]});
+         , imem_meta:all_tables(tables)});
 
 % multiple tables as list of strings or regex strings
 take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
@@ -236,7 +236,7 @@ take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
     take({tabs
          , SnapDir
          , lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
-                         || T <- mnesia:system_info(tables)])
+                         || T <- imem_meta:all_tables(tables)])
         });
 
 % single table as atom (internal use)

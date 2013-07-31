@@ -38,7 +38,71 @@
 -define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],10000)).
 -define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).
 -define(GET_PURGE_SCRIPT,?GET_IMEM_CONFIG(purgeScript,[],false)).
--define(GET_PURGE_SCRIPT_FUN,?GET_IMEM_CONFIG(purgeScriptFun,[],<<"fun(_) -> ok end.">>)).
+-define(GET_PURGE_SCRIPT_FUN,?GET_IMEM_CONFIG(purgeScriptFun,[],
+<<"fun (PartTables) ->
+	MIN_FREE_MEM_PERCENT = 40,
+	TABLE_EXPIRY_MARGIN_SEC = -200,
+	SortedPartTables =
+	    lists:sort([{imem_meta:time_to_partition_expiry(T),
+			 imem_meta:table_size(T),
+			 lists:nth(3, imem_meta:parse_table_name(T)), T}
+			|| T <- PartTables]),
+	OsInfo = case os:type() of
+		   {win32, _} ->
+               TotMem = list_to_integer(re:replace(os:cmd(\"wmic ComputerSystem get TotalPhysicalMemory\"),\"[[:space:]]+\",\"\",[global,{return,list}])--\"TotalPhysicalMemory\"),
+               FreeMem = list_to_integer(re:replace(os:cmd(\"wmic OS get FreePhysicalMemory\"),\"[[:space:]]+\",\"\",[global,{return,list}])--\"FreePhysicalMemory\") * 1024,
+		       {\"Windows\", FreeMem, TotMem};
+		   {unix, _} ->
+		       TotMem = list_to_integer(re:replace(os:cmd(\"free -b | sed -n 2p | awk '{print $2}'\"),\"[[:space:]]+\",\"\",[global,{return,list}])),
+		       FreeMem = list_to_integer(re:replace(os:cmd(\"free -b | sed -n 2p | awk '{print $4}'\"),\"[[:space:]]+\",\"\",[global,{return,list}])),
+		       {\"Unix\", FreeMem, TotMem};
+		   Unknown ->
+		       {lists:flatten(io_lib:format(\"~p\", [Unknown])), 1, 1}
+		 end,
+	{Os, FreeMemory, TotalMemory} = OsInfo,
+	MemFreePerCent = FreeMemory / TotalMemory * 100,
+	%io:format(user, \"[~s] Free ~p%~n\", [Os, MemFreePerCent]),
+	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
+	       io:format(user,
+			 \"[~s] Free mem ~p% required min ~p%~n Purging \"
+			 \"in tables ~p~n\",
+			 [Os, MemFreePerCent, MIN_FREE_MEM_PERCENT,
+			  SortedPartTables]),
+	       MapFun = fun ({TRemain, RCnt, Class, TName} = Itm, A) ->
+				if TRemain < TABLE_EXPIRY_MARGIN_SEC ->
+				       ClassCnt = length([Spt
+							  || Spt
+								 <- SortedPartTables,
+							     element(3, Spt) =:=
+							       Class]),
+				       if ClassCnt > 1 -> [Itm | A];
+					  true -> A
+				       end;
+				   true -> A
+				end
+			end,
+	       DelCandidates = lists:foldl(MapFun, [],
+					   SortedPartTables),
+	       if DelCandidates =:= [] ->
+		      _TruncCandidates = lists:sort(fun ({_, R1, _, _},
+							 {_, R2, _, _}) ->
+							    if R1 > R2 -> true;
+							       true -> false
+							    end
+						    end,
+						    SortedPartTables),
+		      [{_, _, _, T} | _] = _TruncCandidates,
+		      imem_meta:truncate_table(T),
+		      io:format(user, \"[~s] Truncated table ~p~n\", [Os, T]);
+		  true ->
+		      [{_, _, _, T} | _] = DelCandidates,
+		      imem_meta:drop_table(T),
+		      io:format(user, \"[~s] Deleted table ~p~n\", [Os, T])
+	       end;
+	   true -> ok
+	end
+end
+">>)).
 
 -behavior(gen_server).
 
