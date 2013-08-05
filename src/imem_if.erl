@@ -738,10 +738,10 @@ handle_info(Info, State) ->
             ?Error("Mnesia error : ~p~n",[Error])
     end,
     case lists:keyfind(mnesia, 1, application:which_applications()) of
+        {mnesia,_,_} -> {noreply, State};
         false ->
             ?Error("Mnesia down!~n"),
-            {stop, mnesia_down, State};
-        ok -> {noreply, State}
+            {stop, mnesia_down, State}
     end.
 
 terminate(_Reson, _State) -> ok.
