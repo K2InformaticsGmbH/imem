@@ -372,85 +372,75 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
 
 %% ----- PRIVATE APIS ------------------------------------------------
 
--define(CLOSE_FILE(__Me, __FHndl),
-    begin
-        _Ret = case file:close(__FHndl) of
-            ok -> done;
-            {error,_} = _Error -> _Error
-        end,
-        __Me ! _Ret
-    end
-).
+close_file(Me, FHndl) ->
+    Ret = case file:close(FHndl) of
+        ok -> done;
+        {error,_} = Error -> Error
+    end,
+    Me ! Ret.
 
--define(WRITE_FILE(__F,__Me,__FetchFunPid,__FHndl,__NewRowCount,__NewByteCount,__RowsBin),
-    begin
-        _PayloadSize = byte_size(__RowsBin),
-        case file:write(__FHndl, << _PayloadSize:32, __RowsBin/binary >>) of
-            ok -> 
-                __FetchFunPid ! next,
-                __F(__F,__FetchFunPid,__NewRowCount,__NewByteCount,__FHndl);
-            {error,_} = _Error ->
-                __Me ! _Error
-        end
-    end
-).
+write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin) ->
+    PayloadSize = byte_size(RowsBin),
+    case file:write(FHndl, << PayloadSize:32, RowsBin/binary >>) of
+        ok -> 
+            FetchFunPid ! next,
+            take_fun(Me,Tab,FetchFunPid,NewRowCount,NewByteCount,FHndl);
+        {error,_} = Error ->
+            Me ! Error
+    end.
 
--define(WRITE_CLOSE_FILE(__Me, __FHndl,__RowsBin),
-    begin
-        _PayloadSize = byte_size(__RowsBin),
-        _Ret = case file:write(__FHndl, << _PayloadSize:32, __RowsBin/binary >>) of
-            ok -> 
-                case file:close(__FHndl) of
-                    ok -> done;
-                    {error,_} = _Error -> _Error
-                end;
-            {error,_} = _Error -> _Error
-        end,
-        __Me ! _Ret
-    end
-).
+write_close_file(Me, FHndl,RowsBin) ->
+    PayloadSize = byte_size(RowsBin),
+    Ret = case file:write(FHndl, << PayloadSize:32, RowsBin/binary >>) of
+        ok -> 
+            case file:close(FHndl) of
+                ok -> done;
+                {error,_} = Error -> Error
+            end;
+        {error,_} = Error -> Error
+    end,
+    Me ! Ret.
+
+take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
+    FetchFunPid ! next,
+    receive
+        {row, ?eot} ->
+            ?Debug("table ~p fetch finished",[Tab]),
+            close_file(Me, FHndl);
+        {row, [?sot,?eot]} ->
+            ?Debug("empty ~p",[Tab]),
+            close_file(Me, FHndl);
+        {row, [?sot,?eot|Rows]} ->
+            NewRowCount = RowCount+length(Rows),
+            RowsBin = term_to_binary(Rows),
+            NewByteCount = ByteCount+byte_size(RowsBin),
+            ?Debug("snap ~p all, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            write_close_file(Me, FHndl,RowsBin);
+        {row, [?eot|Rows]} ->
+            NewRowCount = RowCount+length(Rows),
+            RowsBin = term_to_binary(Rows),
+            NewByteCount = ByteCount+byte_size(RowsBin),
+            ?Debug("snap ~p last, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            write_close_file(Me, FHndl,RowsBin);
+        {row, [?sot|Rows]} ->
+            NewRowCount = RowCount+length(Rows),
+            RowsBin = term_to_binary(Rows),
+            NewByteCount = ByteCount+byte_size(RowsBin),
+            ?Debug("snap ~p first ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin);
+        {row, Rows} ->
+            NewRowCount = RowCount+length(Rows),
+            RowsBin = term_to_binary(Rows),
+            NewByteCount = ByteCount+byte_size(RowsBin),
+            ?Debug("snap ~p intermediate, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin)
+    after
+        ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT ->
+            FetchFunPid ! abort,
+            close_file(Me, FHndl)
+    end.
 
 take_chunked(Tab) ->
-    Me = self(),
-    TakeFun = fun(F,FetchFunPid,RowCount,ByteCount,FHndl) ->
-        FetchFunPid ! next,
-        receive
-            {row, ?eot} ->
-                ?Debug("table ~p fetch finished",[Tab]),
-                ?CLOSE_FILE(Me, FHndl);
-            {row, [?sot,?eot]} ->
-                ?Debug("empty ~p",[Tab]),
-                ?CLOSE_FILE(Me, FHndl);
-            {row, [?sot,?eot|Rows]} ->
-                NewRowCount = RowCount+length(Rows),
-                RowsBin = term_to_binary(Rows),
-                NewByteCount = ByteCount+byte_size(RowsBin),
-                ?Debug("snap ~p all, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
-                ?WRITE_CLOSE_FILE(Me, FHndl,RowsBin);
-            {row, [?eot|Rows]} ->
-                NewRowCount = RowCount+length(Rows),
-                RowsBin = term_to_binary(Rows),
-                NewByteCount = ByteCount+byte_size(RowsBin),
-                ?Debug("snap ~p last, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
-                ?WRITE_CLOSE_FILE(Me, FHndl,RowsBin);
-            {row, [?sot|Rows]} ->
-                NewRowCount = RowCount+length(Rows),
-                RowsBin = term_to_binary(Rows),
-                NewByteCount = ByteCount+byte_size(RowsBin),
-                ?Debug("snap ~p first ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
-                ?WRITE_FILE(F,Me,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin);
-            {row, Rows} ->
-                NewRowCount = RowCount+length(Rows),
-                RowsBin = term_to_binary(Rows),
-                NewByteCount = ByteCount+byte_size(RowsBin),
-                ?Debug("snap ~p intermediate, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
-                ?WRITE_FILE(F,Me,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin)
-        after
-            ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT ->
-                FetchFunPid ! abort,
-                ?CLOSE_FILE(Me, FHndl)
-        end
-    end,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     BackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_EXTN]),
     NewBackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_TMP_EXTN]),
@@ -458,6 +448,7 @@ take_chunked(Tab) ->
     TblPropBin = term_to_binary({prop, imem_if:table_info(Tab, user_properties)}),
     PayloadSize = byte_size(TblPropBin),
     ok = file:write_file(NewBackFile, << PayloadSize:32, TblPropBin/binary >>),
+    Me = self(),
     Pid = spawn(fun() ->
         AvgRowSize = case imem_meta:table_size(Tab) of
             0 -> imem_meta:table_memory(Tab);
@@ -472,7 +463,7 @@ take_chunked(Tab) ->
                             , {delayed_write, erlang:round(ChunkSize * AvgRowSize)
                               , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]),
         FetchFunPid = imem_if:fetch_start(self(), Tab, [{'$1', [], ['$1']}], ChunkSize, []),
-        TakeFun(TakeFun,FetchFunPid,0,0,FHndl)
+        take_fun(Me,Tab,FetchFunPid,0,0,FHndl)
     end),
     receive
         done    ->
