@@ -17,7 +17,6 @@
         , restore/5
         , zip/1
         , take/1
-        , take_chunked/1
         , restore_chunked/3
         ]).
 
@@ -187,7 +186,7 @@ zip({re, MatchPattern}) ->
 
 % display information of existing snapshot or a snapshot bundle (.zip)
 info(bkp) ->
-    MTabs = imem_meta:all_tables(tables),
+    MTabs = imem_meta:all_tables(),
     BytesPerWord =  erlang:system_info(wordsize),
     MnesiaTables = [{atom_to_list(M), imem_meta:table_size(M), imem_meta:table_memory(M) * BytesPerWord} || M <- MTabs],
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -228,16 +227,11 @@ info({zip, [Z|ZipFiles]}, ContentFiles) ->
 
 % take snapshot of all/some of the current in memory imem table
 take([all]) ->
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    take({ tabs
-         , SnapDir
-         , imem_meta:all_tables(tables)});
+    take({tabs, imem_meta:all_tables()});
 
 % multiple tables as list of strings or regex strings
 take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     take({tabs
-         , SnapDir
          , lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
                          || T <- imem_meta:all_tables()])
         });
@@ -246,23 +240,13 @@ take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
 take(Tab) when is_atom(Tab) -> take({tabs, [atom_to_list(Tab)]});
 
 % list of tables as atoms
-take({tabs, SnapDir, Tabs}) ->
+take({tabs, Tabs}) ->
     lists:flatten([
-        case mnesia:transaction(fun() ->
-                TblContent = [
-                    {prop, imem_if:table_info(T, user_properties)},
-                    {rows, mnesia:select(T, [{'$1', [], ['$1']}], write)}
-                ],
-                BackFile = filename:join([SnapDir, atom_to_list(T)++?BKP_EXTN]),
-                NewBackFile = filename:join([SnapDir, atom_to_list(T)++?BKP_TMP_EXTN]),
-                ok = file:write_file(NewBackFile, term_to_binary(TblContent)),
-                {ok, _} = file:copy(NewBackFile, BackFile),
-                ok = file:delete(NewBackFile)
-            end) of
-        {atomic, ok}      -> {ok, T};
-        {aborted, Reason} -> {error, lists:flatten(io_lib:format("snapshot ~p failed for ~p~n", [T, Reason]))}
-    end
-    || T <- Tabs]).
+        case take_chunked(Tab) of
+            ok -> {ok, Tab};
+            {error, Reason} -> {error, lists:flatten(io_lib:format("snapshot ~p failed for ~p~n", [Tab, Reason]))}
+        end
+    || Tab <- Tabs]).
 
 % snapshot restore interface
 restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
@@ -273,35 +257,27 @@ restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
             is_list(Tab) -> filename:rootname(filename:basename(Tab))
         end,
         SnapFile = filename:join([SnapDir, Table++?BKP_EXTN]),
-        {ok, Bin} = file:read_file(SnapFile),
-        [{prop, TabProp}, {rows, Rows}] = 
-            case binary_to_term(Bin) of
-                [{prop,_},{rows,_}] = R -> R;
-                R -> [{prop,[]},{rows,R}]
-            end,
-        restore(list_to_atom(Table), {prop, TabProp}, {rows, Rows}, Strategy, Simulate)
+        {Tab, restore_chunked(list_to_atom(Table), SnapFile, Strategy, Simulate)}
     end)()
     || Tab <- Tabs].
 
 restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
-            case zip:foldl(fun(File, _, GBin, Acc) ->
-                    case [File || R <- TabRegEx, re:run(File, R) /= nomatch] of
-                        [] when length(TabRegEx) > 0 -> Acc;
-                        _ ->
-                            Tab = list_to_atom(filename:rootname(filename:basename(File))),
-                            [{prop, TabProp}, {rows, Rows}] = 
-                                case binary_to_term(GBin()) of
-                                    [{prop,_},{rows,_}] = R -> R;
-                                    R -> [{prop,[]},{rows,R}]
-                                end,
-                            [restore(Tab, {prop, TabProp}, {rows, Rows}, Strategy, Simulate) | Acc]
+            UnZipPath = filename:join([filename:dirname(filename:absname(ZipFile)), "_"++filename:basename(ZipFile,".zip")]),
+            del_dirtree(UnZipPath),
+            zip:unzip(ZipFile, [{cwd,UnZipPath}]),
+            lists:foldl(
+                fun(SnapFile, Acc) ->
+                    case filelib:is_dir(SnapFile) of
+                        false ->
+                            Tab = list_to_atom(filename:basename(SnapFile, ?BKP_EXTN)),
+                            [{Tab, restore_chunked(Tab, SnapFile, Strategy, Simulate)} | Acc];
+                        _ -> Acc
                     end
-                end, [], ZipFile) of
-                {ok, Res} -> Res;
-                Error -> {error, lists:flatten(io_lib:format("restore error ~p for file ~p~n", [Error, filename:absname(ZipFile)]))}
-            end;
+                end,
+                [], filelib:wildcard(filename:join([UnZipPath,"**","*"++?BKP_EXTN]))
+            );
         _ ->
             {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
             PossibleZipFile = filename:join([SnapDir, filename:basename(ZipFile)]),
@@ -309,80 +285,92 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
                 true -> restore(zip, PossibleZipFile, TabRegEx, Strategy, Simulate);
                 _ -> {error, lists:flatten(io_lib:format("file ~p not found~n", [filename:absname(PossibleZipFile)]))}
             end
-    end;
+    end.
 
-% private real restore function
-restore(Tab, {prop, TabProp}, {rows, Rows}, Strategy, Simulate) when is_atom(Tab) ->
-    % restore the properties
-    [mnesia:write_table_properties(Tab,P) || P <- TabProp],
+restore_chunked(Tab, Strategy, Simulate) ->
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    Table = if
+        is_atom(Tab) -> filename:rootname(filename:basename(atom_to_list(Tab)));
+        is_list(Tab) -> filename:rootname(filename:basename(Tab))
+    end,
+    SnapFile = filename:join([SnapDir, Table++?BKP_EXTN]),
+    restore_chunked(Tab, SnapFile, Strategy, Simulate).
+
+restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
+    {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
     if (Simulate /= true) andalso (Strategy =:= destroy)
-        -> {atomic, ok} = mnesia:clear_table(Tab);
+        -> ok = imem_meta:truncate_table(Tab);
         true -> ok
     end,
-    Ret = mnesia:transaction(fun() ->
-        TableSize = proplists:get_value(size,mnesia:table_info(Tab, all)),
-        TableType = proplists:get_value(type,mnesia:table_info(Tab, all)),
+    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {[],[],[]}).
+
+read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
+    case file:read(FHndl, 4) of
+        eof ->
+            ?Debug("backup file ~p restored", [SnapFile]),
+            file:close(FHndl),
+            Opts;
+        {ok, << Length:32 >>} ->
+            case file:read(FHndl, Length) of
+                eof ->
+                    ?Info("corrupted file ~p", [SnapFile]),
+                    file:close(FHndl);
+                {ok, Data} when is_binary(Data) ->
+                    restore_chunk(Tab, binary_to_term(Data), SnapFile, FHndl, Strategy, Simulate, Opts);
+                {error, Reason} ->
+                    ?Error("reading ~p error ~p", [SnapFile, Reason]),
+                    file:close(FHndl)
+            end;
+        {ok, Data} ->
+            ?Error("reading ~p framing, header size ~p", [SnapFile, byte_size(Data)]),
+            file:close(FHndl);
+        {error, Reason} ->
+            ?Error("reading ~p error ~p", [SnapFile, Reason]),
+            file:close(FHndl)
+    end.
+
+restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, Opts) ->
+    ?Debug("restore properties ~p", [UserProperties]),
+    [mnesia:write_table_properties(Tab,P) || P <- UserProperties],
+    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts);
+restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}) when is_list(Rows) ->
+    ?Debug("restore rows ~p", [length(Rows)]),
+    {atomic, {NewI, NewE, NewA}} =
+    imem_meta:transaction(fun() ->
+        TableSize = imem_meta:table_size(Tab),
+        TableType = imem_if:table_info(Tab, type),
         lists:foldl(fun(Row, {I, E, A}) ->
             if (TableSize > 0) andalso (TableType =/= bag) ->
                 K = element(2, Row),
-                case mnesia:read(Tab, K) of
+                case imem_meta:read(Tab, K) of
                     [Row] ->    % found identical existing row
                             {[Row|I], E, A}; 
                     [RowN] ->   % existing row with different content,
                         case Strategy of
                             replace ->
-                                if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                                if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
                                 {I, [{Row,RowN}|E], A};
                             destroy ->
-                                if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                                if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
                                 {I, E, [Row|A]};
                             _ -> {I, E, A}
                         end;
                     [] -> % row not found, appending
-                        if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                        if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
                         {I, E, [Row|A]}
                 end;
             true ->
-                if Simulate /= true -> ok = mnesia:write(Row); true -> ok end,
+                if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
                 {I, E, [Row|A]}
             end
         end,
-        {[], [], []},
+        {OldI, OldE, OldA},
         Rows)
     end),
-    {Tab, Ret}.
+    ?Debug("chunk restored ~p", [{Tab, {length(NewI), length(NewE), length(NewA)}}]),
+    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {NewI, NewE, NewA}).
 
 %% ----- PRIVATE APIS ------------------------------------------------
-
-timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
-
-do_snapshot(SnapFun) ->
-    try  
-        case SnapFun of
-            undefined ->    ok;
-            SnapFun -> 
-                ?Debug("snapshot..."),
-                ok = SnapFun()
-        end,
-        ok
-    catch
-        _:Err ->
-            ?Error("cannot snap ~p", [Err]),
-            {error,{"cannot snap",Err}}
-    end.
-
-get_snap_timestamps(Tab) ->
-    case ets:lookup(?SNAP_ETS_TAB, Tab) of
-        [] -> [];
-        [#snap_properties{table=Tab, last_write=Wt, last_snap=St}|_] -> {Wt,St}
-    end.
-set_snap_timestamps(Tab,Time) ->
-    case ets:lookup(?SNAP_ETS_TAB, Tab) of
-        [] -> [];
-        [#snap_properties{table=Tab}=Up|_] -> ets:insert(?SNAP_ETS_TAB, Up#snap_properties{last_snap=Time})
-    end.
-snap_log(P,A) -> ?Log(P,A).
-snap_err(P,A) -> ?Error(P,A).
 
 -define(CLOSE_FILE(__Me, __FHndl),
     begin
@@ -421,86 +409,6 @@ snap_err(P,A) -> ?Error(P,A).
         __Me ! _Ret
     end
 ).
-
-restore_chunked(Tab, Strategy, Simulate) ->
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    Table = if
-        is_atom(Tab) -> filename:rootname(filename:basename(atom_to_list(Tab)));
-        is_list(Tab) -> filename:rootname(filename:basename(Tab))
-    end,
-    SnapFile = filename:join([SnapDir, Table++?BKP_EXTN]),
-    {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
-    if (Simulate /= true) andalso (Strategy =:= destroy)
-        -> ok = imem_meta:truncate_table(Tab);
-        true -> ok
-    end,
-    timer:sleep(10000),
-    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate).
-
-read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate) ->
-    case file:read(FHndl, 4) of
-        eof ->
-            ?Info("backup file ~p restored", [SnapFile]),
-            file:close(FHndl);
-        {ok, << Length:32 >>} ->
-            case file:read(FHndl, Length) of
-                eof ->
-                    ?Info("corrupted file ~p", [SnapFile]),
-                    file:close(FHndl);
-                {ok, Data} when is_binary(Data) ->
-                    restore_chunk(Tab, binary_to_term(Data), SnapFile, FHndl, Strategy, Simulate);
-                {error, Reason} ->
-                    ?Error("reading ~p error ~p", [SnapFile, Reason]),
-                    file:close(FHndl)
-            end;
-        {ok, Data} ->
-            ?Error("reading ~p framing, header size ~p", [SnapFile, byte_size(Data)]),
-            file:close(FHndl);
-        {error, Reason} ->
-            ?Error("reading ~p error ~p", [SnapFile, Reason]),
-            file:close(FHndl)
-    end.
-
-restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate) ->
-    ?Debug("restore properties ~p", [UserProperties]),
-    [mnesia:write_table_properties(Tab,P) || P <- UserProperties],
-    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate);
-restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate) when is_list(Rows) ->
-    ?Debug("restore rows ~p", [length(Rows)]),
-    {atomic, {I, E, A}} =
-    imem_meta:transaction(fun() ->
-        TableSize = imem_meta:table_size(Tab),
-        TableType = imem_if:table_info(Tab, type),
-        lists:foldl(fun(Row, {I, E, A}) ->
-            if (TableSize > 0) andalso (TableType =/= bag) ->
-                K = element(2, Row),
-                case imem_meta:read(Tab, K) of
-                    [Row] ->    % found identical existing row
-                            {[Row|I], E, A}; 
-                    [RowN] ->   % existing row with different content,
-                        case Strategy of
-                            replace ->
-                                if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                                {I, [{Row,RowN}|E], A};
-                            destroy ->
-                                if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                                {I, E, [Row|A]};
-                            _ -> {I, E, A}
-                        end;
-                    [] -> % row not found, appending
-                        if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                        {I, E, [Row|A]}
-                end;
-            true ->
-                if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                {I, E, [Row|A]}
-            end
-        end,
-        {[], [], []},
-        Rows)
-    end),
-    ?Debug("chunk restored ~p", [{Tab, {length(I), length(E), length(A)}}]),
-    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate).
 
 take_chunked(Tab) ->
     Me = self(),
@@ -551,7 +459,10 @@ take_chunked(Tab) ->
     PayloadSize = byte_size(TblPropBin),
     ok = file:write_file(NewBackFile, << PayloadSize:32, TblPropBin/binary >>),
     Pid = spawn(fun() ->
-        AvgRowSize = imem_meta:table_memory(Tab) / imem_meta:table_size(Tab),
+        AvgRowSize = case imem_meta:table_size(Tab) of
+            0 -> imem_meta:table_memory(Tab);
+            Sz -> imem_meta:table_memory(Tab) / Sz
+        end,
         ChunkSize = lists:min([erlang:round((element(2,imem_if:get_os_memory()) / 2)
                                  / AvgRowSize)
                     , ?GET_SNAPSHOT_CHUNK_MAX_SIZE]),
@@ -567,12 +478,60 @@ take_chunked(Tab) ->
         done    ->
             ?Debug("[~p] snapshoted ~p", [Pid, Tab]),
             {ok, _} = file:copy(NewBackFile, BackFile),
-            ok = file:delete(NewBackFile);
+            ok = file:delete(NewBackFile),
+            ok;
         timeout ->
-            ?Debug("[~p] timeout while snapshoting ~p", [Pid, Tab]);
+            ?Debug("[~p] timeout while snapshoting ~p", [Pid, Tab]),
+            {error, timeout};
         {error, Error} ->
-            ?Debug("[~p] error while snapshoting ~p error ~p", [Pid, Tab, Error])
+            ?Debug("[~p] error while snapshoting ~p error ~p", [Pid, Tab, Error]),
+            {error, Error}
     end.
+
+timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
+
+del_dirtree(Path) ->
+    case filelib:is_regular(Path) of
+        true -> file:delete(Path);
+        _ ->
+            lists:foreach(fun(F) ->
+                    case filelib:is_dir(F) of
+                        true -> del_dirtree(F);
+                        _ -> file:delete(F)
+                    end
+                end,
+                filelib:wildcard(filename:join([Path,"**","*"]))
+            ),
+            file:del_dir(Path)
+    end.
+
+do_snapshot(SnapFun) ->
+    try  
+        case SnapFun of
+            undefined ->    ok;
+            SnapFun -> 
+                ?Debug("snapshot..."),
+                ok = SnapFun()
+        end,
+        ok
+    catch
+        _:Err ->
+            ?Error("cannot snap ~p", [Err]),
+            {error,{"cannot snap",Err}}
+    end.
+
+get_snap_timestamps(Tab) ->
+    case ets:lookup(?SNAP_ETS_TAB, Tab) of
+        [] -> [];
+        [#snap_properties{table=Tab, last_write=Wt, last_snap=St}|_] -> {Wt,St}
+    end.
+set_snap_timestamps(Tab,Time) ->
+    case ets:lookup(?SNAP_ETS_TAB, Tab) of
+        [] -> [];
+        [#snap_properties{table=Tab}=Up|_] -> ets:insert(?SNAP_ETS_TAB, Up#snap_properties{last_snap=Time})
+    end.
+snap_log(P,A) -> ?Log(P,A).
+snap_err(P,A) -> ?Error(P,A).
 
 %%
 %%----- TESTS ------------------------------------------------

@@ -291,7 +291,7 @@ format({restore, RestoreRes}) ->
     ?P("~s~n", [Header]),
     ?P("~s~n", [Sep]),
     [case Res of
-       {atomic, {I,E,A}} ->
+       {I,E,A} ->
            ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, atom_to_list(T), length(I), length(E), length(A)]);
        Error -> ?P("~*s ~p~n", [-FLen, atom_to_list(T), Error])
     end
