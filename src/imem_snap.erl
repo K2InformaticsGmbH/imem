@@ -499,10 +499,8 @@ del_dirtree(Path) ->
 do_snapshot(SnapFun) ->
     try  
         case SnapFun of
-            undefined ->    ok;
-            SnapFun -> 
-                ?Debug("snapshot..."),
-                ok = SnapFun()
+            undefined -> ok;
+            SnapFun -> ok = SnapFun()
         end,
         ok
     catch
