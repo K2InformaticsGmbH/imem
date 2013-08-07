@@ -1444,10 +1444,9 @@ imem_monitor(ExtraFun,DumpFun) ->
     try  
         Now = erlang:now(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
-        TotalUsedMemory = lists:sum([V || {T,V} <- erlang:memory(), T =/= total]),
         Moni0 = #ddMonitor{ time=Now
                          , node = node()
-                         , memory=TotalUsedMemory
+                         , memory=erlang:memory(total)
                          , process_count=erlang:system_info(process_count)          
                          , port_count=erlang:system_info(port_count)
                          , run_queue=erlang:statistics(run_queue)
