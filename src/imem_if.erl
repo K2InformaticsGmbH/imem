@@ -69,6 +69,7 @@
         , return_atomic_ok/1
         , return_atomic/1
         , get_os_memory/0
+        , get_vm_memory/0
         ]).
 
 -define(INIT_SNAP(__Table,__Now),
@@ -771,6 +772,23 @@ get_os_memory() ->
                                         ,"[[:space:]]+","",[global,{return,list}]))
             , list_to_integer(re:replace(os:cmd("free -b | sed -n 2p | awk '{print $2}'")
                                         ,"[[:space:]]+","",[global,{return,list}]))
+            };
+        Unknown ->
+		       {Unknown, 1, 1}
+    end.
+
+-spec get_vm_memory() -> {any(),integer()}.
+get_vm_memory() ->    
+    case os:type() of
+        {win32, _} = Win ->
+            {Win
+            , list_to_integer(re:replace(os:cmd("wmic process where processid="++os:getpid()++" get workingsetsize | findstr /v \"WorkingSetSize\"")
+                                        ,"[[:space:]]*", "", [global, {return,list}]))
+            };
+        {unix, _} = Unix ->
+            {Unix
+            , erlang:round(element(3,imem_if:get_os_memory())
+                          * list_to_float(re:replace(os:cmd("ps -p "++os:getpid()++" -o pmem="),"[[:space:]]*", "", [global, {return,list}])) / 100)
             };
         Unknown ->
 		       {Unknown, 1, 1}
