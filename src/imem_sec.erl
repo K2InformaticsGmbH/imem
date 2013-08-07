@@ -21,7 +21,7 @@
         , check_table/2
         , check_table_meta/3
         , check_table_columns/3
-        , system_table/2
+        , is_system_table/2
         , meta_field_list/1                
         , meta_field/2
         , meta_field_info/2
@@ -127,10 +127,10 @@ clone_seco(SKey, Pid) ->
 if_read(_SKey, Table, Key) -> 
     imem_meta:read(Table, Key).
 
-if_system_table(_SKey, Table) ->
+if_is_system_table(_SKey, Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
-        false ->    imem_meta:system_table(Table)
+        false ->    imem_meta:is_system_table(Table)
     end.
 
 if_meta_field_list(_SKey) ->
@@ -180,9 +180,9 @@ select_rowfun_str(SKey, ColMap, DateFmt, NumFmt, StrFmt) ->
 system_id(_Skey) ->
     imem_meta:system_id().
 
-system_table(SKey, Table) ->
+is_system_table(SKey, Table) ->
     seco_authorized(SKey),    
-    if_system_table(SKey, Table).
+    if_is_system_table(SKey, Table).
 
 meta_field_list(SKey) ->
     if_meta_field_list(SKey).
@@ -327,7 +327,7 @@ return_atomic(_SKey, Result) ->
 
 create_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    Owner = case if_system_table(SKey, Table) of
+    Owner = case if_is_system_table(SKey, Table) of
         true ->     
             system;
         false ->    
@@ -345,7 +345,7 @@ create_table(SKey, Table, RecordInfo, Opts) ->
 
 create_check_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    Owner = case if_system_table(SKey, Table) of
+    Owner = case if_is_system_table(SKey, Table) of
         true ->     
             system;
         false ->    
@@ -363,7 +363,7 @@ create_check_table(SKey, Table, RecordInfo, Opts) ->
 
 drop_table(SKey, Table) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    case if_system_table(SKey, Table) of
+    case if_is_system_table(SKey, Table) of
         true  -> drop_system_table(SKey, Table, AccountId);
         false -> drop_user_table(SKey, Table, AccountId)
     end.
@@ -373,7 +373,7 @@ purge_table(SKey, Table) ->
 
 purge_table(SKey, Table, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    case if_system_table(SKey, Table) of
+    case if_is_system_table(SKey, Table) of
         true  -> purge_system_table(SKey, Table, Opts, AccountId);
         false -> purge_user_table(SKey, Table, Opts, AccountId)
     end.
@@ -676,11 +676,11 @@ have_table_permission(SKey, Table, Operation) ->
                 select ->
                     case lists:member(Table, ?DataTypes) of
                         false -> 
-                            have_table_permission(SKey, Table, Operation, if_system_table(SKey, Table));
+                            have_table_permission(SKey, Table, Operation, if_is_system_table(SKey, Table));
                         true -> true
                     end;
                 _ ->    
-                    have_table_permission(SKey, Table, Operation, if_system_table(SKey, Table))
+                    have_table_permission(SKey, Table, Operation, if_is_system_table(SKey, Table))
             end,
             set_permission_cache(SKey, Permission, Result),
             Result

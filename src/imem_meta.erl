@@ -141,6 +141,7 @@ end
         , physical_table_name/2
         , physical_table_names/1
         , parse_table_name/1
+        , is_system_table/1
         , is_time_partitioned_alias/1
         , is_local_time_partitioned_table/1
         , is_node_sharded_alias/1
@@ -155,7 +156,6 @@ end
         , check_table/1
         , check_table_meta/2
         , check_table_columns/2
-        , system_table/1
         , meta_field_list/0        
         , meta_field/1
         , meta_field_info/1
@@ -455,13 +455,16 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 %% ------ META implementation -------------------------------------------------------
 
 
-system_table({_S,Table,_A}) -> system_table(Table);
-system_table({_,Table}) -> system_table(Table);
-system_table(Table) when is_atom(Table) ->
+is_system_table({_S,Table,_A}) -> is_system_table(Table);
+is_system_table({_,Table}) -> is_system_table(Table);
+is_system_table(Table) when is_atom(Table) ->
     case lists:member(Table,?META_TABLES) of
         true ->     true;
-        false ->    imem_if:system_table(Table)
-    end.
+        false ->    imem_if:is_system_table(Table)
+    end;
+is_system_table(TableName) ->
+    is_system_table(imem_sql:table_qname(TableName)).
+
 
 check_table(Table) when is_atom(Table) ->
     imem_if:table_size(physical_table_name(Table)),

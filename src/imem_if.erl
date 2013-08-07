@@ -31,7 +31,7 @@
         , table_record_name/1        
         , check_table/1
         , check_table_columns/2
-        , system_table/1
+        , is_system_table/1
         , meta_field_value/1
         , subscribe/1
         , unsubscribe/1
@@ -246,7 +246,7 @@ create_table(Table, ColumnNames, Opts) ->
         true ->     create_schema_table(Table, ColumnNames, Opts)
     end.
 
-system_table(_) -> false.
+is_system_table(_) -> false.
 
 create_local_table(Table,ColumnNames,Opts) when is_atom(Table) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- ColumnNames],
