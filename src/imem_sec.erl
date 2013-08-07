@@ -378,33 +378,25 @@ purge_table(SKey, Table, Opts) ->
         false -> purge_user_table(SKey, Table, Opts, AccountId)
     end.
 
-drop_user_table(SKey, Table, AccountId) ->
+drop_user_table(SKey, Table, _AccountId) ->
     case have_table_permission(SKey, Table, drop) of
         true ->
             imem_meta:drop_table(Table);
         false ->
-            case imem_meta:read(ddTable, Table) of
-                [] ->
-                    ?ClientError({"Drop table not found", SKey});
-                [#ddTable{owner=AccountId}] -> 
-                    imem_meta:drop_table(Table);
-                _ ->     
-                    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
+            case have_table_ownership(SKey, Table) of
+                true ->     imem_meta:drop_table(Table);
+                false ->    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
             end
     end. 
 
-purge_user_table(SKey, Table, Opts, AccountId) ->
+purge_user_table(SKey, Table, Opts, _AccountId) ->
     case have_table_permission(SKey, Table, drop) of
         true ->
             imem_meta:purge_table(Table, Opts);
         false ->
-            case imem_meta:read(ddTable, Table) of
-                [] ->
-                    ?ClientError({"Purge table not found", SKey});
-                [#ddTable{owner=AccountId}] -> 
-                    imem_meta:purge_table(Table, Opts);
-                _ ->     
-                    ?SecurityException({"Purge table unauthorized", {Table,SKey}})
+            case have_table_ownership(SKey, Table) of
+                true ->     imem_meta:purge_table(Table, Opts);
+                false ->    ?SecurityException({"Purge table unauthorized", {Table,SKey}})
             end
     end. 
 
@@ -719,22 +711,19 @@ have_table_ownership(SKey, {Schema,Table}) ->
     end,
     (Owner =:= AccountId);
 have_table_ownership(SKey, Table) ->
-    have_table_ownership(SKey, {imem_meta:schema(),Table}).
+    have_table_ownership(SKey, imem_sql:table_qname(Table)).
 
 have_table_permission(SKey, {Schema,Table,_Alias}, Operation, Type) ->
     have_table_permission(SKey, {Schema,Table}, Operation, Type);
-have_table_permission(_SKey, dual, select, _) ->  true;
-have_table_permission(_SKey, dual, _, _) ->  false;
-have_table_permission(SKey, Table, Operation, true) ->
+have_table_permission(_SKey, {_,dual}, select, _) ->  true;
+have_table_permission(_SKey, {_,dual}, _, _) ->  false;
+have_table_permission(SKey, {_,Table}, Operation, true) ->
     imem_seco:have_permission(SKey, [manage_system_tables, {table,Table,Operation}]);
-
 have_table_permission(SKey, {Schema,Table}, select, false) ->
     case imem_seco:have_permission(SKey, [manage_user_tables, {table,Table,select}]) of
         true ->     true;
         false ->    have_table_ownership(SKey,{Schema,Table}) 
     end;
-have_table_permission(SKey, Table, select, false) ->
-    have_table_permission(SKey, {imem_meta:schema(),Table}, select, false) ;
 have_table_permission(SKey, {Schema,Table}, Operation, false) ->
     case imem_meta:read(ddTable, {Schema,Table}) of
         [#ddTable{qname={Schema,Table}, readonly=true}] -> 
@@ -746,8 +735,8 @@ have_table_permission(SKey, {Schema,Table}, Operation, false) ->
             end;
         _ ->    false
     end;
-have_table_permission(SKey, Table, Operation, false) ->
-    have_table_permission(SKey, {imem_meta:schema(),Table}, Operation, false).
+have_table_permission(SKey, Table, Operation, Type) ->
+    have_table_permission(SKey, imem_sql:table_qname(Table), Operation, Type).
 
 set_permission_cache(SKey, Permission, true) ->
     imem_meta:write(ddPerm@,#ddPerm{pkey={SKey,Permission}, skey=SKey, pid=self(), value=true});
