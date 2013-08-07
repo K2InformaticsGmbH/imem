@@ -791,7 +791,7 @@ get_vm_memory() ->
                           * list_to_float(re:replace(os:cmd("ps -p "++os:getpid()++" -o pmem="),"[[:space:]]*", "", [global, {return,list}])) / 100)
             };
         Unknown ->
-		       {Unknown, 1, 1}
+		       {Unknown, 0}
     end.
 
 %% ----- Private functions ------------------------------------
