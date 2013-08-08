@@ -231,13 +231,21 @@ take([all]) ->
 
 % multiple tables as list of strings or regex strings
 take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
-    take({tabs
-         , lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
-                         || T <- all_snap_tables()])
-        });
+    FilteredSnapReadTables = lists:filter(fun(T) -> imem_meta:is_local_table(T) end, imem_meta:all_tables()),
+    ?Debug("tables readable for snapshot ~p", [FilteredSnapReadTables]),
+
+    SelectedSnapTables = lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
+                         || T <- FilteredSnapReadTables]),
+
+    ?Debug("tables being snapshoted ~p", [SelectedSnapTables]),
+
+    case SelectedSnapTables of
+        []  -> {error, lists:flatten(io_lib:format(" ~p doesn't match any table in ~p~n", [RegExs, FilteredSnapReadTables]))};
+        _   -> take({tabs, SelectedSnapTables})
+    end;
 
 % single table as atom (internal use)
-take(Tab) when is_atom(Tab) -> take({tabs, [atom_to_list(Tab)]});
+take(Tab) when is_atom(Tab) -> take({tabs, [Tab]});
 
 % list of tables as atoms
 take({tabs, Tabs}) ->

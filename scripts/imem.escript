@@ -67,7 +67,7 @@ cmd(_, []) ->
     ?P("~n    bundle all .bkp to .zip~n"),
     ?P("    ~*s snap zip~n", ?PADARG),
     ?P("    bundle table1.bkp, table2.bkp files to .zip~n"),
-    ?P("    ~*s snap zip table1 table2~n", ?PADARG),
+    ?P("    ~*s snap zip table1.bkp table2.bkp~n", ?PADARG),
     ?P("    bundle .bkp files matching name pattern tab.* to .zip~n"),
     ?P("    ~*s snap zip re tab.*~n", ?PADARG),
     ?P("~n    simulate restore of all bkp files into IMEM DB~n"),
