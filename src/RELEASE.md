@@ -5,7 +5,7 @@ Release history with new or improved features and bugfixes
 
 Version 1.2.0 (Release Date 08.08.2013)
 =======================================
-	
+
 * configurable snapshot fun
 * chunked streaming format for snapshot and restore
 * configurable purge fun which can act based on available os memory limits
