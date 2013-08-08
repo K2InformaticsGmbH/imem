@@ -943,6 +943,13 @@ test_with_or_without_sec(IsSec) ->
             []
         ),
 
+        R5r = exec_fetch_sort(SKey, query5r, 100, IsSec, 
+            "select name(qname), size, memory 
+             from ddTable, ddSize
+             where element(2,qname) = name "
+        ),
+        ?assert(length(R5r) > 0),       %% ToDo:  and size = missing
+
     %% sorting
 
         exec_fetch_sort_equal(SKey, query6a, 100, IsSec, 

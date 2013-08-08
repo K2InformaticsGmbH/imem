@@ -182,8 +182,8 @@ all_tables() ->
 
 is_local_table(Table) ->
     try
-        case mnesia:table_info(Table, storage_type) of
-            unknown ->  false;
+        case mnesia:table_info(Table, where_to_read) of
+            nowhere ->  false;
             _ ->        true
         end
     catch

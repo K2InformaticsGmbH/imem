@@ -133,7 +133,6 @@ end
         , node_name/1
         , node_hash/1
         , all_tables/0
-        , is_local_table/1
         , tables_starting_with/1
         , tables_ending_with/1
         , node_shard/0
@@ -142,6 +141,7 @@ end
         , physical_table_names/1
         , parse_table_name/1
         , is_system_table/1
+        , is_local_table/1
         , is_time_partitioned_alias/1
         , is_local_time_partitioned_table/1
         , is_node_sharded_alias/1
@@ -1366,11 +1366,11 @@ select(ddNode, ?MatchAllRecords) ->
     {read(ddNode),true};
 select(ddNode, [{_,[],['$_']}]) ->
     {read(ddNode),true};                %% used in select * from ddNode
-select(ddNode, [{_,[{'==',{element,N,Tuple},_}],['$_']}]) when is_tuple(Tuple) ->
+select(ddNode, [{_,[{OP,{element,N,Tuple},_}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
     {read(ddNode,element(N,Tuple)),true};
-select(ddNode, [{_,[{'==',_,{element,N,Tuple}}],['$_']}]) when is_tuple(Tuple) ->
+select(ddNode, [{_,[{OP,_,{element,N,Tuple}}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
     {read(ddNode,element(N,Tuple)),true};
-select(ddNode, [{_,[{'==',K1,K2}],['$_']}]) when is_atom(K1), is_atom(K2) ->
+select(ddNode, [{_,[{OP,K1,K2}],['$_']}]) when (is_atom(K1) andalso is_atom(K2) andalso ((OP=='==') orelse (OP=='/='))) ->
     case atom_to_list(K1) of
         [$$|_] ->   {read(ddNode,K2),true};   % Key cannot match '$_'
         _ ->        {read(ddNode,K1),true}
@@ -1381,11 +1381,11 @@ select(ddSize, ?MatchAllRecords) ->
     {read(ddSize),true};
 select(ddSize, [{_,[],['$_']}]) ->
     {read(ddSize),true};                %% used in select * from ddNode
-select(ddSize, [{_,[{'==',{element,N,Tuple},_}],['$_']}]) when is_tuple(Tuple) ->
+select(ddSize, [{_,[{OP,{element,N,Tuple},_}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
     {read(ddSize,element(N,Tuple)),true};
-select(ddSize, [{_,[{'==',_,{element,N,Tuple}}],['$_']}]) when is_tuple(Tuple) ->
+select(ddSize, [{_,[{OP,_,{element,N,Tuple}}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
     {read(ddSize,element(N,Tuple)),true};
-select(ddSize, [{_,[{'==',K1,K2}],['$_']}]) when is_atom(K1), is_atom(K2) ->
+select(ddSize, [{_,[{OP,K1,K2}],['$_']}]) when (is_atom(K1) andalso is_atom(K2) andalso ((OP=='==') orelse (OP=='/='))) ->
     case atom_to_list(K1) of
         [$$|_] ->   {read(ddSize,K2),true};   % Key cannot match '$_'
         _ ->        {read(ddSize,K1),true}
