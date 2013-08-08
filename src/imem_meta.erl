@@ -1346,12 +1346,28 @@ read_hlk(Table,HListKey) ->
 get_config_hlk({_Schema,Table}, Key, Context, Default) ->
     get_config_hlk(Table, Key, Context, Default);
 get_config_hlk(Table, Key, Context, Default) when is_atom(Table), is_list(Context) ->
+    Remark = list_to_binary(["auto_provisioned from ",io_lib:format("~p",[Context])]),
     case read_hlk(Table, [Key|Context]) of
-        [] ->
-            Remark = ["auto_provisioned from ",io_lib:format("~p",[Context])],
-            catch put_config_hlk(Table, Key, [], Default, list_to_binary(Remark)),
+        [] ->                                   
+            %% no value found, create global config with default value
+            catch put_config_hlk(Table, Key, [], Default, Remark),
             Default;
+        [#ddConfig{val=Default, hkl=[Key]}] ->    
+            %% global config is relevant and matches default
+            Default;
+        [#ddConfig{val=OldVal, hkl=[Key], remark=R}] ->
+            %% global config is relevant and differs from default
+            case binary:longest_common_prefix([R,<<"auto_provisioned">>]) of
+                16 ->
+                    %% comment starts with default comment, overwrite the default   
+                    catch put_config_hlk(Table, Key, [], Default, Remark),
+                    Default;
+                _ ->    
+                    %% comment was changed by user, protect his config value
+                    OldVal
+            end;
         [#ddConfig{val=Val}] ->
+            %% config value is overridden by user, return that value
             Val
     end.
 
@@ -1738,10 +1754,15 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
         ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value)),
         ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)),
+        ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value1)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)),
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, [],test_value2,<<"Test Remark">>)),
+        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value3)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value2}],read(test_config)),
         ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, [test_context],context_value,<<"Test Remark">>)),
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value)),
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context,details], test_value)),
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, [another_context,details], another_value)),
+        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, [another_context,details], another_value)),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
