@@ -38,6 +38,7 @@
         , snap_log/2
         , snap_err/2
         , do_snapshot/1
+        , all_snap_tables/0
         ]).
 
 -define(BKP_EXTN, ".bkp").
@@ -71,7 +72,7 @@
                 end
         end
       end)()
-    || T <- imem_meta:all_tables(), imem_meta:is_local_table(T) =:= true, imem_meta:is_local_time_partitioned_table(T) =/= true],
+    || T <- imem_snap:all_snap_tables()],
     ok
 end.">>)).
 
@@ -186,9 +187,8 @@ zip({re, MatchPattern}) ->
 
 % display information of existing snapshot or a snapshot bundle (.zip)
 info(bkp) ->
-    MTabs = imem_meta:all_tables(),
-    BytesPerWord =  erlang:system_info(wordsize),
-    MnesiaTables = [{atom_to_list(M), imem_meta:table_size(M), imem_meta:table_memory(M) * BytesPerWord} || M <- MTabs],
+    MTabs = ,
+    MnesiaTables = [{atom_to_list(M), imem_meta:table_size(M), imem_meta:table_memory(M)} || M <- MTabs],
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     case filelib:is_dir(SnapDir) of
         true ->
@@ -227,13 +227,13 @@ info({zip, [Z|ZipFiles]}, ContentFiles) ->
 
 % take snapshot of all/some of the current in memory imem table
 take([all]) ->
-    take({tabs, imem_meta:all_tables()});
+    take({tabs, all_snap_tables()});
 
 % multiple tables as list of strings or regex strings
 take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
     take({tabs
          , lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
-                         || T <- imem_meta:all_tables()])
+                         || T <- all_snap_tables()])
         });
 
 % single table as atom (internal use)
@@ -369,6 +369,12 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
     end),
     ?Debug("chunk restored ~p", [{Tab, {length(NewI), length(NewE), length(NewA)}}]),
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {NewI, NewE, NewA}).
+
+all_snap_tables() ->
+    lists:filter(fun(T) ->
+            	    imem_meta:is_local_table(T)
+                    andalso not imem_meta:is_local_time_partitioned_table(T)
+                end, imem_meta:all_tables()).
 
 %% ----- PRIVATE APIS ------------------------------------------------
 
