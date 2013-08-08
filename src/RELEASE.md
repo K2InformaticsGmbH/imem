@@ -1,3 +1,8 @@
+Application imem
+================
+
+Release history with new or improved features and bugfixes
+
 Version 1.2.0 (Release Date 08.08.2013)
 =======================================
 	
