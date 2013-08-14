@@ -6,6 +6,9 @@
   {applications, [
                   kernel,
                   stdlib,
+                  lager,
+                  sasl,
+                  os_mon,
                   sqlparse
                  ]},
   {mod, { imem_app, []}},
