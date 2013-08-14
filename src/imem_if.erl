@@ -754,27 +754,15 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 -spec get_os_memory() -> {any(), integer(), integer()}.
 get_os_memory() ->
+    SysData = memsup:get_system_memory_data(),
+    FreeMem = lists:sum([M || {T, M} <- SysData, ((T =:= free_memory)
+                                                    orelse (T =:= buffered_memory)
+                                                    orelse (T =:= cached_memory))]),
+    TotalMemory = proplists:get_value(total_memory, memsup:get_system_memory_data()),
     case os:type() of
-        {win32, _} = Win ->
-            {Win
-            , list_to_integer(re:replace(os:cmd("wmic OS get FreePhysicalMemory")
-                                        ,"[[:space:]]+",""
-                                        ,[global,{return,list}])
-                             -- "FreePhysicalMemory") * 1024
-            , list_to_integer(re:replace(os:cmd("wmic ComputerSystem get TotalPhysicalMemory")
-                                        ,"[[:space:]]+",""
-                                        ,[global,{return,list}])
-                                -- "TotalPhysicalMemory")
-            };
-        {unix, _} = Unix ->
-            {Unix
-            , list_to_integer(re:replace(os:cmd("free -b | sed -n 2p | awk '{print $4}'")
-                                        ,"[[:space:]]+","",[global,{return,list}]))
-            , list_to_integer(re:replace(os:cmd("free -b | sed -n 2p | awk '{print $2}'")
-                                        ,"[[:space:]]+","",[global,{return,list}]))
-            };
-        Unknown ->
-		       {Unknown, 1, 1}
+        {win32, _} = Win    -> {Win,        FreeMem,    TotalMemory};
+        {unix, _} = Unix    -> {Unix,       FreeMem,    TotalMemory};
+        Unknown             -> {Unknown,    FreeMem,    TotalMemory}
     end.
 
 -spec get_vm_memory() -> {any(),integer()}.
