@@ -802,7 +802,7 @@ drop_table(ddTable) ->
 drop_table(?LOG_TABLE) ->
     drop_table_and_info(physical_table_name(?LOG_TABLE));
 drop_table(Alias) when is_atom(Alias) ->
-    log_to_db(info,?MODULE,drop_table,[{table,Alias}],"drop table"),
+    log_to_db(debug,?MODULE,drop_table,[{table,Alias}],"drop table"),
     drop_partitioned_tables_and_infos(lists:sort(simple_or_local_node_sharded_tables(Alias)));
 drop_table(TableName) ->
     drop_table(imem_sql:table_qname(TableName)).
@@ -1534,17 +1534,17 @@ delete_object(Table, Row) ->
     imem_if:delete_object(physical_table_name(Table), Row).
 
 subscribe({table, Tab, Mode}) ->
-    log_to_db(info,?MODULE,subscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"subscribe to mnesia"),
+    log_to_db(debug,?MODULE,subscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"subscribe to mnesia"),
     imem_if:subscribe({table, physical_table_name(Tab), Mode});
 subscribe(EventCategory) ->
-    log_to_db(info,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
+    log_to_db(debug,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
     imem_if:subscribe(EventCategory).
 
 unsubscribe({table, Tab, Mode}) ->
-    log_to_db(info,?MODULE,unsubscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"unsubscribe from mnesia"),
+    log_to_db(debug,?MODULE,unsubscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"unsubscribe from mnesia"),
     imem_if:unsubscribe({table, physical_table_name(Tab), Mode});
 unsubscribe(EventCategory) ->
-    log_to_db(info,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
+    log_to_db(debug,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
     imem_if:unsubscribe(EventCategory).
 
 update_tables(UpdatePlan, Lock) ->

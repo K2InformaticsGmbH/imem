@@ -584,10 +584,11 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 unsubscribe(Stmt) ->
     {_Schema,Table,_Alias} = hd(Stmt#statement.tables),
     case catch if_call_mfa(false,unsubscribe,[none,{table,Table,simple}]) of
-        ok ->   ok;
+        ok ->       ok;
+        {ok,_} ->   ok;
         Error ->
-            ?Debug("Cannot unsubscribe table changes~n~p~n", [{Table,Error}]),    
-            imem_meta:log_to_db(error,?MODULE,unsubscribe,[{table,Table},{error,Error}],"Cannot unsubscribe table changes")
+                    ?Debug("Cannot unsubscribe table changes~n~p~n", [{Table,Error}]),    
+                    imem_meta:log_to_db(error,?MODULE,unsubscribe,[{table,Table},{error,Error}],"Cannot unsubscribe table changes")
     end.
 
 kill_fetch(undefined, undefined) -> ok;
