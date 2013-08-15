@@ -22,6 +22,10 @@
 %% ====================================================================
 start() ->
     application:start(sqlparse),
+    application:load(sasl),
+    application:set_env(sasl, sasl_error_logger, false),
+    application:start(sasl),
+    application:start(os_mon),
     config_if_lager(),
     application:start(?MODULE).
 
