@@ -1306,15 +1306,16 @@ close(Pid) ->
 
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema
-read(ddNode) -> 
+read(ddNode) ->
+    [net_adm:ping(N) || N <- nodes()],
     lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
-read(Table) -> 
+read(Table) ->
     imem_if:read(physical_table_name(Table)).
 
 read({_Schema,Table}, Key) -> 
     read(Table, Key);
 read(ddNode,Node) when is_atom(Node) ->
-    try  
+    try
         [#ddNode{ name=Node
                  , wall_clock=element(1,rpc:call(Node,erlang,statistics,[wall_clock]))
                  , time=rpc:call(Node,erlang,now,[])
