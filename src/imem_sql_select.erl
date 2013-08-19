@@ -16,7 +16,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     Tables = case lists:keyfind(from, 1, SelectSections) of
         {_, TNames} ->  Tabs = [imem_sql:table_qname(T) || T <- TNames],
                         [{_,MainTab,_}|_] = Tabs,
-                        case lists:member(MainTab,?DataTypes) of
+                        case lists:member(MainTab,[ddSize|?DataTypes]) of
                             true ->     ?ClientError({"Virtual table can only be joined", MainTab});
                             false ->    Tabs
                         end;
@@ -680,7 +680,11 @@ test_with_or_without_sec(IsSec) ->
     %% joins with virtual (datatype) tables
 
         ?assertException(throw,{ClEr,{"Virtual table can only be joined",integer}}, 
-            exec_fetch_sort(SKey, query3, 100, IsSec, "select item from integer")
+            exec_fetch_sort(SKey, query3a1, 100, IsSec, "select item from integer")
+        ),
+
+        ?assertException(throw,{ClEr,{"Virtual table can only be joined",ddSize}}, 
+            exec_fetch_sort(SKey, query3a2, 100, IsSec, "select name from ddSize")
         ),
 
         exec_fetch_equal(SKey, query3a, 100, IsSec, 
@@ -948,7 +952,37 @@ test_with_or_without_sec(IsSec) ->
              from ddTable, ddSize
              where element(2,qname) = name "
         ),
-        ?assert(length(R5r) > 0),       %% ToDo:  and size = missing
+        ?assert(length(R5r) > 0),
+
+        R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, 
+            "select name(qname), size, expiry, ttl 
+             from ddTable, ddSize
+             where name = element(2,qname)"
+        ),
+        ?assertEqual(length(R5s),length(R5r)),
+        ?Log("Full Result R5s: ~n~p~n", [R5s]),
+
+        % R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
+        %     "select name(qname), expiry, ttl 
+        %      from ddTable, ddSize
+        %      where element(2,qname) = name and ttl > 0 and ttl <> undefined"
+        % ),
+        % ?assert(length(R5t) > 0),
+        % ?Log("Full Result R5t: ~n~p~n", [R5t]),
+
+        % R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
+        %     "select name(qname), size, ttl 
+        %      from ddTable, ddSize
+        %      where element(2,qname) = name and ttl <> undefined"
+        % ),
+        % ?assert(length(R5u) > 0),
+
+        % R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, 
+        %     "select name(qname), size, ttl 
+        %      from ddTable, ddSize
+        %      where element(2,qname) = name and ttl = undefined"
+        % ),
+        % ?assert(length(R5v) > 0),
 
     %% sorting
 

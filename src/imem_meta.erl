@@ -5,6 +5,8 @@
 
 %% HARD CODED CONFIGURATIONS
 
+-define(DDNODE_TIMEOUT,3000).       %% RPC timeout for ddNode evaluation
+
 -define(META_TABLES,[ddTable,ddNode,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
@@ -192,6 +194,7 @@ end
         , read/2            %% read by key
         , read_hlk/2        %% read using hierarchical list key
         , select/2          %% select without limit, only use for small result sets
+        , select_virtual/2  %% select virtual table without limit, only use for small result sets
         , select/3          %% select with limit
         , select_sort/2
         , select_sort/3
@@ -1304,7 +1307,9 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
+    % ?Info("Virtual fetch start  : ~p ~p~n", [VTable,MatchSpec]),
     {Rows,true} = select(VTable, MatchSpec),
+    % ?Info("Virtual fetch result  : ~p~n", [Rows]),
     spawn(
         fun() ->
             receive
@@ -1320,7 +1325,6 @@ close(Pid) ->
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) ->
-    [net_adm:ping(N) || N <- nodes()],
     lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
 read(Table) ->
     imem_if:read(physical_table_name(Table)).
@@ -1330,8 +1334,8 @@ read({_Schema,Table}, Key) ->
 read(ddNode,Node) when is_atom(Node) ->
     try
         [#ddNode{ name=Node
-                 , wall_clock=element(1,rpc:call(Node,erlang,statistics,[wall_clock]))
-                 , time=rpc:call(Node,erlang,now,[])
+                 , wall_clock=element(1,rpc:call(Node,erlang,statistics,[wall_clock],?DDNODE_TIMEOUT))
+                 , time=rpc:call(Node,erlang,now,[],?DDNODE_TIMEOUT)
                  , extra=[]     
                  }       
         ]
@@ -1342,13 +1346,23 @@ read(ddNode,Node) when is_atom(Node) ->
     end;
 read(ddNode,_) -> [];
 read(ddSize,Table) ->
-    PhysicalTableName =  physical_table_name(Table),
-    case (catch {table_size(PhysicalTableName),table_memory(PhysicalTableName)}) of
-        {S,M} when is_integer(S),is_integer(M) -> 
-            [{ddSize,Table,S,M}];
-        _ ->                    
-            [{ddSize,Table,missing,missing}]
-    end;
+    PTN =  physical_table_name(Table),
+    case is_local_time_partitioned_table(PTN) of  % 
+        true ->
+            case (catch {table_size(PTN),table_memory(PTN), time_of_partition_expiry(PTN),time_to_partition_expiry(PTN)}) of
+                {S,M,E,T} when is_integer(S),is_integer(M) -> 
+                    [{ddSize,Table,S,M,E,T}];
+                _ ->                    
+                    [{ddSize,Table,undefined,undefinded,undefined,undefinded}]
+            end;
+        false ->
+            case (catch {table_size(PTN),table_memory(PTN)}) of
+                {S,M} when is_integer(S),is_integer(M) -> 
+                    [{ddSize,Table,S,M,undefined,undefinded}];
+                _ ->                    
+                    [{ddSize,Table,undefined,undefinded,undefined,undefinded}]
+            end
+    end;            
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
 
@@ -1392,36 +1406,10 @@ put_config_hlk(Table, Key, Context, Value, Remark) when is_atom(Table), is_list(
 
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
-select(ddNode, ?MatchAllRecords) ->
-    {read(ddNode),true};
-select(ddNode, [{_,[],['$_']}]) ->
-    {read(ddNode),true};                %% used in select * from ddNode
-select(ddNode, [{_,[{OP,{element,N,Tuple},_}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
-    {read(ddNode,element(N,Tuple)),true};
-select(ddNode, [{_,[{OP,_,{element,N,Tuple}}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
-    {read(ddNode,element(N,Tuple)),true};
-select(ddNode, [{_,[{OP,K1,K2}],['$_']}]) when (is_atom(K1) andalso is_atom(K2) andalso ((OP=='==') orelse (OP=='/='))) ->
-    case atom_to_list(K1) of
-        [$$|_] ->   {read(ddNode,K2),true};   % Key cannot match '$_'
-        _ ->        {read(ddNode,K1),true}
-    end;
 select(ddNode, MatchSpec) ->
-    ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddNode}});
-select(ddSize, ?MatchAllRecords) ->
-    {read(ddSize),true};
-select(ddSize, [{_,[],['$_']}]) ->
-    {read(ddSize),true};                %% used in select * from ddNode
-select(ddSize, [{_,[{OP,{element,N,Tuple},_}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
-    {read(ddSize,element(N,Tuple)),true};
-select(ddSize, [{_,[{OP,_,{element,N,Tuple}}],['$_']}]) when (is_tuple(Tuple) andalso ((OP=='==') orelse (OP=='/='))) ->
-    {read(ddSize,element(N,Tuple)),true};
-select(ddSize, [{_,[{OP,K1,K2}],['$_']}]) when (is_atom(K1) andalso is_atom(K2) andalso ((OP=='==') orelse (OP=='/='))) ->
-    case atom_to_list(K1) of
-        [$$|_] ->   {read(ddSize,K2),true};   % Key cannot match '$_'
-        _ ->        {read(ddSize,K1),true}
-    end;
+    select_virtual(ddNode, MatchSpec);
 select(ddSize, MatchSpec) ->
-    ?UnimplementedException({"Unsupported match specification for virtual table",{MatchSpec,ddSize}});
+    select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec) ->
     imem_if:select(physical_table_name(Table), MatchSpec).
 
@@ -1430,11 +1418,44 @@ select(Table, MatchSpec, 0) ->
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(ddNode, MatchSpec, _Limit) ->
-    select(ddNode, MatchSpec);
+    select_virtual(ddNode, MatchSpec);
 select(ddSize, MatchSpec, _Limit) ->
-    select(ddSize, MatchSpec);
+    select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
+
+
+%   [{{'_','$1','$2','$3','$4'},[{'==',nonode@nohost,'$1'}],['$_']}]
+%   [{ MatchHead               ,[         Guard           ],['$_']}]
+
+select_virtual(Table, [{_,[],['$_']}]) ->
+    {read(Table),true};                %% used in select * from virtual_table
+select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
+    Tag = element(2,MatchHead),
+    % Candidates = case Guard of
+    %     {'==',Tag,{element,N,Tup1}} ->  read(Table,element(N,Tup1));
+    %     {'==',{element,N,Tup2},Tag} ->  read(Table,element(N,Tup2));
+    %     {'==',Tag,Val1} ->              read(Table,Val1);
+    %     {'==',Val2,Tag} ->              read(Table,Val2);
+    %     _ ->                            read(Table)
+    % end,
+    % ?Info("Virtual Select Guard : ~p~n", [Guard]),
+    Candidates = case imem_sql:operand_match(Tag,Guard) of
+        false ->                        read(Table);
+        {'==',Tag,{element,N,Tup1}} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
+                                        read(Table,element(N,Tup1));
+        {'==',{element,N,Tup2},Tag} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup2)]),
+                                        read(Table,element(N,Tup2));
+        {'==',Tag,Val1} ->              % ?Info("Virtual Select Key : ~p~n", [Val1]),
+                                        read(Table,Val1);
+        {'==',Val2,Tag} ->              % ?Info("Virtual Select Key : ~p~n", [Val2]),
+                                        read(Table,Val2)
+    end,
+    % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
+    MS = ets:match_spec_compile(MatchSpec),
+    Result = ets:match_spec_run(Candidates,MS),
+    % ?Info("Virtual Select Result  : ~p~n", [Candidates]),    
+    {Result, true}.
 
 select_sort(Table, MatchSpec)->
     {L, true} = select(Table, MatchSpec),

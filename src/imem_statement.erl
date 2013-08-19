@@ -635,7 +635,11 @@ join_bind(Rec, Guard0, [B|Binds]) ->
     Guard1 = imem_sql:simplify_guard(join_bind_one(Rec, Guard0, B)),
     join_bind(Rec, Guard1, Binds).
 
-join_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,element(Ci,element(Ti,Rec))};
+join_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    
+    case element(Ci,element(Ti,Rec)) of
+        %% Tup when is_tuple(Tup) ->   {Op,{const,Tup}};  
+        Val ->                      {Op,Val}
+    end;
 join_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind_one(Rec,A,{Tag,Ti,Ci})};
 join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  
     case element(Ci,element(Ti,Rec)) of
@@ -643,6 +647,8 @@ join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->
             offset_datetime(Op,DT,B);
         {Mega,Sec,Micro} ->
             offset_timestamp(Op,{Mega,Sec,Micro},B);
+        %% Tup when is_tuple(Tup) ->
+        %%    {Op,{const,Tup},B};
         Other ->
             {Op,Other,B}
     end;
@@ -652,6 +658,8 @@ join_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->
             offset_datetime(Op,DT,A);
         {Mega,Sec,Micro} ->
             offset_timestamp(Op,{Mega,Sec,Micro},A);
+        %% Tup when is_tuple(Tup) ->
+        %%     {Op,A,{const,Tup}};
         Other ->
             {Op,A,Other}
     end;

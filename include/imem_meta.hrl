@@ -14,7 +14,7 @@
 -record(ddColumn,                           %% column definition    
                   { name                    ::atom()
                   , type = term             ::ddType()
-                  , len = undefined 	  ::integer()
+                  , len = undefined 	      ::integer()
                   , prec = undefined        ::integer()
                   , default = undefined     ::any()
                   , opts = []               ::list()
@@ -85,11 +85,13 @@
 
 -record(ddSize,                             %% table size    
                   { name                    ::atom()
-                  , size=missing            ::integer()
-                  , memory=missing          ::integer()                 
+                  , size                    ::integer()
+                  , memory                  ::integer()
+                  , expiry                  ::ddTimestamp()  %% expiry time (first ts of next partition)
+                  , ttl                     ::integer()      %% time until expiry (sec)                 
                   }
        ).
--define(ddSize, [atom, integer, integer]).
+-define(ddSize, [atom, integer, integer, timestamp, integer]).
 
 
 -define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)
