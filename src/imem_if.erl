@@ -70,6 +70,7 @@
         , return_atomic/1
         , get_os_memory/0
         , get_vm_memory/0
+        , spawn_sync_mfa/3
         ]).
 
 -define(INIT_SNAP(__Table,__Now),
@@ -125,25 +126,19 @@ return_atomic(Error) ->  ?SystemExceptionNoLogging(Error).
 
 
 transaction(Function) when is_atom(Function)->
-    F = fun() ->
-                apply(mnesia, Function, [])
-        end,
+    F = fun() -> apply(mnesia, Function, []) end,
     mnesia:transaction(F);
 transaction(Fun) when is_function(Fun)->
     mnesia:transaction(Fun).
 
 transaction(Function, Args) when is_atom(Function)->
-    F = fun() ->
-                apply(mnesia, Function, Args)
-        end,
+    F = fun() -> apply(mnesia, Function, Args) end,
     mnesia:transaction(F);
 transaction(Fun, Args) when is_function(Fun)->
     mnesia:transaction(Fun, Args).
 
 transaction(Function, Args, Retries) when is_atom(Function)->
-    F = fun() ->
-                apply(mnesia, Function, Args)
-        end,
+    F = fun() -> apply(mnesia, Function, Args) end,
     mnesia:transaction(F, Retries);
 transaction(Fun, Args, Retries) when is_function(Fun)->
     mnesia:transaction(Fun, Args, Retries).
@@ -308,7 +303,7 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
     end.
 
 drop_table(Table) when is_atom(Table) ->
-    case mnesia:delete_table(Table) of
+    case spawn_sync_mfa(mnesia,delete_table,[Table]) of
         {atomic,ok} ->
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
@@ -335,12 +330,22 @@ drop_index(Table, Column) when is_atom(Table) ->
     end.
 
 truncate_table(Table) when is_atom(Table) ->
-    case mnesia:clear_table(Table) of
+    case spawn_sync_mfa(mnesia,clear_table,[Table]) of
         {atomic,ok} ->
             ?TOUCH_SNAP(Table),                  
             ok;
         {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
         Error ->                        ?SystemExceptionNoLogging(Error)
+    end.
+
+% An MFA interface that is executed in a spawned short-lived process
+% The result is synchronously collected and returned
+% Restricts binary memory leakage within the scope of this process
+spawn_sync_mfa(M,F,A) ->
+    Self = self(),
+    spawn(fun() -> Self ! (catch apply(M,F,A)) end),
+    receive Result -> Result
+    after 60000 -> {error, timeout}
     end.
 
 read(Table) when is_atom(Table) ->
@@ -686,7 +691,7 @@ unsubscribe(EventCategory) ->
 
 start_link(Params) ->
     ets:new(?SNAP_ETS_TAB, [public, named_table, {keypos,2}]),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
 
 init(_) ->
     ?Info("~p starting...~n", [?MODULE]),

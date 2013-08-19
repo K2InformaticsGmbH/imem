@@ -67,7 +67,7 @@
 create_stmt(Statement, SKey, IsSec) ->
     case IsSec of
         false -> 
-            gen_server:start(?MODULE, [Statement], []);
+            gen_server:start(?MODULE, [Statement], [{spawn_opt, [{fullsweep_after, 0}]}]);
         true ->
             {ok, Pid} = gen_server:start(?MODULE, [Statement], []),            
             NewSKey = imem_sec:clone_seco(SKey, Pid),

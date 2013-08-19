@@ -9,6 +9,7 @@
 -record(state, { snapdir    = ""        :: list()
                , snapFun    = undefined :: any()
                , snapHash   = undefined :: any()
+               , snap_timer = undefined :: reference()
                }).
 
 % snapshot interface
@@ -79,12 +80,12 @@ end.">>)).
 %% ----- SERVER INTERFACE ------------------------------------------------
 start_link(Params) ->
     ets:new(?MODULE, [public, named_table, {keypos,2}]),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
 
 init(_) ->
     ?Info("~p starting...~n", [?MODULE]),
-    zip({re, "*.bkp"}),
-    erlang:send_after(10000, self(), imem_snap_loop),
+    ?Info("~s", [zip({re, "*.bkp"})]),
+    SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
     case filelib:is_dir(SnapDir) of
@@ -104,7 +105,7 @@ init(_) ->
     end,
     ?Info("SnapshotDir ~p", [SnapshotDir]),
     ?Info("~p started!", [?MODULE]),
-    {ok,#state{snapdir=SnapshotDir}}.
+    {ok,#state{snapdir = SnapshotDir, snap_timer = SnapTimer}}.
 
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
     case ?GET_SNAPSHOT_CYCLE_WAIT of
@@ -120,13 +121,22 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
                     end
             end,
             do_snapshot(SnapFun),
-            erlang:send_after(MCW, self(), imem_snap_loop),
-            {noreply, State#state{snapFun=SnapFun,snapHash=SnapHash}};
+            ?Debug("again after ~p", [MCW]),
+            SnapTimer = erlang:send_after(MCW, self(), imem_snap_loop),
+            {noreply, State#state{snapFun=SnapFun,snapHash=SnapHash,snap_timer=SnapTimer}};
         Other ->
-            ?Debug("snapshot unknown timeout ~p", [Other]),
-            erlang:send_after(10000, self(), imem_snap_loop),
-            {noreply, State}
+            ?Info("snapshot unknown timeout ~p", [Other]),
+            SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
+            {noreply, State#state{snap_timer = SnapTimer}}
     end;
+
+handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
+    ?Info("paused timer"),
+    case SnapTimer of
+        undefined -> ok;
+        SnapTimer -> erlang:cancel_timer(SnapTimer)
+    end,
+    {noreply, State#state{snap_timer = undefined}};
 
 handle_info(Info, State) ->
     ?Info("Unknown info ~p!", [Info]),
@@ -151,6 +161,13 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 % backup existing snapshot
 zip(all) -> zip({re, "*"++?BKP_EXTN});
+zip({re, MatchPattern}) ->
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    SnapFiles =
+    [filename:basename(File)
+    || File <- filelib:wildcard(filename:join([SnapDir, MatchPattern]))
+    ],
+    zip({files, SnapFiles});
 zip({files, SnapFiles}) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     ZipCandidates = [filename:join([SnapDir, SF])
@@ -170,24 +187,17 @@ zip({files, SnapFiles}) ->
             GoodZipFileName = re:replace(ZipFileName, "[<>:\"\\\\|?*]", "", [global, {return, list}]),
             case zip:zip(GoodZipFileName, ZipCandidates) of
                 {error, Reason} ->
-                    lists:flatten(io_lib:format("old snapshot backup to ~p failed reason : ~p~n"
+                    lists:flatten(io_lib:format("old snapshot backup to ~p failed reason : ~p"
                                                 , [GoodZipFileName, Reason]));
                 _ ->
-                    lists:flatten(io_lib:format("old snapshots are backed up to ~p~n"
+                    lists:flatten(io_lib:format("old snapshots are backed up to ~p"
                                                 , [GoodZipFileName]))
             end
-    end;
-zip({re, MatchPattern}) ->
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    SnapFiles =
-    [filename:basename(File)
-    || File <- filelib:wildcard(filename:join([SnapDir, MatchPattern]))
-    ],
-    zip({files, SnapFiles}).
+    end.
 
 % display information of existing snapshot or a snapshot bundle (.zip)
 info(bkp) ->
-    MTabs = all_snap_tables(),
+    MTabs = imem_meta:all_tables(),
     MnesiaTables = [{atom_to_list(M), imem_meta:table_size(M), imem_meta:table_memory(M)} || M <- MTabs],
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     case filelib:is_dir(SnapDir) of
@@ -257,9 +267,11 @@ take({tabs, Tabs}) ->
     || Tab <- Tabs]).
 
 % snapshot restore interface
+%  - periodic snapshoting timer is paused during a restore operation
 restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
+    erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    [(fun() ->
+    Res = [(fun() ->
         Table = if
             is_atom(Tab) -> filename:rootname(filename:basename(atom_to_list(Tab)));
             is_list(Tab) -> filename:rootname(filename:basename(Tab))
@@ -267,15 +279,21 @@ restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
         SnapFile = filename:join([SnapDir, Table++?BKP_EXTN]),
         {Tab, restore_chunked(list_to_atom(Table), SnapFile, Strategy, Simulate)}
     end)()
-    || Tab <- Tabs].
+    || Tab <- Tabs],
+    erlang:whereis(?MODULE) ! imem_snap_loop,
+    Res.
 
 restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
+            erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
             UnZipPath = filename:join([filename:dirname(filename:absname(ZipFile)), "_"++filename:basename(ZipFile,".zip")]),
             del_dirtree(UnZipPath),
             zip:unzip(ZipFile, [{cwd,UnZipPath}]),
-            lists:foldl(
+            Files = [F
+                    || F <- filelib:wildcard(filename:join([UnZipPath,"**","*.bkp"]))
+                            , re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
+            Res = lists:foldl(
                 fun(SnapFile, Acc) ->
                     case filelib:is_dir(SnapFile) of
                         false ->
@@ -284,8 +302,10 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
                         _ -> Acc
                     end
                 end,
-                [], filelib:wildcard(filename:join([UnZipPath,"**","*"++?BKP_EXTN]))
-            );
+                [], Files
+            ),
+            erlang:whereis(?MODULE) ! imem_snap_loop,
+            Res;
         _ ->
             {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
             PossibleZipFile = filename:join([SnapDir, filename:basename(ZipFile)]),

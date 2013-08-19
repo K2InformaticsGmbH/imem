@@ -190,21 +190,16 @@ cmd(Node, ["snap", "restore", "zip", Type, FileNameWithPath | OptTables]) when
     {Preserve, Simulate} = (if Type =:= "simulate" -> {replace, true}; true -> {list_to_atom(Type), false} end),
     RR = rpc:call(Node, imem_snap, restore, [zip, ZipFile, OptTables, Preserve, Simulate], ?TIMEOUT),
     format({restore,RR});
+cmd(Node, ["snap", "restore", "zip" | BkpArgs]) -> cmd(Node, ["snap", "restore", "zip", "destroy" | BkpArgs]);
 cmd(Node, ["snap", "restore", "bkp", Type | OptTables]) when
-    Type /= "simulate";
-    Type /= "destroy";
-    Type /= "replace";
-    Type /= "none" ->
+    ((Type =:= "simulate") orelse
+    (Type =:= "destroy") orelse
+    (Type =:= "replace") orelse
+    (Type =:= "none")) ->
     {Preserve, Simulate} = (if Type =:= "simulate" -> {replace, true}; true -> {list_to_atom(Type), false} end),
     RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, Preserve, Simulate], ?TIMEOUT),
     format({restore,RR});
-
-cmd(Node, ["snap", "restore", "zip" | ZipArgs]) -> cmd(Node, ["snap", "restore", "zip", "destroy" | ZipArgs]);
-cmd(Node, ["snap", "restore", "zip", Type, FileNameWithPath | OptTables]) ->
-    ?P(rpc:call(Node, imem_snap, restore, [zip, FileNameWithPath, OptTables, list_to_atom(Type), false], ?TIMEOUT));
 cmd(Node, ["snap", "restore", "bkp" | BkpArgs]) -> cmd(Node, ["snap", "restore", "destroy", "bkp" | BkpArgs]);
-cmd(Node, ["snap", "restore", Type, "bkp" | OptTables]) ->
-    ?P(rpc:call(Node, imem_snap, restore, [bkp, OptTables, list_to_atom(Type), false], ?TIMEOUT));
 
 % unsupported
 cmd(Node, Args) ->
@@ -283,6 +278,8 @@ format({zip, ContentFiles}) ->
          ?P("~s~n", [Sep])]
     end)()
     || {Z,CntFiles} <- ContentFiles];
+format({restore, []}) ->
+    ?P("nothing is restored~n", []);
 format({restore, RestoreRes}) ->
     FLen = lists:max([length(atom_to_list(_F)) || {_F, _} <- RestoreRes]),
     Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s", [-FLen, "name", "identical", "replaced", "added"])),

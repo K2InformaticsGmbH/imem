@@ -26,7 +26,7 @@ start_link(Params) ->
     end.
 
 start_link(ListenerPid, Socket, Transport, Opts) ->
-    Pid = spawn_link(?MODULE, init, [ListenerPid, Socket, Transport, Opts]),
+    Pid = spawn_opt(?MODULE, init, [ListenerPid, Socket, Transport, Opts], [link, {fullsweep_after, 0}]),
     {ok, Pid}.
 
 stop() ->

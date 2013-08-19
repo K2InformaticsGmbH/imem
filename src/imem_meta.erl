@@ -234,7 +234,7 @@ end
 
 
 start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
 
 init(_Args) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -356,9 +356,11 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
                     end      
             end,
             imem_monitor(EFun,DFun),
+            ?Debug("again after ~p", [MCW]),
             erlang:send_after(MCW, self(), imem_monitor_loop),
             {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
         _ ->
+            ?Info("running timer default ~p", [2000]),
             erlang:send_after(2000, self(), imem_monitor_loop),
             {noreply, State}
     end;
@@ -701,8 +703,19 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
         {_,BadT} -> ?ClientError({"Invalid data type",BadT})
     end,
     PhysicalName=physical_table_name(Table),
-    imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts)),
-    imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner}).
+    % ddTable Meta data is attempted to be inserted only if missing and 
+    % DB reports that table already exists
+    try
+        imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts)),
+        imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner})
+    catch
+        _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
+            case imem_if:read(ddTable, {schema(),PhysicalName}) of
+                [] -> imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner});
+                _ -> ok
+            end,
+            throw(Reason)
+    end.
 
 is_valid_table_name(Table) when is_atom(Table) ->
     is_valid_table_name(atom_to_list(Table));

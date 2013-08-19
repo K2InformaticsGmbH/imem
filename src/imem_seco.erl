@@ -55,7 +55,7 @@
 monitor(Pid) when is_pid(Pid) -> gen_server:call(?MODULE, {monitor, Pid}).
 
 start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
 
 init(_Args) ->
     ?Info("~p starting...~n", [?MODULE]),
