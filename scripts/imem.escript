@@ -4,7 +4,7 @@
 %% ex: ft=erlang ts=4 sw=4 et
 
 -include_lib("kernel/include/file.hrl").
--define(TIMEOUT, 60000).
+-define(TIMEOUT, 3600000). % 1 hr timeout
 
 -define(P(__Fmt),           io:format(user, __Fmt, [])).
 -define(P(__Fmt, __Args),   io:format(user, __Fmt, __Args)).
@@ -157,8 +157,16 @@ cmd(Node, ["snap", "take"]) ->
     RR = rpc:call(Node, imem_snap, take, [[all]], ?TIMEOUT),
     format({take, RR});
 cmd(Node, ["snap", "take" | OptTableRegExs]) ->
-    RR = rpc:call(Node, imem_snap, take, [{tabs, OptTableRegExs}], ?TIMEOUT),
-    format({take, RR});
+    if OptTableRegExs =/= [] ->
+        [begin
+            RR = rpc:call(Node, imem_snap, take, [{tabs, [OptTableRegEx]}], ?TIMEOUT),
+            format({take, RR})
+        end
+        || OptTableRegEx <- OptTableRegExs];
+    true ->
+        RR = rpc:call(Node, imem_snap, take, [{tabs, OptTableRegExs}], ?TIMEOUT),
+        format({take, RR})
+    end;
 
 % backup snapshots
 cmd(Node, ["snap", "zip", "re", Pattern]) ->
@@ -166,7 +174,11 @@ cmd(Node, ["snap", "zip", "re", Pattern]) ->
 cmd(Node, ["snap", "zip"]) ->
     ?P(rpc:call(Node, imem_snap, zip, [all], ?TIMEOUT));
 cmd(Node, ["snap", "zip" | OptTables]) ->
-    ?P(rpc:call(Node, imem_snap, zip, [{files, OptTables}], ?TIMEOUT));
+    if OptTables =/= [] ->
+        [?P(rpc:call(Node, imem_snap, zip, [{files, [OptTable]}], ?TIMEOUT)) || OptTable <- OptTables];
+    true ->
+        ?P(rpc:call(Node, imem_snap, zip, [{files, OptTables}], ?TIMEOUT))
+    end;
 
 % restore from snap
 cmd(Node, ["snap", "restore", "zip", Type, FileNameWithPath | OptTables]) when
@@ -188,8 +200,16 @@ cmd(Node, ["snap", "restore", "zip", Type, FileNameWithPath | OptTables]) when
             end            
     end,
     {Preserve, Simulate} = (if Type =:= "simulate" -> {replace, true}; true -> {list_to_atom(Type), false} end),
-    RR = rpc:call(Node, imem_snap, restore, [zip, ZipFile, OptTables, Preserve, Simulate], ?TIMEOUT),
-    format({restore,RR});
+    if OptTables =/= [] ->
+        [begin
+            RR = rpc:call(Node, imem_snap, restore, [zip, ZipFile, [OptTable], Preserve, Simulate], ?TIMEOUT),
+            format({restore,RR})
+        end
+        || OptTable <- OptTables];
+    true ->
+        RR = rpc:call(Node, imem_snap, restore, [zip, ZipFile, OptTables, Preserve, Simulate], ?TIMEOUT),
+        format({restore,RR})
+    end;
 cmd(Node, ["snap", "restore", "zip" | BkpArgs]) -> cmd(Node, ["snap", "restore", "zip", "destroy" | BkpArgs]);
 cmd(Node, ["snap", "restore", "bkp", Type | OptTables]) when
     ((Type =:= "simulate") orelse
@@ -197,8 +217,16 @@ cmd(Node, ["snap", "restore", "bkp", Type | OptTables]) when
     (Type =:= "replace") orelse
     (Type =:= "none")) ->
     {Preserve, Simulate} = (if Type =:= "simulate" -> {replace, true}; true -> {list_to_atom(Type), false} end),
-    RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, Preserve, Simulate], ?TIMEOUT),
-    format({restore,RR});
+    if OptTables =/= [] ->
+        [begin
+            RR = rpc:call(Node, imem_snap, restore, [bkp, [OptTable], Preserve, Simulate], ?TIMEOUT),
+            format({restore,RR})
+        end
+        || OptTable <- OptTables];
+    true ->
+        RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, Preserve, Simulate], ?TIMEOUT),
+        format({restore,RR})
+    end;
 cmd(Node, ["snap", "restore", "bkp" | BkpArgs]) -> cmd(Node, ["snap", "restore", "destroy", "bkp" | BkpArgs]);
 
 % unsupported
@@ -281,16 +309,19 @@ format({zip, ContentFiles}) ->
 format({restore, []}) ->
     ?P("nothing is restored~n", []);
 format({restore, RestoreRes}) ->
-    FLen = lists:max([length(atom_to_list(_F)) || {_F, _} <- RestoreRes]),
+    FLen = lists:max([length(if is_atom(_F) -> atom_to_list(_F); true -> _F end) || {_F, _} <- RestoreRes]),
     Header = lists:flatten(io_lib:format("~*s ~-10s ~-10s ~-10s", [-FLen, "name", "identical", "replaced", "added"])),
     Sep = lists:duplicate(length(Header),$-),
     ?P("~s~n", [Sep]),
     ?P("~s~n", [Header]),
     ?P("~s~n", [Sep]),
-    [case Res of
-       {I,E,A} ->
-           ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, atom_to_list(T), length(I), length(E), length(A)]);
-       Error -> ?P("~*s ~p~n", [-FLen, atom_to_list(T), Error])
+    [begin
+        _T = if is_atom(T) -> atom_to_list(T); true -> T end,
+        case Res of
+           {I,E,A} ->
+               ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, _T, length(I), length(E), length(A)]);
+           Error -> ?P("~*s ~p~n", [-FLen, _T, Error])
+        end
     end
     || {T, Res} <- RestoreRes],
     ?P("~s~n", [Sep]);

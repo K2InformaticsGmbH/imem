@@ -131,7 +131,7 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
     end;
 
 handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
-    ?Info("paused timer"),
+    ?Debug("timer paused"),
     case SnapTimer of
         undefined -> ok;
         SnapTimer -> erlang:cancel_timer(SnapTimer)
@@ -327,7 +327,7 @@ restore_chunked(Tab, Strategy, Simulate) ->
 restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
     {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
     if (Simulate /= true) andalso (Strategy =:= destroy)
-        -> imem_meta:truncate_table(Tab);
+        -> catch imem_meta:truncate_table(Tab);
         true -> ok
     end,
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {[],[],[]}).
@@ -360,15 +360,18 @@ read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
 restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Debug("restore properties ~p", [UserProperties]),
     [begin
-        mnesia:write_table_property(Tab,P),
         case P of
             #ddTable{} ->
-                ?Info("creating table ~p with properties ~p", [Tab, P]),
-                catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner);
+                Res = (catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner)),
+                ?Debug("creating table ~p", [Tab]),
+                ?Debug(" with properties ~p~n result ~p", [P]),
+                ?Debug(" result ~p", [Res]);
             _ -> ok
-        end
+        end,
+        mnesia:write_table_property(Tab,P)
     end
     || P <- UserProperties],
+    ?Debug("all user_properties restored for ~p", [Tab]),
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts);
 restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}) when is_list(Rows) ->
     ?Debug("restore rows ~p", [length(Rows)]),

@@ -163,6 +163,7 @@ end
         , meta_field_info/1
         , meta_field_value/1
         , column_infos/1
+        , from_column_infos/1
         , column_info_items/2
         ]).
 
@@ -618,6 +619,12 @@ column_infos(Names, Types, Defaults)->
     end,
     [#ddColumn{name=list_to_atom(lists:flatten(io_lib:format("~p", [N]))), type=T, default=D} || {N,T,D} <- lists:zip3(Names, Types, Defaults)].
 
+from_column_infos([#ddColumn{}|_] = ColumnInfos) ->
+    ColumnNames = column_info_items(ColumnInfos, name),
+    ColumnTypes = column_info_items(ColumnInfos, type),
+    DefaultRecord = list_to_tuple([rec|column_info_items(ColumnInfos, default)]),
+    {ColumnNames, ColumnTypes, DefaultRecord}.
+
 create_table(Table, Columns, Opts) ->
     create_table(Table, Columns, Opts, #ddTable{}#ddTable.owner).
 
@@ -634,6 +641,9 @@ create_table(Table, ColumnNames, Opts, Owner) ->
 create_check_table(Table, Columns, Opts) ->
     create_check_table(Table, Columns, Opts, (#ddTable{})#ddTable.owner).
 
+create_check_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
+    {ColumnNames, ColumnTypes, DefaultRecord} = from_column_infos(ColumnInfos),
+    create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner);
 create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
