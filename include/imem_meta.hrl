@@ -88,7 +88,7 @@
                   , size                    ::integer()
                   , memory                  ::integer()
                   , expiry                  ::ddTimestamp()  %% expiry time (first ts of next partition)
-                  , ttl                     ::integer()      %% time until expiry (sec)                 
+                  , tte                     ::integer()      %% time until expiry (sec)                 
                   }
        ).
 -define(ddSize, [atom, integer, integer, timestamp, integer]).

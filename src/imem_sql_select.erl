@@ -955,7 +955,7 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R5r) > 0),
 
         R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, 
-            "select name(qname), nodef(ttl) 
+            "select name(qname), nodef(tte) 
              from ddTable, ddSize
              where name = element(2,qname)"
         ),
@@ -963,18 +963,18 @@ test_with_or_without_sec(IsSec) ->
         ?Log("Full Result R5s: ~n~p~n", [R5s]),
 
         R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
-            "select name(qname), ttl 
+            "select name(qname), tte 
              from ddTable, ddSize
-             where element(2,qname) = name and ttl <> undefined"
+             where element(2,qname) = name and tte <> undefined"
         ),
         % ?Log("Result R5t DIFF: ~n~p~n", [R5s -- R5t]),
         ?assert(length(R5t) > 0),
         ?assert(length(R5t) < length(R5s)),
 
         R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
-            "select name(qname), ttl 
+            "select name(qname), tte 
              from ddTable, ddSize
-             where element(2,qname) = name and ttl = undefined"
+             where element(2,qname) = name and tte = undefined"
         ),
         % ?Log("Result R5u DIFF: ~n~p~n", [R5s -- R5u]),
         ?assert(length(R5u) > 0),
@@ -982,9 +982,9 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R5t) + length(R5u) == length(R5s)),
 
         R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, 
-            "select name(qname), size, ttl 
+            "select name(qname), size, tte 
              from ddTable, ddSize
-             where element(2,qname) = name and ttl <> undefined and ttl > 0"
+             where element(2,qname) = name and tte <> undefined and tte > 0"
         ),
         ?assert(length(R5v) > 0),
 
