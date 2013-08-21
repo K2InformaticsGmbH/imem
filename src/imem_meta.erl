@@ -143,7 +143,7 @@ end
         , physical_table_names/1
         , parse_table_name/1
         , is_system_table/1
-        , is_local_table/1
+        , is_readable_table/1
         , is_time_partitioned_alias/1
         , is_local_time_partitioned_table/1
         , is_node_sharded_alias/1
@@ -1189,10 +1189,10 @@ data_nodes() ->
 all_tables() ->
     imem_if:all_tables().
 
-is_local_table({_Schema,Table}) ->
-    is_local_table(Table);   %% ToDo: may depend on schema
-is_local_table(Table) ->
-    imem_if:is_local_table(Table).
+is_readable_table({_Schema,Table}) ->
+    is_readable_table(Table);   %% ToDo: may depend on schema
+is_readable_table(Table) ->
+    imem_if:is_readable_table(Table).
 
 node_shard() ->
     case application:get_env(imem, node_shard) of

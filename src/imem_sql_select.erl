@@ -955,12 +955,12 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R5r) > 0),
 
         R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, 
-            "select name(qname), ttl 
+            "select name(qname), nodef(ttl) 
              from ddTable, ddSize
              where name = element(2,qname)"
         ),
         ?assertEqual(length(R5s),length(R5r)),
-        % ?Log("Full Result R5s: ~n~p~n", [R5s]),
+        ?Log("Full Result R5s: ~n~p~n", [R5s]),
 
         R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
             "select name(qname), ttl 

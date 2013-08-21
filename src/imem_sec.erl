@@ -10,7 +10,7 @@
         , system_id/1
         , data_nodes/1
         , all_tables/1
-        , is_local_table/2
+        , is_readable_table/2
         , tables_starting_with/2
         , node_shard/1
         , physical_table_name/2
@@ -220,9 +220,9 @@ all_selectable_tables(SKey, [Table|Rest], Acc0) ->
     end,
     all_selectable_tables(SKey, Rest, Acc1).
 
-is_local_table(SKey,Table) ->
+is_readable_table(SKey,Table) ->
     case have_table_permission(SKey, Table, select) of
-        true ->     imem_meta:is_local_table(Table);
+        true ->     imem_meta:is_readable_table(Table);
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 

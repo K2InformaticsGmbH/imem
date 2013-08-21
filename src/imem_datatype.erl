@@ -8,7 +8,7 @@
 -define(rawTypeStr,binary).
 -define(emptyStr,<<>>).
 
--define(ROWFUN_EXTENSIONS,[{name,1},{text,1}
+-define(ROWFUN_EXTENSIONS,[{name,1},{text,1},{nodef,1}
                           ,{item1,1},{item2,1},{item3,1},{item4,1}
                           ,{item5,1},{item6,1},{item7,1},{item8,1},{item9,1}
                           % ,{item,2},{concat,2},{concat,3},{concat,4}
@@ -159,15 +159,7 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
 
 select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     lists:reverse(Acc);
-select_rowfun_str(Recs, [#ddColMap{type=T,prec=P,tind=Ti,cind=Ci,func=undefined}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
-    Str = case element(Ti,Recs) of
-        undefined ->
-            ?emptyStr;
-        Rec ->
-            db_to_io(T, P, DateFmt, NumFmt, StrFmt, element(Ci,Rec))
-    end,
-    select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
-select_rowfun_str(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+select_rowfun_str(Recs, [#ddColMap{type=T,prec=P,tind=Ti,cind=Ci,func=F,default=D}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = case element(Ti,Recs) of
         undefined ->    
             ?emptyStr;
@@ -175,18 +167,21 @@ select_rowfun_str(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], DateFmt, Num
             X = element(Ci,Rec),
             try
                 case F of
-                    name ->     name(X);
-                    text ->     text(X);
-                    item1 ->    item1(X);
-                    item2 ->    item2(X);
-                    item3 ->    item3(X);
-                    item4 ->    item4(X);
-                    item5 ->    item5(X);
-                    item6 ->    item6(X);
-                    item7 ->    item7(X);
-                    item8 ->    item8(X);
-                    item9 ->    item9(X);
-                    Name ->     ?UnimplementedException({"Unimplemented row function",Name})
+                    undefined ->        db_to_io(T, P, DateFmt, NumFmt, StrFmt, X);
+                    name ->             name(X);
+                    text ->             text(X);
+                    nodef when X==D ->  ?emptyStr;
+                    nodef ->            db_to_io(T, P, DateFmt, NumFmt, StrFmt, X);
+                    item1 ->            item1(X);
+                    item2 ->            item2(X);
+                    item3 ->            item3(X);
+                    item4 ->            item4(X);
+                    item5 ->            item5(X);
+                    item6 ->            item6(X);
+                    item7 ->            item7(X);
+                    item8 ->            item8(X);
+                    item9 ->            item9(X);
+                    Name ->             ?UnimplementedException({"Unimplemented row function",Name})
                 end
             catch
                 _:Reason ->  ?SystemException({"Failed row function",{F,X,Reason}})

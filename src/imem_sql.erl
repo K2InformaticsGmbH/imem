@@ -346,7 +346,13 @@ simplify_once({'/=', Left, Right}) when is_number(Left), is_number(Right) -> (Le
 simplify_once({ _Op, _, join}) ->       join;
 simplify_once({ _Op, join, _Right}) ->  join;
 simplify_once({'element', N, Tup}) when is_integer(N),is_tuple(Tup) ->  element(N,Tup);
-% simplify_once({'hd', List}) when is_list(List) ->                       hd(List);
+simplify_once({'size', Tup}) when is_tuple(Tup) ->                      size(Tup);
+simplify_once({'hd', List}) when is_list(List) ->                       hd(List);
+simplify_once({'tl', List}) when is_list(List) ->                       tl(List);
+simplify_once({'length', List}) when is_list(List) ->                   length(List);
+simplify_once({'abs', N}) when is_number(N) ->                          abs(N);
+simplify_once({'round', N}) when is_number(N) ->                        round(N);
+simplify_once({'trunc', N}) when is_number(N) ->                        trunc(N);
 simplify_once({ Op, Left, Right}) ->    {Op, simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', join}) ->         join; 
 simplify_once({'not', true}) ->         false; 

@@ -4,6 +4,8 @@
 -include("imem.hrl").
 -include("imem_if.hrl").
 
+-define(TABLE_INFO_RPC_TIMEOUT,10000).
+
 % gen_server
 -record(state, {}).
 
@@ -22,7 +24,7 @@
         , system_id/0
         , data_nodes/0
         , all_tables/0
-        , is_local_table/1
+        , is_readable_table/1
         , table_type/1
         , table_columns/1
         , table_info/2
@@ -178,49 +180,57 @@ data_nodes() -> [{schema(N),N} || N <- mnesia:system_info(running_db_nodes)].
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
 
-is_local_table(Table) ->
+is_readable_table(Table) ->
     try
         case mnesia:table_info(Table, where_to_read) of
             nowhere ->  false;
             _ ->        true
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table});
+        _:{aborted,{no_exists,_,_}} ->  false;
         _:Error ->                      ?SystemExceptionNoLogging(Error)
     end.  
 
 table_type(Table) ->
-    mnesia:table_info(Table, type).
+    table_info(Table, type).
 
 table_columns(Table) ->
-    mnesia:table_info(Table, attributes).
+    table_info(Table, attributes).
 
 table_info(Table, InfoKey) ->
-    mnesia:table_info(Table, InfoKey).
+    Node = node(),
+    try
+        case mnesia:table_info(Table, where_to_read) of
+            nowhere ->  
+                ?ClientErrorNoLogging({"Table info cannot be read", {Table,InfoKey}});
+            Node ->     
+                mnesia:table_info(Table, InfoKey);
+            Other ->    
+                case rpc:call(Other,mnesia,table_info,[Table, InfoKey], ?TABLE_INFO_RPC_TIMEOUT) of
+                    {badrpc,Reason} ->
+                        ?ClientErrorNoLogging({"Table info is not accessible by rpc", Reason});
+                    Result ->
+                        Result    
+                end
+        end
+    catch
+        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table});
+        _:Error ->                      ?SystemExceptionNoLogging(Error)
+    end.  
 
 table_record_name(Table) ->
     table_info(Table, record_name).
     
 table_size(Table) ->
-    % record count in Table
-    case is_local_table(Table) of
-        false ->  ?ClientErrorNoLogging({"Cannot evaluate size of remote table", Table});
-        true  ->  mnesia:table_info(Table, size)
-                  %% is_local_table() needed to catch non existing table
-    end.
+    table_info(Table, size).
 
 table_memory(Table) ->
-    % memory in bytes occupied by Table
-    case is_local_table(Table) of
-        false ->  ?ClientErrorNoLogging({"Cannot evaluate memory of remote table", Table});
-        true ->   mnesia:table_info(Table, memory) * erlang:system_info(wordsize)
-                  %% is_local_table() needed to catch non existing table
-    end.  
+    table_info(Table, memory) * erlang:system_info(wordsize).  
 
 check_table(Table) ->
-    % return ok for local loaded table, throw exception 
-    case is_local_table(Table) of
-        false ->  ?ClientErrorNoLogging({"This is a remote table", Table});
+    % return ok for readable table, throw exception otherwise 
+    case is_readable_table(Table) of
+        false ->  ?ClientErrorNoLogging({"This table is not readable", Table});
         true  ->  ok
     end.
 
