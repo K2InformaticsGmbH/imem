@@ -1332,16 +1332,20 @@ read(Table) ->
 read({_Schema,Table}, Key) -> 
     read(Table, Key);
 read(ddNode,Node) when is_atom(Node) ->
-    try
-        [#ddNode{ name=Node
-                 , wall_clock=element(1,rpc:call(Node,erlang,statistics,[wall_clock],?DDNODE_TIMEOUT))
-                 , time=rpc:call(Node,erlang,now,[],?DDNODE_TIMEOUT)
-                 , extra=[]     
-                 }       
-        ]
-    catch
-        Class:Reason ->
-            ?Debug("ddNode evaluation error ~p:~p~n", [Class,Reason]),
+    case rpc:call(Node,erlang,statistics,[wall_clock],?DDNODE_TIMEOUT) of
+        {WC,WCDiff} when is_integer(WC), is_integer(WCDiff) ->
+            case rpc:call(Node,erlang,now,[],?DDNODE_TIMEOUT) of
+                {Meg,Sec,Mic} when is_integer(Meg),is_integer(Sec),is_integer(Mic) ->                        
+                    [#ddNode{ name=Node
+                             , wall_clock=WC
+                             , time={Meg,Sec,Mic}
+                             , extra=[]     
+                             }       
+                    ];
+                _ ->    
+                    []
+            end;
+         _ -> 
             []
     end;
 read(ddNode,_) -> [];

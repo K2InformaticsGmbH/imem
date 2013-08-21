@@ -962,13 +962,14 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(length(R5s),length(R5r)),
         ?Log("Full Result R5s: ~n~p~n", [R5s]),
 
-        % R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
-        %     "select name(qname), expiry, ttl 
-        %      from ddTable, ddSize
-        %      where element(2,qname) = name and ttl > 0 and ttl <> undefined"
-        % ),
-        % ?assert(length(R5t) > 0),
-        % ?Log("Full Result R5t: ~n~p~n", [R5t]),
+        R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
+            "select name(qname), expiry, ttl 
+             from ddTable, ddSize
+             where element(2,qname) = name and ttl > 0 and ttl <> undefined"
+        ),
+        ?Log("Full Result R5t: ~n~p~n", [R5t]),
+        ?assert(length(R5t) > 0),
+        ?assert(length(R5t) < length(R5s)),
 
         % R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
         %     "select name(qname), size, ttl 
