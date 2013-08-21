@@ -327,7 +327,7 @@ restore_chunked(Tab, Strategy, Simulate) ->
 restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
     {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
     if (Simulate /= true) andalso (Strategy =:= destroy)
-        -> ok = imem_meta:truncate_table(Tab);
+        -> imem_meta:truncate_table(Tab);
         true -> ok
     end,
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {[],[],[]}).
@@ -359,7 +359,16 @@ read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
 
 restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Debug("restore properties ~p", [UserProperties]),
-    [mnesia:write_table_properties(Tab,P) || P <- UserProperties],
+    [begin
+        mnesia:write_table_property(Tab,P),
+        case P of
+            #ddTable{} ->
+                ?Info("creating table ~p with properties ~p", [Tab, P]),
+                catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner);
+            _ -> ok
+        end
+    end
+    || P <- UserProperties],
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts);
 restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}) when is_list(Rows) ->
     ?Debug("restore rows ~p", [length(Rows)]),

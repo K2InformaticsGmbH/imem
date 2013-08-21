@@ -60,6 +60,9 @@
         , delete_object/2
         , update_tables/2
         , update_bound_counter/6
+        , write_table_property/2
+        , read_table_property/2
+        , delete_table_property/2
         ]).
 
 -export([ transaction/1
@@ -564,6 +567,10 @@ update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax)
             _ -> no_rows
         end
     end).
+
+write_table_property(Table, Prop)       -> mnesia:write_table_property(Table, Prop).
+read_table_property(Table, PropName)    -> mnesia:read_table_property(Table, PropName).
+delete_table_property(Table, PropName)  -> mnesia:delete_table_property(Table, PropName).
 
 update_xt({_Table,bag}, _Item, _Lock, {}, {}) ->
     ok;

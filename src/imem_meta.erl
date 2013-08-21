@@ -709,8 +709,10 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
     % ddTable Meta data is attempted to be inserted only if missing and 
     % DB reports that table already exists
     try
-        imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts)),
-        imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner})
+        % TODO : create_table and write(ddTable) should be executed in a single transaction
+        DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
+        imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+        imem_if:write(ddTable, DDTableRow)
     catch
         _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
             case imem_if:read(ddTable, {schema(),PhysicalName}) of
