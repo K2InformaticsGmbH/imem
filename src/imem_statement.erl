@@ -855,14 +855,15 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
-    ?Debug("Rec used for join bind ~p", [Rec]),
+    % ?Info("Rec used for join bind ~p", [Rec]),
     [{MatchHead, Guard0, [Result]}] = SSpec,
+    % ?Info("Join guard before bind : ~p", [Guard0]),
     Guard1 = case Guard0 of
         [] ->   [];
         _ ->    [join_bind(Rec, hd(Guard0), SBinds)]
     end,
     MaxSize = Limit+1000,
-    ?Debug("Join guard after bind : ~p", [Guard1]),
+    % ?Info("Join guard after bind : ~p", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, Guard1, [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->

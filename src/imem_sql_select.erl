@@ -955,35 +955,38 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R5r) > 0),
 
         R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, 
-            "select name(qname), size, expiry, ttl 
+            "select name(qname), ttl 
              from ddTable, ddSize
              where name = element(2,qname)"
         ),
         ?assertEqual(length(R5s),length(R5r)),
-        ?Log("Full Result R5s: ~n~p~n", [R5s]),
+        % ?Log("Full Result R5s: ~n~p~n", [R5s]),
 
         R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
-            "select name(qname), expiry, ttl 
+            "select name(qname), ttl 
              from ddTable, ddSize
-             where element(2,qname) = name and ttl > 0 and ttl <> undefined"
+             where element(2,qname) = name and ttl <> undefined"
         ),
-        ?Log("Full Result R5t: ~n~p~n", [R5t]),
+        % ?Log("Result R5t DIFF: ~n~p~n", [R5s -- R5t]),
         ?assert(length(R5t) > 0),
         ?assert(length(R5t) < length(R5s)),
 
-        % R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
-        %     "select name(qname), size, ttl 
-        %      from ddTable, ddSize
-        %      where element(2,qname) = name and ttl <> undefined"
-        % ),
-        % ?assert(length(R5u) > 0),
+        R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
+            "select name(qname), ttl 
+             from ddTable, ddSize
+             where element(2,qname) = name and ttl = undefined"
+        ),
+        % ?Log("Result R5u DIFF: ~n~p~n", [R5s -- R5u]),
+        ?assert(length(R5u) > 0),
+        ?assert(length(R5u) < length(R5s)),
+        ?assert(length(R5t) + length(R5u) == length(R5s)),
 
-        % R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, 
-        %     "select name(qname), size, ttl 
-        %      from ddTable, ddSize
-        %      where element(2,qname) = name and ttl = undefined"
-        % ),
-        % ?assert(length(R5v) > 0),
+        R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, 
+            "select name(qname), size, ttl 
+             from ddTable, ddSize
+             where element(2,qname) = name and ttl <> undefined and ttl > 0"
+        ),
+        ?assert(length(R5v) > 0),
 
     %% sorting
 

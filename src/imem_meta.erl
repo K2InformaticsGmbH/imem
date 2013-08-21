@@ -280,7 +280,7 @@ create_partitioned_table(Name) when is_atom(Name) ->
                 case catch(check_table(Name)) of
                     ok ->   ok;
                     Res ->
-                        ?Info("Waiting for partitioned table ~p results in ~p", [Name,Res]),
+                        ?Info("Waiting for partitioned table ~p needed because of ~p", [Name,Res]),
                         case mnesia:wait_for_tables([Name], 30000) of
                             ok ->   ok;   
                             Error ->            
@@ -1355,16 +1355,16 @@ read(ddSize,Table) ->
         true ->
             case (catch {table_size(PTN),table_memory(PTN), time_of_partition_expiry(PTN),time_to_partition_expiry(PTN)}) of
                 {S,M,E,T} when is_integer(S),is_integer(M) -> 
-                    [{ddSize,Table,S,M,E,T}];
+                    [{ddSize,PTN,S,M,E,T}];
                 _ ->                    
-                    [{ddSize,Table,undefined,undefinded,undefined,undefinded}]
+                    [{ddSize,PTN,undefined,undefined,undefined,undefined}]
             end;
         false ->
             case (catch {table_size(PTN),table_memory(PTN)}) of
                 {S,M} when is_integer(S),is_integer(M) -> 
-                    [{ddSize,Table,S,M,undefined,undefinded}];
+                    [{ddSize,PTN,S,M,undefined,undefined}];
                 _ ->                    
-                    [{ddSize,Table,undefined,undefinded,undefined,undefinded}]
+                    [{ddSize,PTN,undefined,undefined,undefined,undefined}]
             end
     end;            
 read(Table, Key) -> 
@@ -1428,22 +1428,11 @@ select(ddSize, MatchSpec, _Limit) ->
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
-
-%   [{{'_','$1','$2','$3','$4'},[{'==',nonode@nohost,'$1'}],['$_']}]
-%   [{ MatchHead               ,[         Guard           ],['$_']}]
-
 select_virtual(Table, [{_,[],['$_']}]) ->
     {read(Table),true};                %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     Tag = element(2,MatchHead),
-    % Candidates = case Guard of
-    %     {'==',Tag,{element,N,Tup1}} ->  read(Table,element(N,Tup1));
-    %     {'==',{element,N,Tup2},Tag} ->  read(Table,element(N,Tup2));
-    %     {'==',Tag,Val1} ->              read(Table,Val1);
-    %     {'==',Val2,Tag} ->              read(Table,Val2);
-    %     _ ->                            read(Table)
-    % end,
-    % ?Info("Virtual Select Guard : ~p~n", [Guard]),
+    % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case imem_sql:operand_match(Tag,Guard) of
         false ->                        read(Table);
         {'==',Tag,{element,N,Tup1}} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
@@ -1458,7 +1447,7 @@ select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
     MS = ets:match_spec_compile(MatchSpec),
     Result = ets:match_spec_run(Candidates,MS),
-    % ?Info("Virtual Select Result  : ~p~n", [Candidates]),    
+    % ?Info("Virtual Select Result  : ~p~n", [Result]),    
     {Result, true}.
 
 select_sort(Table, MatchSpec)->
