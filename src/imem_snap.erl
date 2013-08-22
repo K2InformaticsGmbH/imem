@@ -241,7 +241,7 @@ take([all]) ->
 
 % multiple tables as list of strings or regex strings
 take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
-    FilteredSnapReadTables = lists:filter(fun(T) -> imem_meta:is_local_table(T) end, imem_meta:all_tables()),
+    FilteredSnapReadTables = lists:filter(fun(T) -> imem_meta:is_readable_table(T) end, imem_meta:all_tables()),
     ?Debug("tables readable for snapshot ~p", [FilteredSnapReadTables]),
 
     SelectedSnapTables = lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
@@ -412,7 +412,7 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
 
 all_snap_tables() ->
     lists:filter(fun(T) ->
-            	    imem_meta:is_local_table(T)
+            	    imem_meta:is_readable_table(T)
                     andalso not imem_meta:is_local_time_partitioned_table(T)
                 end, imem_meta:all_tables()).
 
