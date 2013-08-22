@@ -53,11 +53,8 @@
 	MemFreePerCent = FreeMemory / TotalMemory * 100,
 	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
 	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
-	       io:format(user,
-			 \"[~p] Free mem ~p% required min ~p%~n Purging \"
-			 \"in tables ~p~n\",
-			 [Os, MemFreePerCent, MIN_FREE_MEM_PERCENT,
-			  SortedPartTables]),
+	       io:format(user, \"Free mem ~p% required min ~p%~n\", [MemFreePerCent, MIN_FREE_MEM_PERCENT,]),
+	       %io:format(user, \"Possible purging canditate tables ~p~n\", [SortedPartTables]),
 	       MapFun = fun ({TRemain, RCnt, Class, TName} = Itm, A) ->
 				if TRemain < TABLE_EXPIRY_MARGIN_SEC ->
 				       ClassCnt = length([Spt
@@ -82,10 +79,12 @@
 						    end,
 						    SortedPartTables),
 		      [{_, _, _, T} | _] = _TruncCandidates,
+              imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"truncate table\"),
 		      imem_meta:truncate_table(T),
 		      io:format(user, \"[~p] Truncated table ~p~n\", [Os, T]);
 		  true ->
 		      [{_, _, _, T} | _] = DelCandidates,
+              imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"drop table\"),
 		      imem_meta:drop_table(T),
 		      io:format(user, \"[~p] Deleted table ~p~n\", [Os, T])
 	       end;

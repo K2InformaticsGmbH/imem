@@ -51,6 +51,9 @@
 -define(GET_SNAPSHOT_SCRIPT,?GET_IMEM_CONFIG(snapshotScript,[],true)).
 -define(GET_SNAPSHOT_SCRIPT_FUN,?GET_IMEM_CONFIG(snapshotScriptFun,[],
 <<"fun() ->
+    ExcludeList = [dual, ddSize, ddNode,
+               imem_meta:physical_table_name(ddSeCo@),
+               imem_meta:physical_table_name(mproConnectionProbe@)],
     [(fun() ->
         case imem_snap:get_snap_timestamps(T) of
             [] -> ok;
@@ -73,7 +76,7 @@
                 end
         end
       end)()
-    || T <- imem_snap:all_snap_tables()],
+    || T <- imem_snap:all_snap_tables() -- ExcludeList],
     ok
 end.">>)).
 
