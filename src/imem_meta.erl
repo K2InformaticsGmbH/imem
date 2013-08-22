@@ -1391,7 +1391,7 @@ get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
     get_config_hlk(Table, Key, Owner, Context, Default);
 get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list(Context), is_atom(Owner) ->
     Remark = list_to_binary(["auto_provisioned from ",io_lib:format("~p",[Context])]),
-    case read_hlk(Table, [Key|Context]) of
+    case (catch read_hlk(Table, [Key|Context])) of
         [] ->                                   
             %% no value found, create global config with default value
             catch put_config_hlk(Table, Key, Owner, [], Default, Remark),
@@ -1423,7 +1423,10 @@ get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list
             end;
         [#ddConfig{val=Val}] ->
             %% config value is overridden by user, return that value
-            Val
+            Val;
+        _ ->
+            %% fallback in case ddConf is deleted in a running system
+            Default
     end.
 
 put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
