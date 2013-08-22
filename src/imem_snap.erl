@@ -110,15 +110,17 @@ init(_) ->
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
     case ?GET_SNAPSHOT_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
-            {SnapHash,SnapFun} = case {?GET_SNAPSHOT_SCRIPT, ?GET_SNAPSHOT_SCRIPT_FUN} of
-                {false, _} ->       {undefined,undefined};
-                {true, <<"">>} ->   {undefined,undefined};
-                {true, SFunStr} ->
-                    ?Debug("snapshot fun ~p", [SFunStr]),
-                    case erlang:phash2(SFunStr) of
-                        SHash   -> {SHash,SFun};
-                        H1      -> {H1,imem_meta:compile_fun(SFunStr)}
-                    end
+            {SnapHash,SnapFun} = case ?GET_SNAPSHOT_SCRIPT of
+                false -> {undefined,undefined};
+                true -> case ?GET_SNAPSHOT_SCRIPT_FUN of
+                    <<"">> -> {undefined,undefined};
+                    SFunStr ->
+                        ?Debug("snapshot fun ~p", [SFunStr]),
+                        case erlang:phash2(SFunStr) of
+                            SHash   -> {SHash,SFun};
+                            H1      -> {H1,imem_meta:compile_fun(SFunStr)}
+                        end
+                end
             end,
             do_snapshot(SnapFun),
             ?Debug("again after ~p", [MCW]),

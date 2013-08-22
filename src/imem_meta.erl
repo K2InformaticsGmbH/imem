@@ -175,8 +175,8 @@ end
         , failing_function/1
         , imem_monitor/0
         , imem_monitor/2
-        , get_config_hlk/4 
-        , put_config_hlk/5 
+        , get_config_hlk/5
+        , put_config_hlk/6
         ]).
 
 -export([ create_table/3
@@ -1387,25 +1387,36 @@ read_hlk({_Schema,Table}, HListKey) ->
 read_hlk(Table,HListKey) ->
     imem_if:read_hlk(Table,HListKey).
 
-get_config_hlk({_Schema,Table}, Key, Context, Default) ->
-    get_config_hlk(Table, Key, Context, Default);
-get_config_hlk(Table, Key, Context, Default) when is_atom(Table), is_list(Context) ->
+get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
+    get_config_hlk(Table, Key, Owner, Context, Default);
+get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list(Context), is_atom(Owner) ->
     Remark = list_to_binary(["auto_provisioned from ",io_lib:format("~p",[Context])]),
     case read_hlk(Table, [Key|Context]) of
         [] ->                                   
             %% no value found, create global config with default value
-            catch put_config_hlk(Table, Key, [], Default, Remark),
+            catch put_config_hlk(Table, Key, Owner, [], Default, Remark),
             Default;
         [#ddConfig{val=Default, hkl=[Key]}] ->    
             %% global config is relevant and matches default
             Default;
-        [#ddConfig{val=OldVal, hkl=[Key], remark=R}] ->
+        [#ddConfig{val=OldVal, hkl=[Key], remark=R, owner=DefOwner}] ->
             %% global config is relevant and differs from default
             case binary:longest_common_prefix([R,<<"auto_provisioned">>]) of
                 16 ->
-                    %% comment starts with default comment, overwrite the default   
-                    catch put_config_hlk(Table, Key, [], Default, Remark),
-                    Default;
+                    %% comment starts with default comment may be overwrite
+                    case {DefOwner, Owner} of
+                        _ when
+                                  ((?MODULE     =:= DefOwner)
+                            orelse (Owner       =:= DefOwner)                            
+                            orelse (undefined   =:= DefOwner)) ->
+                            %% was created by imem_meta and/or same module
+                            %% overwrite the default
+                            catch put_config_hlk(Table, Key, Owner, [], Default, Remark),
+                            Default;
+                        _ ->
+                            %% being accessed by non creator, protect creator's config value
+                            OldVal
+                    end;
                 _ ->    
                     %% comment was changed by user, protect his config value
                     OldVal
@@ -1415,10 +1426,10 @@ get_config_hlk(Table, Key, Context, Default) when is_atom(Table), is_list(Contex
             Val
     end.
 
-put_config_hlk({_Schema,Table}, Key, Context, Value, Remark) ->
-    put_config_hlk(Table, Key, Context, Value, Remark);
-put_config_hlk(Table, Key, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
-    write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark}).   
+put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
+    put_config_hlk(Table, Key, Owner, Context, Value, Remark);
+put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
+    write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
 
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
@@ -1796,10 +1807,10 @@ meta_operations(_) ->
         ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)),
         ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value1)),
         ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)),
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, [],test_value2,<<"Test Remark">>)),
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, ?MODULE, [],test_value2,<<"Test Remark">>)),
         ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value3)),
         ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value2}],read(test_config)),
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, [test_context],context_value,<<"Test Remark">>)),
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, ?MODULE, [test_context],context_value,<<"Test Remark">>)),
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value)),
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context,details], test_value)),
         ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, [another_context,details], another_value)),

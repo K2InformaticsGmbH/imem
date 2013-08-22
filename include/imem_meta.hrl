@@ -5,7 +5,7 @@
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 1 Day
 
 -define(GET_IMEM_CONFIG(__PName,__Context,__Default),
-        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},lists:flatten([__Context,node()]),__Default)
+        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
        ).
 
 -type ddEntityId() :: 	reference() | integer() | atom().
@@ -42,11 +42,12 @@
 
 -record(ddConfig,                           %% config record    
                   { hkl                     ::list()                    %% hierarchical key list [item,context1,context2,...]
-                  , val                     ::any()                     
+                  , val                     ::any()
+                  , owner                   ::atom()                    %% the module who owns this config
                   , remark= <<"">>          ::binary()                  %% create comments     
                   }
        ).
--define(ddConfig, [list,term,binstr]).
+-define(ddConfig, [list,term,atom,binstr]).
 
 -record(ddConfigHistory,                    %% config history record    
                   { hkl_time                ::tuple()                   %% {[item,context1,context2,...],erlang:now()}
