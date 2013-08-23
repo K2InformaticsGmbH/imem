@@ -53,7 +53,7 @@
 	MemFreePerCent = FreeMemory / TotalMemory * 100,
 	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
 	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
-	       io:format(user, \"Free mem ~p% required min ~p%~n\", [MemFreePerCent, MIN_FREE_MEM_PERCENT,]),
+	       io:format(user, \"Free mem ~p% required min ~p%~n\", [MemFreePerCent, MIN_FREE_MEM_PERCENT]),
 	       %io:format(user, \"Possible purging canditate tables ~p~n\", [SortedPartTables]),
 	       MapFun = fun ({TRemain, RCnt, Class, TName} = Itm, A) ->
 				if TRemain < TABLE_EXPIRY_MARGIN_SEC ->
