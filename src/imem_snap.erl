@@ -87,7 +87,7 @@ start_link(Params) ->
 
 init(_) ->
     ?Info("~p starting...~n", [?MODULE]),
-    ?Info("~s", [zip({re, "*.bkp"})]),
+    spawn(fun() -> ?Info("~s", [zip({re, "*.bkp"})]) end),
     SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
@@ -298,6 +298,7 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
             Files = [F
                     || F <- filelib:wildcard(filename:join([UnZipPath,"**","*.bkp"]))
                             , re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
+            ?Debug("restoring ~p from ~p", [Files,ZipFile]),
             Res = lists:foldl(
                 fun(SnapFile, Acc) ->
                     case filelib:is_dir(SnapFile) of
@@ -321,6 +322,7 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     end.
 
 restore_chunked(Tab, Strategy, Simulate) ->
+    ?Debug("restoring ~p by ~p", [Tab, Strategy]),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     Table = if
         is_atom(Tab) -> filename:rootname(filename:basename(atom_to_list(Tab)));
@@ -330,6 +332,7 @@ restore_chunked(Tab, Strategy, Simulate) ->
     restore_chunked(Tab, SnapFile, Strategy, Simulate).
 
 restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
+    ?Debug("restoring ~p from ~p by ~p", [Tab, SnapFile, Strategy]),
     {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
     if (Simulate /= true) andalso (Strategy =:= destroy)
         -> catch imem_meta:truncate_table(Tab);
