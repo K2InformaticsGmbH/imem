@@ -298,7 +298,7 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
             Files = [F
                     || F <- filelib:wildcard(filename:join([UnZipPath,"**","*.bkp"]))
                             , re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
-            ?Debug("restoring ~p from ~p", [Files,ZipFile]),
+            ?Debug("restoring ~p from ~p from ~p", [Files,ZipFile,UnZipPath]),
             Res = lists:foldl(
                 fun(SnapFile, Acc) ->
                     case filelib:is_dir(SnapFile) of
