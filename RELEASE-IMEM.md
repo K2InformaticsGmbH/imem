@@ -3,7 +3,7 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
-Version 1.2.3 (Release Date 28.08.2013)
+Version 1.2.2 (Release Date 29.08.2013)
 =======================================
 
 * add ddTable record to user_properties (included in shnapshot)
@@ -18,13 +18,12 @@ Version 1.2.3 (Release Date 28.08.2013)
 * bad_rpc issue fixed in ddNodes evaluation
 * ddSize typo fixed
 
-Version 1.2.2 (Release Date 15.08.2013)
-=======================================
-
 * use os_mon / lager for system monitoring
 * change logging from info to debug for drop_table, subscribem unsubscribe
 
 * snapshot issues fixed
+* snap for only local readable tables
+* snap restore and backup one file at a time
 
 Version 1.2.1 (Release Date 13.08.2013)
 =======================================
