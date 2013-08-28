@@ -3,6 +3,35 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.2.3 (Release Date 28.08.2013)
+=======================================
+
+* add ddTable record to user_properties (included in shnapshot)
+* extend timeout for snapshots
+* create table in restore using user_propertties if it does not exist
+* implement nodef() formatter function for suppressing default values in SQL select columns
+* add pseudocolumn expiry = time_of_partition_expiry()  to ddSize virtual table
+* add pseudocolumn tte = time_to_partition_expiry() to ddSize virtual table
+* add value owner to config entries and prevent different key owner from overwriting
+
+
+* bad_rpc issue fixed in ddNodes evaluation
+* ddSize typo fixed
+
+Version 1.2.2 (Release Date 15.08.2013)
+=======================================
+
+* use os_mon / lager for system monitoring
+* change logging from info to debug for drop_table, subscribem unsubscribe
+
+* snapshot issues fixed
+
+Version 1.2.1 (Release Date 13.08.2013)
+=======================================
+
+* change dependencies to forked own versions (for reproducability)
+* no functional changes
+
 Version 1.2.0 (Release Date 08.08.2013)
 =======================================
 
