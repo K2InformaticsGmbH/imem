@@ -19,6 +19,7 @@
         , zip/1
         , take/1
         , restore_chunked/3
+        , del_dirtree/1
         ]).
 
 % gen_server callbacks
@@ -292,7 +293,6 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
             erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
-            UnZipPath = filename:join([filename:dirname(filename:absname(ZipFile)), "_"++filename:basename(ZipFile,".zip")]),
             {ok,Fs} = zip:unzip(ZipFile),
             ?Debug("unzipped ~p from ~p", [Fs,ZipFile]),
             Files = [F
