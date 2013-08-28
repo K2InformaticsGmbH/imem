@@ -293,12 +293,11 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
         true ->
             erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
             UnZipPath = filename:join([filename:dirname(filename:absname(ZipFile)), "_"++filename:basename(ZipFile,".zip")]),
-            del_dirtree(UnZipPath),
-            zip:unzip(ZipFile, [{cwd,UnZipPath}]),
+            {ok,Fs} = zip:unzip(ZipFile),
+            ?Debug("unzipped ~p from ~p", [Fs,ZipFile]),
             Files = [F
-                    || F <- filelib:wildcard(filename:join([UnZipPath,"**","*.bkp"]))
-                            , re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
-            ?Debug("restoring ~p from ~p from ~p", [Files,ZipFile,UnZipPath]),
+                    || F <- Fs, re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
+            ?Debug("restoring ~p from ~p", [Files,ZipFile]),
             Res = lists:foldl(
                 fun(SnapFile, Acc) ->
                     case filelib:is_dir(SnapFile) of
