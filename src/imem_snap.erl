@@ -202,7 +202,7 @@ zip({files, SnapFiles}) ->
 
 % display information of existing snapshot or a snapshot bundle (.zip)
 info(bkp) ->
-    MTabs = imem_meta:all_tables(),
+    MTabs = lists:filter(fun(T) -> imem_meta:is_readable_table(T) end, imem_meta:all_tables()),
     MnesiaTables = [{atom_to_list(M), imem_meta:table_size(M), imem_meta:table_memory(M)} || M <- MTabs],
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     case filelib:is_dir(SnapDir) of
