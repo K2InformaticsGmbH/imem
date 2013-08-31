@@ -270,7 +270,13 @@ init(_Args) ->
     Result.
 
 create_partitioned_table_sync(Name) when is_atom(Name) ->
-    gen_server:call(?MODULE, {create_partitioned_table, Name},35000). 
+    ImemMetaPid = erlang:whereis(?MODULE),
+    case self() of
+        ImemMetaPid ->
+            {error,recursive_call};   %% cannot call myself
+        _ ->
+            gen_server:call(?MODULE, {create_partitioned_table, Name},35000)
+    end. 
 
 create_partitioned_table(Name) when is_atom(Name) ->
     try 
@@ -1497,8 +1503,14 @@ write(Table, Record) ->
             % ToDo: instruct imem_meta gen_server to create the table
             case is_time_partitioned_alias(Table) of
                 true ->
-                    create_partitioned_table_sync(PTN),
-                    imem_if:write(PTN, Record);
+                    case create_partitioned_table_sync(PTN) of
+                        ok ->   
+                            imem_if:write(PTN, Record);
+                        {error,recursive_call} ->
+                            ok; %% cannot create a new partition now, skip logging to database
+                        E ->
+                            ?ClientError({"Table partition cannot be created",{PTN,E}})
+                    end;        
                 false ->
                     ?ClientError({"Table does not exist",T})
             end;
@@ -1556,8 +1568,14 @@ dirty_write(Table, Record) ->
         throw:{'ClientError',{"Table does not exist",T}} ->
             case is_time_partitioned_alias(Table) of
                 true ->
-                    create_partitioned_table_sync(PTN),
-                    imem_if:dirty_write(PTN, Record);
+                    case create_partitioned_table_sync(PTN) of
+                        ok ->   
+                            imem_if:dirty_write(PTN, Record);
+                        {error,recursive_call} ->
+                            ok; %% cannot create a new partition now, skip logging to database
+                        E ->
+                            ?ClientError({"Table partition cannot be created",{PTN,E}})
+                    end;        
                 false ->
                     ?ClientError({"Table does not exist",T})
             end;
@@ -1587,15 +1605,17 @@ delete_object(Table, Row) ->
     imem_if:delete_object(physical_table_name(Table), Row).
 
 subscribe({table, Tab, Mode}) ->
-    log_to_db(debug,?MODULE,subscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"subscribe to mnesia"),
-    imem_if:subscribe({table, physical_table_name(Tab), Mode});
+    PTN = physical_table_name(Tab),
+    log_to_db(debug,?MODULE,subscribe,[{ec,{table, PTN, Mode}}],"subscribe to mnesia"),
+    imem_if:subscribe({table, PTN, Mode});
 subscribe(EventCategory) ->
     log_to_db(debug,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
     imem_if:subscribe(EventCategory).
 
 unsubscribe({table, Tab, Mode}) ->
-    log_to_db(debug,?MODULE,unsubscribe,[{ec,{table, physical_table_name(Tab), Mode}}],"unsubscribe from mnesia"),
-    imem_if:unsubscribe({table, physical_table_name(Tab), Mode});
+    PTN = physical_table_name(Tab),
+    log_to_db(debug,?MODULE,unsubscribe,[{ec,{table, PTN, Mode}}],"unsubscribe from mnesia"),
+    imem_if:unsubscribe({table, PTN, Mode});
 unsubscribe(EventCategory) ->
     log_to_db(debug,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
     imem_if:unsubscribe(EventCategory).
@@ -1653,6 +1673,7 @@ teardown(_) ->
     catch drop_table(meta_table_1),
     catch drop_table(tpTest_1000@),
     catch drop_table(test_config),
+    catch drop_table(fakelog_1@),
     ?imem_test_teardown().
 
 db_test_() ->
@@ -1805,22 +1826,43 @@ meta_operations(_) ->
         ?assert(length(MonRecs) > 0),
 
         ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)),
-        ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value1)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)),
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, ?MODULE, [],test_value2,<<"Test Remark">>)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value3)),
+        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default created, owner set
+        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, not_test_owner, [test_context], other_default)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default not overwritten, wrong owner
+        ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value1)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)), %% new default overwritten by owner
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [],test_value2,<<"Test Remark">>)),
+        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value3)),
         ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value2}],read(test_config)),
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, ?MODULE, [test_context],context_value,<<"Test Remark">>)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context], test_value)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, [test_context,details], test_value)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, [another_context,details], another_value)),
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context],context_value,<<"Test Remark">>)),
+        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
+        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
+        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
+        ?Log("success ~p~n", [get_config_hlk]),
+
+        ?assertEqual({error,{"Invalid table name",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name)),
+        ?assertEqual([],physical_table_names(fakelog_1@)),
+        ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
+        ?assertEqual(1,length(physical_table_names(fakelog_1@))),
+        LogRec3 = #ddLog{logTime=erlang:now(),logLevel=debug,pid=self()
+                        ,module=?MODULE,function=test,node=node()
+                        ,fields=[],message= <<>>,stacktrace=[]
+                    },
+        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)),
+        timer:sleep(1000),
+        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:now()})),
+        ?assertEqual(2,length(physical_table_names(fakelog_1@))),
+        timer:sleep(1100),
+        ?assertEqual(ok, create_partitioned_table_sync(physical_table_name(fakelog_1@))),
+        ?assertEqual(3,length(physical_table_names(fakelog_1@))),
+        ?Log("success ~p~n", [create_partitioned_table]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
         ?assertEqual(ok, drop_table(test_config)),
+        ?assertEqual(ok,drop_table(fakelog_1@)),
 
         ?Log("success ~p~n", [drop_tables])
     catch

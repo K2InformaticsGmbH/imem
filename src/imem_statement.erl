@@ -601,45 +601,40 @@ select_bind(MetaRec, Guard0, [B|Binds]) ->
     Guard1 = imem_sql:simplify_guard(select_bind_one(MetaRec, Guard0, B)),
     select_bind(MetaRec, Guard1, Binds).
 
-select_bind_one(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,element(Ci,MetaRec)};
-select_bind_one(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind(MetaRec,A,{Tag,Ti,Ci})};
+select_bind_one(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,bind_value(element(Ci,MetaRec))};
+select_bind_one(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind_one(MetaRec,A,{Tag,Ti,Ci})};
 select_bind_one(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> 
     case element(Ci,MetaRec) of
         {{_,_,_},{_,_,_}} = DT ->
-            offset_datetime(Op,DT,B);
+            {const,offset_datetime(Op,DT,B)};
         {Mega,Sec,Micro} ->
-            offset_timestamp(Op,{Mega,Sec,Micro},B);
+            {const,offset_timestamp(Op,{Mega,Sec,Micro},B)};
         Other ->
-            {Op,Other,B}
+            {Op,bind_value(Other),B}
     end;
 select_bind_one(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) -> 
     case element(Ci,MetaRec) of
         {{_,_,_},{_,_,_}} = DT ->
-            offset_datetime(Op,DT,A);
+            {const,offset_datetime(Op,DT,A)};
         {Mega,Sec,Micro} ->
-            offset_timestamp(Op,{Mega,Sec,Micro},A);
+            {const,offset_timestamp(Op,{Mega,Sec,Micro},A)};
         Other ->
-            {Op,A,Other}
+            {Op,A,bind_value(Other)}
     end;
 select_bind_one(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    BA=select_bind_one(MetaRec,A,{Tag,Ti,Ci}),
-    BB=select_bind_one(MetaRec,B,{Tag,Ti,Ci}),
-    case lists:member(Op,?ComparisonOperators) of
-        true ->     comparison_bind(Op,BA,BB);
-        false ->    {Op,BA,BB}
-    end;
-select_bind_one(_, A, _) -> A.
+    {Op,select_bind_one(MetaRec,A,{Tag,Ti,Ci}),select_bind_one(MetaRec,B,{Tag,Ti,Ci})};
+select_bind_one(_, A, _) -> 
+    bind_value(A).
+
+bind_value(Tup) when is_tuple(Tup) ->   {const,Tup};
+bind_value(Other) ->                    Other.
 
 join_bind(_Rec, Guard, []) -> Guard;
 join_bind(Rec, Guard0, [B|Binds]) ->
     Guard1 = imem_sql:simplify_guard(join_bind_one(Rec, Guard0, B)),
     join_bind(Rec, Guard1, Binds).
 
-join_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    
-    case element(Ci,element(Ti,Rec)) of
-        %% Tup when is_tuple(Tup) ->   {Op,{const,Tup}};  
-        Val ->                      {Op,Val}
-    end;
+join_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,bind_value(element(Ci,element(Ti,Rec)))};
 join_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind_one(Rec,A,{Tag,Ti,Ci})};
 join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  
     case element(Ci,element(Ti,Rec)) of
@@ -647,10 +642,8 @@ join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->
             offset_datetime(Op,DT,B);
         {Mega,Sec,Micro} ->
             offset_timestamp(Op,{Mega,Sec,Micro},B);
-        %% Tup when is_tuple(Tup) ->
-        %%    {Op,{const,Tup},B};
         Other ->
-            {Op,Other,B}
+            {Op,bind_value(Other),B}
     end;
 join_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
     case element(Ci,element(Ti,Rec)) of
@@ -658,36 +651,13 @@ join_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->
             offset_datetime(Op,DT,A);
         {Mega,Sec,Micro} ->
             offset_timestamp(Op,{Mega,Sec,Micro},A);
-        %% Tup when is_tuple(Tup) ->
-        %%     {Op,A,{const,Tup}};
         Other ->
-            {Op,A,Other}
+            {Op,A,bind_value(Other)}
     end;
 join_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    BA=join_bind_one(Rec,A,{Tag,Ti,Ci}),
-    BB=join_bind_one(Rec,B,{Tag,Ti,Ci}),
-    case lists:member(Op,?ComparisonOperators) of
-        true ->     comparison_bind(Op,BA,BB);
-        false ->    {Op,BA,BB}
-    end;
-join_bind_one(_, A, _) ->               A.
-
-comparison_bind(Op,A,B) ->
-    AW = case A of
-        {Ma,Sa,Microa} when is_integer(Ma), is_integer(Sa), is_integer(Microa) -> {const,A}; 
-        {{Ya,Mona,Da},{_,_,_}} when is_integer(Ya), is_integer(Mona), is_integer(Da) -> {const,A};
-        A when size(A) =< 3 -> A;
-        A when is_tuple(A) -> {const,A};
-        A -> A
-    end,
-    BW = case B of
-        {Mb,Sb,Microb} when is_integer(Mb), is_integer(Sb), is_integer(Microb) -> {const,B};
-        {{Yb,Monb,Db},{_,_,_}} when is_integer(Yb), is_integer(Monb), is_integer(Db) -> {const,B};
-        B when size(B) =< 3 -> B;
-        B when is_tuple(B) -> {const,B};
-        B -> B
-    end,
-    {Op,AW,BW}.   
+    {Op,join_bind_one(Rec,A,{Tag,Ti,Ci}),join_bind_one(Rec,B,{Tag,Ti,Ci})};
+join_bind_one(_, A, _) ->
+    bind_value(A).
 
 make_filter_fun(_Ti, true, _FBinds)  ->
     fun(_X) -> true end;
@@ -855,15 +825,15 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
-    % ?Info("Rec used for join bind ~p", [Rec]),
+    ?Debug("Rec used for join bind ~p", [Rec]),
     [{MatchHead, Guard0, [Result]}] = SSpec,
-    % ?Info("Join guard before bind : ~p", [Guard0]),
+    ?Debug("Join guard before bind : ~p", [Guard0]),
     Guard1 = case Guard0 of
         [] ->   [];
         _ ->    [join_bind(Rec, hd(Guard0), SBinds)]
     end,
     MaxSize = Limit+1000,
-    % ?Info("Join guard after bind : ~p", [Guard1]),
+    ?Debug("Join guard after bind : ~p", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, Guard1, [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->
@@ -912,6 +882,8 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fgu
             ?UnimplementedException({"Unsupported virtual join guard",BadJG})
     end.
 
+generate_virtual(Table, {const,Items}, MaxSize) when is_tuple(Items) ->
+    generate_virtual(Table, tuple_to_list(Items), MaxSize);
 generate_virtual(Table, Items, MaxSize) when is_tuple(Items) ->
     generate_virtual(Table, tuple_to_list(Items), MaxSize);
 

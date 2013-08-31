@@ -43,11 +43,11 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         {_, WT} ->  WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
-    % ?Debug("WhereTree ~p~n", [WhereTree]),
+    ?Debug("WhereTree ~p~n", [WhereTree]),
     MetaTabIdx = length(Tables) + 1,
     MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps1, C#ddColMap.tind==MetaTabIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
-    % ?Debug("MetaFields: ~p~n", [MetaFields]),
+    ?Debug("MetaFields: ~p~n", [MetaFields1]),
     RawMap = case MetaFields1 of
         [] ->   
             imem_sql:column_map(Tables,[]);
@@ -58,11 +58,11 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    % ?Debug("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
+    ?Debug("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
-    % ?Debug("MainSpec  : ~p~n", [MainSpec]),
+    ?Debug("MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    %?Debug("JoinSpecs: ~p~n", [JoinSpecs]),
+    ?Debug("JoinSpecs: ~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
     SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
     Statement = Stmt#statement{
@@ -142,7 +142,7 @@ tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) ->
 tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)};
 tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
-    ?Debug("tree_walk expression lookup Expr: ~p~n", [Expr]),
+    % ?Debug("tree_walk expression lookup Expr: ~p~n", [Expr]),
     case expr_lookup(SKey,Tmax,Ti,Expr,FullMap) of
         {0,V1,integer,_,_,_,_} ->   field_value(0,integer,0,0,?nav,V1);   
         {0,V2,float,_,_,_,_} ->     field_value(0,float,0,0,?nav,V2);     
@@ -158,16 +158,16 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
         catch
             throw:{'JoinEvent','join_condition'} -> true;
             _:Reason2 ->
-                ?Debug("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-                ?Debug("Failing expression B: ~p~n", [B]),
+                ?Warn("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+                ?Warn("Failing expression B: ~p~n", [B]),
                 throw(Reason2)
         end,
         compguard(Tmax,Ti,OP,ExA,ExB)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason1 ->
-            ?Debug("Failing expression lookup in Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
-            ?Debug("Failing expression A: ~p~n", [A]),
+            ?Warn("Failing expression lookup in Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+            ?Warn("Failing expression A: ~p~n", [A]),
             throw(Reason1)
     end.
 
@@ -183,9 +183,9 @@ compguard(Tmax,Ti,OP,ExA,ExB) ->
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason ->
-            ?Debug("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,O]),
-            ?Debug("Failing condition A: ~p~n", [A]),
-            ?Debug("Failing condition B: ~p~n", [B]),
+            ?Warn("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,O]),
+            ?Warn("Failing condition A: ~p~n", [A]),
+            ?Warn("Failing condition B: ~p~n", [B]),
             throw(Reason)
     end.
 
@@ -987,6 +987,11 @@ test_with_or_without_sec(IsSec) ->
              where element(2,qname) = name and tte <> undefined and tte > 0"
         ),
         ?assert(length(R5v) > 0),
+
+        R5w = exec_fetch_sort(SKey, query5w, 100, IsSec, 
+            "select hkl from ddConfig where element ( 1 , hd ( hkl ) ) = imem"
+        ),
+        ?assert(length(R5w) > 0),
 
     %% sorting
 

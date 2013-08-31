@@ -179,12 +179,12 @@ column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc)
 column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     Cols = imem_meta:column_infos({Schema,Table}),
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
-    ?Debug("column_map lookup ~p", [Lookup++L]),
-    ?Debug("column_map columns ~p", [Columns]),
+    % ?Debug("column_map lookup ~p", [Lookup++L]),
+    % ?Debug("column_map columns ~p", [Columns]),
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Debug("column_map 1 ~p", [Cmap0]),
+    % ?Debug("column_map 1 ~p", [Cmap0]),
     NameList = [N ||  {_, _, _, _, N, _} <- Lookup],
     NameDups = length(Lookup) - length(lists:usort(NameList)),
     Cmaps = case NameDups of
@@ -203,10 +203,10 @@ column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Col
     end,
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Debug("column_map 2 ~p", [Cmap0]),
+    % ?Debug("column_map 2 ~p", [Cmap0]),
     column_map([], [Cmap0#ddColMap{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Debug("column_map 3 ~p", [Cmap0]),
+    % ?Debug("column_map 3 ~p", [Cmap0]),
     Prefix = case imem_meta:schema() of
         Schema ->   atom_to_list(Table);
         _ ->        atom_to_list(Schema) ++ "." ++ atom_to_list(Table)
@@ -219,16 +219,16 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], 
             ],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Debug("column_map 4 ~p~n", [Cmap0]),
+    % ?Debug("column_map 4 ~p~n", [Cmap0]),
     Pred = fun(L) ->
         (Name == element(5, L)) andalso
         ((Table == undefined) or (Table == element(4, L))) andalso
         ((Schema == undefined) or (Schema == element(3, L)))
     end,
     Lmatch = lists:filter(Pred, Lookup),
-    ?Debug("column_map matching tables ~p~n", [Lmatch]),
+    % ?Debug("column_map matching tables ~p~n", [Lmatch]),
     Tcount = length(lists:usort([{element(3, X), element(4, X)} || X <- Lmatch])),
-    ?Debug("column_map matching table count ~p~n", [Tcount]),
+    % ?Debug("column_map matching table count ~p~n", [Tcount]),
     MetaField = imem_meta:meta_field(Name),
     if 
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined) andalso MetaField ->
@@ -258,7 +258,7 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
 column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Debug("column_map 5 ~p", [PTree]),
+    % ?Debug("column_map 5 ~p", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
@@ -268,7 +268,7 @@ column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) 
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;        
 column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Debug("column_map 6 ~p", [PTree]),
+    % ?Debug("column_map 6 ~p", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
@@ -277,25 +277,25 @@ column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;                    
 column_map([], [{as, Name, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    ?Debug("column_map 7 ~p", [PTree]),
+    % ?Debug("column_map 7 ~p", [PTree]),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
-    ?Debug("column_map 8 ~p", [Name]),
+    % ?Debug("column_map 8 ~p", [Name]),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
-    ?Debug("column_map 9 ~p", [Expression]),
+    % ?Debug("column_map 9 ~p", [Expression]),
     ?UnimplementedException({"Expressions not supported", Expression});
 column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
     lists:reverse(Acc);
 column_map(Tables, Columns, Tmax, Lookup, Meta, Acc) ->
-    ?Debug("column_map error Tables ~p~n", [Tables]),
-    ?Debug("column_map error Columns ~p~n", [Columns]),
-    ?Debug("column_map error Tmax ~p~n", [Tmax]),
-    ?Debug("column_map error Lookup ~p~n", [Lookup]),
-    ?Debug("column_map error Meta ~p~n", [Meta]),
-    ?Debug("column_map error Acc ~p~n", [Acc]),
+    ?Warn("column_map error Tables ~p~n", [Tables]),
+    ?Warn("column_map error Columns ~p~n", [Columns]),
+    ?Warn("column_map error Tmax ~p~n", [Tmax]),
+    ?Warn("column_map error Lookup ~p~n", [Lookup]),
+    ?Warn("column_map error Meta ~p~n", [Meta]),
+    ?Warn("column_map error Acc ~p~n", [Acc]),
     ?ClientError({"Column map invalid parameter",{Tables,Columns}}).
 
 
@@ -345,8 +345,8 @@ simplify_once({'==', Left, Right}) when is_number(Left), is_number(Right) -> (Le
 simplify_once({'/=', Left, Right}) when is_number(Left), is_number(Right) -> (Left /= Right);
 simplify_once({ _Op, _, join}) ->       join;
 simplify_once({ _Op, join, _Right}) ->  join;
-simplify_once({'element', N, Tup}) when is_integer(N),is_tuple(Tup) ->  element(N,Tup);
-simplify_once({'size', Tup}) when is_tuple(Tup) ->                      size(Tup);
+simplify_once({'element', N, {const,Tup}}) when is_integer(N),is_tuple(Tup) ->  element(N,Tup);
+simplify_once({'size', {const,Tup}}) when is_tuple(Tup) ->                      size(Tup);
 simplify_once({'hd', List}) when is_list(List) ->                       hd(List);
 simplify_once({'tl', List}) when is_list(List) ->                       tl(List);
 simplify_once({'length', List}) when is_list(List) ->                   length(List);
@@ -375,7 +375,7 @@ create_scan_spec(_Tmax,Ti,FullMap,[]) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     #scanSpec{sspec=[{MatchHead, [], ['$_']}], limit=?GET_ROWNUM_LIMIT};
 create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
-    ?Debug("SGuard0 ~p", [SGuard0]),
+    % ?Debug("SGuard0 ~p", [SGuard0]),
     Limit = case operand_match(rownum,SGuard0) of
         false ->  ?GET_ROWNUM_LIMIT;            % #scanSpec{}#scanSpec.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
@@ -386,9 +386,9 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
-    ?Debug("MatchHead (~p) ~p", [Ti,MatchHead]),
+    % ?Debug("MatchHead (~p) ~p", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
-    ?Debug("SGuard1 ~p", [SGuard1]),
+    % ?Debug("SGuard1 ~p", [SGuard1]),
     {FGuard,SGuard2} = case operator_match('is_member',SGuard1) of
         false ->    case operator_match('nis_member',SGuard1) of
                         false ->    {true,SGuard1};   %% no filtering needed
