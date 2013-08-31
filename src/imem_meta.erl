@@ -36,7 +36,6 @@
 -define(GET_MONITOR_DUMP_FUN,?GET_IMEM_CONFIG(monitorDumpFun,[],<<"">>)).
 
 
-
 -define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],1001)).     %% 10000 = 10 sec
 -define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],5)).          %% 10 = 10 msec
 -define(GET_PURGE_SCRIPT,?GET_IMEM_CONFIG(purgeScript,[],false)).
