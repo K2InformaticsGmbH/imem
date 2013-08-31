@@ -17,12 +17,12 @@
 
 -define(LOG_TABLE_OPTS,    [{record_name,ddLog}
                            ,{type,ordered_set}
-                           ,{purge_delay,432000}        %% 5 Days
+                           ,{purge_delay,300}        %% 430000 = 5 Days - 2000 sec
                            ]).          
 
 -define(MONITOR_TABLE_OPTS,[{record_name,ddMonitor}
                            ,{type,ordered_set}
-                           ,{purge_delay,432000}    %% 5 Days
+                           ,{purge_delay,300}        %% 430000 = 5 Days - 2000 sec
                            ]).  
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
@@ -37,8 +37,8 @@
 
 
 
--define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],10000)).
--define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],10)).
+-define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],1001)).     %% 10000 = 10 Sec
+-define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],1)).          %% 10 = 10 msec
 -define(GET_PURGE_SCRIPT,?GET_IMEM_CONFIG(purgeScript,[],false)).
 -define(GET_PURGE_SCRIPT_FUN,?GET_IMEM_CONFIG(purgeScriptFun,[],
 <<"fun (PartTables) ->
