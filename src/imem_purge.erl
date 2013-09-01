@@ -169,7 +169,7 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
                                             % FreedMemory = table_memory(Tab),
                                             % Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
                                             % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"), %% cannot log here
-                                            imem_meta:drop_table_and_info(Tab)
+                                            imem_meta:drop_table(Tab)
                                     end
                             end
                     end
