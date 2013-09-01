@@ -848,7 +848,7 @@ drop_table_and_info(PhysicalName) ->
         imem_if:drop_table(PhysicalName),
         imem_if:delete(ddTable, {schema(),PhysicalName})
     catch
-        'ClientError':{"Table does not exist",_} ->
+        throw:{'ClientError',{"Table does not exist",_}} ->
             imem_if:delete(ddTable, {schema(),PhysicalName}),
             ok
     end.       
