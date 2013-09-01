@@ -761,7 +761,7 @@ truncate_table({Schema,Table}) ->
         _ ->        ?UnimplementedException({"Truncate table in foreign schema",{Schema,Table}})
     end;
 truncate_table(Alias) when is_atom(Alias) ->
-    log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
+    %% log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
     truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias)));
 truncate_table(TableName) ->
     truncate_table(imem_sql:table_qname(TableName)).
@@ -833,7 +833,7 @@ drop_table(ddTable) ->
 drop_table(?LOG_TABLE) ->
     drop_table_and_info(physical_table_name(?LOG_TABLE));
 drop_table(Alias) when is_atom(Alias) ->
-    log_to_db(debug,?MODULE,drop_table,[{table,Alias}],"drop table"),
+    %% log_to_db(debug,?MODULE,drop_table,[{table,Alias}],"drop table"),
     drop_partitioned_tables_and_infos(lists:sort(simple_or_local_node_sharded_tables(Alias)));
 drop_table(TableName) ->
     drop_table(imem_sql:table_qname(TableName)).
@@ -848,9 +848,9 @@ drop_table_and_info(PhysicalName) ->
         imem_if:drop_table(PhysicalName),
         imem_if:delete(ddTable, {schema(),PhysicalName})
     catch
-        throw:{'ClientError',{"Table does not exist",_}} ->
-            imem_if:delete(ddTable, {schema(),PhysicalName}),
-            ok
+        throw:{'ClientError',{"Table does not exist",Table}} ->
+            catch imem_if:delete(ddTable, {schema(),PhysicalName}),
+            throw({'ClientError',{"Table does not exist",Table}})
     end.       
 
 purge_table(Alias) ->

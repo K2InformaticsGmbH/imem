@@ -127,11 +127,15 @@ clone_seco(SKey, Pid) ->
 if_read(_SKey, Table, Key) -> 
     imem_meta:read(Table, Key).
 
-if_is_system_table(_SKey, Table) ->
+if_is_system_table(_SKey, {Schema,Table,_Alias}) ->
+    if_is_system_table(_SKey, Table);
+if_is_system_table(_SKey, Table) when is_atom(Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
         false ->    imem_meta:is_system_table(Table)
-    end.
+    end;
+if_is_system_table(_SKey, Table) ->
+    if_is_system_table(_SKey, imem_sql:table_qname(Table)).
 
 if_meta_field_list(_SKey) ->
     imem_meta:meta_field_list().
@@ -379,26 +383,36 @@ purge_table(SKey, Table, Opts) ->
     end.
 
 drop_user_table(SKey, Table, _AccountId) ->
-    case have_table_permission(SKey, Table, drop) of
-        true ->
+    case imem_seco:have_permission(SKey, manage_user_tables) of
+        true ->             
             imem_meta:drop_table(Table);
         false ->
-            case have_table_ownership(SKey, Table) of
-                true ->     imem_meta:drop_table(Table);
-                false ->    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
+            case have_table_permission(SKey, Table, drop) of
+                true ->
+                    imem_meta:drop_table(Table);
+                false ->
+                    case have_table_ownership(SKey, Table) of
+                        true ->     imem_meta:drop_table(Table);
+                        false ->    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
+                    end
             end
-    end. 
+    end.
 
 purge_user_table(SKey, Table, Opts, _AccountId) ->
-    case have_table_permission(SKey, Table, drop) of
-        true ->
+    case imem_seco:have_permission(SKey, manage_user_tables) of
+        true ->             
             imem_meta:purge_table(Table, Opts);
         false ->
-            case have_table_ownership(SKey, Table) of
-                true ->     imem_meta:purge_table(Table, Opts);
-                false ->    ?SecurityException({"Purge table unauthorized", {Table,SKey}})
+            case have_table_permission(SKey, Table, drop) of
+                true ->
+                    imem_meta:purge_table(Table, Opts);
+                false ->
+                    case have_table_ownership(SKey, Table) of
+                        true ->     imem_meta:purge_table(Table, Opts);
+                        false ->    ?SecurityException({"Purge table unauthorized", {Table,SKey}})
+                    end
             end
-    end. 
+    end.
 
 drop_system_table(SKey, Table, _AccountId) ->
     case imem_seco:have_permission(SKey, manage_system_tables) of
