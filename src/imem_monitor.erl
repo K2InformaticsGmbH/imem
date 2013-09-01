@@ -43,8 +43,8 @@
         , format_status/2
         ]).
 
--export([ monitor/0
-        , monitor/2
+-export([ write_monitor/0
+        , write_monitor/2
         ]).
 
 start_link(Params) ->
@@ -94,7 +94,7 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
                         H2 ->   {H2,imem_meta:compile_fun(DFStr)}
                     end      
             end,
-            monitor(EFun,DFun),
+            write_monitor(EFun,DFun),
             erlang:send_after(MCW, self(), imem_monitor_loop),
             {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
         _ ->
@@ -115,9 +115,9 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ------ MONITOR implementation -------------------------------------------------------
 
-monitor() -> monitor(undefined,undefined).
+write_monitor() -> write_monitor(undefined,undefined).
 
-monitor(ExtraFun,DumpFun) ->
+write_monitor(ExtraFun,DumpFun) ->
     try  
         Now = erlang:now(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
@@ -173,7 +173,7 @@ monitor_operations(_) ->
 
         ?Log("----TEST--~p:test_monitor~n", [?MODULE]),
 
-        ?assertEqual(ok, monitor()),
+        ?assertEqual(ok, write_monitor()),
         MonRecs = imem_meta:read(?MONITOR_TABLE),
         ?Log("MonRecs count ~p~n", [length(MonRecs)]),
         ?Log("MonRecs last ~p~n", [lists:last(MonRecs)]),
