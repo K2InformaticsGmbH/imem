@@ -89,6 +89,18 @@ init(_StartArgs) ->
         {ok, true} -> [?CHILD(imem_meta, worker, [], ImemTimeout)];
         _ -> []
     end
+    % imem_monitor
+    ++
+    case application:get_env(monitor_server) of
+        {ok, true} -> [?CHILD(imem_monitor, worker, [], ImemTimeout)];
+        _ -> []
+    end
+    % imem_purge
+    ++
+    case application:get_env(purge_server) of
+        {ok, true} -> [?CHILD(imem_purge, worker, [], ImemTimeout)];
+        _ -> []
+    end
     % imem_seco
     ++
     case application:get_env(seco_server) of

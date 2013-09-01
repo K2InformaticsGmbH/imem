@@ -20,95 +20,16 @@
                            ,{purge_delay,300}        %% 430000 = 5 Days - 2000 sec
                            ]).          
 
--define(MONITOR_TABLE_OPTS,[{record_name,ddMonitor}
-                           ,{type,ordered_set}
-                           ,{purge_delay,300}        %% 430000 = 5 Days - 2000 sec
-                           ]).  
-
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
--define(GET_MONITOR_CYCLE_WAIT,?GET_IMEM_CONFIG(monitorCycleWait,[],2000)).
--define(GET_MONITOR_EXTRA,?GET_IMEM_CONFIG(monitorExtra,[],true)).
--define(GET_MONITOR_EXTRA_FUN,?GET_IMEM_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,erlang:now()}] end.">>)).
--define(GET_MONITOR_DUMP,?GET_IMEM_CONFIG(monitorDump,[],false)).
--define(GET_MONITOR_DUMP_FUN,?GET_IMEM_CONFIG(monitorDumpFun,[],<<"">>)).
-
-
--define(GET_PURGE_CYCLE_WAIT,?GET_IMEM_CONFIG(purgeCycleWait,[],1001)).     %% 10000 = 10 sec
--define(GET_PURGE_ITEM_WAIT,?GET_IMEM_CONFIG(purgeItemWait,[],5)).          %% 10 = 10 msec
--define(GET_PURGE_SCRIPT,?GET_IMEM_CONFIG(purgeScript,[],false)).
--define(GET_PURGE_SCRIPT_FUN,?GET_IMEM_CONFIG(purgeScriptFun,[],
-<<"fun (PartTables) ->
-	MIN_FREE_MEM_PERCENT = 40,
-	TABLE_EXPIRY_MARGIN_SEC = -200,
-	SortedPartTables =
-	    lists:sort([{imem_meta:time_to_partition_expiry(T),
-			 imem_meta:table_size(T),
-			 lists:nth(3, imem_meta:parse_table_name(T)), T}
-			|| T <- PartTables]),
-    {Os, FreeMemory, TotalMemory} = imem_if:get_os_memory(),
-	MemFreePerCent = FreeMemory / TotalMemory * 100,
-	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
-	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
-	       io:format(user, \"Free mem ~p% required min ~p%~n\", [MemFreePerCent, MIN_FREE_MEM_PERCENT]),
-	       %io:format(user, \"Possible purging canditate tables ~p~n\", [SortedPartTables]),
-	       MapFun = fun ({TRemain, RCnt, Class, TName} = Itm, A) ->
-				if TRemain < TABLE_EXPIRY_MARGIN_SEC ->
-				       ClassCnt = length([Spt
-							  || Spt
-								 <- SortedPartTables,
-							     element(3, Spt) =:=
-							       Class]),
-				       if ClassCnt > 1 -> [Itm | A];
-					  true -> A
-				       end;
-				   true -> A
-				end
-			end,
-	       DelCandidates = lists:foldl(MapFun, [],
-					   SortedPartTables),
-	       if DelCandidates =:= [] ->
-		      _TruncCandidates = lists:sort(fun ({_, R1, _, _},
-							 {_, R2, _, _}) ->
-							    if R1 > R2 -> true;
-							       true -> false
-							    end
-						    end,
-						    SortedPartTables),
-		      [{_, _, _, T} | _] = _TruncCandidates,
-              imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"truncate table\"),
-		      imem_meta:truncate_table(T),
-		      io:format(user, \"[~p] Truncated table ~p~n\", [Os, T]);
-		  true ->
-		      [{_, _, _, T} | _] = DelCandidates,
-              imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"drop table\"),
-		      imem_meta:drop_table(T),
-		      io:format(user, \"[~p] Deleted table ~p~n\", [Os, T])
-	       end;
-	   true -> ok
-	end
-end
-">>)).
-
 -behavior(gen_server).
 
--record(state, {
-                 purgeList=[]               :: list()
-               , extraFun = undefined       :: any()
-               , extraHash = undefined      :: any()
-               , dumpFun = undefined        :: any()
-               , dumpHash = undefined       :: any()
-               , purgeFun = undefined       :: any()
-               , purgeHash = undefined      :: any()
-               }
-       ).
+-record(state, {}).
 
 -export([ start_link/1
         ]).
-
-% gen_server interface (monitoring calling processes)
 
 % gen_server behavior callbacks
 -export([ init/1
@@ -171,8 +92,6 @@ end
         , log_to_db/5
         , log_to_db/6
         , failing_function/1
-        , imem_monitor/0
-        , imem_monitor/2
         , get_config_hlk/5
         , put_config_hlk/6
         ]).
@@ -250,16 +169,10 @@ init(_Args) ->
         catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
         catch create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
         catch create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
-        catch create_check_table(?MONITOR_TABLE, {record_info(fields, ddMonitor),?ddMonitor, #ddMonitor{}}, ?MONITOR_TABLE_OPTS, system),    
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
             ok ->   catch write(dual,#dual{});
             _ ->    ok
         end,
-        % check_table(dual),
-        % check_table_columns(dual, {record_info(fields, dual),?dual, #dual{}}),
-        % check_table_meta(dual, {record_info(fields, dual), ?dual, #dual{}}),
-        erlang:send_after(10000, self(), purge_partitioned_tables),
-        erlang:send_after(2000, self(), imem_monitor_loop),
         ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -340,116 +253,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHash=DH} = State) ->
-    % save one imem_monitor record and trigger the next one
-    % ?Debug("imem_monitor_loop start~n",[]),
-    case ?GET_MONITOR_CYCLE_WAIT of
-        MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
-            {EHash,EFun} = case {?GET_MONITOR_EXTRA, ?GET_MONITOR_EXTRA_FUN} of
-                {false, _} ->       {undefined,undefined};
-                {true, <<"">>} ->   {undefined,undefined};
-                {true, EFStr} ->
-                    case erlang:phash2(EFStr) of
-                        EH ->   {EH,EF};
-                        H1 ->   {H1,compile_fun(EFStr)}
-                    end      
-            end,
-            {DHash,DFun} = case {?GET_MONITOR_DUMP, ?GET_MONITOR_DUMP_FUN} of
-                {false, _} ->       {undefined,undefined};
-                {true, <<"">>} ->   {undefined,undefined};
-                {true, DFStr} ->
-                    case erlang:phash2(DFStr) of
-                        DH ->   {DH,DF};
-                        H2 ->   {H2,compile_fun(DFStr)}
-                    end      
-            end,
-            imem_monitor(EFun,DFun),
-            erlang:send_after(MCW, self(), imem_monitor_loop),
-            {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
-        _ ->
-            ?Warn("running idle monitor with default timer ~p", [2000]),
-            erlang:send_after(2000, self(), imem_monitor_loop),
-            {noreply, State}
-    end;
-handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purgeList=[]}) ->
-    % restart purge cycle by collecting list of candidates
-    % ?Debug("Purge collect start~n",[]), 
-    case ?GET_PURGE_CYCLE_WAIT of
-        PCW when (is_integer(PCW) andalso PCW > 1000) ->    
-            Pred = fun imem_meta:is_local_time_partitioned_table/1,
-            case lists:sort(lists:filter(Pred,all_tables())) of
-                [] ->   
-                    erlang:send_after(PCW, self(), purge_partitioned_tables),
-                    {noreply, State};
-                PL ->   
-                    {PHash,PFun} = case {?GET_PURGE_SCRIPT, ?GET_PURGE_SCRIPT_FUN} of
-                        {false, _} ->       {undefined,undefined};
-                        {true, <<"">>} ->   {undefined,undefined};
-                        {true, PFStr} ->
-                            case erlang:phash2(PFStr) of
-                                PH ->   {PH,PF};
-                                H1 ->   {H1,compile_fun(PFStr)}
-                            end      
-                    end,
-                    try
-                        case PFun of
-                            undefined ->    ok;
-                            P ->            P(PL)
-                        end
-                    catch
-                        _:Reason -> ?Error("Purge script Fun failed with reason ~p~n",[Reason])
-                    end,
-                    handle_info({purge_partitioned_tables, PCW, ?GET_PURGE_ITEM_WAIT}, State#state{purgeFun=PFun,purgeHash=PHash,purgeList=PL})   
-            end;
-        _ ->  
-            erlang:send_after(10000, self(), purge_partitioned_tables),
-            {noreply, State}
-    end;
-handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#state{purgeList=[Tab|Rest]}) ->
-    % process one purge candidate
-    % ?Debug("Purge try table ~p~n",[Tab]), 
-    case imem_if:read(ddTable,{schema(), Tab}) of
-        [] ->   
-            ?Debug("Table deleted before it could be purged ~p~n",[Tab]); 
-        [#ddTable{opts=Opts}] ->
-            case lists:keyfind(purge_delay, 1, Opts) of
-                false ->
-                    ok;             %% no purge delay in table create options, do not purge this file
-                {purge_delay,PD} ->
-                    Name = atom_to_list(Tab),
-                    {BaseName,PartitionName} = lists:split(length(Name)-length(node_shard())-11, Name),
-                    case Rest of
-                        [] ->   
-                            ok;                     %% no follower, do not purge this file
-                        [Next|_] ->
-                            NextName = atom_to_list(Next),
-                            case lists:prefix(BaseName,NextName) of
-                                false -> 
-                                    ok;             %% no follower, do not purge this file
-                                true ->
-                                    {Mega,Sec,_} = erlang:now(),
-                                    PurgeEnd=1000000*Mega+Sec-PD,
-                                    PartitionEnd=list_to_integer(lists:sublist(PartitionName,10)),
-                                    if
-                                        (PartitionEnd >= PurgeEnd) ->
-                                            ok;     %% too young, do not purge this file  
-                                        true ->                     
-                                            % ?Info("Purge time partition ~p~n",[Tab]), %% cannot log here
-                                            % FreedMemory = table_memory(Tab),
-                                            % Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
-                                            % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"), %% cannot log here
-                                            drop_table_and_info(Tab)
-                                    end
-                            end
-                    end
-            end
-    end,  
-    case Rest of
-        [] ->   erlang:send_after(PurgeCycleWait, self(), purge_partitioned_tables),
-                {noreply, State#state{purgeList=[]}};
-        Rest -> erlang:send_after(PurgeItemWait, self(), {purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}),
-                {noreply, State#state{purgeList=Rest}}
-    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -1523,44 +1326,6 @@ write(Table, Record) ->
             throw(Reason)
     end. 
 
-imem_monitor() -> imem_monitor(undefined,undefined).
-
-imem_monitor(ExtraFun,DumpFun) ->
-    try  
-        Now = erlang:now(),
-        {{input,Input},{output,Output}} = erlang:statistics(io),
-        Moni0 = #ddMonitor{ time=Now
-                         , node = node()
-                         , memory=erlang:memory(total)
-                         , process_count=erlang:system_info(process_count)          
-                         , port_count=erlang:system_info(port_count)
-                         , run_queue=erlang:statistics(run_queue)
-                         , wall_clock=element(1,erlang:statistics(wall_clock))
-                         , reductions=element(1,erlang:statistics(reductions))
-                         , input_io=Input
-                         , output_io=Output
-                         },
-        Moni1 = case ExtraFun of
-            undefined ->    Moni0;
-            E ->            Moni0#ddMonitor{extra=E(Moni0)}
-        end,
-        PTN = physical_table_name(?MONITOR_TABLE,Now),
-        try 
-            imem_if:table_size(PTN) 
-        catch
-            _:_ -> create_partitioned_table(PTN)  
-        end,
-        imem_if:dirty_write(PTN, Moni1),
-        case DumpFun of
-            undefined ->    ok;
-            D ->            D(Moni1)            
-        end
-    catch
-        _:Err ->
-            ?Error("cannot monitor ~p", [Err]),
-            {error,{"cannot monitor",Err}}
-    end.
-
 dirty_write({_Schema,Table}, Record) -> 
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
 dirty_write(Table, Record) -> 
@@ -1820,14 +1585,6 @@ meta_operations(_) ->
         ?Log("ddNode1 ~p~n", [DdNode1]),
         DdNode2 = select(ddNode,?MatchAllRecords),
         ?Log("ddNode2 ~p~n", [DdNode2]),
-
-        ?assertEqual(ok, imem_monitor()),
-        MonRecs = read(?MONITOR_TABLE),
-        ?Log("MonRecs count ~p~n", [length(MonRecs)]),
-        ?Log("MonRecs last ~p~n", [lists:last(MonRecs)]),
-        % ?Log("MonRecs[1] ~p~n", [hd(MonRecs)]),
-        % ?Log("MonRecs ~p~n", [MonRecs]),
-        ?assert(length(MonRecs) > 0),
 
         ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
         ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),

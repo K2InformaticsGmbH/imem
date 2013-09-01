@@ -649,7 +649,7 @@ test_with_or_without_sec(IsSec) ->
             [{<<"100">>,<<"{'Atom100',100}">>}]
         ),
 
-        ?assertEqual(ok , imem_meta:imem_monitor()),
+        ?assertEqual(ok , imem_monitor:monitor()),
 
         R2h = exec_fetch(SKey, query2h, 100, IsSec, 
             "select time 
