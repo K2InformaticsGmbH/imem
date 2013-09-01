@@ -23,6 +23,7 @@
          {node_shard,node_shard_fun},
          {node_shard_fun,"fun(N) -> imem_meta:host_name(N) -- \"!?#*:+-\\<|>/\" end"},
          {meta_server, true},
+         {monitor_server, true},
          {purge_server, true},
          {seco_server, true},
          {snap_server, true},

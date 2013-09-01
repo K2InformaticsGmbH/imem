@@ -127,7 +127,7 @@ clone_seco(SKey, Pid) ->
 if_read(_SKey, Table, Key) -> 
     imem_meta:read(Table, Key).
 
-if_is_system_table(_SKey, {Schema,Table,_Alias}) ->
+if_is_system_table(_SKey, {_Schema,Table,_Alias}) ->
     if_is_system_table(_SKey, Table);
 if_is_system_table(_SKey, Table) when is_atom(Table) ->
     case lists:member(Table,?SECO_TABLES) of
