@@ -7,12 +7,12 @@
 
 -define(MONITOR_TABLE_OPTS,[{record_name,ddMonitor}
                            ,{type,ordered_set}
-                           ,{purge_delay,300}        %% 430000 = 5 Days - 2000 sec
+                           ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
                            ]).  
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
--define(GET_MONITOR_CYCLE_WAIT,?GET_IMEM_CONFIG(monitorCycleWait,[],2000)).
+-define(GET_MONITOR_CYCLE_WAIT,?GET_IMEM_CONFIG(monitorCycleWait,[],10000)).
 -define(GET_MONITOR_EXTRA,?GET_IMEM_CONFIG(monitorExtra,[],true)).
 -define(GET_MONITOR_EXTRA_FUN,?GET_IMEM_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,erlang:now()}] end.">>)).
 -define(GET_MONITOR_DUMP,?GET_IMEM_CONFIG(monitorDump,[],false)).

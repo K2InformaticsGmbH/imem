@@ -17,7 +17,7 @@
 
 -define(LOG_TABLE_OPTS,    [{record_name,ddLog}
                            ,{type,ordered_set}
-                           ,{purge_delay,300}        %% 430000 = 5 Days - 2000 sec
+                           ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
                            ]).          
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
