@@ -364,11 +364,10 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
                     end      
             end,
             imem_monitor(EFun,DFun),
-            ?Debug("again after ~p", [MCW]),
             erlang:send_after(MCW, self(), imem_monitor_loop),
             {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
         _ ->
-            ?Info("running timer default ~p", [2000]),
+            ?Warn("running idle monitor with default timer ~p", [2000]),
             erlang:send_after(2000, self(), imem_monitor_loop),
             {noreply, State}
     end;
@@ -435,10 +434,10 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
                                         (PartitionEnd >= PurgeEnd) ->
                                             ok;     %% too young, do not purge this file  
                                         true ->                     
-                                            ?Info("Purge time partition ~p~n",[Tab]),
+                                            % ?Info("Purge time partition ~p~n",[Tab]), %% cannot log here
                                             % FreedMemory = table_memory(Tab),
                                             % Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
-                                            % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"),
+                                            % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"), %% cannot log here
                                             drop_table_and_info(Tab)
                                     end
                             end
@@ -845,8 +844,14 @@ drop_partitioned_tables_and_infos([PhName|PhNames]) ->
     drop_partitioned_tables_and_infos(PhNames).
 
 drop_table_and_info(PhysicalName) ->
-    imem_if:drop_table(PhysicalName),
-    imem_if:delete(ddTable, {schema(),PhysicalName}).
+    try
+        imem_if:drop_table(PhysicalName),
+        imem_if:delete(ddTable, {schema(),PhysicalName})
+    catch
+        'ClientError':{"Table does not exist",_} ->
+            imem_if:delete(ddTable, {schema(),PhysicalName}),
+            ok
+    end.       
 
 purge_table(Alias) ->
     purge_table(Alias, []).
