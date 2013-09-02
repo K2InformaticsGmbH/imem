@@ -3,6 +3,19 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.2.3 (Release Date ?????)
+=======================================
+
+* spawn zipping of files on startup into separate process, avoid zip startup delays
+* unzip goes into default snapshot directory, avoiding problems with temp directory
+* delete orphan ddTable entry for drop table when table is dropped on MNESIA level 
+* remove logging of drop / truncate in imem_meta, reduce risk of call recursion
+* use separate processes for purge and monitor, will allow logging in these functions
+* improve variable binding in joins and support tuple values better
+
+* fix permission problem for drop_table / truncate_table, used in dderl
+
+
 Version 1.2.2 (Release Date 29.08.2013)
 =======================================
 
