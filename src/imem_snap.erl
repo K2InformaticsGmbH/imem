@@ -88,7 +88,11 @@ start_link(Params) ->
 
 init(_) ->
     ?Info("~p starting...~n", [?MODULE]),
-    spawn(fun() -> ?Info("~s", [zip({re, "*.bkp"})]) end),
+    spawn(fun() ->
+        erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
+        catch ?Info("~s", [zip({re, "*.bkp"})]),
+        erlang:whereis(?MODULE) ! imem_snap_loop
+    end),
     SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
