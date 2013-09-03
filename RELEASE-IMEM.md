@@ -3,7 +3,7 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
-Version 1.2.3 (Release Date ?????)
+Version 1.2.3 (Release Date 04.09.2013)
 =======================================
 
 * spawn zipping of files on startup into separate process, avoid zip startup delays
@@ -15,6 +15,7 @@ Version 1.2.3 (Release Date ?????)
 
 * fix permission problem for drop_table / truncate_table, used in dderl
 
+* added virtual table ddSchema
 
 Version 1.2.2 (Release Date 29.08.2013)
 =======================================
