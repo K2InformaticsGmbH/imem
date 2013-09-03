@@ -607,7 +607,7 @@ select_bind_one(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) ->
     case element(Ci,MetaRec) of
         {{_,_,_},{_,_,_}} = DT ->
             {const,offset_datetime(Op,DT,B)};
-        {Mega,Sec,Micro} ->
+        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
             {const,offset_timestamp(Op,{Mega,Sec,Micro},B)};
         Other ->
             {Op,bind_value(Other),B}
@@ -616,7 +616,7 @@ select_bind_one(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) ->
     case element(Ci,MetaRec) of
         {{_,_,_},{_,_,_}} = DT ->
             {const,offset_datetime(Op,DT,A)};
-        {Mega,Sec,Micro} ->
+        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
             {const,offset_timestamp(Op,{Mega,Sec,Micro},A)};
         Other ->
             {Op,A,bind_value(Other)}
@@ -640,7 +640,7 @@ join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
             offset_datetime(Op,DT,B);
-        {Mega,Sec,Micro} ->
+        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
             offset_timestamp(Op,{Mega,Sec,Micro},B);
         Other ->
             {Op,bind_value(Other),B}
@@ -649,7 +649,7 @@ join_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
             offset_datetime(Op,DT,A);
-        {Mega,Sec,Micro} ->
+        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
             offset_timestamp(Op,{Mega,Sec,Micro},A);
         Other ->
             {Op,A,bind_value(Other)}
@@ -825,15 +825,23 @@ join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
-    ?Debug("Rec used for join bind ~p", [Rec]),
+    % ?Info("Rec used for join bind ~p", [Rec]),
     [{MatchHead, Guard0, [Result]}] = SSpec,
-    ?Debug("Join guard before bind : ~p", [Guard0]),
+    % ?Info("Join guard before bind : ~p", [Guard0]),
+    % ?Info("Join bind : ~p", [SBinds]),
     Guard1 = case Guard0 of
-        [] ->   [];
-        _ ->    [join_bind(Rec, hd(Guard0), SBinds)]
+        [] ->   
+            [];
+        _ ->    
+            try 
+                [join_bind(Rec, hd(Guard0), SBinds)]
+            catch
+                throw:no_match -> [false];
+                throw:_ -> [false]
+            end
     end,
     MaxSize = Limit+1000,
-    ?Debug("Join guard after bind : ~p", [Guard1]),
+    % ?Info("Join guard after bind : ~p", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, Guard1, [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->

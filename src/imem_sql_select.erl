@@ -993,6 +993,19 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assert(length(R5w) > 0),
 
+        if_call_mfa(IsSec, write,[SKey,member_test,
+            {member_test,6, [e,{f},g]   ,     {imem_meta:schema(),node()}}
+        ]),
+
+        exec_fetch_sort_equal(SKey, query5x, 100, IsSec, 
+            "select col1 
+             from member_test, ddSchema 
+             where element ( 2 , col3 ) = element ( 2 , schemaNode )
+            "
+            ,
+            [{<<"6">>}]
+        ),
+
     %% sorting
 
         exec_fetch_sort_equal(SKey, query6a, 100, IsSec, 

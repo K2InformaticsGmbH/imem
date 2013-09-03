@@ -1285,11 +1285,13 @@ select(ddSize, MatchSpec, _Limit) ->
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
+select_virtual(_Table, [{_,[false],['$_']}]) ->
+    {[],true};
 select_virtual(Table, [{_,[],['$_']}]) ->
     {read(Table),true};                %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     Tag = element(2,MatchHead),
-    % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
+    ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case imem_sql:operand_match(Tag,Guard) of
         false ->                        read(Table);
         {'==',Tag,{element,N,Tup1}} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
@@ -1299,12 +1301,13 @@ select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
         {'==',Tag,Val1} ->              % ?Info("Virtual Select Key : ~p~n", [Val1]),
                                         read(Table,Val1);
         {'==',Val2,Tag} ->              % ?Info("Virtual Select Key : ~p~n", [Val2]),
-                                        read(Table,Val2)
+                                        read(Table,Val2);
+        _ ->                            read(Table)
     end,
     % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
     MS = ets:match_spec_compile(MatchSpec),
     Result = ets:match_spec_run(Candidates,MS),
-    % ?Info("Virtual Select Result  : ~p~n", [Result]),    
+    ?Info("Virtual Select Result  : ~p~n", [Result]),    
     {Result, true}.
 
 select_sort(Table, MatchSpec)->
