@@ -197,6 +197,8 @@ create_partitioned_table(Name) when is_atom(Name) ->
                 % Table seems to exist, may need to load it
                 case catch(check_table(Name)) of
                     ok ->   ok;
+                    {'ClientError',{"Table does not exist",Name}} ->
+                        create_nonexisting_partitioned_table(Name);
                     Res ->
                         ?Info("Waiting for partitioned table ~p needed because of ~p", [Name,Res]),
                         case mnesia:wait_for_tables([Name], 30000) of
@@ -206,41 +208,44 @@ create_partitioned_table(Name) when is_atom(Name) ->
                                 {error,Error}
                         end
                 end;
-            [] ->   
+            [] ->
                 % Table does not exist in ddTable, must create it similar to existing
-                NS = node_shard(),
-                case parse_table_name(Name) of
-                    [_,_,_,"",_,_] ->
-                        ?Error("Invalid table name ~p", [Name]),   
-                        {error, {"Invalid table name",Name}};
-                    ["","",BaseName,_,"@",NS] ->
-                        % choose template table name (name pattern with highest timestamp)
-                        Pred = fun(TN) -> is_local_time_partitioned_table(TN) end,
-                        case lists:filter(Pred,tables_starting_with(BaseName)) of
-                            [] ->   
-                                ?Error("No table template found starting/ending with  ~p / ~p", [BaseName,NS]),   
-                                {error, {"No table template found starting/ending with", {BaseName,NS}}}; 
-                            Cand -> 
-                                Template = lists:last(lists:sort(Cand)),
-                                % find out ColumnsInfos, Opts, Owner from template table definition
-                                case imem_if:read(ddTable,{schema(), Template}) of
-                                    [] ->
-                                        ?Error("Table template not found ~p", [Template]),   
-                                        {error, {"Table template not found", Template}}; 
-                                    [#ddTable{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
-                                        try
-                                            create_table(Name, ColumnInfos, Opts, Owner)
-                                        catch
-                                            _:Reason2 -> {error, Reason2}
-                                        end
-                                end
-                        end
-                end
+                create_nonexisting_partitioned_table(Name)   
         end
     catch
         _:Reason1 ->
             ?Error("Create partitioned table failed with ~p", [Reason1]),
             {error,Reason1}
+    end.
+
+create_nonexisting_partitioned_table(Name) ->
+    NS = node_shard(),
+    case parse_table_name(Name) of
+        [_,_,_,"",_,_] ->
+            ?Error("Invalid table name ~p", [Name]),   
+            {error, {"Invalid table name",Name}};
+        ["","",BaseName,_,"@",NS] ->
+            % choose template table name (name pattern with highest timestamp)
+            Pred = fun(TN) -> is_local_time_partitioned_table(TN) end,
+            case lists:filter(Pred,tables_starting_with(BaseName)) of
+                [] ->   
+                    ?Error("No table template found starting/ending with  ~p / ~p", [BaseName,NS]),   
+                    {error, {"No table template found starting/ending with", {BaseName,NS}}}; 
+                Cand -> 
+                    Template = lists:last(lists:sort(Cand)),
+                    % find out ColumnsInfos, Opts, Owner from template table definition
+                    case imem_if:read(ddTable,{schema(), Template}) of
+                        [] ->
+                            ?Error("Table template not found ~p", [Template]),   
+                            {error, {"Table template not found", Template}}; 
+                        [#ddTable{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
+                            try
+                                create_table(Name, ColumnInfos, Opts, Owner)
+                            catch
+                                _:Reason2 -> {error, Reason2}
+                            end
+                    end
+            end
     end.
 
 handle_call({create_partitioned_table, Name}, _From, State) ->
