@@ -40,6 +40,13 @@
        ).
 -define(ddNode, [atom,integer,timestamp,list]).
 
+-record(ddSchema,                           %% schema node    
+                  { schemaNode              ::tuple()                   %% {schema,node}
+                  , extra                   ::list()      
+                  }
+       ).
+-define(ddSchema, [tuple,list]).
+
 -record(ddConfig,                           %% config record    
                   { hkl                     ::list()                    %% hierarchical key list [item,context1,context2,...]
                   , val                     ::any()

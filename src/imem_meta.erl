@@ -7,7 +7,7 @@
 
 -define(DDNODE_TIMEOUT,3000).       %% RPC timeout for ddNode evaluation
 
--define(META_TABLES,[ddTable,ddNode,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
+-define(META_TABLES,[ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
 -define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 
@@ -166,6 +166,7 @@ init(_Args) ->
         catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
         catch create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
+        catch create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
         catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
         catch create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
         catch create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
@@ -1071,6 +1072,7 @@ table_type(Table) when is_atom(Table) ->
 table_record_name({_Schema,Table}) ->
     table_record_name(Table);   %% ToDo: may depend on schema
 table_record_name(ddNode)  -> ddNode;
+table_record_name(ddSchema)  -> ddSchema;
 table_record_name(ddSize)  -> ddSize;
 table_record_name(Table) when is_atom(Table) ->
     imem_if:table_record_name(physical_table_name(Table)).
@@ -1082,6 +1084,7 @@ table_columns(Table) ->
 
 table_size({_Schema,Table}) ->  table_size(Table);          %% ToDo: may depend on schema
 table_size(ddNode) ->           length(read(ddNode));
+table_size(ddSchema) ->         length(read(ddSchema));
 table_size(ddSize) ->           1;
 table_size(Table) ->
     %% ToDo: sum should be returned for all local time partitions
@@ -1130,6 +1133,8 @@ fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddNode, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, ddSchema, MatchSpec, BlockSize, Opts) ->
+    fetch_start_virtual(Pid, ddSchema, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
@@ -1155,6 +1160,8 @@ read({_Schema,Table}) ->
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) ->
     lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
+read(ddSchema) ->
+    [{ddSchema,{Schema,Node},[]} || {Schema,Node} <- data_nodes()];
 read(Table) ->
     imem_if:read(physical_table_name(Table)).
 
@@ -1178,6 +1185,9 @@ read(ddNode,Node) when is_atom(Node) ->
             []
     end;
 read(ddNode,_) -> [];
+read(ddSchema,Key) when is_tuple(Key) ->
+    [ S || #ddSchema{schemaNode=K} = S <- read(ddSchema), K==Key];
+read(ddSchema,_) -> [];
 read(ddSize,Table) ->
     PTN =  physical_table_name(Table),
     case is_local_time_partitioned_table(PTN) of  % 
@@ -1255,6 +1265,8 @@ select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(ddNode, MatchSpec) ->
     select_virtual(ddNode, MatchSpec);
+select(ddSchema, MatchSpec) ->
+    select_virtual(ddSchema, MatchSpec);
 select(ddSize, MatchSpec) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec) ->
@@ -1266,6 +1278,8 @@ select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(ddNode, MatchSpec, _Limit) ->
     select_virtual(ddNode, MatchSpec);
+select(ddSchema, MatchSpec, _Limit) ->
+    select_virtual(ddSchema, MatchSpec);
 select(ddSize, MatchSpec, _Limit) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec, Limit) ->
@@ -1489,7 +1503,7 @@ meta_operations(_) ->
         ?assertEqual(ok, write(?LOG_TABLE, LogRec1)),
         LogCount2 = table_size(?LOG_TABLE),
         ?Log("ddLog@ count ~p~n", [LogCount2]),
-        ?assertEqual(LogCount1+1,LogCount2),
+        ?assert(LogCount2 > LogCount1),
         Log1=read(?LOG_TABLE,Now),
         ?Log("ddLog@ content ~p~n", [Log1]),
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
@@ -1497,7 +1511,7 @@ meta_operations(_) ->
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],{stupid_error_message,2})),        
         LogCount2a = table_size(?LOG_TABLE),
-        ?assertEqual(LogCount2+4,LogCount2a),
+        ?assert(LogCount2a >= LogCount2+4),
 
         ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
@@ -1590,6 +1604,10 @@ meta_operations(_) ->
         ?Log("ddNode1 ~p~n", [DdNode1]),
         DdNode2 = select(ddNode,?MatchAllRecords),
         ?Log("ddNode2 ~p~n", [DdNode2]),
+
+        Schema0 = [{ddSchema,{schema(),node()},[]}],
+        ?assertEqual(Schema0, read(ddSchema)),
+        ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords)),
 
         ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
         ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
