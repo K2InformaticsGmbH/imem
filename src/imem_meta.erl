@@ -1291,7 +1291,7 @@ select_virtual(Table, [{_,[],['$_']}]) ->
     {read(Table),true};                %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     Tag = element(2,MatchHead),
-    ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
+    % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case imem_sql:operand_match(Tag,Guard) of
         false ->                        read(Table);
         {'==',Tag,{element,N,Tup1}} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
@@ -1307,7 +1307,7 @@ select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
     MS = ets:match_spec_compile(MatchSpec),
     Result = ets:match_spec_run(Candidates,MS),
-    ?Info("Virtual Select Result  : ~p~n", [Result]),    
+    % ?Info("Virtual Select Result  : ~p~n", [Result]),    
     {Result, true}.
 
 select_sort(Table, MatchSpec)->
