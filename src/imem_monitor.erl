@@ -15,7 +15,7 @@
 -define(GET_MONITOR_CYCLE_WAIT,?GET_IMEM_CONFIG(monitorCycleWait,[],10000)).
 -define(GET_MONITOR_EXTRA,?GET_IMEM_CONFIG(monitorExtra,[],true)).
 -define(GET_MONITOR_EXTRA_FUN,?GET_IMEM_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,erlang:now()}] end.">>)).
--define(GET_MONITOR_DUMP,?GET_IMEM_CONFIG(monitorDump,[],false)).
+-define(GET_MONITOR_DUMP,?GET_IMEM_CONFIG(monitorDump,[],true)).
 -define(GET_MONITOR_DUMP_FUN,?GET_IMEM_CONFIG(monitorDumpFun,[],<<"">>)).
 
 
