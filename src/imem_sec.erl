@@ -507,7 +507,10 @@ fetch_start(SKey, Pid, all_tables, MatchSpec, BlockSize, Opts) ->
     imem_meta:fetch_start(Pid, all_tables, MatchSpec, BlockSize, Opts);  %% {select_filter_all(SKey, RList, []), true};
 fetch_start(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
     seco_authorized(SKey),
-    imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts).
+    case have_table_permission(SKey, Table, select) of
+        true -> imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
+        _ ->    ?SecurityException({"Select unauthorized", {Table,SKey}})  
+    end.
 
 fetch_close(SKey, Pid) ->
     imem_statement:fetch_close(SKey, Pid, false).
