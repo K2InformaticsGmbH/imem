@@ -51,11 +51,11 @@
             true            -> <<"invalid exception head">>
         end,
         {_, {_,[_|__ST]}} = (catch erlang:now(1)),
-        {__Module,__Function} = imem_meta:failing_function(__ST),
+        {__Module,__Function,__Line} = imem_meta:failing_function(__ST),
         __LogRec = #ddLog{logTime=erlang:now(),logLevel=__Level,pid=self()
-                            ,module=__Module,function=__Function,node=node()
-                            ,fields=[{ex,__Ex}|__Fields],message= __Message
-                            ,stacktrace = __ST},
+                            ,module=__Module,function=__Function,line=__Line
+                            ,node=node(),fields=[{ex,__Ex}|__Fields]
+                            ,message= __Message,stacktrace = __ST},
         catch imem_meta:write_log(__LogRec),
         ?EXCP_LOG(__LogRec),
         case __Ex of

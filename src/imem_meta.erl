@@ -969,17 +969,26 @@ update_opts(T, Opts) ->
     imem_if:update_opts(T, Opts).
 
 failing_function([]) -> 
-    {undefined,undefined};
+    {undefined,undefined, 0};
 failing_function([{imem_meta,throw_exception,_,_}|STrace]) -> 
     failing_function(STrace);
-failing_function([{M,N,_,_}|STrace]) ->
-    case lists:prefix("imem",atom_to_list(M)) of 
-        true ->     {M,N};
-        false ->    failing_function(STrace)
+failing_function([{M,N,_,FileInfo}|STrace]) ->
+    case lists:prefix("imem",atom_to_list(M)) of
+        true ->
+            NAsBin = atom_to_binary(N, utf8),
+            Line = proplists:get_value(line, FileInfo, 0),
+            case re:run(NAsBin, <<"-(.+)/">>, [{capture, all_but_first, binary}]) of
+                nomatch ->
+                    {M, N, Line};
+                {match, [FunNameBin]} ->
+                    {M, binary_to_atom(FunNameBin, utf8), Line}
+            end;
+        false ->
+            failing_function(STrace)
     end;
 failing_function(Other) ->
     ?Debug("unexpected stack trace ~p~n", [Other]),
-    {undefined,undefined}.
+    {undefined,undefined, 0}.
 
 log_to_db(Level,Module,Function,Fields,Message)  ->
     log_to_db(Level,Module,Function,Fields,Message,[]).
