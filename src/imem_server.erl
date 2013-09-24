@@ -73,7 +73,7 @@ loop(Socket, Transport, Buf, Len) ->
                     loop(Socket, Transport, NewBuf, NewLen)
             end;
         {Closed, Socket} ->
-            ?Info("socket ~p got closed!~n", [Socket]);
+            ?Debug("socket ~p got closed!~n", [Socket]);
         {Error, Socket, Reason} ->
             ?Error("socket ~p error: ~p", [Socket, Reason]);
         close ->
