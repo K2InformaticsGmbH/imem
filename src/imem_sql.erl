@@ -533,7 +533,7 @@ filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree) ->
     FCond = filter_condition(ColF, ColMaps),
     filter_spec_where({FType,ColFs}, ColMaps, WhereTree, FCond). 
 
-filter_spec_where(?NoMoreFilter, _, [], LeftTree) ->
+filter_spec_where(?NoMoreFilter, _, ?EmptyWhere, LeftTree) ->
     LeftTree;
 filter_spec_where(?NoMoreFilter, _, WhereTree, LeftTree) ->
     {'and', LeftTree, WhereTree};

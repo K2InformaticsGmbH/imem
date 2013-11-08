@@ -4,6 +4,8 @@
 -define(NoFilter,{undefined,[]}).   %% empty filter spec $$$ also used in erlimem_fsm.erl $$$
 -define(NoMoreFilter,{_,[]}).       %% empty filter spec $$$ also used in erlimem_fsm.erl $$$
 
+-define(EmptyWhere, {}).            %% empty where in the parse tree
+
 -record(scanSpec,                                   %% scanner specification 
                     { sspec = []                	::list()            %% scan matchspec for raw scan  [{MatchHead, Guards, [Result]}]
                     , sbinds = []               	::list()            %% map for binding the scan Guards to meta values

@@ -100,7 +100,7 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
             end
     end.
 
-query_guards(_SKey,_Tmax,_Ti,{},_FullMap) -> [];
+query_guards(_SKey,_Tmax,_Ti,?EmptyWhere,_FullMap) -> [];
 query_guards(SKey,Tmax,Ti,WhereTree,FullMap) ->
     % ?Debug("WhereTree  : ~p~n", [WhereTree]),
     Walked = tree_walk(SKey,Tmax,Ti,WhereTree,FullMap),
