@@ -5,7 +5,7 @@
 -export([ exec/5
         ]).
 
-exec(SKey, {insert, TableName, {_, Columns}, {_, Values}}=_ParseTree , _Stmt, _Schema, IsSec) ->
+exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=_ParseTree , _Stmt, _Schema, IsSec) ->
     Table = imem_sql:table_qname(TableName),
     % ?Log("insert ~p values ~p into ~p~n", [Columns, Values, Table]),
     % ?Log("parse tree~n~p~n", [_ParseTree]),
