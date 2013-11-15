@@ -8,11 +8,11 @@
 -define(rawTypeStr,binary).
 -define(emptyStr,<<>>).
 
--define(ROWFUN_EXTENSIONS,[{name,1},{text,1},{nodef,1}
-                          ,{item1,1},{item2,1},{item3,1},{item4,1}
-                          ,{item5,1},{item6,1},{item7,1},{item8,1},{item9,1}
-                          % ,{item,2},{concat,2},{concat,3},{concat,4}
-                          % ,{concat,5},{concat,6},{concat,7},{concat,8},{concat,9}
+-define(ROWFUN_EXTENSIONS,[{<<"name">>,1},{<<"text">>,1},{<<"nodef">>,1}
+                          ,{<<"item1">>,1},{<<"item2">>,1},{<<"item3">>,1},{<<"item4">>,1}
+                          ,{<<"item5">>,1},{<<"item6">>,1},{<<"item7">>,1},{<<"item8">>,1},{<<"item9">>,1}
+                          % ,{<<"item">>,2},{<<"concat">>,2},{<<"concat">>,3},{<<"concat">>,4}
+                          % ,{<<"concat">>,5},{<<"concat">>,6},{<<"concat">>,7},{<<"concat">>,8},{<<"concat">>,9}
                           ]).
 
 -define(H(X), (hex(X)):16).
@@ -208,8 +208,8 @@ is_datatype(Types) when is_list(Types) ->
 is_datatype(Type) when is_tuple(Type) -> is_datatype(tuple_to_list(Type));
 is_datatype(_) -> false.
 
-is_rowfun_extension(Func,Arity) ->
-    lists:member({Func,Arity},?ROWFUN_EXTENSIONS).
+is_rowfun_extension(Func,Arity) when is_atom(Func) -> is_rowfun_extension(atom_to_binary(Func, utf8),Arity);
+is_rowfun_extension(Func,Arity) -> lists:member({Func,Arity},?ROWFUN_EXTENSIONS).
 
 imem_type(raw) -> binary; 
 imem_type(blob) -> binary; 

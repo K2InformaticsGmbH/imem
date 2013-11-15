@@ -262,8 +262,8 @@ column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) 
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
-            Alias = list_to_binary(atom_to_list(Fname) ++ "(" ++ binary_to_list(Name) ++ ")"),
-            column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=Fname, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+            Alias = list_to_binary([Fname, "(", Name, ")"]),
+            column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=binary_to_atom(Fname,utf8), ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
         false ->
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;        
@@ -272,7 +272,7 @@ column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
-            column_map([], [#ddColMap{schema=S, table=T, name=N, func=Fname, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+            column_map([], [#ddColMap{schema=S, table=T, name=N, func=binary_to_atom(Fname,utf8), alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
         false ->
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;                    

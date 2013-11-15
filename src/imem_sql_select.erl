@@ -134,11 +134,11 @@ tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
     % ?Debug("Function Arg: ~p~n", [P1]),
     Arg = tree_walk(SKey,Tmax,Ti,P1,FullMap),
     % ?Debug("Unary function Arg: ~p~n", [Arg]),
-    {F,Arg};                 %% F = unary function like abs | is_list | to_atom
-tree_walk(SKey,Tmax,Ti,{'fun',is_member,[P1,P2]},FullMap) ->
+    {binary_to_atom(F,utf8),Arg};                 %% F = unary function like abs | is_list | to_atom
+tree_walk(SKey,Tmax,Ti,{'fun',<<"is_member">>,[P1,P2]},FullMap) ->
     condition(SKey,Tmax,Ti,is_member,P1,P2,FullMap); 
 tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) -> 
-    {F,tree_walk(SKey,Tmax,Ti,P1,FullMap),tree_walk(SKey,Tmax,Ti,P2,FullMap)};    %% F = binary function like element(E,Tuple) | is_member | is_element
+    {binary_to_atom(F,utf8),tree_walk(SKey,Tmax,Ti,P1,FullMap),tree_walk(SKey,Tmax,Ti,P2,FullMap)};    %% F = binary function like element(E,Tuple) | is_member | is_element
 tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)};
 tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
@@ -270,7 +270,7 @@ expr_lookup(_SKey,_Tmax,_Ti,A,FullMap) when is_binary(A)->
 expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
     % ?Debug("expr_lookup {'fun',F,[Param]}: ~p ~p ~p ~p~n", [Tmax,Ti,F,Param]),
     {Ta,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
-    case {Ta,F,T} of
+    case {Ta,binary_to_atom(F,utf8),T} of
         {0,to_integer,integer} ->   {Ta,A,integer,L,P,D,AN};
         {0,to_string,integer} ->    {Ta,integer_to_list(A),string,L,P,D,AN};
         {0,to_float,integer} ->     {Ta,float(A),float,L,P,D,AN};
@@ -297,10 +297,10 @@ expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value funct
         {0,to_userid,integer} ->    {Ta,A,userid,0,0,?nav,AN};
         _ ->                        {Ta,{F,A},T,L,P,D,AN}
     end;          
-expr_lookup(SKey,Tmax,Ti,{'fun','element'=F,[P1,P2]},FullMap) ->  %% F = binary value function like 'element' 
+expr_lookup(SKey,Tmax,Ti,{'fun',<<"element">>,[P1,P2]},FullMap) ->  %% F = binary value function like 'element' 
     {0,A,integer,_,_,_,_} = expr_lookup(SKey,Tmax,Ti,P1,FullMap),
     {Tb,B,_,_,_,_,BN} = expr_lookup(SKey,Tmax,Ti,P2,FullMap),
-    {Tb,{F,A,B},term,0,0,0,BN};          
+    {Tb,{'element',A,B},term,0,0,0,BN};
 expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
     EA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
     % ?Debug("expr_lookup Tmax,Ti,A:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,A,EA]),
