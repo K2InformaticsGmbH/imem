@@ -645,21 +645,16 @@ parse_date_int(Val) ->
 parse_date_raw(Val) ->
     case length(Val) of
         8 ->    validate_date({parse_year(lists:sublist(Val,1,4)),parse_month(lists:sublist(Val,5,2)),parse_day(lists:sublist(Val,7,2))});
-        6 ->    Year2 = parse_year(lists:sublist(Val,1,2)),
-                Year = if 
-                   Year2 < 40 ->    2000+Year2;
-                   true ->          1900+Year2
-                end,     
-                validate_date({Year,parse_month(lists:sublist(Val,3,2)),parse_day(lists:sublist(Val,5,2))});
+        6 ->    validate_date({parse_year(lists:sublist(Val,1,2)),parse_month(lists:sublist(Val,3,2)),parse_day(lists:sublist(Val,5,2))});
         _ ->    ?ClientError({})
     end.    
 
 parse_year(Val) ->
     case length(Val) of
         4 ->    list_to_integer(Val);
-        2 ->    Year2 = parse_year(lists:sublist(Val,1,2)),
+        2 ->    Year2 = list_to_integer(Val),
                 if 
-                   Year2 < 40 ->    2000+Year2;
+                   Year2 < 50 ->    2000+Year2;
                    true ->          1900+Year2
                 end;   
         _ ->    ?ClientError({})
@@ -1265,6 +1260,7 @@ data_types(_) ->
         ?Log("timestamp_to_io success~n", []),
         ?assertEqual({0,0,0}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),  %% with DLS offset wintertime CH
         ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
+        ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.70 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
         ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,6)),  %% with DLS offset wintertime CH
         ?assertEqual({1,2,123000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),  %% with DLS offset wintertime CH
         ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
@@ -1279,13 +1275,17 @@ data_types(_) ->
         ?assertEqual({{2004,3,1},{0,0,0}}, io_to_datetime(<<"1.3.2004">>)),
         ?assertEqual({{2004,3,1},{3,45,0}}, io_to_datetime(<<"1.3.2004 3:45">>)),
         ?assertEqual({{2004,3,1},{3,45,0}}, io_to_datetime(<<"{{2004,3,1},{3,45,0}}">>)),
+        ?assertEqual({{2012,12,10},{8,44,7}}, io_to_datetime(<<"10.12.12 08:44:07">>)),
+        ?assertEqual({{1999,12,10},{8,44,7}}, io_to_datetime(<<"10.12.99 08:44:07">>)),
         ?assertEqual({Date,{0,0,0}}, io_to_datetime(<<"today">>)),
         ?assertEqual(LocalTime, io_to_datetime(<<"sysdate">>)),
         ?assertEqual(LocalTime, io_to_datetime(<<"systime">>)),
         ?assertEqual(LocalTime, io_to_datetime(<<"now">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18.8.1888 1:23:59">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"1888-08-18 1:23:59">>)),
+        ?assertEqual({{2018,8,18},{1,23,59}}, io_to_datetime(<<"18-08-18 1:23:59">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"8/18/1888 1:23:59">>)),
+        ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"8/18/88 1:23:59">>)),
         ?assertEqual({{1888,8,18},{1,23,0}}, io_to_datetime(<<"8/18/1888 1:23">>)),
         ?assertEqual({{1888,8,18},{1,0,0}}, io_to_datetime(<<"8/18/1888 01">>)),
         ?assertException(throw,{ClEr,{"Data conversion format error",{datetime,"8/18/1888 1"}}}, io_to_datetime(<<"8/18/1888 1">>)),
@@ -1294,6 +1294,7 @@ data_types(_) ->
         ?assertEqual({{1888,8,18},{0,0,0}}, io_to_datetime(<<"8/18/1888">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18880818012359">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18880818 012359">>)),
+        ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"880818 012359">>)),
         ?Log("io_to_datetime success~n", []),
 
         ?assertEqual({1,23,59}, parse_time("01:23:59")),        
