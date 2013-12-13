@@ -91,6 +91,7 @@
         , compile_fun/1
         , log_to_db/5
         , log_to_db/6
+        , log_to_db/7
         , failing_function/1
         , get_config_hlk/5
         , put_config_hlk/6
@@ -993,19 +994,27 @@ failing_function(Other) ->
 log_to_db(Level,Module,Function,Fields,Message)  ->
     log_to_db(Level,Module,Function,Fields,Message,[]).
 
-log_to_db(Level,Module,Function,Fields,Message,StackTrace) when is_binary(Message) ->
-    LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
-                        ,module=Module,function=Function,node=node()
-                        ,fields=Fields,message=Message,stacktrace=StackTrace
-                    },
-    dirty_write(?LOG_TABLE, LogRec);
 log_to_db(Level,Module,Function,Fields,Message,Stacktrace) ->
     BinStr = try 
         list_to_binary(Message)
     catch
         _:_ ->  list_to_binary(lists:flatten(io_lib:format("~tp",[Message])))
     end,
-    log_to_db(Level,Module,Function,Fields,BinStr,Stacktrace).
+    log_to_db(Level,Module,Function,0,Fields,BinStr,Stacktrace).
+
+log_to_db(Level,Module,Function,Line,Fields,Message,StackTrace)
+when is_atom(Level)
+    , is_atom(Module)
+    , is_atom(Function)
+    , is_integer(Line)
+    , is_list(Fields)
+    , is_binary(Message)
+    , is_list(StackTrace) ->
+    LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
+                    ,module=Module,function=Function,line=Line,node=node()
+                    ,fields=Fields,message=Message,stacktrace=StackTrace
+                    },
+    dirty_write(?LOG_TABLE, LogRec).
 
 
 %% imem_if but security context added --- META INFORMATION ------
