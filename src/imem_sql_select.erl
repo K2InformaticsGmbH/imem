@@ -295,7 +295,7 @@ expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value funct
         {0,to_tuple,string} ->      {Ta,field_value(to_tuple,tuple,0,0,?nav,imem_datatype:strip_quotes(A)),tuple,0,0,?nav,AN};
         {0,to_userid,string} ->     {Ta,field_value(to_userid,userid,0,0,?nav,A),userid,0,0,?nav,AN};
         {0,to_userid,integer} ->    {Ta,A,userid,0,0,?nav,AN};
-        _ ->                        {Ta,{F,A},T,L,P,D,AN}
+        _ ->                        {Ta,{binary_to_atom(F,utf8),A},T,L,P,D,AN}
     end;          
 expr_lookup(SKey,Tmax,Ti,{'fun',<<"element">>,[P1,P2]},FullMap) ->  %% F = binary value function like 'element' 
     {0,A,integer,_,_,_,_} = expr_lookup(SKey,Tmax,Ti,P1,FullMap),
