@@ -1,7 +1,7 @@
 {application, imem,
  [
   {description, "Replication Mnesia DB cluster"},
-  {vsn, "1.2.3"},
+  {vsn, "1.2.4"},
   {registered, []},
   {applications, [
                   kernel,
@@ -13,7 +13,7 @@
                  ]},
   {mod, { imem_app, []}},
   {env, [
-         {erl_cluster_mgr, undefined},
+         {erl_cluster_mgrs, []},
          {mnesia_schema_name, imem},
          {mnesia_wait_table_config, {30, 30000}},
          {mnesia_node_type, undefined},

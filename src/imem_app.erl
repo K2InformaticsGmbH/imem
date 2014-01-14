@@ -44,13 +44,15 @@
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
     % it only helps to build up the cluster
-    case application:get_env(erl_cluster_mgr) of
-        {ok, undefined} -> ?Info("~p - CM not defined!~n", [?MODULE]);
-        {ok, CMNode} ->
-            case net_adm:ping(CMNode) of
-            pong -> ?Info("~p - ~p is CM~n", [?MODULE, CMNode]);
-            pang -> ?Info("~p - CM ~p is not reachable!~n", [?MODULE, CMNode])
-            end
+    case application:get_env(erl_cluster_mgrs) of
+        {ok, []} -> ?Info("cluster manager node(s) not defined!~n");
+        {ok, CMNs} ->
+            CMNodes = lists:usort(CMNs) -- [node()],
+            ?Info("joining cluster with ~p~n", [CMNodes]),
+            [case net_adm:ping(CMNode) of
+            pong -> ?Info("joined node ~p~n", [CMNode]);
+            pang -> ?Info("node ~p down!~n", [CMNode])
+            end || CMNode <- CMNodes]
     end,
     % imem_server ranch listner (started unsupervised)
     case application:start(ranch) of
@@ -63,7 +65,7 @@ start(_Type, StartArgs) ->
             {ok, TcpIf} = application:get_env(tcp_ip),
             {ok, TcpPort} = application:get_env(tcp_port),
             imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}]);
-        _ -> ?Info("~p - imem TCP is not configured to start!~n", [?MODULE])
+        _ -> ?Info("imem TCP is not configured to start!~n")
     end,
     case imem_sup:start_link(StartArgs) of
     	{ok, Pid} ->
