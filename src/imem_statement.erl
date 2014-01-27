@@ -636,7 +636,8 @@ join_bind(Rec, Guard0, [B|Binds]) ->
 
 join_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,bind_value(element(Ci,element(Ti,Rec)))};
 join_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind_one(Rec,A,{Tag,Ti,Ci})};
-join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) ->  
+join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) -> 
+    % ?Info("join_bind_one rec: ~p guard: ~p bind: ~p", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
             offset_datetime(Op,DT,B);
@@ -661,13 +662,24 @@ join_bind_one(_, A, _) ->
 
 make_filter_fun(_Ti, true, _FBinds)  ->
     fun(_X) -> true end;
+make_filter_fun(_Ti, false, _FBinds)  ->
+    fun(_X) -> false end;
 make_filter_fun(Ti, {Op, {const,A}, {const,B}}, FBinds) ->
-    make_filter_fun(Ti,{Op, A, B}, FBinds);
+    make_filter_fun_single(Ti,{Op, A, B}, FBinds);
 make_filter_fun(Ti, {Op, {const,A}, B}, FBinds) ->
-    make_filter_fun(Ti,{Op, A, B}, FBinds);
+    make_filter_fun_single(Ti,{Op, A, B}, FBinds);
 make_filter_fun(Ti, {Op, A, {const,B}}, FBinds) ->
-    make_filter_fun(Ti, {Op, A, B}, FBinds);
-make_filter_fun(Ti, {'is_member', A, '$_'}, FBinds) ->
+    make_filter_fun_single(Ti, {Op, A, B}, FBinds);
+make_filter_fun(Ti, {Op, A, B}, FBinds) when is_tuple(A);is_tuple(B) ->
+    %% ToDo: We should allow expression guards for A and B here 
+    %% and resolve to values using FBinds
+    ?UnimplementedException({"Expression in join filter", {Op, A, B}});
+make_filter_fun(Ti, {Op, A, B}, FBinds) ->
+    make_filter_fun_single(Ti, {Op, A, B}, FBinds);
+make_filter_fun(Ti, Guard, FBinds) ->
+    ?UnimplementedException({"Unsupported filter guard", Guard}).
+
+make_filter_fun_single(Ti, {'is_member', A, '$_'}, FBinds) ->
     ABind = lists:keyfind(A,1,FBinds),
     case ABind of 
         false ->        
@@ -679,7 +691,7 @@ make_filter_fun(Ti, {'is_member', A, '$_'}, FBinds) ->
                 lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2))))
             end
     end;
-make_filter_fun(Ti, {'nis_member', A, '$_'}, FBinds) ->
+make_filter_fun_single(Ti, {'nis_member', A, '$_'}, FBinds) ->
     ABind = lists:keyfind(A,1,FBinds),
     case ABind of 
         false ->        
@@ -691,7 +703,7 @@ make_filter_fun(Ti, {'nis_member', A, '$_'}, FBinds) ->
                 (not lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2)))))
             end
     end;
-make_filter_fun(_Ti, {'is_member', A, B}, FBinds)  ->
+make_filter_fun_single(_Ti, {'is_member', A, B}, FBinds)  ->
     ABind = lists:keyfind(A,1,FBinds),
     BBind = lists:keyfind(B,1,FBinds),
     case {ABind,BBind} of 
@@ -730,7 +742,7 @@ make_filter_fun(_Ti, {'is_member', A, B}, FBinds)  ->
                 end
             end
     end;
-make_filter_fun(_Ti, {'nis_member', A, B}, FBinds)  ->
+make_filter_fun_single(_Ti, {'nis_member', A, B}, FBinds)  ->
     ABind = lists:keyfind(A,1,FBinds),
     BBind = lists:keyfind(B,1,FBinds),
     case {ABind,BBind} of 
@@ -769,8 +781,8 @@ make_filter_fun(_Ti, {'nis_member', A, B}, FBinds)  ->
                 end
             end
     end;
-make_filter_fun(Ti,FGuard, FBinds) ->
-    ?UnimplementedException({"Illegal filter",{Ti, FGuard, FBinds}}).
+make_filter_fun_single(Ti,FGuard, FBinds) ->
+    ?UnimplementedException({"Unsupported filter function",{Ti, FGuard, FBinds}}).
 
 offset_datetime('-', DT, Offset) ->
     offset_datetime('+', DT, -Offset);
@@ -828,7 +840,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
     % ?Info("Rec used for join bind ~p", [Rec]),
     [{MatchHead, Guard0, [Result]}] = SSpec,
     % ?Info("Join guard before bind : ~p", [Guard0]),
-    % ?Info("Join bind : ~p", [SBinds]),
+    % ?Info("Join binds : ~p", [SBinds]),
     Guard1 = case Guard0 of
         [] ->   
             [];
@@ -849,8 +861,9 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
                 true -> 
                     [setelement(Ti, Rec, I) || I <- L];
                 _ ->
+                    % ?Info("About to MBind : ~p using ~p", [FGuard, MBinds]),
                     MboundGuard = join_bind(Rec, FGuard, MBinds),
-                    ?Debug("Join guard after MBind : ~p", [MboundGuard]),
+                    % ?Info("Join guard after MBind : ~p", [MboundGuard]),
                     Filter = make_filter_fun(Ti, MboundGuard, FBinds),
                     Recs = [setelement(Ti, Rec, I) || I <- L],
                     lists:filter(Filter,Recs)
@@ -1826,9 +1839,13 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
         ?assertEqual(false,F3({{1,3,[]}})),        
 
-        F4 = make_filter_fun(1,{'is_member', a, '$_'}, []),
-        ?assertEqual(true, F4({{1,a,[c,a,d]}})),        
-        ?assertEqual(false, F4({{1,d,[c,a,d]}})),        
+        % F4 = make_filter_fun(1,{'is_member', {'+','$2',1}, '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        % ?assertEqual(true, F4({{1,2,[3,4,5]}})),        
+        % ?assertEqual(false,F4({{1,2,[c,4,d]}})),        
+
+        F5 = make_filter_fun(1,{'is_member', a, '$_'}, []),
+        ?assertEqual(true, F5({{1,a,[c,a,d]}})),        
+        ?assertEqual(false, F5({{1,d,[c,a,d]}})),        
 
         case IsSec of
             true ->     ?imem_logout(SKey);

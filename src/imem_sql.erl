@@ -318,9 +318,8 @@ simplify_guard(Term) ->
 simplify_once({'or', true, _}) ->       true; 
 simplify_once({'or', _, true}) ->       true; 
 simplify_once({'or', false, false}) ->  false; 
-simplify_once({'or', join, join}) ->    join; 
-simplify_once({'or', join, Right}) ->   ?UnimplementedException({"Join cannot be factored out",{Right}}); 
-simplify_once({'or', Left, join}) ->    ?UnimplementedException({"Join cannot be factored out",{Left}}); 
+simplify_once({'or', _, join}) ->       true;
+simplify_once({'or', join, _}) ->       true;
 simplify_once({'or', Left, false}) ->   simplify_once(Left); 
 simplify_once({'or', false, Right}) ->  simplify_once(Right); 
 simplify_once({'or', Same, Same}) ->    simplify_once(Same); 
@@ -329,8 +328,9 @@ simplify_once({'and', _, false}) ->     false;
 simplify_once({'and', true, true}) ->   true; 
 simplify_once({'and', Left, true}) ->   simplify_once(Left); 
 simplify_once({'and', true, Right}) ->  simplify_once(Right); 
-simplify_once({'and', Left, join}) ->   {'and', join, simplify_once(Left)}; 
-simplify_once({'and', join, Right}) ->  {'and', join, simplify_once(Right)}; 
+simplify_once({'and', join, join}) ->   true; 
+simplify_once({'and', Left, join}) ->   simplify_once(Left); 
+simplify_once({'and', join, Right}) ->  simplify_once(Right); 
 simplify_once({'and', Same, Same}) ->   simplify_once(Same); 
 simplify_once({'+', Left, Right}) when  is_number(Left), is_number(Right) -> Left + Right;
 simplify_once({'-', Left, Right}) when  is_number(Left), is_number(Right) -> Left - Right;
@@ -343,8 +343,6 @@ simplify_once({'<', Left, Right}) when  is_number(Left), is_number(Right) -> (Le
 simplify_once({'=<', Left, Right}) when is_number(Left), is_number(Right) -> (Left =< Right);
 simplify_once({'==', Left, Right}) when is_number(Left), is_number(Right) -> (Left == Right);
 simplify_once({'/=', Left, Right}) when is_number(Left), is_number(Right) -> (Left /= Right);
-simplify_once({ _Op, _, join}) ->       join;
-simplify_once({ _Op, join, _Right}) ->  join;
 simplify_once({'element', N, {const,Tup}}) when is_integer(N),is_tuple(Tup) ->          element(N,Tup);
 simplify_once({'element', _, Val}) when is_integer(Val);is_binary(Val);is_list(Val) ->  throw(no_match);
 simplify_once({'size', {const,Tup}}) when is_tuple(Tup) ->                              size(Tup);
@@ -368,7 +366,7 @@ simplify_once({'not', {'<', Left, Right}}) ->  {'>=', simplify_once(Left), simpl
 simplify_once({'not', {'>=', Left, Right}}) -> {'<',  simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'>', Left, Right}}) ->  {'=<', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', Result}) ->       {'not', simplify_once(Result)};
-simplify_once({ _Op, join}) ->           join;
+% simplify_once({ _Op, join}) ->           join;
 simplify_once({ Op, Result}) ->         {Op, Result};
 simplify_once(Result) ->                Result.
 

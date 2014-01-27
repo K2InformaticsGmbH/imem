@@ -60,9 +60,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
     ?Debug("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
-    ?Debug("MainSpec  : ~p~n", [MainSpec]),
+    % ?Info("MainSpec  : ~p~n", [MainSpec]),
     JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    ?Debug("JoinSpecs: ~p~n", [JoinSpecs]),
+    % ?Info("JoinSpecs: ~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
     SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
     Statement = Stmt#statement{
@@ -178,7 +178,7 @@ compguard(Tmax,Ti,OP,ExA,ExB) ->
         true ->                                 {reverse(OP),ExB,ExA}
     end,
     try 
-        % ?Debug("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
+        % ?Info("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
         compg(Tmax,Ti,O,A,B)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
@@ -353,6 +353,8 @@ setup() ->
 teardown(_SKey) -> 
     catch imem_meta:drop_table(member_test),
     catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(ddViewTest),
+    catch imem_meta:drop_table(ddCmdTest),
     ?imem_test_teardown().
 
 db_test_() ->
@@ -550,6 +552,17 @@ test_with_or_without_sec(IsSec) ->
             false -> ?assertEqual(0, length(R1g));
             true ->  ?assertEqual(1, length(R1g))
         end,
+
+        R1h = exec_fetch_sort(SKey, query1h, 100, IsSec, 
+            "select * from def where 1=1"
+        ),
+        ?assertEqual(10, length(R1h)),
+
+        R1i = exec_fetch_sort(SKey, query1i, 100, IsSec, 
+            "select * from def where 1=0"
+        ),
+        ?assertEqual(0, length(R1i)),
+
 
     %% simple queries on single table
 
@@ -869,17 +882,24 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query5i, 100, IsSec, 
-            "select d.col1, m.col1 from def as d, member_test as m where d.col1 <> 0 and is_member(d.col1+1,m.col2)",
+            "select d.col1, m.col1 
+             from def as d, member_test as m
+             where d.col1 <> 0 
+             and is_member(d.col1+1,m.col2)
+            ",
             [
                 {<<"1">>,<<"2">>},
                 {<<"2">>,<<"2">>},{<<"2">>,<<"3">>},
                 {<<"3">>,<<"3">>},
                 {<<"4">>,<<"3">>}
             ]
-        ),
+        ),  % ToDo: reversing the table names crashes the server, unsupported join filter at runtime
 
         % exec_fetch_sort_equal(SKey, query5j, 100, IsSec, 
-        %     "select d.col1, m.col1 from def d, member_test m where is_member(d.col1,m.\"$_\")",
+        %     "select d.col1, m.col1 
+        %      from def d, member_test m 
+        %      where is_member(d.col1,m.*)
+        %     ",
         %     [
         %         {<<"1">>,<<"1">>},{<<"1">>,<<"3">>},
         %         {<<"2">>,<<"2">>},
@@ -888,7 +908,7 @@ test_with_or_without_sec(IsSec) ->
         %         {<<"5">>,<<"5">>},
         %         {<<"9">>,<<"2">>}
         %     ]
-        % ),
+        % ), % ToDo: Mapping m.* to Table number and '$_' might do the trick
 
         R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, 
             "select name(qname) 
@@ -999,12 +1019,132 @@ test_with_or_without_sec(IsSec) ->
 
         exec_fetch_sort_equal(SKey, query5x, 100, IsSec, 
             "select col1 
-             from member_test, ddSchema 
+             from ddSchema, member_test 
              where element ( 2 , col3 ) = element ( 2 , schemaNode )
             "
             ,
             [{<<"6">>}]
         ),
+
+        ?assertEqual(ok, imem_sql:exec(SKey,
+            "create table ddCmdTest (
+                id integer,
+                owner userid,
+                opts term
+            );", 0, imem, IsSec)),
+
+        ?assertEqual(ok, imem_sql:exec(SKey,
+            "create table ddViewTest (
+                id integer, 
+                owner userid,
+                cmd integer
+            );", 0, imem, IsSec)),
+
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,1,system,[a]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,2,system,[a,b]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,3,system,[a,b,c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,11,111,[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,12,111,[b]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,13,111,[a]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,22,222,[a]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,23,222,[b]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,24,222,[c]}]),
+
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1001,system,1}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1002,system,2}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1003,111,3}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1004,111,11}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1005,system,13}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1006,222,23}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1007,system,24}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1008,222,12}]),
+        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1009,222,2}]),
+
+        case IsSec of
+            false ->    ok;
+            true ->     MyAcid = imem_seco:account_id(SKey),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,91,MyAcid,[c]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,92,MyAcid,[b,c]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,93,MyAcid,[a,b,c]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1010,MyAcid,91}]),
+                        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1011,MyAcid,23}]),
+                        if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1013,MyAcid,3}]),
+                        ok                        
+        end,
+
+        exec_fetch_sort_equal(SKey, query5y, 100, IsSec, 
+            "select v.id, c.id
+             from ddViewTest as v, ddCmdTest as c
+             where c.id = v.cmd
+                and (c.owner = user or c.owner = system)
+                and c.id in (1,2,3,91) 
+             order by v.id, c.id
+            "
+            ,
+            case IsSec of
+                false ->    [{<<"1001">>,<<"1">>}
+                            ,{<<"1002">>,<<"2">>}
+                            ,{<<"1003">>,<<"3">>}
+                            ,{<<"1009">>,<<"2">>}
+                            ];
+                true ->     [{<<"1001">>,<<"1">>}
+                            ,{<<"1002">>,<<"2">>}
+                            ,{<<"1003">>,<<"3">>}
+                            ,{<<"1009">>,<<"2">>}
+                            ,{<<"1010">>,<<"91">>}
+                            ,{<<"1013">>,<<"3">>}
+                            ]
+            end
+        ),
+
+        exec_fetch_sort_equal(SKey, query5z, 100, IsSec, 
+            "select v.id, c.id
+             from ddCmdTest as c, ddViewTest as v
+             where c.id = v.cmd
+                and (c.owner = user or c.owner = system)
+                and c.id in (1,2,3,91)
+                and is_member(b,c.opts) 
+             order by v.id, c.id
+            "
+            ,
+            case IsSec of
+                false ->    [{<<"1002">>,<<"2">>}
+                            ,{<<"1003">>,<<"3">>}
+                            ,{<<"1009">>,<<"2">>}
+                            ];
+                true ->     [{<<"1002">>,<<"2">>}
+                            ,{<<"1003">>,<<"3">>}
+                            ,{<<"1009">>,<<"2">>}
+                            ,{<<"1013">>,<<"3">>}
+                            ]
+            end
+        ),
+
+        exec_fetch_sort_equal(SKey, query5z1, 100, IsSec, 
+            "select v.id, c.id
+             from ddViewTest as v, ddCmdTest as c
+             where c.id = v.cmd
+                and (c.owner = user or c.owner = system)
+                and c.id in (1,2,3,91)
+                and not is_member(c,c.opts) 
+             order by v.id, c.id
+            "
+            ,
+            case IsSec of
+                false ->    [{<<"1001">>,<<"1">>}
+                            ,{<<"1002">>,<<"2">>}
+                            ,{<<"1009">>,<<"2">>}
+                            ];
+                true ->     [{<<"1001">>,<<"1">>}
+                            ,{<<"1002">>,<<"2">>}
+                            ,{<<"1009">>,<<"2">>}
+                            ]
+            end
+        ),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddViewTest;", 0, imem, IsSec)),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddCmdTest;", 0, imem, IsSec)),
 
     %% sorting
 
