@@ -676,8 +676,11 @@ re_compile(_) ->    never_match.
 
 like_compile(S) -> like_compile(S, <<>>).
 
-like_compile(S, Esc) when is_list(S);is_binary(S) ->
-    Escape = if 
+like_compile(S, Esc) when is_list(S); is_binary(S)  -> re_compile(transform_like(S, Esc));
+like_compile(_,_)                                   -> never_match.
+
+transform_like(S, Esc) ->
+    Escape = if
         Esc =:= "" ->       "";
         Esc =:= <<>> ->     "";
         is_list(Esc) ->     "[^"++Esc++"]";
@@ -686,8 +689,7 @@ like_compile(S, Esc) when is_list(S);is_binary(S) ->
     end,
     S1 = re:replace(S, Escape++"%", ".*", [global, {return, binary}]),
     S2 = re:replace(S1, Escape++"_", ".", [global, {return, binary}]),
-    re_compile(S2);
-like_compile(_,_) ->    never_match.
+    list_to_binary(["^",S2,"$"]).
 
 re_match(never_match, _) -> false;
 re_match(RE, S) when is_list(S);is_binary(S) ->
@@ -1490,6 +1492,11 @@ test_with_or_without_sec(IsSec) ->
             true ->     ?imem_test_admin_login();
             false ->    none
         end,
+
+    %% Like strig to Regex string
+        ?assertEqual(<<"^Sm.th$">>, transform_like(<<"Sm_th">>, <<>>)),
+        ?assertEqual(<<"^.*Sm.th.*$">>, transform_like(<<"%Sm_th%">>, <<>>)),
+        ?assertEqual(<<"^.A.*Sm.th.*$">>, transform_like(<<"_A%Sm_th%">>, <<>>)),
 
     %% Regular Expressions
         RE1 = like_compile("abc_123%@@"),
