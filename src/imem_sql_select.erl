@@ -132,8 +132,6 @@ tree_walk(SKey,Tmax,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_lis
     in_condition(SKey,Tmax,Ti,A,InList,FullMap);
 tree_walk(SKey,Tmax,Ti,{'like',Str,Pat,<<>>},FullMap) ->
     condition(SKey,Tmax,Ti,'like',Str,Pat,FullMap); 
-tree_walk(SKey,Tmax,Ti,{'regexp_like',Str,Pat,<<>>},FullMap) ->
-    condition(SKey,Tmax,Ti,'regexp_like',Str,Pat,FullMap); 
 tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
     % ?Debug("Function Arg: ~p~n", [P1]),
     Arg = tree_walk(SKey,Tmax,Ti,P1,FullMap),
@@ -141,8 +139,12 @@ tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
     {binary_to_atom(F,utf8),Arg};                 %% F = unary function like abs | is_list | to_atom
 tree_walk(SKey,Tmax,Ti,{'fun',<<"is_member">>,[P1,P2]},FullMap) ->
     condition(SKey,Tmax,Ti,is_member,P1,P2,FullMap); 
+tree_walk(SKey,Tmax,Ti,{'fun',<<"regexp_like">>,[P1,P2]},FullMap) ->
+    condition(SKey,Tmax,Ti,'regexp_like',P1,P2,FullMap); 
 tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) -> 
     {binary_to_atom(F,utf8),tree_walk(SKey,Tmax,Ti,P1,FullMap),tree_walk(SKey,Tmax,Ti,P2,FullMap)};    %% F = binary function like element(E,Tuple) | is_member | is_element
+tree_walk(_SKey,_Tmax,_Ti,{'fun',F,Params},_FullMap) -> 
+    ?UnimplementedException({"Unsupported function aritry",{F,Params}});
 tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
     {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)};
 tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
@@ -184,7 +186,7 @@ compguard(Tmax,Ti,OP,ExA,ExB) ->
         true ->                                 {reverse(OP),ExB,ExA}
     end,
     try 
-        ?Info("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
+        % ?Info("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
         compg(Tmax,Ti,O,A,B)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
@@ -338,8 +340,8 @@ exprguard(_ ,1, OP, {_,A,float,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->        {X,{
 % exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
 exprguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
-exprguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J,N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
-exprguard(Tm,J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J,N=<Tm -> ?UnimplementedException({"Unsupported join order",{A,B}});
+exprguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J,N=<Tm ->   ?UnimplementedException({"Unsupported join order",{A,B}});
+exprguard(Tm,J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J,N=<Tm ->   ?UnimplementedException({"Unsupported join order",{A,B}});
 exprguard(_ ,_, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
 exprguard(_ ,_, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
 exprguard(_ ,_, OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 ->  {N,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
@@ -502,6 +504,51 @@ test_with_or_without_sec(IsSec) ->
             "select * from ddTable where element(2,qname) = to_atom('def')"
         ),
         ?assertEqual(1, length(R0a)),
+
+
+    %% like joins
+
+        exec_fetch_sort_equal(SKey, query7l, 100, IsSec, 
+            "select d1.col1, d2.col1 
+             from def d1, def d2
+             where d1.col1 > 10
+             and d2.col1 like '%5%'
+             and d2.col1 = d1.col1
+            " 
+            , 
+            [
+                {<<"15">>,<<"15">>}
+            ]
+        ),
+
+        % exec_fetch_sort_equal(SKey, query7m, 100, IsSec, 
+        %     "select d1.col1, d2.col1 
+        %      from def d1, def d2
+        %      where d1.col1 >= 5
+        %      and d2.col1 like '%5%'
+        %      and d2.col2 like '5%'
+        %      and d2.col1 = d1.col1
+        %     " 
+        %     , 
+        %     [
+        %         {<<"5">>,<<"5">>}
+        %     ]
+        % ),
+
+        % exec_fetch_sort_equal(SKey, query7n, 100, IsSec, 
+        %     "select d1.col1, d2.col1 
+        %      from def d1, def d2
+        %      where d1.col1 >= 5
+        %      and d2.col1 like '%5%'
+        %      and d2.col2 not like '1%'
+        %      and d2.col1 = d1.col1
+        %     " 
+        %     , 
+        %     [
+        %         {<<"5">>,<<"5">>}
+        %     ]
+        % ),
+
 
     %% simple queries on meta fields
 
@@ -1214,14 +1261,13 @@ test_with_or_without_sec(IsSec) ->
             [{<<"100">>}]
         ),
 
-        %% ToDo: the following test fails. See regexp tests for imem_statment
-        % exec_fetch_sort_equal(SKey, query7e, 100, IsSec, 
-        %     "select col1 from def where col2 like 'text_in%'" 
-        %     , 
-        %     []
-        % ),
+        exec_fetch_sort_equal(SKey, query7e, 100, IsSec, 
+            "select col1 from def where col2 like 'text_in%'" 
+            , 
+            []
+        ),
 
-        exec_fetch_sort_equal(SKey, query7a, 100, IsSec, 
+        exec_fetch_sort_equal(SKey, query7f, 100, IsSec, 
             "select col2 
              from def
              where col2 not like '1%'
@@ -1243,6 +1289,40 @@ test_with_or_without_sec(IsSec) ->
         ),
 
 
+    %% regexp_like()
+
+        exec_fetch_sort_equal(SKey, query7g, 100, IsSec, 
+            "select col2 from def where regexp_like(col2,'0')" 
+            , 
+            [{<<"0">>},{<<"10">>},{<<"20">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7h, 100, IsSec, 
+            "select col1 from def where regexp_like(col2,'^\"')" 
+            , 
+            [{<<"100">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7i, 100, IsSec, 
+            "select col1 from def where regexp_like(col2,'s\"$')" 
+            , 
+            [{<<"100">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7j, 100, IsSec, 
+            "select col1 from def where regexp_like(col2,'_.*_')" 
+            , 
+            [{<<"100">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7k, 100, IsSec, 
+            "select col1 from def where regexp_like(col2,'^[^_]*_[^_]*$')" 
+            , 
+            []
+        ),
+
+
+
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, imem, IsSec)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
@@ -1253,7 +1333,9 @@ test_with_or_without_sec(IsSec) ->
         end
 
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->
+            timer:sleep(1000),  
+            ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
