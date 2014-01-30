@@ -680,16 +680,21 @@ like_compile(S, Esc) when is_list(S); is_binary(S)  -> re_compile(transform_like
 like_compile(_,_)                                   -> never_match.
 
 transform_like(S, Esc) ->
-    Escape = if
+    E = if
         Esc =:= "" ->       "";
         Esc =:= <<>> ->     "";
-        is_list(Esc) ->     "[^"++Esc++"]";
-        is_binary(Esc) ->   "[^"++binary_to_list(Esc)++"]";
+        is_list(Esc) ->     Esc;
+        is_binary(Esc) ->   binary_to_list(Esc);
         true ->             ""
     end,
-    S1 = re:replace(S, Escape++"%", ".*", [global, {return, binary}]),
-    S2 = re:replace(S1, Escape++"_", ".", [global, {return, binary}]),
-    list_to_binary(["^",S2,"$"]).
+    Escape = if E =:= "" -> ""; true -> "["++E++"]" end,
+    NotEscape = if E =:= "" -> ""; true -> "([^"++E++"])" end,
+    S0 = re:replace(S, "([\\\\^$.\\[\\]|()?*+\\-{}])", "\\\\\\1", [global, {return, binary}]),
+    S1 = re:replace(S0, NotEscape++"%", "\\1.*", [global, {return, binary}]),
+    S2 = re:replace(S1, NotEscape++"_", "\\1.", [global, {return, binary}]),
+    S3 = re:replace(S2, Escape++"%", "%", [global, {return, binary}]),
+    S4 = re:replace(S3, Escape++"_", "_", [global, {return, binary}]),
+    list_to_binary(["^",S4,"$"]).
 
 re_match(never_match, _) -> false;
 re_match(RE, S) when is_list(S);is_binary(S) ->
@@ -1497,6 +1502,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"^Sm.th$">>, transform_like(<<"Sm_th">>, <<>>)),
         ?assertEqual(<<"^.*Sm.th.*$">>, transform_like(<<"%Sm_th%">>, <<>>)),
         ?assertEqual(<<"^.A.*Sm.th.*$">>, transform_like(<<"_A%Sm_th%">>, <<>>)),
+        ?assertEqual(<<"^.A.*S\\$m.t\\*\\[h.*$">>, transform_like(<<"_A%S$m_t*[h%">>, <<>>)),
+        ?assertEqual(<<"^.A.*S\\^\\$\\.\\[\\]\\|\\(\\)\\?\\*\\+\\-\\{\\}m.th.*$">>, transform_like(<<"_A%S^$.[]|()?*+-{}m_th%">>, <<>>)),
+        ?assertEqual(<<"^Sm_th.$">>, transform_like(<<"Sm@_th_">>, <<"@">>)),
+        ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
 
     %% Regular Expressions
         RE1 = like_compile("abc_123%@@"),
