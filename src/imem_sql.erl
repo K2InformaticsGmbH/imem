@@ -359,6 +359,10 @@ simplify_once({'not', true}) ->         false;
 simplify_once({'not', false}) ->        true; 
 simplify_once({'not', {'is_member', Left, Right}}) -> {'nis_member', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'nis_member', Left, Right}}) -> {'is_member', simplify_once(Left), simplify_once(Right)};
+simplify_once({'not', {'like', Left, Right}}) -> {'not_like', simplify_once(Left), simplify_once(Right)};
+simplify_once({'not', {'not_like', Left, Right}}) -> {'like', simplify_once(Left), simplify_once(Right)};
+simplify_once({'not', {'regexp_like', Left, Right}}) -> {'not_regexp_like', simplify_once(Left), simplify_once(Right)};
+simplify_once({'not', {'not_regexp_like', Left, Right}}) -> {'regexp_like', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'/=', Left, Right}}) -> {'==', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'==', Left, Right}}) -> {'/=', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'=<', Left, Right}}) -> {'>',  simplify_once(Left), simplify_once(Right)};
@@ -389,13 +393,7 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
     % ?Debug("MatchHead (~p) ~p", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
     % ?Debug("SGuard1 ~p", [SGuard1]),
-    {FGuard,SGuard2} = case operator_match('is_member',SGuard1) of
-        false ->    case operator_match('nis_member',SGuard1) of
-                        false ->    {true,SGuard1};   %% no filtering needed
-                        NF ->       {NF,simplify_guard(replace_nis_member(SGuard1))}
-                    end;
-        F ->        {F,simplify_guard(replace_is_member(SGuard1))}
-    end,
+    {SGuard2,FGuard} = filter_extract(SGuard1),
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
     ?Debug("FGuard ~p", [FGuard]),
     SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
@@ -405,6 +403,30 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
     FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
     ?Debug("FBinds ~p", [FBinds]),
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
+
+
+filter_extract(SGuard) -> 
+    FTokens = ['is_member','nis_member', 'like', 'not_like', 'regexp_like', 'not_regexp_like'],
+    filter_extract(SGuard, true, FTokens).
+
+
+filter_extract(S0, F0, []) ->
+    {S0,F0};
+filter_extract(S0, F0, [T|Tokens]) ->
+    case operator_match(T,S0) of
+        false ->
+            %% token T is not in scan guard, no filter needed     
+            filter_extract(S0, F0, Tokens);
+        F ->        
+            case F0 of
+                true ->
+                    %% ToDo: must check if filter is really AND'ed to S0 guard      
+                    filter_extract(simplify_guard(replace_token(S0,T)), F, Tokens);
+                _ ->
+                    %% ToDo: must check if filter is really AND'ed to S0 guard and previous filter F0
+                    filter_extract(simplify_guard(replace_token(S0,T)),{'and',F0, F}, Tokens)
+            end
+    end.
 
 operand_member(Tx,{_,R}) -> operand_member(Tx,R);
 operand_member(Tx,{_,Tx,_}) -> true;
@@ -450,6 +472,13 @@ replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Rig
 replace_rownum({Op,Result}) ->       {Op,replace_rownum(Result)};
 replace_rownum(Result) ->            Result.
 
+replace_token(Guard, 'is_member')->         replace_is_member(Guard);
+replace_token(Guard, 'nis_member')->        replace_nis_member(Guard);
+replace_token(Guard, 'like')->              replace_like(Guard);
+replace_token(Guard, 'not_like')->          replace_not_like(Guard);
+replace_token(Guard, 'regexp_like')->       replace_regexp_like(Guard);
+replace_token(Guard, 'not_regexp_like')->   replace_not_regexp_like(Guard).
+
 replace_is_member({is_member,_Left,_Right})->   true;
 replace_is_member({Op,Left,Right})->            {Op,replace_is_member(Left),replace_is_member(Right)};
 replace_is_member({Op,Result}) ->               {Op,replace_is_member(Result)};
@@ -460,6 +489,26 @@ replace_nis_member({Op,Left,Right})->           {Op,replace_nis_member(Left),rep
 replace_nis_member({Op,Result}) ->              {Op,replace_nis_member(Result)};
 replace_nis_member(Result) ->                   Result.
 
+replace_like({'like',_Left,_Right})->           true;
+replace_like({Op,Left,Right})->                 {Op,replace_like(Left),replace_like(Right)};
+replace_like({Op,Result}) ->                    {Op,replace_like(Result)};
+replace_like(Result) ->                         Result.
+
+replace_not_like({'not_like',_Left,_Right})->   true;
+replace_not_like({Op,Left,Right})->             {Op,replace_not_like(Left),replace_not_like(Right)};
+replace_not_like({Op,Result}) ->                {Op,replace_not_like(Result)};
+replace_not_like(Result) ->                     Result.
+
+replace_regexp_like({'regexp_like',_Left,_Right})->    true;
+replace_regexp_like({Op,Left,Right})->                 {Op,replace_regexp_like(Left),replace_regexp_like(Right)};
+replace_regexp_like({Op,Result}) ->                    {Op,replace_regexp_like(Result)};
+replace_regexp_like(Result) ->                         Result.
+
+replace_not_regexp_like({'not_regexp_like',_Left,_Right})-> true;
+replace_not_regexp_like({Op,Left,Right})->                  {Op,replace_not_regexp_like(Left),replace_not_regexp_like(Right)};
+replace_not_regexp_like({Op,Result}) ->                     {Op,replace_not_regexp_like(Result)};
+replace_not_regexp_like(Result) ->                          Result.
+
 escape_sql(Str) when is_list(Str) ->
     re:replace(Str, "(')", "''", [global, {return, list}]);
 escape_sql(Bin) when is_binary(Bin) ->
@@ -469,7 +518,6 @@ un_escape_sql(Str) when is_list(Str) ->
     re:replace(Str, "('')", "'", [global, {return, list}]);
 un_escape_sql(Bin) when is_binary(Bin) ->
     re:replace(Bin, "('')", "'", [global, {return, binary}]).
-
 
 build_sort_fun(SelectSections,FullMap) ->
     case lists:keyfind('order by', 1, SelectSections) of

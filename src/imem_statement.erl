@@ -40,6 +40,12 @@
         , result_tuples_sort/3
         ]).
 
+-export([ re_compile/1
+        , re_match/2
+        , like_compile/1
+        , like_compile/2
+        ]).
+
 -record(fetchCtx,               %% state for fetch process
                     { pid       ::pid()
                     , monref    ::any()             %% fetch monitor ref
@@ -660,6 +666,37 @@ join_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
 join_bind_one(_, A, _) ->
     bind_value(A).
 
+
+re_compile(S) when is_list(S);is_binary(S) ->
+    case (catch re:compile(S))  of
+        {ok, MP} -> MP;
+        _ ->        never_match
+    end;
+re_compile(_) ->    never_match.
+
+like_compile(S) -> like_compile(S, <<>>).
+
+like_compile(S, Esc) when is_list(S);is_binary(S) ->
+    Escape = if 
+        Esc =:= "" ->       "";
+        Esc =:= <<>> ->     "";
+        is_list(Esc) ->     "[^"++Esc++"]";
+        is_binary(Esc) ->   "[^"++binary_to_list(Esc)++"]";
+        true ->             ""
+    end,
+    S1 = re:replace(S, Escape++"%", ".*", [global, {return, binary}]),
+    S2 = re:replace(S1, Escape++"_", ".", [global, {return, binary}]),
+    re_compile(S2);
+like_compile(_,_) ->    never_match.
+
+re_match(never_match, _) -> false;
+re_match(RE, S) when is_list(S);is_binary(S) ->
+    case re:run(S, RE) of
+        nomatch ->  false;
+        _ ->        true
+    end;
+re_match(_, _) ->   false.
+
 make_filter_fun(_Ti, true, _FBinds)  ->
     fun(_X) -> true end;
 make_filter_fun(_Ti, false, _FBinds)  ->
@@ -670,13 +707,13 @@ make_filter_fun(Ti, {Op, {const,A}, B}, FBinds) ->
     make_filter_fun_single(Ti,{Op, A, B}, FBinds);
 make_filter_fun(Ti, {Op, A, {const,B}}, FBinds) ->
     make_filter_fun_single(Ti, {Op, A, B}, FBinds);
-make_filter_fun(Ti, {Op, A, B}, FBinds) when is_tuple(A);is_tuple(B) ->
+make_filter_fun(_Ti, {Op, A, B}, _FBinds) when is_tuple(A);is_tuple(B) ->
     %% ToDo: We should allow expression guards for A and B here 
     %% and resolve to values using FBinds
     ?UnimplementedException({"Expression in join filter", {Op, A, B}});
 make_filter_fun(Ti, {Op, A, B}, FBinds) ->
     make_filter_fun_single(Ti, {Op, A, B}, FBinds);
-make_filter_fun(Ti, Guard, FBinds) ->
+make_filter_fun(_Ti, Guard, _FBinds) ->
     ?UnimplementedException({"Unsupported filter guard", Guard}).
 
 make_filter_fun_single(Ti, {'is_member', A, '$_'}, FBinds) ->
@@ -701,6 +738,110 @@ make_filter_fun_single(Ti, {'nis_member', A, '$_'}, FBinds) ->
         {A,ATi,ACi} ->  
             fun(X2) ->
                 (not lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2)))))
+            end
+    end;
+make_filter_fun_single(_Ti, {'like', A, B}, FBinds)  ->
+    ABind = lists:keyfind(A,1,FBinds),
+    BBind = lists:keyfind(B,1,FBinds),
+    case {ABind,BBind} of 
+        {false,false} ->
+            Result = re_match(like_compile(B),A),        
+            fun(_X) -> 
+                Result
+            end;
+        {false,{B,BTi,BCi}} ->
+            fun(X1) ->
+                re_match(like_compile(element(BCi,element(BTi,X1))),A)        
+            end;
+        {{A,ATi,ACi},false} ->  
+            RE = like_compile(B),
+            fun(X2) ->
+                Abound = element(ACi,element(ATi,X2)),
+                re_match(RE,Abound)
+            end;
+        {{A,XTi,XCi},{B,YTi,YCi}} ->  
+            fun(X3) ->
+                Xbound = element(XCi,element(XTi,X3)), 
+                Ybound = element(YCi,element(YTi,X3)), 
+                re_match(like_compile(Ybound),Xbound)
+            end
+    end;
+make_filter_fun_single(_Ti, {'not_like', A, B}, FBinds)  ->
+    ABind = lists:keyfind(A,1,FBinds),
+    BBind = lists:keyfind(B,1,FBinds),
+    case {ABind,BBind} of 
+        {false,false} ->
+            Result = re_match(like_compile(B),A),        
+            fun(_X) -> 
+                (not Result)
+            end;
+        {false,{B,BTi,BCi}} ->
+            fun(X1) ->
+                (not re_match(like_compile(element(BCi,element(BTi,X1))),A))        
+            end;
+        {{A,ATi,ACi},false} ->  
+            RE = like_compile(B),
+            fun(X2) ->
+                Abound = element(ACi,element(ATi,X2)),
+                (not re_match(RE,Abound))
+            end;
+        {{A,XTi,XCi},{B,YTi,YCi}} ->  
+            fun(X3) ->
+                Xbound = element(XCi,element(XTi,X3)), 
+                Ybound = element(YCi,element(YTi,X3)), 
+                (not re_match(like_compile(Ybound),Xbound))
+            end
+    end;
+make_filter_fun_single(_Ti, {'regexp_like', A, B}, FBinds)  ->
+    ABind = lists:keyfind(A,1,FBinds),
+    BBind = lists:keyfind(B,1,FBinds),
+    case {ABind,BBind} of 
+        {false,false} ->
+            Result = re_match(re_compile(B),A),        
+            fun(_X) -> 
+                Result
+            end;
+        {false,{B,BTi,BCi}} ->
+            fun(X1) ->
+                re_match(re_compile(element(BCi,element(BTi,X1))),A)        
+            end;
+        {{A,ATi,ACi},false} ->  
+            RE = re_compile(B),
+            fun(X2) ->
+                Abound = element(ACi,element(ATi,X2)),
+                re_match(RE,Abound)
+            end;
+        {{A,XTi,XCi},{B,YTi,YCi}} ->  
+            fun(X3) ->
+                Xbound = element(XCi,element(XTi,X3)), 
+                Ybound = element(YCi,element(YTi,X3)), 
+                re_match(re_compile(Ybound),Xbound)
+            end
+    end;
+make_filter_fun_single(_Ti, {'not_regexp_like', A, B}, FBinds)  ->
+    ABind = lists:keyfind(A,1,FBinds),
+    BBind = lists:keyfind(B,1,FBinds),
+    case {ABind,BBind} of 
+        {false,false} ->
+            Result = re_match(re_compile(B),A),        
+            fun(_X) -> 
+                (not Result)
+            end;
+        {false,{B,BTi,BCi}} ->
+            fun(X1) ->
+                (not re_match(re_compile(element(BCi,element(BTi,X1))),A))        
+            end;
+        {{A,ATi,ACi},false} ->  
+            RE = re_compile(B),
+            fun(X2) ->
+                Abound = element(ACi,element(ATi,X2)),
+                (not re_match(RE,Abound))
+            end;
+        {{A,XTi,XCi},{B,YTi,YCi}} ->  
+            fun(X3) ->
+                Xbound = element(XCi,element(XTi,X3)), 
+                Ybound = element(YCi,element(YTi,X3)), 
+                (not re_match(re_compile(Ybound),Xbound))
             end
     end;
 make_filter_fun_single(_Ti, {'is_member', A, B}, FBinds)  ->
@@ -1349,6 +1490,37 @@ test_with_or_without_sec(IsSec) ->
             true ->     ?imem_test_admin_login();
             false ->    none
         end,
+
+    %% Regular Expressions
+        RE1 = like_compile("abc_123%@@"),
+        ?assertEqual(true,re_match(RE1,"abc_123%@@")),         
+        ?assertEqual(true,re_match(RE1,<<"abc_123jhhsdhjhj@@">>)),         
+        ?assertEqual(true,re_match(RE1,"abc_123%%@@@")),         
+        ?assertEqual(true,re_match(RE1,"abc0123@@")),         
+        ?assertEqual(false,re_match(RE1,"abc_123%@")),         
+        ?assertEqual(false,re_match(RE1,"abc_123%@")),         
+        ?assertEqual(false,re_match(RE1,"")),         
+        ?assertEqual(false,re_match(RE1,<<"">>)),         
+        ?assertEqual(false,re_match(RE1,<<"abc_@@">>)),         
+        RE2 = like_compile(<<"%@@">>,<<>>),
+        ?assertEqual(true,re_match(RE2,"abc_123%@@")),         
+        ?assertEqual(true,re_match(RE2,<<"123%@@">>)),         
+        ?assertEqual(true,re_match(RE2,"@@")),
+        ?assertEqual(true,re_match(RE2,"@@@")),
+        ?assertEqual(false,re_match(RE2,"abc_123%@")),         
+        ?assertEqual(false,re_match(RE2,"@.@")),         
+        ?assertEqual(false,re_match(RE2,"@_@")),         
+        RE3 = like_compile(<<"text_in%">>),
+        ?assertEqual(true,re_match(RE3,<<"text_in_text">>)),         
+        ?assertEqual(true,re_match(RE3,"text_in_text")),         
+        ?assertEqual(true,re_match(RE3,<<"text_in_quotes\"">>)),         
+
+        %% ToDo: the following tests would fail
+        % ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes">>)),         
+        % ?assertEqual(false,re_match(RE3,"\"text_in_quotes\"")),         
+        % ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes\"">>)),         
+
+        %% ToDo: implement and test patterns involving regexp reserved characters
 
     %% test table tuple_test
 

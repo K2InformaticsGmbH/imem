@@ -130,6 +130,10 @@ tree_walk(SKey,Tmax,Ti,{'>=',A,B},FullMap) ->
     condition(SKey,Tmax,Ti,'>=',A,B,FullMap);
 tree_walk(SKey,Tmax,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
     in_condition(SKey,Tmax,Ti,A,InList,FullMap);
+tree_walk(SKey,Tmax,Ti,{'like',Str,Pat,<<>>},FullMap) ->
+    condition(SKey,Tmax,Ti,'like',Str,Pat,FullMap); 
+tree_walk(SKey,Tmax,Ti,{'regexp_like',Str,Pat,<<>>},FullMap) ->
+    condition(SKey,Tmax,Ti,'regexp_like',Str,Pat,FullMap); 
 tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
     % ?Debug("Function Arg: ~p~n", [P1]),
     Arg = tree_walk(SKey,Tmax,Ti,P1,FullMap),
@@ -174,11 +178,13 @@ condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
 compguard(Tmax,Ti,OP,ExA,ExB) ->
     {O,A,B} = if  
         (OP =='is_member') ->                   {OP,ExA,ExB};
+        (OP =='like') ->                        {OP,ExA,ExB};
+        (OP =='regexp_like') ->                 {OP,ExA,ExB};
         (element(1,ExA) =< element(1,ExB)) ->   {OP,ExA,ExB};
         true ->                                 {reverse(OP),ExB,ExA}
     end,
     try 
-        % ?Info("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
+        ?Info("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
         compg(Tmax,Ti,O,A,B)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
@@ -190,10 +196,18 @@ compguard(Tmax,Ti,OP,ExA,ExB) ->
     end.
 
 compg(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> join;   %% join condition
-compg(_ ,_, is_member, {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
-compg(_ ,_, is_member, {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->     {is_member,field_value(B,term,0,0,?nav,A),B};           
-compg(_ ,_, is_member, {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->         {is_member,A,field_value(A,term,0,0,?nav,B)};           
-compg(_ ,_, is_member, {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->         {is_member,A,B};           
+compg(_ ,_, 'is_member', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
+compg(_ ,_, 'is_member', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),B};           
+compg(_ ,_, 'is_member', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->       {'is_member',A,field_value(A,term,0,0,?nav,B)};           
+compg(_ ,_, 'is_member', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->       {'is_member',A,B};           
+compg(_ ,_, 'like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->        {'like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
+compg(_ ,_, 'like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->        {'like',field_value(B,string,0,0,?nav,A),B};           
+compg(_ ,_, 'like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->            {'like',A,field_value(A,string,0,0,?nav,B)};           
+compg(_ ,_, 'like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->            {'like',A,B};           
+compg(_ ,_, 'regexp_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) -> {'regexp_like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
+compg(_ ,_, 'regexp_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) -> {'regexp_like',field_value(B,string,0,0,?nav,A),B};           
+compg(_ ,_, 'regexp_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->     {'regexp_like',A,field_value(A,string,0,0,?nav,B)};           
+compg(_ ,_, 'regexp_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->     {'regexp_like',A,B};           
 compg(_ ,_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
 compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
 compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,?nav,A),B};
@@ -414,23 +428,7 @@ test_with_or_without_sec(IsSec) ->
             IsSec ->    ?assertEqual(<<"admin">>, imem_seco:account_name(SKey));
             true ->     ?assertException(throw,{SeEx,{"Not logged in",none}}, imem_seco:account_name(SKey))
         end,
-
-        case {IsSec,catch(imem_meta:check_table(ddView))} of
-            {false,_} ->    ok;
-            {true,ok} ->     
-                R_a = exec_fetch_sort(SKey, query_a, 100, IsSec, 
-                    "select v.name 
-                     from ddView as v, ddCmd as c 
-                     where c.id = v.cmd 
-                     and c.adapters = \"[imem]\" 
-                     and (c.owner = user or c.owner = system)"
-                ),
-                ?assert(length(R_a) > 0);
-
-            {true,_} ->     ok                
-        end,
         
-
     %% test table def
 
         ?assertEqual(ok, imem_sql:exec(SKey,
@@ -442,11 +440,11 @@ test_with_or_without_sec(IsSec) ->
                 col5 tuple
             );", 0, imem, IsSec)),
 
-        ?assertEqual(ok, insert_range(SKey, 10, def, imem, IsSec)),
+        ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
 
         {L0, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
         ?Log("Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
-        ?assertEqual(10, length(L0)),
+        ?assertEqual(20, length(L0)),
 
     %% test table member_test
 
@@ -499,6 +497,11 @@ test_with_or_without_sec(IsSec) ->
             "select * from ddTable"
         ),
         ?assertEqual(AllTableCount, length(R0)),
+
+        R0a = exec_fetch_sort(SKey, query0a, 100, IsSec, 
+            "select * from ddTable where element(2,qname) = to_atom('def')"
+        ),
+        ?assertEqual(1, length(R0a)),
 
     %% simple queries on meta fields
 
@@ -556,13 +559,12 @@ test_with_or_without_sec(IsSec) ->
         R1h = exec_fetch_sort(SKey, query1h, 100, IsSec, 
             "select * from def where 1=1"
         ),
-        ?assertEqual(10, length(R1h)),
+        ?assertEqual(20, length(R1h)),
 
         R1i = exec_fetch_sort(SKey, query1i, 100, IsSec, 
             "select * from def where 1=0"
         ),
         ?assertEqual(0, length(R1i)),
-
 
     %% simple queries on single table
 
@@ -586,7 +588,7 @@ test_with_or_without_sec(IsSec) ->
         ), 
 
         exec_fetch_sort_equal(SKey, query2d, 100, IsSec, 
-            "select col1, col2 from def where col2 in ('5',col2)", 
+            "select col1, col2 from def where col2 in ('5',col2) and col1 <= 10", 
             [
                 {<<"1">>,<<"1">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>},{<<"4">>,<<"4">>},
                 {<<"5">>,<<"5">>},{<<"6">>,<<"6">>},{<<"7">>,<<"7">>},{<<"8">>,<<"8">>},
@@ -708,7 +710,7 @@ test_with_or_without_sec(IsSec) ->
         R3b = exec_fetch_sort(SKey, query3b, 100, IsSec, 
             "select col3, item from def, integer where is_member(item,\"'$_'\") and col1 <> 100"
         ),
-        ?assertEqual(10, length(R3b)),
+        ?assertEqual(20, length(R3b)),
 
         R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, 
             "select * from ddNode"
@@ -763,7 +765,9 @@ test_with_or_without_sec(IsSec) ->
              and t2.col1 > t1.col1 
              and t2.col1 > t1.col1 
              and t2.col1 <> 9
-             and t2.col1 <> 100",
+             and t2.col1 <> 100
+             and t2.col1 < 11
+            ",
             [
                 {<<"5">>,<<"6">>},{<<"5">>,<<"7">>},{<<"5">>,<<"8">>},{<<"5">>,<<"10">>},
                 {<<"6">>,<<"7">>},{<<"6">>,<<"8">>},{<<"6">>,<<"10">>},
@@ -1151,7 +1155,7 @@ test_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query6a, 100, IsSec, 
             "select col1, col2 
              from def
-             where col1 <> 100 
+             where col1 < 11 
              and col1 <> 0 
              order by col1 desc, col2"
             , 
@@ -1168,6 +1172,76 @@ test_with_or_without_sec(IsSec) ->
                 ,{<<"1">>,<<"1">>}
             ]
         ),
+
+    %% like
+
+        exec_fetch_sort_equal(SKey, query7a, 100, IsSec, 
+            "select col2 
+             from def
+             where col2 like '1%'
+            " 
+            , 
+            [
+                 {<<"1">>}
+                ,{<<"10">>}
+                ,{<<"11">>}
+                ,{<<"12">>}
+                ,{<<"13">>}
+                ,{<<"14">>}
+                ,{<<"15">>}
+                ,{<<"16">>}
+                ,{<<"17">>}
+                ,{<<"18">>}
+                ,{<<"19">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7b, 100, IsSec, 
+            "select col1, col2 from def where col2 like '%_in_%'" 
+            , 
+            [{<<"100">>, <<"\"text_in_quotes\"">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7c, 100, IsSec, 
+            "select col1 from def where col2 like '%quotes\"'" 
+            , 
+            [{<<"100">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7d, 100, IsSec, 
+            "select col1 from def where col2 like '_text_in%'" 
+            , 
+            [{<<"100">>}]
+        ),
+
+        %% ToDo: the following test fails. See regexp tests for imem_statment
+        % exec_fetch_sort_equal(SKey, query7e, 100, IsSec, 
+        %     "select col1 from def where col2 like 'text_in%'" 
+        %     , 
+        %     []
+        % ),
+
+        exec_fetch_sort_equal(SKey, query7a, 100, IsSec, 
+            "select col2 
+             from def
+             where col2 not like '1%'
+            " 
+            , 
+            [
+                 {<<"0">>}
+                ,{<<"2">>}
+                ,{<<"3">>}
+                ,{<<"4">>}
+                ,{<<"5">>}
+                ,{<<"6">>}
+                ,{<<"7">>}
+                ,{<<"8">>}
+                ,{<<"9">>}
+                ,{<<"20">>}
+                ,{<<"\"text_in_quotes\"">>}
+            ]
+        ),
+
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, imem, IsSec)),
 
