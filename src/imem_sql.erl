@@ -22,6 +22,7 @@
         , create_scan_spec/4
         , operand_member/2
         , operand_match/2
+        , replace_match/2
         , escape_sql/1
         , un_escape_sql/1
         , build_sort_fun/2
@@ -392,16 +393,17 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     % ?Debug("MatchHead (~p) ~p", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
-    % ?Debug("SGuard1 ~p", [SGuard1]),
+    % ?Info("SGuard1 ~p", [SGuard1]),
     {SGuard2,FGuard} = filter_extract(SGuard1),
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
-    ?Debug("FGuard ~p", [FGuard]),
+    % ?Info("SGuard2 ~p", [SGuard2]),
+    % ?Info("FGuard ~p", [FGuard]),
     SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
-    ?Debug("SBinds ~p", [SBinds]),
+    % ?Info("SBinds ~p", [SBinds]),
     MBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [FGuard],[]),
-    ?Debug("MBinds ~p", [MBinds]),
+    % ?Info("MBinds ~p", [MBinds]),
     FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
-    ?Debug("FBinds ~p", [FBinds]),
+    % ?Info("FBinds ~p", [FBinds]),
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
 
 
@@ -412,7 +414,7 @@ filter_extract(SGuard) ->
 
 filter_extract(S0, F0, []) ->
     {S0,F0};
-filter_extract(S0, F0, [T|Tokens]) ->
+filter_extract(S0, F0, [T|Tokens]=AllTokens) ->
     case operator_match(T,S0) of
         false ->
             %% token T is not in scan guard, no filter needed     
@@ -421,10 +423,10 @@ filter_extract(S0, F0, [T|Tokens]) ->
             case F0 of
                 true ->
                     %% ToDo: must check if filter is really AND'ed to S0 guard      
-                    filter_extract(simplify_guard(replace_token(S0,T)), F, Tokens);
+                    filter_extract(simplify_guard(replace_match(S0,F)), F, AllTokens);
                 _ ->
                     %% ToDo: must check if filter is really AND'ed to S0 guard and previous filter F0
-                    filter_extract(simplify_guard(replace_token(S0,T)),{'and',F0, F}, Tokens)
+                    filter_extract(simplify_guard(replace_match(S0,F)),{'and',F0, F}, AllTokens)
             end
     end.
 
@@ -466,48 +468,25 @@ operator_match(Tx,{_,L,R}) ->
     end;
 operator_match(_,_) ->              false.
 
+
+replace_match(Match,Match) ->               true;
+replace_match({Op,Match,Right},Match) ->    {Op,true,Right};
+replace_match({Op,Left,Match},Match) ->     {Op,Left,true};
+replace_match({Op,Left,Right},Match) when is_tuple(Left) ->     
+    NewLeft = replace_match(Left,Match),
+    case NewLeft of
+        Left when is_tuple(Right) ->    {Op,Left,replace_match(Right,Match)};
+        _ ->                            {Op,NewLeft,Right}
+    end;
+replace_match({Op,Left,Right},Match) when is_tuple(Right) ->
+    {Op,Left,replace_match(Right,Match)};
+replace_match({Op,Left,Right}, _) -> {Op,Left,Right}.
+
 replace_rownum({Op,rownum,Right}) -> {Op,1,Right};
 replace_rownum({Op,Left,rownum}) ->  {Op,Left,1};
 replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Right)};
 replace_rownum({Op,Result}) ->       {Op,replace_rownum(Result)};
 replace_rownum(Result) ->            Result.
-
-replace_token(Guard, 'is_member')->         replace_is_member(Guard);
-replace_token(Guard, 'nis_member')->        replace_nis_member(Guard);
-replace_token(Guard, 'like')->              replace_like(Guard);
-replace_token(Guard, 'not_like')->          replace_not_like(Guard);
-replace_token(Guard, 'regexp_like')->       replace_regexp_like(Guard);
-replace_token(Guard, 'not_regexp_like')->   replace_not_regexp_like(Guard).
-
-replace_is_member({is_member,_Left,_Right})->   true;
-replace_is_member({Op,Left,Right})->            {Op,replace_is_member(Left),replace_is_member(Right)};
-replace_is_member({Op,Result}) ->               {Op,replace_is_member(Result)};
-replace_is_member(Result) ->                    Result.
-
-replace_nis_member({nis_member,_Left,_Right})-> true;
-replace_nis_member({Op,Left,Right})->           {Op,replace_nis_member(Left),replace_nis_member(Right)};
-replace_nis_member({Op,Result}) ->              {Op,replace_nis_member(Result)};
-replace_nis_member(Result) ->                   Result.
-
-replace_like({'like',_Left,_Right})->           true;
-replace_like({Op,Left,Right})->                 {Op,replace_like(Left),replace_like(Right)};
-replace_like({Op,Result}) ->                    {Op,replace_like(Result)};
-replace_like(Result) ->                         Result.
-
-replace_not_like({'not_like',_Left,_Right})->   true;
-replace_not_like({Op,Left,Right})->             {Op,replace_not_like(Left),replace_not_like(Right)};
-replace_not_like({Op,Result}) ->                {Op,replace_not_like(Result)};
-replace_not_like(Result) ->                     Result.
-
-replace_regexp_like({'regexp_like',_Left,_Right})->    true;
-replace_regexp_like({Op,Left,Right})->                 {Op,replace_regexp_like(Left),replace_regexp_like(Right)};
-replace_regexp_like({Op,Result}) ->                    {Op,replace_regexp_like(Result)};
-replace_regexp_like(Result) ->                         Result.
-
-replace_not_regexp_like({'not_regexp_like',_Left,_Right})-> true;
-replace_not_regexp_like({Op,Left,Right})->                  {Op,replace_not_regexp_like(Left),replace_not_regexp_like(Right)};
-replace_not_regexp_like({Op,Result}) ->                     {Op,replace_not_regexp_like(Result)};
-replace_not_regexp_like(Result) ->                          Result.
 
 escape_sql(Str) when is_list(Str) ->
     re:replace(Str, "(')", "''", [global, {return, list}]);
@@ -842,6 +821,21 @@ test_with_or_without_sec(IsSec) ->
             _ ->    ok
         end,
 
+        L = {like,'$6',"%5%"},
+        NL = {not_like,'$7',"1%"},
+        ?assertEqual( true, replace_match(L,L)),
+        ?assertEqual( NL, replace_match(NL,L)),
+        ?assertEqual( {'and',true,NL}, replace_match({'and',L,NL},L)),
+        ?assertEqual( {'and',L,true}, replace_match({'and',L,NL},NL)),
+        ?assertEqual( {'and',{'and',true,NL},{a,b,c}}, replace_match({'and',{'and',L,NL},{a,b,c}},L)),
+        ?assertEqual( {'and',{'and',L,{a,b,c}},true}, replace_match({'and',{'and',L,{a,b,c}},NL},NL)),
+        ?assertEqual( {'and',{'and',true,NL},{'and',L,NL}}, replace_match({'and',{'and',L,NL},{'and',L,NL}},L)),
+        ?assertEqual( {'and',NL,{'and',true,NL}}, replace_match({'and',NL,{'and',L,NL}},L)),
+        ?assertEqual( {'and',NL,{'and',NL,NL}}, replace_match({'and',NL,{'and',NL,NL}},L)),
+        ?assertEqual( {'and',NL,{'and',NL,true}}, replace_match({'and',NL,{'and',NL,L}},L)),
+
+        ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},L},true},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},NL)),
+        ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},true},NL},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},L)),
 
         ?assertEqual("", escape_sql("")),
         ?assertEqual(<<"">>, escape_sql(<<"">>)),

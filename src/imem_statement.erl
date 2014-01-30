@@ -702,7 +702,11 @@ re_match(RE, S) when is_list(S);is_binary(S) ->
         nomatch ->  false;
         _ ->        true
     end;
-re_match(_, _) ->   false.
+re_match(RE, S) ->
+    case re:run(io_lib:format("~p", [S]), RE) of
+        nomatch ->  false;
+        _ ->        true
+    end.
 
 make_filter_fun(_Ti, true, _FBinds)  ->
     fun(_X) -> true end;
@@ -1530,11 +1534,23 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true,re_match(RE3,<<"text_in_text">>)),         
         ?assertEqual(true,re_match(RE3,"text_in_text")),         
         ?assertEqual(true,re_match(RE3,<<"text_in_quotes\"">>)),         
-
-        %% ToDo: the following tests would fail
-        % ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes">>)),         
-        % ?assertEqual(false,re_match(RE3,"\"text_in_quotes\"")),         
-        % ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes\"">>)),         
+        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes">>)),         
+        ?assertEqual(false,re_match(RE3,"\"text_in_quotes\"")),         
+        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes\"">>)),         
+        RE4 = like_compile(<<"%12">>),
+        ?assertEqual(true,re_match(RE4,12)),         
+        ?assertEqual(true,re_match(RE4,112)),         
+        ?assertEqual(true,re_match(RE4,012)),         
+        ?assertEqual(false,re_match(RE4,122)),         
+        ?assertEqual(false,re_match(RE4,1)),         
+        ?assertEqual(false,re_match(RE4,11)),         
+        RE5 = like_compile(<<"12.5%">>),
+        ?assertEqual(true,re_match(RE5,12.51)),         
+        ?assertEqual(true,re_match(RE5,12.55)),         
+        ?assertEqual(true,re_match(RE5,12.50)),         
+        ?assertEqual(false,re_match(RE5,12)),         
+        ?assertEqual(false,re_match(RE5,12.4)),         
+        ?assertEqual(false,re_match(RE5,12.49999)),         
 
         %% ToDo: implement and test patterns involving regexp reserved characters
 
