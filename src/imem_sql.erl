@@ -22,7 +22,6 @@
         , create_scan_spec/4
         , operand_member/2
         , operand_match/2
-        , replace_match/2
         , escape_sql/1
         , un_escape_sql/1
         , build_sort_fun/2
@@ -371,8 +370,8 @@ simplify_once({'not', {'<', Left, Right}}) ->  {'>=', simplify_once(Left), simpl
 simplify_once({'not', {'>=', Left, Right}}) -> {'<',  simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'>', Left, Right}}) ->  {'=<', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', Result}) ->       {'not', simplify_once(Result)};
-% simplify_once({ _Op, join}) ->           join;
-simplify_once({ Op, Result}) ->         {Op, Result};
+% simplify_once({ _Op, join}) ->        join;
+% simplify_once({Op, Result}) ->        {Op, Result};
 simplify_once(Result) ->                Result.
 
 
@@ -387,6 +386,8 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
         {'=<',rownum,L} when is_integer(L) ->   L;
         {'>',L,rownum} when is_integer(L) ->    L-1;
         {'>=',L,rownum} when is_integer(L) ->   L;
+        {'==',L,rownum} when is_integer(L) ->   L;
+        {'==',rownum,L} when is_integer(L) ->   L;
         Else ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
@@ -394,7 +395,7 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
     % ?Debug("MatchHead (~p) ~p", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
     % ?Info("SGuard1 ~p", [SGuard1]),
-    {SGuard2,FGuard} = filter_extract(SGuard1),
+    {SGuard2,FGuard} = extract_filter(SGuard1),
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
     % ?Info("SGuard2 ~p", [SGuard2]),
     % ?Info("FGuard ~p", [FGuard]),
@@ -407,26 +408,26 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
 
 
-filter_extract(SGuard) -> 
+extract_filter(SGuard) -> 
     FTokens = ['is_member','nis_member', 'like', 'not_like', 'regexp_like', 'not_regexp_like'],
-    filter_extract(SGuard, true, FTokens).
+    extract_filter(SGuard, true, FTokens).
 
 
-filter_extract(S0, F0, []) ->
+extract_filter(S0, F0, []) ->
     {S0,F0};
-filter_extract(S0, F0, [T|Tokens]=AllTokens) ->
+extract_filter(S0, F0, [T|Tokens]=AllTokens) ->
     case operator_match(T,S0) of
         false ->
             %% token T is not in scan guard, no filter needed     
-            filter_extract(S0, F0, Tokens);
+            extract_filter(S0, F0, Tokens);
         F ->        
             case F0 of
                 true ->
                     %% ToDo: must check if filter is really AND'ed to S0 guard      
-                    filter_extract(simplify_guard(replace_match(S0,F)), F, AllTokens);
+                    extract_filter(simplify_guard(replace_match(S0,F)), F, AllTokens);
                 _ ->
                     %% ToDo: must check if filter is really AND'ed to S0 guard and previous filter F0
-                    filter_extract(simplify_guard(replace_match(S0,F)),{'and',F0, F}, AllTokens)
+                    extract_filter(simplify_guard(replace_match(S0,F)),{'and',F0, F}, AllTokens)
             end
     end.
 

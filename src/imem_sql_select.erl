@@ -613,6 +613,35 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assertEqual(0, length(R1i)),
 
+        % exec_fetch_sort_equal(SKey, query1j, 100, IsSec, 
+        %     "select 1 from dual",
+        %     [{<<"1">>}]
+        % ),
+
+        exec_fetch_sort_equal(SKey, query1k, 100, IsSec, 
+            "select dummy from dual where rownum = 1",
+            [{<<"X">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query1l, 100, IsSec, 
+            "select dummy from dual where rownum <= 1",
+            [{<<"X">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query1m, 100, IsSec, 
+            "select dummy from dual where rownum = 2",
+            []
+        ),
+
+        exec_fetch_sort_equal(SKey, query1n, 100, IsSec, 
+            "select dummy from dual where rownum = 0",
+            []
+        ),
+
+        exec_fetch_sort_equal(SKey, query1o, 100, IsSec, 
+            "select dummy from dual where rownum <= -1",
+            []
+        ),
     %% simple queries on single table
 
         R2 = exec_fetch_sort_equal(SKey, query2, 100, IsSec, 
