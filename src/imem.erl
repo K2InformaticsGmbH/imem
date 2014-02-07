@@ -29,7 +29,8 @@ start() ->
     config_if_lager(),
     application:start(?MODULE).
 
--ifdef(LAGER).
+% LAGER Disabled in test
+-ifndef(TEST).
 
 config_if_lager() ->
     application:load(lager),
@@ -48,12 +49,12 @@ config_if_lager() ->
     application:start(lager),
     ?Info("IMEM starting with lager!").
 
--else. %LAGER
+-else. %LAGER disabled!
 
 config_if_lager() ->
     ?Info("IMEM starting without lager!").
 
--endif. %LAGER
+-endif.
 
 stop()  ->
     stop_tcp(),

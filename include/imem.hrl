@@ -1,38 +1,59 @@
 -define(LOG_TAG, "_IMEM_").
 
--define(__T,
-(fun() ->
-    {_,_,__McS} = __Now = erlang:now(),
-    {{__YYYY,__MM,__DD},{__H,__M,__S}} = calendar:now_to_local_time(__Now),
-    lists:flatten(io_lib:format("~2..0B.~2..0B.~4..0B ~2..0B:~2..0B:~2..0B.~6..0B", [__DD,__MM,__YYYY,__H,__M,__S,__McS]))
-end)()).
+-ifdef(TEST).
+    -define(__T,
+    (fun() ->
+        {_,_,__McS} = __Now = erlang:now(),
+        {_,{__H,__M,__S}} = calendar:now_to_local_time(__Now),
+        lists:flatten(io_lib:format("~2..0B:~2..0B:~2..0B.~6..0B", [__H,__M,__S,__McS]))
+    end)()).
+-else.
+    -define(__T,
+    (fun() ->
+        {_,_,__McS} = __Now = erlang:now(),
+        {{__YYYY,__MM,__DD},{__H,__M,__S}} = calendar:now_to_local_time(__Now),
+        lists:flatten(io_lib:format("~2..0B.~2..0B.~4..0B ~2..0B:~2..0B:~2..0B.~6..0B", [__DD,__MM,__YYYY,__H,__M,__S,__McS]))
+    end)()).
+-endif.
 
--define(__ST,
-(fun() ->
-    {_,_,__McS} = __Now = erlang:now(),
-    {{__YYYY,__MM,__DD},{__H,__M,__S}} = calendar:now_to_local_time(__Now),
-    lists:flatten(io_lib:format("~2..0B:~2..0B:~2..0B.~6..0B", [__H,__M,__S,__McS]))
-end)()).
+-ifndef(TEST). % LAGER Enabled
+    -define(Log(__F,__A), ok).
+    -define(L(__Tag,__M,__F,__A), lager:__Tag(__M, "["++?LOG_TAG++"] {~p,~*B} "++__F, [?MODULE,4,?LINE]++__A)).
+    -define(L(__Tag,__F,__A),     lager:__Tag(     "["++?LOG_TAG++"] {~p,~*B} "++__F, [?MODULE,4,?LINE]++__A)).
+    -define(L(__Tag,__F),         lager:__Tag(     "["++?LOG_TAG++"] {~p,~*B} "++__F, [?MODULE,4,?LINE])).
+-else. % TEST
+    -define(N(__X), case lists:reverse(__X) of [$n,$~|_] -> __X; _ -> __X++"~n" end).
+    -ifndef(TEST). % Non LAGER non TEST logging
+        -define(Log(__F,__A), ok).
+        -define(L(__Tag,__M,__F,__A), io:format(user, ?__T++" [~p] ["++?LOG_TAG++"] {~p,~*B} "++?N(__F), [__Tag,?MODULE,4,?LINE]++__A)).
+        -define(L(__Tag,__F,__A),     io:format(user, ?__T++" [~p] ["++?LOG_TAG++"] {~p,~*B} "++?N(__F), [__Tag,?MODULE,4,?LINE]++__A)).
+        -define(L(__Tag,__F),         io:format(user, ?__T++" [~p] ["++?LOG_TAG++"] {~p,~*B} "++?N(__F), [__Tag,?MODULE,4,?LINE])).
+    -else. % TEST
+        -define(L(__Tag,__M,__F,__A), io:format(user, ?__T++" {~p,~*B} "++?N(__F), [?MODULE,4,?LINE]++__A)).
+        -define(L(__Tag,__F,__A),     io:format(user, ?__T++" {~p,~*B} "++?N(__F), [?MODULE,4,?LINE]++__A)).
+        -define(L(__Tag,__F),         io:format(user, ?__T++" {~p,~*B} "++?N(__F), [?MODULE,4,?LINE])).
+        -define(Log(__F,__A), ?L(undefined, __F, __A)).
+    -endif.
+-endif.
 
--define(Log(__F,__A), io:format(user, ?__ST++" ["++?LOG_TAG++"] {~p, ~4..0B} "++__F, [?MODULE,?LINE]++__A)).
+-ifdef(TEST).
+-endif.
 
--ifdef(LAGER).
-
--define(L(__Tag,__M,__F,__A), lager:__Tag(__M, "["++?LOG_TAG++"] {~p, ~4..0B} "++__F, [?MODULE,?LINE]++__A)).
--define(L(__Tag,__F,__A),     lager:__Tag("["++?LOG_TAG++"] {~p, ~4..0B} "++__F, [?MODULE,?LINE]++__A)).
--define(L(__Tag,__F),         lager:__Tag("["++?LOG_TAG++"] {~p, ~4..0B} "++__F, [?MODULE,?LINE])).
-
--else. % CONSOLE
-
--define(L(__Tag,__M,__F,__A), io:format(user, ?__T++" [~p] ["++?LOG_TAG++"] {~p, ~4..0B} "++__F, [__Tag,?MODULE,?LINE]++__A)).
--define(L(__Tag,__F,__A),     io:format(user, ?__T++" [~p] ["++?LOG_TAG++"] {~p, ~4..0B} "++__F, [__Tag,?MODULE,?LINE]++__A)).
--define(L(__Tag,__F),         io:format(user, ?__T++" [~p] ["++?LOG_TAG++"] {~p, ~4..0B} "++__F, [__Tag,?MODULE,?LINE])).
-
--endif. %LAGER or CONSOLE
-
--define(Debug(__M,__F,__A),     ?L(debug, __M, __F, __A)).
--define(Debug(__F,__A),         ?L(debug, __F, __A)).
--define(Debug(__F),             ?L(debug, __F)).
+-ifndef(TEST). % Non LAGER non TEST logging
+    -define(Debug(__M,__F,__A),     ?L(debug, __M, __F, __A)).
+    -define(Debug(__F,__A),         ?L(debug, __F, __A)).
+    -define(Debug(__F),             ?L(debug, __F)).
+    -define(LogDebug(__M,__F,__A),  ok).
+    -define(LogDebug(__F,__A),      ok).
+    -define(LogDebug(__F),          ok).
+-else. % TEST
+    -define(Debug(__M,__F,__A),     ok).
+    -define(Debug(__F,__A),         ok).
+    -define(Debug(__F),             ok).
+    -define(LogDebug(__M,__F,__A),  ?L(debug, __M, __F, __A)).
+    -define(LogDebug(__F,__A),      ?L(debug, __F, __A)).
+    -define(LogDebug(__F),          ?L(debug, __F)).
+-endif.
 
 -define(Info(__M,__F,__A),      ?L(info, __M, __F, __A)).
 -define(Info(__F,__A),          ?L(info, __F, __A)).
