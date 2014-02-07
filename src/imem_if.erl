@@ -493,37 +493,41 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     fun(F,Contd0) ->
         receive
             abort ->
-                % ?Debug("Abort fetch on table ~p~n", [Table]),
+                % ?Info("[~p] got abort on ~p~n", [Pid, Table]),
                 ok;
             next ->
-                ?Debug("got start trigger ~p", [Pid]),
                 case Contd0 of
                         undefined ->
-                            ?Debug("[~p] got starting fetch...~n", [Pid]),
+                            % ?Info("[~p] got MatchSpec ~p for ~p limit ~p~n", [Pid,MatchSpec,Table,BlockSize]),
                             case mnesia:select(Table, MatchSpec, BlockSize, read) of
                                 '$end_of_table' ->
+                                    % ?Info("[~p] got empty table~n", [Pid]),
                                     Pid ! {row, [?sot,?eot]};
                                 {Rows, Contd1} ->
-                                    ?Debug("First continuation object ~p~n",[Contd1]),
+                                    % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
+                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
                                             Pid ! {row, [?sot,?eot|Rows]};
                                         true ->
+                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
                                             Pid ! {row, [?sot|Rows]},
                                             F(F,Contd1)
                                     end
                             end;
                         Contd0 ->
-                            ?Debug("[~p] got continuing fetch...~n", [Pid]),
+                            % ?Info("[~p] got continuing fetch...~n", [Pid]),
                             case mnesia:select(Contd0) of
                                 '$end_of_table' ->
-                                    ?Debug("Last continuation object ~p~n",[Contd0]),
+                                    % ?Info("[~p] complete after ~n",[Pid,Contd0]),
                                     Pid ! {row, ?eot};
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
+                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
                                             Pid ! {row, [?eot|Rows]};
                                         true ->
+                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
                                             Pid ! {row, Rows},
                                             F(F,Contd1)
                                     end

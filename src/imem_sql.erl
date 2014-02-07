@@ -11,6 +11,8 @@
 
 -define(MaxChar,16#FFFFFF).
 
+-define(FilterFuns, ['is_member', 'is_like', 'is_regexp_like', 'safe']).
+
 -export([ field_qname/1
         , field_name/1
         , field_name/3
@@ -19,7 +21,8 @@
         , column_map_items/2
         , column_map/2
         , simplify_guard/1
-        , create_scan_spec/4
+        , guard_bind/3
+        , create_scan_spec/3
         , operand_member/2
         , operand_match/2
         , escape_sql/1
@@ -29,6 +32,13 @@
         , filter_spec_where/3
         , sort_spec_order/3
         , sort_spec_fun/3
+        ]).
+
+-export([ re_compile/1
+        , re_match/2
+        , like_compile/1
+        , like_compile/2
+        , make_expr_fun/3
         ]).
 
 parse(Sql) ->
@@ -172,19 +182,19 @@ column_map([], Columns) ->
 column_map(Tables, []) ->
     column_map(Tables, [#ddColMap{name='*'}]);    
 column_map(Tables, Columns) ->
-    column_map([{S,imem_meta:physical_table_name(T),A}||{S,T,A} <- Tables], Columns, 1, [], [], []).
+    column_map([{S,imem_meta:physical_table_name(T),A}||{S,T,A} <- Tables], Columns, ?MainIdx, [], [], []).    %% First table has index 2
 
 column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     column_map([{imem_meta:schema(),Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
 column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     Cols = imem_meta:column_infos({Schema,Table}),
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
-    % ?Debug("column_map lookup ~p", [Lookup++L]),
-    % ?Debug("column_map columns ~p", [Columns]),
+    % ?Debug("column_map lookup ~p~n", [Lookup++L]),
+    % ?Debug("column_map columns ~p~n", [Columns]),
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
 column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Debug("column_map 1 ~p", [Cmap0]),
+    % ?Debug("column_map 1 ~p~n", [Cmap0]),
     NameList = [N ||  {_, _, _, _, N, _} <- Lookup],
     NameDups = length(Lookup) - length(lists:usort(NameList)),
     Cmaps = case NameDups of
@@ -203,10 +213,10 @@ column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Col
     end,
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Debug("column_map 2 ~p", [Cmap0]),
+    % ?Debug("column_map 2 ~p~n", [Cmap0]),
     column_map([], [Cmap0#ddColMap{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Debug("column_map 3 ~p", [Cmap0]),
+    % ?Debug("column_map 3 ~p~n", [Cmap0]),
     Prefix = case imem_meta:schema() of
         Schema ->   atom_to_list(Table);
         _ ->        atom_to_list(Schema) ++ "." ++ atom_to_list(Table)
@@ -237,7 +247,7 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
                 Index ->    {Index, Meta}
             end, 
             #ddColumn{type=Type, len=Len, prec=P} = imem_meta:meta_field_info(Name),
-            Cmap1 = Cmap0#ddColMap{tind=Tindex, cind=Cindex, type=Type, len=Len, prec=P},
+            Cmap1 = Cmap0#ddColMap{tind=?MetaIdx, cind=Cindex, type=Type, len=Len, prec=P},
             column_map([], Columns, Tindex, Lookup, Meta1, [Cmap1|Acc]);                          
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined)->  
             ?ClientError({"Unknown column name", Name});
@@ -253,12 +263,12 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
             ?ClientError({"Ambiguous column name", {Schema, Table, Name}});
         true ->         
             {Ti, Ci, S, T, Name, #ddColumn{type=Type, len=Len, prec=P, default=D}} = hd(Lmatch),
-            R = (Ti > 1),   %% Only first table is editable, key not editable -> (Ci < 3),
+            R = (Ti /= ?MainIdx),   %% Only main table is editable
             Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
 column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Debug("column_map 5 ~p", [PTree]),
+    % ?Debug("column_map 5 ~p~n", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
@@ -268,7 +278,7 @@ column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) 
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;        
 column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Debug("column_map 6 ~p", [PTree]),
+    % ?Debug("column_map 6 ~p~n", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
@@ -277,15 +287,15 @@ column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;                    
 column_map([], [{as, Name, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
-    % ?Debug("column_map 7 ~p", [PTree]),
+    % ?Debug("column_map 7 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
-    % ?Debug("column_map 8 ~p", [Name]),
+    % ?Debug("column_map 8 ~p~n", [Name]),
     {S,T,N} = field_qname(Name),
     column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
-    % ?Debug("column_map 9 ~p", [Expression]),
+    % ?Debug("column_map 9 ~p~n", [Expression]),
     ?UnimplementedException({"Expressions not supported", Expression});
 column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
     lists:reverse(Acc);
@@ -305,16 +315,57 @@ index_of(_, [], _)  -> false;
 index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
+guard_bind_value({const,Tup}) when is_tuple(Tup) ->   {const,Tup};    %% ToDo: Is this necesary?
+guard_bind_value(Tup) when is_tuple(Tup) ->           {const,Tup};
+guard_bind_value(Other) ->                            Other.
+
+guard_bind(_Rec, Guard, []) -> Guard;
+guard_bind(Rec, Guard0, [B|Binds]) ->
+    % ?Info("bind rec: ~p guard: ~p bind: ~p~n", [Rec, Guard0, B]),
+    Guard1 = imem_sql:simplify_guard(guard_bind_one(Rec, Guard0, B)),
+    % ?Info("bind result: ~p~n", [Guard1]),
+    guard_bind(Rec, Guard1, Binds).
+
+guard_bind_one(_Rec,{const,T}, _) when is_tuple(T) -> {const,T};
+guard_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,guard_bind_value(element(Ci,element(Ti,Rec)))};
+guard_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,guard_bind_one(Rec,A,{Tag,Ti,Ci})};
+guard_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) -> 
+    % ?Info("guard_bind_one A rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
+    case element(Ci,element(Ti,Rec)) of
+        {{_,_,_},{_,_,_}} = DT ->
+            guard_bind_value(imem_datatype:offset_datetime(Op,DT,B));
+        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
+            guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},B));
+        Other ->
+            % ?Info("guard_bind_one A result: ~p~n", [{Op,guard_bind_value(Other),B}]),
+            {Op,guard_bind_value(Other),B}
+    end;
+guard_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
+    % ?Info("guard_bind_one B rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,A,Tag}, {Tag,Ti,Ci}]),
+    case element(Ci,element(Ti,Rec)) of
+        {{_,_,_},{_,_,_}} = DT ->
+            guard_bind_value(imem_datatype:offset_datetime(Op,DT,A));
+        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
+            guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},A));
+        Other ->
+            % ?Info("guard_bind_one B result: ~p~n", [{Op,A,guard_bind_value(Other)}]),
+            {Op,A,guard_bind_value(Other)}
+    end;
+guard_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
+    {Op,guard_bind_one(Rec,A,{Tag,Ti,Ci}),guard_bind_one(Rec,B,{Tag,Ti,Ci})};
+guard_bind_one(_, A, _) ->
+    guard_bind_value(A).
+
 simplify_guard(Term) ->
     case  simplify_once(Term) of
         join ->                             true;
         {'and',join,R1} ->                  simplify_guard(R1);
-        {'and',{'and',join,R2}} ->          simplify_guard(R2);
-        {'and',{'and',{'and',join,R3}}} ->  simplify_guard(R3);
+%        {'and',R2,join} ->                  simplify_guard(R2);
         Term ->                             Term;
         T ->                                simplify_guard(T)
     end.
 
+%% warning: guard may contain unbound variables '$x' which must not be treated as atom values
 simplify_once({'or', true, _}) ->       true; 
 simplify_once({'or', _, true}) ->       true; 
 simplify_once({'or', false, false}) ->  false; 
@@ -332,11 +383,12 @@ simplify_once({'and', join, join}) ->   true;
 simplify_once({'and', Left, join}) ->   simplify_once(Left); 
 simplify_once({'and', join, Right}) ->  simplify_once(Right); 
 simplify_once({'and', Same, Same}) ->   simplify_once(Same); 
-simplify_once({'+', Left, Right}) when  is_number(Left), is_number(Right) -> Left + Right;
-simplify_once({'-', Left, Right}) when  is_number(Left), is_number(Right) -> Left - Right;
-simplify_once({'*', Left, Right}) when  is_number(Left), is_number(Right) -> Left * Right;
-simplify_once({'/', Left, Right}) when  is_number(Left), is_number(Right) -> Left / Right;
-simplify_once({'div', Left, Right}) when is_number(Left), is_number(Right) -> Left div Right;
+simplify_once({'+', Left, Right}) when  is_number(Left), is_number(Right) -> (Left + Right);
+simplify_once({'-', Left, Right}) when  is_number(Left), is_number(Right) -> (Left - Right);
+simplify_once({'*', Left, Right}) when  is_number(Left), is_number(Right) -> (Left * Right);
+simplify_once({'/', Left, Right}) when  is_number(Left), is_number(Right) -> (Left / Right);
+simplify_once({'div', Left, Right}) when is_number(Left), is_number(Right) -> (Left div Right);
+simplify_once({'rem', Left, Right}) when is_number(Left), is_number(Right) -> (Left rem Right);
 simplify_once({'>', Left, Right}) when  is_number(Left), is_number(Right) -> (Left > Right);
 simplify_once({'>=', Left, Right}) when is_number(Left), is_number(Right) -> (Left >= Right);
 simplify_once({'<', Left, Right}) when  is_number(Left), is_number(Right) -> (Left < Right);
@@ -357,12 +409,6 @@ simplify_once({ Op, Left, Right}) ->    {Op, simplify_once(Left), simplify_once(
 simplify_once({'not', join}) ->         join; 
 simplify_once({'not', true}) ->         false; 
 simplify_once({'not', false}) ->        true; 
-simplify_once({'not', {'is_member', Left, Right}}) -> {'nis_member', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'nis_member', Left, Right}}) -> {'is_member', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'like', Left, Right}}) -> {'not_like', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'not_like', Left, Right}}) -> {'like', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'regexp_like', Left, Right}}) -> {'not_regexp_like', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'not_regexp_like', Left, Right}}) -> {'regexp_like', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'/=', Left, Right}}) -> {'==', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'==', Left, Right}}) -> {'/=', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'=<', Left, Right}}) -> {'>',  simplify_once(Left), simplify_once(Right)};
@@ -370,16 +416,14 @@ simplify_once({'not', {'<', Left, Right}}) ->  {'>=', simplify_once(Left), simpl
 simplify_once({'not', {'>=', Left, Right}}) -> {'<',  simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'>', Left, Right}}) ->  {'=<', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', Result}) ->       {'not', simplify_once(Result)};
-% simplify_once({ _Op, join}) ->        join;
-% simplify_once({Op, Result}) ->        {Op, Result};
 simplify_once(Result) ->                Result.
 
 
-create_scan_spec(_Tmax,Ti,FullMap,[]) ->
+create_scan_spec(Ti,FullMap,[]) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     #scanSpec{sspec=[{MatchHead, [], ['$_']}], limit=?GET_ROWNUM_LIMIT};
-create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
-    % ?Debug("SGuard0 ~p", [SGuard0]),
+create_scan_spec(Ti,FullMap,[SGuard0]) ->
+    % ?Debug("SGuard0 ~p~n", [SGuard0]),
     Limit = case operand_match(rownum,SGuard0) of
         false ->  ?GET_ROWNUM_LIMIT;            % #scanSpec{}#scanSpec.limit;
         {'<',rownum,L} when is_integer(L) ->    L-1;
@@ -392,45 +436,92 @@ create_scan_spec(_Tmax,Ti,FullMap,[SGuard0]) ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
-    % ?Debug("MatchHead (~p) ~p", [Ti,MatchHead]),
+    % ?Debug("MatchHead (~p) ~p~n", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
-    % ?Info("SGuard1 ~p", [SGuard1]),
-    {SGuard2,FGuard} = extract_filter(SGuard1),
+    ?Info("SGuard1 ~p~n", [SGuard1]),
+    {SGuard2,FGuard} = split_filter_from_guard(SGuard1), 
+    % {SGuard2,FGuard} = {true,SGuard1},             %% ToDo: partition guard into a MNESIA part and a filter part $$$$$$$$$$$$$$
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
-    % ?Info("SGuard2 ~p", [SGuard2]),
-    % ?Info("FGuard ~p", [FGuard]),
+    ?Info("SGuard2 ~p~n", [SGuard2]),
+    ?Info("FGuard ~p~n", [FGuard]),
     SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
-    % ?Info("SBinds ~p", [SBinds]),
+    % ?Info("SBinds ~p~n", [SBinds]),
     MBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [FGuard],[]),
-    % ?Info("MBinds ~p", [MBinds]),
+    % ?Info("MBinds ~p~n", [MBinds]),
     FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
-    % ?Info("FBinds ~p", [FBinds]),
+    % ?Info("FBinds ~p~n", [FBinds]),
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
 
 
-extract_filter(SGuard) -> 
-    FTokens = ['is_member','nis_member', 'like', 'not_like', 'regexp_like', 'not_regexp_like'],
-    extract_filter(SGuard, true, FTokens).
-
-
-extract_filter(S0, F0, []) ->
-    {S0,F0};
-extract_filter(S0, F0, [T|Tokens]=AllTokens) ->
-    case operator_match(T,S0) of
-        false ->
-            %% token T is not in scan guard, no filter needed     
-            extract_filter(S0, F0, Tokens);
-        F ->        
-            case F0 of
-                true ->
-                    %% ToDo: must check if filter is really AND'ed to S0 guard      
-                    extract_filter(simplify_guard(replace_match(S0,F)), F, AllTokens);
-                _ ->
-                    %% ToDo: must check if filter is really AND'ed to S0 guard and previous filter F0
-                    extract_filter(simplify_guard(replace_match(S0,F)),{'and',F0, F}, AllTokens)
-            end
+%% Split guard into two pieces:
+%% -  a scan guard for mnesia
+%% -  a filter guard to be applied to the scan result set
+split_filter_from_guard(true) -> {true,true};
+split_filter_from_guard(false) -> {false,false};
+split_filter_from_guard({'and',L, R}) ->
+    case {filter_member(L),filter_member(R)} of
+        {true,true} ->      {true, {'and',L, R}};
+        {true,false} ->     {R, L};
+        {false,true} ->     {L, R};
+        {false,false} ->    {{'and',L, R},true}
+    end;
+split_filter_from_guard(Guard) ->
+    case filter_member(Guard) of
+        true ->             {true, Guard};
+        false ->            {Guard,true}
     end.
 
+%% Does guard contain any of the filter operators?
+%% ToDo: bad tuple tolerance for element/2 (add element to function category?)
+%% ToDo: bad number tolerance for numeric expressions and functions (add numeric operators to function category?)
+filter_member(true) ->      false;
+filter_member(false) ->     false;
+filter_member(Guard) ->
+    filter_member(Guard,?FilterFuns).
+
+filter_member(_,[]) ->  false;
+filter_member(Guard,[Op|Ops]) ->
+    case operator_member(Op,Guard) of
+        true ->             true;
+        false ->            filter_member(Guard,Ops)
+    end.
+
+%% Does guard contain given operator Tx ?
+operator_member(Tx,{Tx,_}) ->        true;
+operator_member(Tx,{_,R}) ->         operator_member(Tx,R);
+operator_member(Tx,{Tx,_,_}) ->      true;
+operator_member(Tx,{_,L,R}) ->       
+    case operator_member(Tx,L) of
+        true ->     true;
+        false ->    operator_member(Tx,R)
+    end;
+operator_member(_,_) ->              false.
+
+%% First guard tuple for given operator or false if not found
+% operator_match(Tx,{Tx,_}=C0) ->     C0;
+% operator_match(Tx,{_,R}) ->         operator_match(Tx,R);
+% operator_match(Tx,{Tx,_,_}=C1) ->   C1;
+% operator_match(Tx,{_,L,R}) ->       
+%     case operator_match(Tx,L) of
+%         false ->    operator_match(Tx,R);
+%         Else ->     Else
+%     end;
+% operator_match(_,_) ->              false.
+
+% replace_match(Match,Match) ->               true;
+% replace_match({Op,Match,Right},Match) ->    {Op,true,Right};
+% replace_match({Op,Left,Match},Match) ->     {Op,Left,true};
+% replace_match({Op,Left,Right},Match) when is_tuple(Left) ->     
+%     NewLeft = replace_match(Left,Match),
+%     case NewLeft of
+%         Left when is_tuple(Right) ->    {Op,Left,replace_match(Right,Match)};
+%         _ ->                            {Op,NewLeft,Right}
+%     end;
+% replace_match({Op,Left,Right},Match) when is_tuple(Right) ->
+%     {Op,Left,replace_match(Right,Match)};
+% replace_match({Op,Left,Right}, _) -> {Op,Left,Right}.
+
+%% Does guard contain given operand Tx ?
 operand_member(Tx,{_,R}) -> operand_member(Tx,R);
 operand_member(Tx,{_,Tx,_}) -> true;
 operand_member(Tx,{_,_,Tx}) -> true;
@@ -459,30 +550,6 @@ operand_match(Tx,{_,L,R}) ->
 operand_match(Tx,Tx) ->             Tx;
 operand_match(_,_) ->               false.
 
-operator_match(Tx,{Tx,_}=C0) ->     C0;
-operator_match(Tx,{_,R}) ->         operator_match(Tx,R);
-operator_match(Tx,{Tx,_,_}=C1) ->   C1;
-operator_match(Tx,{_,L,R}) ->       
-    case operator_match(Tx,L) of
-        false ->    operator_match(Tx,R);
-        Else ->     Else
-    end;
-operator_match(_,_) ->              false.
-
-
-replace_match(Match,Match) ->               true;
-replace_match({Op,Match,Right},Match) ->    {Op,true,Right};
-replace_match({Op,Left,Match},Match) ->     {Op,Left,true};
-replace_match({Op,Left,Right},Match) when is_tuple(Left) ->     
-    NewLeft = replace_match(Left,Match),
-    case NewLeft of
-        Left when is_tuple(Right) ->    {Op,Left,replace_match(Right,Match)};
-        _ ->                            {Op,NewLeft,Right}
-    end;
-replace_match({Op,Left,Right},Match) when is_tuple(Right) ->
-    {Op,Left,replace_match(Right,Match)};
-replace_match({Op,Left,Right}, _) -> {Op,Left,Right}.
-
 replace_rownum({Op,rownum,Right}) -> {Op,1,Right};
 replace_rownum({Op,Left,rownum}) ->  {Op,Left,1};
 replace_rownum({Op,Left,Right})->    {Op,replace_rownum(Left),replace_rownum(Right)};
@@ -502,7 +569,7 @@ un_escape_sql(Bin) when is_binary(Bin) ->
 build_sort_fun(SelectSections,FullMap) ->
     case lists:keyfind('order by', 1, SelectSections) of
         {_, []} ->      fun(_X) -> {} end;
-        {_, Sorts} ->   ?Debug("Sorts  : ~p", [Sorts]),
+        {_, Sorts} ->   ?Debug("Sorts: ~p~n", [Sorts]),
                         SortFuns = [sort_fun_item(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
                         fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end;
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
@@ -511,7 +578,7 @@ build_sort_fun(SelectSections,FullMap) ->
 build_sort_spec(SelectSections,FullMaps,ColMaps) ->
     case lists:keyfind('order by', 1, SelectSections) of
         {_, []} ->      [];
-        {_, Sorts} ->   ?Debug("Sorts  : ~p", [Sorts]),
+        {_, Sorts} ->   ?Debug("Sorts: ~p~n", [Sorts]),
                         [sort_spec_item(Name,Direction,FullMaps,ColMaps) || {Name,Direction} <- Sorts];
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
     end.
@@ -773,6 +840,440 @@ pick(Ci,Ti,X) -> pick(Ci,element(Ti,X)).
 pick(_,undefined) -> ?nav;
 pick(Ci,Tuple) -> element(Ci,Tuple).
 
+re_compile(S) when is_list(S);is_binary(S) ->
+    case (catch re:compile(S))  of
+        {ok, MP} -> MP;
+        _ ->        never_match
+    end;
+re_compile(_) ->    never_match.
+
+like_compile(S) -> like_compile(S, <<>>).
+
+like_compile(S, Esc) when is_list(S); is_binary(S)  -> re_compile(transform_like(S, Esc));
+like_compile(_,_)                                   -> never_match.
+
+transform_like(S, Esc) ->
+    E = if
+        Esc =:= "" ->       "";
+        Esc =:= <<>> ->     "";
+        is_list(Esc) ->     Esc;
+        is_binary(Esc) ->   binary_to_list(Esc);
+        true ->             ""
+    end,
+    Escape = if E =:= "" -> ""; true -> "["++E++"]" end,
+    NotEscape = if E =:= "" -> ""; true -> "([^"++E++"])" end,
+    S0 = re:replace(S, "([\\\\^$.\\[\\]|()?*+\\-{}])", "\\\\\\1", [global, {return, binary}]),
+    S1 = re:replace(S0, NotEscape++"%", "\\1.*", [global, {return, binary}]),
+    S2 = re:replace(S1, NotEscape++"_", "\\1.", [global, {return, binary}]),
+    S3 = re:replace(S2, Escape++"%", "%", [global, {return, binary}]),
+    S4 = re:replace(S3, Escape++"_", "_", [global, {return, binary}]),
+    list_to_binary(["^",S4,"$"]).
+
+re_match(never_match, _) -> false;
+re_match(RE, S) when is_list(S);is_binary(S) ->
+    case re:run(S, RE) of
+        nomatch ->  false;
+        _ ->        true
+    end;
+re_match(RE, S) ->
+    case re:run(io_lib:format("~p", [S]), RE) of
+        nomatch ->  false;
+        _ ->        true
+    end.
+
+%% Constant tuple expressions
+make_expr_fun(_, {const, A}, _) when is_tuple(A) -> A;
+%% Comparison expressions
+make_expr_fun(_, {'==', Same, Same}, _) -> true;
+make_expr_fun(_, {'/=', Same, Same}, _) -> false;
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
+    make_comp_fun(Ctx, {Op, A, B}, FBinds); 
+%% Mathematical expressions    
+make_expr_fun(_, {'pi'}, _) -> math:pi();
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='+';Op=='-' ->
+    make_math_fun(Ctx, {Op, A}, FBinds); 
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
+    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
+    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
+    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
+    make_math_fun(Ctx, {Op, A, B}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='pow';Op=='atan2' ->
+    make_module_fun(Ctx, 'math', {Op, A, B}, FBinds);
+%% Erlang module
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
+    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
+    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
+    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
+    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
+    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
+    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
+%% Lists module
+make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
+    make_module_fun(Ctx, 'lists', {Op, A}, FBinds);
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
+    make_module_fun(Ctx, 'lists', {Op, A, B}, FBinds);
+%% Logical expressions
+make_expr_fun(Ctx, {'not', A}, FBinds) ->
+    case make_expr_fun(Ctx, A, FBinds) of
+        ?nav ->                     ?nav;
+        true ->                     false;
+        false ->                    true;
+        F when is_function(F) ->    fun(X) ->   Abound=F(X), 
+                                                case Abound of 
+                                                    ?nav -> ?nav; 
+                                                    true -> false;
+                                                    false -> true
+                                                end
+                                    end
+    end;                       
+make_expr_fun(Ctx, {'and', A, B}, FBinds) ->
+    Fa = make_expr_fun(Ctx,A,FBinds),
+    Fb = make_expr_fun(Ctx,B,FBinds),
+    case {Fa,Fb} of
+        {true,true} ->  true;
+        {false,_} ->    false;
+        {_,false} ->    false;
+        {true,_} ->     Fb;         %% may be ?nav or a fun evaluating to ?nav
+        {_,true} ->     Fa;         %% may be ?nav or a fun evaluating to ?nav
+        {_,_} ->        fun(X) -> (Fa(X) and Fb(X)) end
+    end;
+make_expr_fun(Ctx, {'or', A, B}, FBinds) ->
+    Fa = make_expr_fun(Ctx,A,FBinds),
+    Fb = make_expr_fun(Ctx,B,FBinds),
+    case {Fa,Fb} of
+        {false,false}-> false;
+        {true,_} ->     true;
+        {_,true} ->     true;
+        {false,_} ->    Fb;         %% may be ?nav or a fun evaluating to ?nav
+        {_,false} ->    Fa;         %% may be ?nav or a fun evaluating to ?nav
+        {_,_} ->        fun(X) -> (Fa(X) or Fb(X)) end
+    end;
+%% Custom filters
+make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
+    make_filter_fun(Ctx,{Op, A, B}, FBinds);
+make_expr_fun(Ctx, {'safe', A}, FBinds) ->
+    make_safe_fun(Ctx, A, FBinds);
+make_expr_fun(_Ctx, {Op, A}, _FBinds) ->
+    ?UnimplementedException({"Unsupported expression operator", {Op, A}});
+make_expr_fun(_Ctx, {Op, A, B}, _FBinds) ->
+    ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
+make_expr_fun(_Ctx, Value, _FBinds)  -> Value.
+
+
+bind_action(P,_FBinds) when is_function(P) -> true;     %% parameter already bound to function
+bind_action(P,FBinds) -> lists:keyfind(P,1,FBinds).     %% bind {'$x',Ti,Xi} or false for value prameter 
+
+
+make_safe_fun(Ctx, A, FBinds) ->
+    Fa = make_expr_fun(Ctx,A,FBinds),
+    make_safe_fun_final(Ctx, Fa, FBinds).
+
+make_safe_fun_final(_Ctx, A, FBinds) ->
+    case bind_action(A,FBinds) of 
+        false ->            A;        
+        true ->             fun(X) -> try A(X) catch _:_ -> ?nav end end;       
+        ABind ->            fun(X) -> try ?BoundVal(ABind,X) catch _:_ -> ?nav end end
+    end.
+
+make_module_fun(Ctx, Mod, {Op, {const,A}}, FBinds) when is_tuple(A) ->
+    make_module_fun_final(Ctx, Mod, {Op, A}, FBinds);
+make_module_fun(Ctx, Mod, {Op, A}, FBinds) ->
+    make_module_fun_final(Ctx, Mod, {Op, make_expr_fun(Ctx,A,FBinds)}, FBinds);
+make_module_fun(Ctx, Mod, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    make_module_fun_final(Ctx, Mod, {Op, A, B}, FBinds);
+make_module_fun(Ctx, Mod, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    make_module_fun_final(Ctx, Mod, {Op, A, make_expr_fun(Ctx,B,FBinds)}, FBinds);
+make_module_fun(Ctx, Mod, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    make_module_fun_final(Ctx, Mod, {Op, make_expr_fun(Ctx,A,FBinds), B}, FBinds);
+make_module_fun(Ctx, Mod, {Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(Ctx,A,FBinds),
+    Fb = make_expr_fun(Ctx,B,FBinds),
+    make_module_fun_final(Ctx, Mod, {Op, Fa, Fb}, FBinds).
+
+make_module_fun_final(_Ctx, Mod, {Op, A}, FBinds) -> 
+    case bind_action(A,FBinds) of 
+        false ->        Mod:Op(A);
+        true ->         fun(X) -> Mod:Op(A(X)) end;
+        ABind ->        fun(X) -> Mod:Op(?BoundVal(ABind,X)) end
+    end;
+make_module_fun_final(_Ctx, Mod, {Op, A, B}, FBinds) -> 
+    case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
+        {false,false} ->        Mod:Op(A,B);
+        {false,true} ->         fun(X) -> Mod:Op(A,B(X)) end;
+        {false,BBind} ->        fun(X) -> Mod:Op(A,?BoundVal(BBind,X)) end;
+        {true,false} ->         fun(X) -> Mod:Op(A(X),B) end;
+        {true,true} ->          fun(X) -> Mod:Op(A(X),B(X)) end; 
+        {true,BBind} ->         fun(X) -> Mod:Op(A(X),?BoundVal(BBind,X)) end; 
+        {ABind,false} ->        fun(X) -> Mod:Op(?BoundVal(ABind,X),B) end; 
+        {ABind,true} ->         fun(X) -> Mod:Op(?BoundVal(ABind,X),B(X)) end; 
+        {ABind,BBind} ->        fun(X) -> Mod:Op(?BoundVal(ABind,X),?BoundVal(BBind,X)) end 
+    end.
+
+make_math_fun(Ctx, {Op, A}, FBinds) ->
+    make_math_fun_unary(Ctx, {Op, make_expr_fun(Ctx,A,FBinds)}, FBinds);
+make_math_fun(Ctx, {Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(Ctx,A,FBinds),
+    Fb = make_expr_fun(Ctx,B,FBinds),
+    make_math_fun_binary(Ctx, {Op, Fa, Fb}, FBinds).
+
+make_math_fun_unary(_, {'+', A}, FBinds) ->
+    case bind_action(A,FBinds) of 
+        false ->            A;        
+        true ->             A;       
+        ABind ->            fun(X) -> ?BoundVal(ABind,X) end
+    end;
+make_math_fun_unary(_, {'-', A}, FBinds) ->
+    case bind_action(A,FBinds) of 
+        false ->            A;        
+        true ->             fun(X) -> (-A(X)) end;       
+        ABind ->            fun(X) -> (-?BoundVal(ABind,X)) end
+    end.
+
+-define(MathOpBlockBinary(__Op,__A,__B), 
+            case __Op of
+                '+' ->      (__A + __B);
+                '-' ->      (__A - __B);
+                '*' ->      (__A * __B);
+                '/' ->      (__A / __B);
+                'div' ->    (__A div __B);
+                'rem' ->    (__A rem __B)
+            end).
+
+make_math_fun_binary(_Ti, {Op, A, B}, FBinds) ->
+    case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
+        {false,false} ->    ?MathOpBlockBinary(Op,A,B);
+        {false,true} ->     fun(X) -> ?MathOpBlockBinary(Op,A,B(X)) end;
+        {false,BBind} ->    fun(X) -> ?MathOpBlockBinary(Op,A,?BoundVal(BBind,X)) end;
+        {true,false} ->     fun(X) -> ?MathOpBlockBinary(Op,A(X),B) end;
+        {true,true} ->      fun(X) -> ?MathOpBlockBinary(Op,A(X),B(X)) end;  
+        {true,BBind} ->     fun(X) -> ?MathOpBlockBinary(Op,A(X),?BoundVal(BBind,X)) end;  
+        {ABind,false} ->    fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),B) end;  
+        {ABind,true} ->     fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),B(X)) end;  
+        {ABind,BBind} ->    fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),?BoundVal(BBind,X)) end
+    end.
+
+make_comp_fun(Ctx, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    make_comp_fun_final(Ctx, {Op, A, B}, FBinds);
+make_comp_fun(Ctx, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    make_comp_fun_final(Ctx, {Op, A, make_expr_fun(Ctx,B,FBinds)}, FBinds);
+make_comp_fun(Ctx, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    make_comp_fun_final(Ctx, {Op, make_expr_fun(Ctx,A,FBinds), B}, FBinds);
+make_comp_fun(Ctx, {Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(Ctx,A,FBinds),
+    Fb = make_expr_fun(Ctx,B,FBinds),
+    make_comp_fun_final(Ctx, {Op, Fa, Fb}, FBinds).
+
+
+-define(CompOpBlock(__Op,__A,__B), 
+        if
+            (__A == ?nav) -> ?nav;
+            (__B == ?nav) -> ?nav;
+            true ->
+                case __Op of
+                    '==' -> (__A == __B);
+                    '>' ->  (__A > __B);
+                    '>=' -> (__A >= __B);
+                    '<' ->  (__A < __B);
+                    '=<' -> (__A =< __B);
+                    '/=' -> (__A /= __B)
+                end
+        end).
+
+make_comp_fun_final(_Ctx, {Op, A, B}, FBinds) ->
+    case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
+        {false,false} ->    ?CompOpBlock(Op,A,B);
+        {false,true} ->     fun(X) -> Bbound=B(X),?CompOpBlock(Op,A,Bbound) end;
+        {false,BBind} ->    fun(X) -> Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,A,Bbound) end;
+        {true,false} ->     fun(X) -> Abound=A(X),?CompOpBlock(Op,Abound,B) end;
+        {true,true} ->      fun(X) -> Abound=A(X),Bbound=B(X),?CompOpBlock(Op,Abound,Bbound) end;  
+        {true,BBind} ->     fun(X) -> Abound=A(X),Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,Abound,Bbound) end;  
+        {ABind,false} ->    fun(X) -> Abound=?BoundVal(ABind,X),?CompOpBlock(Op,Abound,B) end;  
+        {ABind,true} ->     fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(ABind,X),?CompOpBlock(Op,Abound,Bbound) end;  
+        {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,Abound,Bbound) end
+    end.
+
+make_filter_fun(Ctx, {Op, {const,A}, {const,B}}, FBinds) ->
+    make_filter_fun_final(Ctx,{Op, A, B}, FBinds);
+make_filter_fun(Ctx, {Op, {const,A}, B}, FBinds) ->
+    make_filter_fun_final(Ctx,{Op, A, make_expr_fun(Ctx, B, FBinds)}, FBinds);
+make_filter_fun(Ctx, {Op, A, {const,B}}, FBinds) ->
+    make_filter_fun_final(Ctx,{Op, make_filter_fun(Ctx, A, FBinds), B}, FBinds);
+make_filter_fun(Ctx, {Op, A, B}, FBinds) ->
+    FA = make_expr_fun(Ctx, A, FBinds),
+    FB = make_expr_fun(Ctx, B, FBinds),
+    make_filter_fun_final(Ctx, {Op, FA, FB}, FBinds);
+make_filter_fun(_Ti, Value, _FBinds) -> Value.
+
+
+-define(ElementOpBlock(__A,__B), 
+    if 
+        (not is_number(__A)) -> ?nav; 
+        (not is_tuple(__B)) -> ?nav;
+        (not tuple_size(__B) >= __A) -> ?nav;
+        true -> element(__A,__B)
+    end).
+
+make_filter_fun_final(_Ctx, {'element', A, B}, FBinds)  ->
+    case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
+        {false,false} ->    ?ElementOpBlock(A,B);
+        {false,true} ->     fun(X) -> Bbound=B(X),?ElementOpBlock(A,Bbound) end;
+        {false,BBind} ->    fun(X) -> Bbound=?BoundVal(BBind,X),?ElementOpBlock(A,Bbound) end;
+        {true,false} ->     fun(X) -> Abound=A(X),?ElementOpBlock(Abound,B) end;
+        {true,true} ->      fun(X) -> Abound=A(X),Bbound=B(X),?ElementOpBlock(Abound,Bbound) end;
+        {true,BBind} ->     fun(X) -> Abound=A(X),Bbound=?BoundVal(BBind,X),?ElementOpBlock(Abound,Bbound) end;
+        {ABind,false} ->    fun(X) -> Abound=?BoundVal(ABind,X),?ElementOpBlock(Abound,B) end;
+        {ABind,true} ->     fun(X) -> Abound=?BoundVal(ABind,X),Bbound=B(X),?ElementOpBlock(Abound,Bbound) end;
+        {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?ElementOpBlock(Abound,Bbound) end
+    end;
+make_filter_fun_final(_, {'is_member', A, '$_'}, FBinds) ->
+    case bind_action(A,FBinds) of 
+        false ->        
+            fun(X) -> 
+                lists:member(A,tl(tuple_to_list(element(?MainIdx,X))))
+            end;
+        true ->        
+            fun(X) -> 
+                lists:member(A(X),tl(tuple_to_list(element(?MainIdx,X))))
+            end;
+        ABind ->  
+            fun(X) ->
+                lists:member(?BoundVal(ABind,X),tl(tuple_to_list(element(?MainIdx,X))))
+            end
+    end;
+make_filter_fun_final(_Ctx, {'is_like', A, B}, FBinds)  ->
+    case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
+        {false,false} ->    re_match(like_compile(B),A);
+        {false,true} ->     fun(X) -> re_match(like_compile(B(X)),A) end;
+        {false,BBind} ->    fun(X) -> re_match(like_compile(?BoundVal(BBind,X)),A) end;
+        {true,false} ->     RE = like_compile(B), fun(X) -> re_match(RE,A(X)) end;
+        {true,true} ->      fun(X) -> re_match(like_compile(B(X)),A(X)) end;
+        {true,BBind} ->     fun(X) -> re_match(like_compile(A(X)),?BoundVal(BBind,X)) end;
+        {ABind,false} ->    RE = like_compile(B), fun(X) -> re_match(RE,?BoundVal(ABind,X)) end;
+        {ABind,true} ->     fun(X) -> re_match(like_compile(B(X)),?BoundVal(ABind,X)) end;
+        {ABind,BBind} ->    fun(X) -> re_match(like_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
+    end;
+make_filter_fun_final(_Ctx, {'is_regexp_like', A, B}, FBinds)  ->
+    case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
+        {false,false} ->    re_match(re_compile(B),A);
+        {false,true} ->     fun(X) -> re_match(re_compile(B(X)),A) end;
+        {false,BBind} ->    fun(X) -> re_match(re_compile(?BoundVal(BBind,X)),A) end;
+        {true,false} ->     RE = re_compile(B), fun(X) -> re_match(RE,A(X)) end;
+        {true,true} ->      fun(X) -> re_match(re_compile(B(X)),A(X)) end;
+        {true,BBind} ->     fun(X) -> re_match(re_compile(A(X)),?BoundVal(BBind,X)) end;
+        {ABind,false} ->    RE = re_compile(B), fun(X) -> re_match(RE,?BoundVal(ABind,X)) end;
+        {ABind,true} ->     fun(X) -> re_match(re_compile(B(X)),?BoundVal(ABind,X)) end;
+        {ABind,BBind} ->    fun(X) -> re_match(re_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
+    end;
+make_filter_fun_final(_Ctx, {'is_member', A, B}, FBinds)  ->
+    case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
+        {false,false} ->        
+            if 
+                is_list(B) ->   lists:member(A,B);
+                is_tuple(B) ->  lists:member(A,tuple_to_list(B));
+                true ->         false
+            end;
+        {false,true} ->
+            fun(X) ->
+                Bbound = B(X),
+                if 
+                    is_list(Bbound) ->  lists:member(A,Bbound);
+                    is_tuple(Bbound) -> lists:member(A,tuple_to_list(Bbound));
+                    true ->             false
+                end
+            end;
+        {false,BBind} ->
+            fun(X) ->
+                Bbound = ?BoundVal(BBind,X),
+                if 
+                    is_list(Bbound) ->  lists:member(A,Bbound);
+                    is_tuple(Bbound) -> lists:member(A,tuple_to_list(Bbound));
+                    true ->             false
+                end
+            end;
+        {true,false} ->  
+            fun(X) ->
+                Abound = A(X),
+                if 
+                    is_list(B) ->  lists:member(Abound,B);
+                    is_tuple(B) -> lists:member(Abound,tuple_to_list(B));
+                    true ->        false
+                end
+            end;
+        {true,true} ->  
+            fun(X) ->
+                Abound = A(X),
+                Bbound = B(X), 
+                if 
+                    is_list(Bbound) ->  lists:member(Abound,Bbound);
+                    is_tuple(Bbound) -> lists:member(Abound,tuple_to_list(Bbound));
+                    true ->             false
+                end
+            end;
+        {true,BBind} ->  
+            fun(X) ->
+                Abound = A(X),
+                Bbound = ?BoundVal(BBind,X), 
+                if 
+                    is_list(Bbound) ->  lists:member(Abound,Bbound);
+                    is_tuple(Bbound) -> lists:member(Abound,tuple_to_list(Bbound));
+                    true ->             false
+                end
+            end;
+        {ABind,false} ->  
+            fun(X) ->
+                if 
+                    is_list(B) ->  lists:member(?BoundVal(ABind,X),B);
+                    is_tuple(B) -> lists:member(?BoundVal(ABind,X),tuple_to_list(B));
+                    true ->        false
+                end
+            end;
+        {ABind,true} ->  
+            fun(X) ->
+                Bbound = B(X), 
+                if 
+                    is_list(Bbound) ->  lists:member(?BoundVal(ABind,X),Bbound);
+                    is_tuple(Bbound) -> lists:member(?BoundVal(ABind,X),tuple_to_list(Bbound));
+                    true ->             false
+                end
+            end;
+        {ABind,BBind} ->  
+            fun(X) ->
+                Bbound = ?BoundVal(BBind,X), 
+                if 
+                    is_list(Bbound) ->  lists:member(?BoundVal(ABind,X),Bbound);
+                    is_tuple(Bbound) -> lists:member(?BoundVal(ABind,X),tuple_to_list(Bbound));
+                    true ->             false
+                end
+            end
+    end;
+make_filter_fun_final(Ctx,FGuard, FBinds) ->
+    ?UnimplementedException({"Unsupported filter function",{Ctx, FGuard, FBinds}}).
+
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
@@ -822,21 +1323,142 @@ test_with_or_without_sec(IsSec) ->
             _ ->    ok
         end,
 
-        L = {like,'$6',"%5%"},
-        NL = {not_like,'$7',"1%"},
-        ?assertEqual( true, replace_match(L,L)),
-        ?assertEqual( NL, replace_match(NL,L)),
-        ?assertEqual( {'and',true,NL}, replace_match({'and',L,NL},L)),
-        ?assertEqual( {'and',L,true}, replace_match({'and',L,NL},NL)),
-        ?assertEqual( {'and',{'and',true,NL},{a,b,c}}, replace_match({'and',{'and',L,NL},{a,b,c}},L)),
-        ?assertEqual( {'and',{'and',L,{a,b,c}},true}, replace_match({'and',{'and',L,{a,b,c}},NL},NL)),
-        ?assertEqual( {'and',{'and',true,NL},{'and',L,NL}}, replace_match({'and',{'and',L,NL},{'and',L,NL}},L)),
-        ?assertEqual( {'and',NL,{'and',true,NL}}, replace_match({'and',NL,{'and',L,NL}},L)),
-        ?assertEqual( {'and',NL,{'and',NL,NL}}, replace_match({'and',NL,{'and',NL,NL}},L)),
-        ?assertEqual( {'and',NL,{'and',NL,true}}, replace_match({'and',NL,{'and',NL,L}},L)),
+    %% filter_member
+        ?assertEqual(true, filter_member({'is_member', {'+','$2',1}, '$3'})),
+        ?assertEqual(false, filter_member({'==', {'+','$2',1}, '$3'})),
+        ?assertEqual(true, filter_member({'==', {'safe',{'+','$2',1}}, '$3'})),
+        ?assertEqual(false, filter_member({'or', {'==','$2',1}, {'==','$3',1}})),
+        ?assertEqual(true, filter_member({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
-        ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},L},true},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},NL)),
-        ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},true},NL},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},L)),
+    %% make_expr_fun
+        ?assertEqual(true, make_expr_fun(1, true, [])),
+        ?assertEqual(false, make_expr_fun(1, false, [])),
+        ?assertEqual(true, make_expr_fun(1, {'not', false}, [])),
+        ?assertEqual(false, make_expr_fun(1, {'not', true}, [])),
+        ?assertEqual(12, make_expr_fun(1, 12, [])),
+        ?assertEqual(a, make_expr_fun(1, a, [])),
+        ?assertEqual({a,b}, make_expr_fun(1, {const,{a,b}}, [])),
+        ?assertEqual(true, make_expr_fun(1, {'==', 10,10}, [])),
+        ?assertEqual(true, make_expr_fun(1, {'==', {const,{a,b}}, {const,{a,b}}}, [])), 
+        ?assertEqual(false, make_expr_fun(1, {'==', {const,{a,b}}, {const,{a,1}}}, [])), 
+        ?assertEqual(true, make_expr_fun(1,{'is_member', a, [a,b]}, [])),
+        ?assertEqual(true, make_expr_fun(1,{'is_member', 1, [a,b,1]}, [])),
+        ?assertEqual(false, make_expr_fun(1,{'is_member', 1, [a,b,c]}, [])),
+        ?assertEqual(true, make_expr_fun(1,{'is_member', 1, {const,a,b,1}}, [])),
+        ?assertEqual(false, make_expr_fun(1,{'is_member', 1, {const,a,b,c}}, [])),
+        ?assertEqual(true, make_expr_fun(1,{'is_like', "12345", "%3%"}, [])),
+        ?assertEqual(true, make_expr_fun(1,{'is_like', <<"12345">>, "%3__"}, [])),
+        ?assertEqual(true, make_expr_fun(1,{'is_like', "12345", <<"1%">>}, [])),
+        ?assertEqual(true, make_expr_fun(1,{'is_like', {'+',12300,45}, <<"%45">>}, [])),
+        ?assertEqual(false, make_expr_fun(1,{'is_like', "12345", "%6%"}, [])),
+        ?assertEqual(false, make_expr_fun(1,{'is_like', <<"12345">>, "%7__"}, [])),
+        ?assertEqual(33, make_expr_fun(1, {'*',{'+',10,1},3}, [])),
+        ?assertEqual(10, make_expr_fun(1, {'abs',{'-',10,20}}, [])),
+        ?Log("success ~p~n", ["make_expr_fun constants"]),
+
+        X1 = {{1,2,3},{2,2,2}},
+        F1 = make_expr_fun(1, {'==', '$1','$2'}, [{'$1',1,2},{'$2',1,2}]),
+        ?assertEqual(true, F1(X1)),
+
+        F1a = make_expr_fun(1, {'==', '$1','$2'}, [{'$1',1,2},{'$2',2,2}]),
+        ?assertEqual(true, F1a(X1)),
+
+        F2 = make_expr_fun(1,{'is_member', a, '$3'}, [{'$3',1,3}]),
+        ?assertEqual(false,F2({{1,2,[3,4,5]}})),        
+        ?assertEqual(true, F2({{1,2,[c,a,d]}})),        
+
+        F3 = make_expr_fun(1,{'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        ?assertEqual(true, F3({{1,d,[c,a,d]}})),        
+        ?assertEqual(true, F3({{1,c,[c,a,d]}})),        
+        ?assertEqual(true, F3({{1,a,[c,a,d]}})),        
+        ?assertEqual(true, F3({{1,3,[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,2,[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,a,[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
+        ?assertEqual(false,F3({{1,3,[]}})),        
+
+        F4 = make_expr_fun(1,{'is_member', {'+','$2',1}, '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        ?assertEqual(true, F4({{1,2,[3,4,5]}})),        
+        ?assertEqual(false,F4({{1,2,[c,4,d]}})),        
+
+        F5 = make_expr_fun(1,{'is_member', a, '$_'}, []),
+        ?assertEqual(true, F5({{},{1,a,[c,a,d]}})),        
+        ?assertEqual(false, F5({{},{1,d,[c,a,d]}})),        
+        ?Log("success ~p~n", ["make_expr_fun with binds"]),
+
+        % ?assert(false),
+
+
+    %% Like strig to Regex string
+        ?assertEqual(<<"^Sm.th$">>, transform_like(<<"Sm_th">>, <<>>)),
+        ?assertEqual(<<"^.*Sm.th.*$">>, transform_like(<<"%Sm_th%">>, <<>>)),
+        ?assertEqual(<<"^.A.*Sm.th.*$">>, transform_like(<<"_A%Sm_th%">>, <<>>)),
+        ?assertEqual(<<"^.A.*S\\$m.t\\*\\[h.*$">>, transform_like(<<"_A%S$m_t*[h%">>, <<>>)),
+        ?assertEqual(<<"^.A.*S\\^\\$\\.\\[\\]\\|\\(\\)\\?\\*\\+\\-\\{\\}m.th.*$">>, transform_like(<<"_A%S^$.[]|()?*+-{}m_th%">>, <<>>)),
+        ?assertEqual(<<"^Sm_th.$">>, transform_like(<<"Sm@_th_">>, <<"@">>)),
+        ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
+        ?Log("success ~p~n", [transform_like]),
+
+    %% Regular Expressions
+        ?Log("testing regular expressions: ~p~n", ["like_compile"]),
+        RE1 = like_compile("abc_123%@@"),
+        ?assertEqual(true,re_match(RE1,"abc_123%@@")),         
+        ?assertEqual(true,re_match(RE1,<<"abc_123jhhsdhjhj@@">>)),         
+        ?assertEqual(true,re_match(RE1,"abc_123%%@@@")),         
+        ?assertEqual(true,re_match(RE1,"abc0123@@")),         
+        ?assertEqual(false,re_match(RE1,"abc_123%@")),         
+        ?assertEqual(false,re_match(RE1,"abc_123%@")),         
+        ?assertEqual(false,re_match(RE1,"")),         
+        ?assertEqual(false,re_match(RE1,<<"">>)),         
+        ?assertEqual(false,re_match(RE1,<<"abc_@@">>)),         
+        RE2 = like_compile(<<"%@@">>,<<>>),
+        ?assertEqual(true,re_match(RE2,"abc_123%@@")),         
+        ?assertEqual(true,re_match(RE2,<<"123%@@">>)),         
+        ?assertEqual(true,re_match(RE2,"@@")),
+        ?assertEqual(true,re_match(RE2,"@@@")),
+        ?assertEqual(false,re_match(RE2,"abc_123%@")),         
+        ?assertEqual(false,re_match(RE2,"@.@")),         
+        ?assertEqual(false,re_match(RE2,"@_@")),         
+        RE3 = like_compile(<<"text_in%">>),
+        ?assertEqual(true,re_match(RE3,<<"text_in_text">>)),         
+        ?assertEqual(true,re_match(RE3,"text_in_text")),         
+        ?assertEqual(true,re_match(RE3,<<"text_in_quotes\"">>)),         
+        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes">>)),         
+        ?assertEqual(false,re_match(RE3,"\"text_in_quotes\"")),         
+        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes\"">>)),         
+        RE4 = like_compile(<<"%12">>),
+        ?assertEqual(true,re_match(RE4,12)),         
+        ?assertEqual(true,re_match(RE4,112)),         
+        ?assertEqual(true,re_match(RE4,012)),         
+        ?assertEqual(false,re_match(RE4,122)),         
+        ?assertEqual(false,re_match(RE4,1)),         
+        ?assertEqual(false,re_match(RE4,11)),         
+        RE5 = like_compile(<<"12.5%">>),
+        ?assertEqual(true,re_match(RE5,12.51)),         
+        ?assertEqual(true,re_match(RE5,12.55)),         
+        ?assertEqual(true,re_match(RE5,12.50)),         
+        ?assertEqual(false,re_match(RE5,12)),         
+        ?assertEqual(false,re_match(RE5,12.4)),         
+        ?assertEqual(false,re_match(RE5,12.49999)),         
+
+        %% ToDo: implement and test patterns involving regexp reserved characters
+
+        % ?Log("success ~p~n", [replace_match]),
+        % L = {like,'$6',"%5%"},
+        % NL = {not_like,'$7',"1%"},
+        % ?assertEqual( true, replace_match(L,L)),
+        % ?assertEqual( NL, replace_match(NL,L)),
+        % ?assertEqual( {'and',true,NL}, replace_match({'and',L,NL},L)),
+        % ?assertEqual( {'and',L,true}, replace_match({'and',L,NL},NL)),
+        % ?assertEqual( {'and',{'and',true,NL},{a,b,c}}, replace_match({'and',{'and',L,NL},{a,b,c}},L)),
+        % ?assertEqual( {'and',{'and',L,{a,b,c}},true}, replace_match({'and',{'and',L,{a,b,c}},NL},NL)),
+        % ?assertEqual( {'and',{'and',true,NL},{'and',L,NL}}, replace_match({'and',{'and',L,NL},{'and',L,NL}},L)),
+        % ?assertEqual( {'and',NL,{'and',true,NL}}, replace_match({'and',NL,{'and',L,NL}},L)),
+        % ?assertEqual( {'and',NL,{'and',NL,NL}}, replace_match({'and',NL,{'and',NL,NL}},L)),
+        % ?assertEqual( {'and',NL,{'and',NL,true}}, replace_match({'and',NL,{'and',NL,L}},L)),
+        % ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},L},true},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},NL)),
+        % ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},true},NL},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},L)),
+
 
         ?assertEqual("", escape_sql("")),
         ?assertEqual(<<"">>, escape_sql(<<"">>)),
@@ -1038,7 +1660,7 @@ test_with_or_without_sec(IsSec) ->
             _ ->    ok
         end
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Log("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

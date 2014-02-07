@@ -40,11 +40,6 @@
         , result_tuples_sort/3
         ]).
 
--export([ re_compile/1
-        , re_match/2
-        , like_compile/1
-        , like_compile/2
-        ]).
 
 -record(fetchCtx,               %% state for fetch process
                     { pid       ::pid()
@@ -216,26 +211,25 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
         % ?Debug("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
             1 ->    
-                Wrap = fun({Tag,X}) -> {Tag,{X, MetaRec}} end,
-                lists:map(Wrap, KeyUpdateRaw);
+                WrapOut = fun({Tag,X}) -> {Tag,?MetaMain(MetaRec, X)} end,
+                lists:map(WrapOut, KeyUpdateRaw);
             _ ->            
-                Wrap = fun
+                LastIdx = ?TableIdx(length(Stmt#statement.tables)),     %% position of last tuple
+                WrapOut = fun
                     ({Tag,{}}) ->
-                            TabCount = length(Stmt#statement.tables),
-                            R0 = erlang:make_tuple(TabCount+1, undefined, [{1,{}},{TabCount+1,MetaRec}]), 
-                            {Tag,R0};                        
+                        R0 = erlang:make_tuple(LastIdx, undefined, [{?MetaIdx,MetaRec},{?MainIdx,{}}]), 
+                        {Tag,R0};                        
                     ({Tag,X}) ->
-                    case join_rows([X], FetchCtx0, Stmt) of
-                        [] ->
-                            TabCount = length(Stmt#statement.tables),
-                            R1 = erlang:make_tuple(TabCount+1, undefined, [{1,X},{TabCount+1,MetaRec}]), 
-                            {Tag,R1};
-                        [R2|_] ->
-                            {Tag,R2}
-                    end
+                        case join_rows([?MetaMain(MetaRec, X)], FetchCtx0, Stmt) of
+                            [] ->
+                                R1 = erlang:make_tuple(LastIdx, undefined, [{?MetaIdx,MetaRec},{?MainIdx,X}]), 
+                                {Tag,R1};
+                            [R2|_] ->
+                                {Tag,R2}
+                        end
                 end,
                 % ?Debug("map KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
-                lists:map(Wrap, KeyUpdateRaw)
+                lists:map(WrapOut, KeyUpdateRaw)
         end
     catch
         _:Reason ->  
@@ -321,49 +315,49 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % ?Debug("MBinds : ~p~n", [MBinds]),
     % ?Debug("FGuard : ~p~n", [FGuard]),    
     MetaRec = list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]),
-    % ?Debug("MetaRec: ~p~n", [MetaRec]),
+    % ?Info("MetaRec: ~p~n", [MetaRec]),
     [{SHead, SGuards0, [Result]}] = SSpec0,
-    % ?Debug("SGuards before bind : ~p~n", [SGuards0]),
+    % ?Info("SGuards before meta bind : ~p ~p~n", [SGuards0,SBinds]),
     SGuards1 = case SGuards0 of
         [] ->       [];
-        [SGuard0]-> [imem_sql:simplify_guard(select_bind(MetaRec, SGuard0, SBinds))]
+        [SGuard0]-> [imem_sql:simplify_guard(imem_sql:guard_bind({MetaRec}, SGuard0, SBinds))]
     end,
-    % ?Debug("SGuards after meta bind : ~p~n", [SGuards1]),
+    % ?Info("SGuards after meta bind :~n~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
-    TailSpec = ets:match_spec_compile(SSpec),
-    FBound = select_bind(MetaRec, FGuard, MBinds),
-    % ?Debug("FBound : ~p~n", [FBound]),
-    Filter = make_filter_fun(1,FBound, FBinds),
-    SkipFetch = lists:member({fetch_mode,skip},Opts),
-    case {SkipFetch,FetchCtx0#fetchCtx.pid} of
-        {true,undefined} ->     %% skip fetch
+    TailFilterSpec = ets:match_spec_compile(SSpec),         %% to be applied to the scan result record alone
+    % ?Info("FGuards before meta bind :~n~p~n~p~n", [FGuard, MBinds]),
+    FBound = imem_sql:guard_bind({MetaRec}, FGuard, MBinds),        %% to be applied to the truncated final record {MetaRec}         
+    % ?Info("FGuards before make_expr_fun :~n~p~n~p~n", [FBound,FBinds]),
+    SFilterFun = imem_sql:make_expr_fun(1,FBound, FBinds),  %% to be applied to {MetaRec,MainRec}
+    case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
+        {true,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
             RecName = imem_meta:table_record_name(Table), 
             FetchSkip = #fetchCtx{status=undefined,metarec=MetaRec,blockSize=BlockSize
-                                 ,remaining=Limit,opts=Opts,filter=Filter
-                                 ,tailSpec=TailSpec,recName=RecName},
+                                 ,remaining=Limit,opts=Opts,filter=SFilterFun
+                                 ,tailSpec=TailFilterSpec,recName=RecName},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkip}); 
-        {false,undefined} ->    %% start fetch
+        {false,undefined} ->     %% {SkipFetch, Pid} = {false, uninitialized} -> initialize fetch
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
-                    % ?Debug("fetch opts ~p~n", [Opts]),
+                    % ?Info("fetch opts ~p~n", [Opts]),
                     RecName = imem_meta:table_record_name(Table), 
                     FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
                                           ,metarec=MetaRec,blockSize=BlockSize,remaining=Limit
-                                          ,opts=Opts,filter=Filter,tailSpec=TailSpec
+                                          ,opts=Opts,filter=SFilterFun,tailSpec=TailFilterSpec
                                           ,recName=RecName},
                     {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
                 Error ->    
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
         {true,_Pid} ->          %% skip ongoing fetch (and possibly go to tail_mode)
-            FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MetaRec,opts=Opts,filter=Filter,tailSpec=TailSpec},
+            FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MetaRec,opts=Opts,filter=SFilterFun,tailSpec=TailFilterSpec},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
             Pid ! next,
             % ?Debug("fetch opts ~p~n", [Opts]),
-            FetchContinue = FetchCtx0#fetchCtx{metarec=MetaRec,opts=Opts,filter=Filter,tailSpec=TailSpec}, 
+            FetchContinue = FetchCtx0#fetchCtx{metarec=MetaRec,opts=Opts,filter=SFilterFun,tailSpec=TailFilterSpec}, 
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
 handle_cast({close, _SKey}, State) ->
@@ -371,18 +365,18 @@ handle_cast({close, _SKey}, State) ->
     % ?Debug("received close in state ~p~n", [State]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
-    ?Debug("receives unsolicited cast ~p~nin state ~p~n", [Request, State]),
+    ?Debug("received unsolicited cast ~p~nin state ~p~n", [Request, State]),
     imem_meta:log_to_db(error,?MODULE,handle_cast,[{request,Request},{state,State}],"receives unsolicited cast"),
     {noreply, State}.
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
-    % ?Debug("received end of table in status ~p~n", [FetchCtx0#fetchCtx.status]),
-    % ?Debug("received end of table in state~n~p~n", [State]),
+    % ?Debug("received end of table in fetch status ~p~n", [FetchCtx0#fetchCtx.status]),
+    % ?Info("received end of table in state~n~p~n", [State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status,fetching},{sock,Sock}],"eot"),
             send_reply_to_client(Sock, {[],true}),  
-%            ?Debug("late end of table received in state~n~p~n", [State]),
+            % ?Debug("late end of table received in state~n~p~n", [State]),
             handle_fetch_complete(State);
         _ ->
             ?Debug("unexpected end of table received in state~n~p~n", [State]),        
@@ -393,29 +387,36 @@ handle_info({mnesia_table_event,{write,Record0,_ActivityId}}, #state{reply=Sock,
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
     % ?Debug("received mnesia subscription event ~p ~p~n", [write, Record]),
     % ?Debug("receiving tail row~n", []),
-    #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
-    Record1 = erlang:setelement(1,Record0,RecName),
-    case Status of
-        tailing ->
-            case ets:match_spec_run([Record1],TailSpec) of
+    #fetchCtx{status=Status,metarec=MetaRec,remaining=Remaining0,filter=SFilterFun,tailSpec=TailFilterSpec,recName=RecName}=FetchCtx0,
+    Record1 = erlang:setelement(?RecIdx,Record0,RecName),
+    case {Status,SFilterFun} of
+        {tailing,false} ->
+            {noreply, State};
+        {tailing,_} ->
+            case ets:match_spec_run([Record1],TailFilterSpec) of
                 [] ->  
                     {noreply, State};
                 [Rec] ->       
-                    case length(Stmt#statement.tables) of
-                        1 ->    
-                            Wrap = fun(X) -> {X, MetaRec} end,
+                    RawRecords = case SFilterFun of
+                        true ->     [?MetaMain(MetaRec, Rec)];
+                        false ->    []; 
+                        _ ->        lists:filter(SFilterFun,[?MetaMain(MetaRec, Rec)])
+                    end,
+                    case {RawRecords,length(Stmt#statement.tables)} of
+                        {[],_} ->   {noreply, State};
+                        {_,1} ->
                             if  
                                 Remaining0 =< 1 ->
-                                    send_reply_to_client(Sock, {lists:map(Wrap, [Rec]),true}),
+                                    send_reply_to_client(Sock, {RawRecords,true}),  
                                     unsubscribe(Stmt),
                                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                                 true ->
                                     % ?Debug("sending tail row~n", []),
-                                    send_reply_to_client(Sock, {lists:map(Wrap, [Rec]),tail}),
+                                    send_reply_to_client(Sock, {RawRecords,tail}),
                                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Remaining0-1}}}
                             end;
-                        _N ->    
-                            case join_rows([Rec], FetchCtx0, Stmt) of
+                        _ ->    
+                            case join_rows(RawRecords, FetchCtx0, Stmt) of
                                 [] ->
                                     {noreply, State};
                                 Result ->    
@@ -444,9 +445,9 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     % ?Debug("received mnesia subscription event ~p ~p~n", [delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MetaRec,remaining=Remaining0,status=Status,filter=Filter, opts=Opts}=FetchCtx0,
-    % ?Debug("received ~p rows~n", [length(Rows)]),
-    % ?Debug("received rows~n~p~n", [Rows]),
+    #fetchCtx{metarec=MetaRec,remaining=Remaining0,status=Status,filter=SFilterFun, opts=Opts}=FetchCtx0,
+    % ?Info("received ~p rows~n", [length(Rows)]),
+    % ?Info("received rows~n~p~n", [Rows0]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
@@ -470,52 +471,23 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
             {R,false}        
     end,   
-    Result = case {length(Stmt#statement.tables),Filter} of
+    Wrap = fun(X) -> ?MetaMain(MetaRec, X) end,
+    Result = case {length(Stmt#statement.tables),SFilterFun} of
+        {_,false} ->
+            [];
         {1,true} ->
-            Wrap = fun(X) -> {X, MetaRec} end,
-            Rows=length(Rows1),
-            if  
-                Rows < Remaining0 ->
-                    lists:map(Wrap, Rows1);     
-                Rows == Remaining0 ->
-                    lists:map(Wrap, Rows1);     
-                Remaining0 > 0 ->
-                    {ResultRows,Rest} = lists:split(Remaining0, Rows1),
-                    LastKey = element(2,lists:last(ResultRows)),
-                    Pred = fun(X) -> (element(2,X)==LastKey) end,
-                    ResultTail = lists:takewhile(Pred, Rest),   
-                    %% ToDo: may need to read more blocks to completely read this key in a bag
-                    lists:map(Wrap, ResultRows ++ ResultTail);
-                Remaining0 =< 0 ->
-                    []
-            end;
-        {1,Filter} ->
-            Wrap = fun(X) -> {X, MetaRec} end,
-            Rows2 = lists:map(Wrap, Rows1),
-            Rows3 = lists:filter(Filter,Rows2),
-            Rows=length(Rows3),
-            if  
-                Rows < Remaining0 ->
-                    Rows3;
-                Rows == Remaining0 ->
-                    Rows3;
-                Remaining0 > 0 ->
-                    {ResultRows,Rest} = lists:split(Remaining0, Rows3),
-                    LastKey = element(2,element(1,lists:last(ResultRows))),
-                    Pred = fun(X) -> (element(2,element(1,X))==LastKey) end,
-                    ResultTail = lists:takewhile(Pred, Rest),
-                    %% ToDo: may need to read more blocks to completely read this key in a bag
-                    ResultRows ++ ResultTail;
-                Remaining0 =< 0 ->
-                    []
-            end;
+            take_remaining(Remaining0, lists:map(Wrap, Rows1));
+        {1,_} ->
+            take_remaining(Remaining0, lists:filter(SFilterFun,lists:map(Wrap, Rows1)));
+        {_,true} ->
+            join_rows(lists:map(Wrap, Rows1), FetchCtx0, Stmt);
         {_,_} ->
-            join_rows(Rows1, FetchCtx0, Stmt)
+            join_rows(lists:filter(SFilterFun,lists:map(Wrap, Rows1)), FetchCtx0, Stmt)
     end,
     case is_number(Remaining0) of
         true ->
             % ?Debug("sending rows ~p~n", [Result]),
-            case Remaining0 =< length(Result) of
+            case length(Result) >= Remaining0 of
                 true ->     
                     send_reply_to_client(Sock, {Result, true}),
                     handle_fetch_complete(State);
@@ -602,423 +574,86 @@ kill_fetch(MonitorRef, Pid) ->
     catch erlang:demonitor(MonitorRef, [flush]),
     catch Pid ! abort. 
 
-select_bind(_MetaRec, Guard, []) -> Guard;
-select_bind(MetaRec, Guard0, [B|Binds]) ->
-    Guard1 = imem_sql:simplify_guard(select_bind_one(MetaRec, Guard0, B)),
-    select_bind(MetaRec, Guard1, Binds).
-
-select_bind_one(MetaRec, {Op,Tag}, {Tag,_,Ci}) ->   {Op,bind_value(element(Ci,MetaRec))};
-select_bind_one(MetaRec, {Op,A}, {Tag,Ti,Ci}) ->    {Op,select_bind_one(MetaRec,A,{Tag,Ti,Ci})};
-select_bind_one(MetaRec, {Op,Tag,B}, {Tag,_,Ci}) -> 
-    case element(Ci,MetaRec) of
-        {{_,_,_},{_,_,_}} = DT ->
-            {const,offset_datetime(Op,DT,B)};
-        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            {const,offset_timestamp(Op,{Mega,Sec,Micro},B)};
-        Other ->
-            {Op,bind_value(Other),B}
-    end;
-select_bind_one(MetaRec, {Op,A,Tag}, {Tag,_,Ci}) -> 
-    case element(Ci,MetaRec) of
-        {{_,_,_},{_,_,_}} = DT ->
-            {const,offset_datetime(Op,DT,A)};
-        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            {const,offset_timestamp(Op,{Mega,Sec,Micro},A)};
-        Other ->
-            {Op,A,bind_value(Other)}
-    end;
-select_bind_one(MetaRec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    {Op,select_bind_one(MetaRec,A,{Tag,Ti,Ci}),select_bind_one(MetaRec,B,{Tag,Ti,Ci})};
-select_bind_one(_, A, _) -> 
-    bind_value(A).
-
-bind_value(Tup) when is_tuple(Tup) ->   {const,Tup};
-bind_value(Other) ->                    Other.
-
-join_bind(_Rec, Guard, []) -> Guard;
-join_bind(Rec, Guard0, [B|Binds]) ->
-    Guard1 = imem_sql:simplify_guard(join_bind_one(Rec, Guard0, B)),
-    join_bind(Rec, Guard1, Binds).
-
-join_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,bind_value(element(Ci,element(Ti,Rec)))};
-join_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,join_bind_one(Rec,A,{Tag,Ti,Ci})};
-join_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) -> 
-    % ?Info("join_bind_one rec: ~p guard: ~p bind: ~p", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
-    case element(Ci,element(Ti,Rec)) of
-        {{_,_,_},{_,_,_}} = DT ->
-            offset_datetime(Op,DT,B);
-        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            offset_timestamp(Op,{Mega,Sec,Micro},B);
-        Other ->
-            {Op,bind_value(Other),B}
-    end;
-join_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
-    case element(Ci,element(Ti,Rec)) of
-        {{_,_,_},{_,_,_}} = DT ->
-            offset_datetime(Op,DT,A);
-        {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            offset_timestamp(Op,{Mega,Sec,Micro},A);
-        Other ->
-            {Op,A,bind_value(Other)}
-    end;
-join_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    {Op,join_bind_one(Rec,A,{Tag,Ti,Ci}),join_bind_one(Rec,B,{Tag,Ti,Ci})};
-join_bind_one(_, A, _) ->
-    bind_value(A).
-
-
-re_compile(S) when is_list(S);is_binary(S) ->
-    case (catch re:compile(S))  of
-        {ok, MP} -> MP;
-        _ ->        never_match
-    end;
-re_compile(_) ->    never_match.
-
-like_compile(S) -> like_compile(S, <<>>).
-
-like_compile(S, Esc) when is_list(S); is_binary(S)  -> re_compile(transform_like(S, Esc));
-like_compile(_,_)                                   -> never_match.
-
-transform_like(S, Esc) ->
-    E = if
-        Esc =:= "" ->       "";
-        Esc =:= <<>> ->     "";
-        is_list(Esc) ->     Esc;
-        is_binary(Esc) ->   binary_to_list(Esc);
-        true ->             ""
-    end,
-    Escape = if E =:= "" -> ""; true -> "["++E++"]" end,
-    NotEscape = if E =:= "" -> ""; true -> "([^"++E++"])" end,
-    S0 = re:replace(S, "([\\\\^$.\\[\\]|()?*+\\-{}])", "\\\\\\1", [global, {return, binary}]),
-    S1 = re:replace(S0, NotEscape++"%", "\\1.*", [global, {return, binary}]),
-    S2 = re:replace(S1, NotEscape++"_", "\\1.", [global, {return, binary}]),
-    S3 = re:replace(S2, Escape++"%", "%", [global, {return, binary}]),
-    S4 = re:replace(S3, Escape++"_", "_", [global, {return, binary}]),
-    list_to_binary(["^",S4,"$"]).
-
-re_match(never_match, _) -> false;
-re_match(RE, S) when is_list(S);is_binary(S) ->
-    case re:run(S, RE) of
-        nomatch ->  false;
-        _ ->        true
-    end;
-re_match(RE, S) ->
-    case re:run(io_lib:format("~p", [S]), RE) of
-        nomatch ->  false;
-        _ ->        true
+take_remaining(Remaining, Rows) ->            
+    RowC = length(Rows),
+    if  
+        RowC == 0 ->            [];
+        RowC < Remaining ->     Rows;
+        RowC == Remaining ->    Rows;
+        Remaining =< 0 ->       [];
+        Remaining > 0 ->
+            {ResultRows,Rest} = lists:split(Remaining, Rows),
+            LastKey = element(?KeyIdx,element(?MainIdx,lists:last(ResultRows))),    %% 2=KeyPosInRecord 2=MainTablePosInRecs
+            Pred = fun(X) -> (element(?KeyIdx,element(?MainIdx,X))==LastKey) end,   %% 2=KeyPosInRecord 2=MainTablePosInRecs
+            ResultTail = lists:takewhile(Pred, Rest),                               %% Try to give all rows for lasr key in a bag
+            %% ToDo: may need to read more blocks to completely read this key in a bag
+            ResultRows ++ ResultTail
     end.
 
-make_filter_fun(_Ti, true, _FBinds)  ->
-    fun(_X) -> true end;
-make_filter_fun(_Ti, false, _FBinds)  ->
-    fun(_X) -> false end;
-make_filter_fun(Ti, {Op, {const,A}, {const,B}}, FBinds) ->
-    make_filter_fun_single(Ti,{Op, A, B}, FBinds);
-make_filter_fun(Ti, {Op, {const,A}, B}, FBinds) ->
-    make_filter_fun_single(Ti,{Op, A, B}, FBinds);
-make_filter_fun(Ti, {Op, A, {const,B}}, FBinds) ->
-    make_filter_fun_single(Ti, {Op, A, B}, FBinds);
-make_filter_fun(_Ti, {Op, A, B}, _FBinds) when is_tuple(A);is_tuple(B) ->
-    %% ToDo: We should allow expression guards for A and B here 
-    %% and resolve to values using FBinds
-    ?UnimplementedException({"Expression in join filter", {Op, A, B}});
-make_filter_fun(Ti, {Op, A, B}, FBinds) ->
-    make_filter_fun_single(Ti, {Op, A, B}, FBinds);
-make_filter_fun(_Ti, Guard, _FBinds) ->
-    ?UnimplementedException({"Unsupported filter guard", Guard}).
-
-make_filter_fun_single(Ti, {'is_member', A, '$_'}, FBinds) ->
-    ABind = lists:keyfind(A,1,FBinds),
-    case ABind of 
-        false ->        
-            fun(X1) -> 
-                lists:member(A,tl(tuple_to_list(element(Ti,X1))))
-            end;
-        {A,ATi,ACi} ->  
-            fun(X2) ->
-                lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2))))
-            end
-    end;
-make_filter_fun_single(Ti, {'nis_member', A, '$_'}, FBinds) ->
-    ABind = lists:keyfind(A,1,FBinds),
-    case ABind of 
-        false ->        
-            fun(X1) -> 
-                (not lists:member(A,tl(tuple_to_list(element(Ti,X1)))))
-            end;
-        {A,ATi,ACi} ->  
-            fun(X2) ->
-                (not lists:member(element(ACi,element(ATi,X2)),tl(tuple_to_list(element(Ti,X2)))))
-            end
-    end;
-make_filter_fun_single(_Ti, {'like', A, B}, FBinds)  ->
-    ABind = lists:keyfind(A,1,FBinds),
-    BBind = lists:keyfind(B,1,FBinds),
-    case {ABind,BBind} of 
-        {false,false} ->
-            Result = re_match(like_compile(B),A),        
-            fun(_X) -> 
-                Result
-            end;
-        {false,{B,BTi,BCi}} ->
-            fun(X1) ->
-                re_match(like_compile(element(BCi,element(BTi,X1))),A)        
-            end;
-        {{A,ATi,ACi},false} ->  
-            RE = like_compile(B),
-            fun(X2) ->
-                Abound = element(ACi,element(ATi,X2)),
-                re_match(RE,Abound)
-            end;
-        {{A,XTi,XCi},{B,YTi,YCi}} ->  
-            fun(X3) ->
-                Xbound = element(XCi,element(XTi,X3)), 
-                Ybound = element(YCi,element(YTi,X3)), 
-                re_match(like_compile(Ybound),Xbound)
-            end
-    end;
-make_filter_fun_single(_Ti, {'not_like', A, B}, FBinds)  ->
-    ABind = lists:keyfind(A,1,FBinds),
-    BBind = lists:keyfind(B,1,FBinds),
-    case {ABind,BBind} of 
-        {false,false} ->
-            Result = re_match(like_compile(B),A),        
-            fun(_X) -> 
-                (not Result)
-            end;
-        {false,{B,BTi,BCi}} ->
-            fun(X1) ->
-                (not re_match(like_compile(element(BCi,element(BTi,X1))),A))        
-            end;
-        {{A,ATi,ACi},false} ->  
-            RE = like_compile(B),
-            fun(X2) ->
-                Abound = element(ACi,element(ATi,X2)),
-                (not re_match(RE,Abound))
-            end;
-        {{A,XTi,XCi},{B,YTi,YCi}} ->  
-            fun(X3) ->
-                Xbound = element(XCi,element(XTi,X3)), 
-                Ybound = element(YCi,element(YTi,X3)), 
-                (not re_match(like_compile(Ybound),Xbound))
-            end
-    end;
-make_filter_fun_single(_Ti, {'regexp_like', A, B}, FBinds)  ->
-    ABind = lists:keyfind(A,1,FBinds),
-    BBind = lists:keyfind(B,1,FBinds),
-    case {ABind,BBind} of 
-        {false,false} ->
-            Result = re_match(re_compile(B),A),        
-            fun(_X) -> 
-                Result
-            end;
-        {false,{B,BTi,BCi}} ->
-            fun(X1) ->
-                re_match(re_compile(element(BCi,element(BTi,X1))),A)        
-            end;
-        {{A,ATi,ACi},false} ->  
-            RE = re_compile(B),
-            fun(X2) ->
-                Abound = element(ACi,element(ATi,X2)),
-                re_match(RE,Abound)
-            end;
-        {{A,XTi,XCi},{B,YTi,YCi}} ->  
-            fun(X3) ->
-                Xbound = element(XCi,element(XTi,X3)), 
-                Ybound = element(YCi,element(YTi,X3)), 
-                re_match(re_compile(Ybound),Xbound)
-            end
-    end;
-make_filter_fun_single(_Ti, {'not_regexp_like', A, B}, FBinds)  ->
-    ABind = lists:keyfind(A,1,FBinds),
-    BBind = lists:keyfind(B,1,FBinds),
-    case {ABind,BBind} of 
-        {false,false} ->
-            Result = re_match(re_compile(B),A),        
-            fun(_X) -> 
-                (not Result)
-            end;
-        {false,{B,BTi,BCi}} ->
-            fun(X1) ->
-                (not re_match(re_compile(element(BCi,element(BTi,X1))),A))        
-            end;
-        {{A,ATi,ACi},false} ->  
-            RE = re_compile(B),
-            fun(X2) ->
-                Abound = element(ACi,element(ATi,X2)),
-                (not re_match(RE,Abound))
-            end;
-        {{A,XTi,XCi},{B,YTi,YCi}} ->  
-            fun(X3) ->
-                Xbound = element(XCi,element(XTi,X3)), 
-                Ybound = element(YCi,element(YTi,X3)), 
-                (not re_match(re_compile(Ybound),Xbound))
-            end
-    end;
-make_filter_fun_single(_Ti, {'is_member', A, B}, FBinds)  ->
-    ABind = lists:keyfind(A,1,FBinds),
-    BBind = lists:keyfind(B,1,FBinds),
-    case {ABind,BBind} of 
-        {false,false} ->        
-            fun(_X) -> 
-                if 
-                    is_list(B) ->   lists:member(A,B);
-                    is_tuple(B) ->  lists:member(A,tuple_to_list(B));
-                    true ->         false
-                end
-            end;
-        {false,{B,BTi,BCi}} ->
-            fun(X1) ->
-                Bbound = element(BCi,element(BTi,X1)),
-                if 
-                    is_list(Bbound) ->  lists:member(A,Bbound);
-                    is_tuple(Bbound) -> lists:member(A,tuple_to_list(Bbound));
-                    true ->             false
-                end
-            end;
-        {{A,ATi,ACi},false} ->  
-            fun(X2) ->
-                if 
-                    is_list(B) ->  lists:member(element(ACi,element(ATi,X2)),B);
-                    is_tuple(B) -> lists:member(element(ACi,element(ATi,X2)),tuple_to_list(B));
-                    true ->             false
-                end
-            end;
-        {{A,XTi,XCi},{B,YTi,YCi}} ->  
-            fun(X3) ->
-                Ybound = element(YCi,element(YTi,X3)), 
-                if 
-                    is_list(Ybound) ->  lists:member(element(XCi,element(XTi,X3)),Ybound);
-                    is_tuple(Ybound) -> lists:member(element(XCi,element(XTi,X3)),tuple_to_list(Ybound));
-                    true ->             false
-                end
-            end
-    end;
-make_filter_fun_single(_Ti, {'nis_member', A, B}, FBinds)  ->
-    ABind = lists:keyfind(A,1,FBinds),
-    BBind = lists:keyfind(B,1,FBinds),
-    case {ABind,BBind} of 
-        {false,false} ->        
-            fun(_X) -> 
-                if 
-                    is_list(B) ->   (not lists:member(A,B));
-                    is_tuple(B) ->  (not lists:member(A,tuple_to_list(B)));
-                    true ->         true
-                end
-            end;
-        {false,{B,BTi,BCi}} ->
-            fun(X1) ->
-                Bbound = element(BCi,element(BTi,X1)),
-                if 
-                    is_list(Bbound) ->  (not lists:member(A,Bbound));
-                    is_tuple(Bbound) -> (not lists:member(A,tuple_to_list(Bbound)));
-                    true ->             true
-                end
-            end;
-        {{A,ATi,ACi},false} ->  
-            fun(X2) ->
-                if 
-                    is_list(B) ->  (not lists:member(element(ACi,element(ATi,X2)),B));
-                    is_tuple(B) -> (not lists:member(element(ACi,element(ATi,X2)),tuple_to_list(B)));
-                    true ->        true
-                end
-            end;
-        {{A,XTi,XCi},{B,YTi,YCi}} ->  
-            fun(X3) ->
-                Ybound = element(YCi,element(YTi,X3)), 
-                if 
-                    is_list(Ybound) ->  (not lists:member(element(XCi,element(XTi,X3)),Ybound));
-                    is_tuple(Ybound) -> (not lists:member(element(XCi,element(XTi,X3)),tuple_to_list(Ybound)));
-                    true ->             true
-                end
-            end
-    end;
-make_filter_fun_single(Ti,FGuard, FBinds) ->
-    ?UnimplementedException({"Unsupported filter function",{Ti, FGuard, FBinds}}).
-
-offset_datetime('-', DT, Offset) ->
-    offset_datetime('+', DT, -Offset);
-offset_datetime('+', {{Y,M,D},{HH,MI,SS}}, Offset) ->
-    GregSecs = calendar:datetime_to_gregorian_seconds({{Y,M,D},{HH,MI,SS}}),  %% for local time we should use calendar:local_time_to_universal_time_dst(DT)
-    calendar:gregorian_seconds_to_datetime(GregSecs + round(Offset*86400.0)); %% calendar:universal_time_to_local_time(
-offset_datetime(OP, DT, Offset) ->
-    ?ClientError({"Illegal datetime offset operation",{OP,DT,Offset}}).
-
-offset_timestamp('+', TS, Offset) when Offset < 0.0 -> 
-    offset_timestamp('-', TS, -Offset);    
-offset_timestamp('-', TS, Offset) when Offset < 0.0 -> 
-    offset_timestamp('+', TS, -Offset);    
-offset_timestamp(_, TS, Offset) when Offset < 5.787e-12 -> 
-    TS;
-offset_timestamp('+', {Mega,Sec,Micro}, Offset) ->
-    NewMicro = Micro + round(Offset*8.64e10),
-    NewSec = Sec + NewMicro div 1000000,
-    NewMega = Mega + NewSec div 1000000,
-    {NewMega, NewSec rem 1000000, NewMicro rem 1000000};    
-offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
-    NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 + Mega * 1000000000000,
-    Mi = NewMicro rem 1000000,
-    NewSec = (NewMicro-Mi) div 1000000, 
-    Se = NewSec rem 1000000,
-    NewMega = (NewSec-Se) div 1000000,
-    {NewMega, Se, Mi};    
-offset_timestamp(OP, TS, Offset) ->
-    ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
-
-join_rows(Rows, FetchCtx0, Stmt) ->
-    #fetchCtx{metarec=MetaRec, blockSize=BlockSize, remaining=Remaining0}=FetchCtx0,
-    Tables = tl(Stmt#statement.tables),
+join_rows(MetaAndMainRows, FetchCtx0, Stmt) ->
+    #fetchCtx{blockSize=BlockSize, remaining=RemainingRowQuota}=FetchCtx0,
+    JoinTables = tl(Stmt#statement.tables),  %% {Schema,Name,Alias} for each table to join
     JoinSpecs = Stmt#statement.joinSpecs,
     % ?Debug("Join Tables: ~p~n", [Tables]),
     % ?Debug("Join Specs: ~p~n", [JoinSpecs]),
-    join_rows(Rows, MetaRec, BlockSize, Remaining0, Tables, JoinSpecs, []).
+    join_rows(MetaAndMainRows, BlockSize, RemainingRowQuota, JoinTables, JoinSpecs, []).
 
-join_rows([], _, _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
-join_rows(_, _, _, Remaining, _, _, Acc) when Remaining < 1 -> Acc;    %% lists:reverse(Acc);
-join_rows([Row|Rows], MetaRec, BlockSize, Remaining, Tables, JoinSpecs, Acc) ->
-    Rec = erlang:make_tuple(length(Tables)+2, undefined, [{1,Row},{2+length(Tables),MetaRec}]),
-    JAcc = join_row([Rec], BlockSize, 2, Tables, JoinSpecs),
-    join_rows(Rows, MetaRec, BlockSize, Remaining-length(JAcc), Tables, JoinSpecs, JAcc++Acc).
+join_rows([], _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
+join_rows(_, _, RRowQuota, _, _, Acc) when RRowQuota < 1 -> Acc;    %% lists:reverse(Acc);
+join_rows([Row|Rows], BlockSize, RRowQuota, JoinTables, JoinSpecs, Acc) ->
+    Rec = erlang:make_tuple(length(JoinTables)+2, undefined, [{?MetaIdx,element(?MetaIdx,Row)},{?MainIdx,element(?MainIdx,Row)}]),
+    JAcc = join_row([Rec], BlockSize, ?MainIdx+1, JoinTables, JoinSpecs),
+    join_rows(Rows, BlockSize, RRowQuota-length(JAcc), JoinTables, JoinSpecs, JAcc++Acc).
 
 join_row(Recs, _BlockSize, _Ti, [], []) -> Recs;
-join_row(Recs0, BlockSize, Ti, [{_S,Table,_A}|Tabs], [JS|JSpecs]) ->
-    Recs1 = case lists:member(Table,?DataTypes) of
-        true ->  [join_virtual(Rec, BlockSize, Ti, Table, JS) || Rec <- Recs0];
-        false -> [join_table(Rec, BlockSize, Ti, Table, JS) || Rec <- Recs0]
+join_row(Recs0, BlockSize, Ti, [{_S,JoinTable,_A}|Tabs], [JS|JSpecs]) ->
+    %% Ti = tuple index, points to the tuple position, starts with main table index for each row
+    Recs1 = case lists:member(JoinTable,?DataTypes) of
+        true ->  [join_virtual(Rec, BlockSize, Ti, JoinTable, JS) || Rec <- Recs0];
+        false -> [join_table(Rec, BlockSize, Ti, JoinTable, JS) || Rec <- Recs0]
     end,
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}) ->
-    % ?Info("Rec used for join bind ~p", [Rec]),
+    % ?Info("Join ~p table ~p~n", [Ti,Table]),
+    % ?Info("Rec used for join bind~n~p~n", [Rec]),
     [{MatchHead, Guard0, [Result]}] = SSpec,
-    % ?Info("Join guard before bind : ~p", [Guard0]),
-    % ?Info("Join binds : ~p", [SBinds]),
+    % ?Info("Join guard before bind: ~p~n", [Guard0]),
+    % ?Info("Join binds : ~p~n", [SBinds]),
     Guard1 = case Guard0 of
         [] ->   
             [];
         _ ->    
             try 
-                [join_bind(Rec, hd(Guard0), SBinds)]
+                [imem_sql:guard_bind(Rec, hd(Guard0), SBinds)]
             catch
-                throw:no_match -> [false];
-                throw:_ -> [false]
+                throw:no_match ->   [false];
+                throw:_ ->          [false]
             end
     end,
     MaxSize = Limit+1000,
-    % ?Info("Join guard after bind : ~p", [Guard1]),
+    % ?Info("Join guard after bind: ~p~n", [Guard1]),
     case imem_meta:select(Table, [{MatchHead, Guard1, [Result]}], MaxSize) of
         {[], true} ->   [];
         {L, true} ->
             case FGuard of
-                true -> 
-                    [setelement(Ti, Rec, I) || I <- L];
+                true ->     [setelement(Ti, Rec, I) || I <- L];
+                false ->    [];
                 _ ->
-                    % ?Info("About to MBind : ~p using ~p", [FGuard, MBinds]),
-                    MboundGuard = join_bind(Rec, FGuard, MBinds),
-                    % ?Info("Join guard after MBind : ~p", [MboundGuard]),
-                    Filter = make_filter_fun(Ti, MboundGuard, FBinds),
-                    Recs = [setelement(Ti, Rec, I) || I <- L],
-                    lists:filter(Filter,Recs)
+                    % ?Info("Join table record count ~p~n", [length(L)]),
+                    % ?Info("Join table first record~n~p~n", [hd(L)]),
+                    % ?Info("Join table records~n~p~n", [L]),
+                    % ?Info("Meta guard: ~p~n", [FGuard]),
+                    % ?Info("Meta binds: ~p~n", [MBinds]),
+                    MboundGuard = imem_sql:guard_bind(Rec, FGuard, MBinds),
+                    % ?Info("Filter guard: ~p~n", [MboundGuard]),
+                    % ?Info("Filter binds: ~p~n", [FBinds]),
+                    case imem_sql:make_expr_fun(Ti, MboundGuard, FBinds) of
+                        true ->     [setelement(Ti, Rec, I) || I <- L];
+                        false ->    [];
+                        Filter ->   Recs = [setelement(Ti, Rec, I) || I <- L],
+                                    lists:filter(Filter,Recs)
+                    end
             end;
         {_, false} ->   ?ClientError({"Too much data in join intermediate result", MaxSize});
         Error ->        ?SystemException({"Unexpected join intermediate result", Error})
@@ -1027,26 +662,31 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
 join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,limit=Limit}) ->
     [{_,[SGuard],_}] = SSpec,
     MaxSize = Limit+1000,
-    case join_bind(Rec, SGuard, SBinds) of
+    case imem_sql:guard_bind(Rec, SGuard, SBinds) of
         true ->
             case FGuard of
                 true ->
                     ?UnimplementedException({"Unsupported virtual join filter guard", FGuard}); 
                 _ ->
-                    ?Debug("Rec used for join bind ~p", [Rec]),
-                    ?Debug("MBinds used for join bind ~p", [MBinds]),
-                    case join_bind(Rec, FGuard, MBinds) of
+                    % ?Info("Virtual join table ~p~n", [Table]),
+                    % ?Info("Virtual join table idx ~p~n", [Ti]),
+                    % ?Info("Rec used for join bind~n~p~n", [Rec]),
+                    % ?Info("FGuard used for join bind ~p~n", [FGuard]),
+                    % ?Info("MBinds used for join bind ~p~n", [MBinds]),
+                    case imem_sql:guard_bind(Rec, FGuard, MBinds) of
                         {is_member,Tag, '$_'} when is_atom(Tag) ->
-                            Items = element(1,Rec),
-                            ?Debug("generate_virtual table ~p from ~p~n~p", [Table,'$_',Items]),
+                            Items = element(?MainIdx,Rec),
+                            % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
                             Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-                            ?Debug("Generated virtual table ~p~n~p", [Table,Virt]),
+                            % ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
                         {is_member,Tag, Items} when is_atom(Tag) ->
-                            ?Debug("generate_virtual table ~p from~n~p", [Table,Items]),
+                            % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
                             Virt = generate_virtual(Table,Items,MaxSize),
-                            ?Debug("Generated virtual table ~p~n~p", [Table,Virt]),
+                            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
                             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
+                        false ->
+                            [];
                         BadFG ->
                             ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
                     end
@@ -1206,30 +846,31 @@ send_reply_to_client(SockOrPid, Result) ->
 
 update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
     TableTypes = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table,_Alias} <- Tables],
-    ?Debug("received change list~n~p", [ChangeList]),
-    %% transform a ChangeList
-        % [1,nop,{{def,"2","'2'"},{}},"2"],                     %% no operation on this line
+    % ?Info("received change list~n~p~n", [ChangeList]),
+    %% transform a ChangeList   
+        % [1,nop,{{},{def,"2","'2'"}},"2"],                     %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
-        % [3,del,{{def,"5","'5'"},{}},"5"],                     %% delete {def,"5","'5'"}
-        % [4,upd,{{def,"12","'12'"},{}},"112"]                  %% update {def,"12","'12'"} to {def,"112","'12'"}
+        % [3,del,{{},{def,"5","'5'"}},"5"],                     %% delete {def,"5","'5'"}
+        % [4,upd,{{},{def,"12","'12'"}},"112"]                  %% update {def,"12","'12'"} to {def,"112","'12'"}
     %% into an UpdatePlan                                       {table} = {Schema,Table,Type}
         % [1,{table},{def,"2","'2'"},{def,"2","'2'"}],          %% no operation on this line
         % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_prepare(IsSec, SKey, TableTypes, ColMap, ChangeList, []),
-    ?Debug("prepared table changes~n~p", [UpdPlan]),
+    % ?Info("prepared table changes~n~p~n", [UpdPlan]),
     UpdPlan.
 
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
-    Action = [hd(Tables), Item, element(1,Recs), element(1,Recs)],     
+    Action = [hd(Tables), Item, element(?MainIdx,Recs), element(?MainIdx,Recs)],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
-    Action = [hd(Tables), Item, element(1,Recs), {}],     
+    Action = [hd(Tables), Item, element(?MainIdx,Recs), {}],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    ?Debug("ColMap~n~p", [ColMap]),
+    % ?Info("ColMap~n~p~n", [ColMap]),
+    % ?Info("Values~n~p~n", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1238,31 +879,31 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
     ValMap = lists:usort(
         [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(Ti,Recs)),T,L,P,D,false,Value), R} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R, func=F},Value} 
-            <- lists:zip(ColMap,Values), Ti==1, F==undefined]),    
-    ?Debug("value map~n~p", [ValMap]),
+            <- lists:zip(ColMap,Values), Ti==?MainIdx, F==undefined]),    
+    % ?Info("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
-    ?Debug("ind map~n~p", [IndMap]),
+    % ?Info("ind map~n~p~n", [IndMap]),
     TupleUpdMap = lists:usort(
-                lists:flatten([tuple_update_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])
+                lists:flatten([tuple_update_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])     %% item1..item9
             ),    
-    ?Debug("tuple item map~n~p", [TupleUpdMap]),
-    ROViolV = [{element(Ci,element(1,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(1,Recs)) /= NewVal],   
-    ROViolT = [{element(Ci,element(1,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleUpdMap, R==true, element(Xi,element(Ci,element(1,Recs))) /= NewVal],   
+    % ?Info("tuple item map~n~p~n", [TupleUpdMap]),
+    ROViolV = [{element(Ci,element(?MainIdx,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(?MainIdx,Recs)) /= NewVal],   
+    ROViolT = [{element(Ci,element(?MainIdx,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleUpdMap, R==true, element(Xi,element(Ci,element(?MainIdx,Recs))) /= NewVal],   
     ROViol = ROViolV ++ ROViolT,
-    ?Debug("key change~n~p", [ROViol]),
+    % ?Info("key change~n~p~n", [ROViol]),
     if  
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});        
         length(ROViol) /= 0 ->                  ?ClientError({"Cannot update readonly field",{Item,hd(ROViol)}});        
         true ->                                 ok    
     end,            
-    NewRec1 = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(1,Recs), ValMap),    
+    NewRec1 = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(?MainIdx,Recs), ValMap),    
     NewRec2 = lists:foldl(fun({Ci,Xi,Value,_},Rec) -> setelement(Ci,Rec,setelement(Xi,element(Ci,Rec),Value)) end, NewRec1, TupleUpdMap),    
-    Action = [hd(Tables), Item, element(1,Recs), NewRec2],     
+    Action = [hd(Tables), Item, element(?MainIdx,Recs), NewRec2],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
     DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    ?Debug("default record ~p", [DefRec]),     
+    ?Debug("default record~n~p~n", [DefRec]),     
     update_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
@@ -1271,11 +912,11 @@ tuple_update_map(Item,I,Recs,ColMap,Values) ->
     FuncName = list_to_atom("item" ++ integer_to_list(I)),
     [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),term,0,0,undefined,false,Value), R} || 
         {#ddColMap{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
-        <- lists:zip(ColMap,Values), Ti==1, T==tuple, F==FuncName, Value/=<<"">>]
+        <- lists:zip(ColMap,Values), Ti==?MainIdx, T==tuple, F==FuncName, Value/=<<"">>]
     ++
     [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),element(I,T),0,0,undefined,false,Value), R} || 
         {#ddColMap{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
-        <- lists:zip(ColMap,Values), Ti==1, is_tuple(T), F==FuncName, Value/=<<"">>]
+        <- lists:zip(ColMap,Values), Ti==?MainIdx, is_tuple(T), F==FuncName, Value/=<<"">>]
     .
 
 % tuple_insert_map(Item,I,ColMap,Values) ->
@@ -1292,23 +933,25 @@ tuple_update_map(Item,I,Recs,ColMap,Values) ->
 %     end.
 
 update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
+    % ?Info("ColMap~n~p~n", [ColMap]),
+    % ?Info("Values~n~p~n", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        
         true ->                                 ok    
     end,            
-    case [Name || {#ddColMap{tind=Ti,name=Name,func=F},Value} <- lists:zip(ColMap,Values), Ti==1, F/=undefined, Value/=<<"">>] of
+    case [Name || {#ddColMap{tind=Ti,name=Name,func=F},Value} <- lists:zip(ColMap,Values), Ti==?MainIdx, F/=undefined, Value/=<<"">>] of
         [] ->   ok;
         L ->    ?ClientError({"Need a complete value to insert into column",{Item,hd(L)}})
     end,    
     ValMap = lists:usort(
         [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
             {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
-            <- lists:zip(ColMap,Values), Ti==1, Value/=<<"">>]),
-    ?Debug("value map~n~p", [ValMap]),
+            <- lists:zip(ColMap,Values), Ti==?MainIdx, Value/=<<"">>]),
+    % ?Info("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
-    ?Debug("ind map~n~p", [IndMap]),
-    HasKey = lists:member(2,IndMap),
+    % ?Info("ind map~n~p~n", [IndMap]),
+    HasKey = lists:member(?KeyIdx,IndMap),
     if 
         length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column insert",{Item,ValMap}});
         HasKey /= true  ->                      ?ClientError({"Missing key column",{Item,ValMap}});
@@ -1376,9 +1019,9 @@ receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->
                     List = lists:flatten([element(1,element(2, T)) || T <- Unchecked]),
                     if 
                         length(List) =< 10 ->
-                            ?Debug("Received  : ~p~n", [List]);
+                            ?Debug("Received:~n~p~n", [List]);
                         true ->
-                            ?Debug("Received  : ~p items [~p,~p,~p]~n", [length(List),hd(List), '...', lists:last(List)])
+                            ?Debug("Received: ~p items ~p~n~p~n~p~n", [length(List),hd(List), '...', lists:last(List)])
                     end,            
                     List;
                 StmtRefs ->
@@ -1419,9 +1062,9 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                     RT = result_tuples(List,RowFun),
                     if 
                         length(RT) =< 10 ->
-                            ?Debug("Received  : ~p~n", [RT]);
+                            ?Info("Received:~n~p~n", [RT]);
                         true ->
-                            ?Debug("Received  : ~p items [~p,~p,~p]~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                            ?Info("Received: ~p items:~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
                     end,            
                     RT;
                 StmtRefs ->
@@ -1502,57 +1145,14 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-    %% Like strig to Regex string
-        ?assertEqual(<<"^Sm.th$">>, transform_like(<<"Sm_th">>, <<>>)),
-        ?assertEqual(<<"^.*Sm.th.*$">>, transform_like(<<"%Sm_th%">>, <<>>)),
-        ?assertEqual(<<"^.A.*Sm.th.*$">>, transform_like(<<"_A%Sm_th%">>, <<>>)),
-        ?assertEqual(<<"^.A.*S\\$m.t\\*\\[h.*$">>, transform_like(<<"_A%S$m_t*[h%">>, <<>>)),
-        ?assertEqual(<<"^.A.*S\\^\\$\\.\\[\\]\\|\\(\\)\\?\\*\\+\\-\\{\\}m.th.*$">>, transform_like(<<"_A%S^$.[]|()?*+-{}m_th%">>, <<>>)),
-        ?assertEqual(<<"^Sm_th.$">>, transform_like(<<"Sm@_th_">>, <<"@">>)),
-        ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
+        ?assertEqual({is_member,'$6',{const,{10,132,7,20}}}, imem_sql:simplify_guard({is_member,'$6',{const,{10,132,7,20}}})),
 
-    %% Regular Expressions
-        RE1 = like_compile("abc_123%@@"),
-        ?assertEqual(true,re_match(RE1,"abc_123%@@")),         
-        ?assertEqual(true,re_match(RE1,<<"abc_123jhhsdhjhj@@">>)),         
-        ?assertEqual(true,re_match(RE1,"abc_123%%@@@")),         
-        ?assertEqual(true,re_match(RE1,"abc0123@@")),         
-        ?assertEqual(false,re_match(RE1,"abc_123%@")),         
-        ?assertEqual(false,re_match(RE1,"abc_123%@")),         
-        ?assertEqual(false,re_match(RE1,"")),         
-        ?assertEqual(false,re_match(RE1,<<"">>)),         
-        ?assertEqual(false,re_match(RE1,<<"abc_@@">>)),         
-        RE2 = like_compile(<<"%@@">>,<<>>),
-        ?assertEqual(true,re_match(RE2,"abc_123%@@")),         
-        ?assertEqual(true,re_match(RE2,<<"123%@@">>)),         
-        ?assertEqual(true,re_match(RE2,"@@")),
-        ?assertEqual(true,re_match(RE2,"@@@")),
-        ?assertEqual(false,re_match(RE2,"abc_123%@")),         
-        ?assertEqual(false,re_match(RE2,"@.@")),         
-        ?assertEqual(false,re_match(RE2,"@_@")),         
-        RE3 = like_compile(<<"text_in%">>),
-        ?assertEqual(true,re_match(RE3,<<"text_in_text">>)),         
-        ?assertEqual(true,re_match(RE3,"text_in_text")),         
-        ?assertEqual(true,re_match(RE3,<<"text_in_quotes\"">>)),         
-        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes">>)),         
-        ?assertEqual(false,re_match(RE3,"\"text_in_quotes\"")),         
-        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes\"">>)),         
-        RE4 = like_compile(<<"%12">>),
-        ?assertEqual(true,re_match(RE4,12)),         
-        ?assertEqual(true,re_match(RE4,112)),         
-        ?assertEqual(true,re_match(RE4,012)),         
-        ?assertEqual(false,re_match(RE4,122)),         
-        ?assertEqual(false,re_match(RE4,1)),         
-        ?assertEqual(false,re_match(RE4,11)),         
-        RE5 = like_compile(<<"12.5%">>),
-        ?assertEqual(true,re_match(RE5,12.51)),         
-        ?assertEqual(true,re_match(RE5,12.55)),         
-        ?assertEqual(true,re_match(RE5,12.50)),         
-        ?assertEqual(false,re_match(RE5,12)),         
-        ?assertEqual(false,re_match(RE5,12.4)),         
-        ?assertEqual(false,re_match(RE5,12.49999)),         
-
-        %% ToDo: implement and test patterns involving regexp reserved characters
+        ?assertEqual( {is_member,'$6',{const,{10,132,7,20}}}
+                    , imem_sql:guard_bind(
+                              {{def,20,"20",{{2014,2,3},{12,10,16}},{10,132,7,20},{'Atom20',20}},undefined,{}}
+                            , {'and',{'==',20,'$1'},{is_member,'$6','$4'}}
+                            , [{'$4',1,5},{'$1',1,2}])
+                    ),
 
     %% test table tuple_test
 
@@ -1573,7 +1173,7 @@ test_with_or_without_sec(IsSec) ->
                     ,'{key1,{key1a,key1b}}'
                     , 1 
                 );",  
-        ?Log("Sql1a: ~p~n", [Sql1a]),
+        ?Log("Sql1a:~n~s~n", [Sql1a]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1a, 0, imem, IsSec)),
 
         Sql1b = "insert into tuple_test (
@@ -1584,7 +1184,7 @@ test_with_or_without_sec(IsSec) ->
                     ,'{a,2}'
                     ,2 
                 );",  
-        ?Log("Sql1b: ~p~n", [Sql1b]),
+        ?Log("Sql1b:~n~s~n", [Sql1b]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1b, 0, imem, IsSec)),
 
         Sql1c = "insert into tuple_test (
@@ -1595,16 +1195,29 @@ test_with_or_without_sec(IsSec) ->
                     ,undefined
                     ,3 
                 );",  
-        ?Log("Sql1c: ~p~n", [Sql1c]),
+        ?Log("Sql1c:~n~s~n", [Sql1c]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1c, 0, imem, IsSec)),
 
-        TT1aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?Log("original table~n~p~n", [TT1aRows1]),
+        TT1Rows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
+        ?Log("original table~n~p~n", [TT1Rows]),
+        TT1RowsExpected=
+        [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}
+        ,{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,2},2}
+        ,{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}
+        ],
+        ?assertEqual(TT1RowsExpected, TT1Rows),
 
-        TT1a = exec(SKey,tt1, 4, IsSec, "select item1(col1), item1(col3), item2(col3), col4 from tuple_test where col4=1"),
+        TT1a = exec(SKey,tt1a, 10, IsSec, "select col4 from tuple_test"),
         ?assertEqual(ok, fetch_async(SKey,TT1a,[],IsSec)),
         ListTT1a = receive_tuples(TT1a,true),
-        ?assertEqual(1, length(ListTT1a)),
+        ?assertEqual(3, length(ListTT1a)),
+
+
+        TT1b = exec(SKey,tt1b, 4, IsSec, "select item1(col1), item1(col3), item2(col3), col4 from tuple_test where col4=1"),
+        % TT1b = exec(SKey,tt1b, 4, IsSec, "select col1, col2, col3, col4 from tuple_test where col4=1"),
+        ?assertEqual(ok, fetch_async(SKey,TT1b,[],IsSec)),
+        ListTT1b = receive_tuples(TT1b,true),
+        ?assertEqual(1, length(ListTT1b)),
 
         O1 = {tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
         O1X= {tuple_test,{keyX,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
@@ -1613,27 +1226,27 @@ test_with_or_without_sec(IsSec) ->
         O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3},
 
         TT1aChange = [
-          [1,upd,{O1,{}},<<"keyX">>,<<"key1">>,<<"{key1a,key1b}">>,<<"1">>] 
-        , [2,upd,{O2,{}},<<"key2">>,<<"a">>,<<"">>,<<"">>] 
-        , [3,upd,{O3,{}},<<"key3">>,<<"">>,<<"">>,<<"3">>]
+          [1,upd,{{},O1},<<"keyX">>,<<"key1">>,<<"{key1a,key1b}">>,<<"1">>] 
+        , [2,upd,{{},O2},<<"key2">>,<<"a">>,<<"">>,<<"">>] 
+        , [3,upd,{{},O3},<<"key3">>,<<"">>,<<"">>,<<"3">>]
         ],
-        ?assertEqual(ok, update_cursor_prepare(SKey, TT1a, IsSec, TT1aChange)),
-        update_cursor_execute(SKey, TT1a, IsSec, optimistic),        
-        TT1aRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?assertNotEqual(TT1aRows1,TT1aRows2),
-        ?Log("changed table~n~p~n", [TT1aRows2]),
-        ?assert(lists:member(O1X,TT1aRows2)),
-        ?assert(lists:member(O2X,TT1aRows2)),
-        ?assert(lists:member(O3,TT1aRows2)),
+        ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1aChange)),
+        update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
+        TT1aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
+        ?assertNotEqual(TT1Rows,TT1aRows),
+        ?Log("changed table~n~p~n", [TT1aRows]),
+        ?assert(lists:member(O1X,TT1aRows)),
+        ?assert(lists:member(O2X,TT1aRows)),
+        ?assert(lists:member(O3,TT1aRows)),
 
         TT1bChange = [[4,ins,{},<<"key4">>,<<"">>,<<"">>,<<"4">>]],
         ?assertException(throw,
             {error, {'ClientError',
              {"Need a complete value to insert into column",{4,col1}}}},
-            update_cursor_prepare(SKey, TT1a, IsSec, TT1bChange)
+            update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)
         ),
-        TT1aRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?assertEqual(TT1aRows2,TT1aRows3),
+        TT1bRows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
+        ?assertEqual(TT1aRows,TT1bRows),
 
 
         TT2a = exec(SKey,tt2, 4, IsSec, "select col1, item1(col3), item2(col3), col4 from tuple_test where col4=1"),
@@ -1673,7 +1286,6 @@ test_with_or_without_sec(IsSec) ->
         ?Log("Meta table~n~p~n", [Meta]),
         ?Log("original table~n~p~n", [TableRows1]),
 
-
         SR0 = exec(SKey,query0, 15, IsSec, "select * from def;"),
         try
             ?assertEqual(ok, fetch_async(SKey,SR0,[],IsSec)),
@@ -1704,7 +1316,7 @@ test_with_or_without_sec(IsSec) ->
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
         %% ?Log("change list~n~p~n", [ChangeList2]),
         ChangeList2 = [
-        [4,upd,{{def,"12",12},{}},<<"112">>,<<"12">>] 
+        [4,upd,{{},{def,"12",12}},<<"112">>,<<"12">>] 
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)),
         update_cursor_execute(SKey, SR1, IsSec, optimistic),        
@@ -1713,11 +1325,11 @@ test_with_or_without_sec(IsSec) ->
         ?assert(TableRows1 /= TableRows2),
 
         ChangeList3 = [
-        [1,nop,{{def,"2",2},{}},<<"2">>,<<"2">>],         %% no operation on this line
+        [1,nop,{{},{def,"2",2}},<<"2">>,<<"2">>],         %% no operation on this line
         [5,ins,{},<<"99">>, <<"undefined">>],             %% insert {def,"99", undefined}
-        [3,del,{{def,"5",5},{}},<<"5">>,<<"5">>],         %% delete {def,"5",5}
-        [4,upd,{{def,"112",12},{}},<<"112">>,<<"12">>],   %% nop update {def,"112",12}
-        [6,upd,{{def,"10",10},{}},<<"10">>,<<"110">>]     %% update {def,"10",10} to {def,"10",110}
+        [3,del,{{},{def,"5",5}},<<"5">>,<<"5">>],         %% delete {def,"5",5}
+        [4,upd,{{},{def,"112",12}},<<"112">>,<<"12">>],   %% nop update {def,"112",12}
+        [6,upd,{{},{def,"10",10}},<<"10">>,<<"110">>]     %% update {def,"10",10} to {def,"10",110}
         ],
         ExpectedRows3 = [
         {def,"2",2},                            %% no operation on this line
@@ -1729,11 +1341,11 @@ test_with_or_without_sec(IsSec) ->
         {def,"5",5}                             %% delete {def,"5",5}
         ],
         ExpectedKeys3 = [
-        {1,{{def,"2",2},{}}},
+        {1,{{},{def,"2",2}}},
         {3,{{},{}}},
-        {4,{{def,"112",12},{}}},
-        {5,{{def,"99",undefined},{}}},
-        {6,{{def,"10",110},{}}}
+        {4,{{},{def,"112",12}}},
+        {5,{{},{def,"99",undefined}}},
+        {6,{{},{def,"10",110}}}
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
         ChangedKeys3 = update_cursor_execute(SKey, SR1, IsSec, optimistic),        
@@ -1908,7 +1520,7 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
             ?assertEqual([{<<"11">>,<<"11">>},{<<"10">>,<<"10">>},{<<"3">>,<<"3">>},{<<"2">>,<<"2">>},{<<"1">>,<<"1">>}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
-            Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{1,2,<<"asc">>}], [], IsSec),
+            Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{2,2,<<"asc">>}], [], IsSec),
             ?Log("Result8a ~p~n", [Result8a]),
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
@@ -1916,19 +1528,19 @@ test_with_or_without_sec(IsSec) ->
             Expected8b = "select col1 c1, col2 from def where col1 < '4' order by col1 asc",
             ?assertEqual(Expected8b, string:strip(binary_to_list(Sql8b))),
 
-            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{1,2,<<"asc">>}], [1], IsSec),
+            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?Log("Sql8c ~p~n", [Sql8c]),
             Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
-            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2], IsSec),
+            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
             ?Log("Sql8d ~p~n", [Sql8d]),
             Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(binary_to_list(Sql8d))),
 
-            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{1,2,<<"asc">>},{1,3,<<"desc">>}], [2,1], IsSec),
+            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?Log("Sql8e ~p~n", [Sql8e]),
             Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
@@ -1977,79 +1589,14 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(11, length(List10a)),
 
         ChangeList10 = [
-          [1,upd,{{def,"5",5},{def,"5",5},{}},<<"X">>,<<"Y">>] 
+          [1,upd,{{},{def,"5",5},{def,"5",5}},<<"X">>,<<"Y">>] 
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR10, IsSec, ChangeList10)),
         Result10b = update_cursor_execute(SKey, SR10, IsSec, optimistic),        
         ?Log("Result10b ~p~n", [Result10b]),
-        ?assertEqual([{1,{{def,"X",5},{def,"X",5},{}}}],Result10b), 
+        ?assertEqual([{1,{{},{def,"X",5},{def,"X",5}}}],Result10b), 
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
-
-        ?assertEqual({{2000,1,29},{12,13,14}}, offset_datetime('+', {{2000,1,28},{12,13,14}}, 1.0)),
-        ?assertEqual({{2000,1,27},{12,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0)),
-        ?assertEqual({{2000,1,28},{12,13,14}}, offset_datetime('+', {{2000,1,28},{12,13,14}}, 1.0e-10)),
-        ?assertEqual({{2000,1,28},{12,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0e-10)),
-        ?assertEqual({{2000,1,28},{11,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0)),
-        ?assertEqual({{2000,1,28},{12,12,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/60.0)),
-        ?assertEqual({{2000,1,28},{12,13,13}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/3600.0)),
-        
-        ENow = erlang:now(),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('+', ENow, 1.0),-1.0)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0),1.0)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.1),0.1)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.01),0.01)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.001),0.001)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.0001),0.0001)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.00001),0.00001)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.000001),0.000001)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-6),1.0e-6)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-7),1.0e-7)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-8),1.0e-8)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-9),1.0e-9)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-10),1.0e-10)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-11),1.0e-11)),
-        ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0e-12),1.0e-12)),
-
-        ?Log("ErlangNow: ~p~n", [ENow]),
-        OneSec = 1.0/86400.0,
-        ?Log("Now-  1us: ~p~n", [offset_timestamp('-', ENow, 0.000001 * OneSec)]),
-        ?Log("Now- 10us: ~p~n", [offset_timestamp('-', ENow, 0.00001 * OneSec)]),
-        ?Log("Now-100us: ~p~n", [offset_timestamp('-', ENow, 0.0001 * OneSec)]),
-        ?Log("Now-  1ms: ~p~n", [offset_timestamp('-', ENow, 0.001 * OneSec)]),
-        ?Log("Now- 10ms: ~p~n", [offset_timestamp('-', ENow, 0.01 * OneSec)]),
-        ?Log("Now-100ms: ~p~n", [offset_timestamp('-', ENow, 0.1 * OneSec)]),
-        ?Log("Now-   1s: ~p~n", [offset_timestamp('-', ENow, OneSec)]),
-        ?Log("Now-  10s: ~p~n", [offset_timestamp('-', ENow, 10.0*OneSec)]),
-        ?Log("Now- 100s: ~p~n", [offset_timestamp('-', ENow, 100.0*OneSec)]),
-        ?Log("Now-1000s: ~p~n", [offset_timestamp('-', ENow, 1000.0*OneSec)]),
-
-        F0 = make_filter_fun(1,true, []),
-        ?assertEqual(true,F0(1)),        
-        ?assertEqual(true,F0([])),        
-        F1 = make_filter_fun(1,{'is_member', a, [a,b]}, []),
-        ?assertEqual(true,F1(1)),        
-        ?assertEqual(true,F1([])),        
-        F2 = make_filter_fun(1,{'is_member', a, '$3'}, [{'$3',1,3}]),
-        ?assertEqual(false,F2({{1,2,[3,4,5]}})),        
-        ?assertEqual(true, F2({{1,2,[c,a,d]}})),        
-        F3 = make_filter_fun(1,{'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
-        ?assertEqual(true, F3({{1,d,[c,a,d]}})),        
-        ?assertEqual(true, F3({{1,c,[c,a,d]}})),        
-        ?assertEqual(true, F3({{1,a,[c,a,d]}})),        
-        ?assertEqual(true, F3({{1,3,[3,4,5]}})),        
-        ?assertEqual(false,F3({{1,2,[3,4,5]}})),        
-        ?assertEqual(false,F3({{1,a,[3,4,5]}})),        
-        ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
-        ?assertEqual(false,F3({{1,3,[]}})),        
-
-        % F4 = make_filter_fun(1,{'is_member', {'+','$2',1}, '$3'}, [{'$2',1,2},{'$3',1,3}]),
-        % ?assertEqual(true, F4({{1,2,[3,4,5]}})),        
-        % ?assertEqual(false,F4({{1,2,[c,4,d]}})),        
-
-        F5 = make_filter_fun(1,{'is_member', a, '$_'}, []),
-        ?assertEqual(true, F5({{1,a,[c,a,d]}})),        
-        ?assertEqual(false, F5({{1,d,[c,a,d]}})),        
 
         case IsSec of
             true ->     ?imem_logout(SKey);
@@ -2057,8 +1604,10 @@ test_with_or_without_sec(IsSec) ->
         end
 
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        ?assert( true == "all tests completed")
+        Class:Reason ->  
+            timer:sleep(1000),
+            ?Log("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?assert( true == "all tests completed")
     end,
     ok. 
 
@@ -2073,7 +1622,7 @@ exec(SKey,Id, BS, IsSec, Sql) ->
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,
-    %?Log("Statement Cols : ~p~n", [StmtCols]),
+    %?Log("Statement Cols:~n~p~n", [StmtCols]),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     StmtResult.
 

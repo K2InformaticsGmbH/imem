@@ -89,7 +89,7 @@ start_link(Params) ->
 init(_) ->
     ?Info("~p starting...~n", [?MODULE]),
     spawn(fun() ->
-        catch ?Info("~s", [zip({re, "*.bkp"})]),
+        catch ?Info("~s~n", [zip({re, "*.bkp"})]),
         erlang:whereis(?MODULE) ! imem_snap_loop
     end),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -109,8 +109,8 @@ init(_) ->
             end;
         _ -> ok
     end,
-    ?Info("SnapshotDir ~p", [SnapshotDir]),
-    ?Info("~p started!", [?MODULE]),
+    ?Info("SnapshotDir ~p~n", [SnapshotDir]),
+    ?Info("~p started!~n", [?MODULE]),
     {ok,#state{snapdir = SnapshotDir}}.
 
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
@@ -121,7 +121,7 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
                 true -> case ?GET_SNAPSHOT_SCRIPT_FUN of
                     <<"">> -> {undefined,undefined};
                     SFunStr ->
-                        ?Debug("snapshot fun ~p", [SFunStr]),
+                        ?Debug("snapshot fun ~p~n", [SFunStr]),
                         case erlang:phash2(SFunStr) of
                             SHash   -> {SHash,SFun};
                             H1      -> {H1,imem_meta:compile_fun(SFunStr)}
@@ -129,17 +129,17 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
                 end
             end,
             do_snapshot(SnapFun),
-            ?Debug("again after ~p", [MCW]),
+            ?Debug("again after ~p~n", [MCW]),
             SnapTimer = erlang:send_after(MCW, self(), imem_snap_loop),
             {noreply, State#state{snapFun=SnapFun,snapHash=SnapHash,snap_timer=SnapTimer}};
         Other ->
-            ?Info("snapshot unknown timeout ~p", [Other]),
+            ?Info("snapshot unknown timeout ~p~n", [Other]),
             SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
             {noreply, State#state{snap_timer = SnapTimer}}
     end;
 
 handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
-    ?Debug("timer paused"),
+    ?Debug("timer paused~n"),
     case SnapTimer of
         undefined -> ok;
         SnapTimer -> erlang:cancel_timer(SnapTimer)
@@ -147,15 +147,15 @@ handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
     {noreply, State#state{snap_timer = undefined}};
 
 handle_info(Info, State) ->
-    ?Info("Unknown info ~p!", [Info]),
+    ?Info("Unknown info ~p!~n", [Info]),
     {noreply, State}.
 
 handle_call(Request, From, State) ->
-    ?Info("Unknown request ~p from ~p!", [Request, From]),
+    ?Info("Unknown request ~p from ~p!~n", [Request, From]),
     {reply, ok, State}.
 
 handle_cast(Request, State) ->
-    ?Info("Unknown cast ~p!", [Request]),
+    ?Info("Unknown cast ~p!~n", [Request]),
     {noreply, State}.
 
 terminate(_Reson, _State) -> ok.
@@ -250,12 +250,12 @@ take([all]) ->
 % multiple tables as list of strings or regex strings
 take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
     FilteredSnapReadTables = lists:filter(fun(T) -> imem_meta:is_readable_table(T) end, imem_meta:all_tables()),
-    ?Debug("tables readable for snapshot ~p", [FilteredSnapReadTables]),
+    ?Debug("tables readable for snapshot ~p~n", [FilteredSnapReadTables]),
 
     SelectedSnapTables = lists:flatten([[T || R <- RegExs, re:run(atom_to_list(T), R, []) /= nomatch]
                          || T <- FilteredSnapReadTables]),
 
-    ?Debug("tables being snapshoted ~p", [SelectedSnapTables]),
+    ?Debug("tables being snapshoted ~p~n", [SelectedSnapTables]),
 
     case SelectedSnapTables of
         []  -> {error, lists:flatten(io_lib:format(" ~p doesn't match any table in ~p~n", [RegExs, FilteredSnapReadTables]))};
@@ -296,10 +296,10 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
         true ->
             erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
             {ok,Fs} = zip:unzip(ZipFile),
-            ?Debug("unzipped ~p from ~p", [Fs,ZipFile]),
+            ?Debug("unzipped ~p from ~p~n", [Fs,ZipFile]),
             Files = [F
                     || F <- Fs, re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
-            ?Debug("restoring ~p from ~p", [Files,ZipFile]),
+            ?Debug("restoring ~p from ~p~n", [Files,ZipFile]),
             Res = lists:foldl(
                 fun(SnapFile, Acc) ->
                     case filelib:is_dir(SnapFile) of
@@ -323,7 +323,7 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     end.
 
 restore_chunked(Tab, Strategy, Simulate) ->
-    ?Debug("restoring ~p by ~p", [Tab, Strategy]),
+    ?Debug("restoring ~p by ~p~n", [Tab, Strategy]),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     Table = if
         is_atom(Tab) -> filename:rootname(filename:basename(atom_to_list(Tab)));
@@ -333,7 +333,7 @@ restore_chunked(Tab, Strategy, Simulate) ->
     restore_chunked(Tab, SnapFile, Strategy, Simulate).
 
 restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
-    ?Debug("restoring ~p from ~p by ~p", [Tab, SnapFile, Strategy]),
+    ?Debug("restoring ~p from ~p by ~p~n", [Tab, SnapFile, Strategy]),
     {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
     if (Simulate /= true) andalso (Strategy =:= destroy)
         -> catch imem_meta:truncate_table(Tab);
@@ -344,46 +344,46 @@ restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
 read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     case file:read(FHndl, 4) of
         eof ->
-            ?Debug("backup file ~p restored", [SnapFile]),
+            ?Debug("backup file ~p restored~n", [SnapFile]),
             file:close(FHndl),
             Opts;
         {ok, << Length:32 >>} ->
             case file:read(FHndl, Length) of
                 eof ->
-                    ?Info("corrupted file ~p", [SnapFile]),
+                    ?Info("corrupted file ~p~n", [SnapFile]),
                     file:close(FHndl);
                 {ok, Data} when is_binary(Data) ->
                     restore_chunk(Tab, binary_to_term(Data), SnapFile, FHndl, Strategy, Simulate, Opts);
                 {error, Reason} ->
-                    ?Error("reading ~p error ~p", [SnapFile, Reason]),
+                    ?Error("reading ~p error ~p~n", [SnapFile, Reason]),
                     file:close(FHndl)
             end;
         {ok, Data} ->
-            ?Error("reading ~p framing, header size ~p", [SnapFile, byte_size(Data)]),
+            ?Error("reading ~p framing, header size ~p~n", [SnapFile, byte_size(Data)]),
             file:close(FHndl);
         {error, Reason} ->
-            ?Error("reading ~p error ~p", [SnapFile, Reason]),
+            ?Error("reading ~p error ~p~n", [SnapFile, Reason]),
             file:close(FHndl)
     end.
 
 restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, Opts) ->
-    ?Debug("restore properties ~p", [UserProperties]),
+    ?Debug("restore properties ~p~n", [UserProperties]),
     [begin
         case P of
             #ddTable{} ->
                 Res = (catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner)),
-                ?Debug("creating table ~p", [Tab]),
-                ?Debug(" with properties ~p~n result ~p", [P]),
-                ?Debug(" result ~p", [Res]);
+                ?Debug("creating table ~p~n", [Tab]),
+                ?Debug(" with properties ~p~n result ~p~n", [P]),
+                ?Debug(" result ~p~n", [Res]);
             _ -> ok
         end,
         mnesia:write_table_property(Tab,P)
     end
     || P <- UserProperties],
-    ?Debug("all user_properties restored for ~p", [Tab]),
+    ?Debug("all user_properties restored for ~p~n", [Tab]),
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts);
 restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}) when is_list(Rows) ->
-    ?Debug("restore rows ~p", [length(Rows)]),
+    ?Debug("restore rows ~p~n", [length(Rows)]),
     {atomic, {NewI, NewE, NewA}} =
     imem_meta:transaction(fun() ->
         TableSize = imem_meta:table_size(Tab),
@@ -416,7 +416,7 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
         {OldI, OldE, OldA},
         Rows)
     end),
-    ?Debug("chunk restored ~p", [{Tab, {length(NewI), length(NewE), length(NewA)}}]),
+    ?Debug("chunk restored ~p~n", [{Tab, {length(NewI), length(NewE), length(NewA)}}]),
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {NewI, NewE, NewA}).
 
 all_snap_tables() ->
@@ -460,34 +460,34 @@ take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
     FetchFunPid ! next,
     receive
         {row, ?eot} ->
-            ?Debug("table ~p fetch finished",[Tab]),
+            ?Debug("table ~p fetch finished~n",[Tab]),
             close_file(Me, FHndl);
         {row, [?sot,?eot]} ->
-            ?Debug("empty ~p",[Tab]),
+            ?Debug("empty ~p~n",[Tab]),
             close_file(Me, FHndl);
         {row, [?sot,?eot|Rows]} ->
             NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
             NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p all, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            ?Debug("snap ~p all, total ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?eot|Rows]} ->
             NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
             NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p last, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            ?Debug("snap ~p last, total ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?sot|Rows]} ->
             NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
             NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p first ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            ?Debug("snap ~p first ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
             write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin);
         {row, Rows} ->
             NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
             NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p intermediate, total ~p rows ~p bytes",[Tab, NewRowCount, NewByteCount]),
+            ?Debug("snap ~p intermediate, total ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
             write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin)
     after
         ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT ->
@@ -512,7 +512,7 @@ take_chunked(Tab) ->
         ChunkSize = lists:min([erlang:round((element(2,imem_if:get_os_memory()) / 2)
                                  / AvgRowSize)
                     , ?GET_SNAPSHOT_CHUNK_MAX_SIZE]),
-        ?Debug("[~p] snapshoting ~p of ~p rows ~p bytes", [self(), Tab, imem_meta:table_size(Tab)
+        ?Debug("[~p] snapshoting ~p of ~p rows ~p bytes~n", [self(), Tab, imem_meta:table_size(Tab)
                                                                , imem_meta:table_memory(Tab)]),
         {ok, FHndl} = file:open(NewBackFile, [append, raw
                             , {delayed_write, erlang:round(ChunkSize * AvgRowSize)
@@ -522,15 +522,15 @@ take_chunked(Tab) ->
     end),
     receive
         done    ->
-            ?Debug("[~p] snapshoted ~p", [Pid, Tab]),
+            ?Debug("[~p] snapshoted ~p~n", [Pid, Tab]),
             {ok, _} = file:copy(NewBackFile, BackFile),
             ok = file:delete(NewBackFile),
             ok;
         timeout ->
-            ?Debug("[~p] timeout while snapshoting ~p", [Pid, Tab]),
+            ?Debug("[~p] timeout while snapshoting ~p~n", [Pid, Tab]),
             {error, timeout};
         {error, Error} ->
-            ?Debug("[~p] error while snapshoting ~p error ~p", [Pid, Tab, Error]),
+            ?Debug("[~p] error while snapshoting ~p error ~p~n", [Pid, Tab, Error]),
             {error, Error}
     end.
 
@@ -560,7 +560,7 @@ do_snapshot(SnapFun) ->
         ok
     catch
         _:Err ->
-            ?Error("cannot snap ~p", [Err]),
+            ?Error("cannot snap ~p~n", [Err]),
             {error,{"cannot snap",Err}}
     end.
 

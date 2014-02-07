@@ -32,9 +32,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             ?ClientError({"Invalid select structure", CError})
     end,
     ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
-    % ?Debug("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
+    % ?Info("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
-    % ?Debug("Statement rows: ~p~n", [StmtCols]),
+    % ?Info("Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
         str ->  imem_datatype:select_rowfun_str(ColMaps1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
@@ -43,26 +43,25 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         {_, WT} ->  WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
-    ?Debug("WhereTree ~p~n", [WhereTree]),
-    MetaTabIdx = length(Tables) + 1,
-    MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps1, C#ddColMap.tind==MetaTabIdx])],
+    % ?Info("WhereTree ~p~n", [WhereTree]),
+    MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps1, C#ddColMap.tind==?MetaIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
-    ?Debug("MetaFields: ~p~n", [MetaFields1]),
+    % ?Info("MetaFields:~n~p~n", [MetaFields1]),
     RawMap = case MetaFields1 of
         [] ->   
             imem_sql:column_map(Tables,[]);
         MF ->   
-            % ?Debug("MetaFields (~p)~n~p~n", [length(MF),MF]),
-            MetaMap0 = [{#ddColMap{name=N,tind=MetaTabIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
+            % ?Info("MetaFields (~p)~n~p~n", [length(MF),MF]),
+            MetaMap0 = [{#ddColMap{name=N,tind=?MetaIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
             MetaMap1 = [CM#ddColMap{type=T,len=L,prec=P} || {CM,#ddColumn{type=T, len=L, prec=P}} <- MetaMap0],
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
     FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    ?Debug("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
-    MainSpec = build_main_spec(SKey,length(Tables),1,WhereTree,FullMap),
-    % ?Info("MainSpec  : ~p~n", [MainSpec]),
-    JoinSpecs = build_join_specs(SKey,length(Tables),length(Tables), WhereTree, FullMap, []),
-    % ?Info("JoinSpecs: ~p~n", [JoinSpecs]),
+    % ?Info("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
+    MainSpec = build_main_spec(SKey,?MainIdx,WhereTree,FullMap),
+    % ?Info("MainSpec:~n~p~n", [MainSpec]),
+    JoinSpecs = build_join_specs(SKey,?TableIdx(length(Tables)), WhereTree, FullMap, []), %% start with last join table, proceed to first 
+    % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
     SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
     Statement = Stmt#statement{
@@ -75,15 +74,15 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
     {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}}.
 
-build_main_spec(SKey,Tmax,Ti,WhereTree,FullMap) when (Ti==1) ->
-    SGuards= query_guards(SKey,Tmax,Ti,WhereTree,FullMap),
-    imem_sql:create_scan_spec(Tmax,Ti,FullMap,SGuards).
+build_main_spec(SKey,Ti,WhereTree,FullMap) ->
+    SGuards= query_guards(SKey,Ti,WhereTree,FullMap),
+    imem_sql:create_scan_spec(Ti,FullMap,SGuards).
 
-build_join_specs(_SKey, _Tmax, 1, _WhereTree, _FullMap, Acc)-> Acc;
-build_join_specs(SKey, Tmax, Ti, WhereTree, FullMap, Acc)->
-    SGuards = query_guards(SKey,Tmax,Ti,WhereTree,FullMap),
-    JoinSpec = imem_sql:create_scan_spec(Tmax,Ti,FullMap,SGuards),
-    build_join_specs(SKey,Tmax, Ti-1, WhereTree, FullMap, [JoinSpec|Acc]).
+build_join_specs(_SKey, ?MainIdx, _WhereTree, _FullMap, Acc)-> Acc;  %% done when looking at main table
+build_join_specs(SKey, Ti, WhereTree, FullMap, Acc)->
+    SGuards = query_guards(SKey,Ti,WhereTree,FullMap),
+    JoinSpec = imem_sql:create_scan_spec(Ti,FullMap,SGuards),
+    build_join_specs(SKey, Ti-1, WhereTree, FullMap, [JoinSpec|Acc]).
 
 add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> 
     MetaFields;
@@ -100,126 +99,132 @@ add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
             end
     end.
 
-query_guards(_SKey,_Tmax,_Ti,?EmptyWhere,_FullMap) -> [];
-query_guards(SKey,Tmax,Ti,WhereTree,FullMap) ->
+query_guards(_SKey,_Ti,?EmptyWhere,_FullMap) -> [];
+query_guards(SKey,Ti,WhereTree,FullMap) ->
     % ?Debug("WhereTree  : ~p~n", [WhereTree]),
-    Walked = tree_walk(SKey,Tmax,Ti,WhereTree,FullMap),
+    Walked = tree_walk(SKey,Ti,WhereTree,FullMap),
     % ?Debug("Walked     : ~p~n", [Walked]),
     Simplified = imem_sql:simplify_guard(Walked), 
     % ?Debug("Simplified : ~p~n", [Simplified]),
     [Simplified].
 
-tree_walk(_SKey,_,_,<<"true">>,_FullMap) -> true;
-tree_walk(_SKey,_,_,<<"false">>,_FullMap) -> false;
-tree_walk(SKey,Tmax,Ti,{'not',WC},FullMap) ->
-    {'not', tree_walk(SKey,Tmax,Ti,WC,FullMap)};
-% tree_walk(_SKey,_Tmax,_Ti,{Op,_WC},_FullMap) -> 
+tree_walk(_SKey,_,<<"true">>,_FullMap) -> true;
+tree_walk(_SKey,_,<<"false">>,_FullMap) -> false;
+tree_walk(SKey,Ti,{'not',WC},FullMap) ->
+    {'not', tree_walk(SKey,Ti,WC,FullMap)};
+% tree_walk(_SKey,_Ti,{Op,_WC},_FullMap) -> 
 %     ?UnimplementedException({"Operator not supported in where clause",Op});
-tree_walk(_SKey,_Tmax,_Ti,{'=',A,A},_FullMap) -> true;
-tree_walk(SKey,Tmax,Ti,{'=',A,B},FullMap) ->
-    condition(SKey,Tmax,Ti,'==',A,B,FullMap);
-tree_walk(SKey,Tmax,Ti,{'<>',A,B},FullMap) ->
-    condition(SKey,Tmax,Ti,'/=',A,B,FullMap);
-tree_walk(SKey,Tmax,Ti,{'<',A,B},FullMap) ->
-    condition(SKey,Tmax,Ti,'<',A,B,FullMap);
-tree_walk(SKey,Tmax,Ti,{'<=',A,B},FullMap) ->
-    condition(SKey,Tmax,Ti,'=<',A,B,FullMap);
-tree_walk(SKey,Tmax,Ti,{'>',A,B},FullMap) ->
-    condition(SKey,Tmax,Ti,'>',A,B,FullMap);
-tree_walk(SKey,Tmax,Ti,{'>=',A,B},FullMap) ->
-    condition(SKey,Tmax,Ti,'>=',A,B,FullMap);
-tree_walk(SKey,Tmax,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
-    in_condition(SKey,Tmax,Ti,A,InList,FullMap);
-tree_walk(SKey,Tmax,Ti,{'like',Str,Pat,<<>>},FullMap) ->
-    condition(SKey,Tmax,Ti,'like',Str,Pat,FullMap); 
-tree_walk(SKey,Tmax,Ti,{'fun',F,[P1]},FullMap) ->
+tree_walk(_SKey,_Ti,{'=',A,A},_FullMap) -> true;
+tree_walk(SKey,Ti,{'=',A,B},FullMap) ->
+    condition(SKey,Ti,'==',A,B,FullMap);
+tree_walk(SKey,Ti,{'<>',A,B},FullMap) ->
+    condition(SKey,Ti,'/=',A,B,FullMap);
+tree_walk(SKey,Ti,{'<',A,B},FullMap) ->
+    condition(SKey,Ti,'<',A,B,FullMap);
+tree_walk(SKey,Ti,{'<=',A,B},FullMap) ->
+    condition(SKey,Ti,'=<',A,B,FullMap);
+tree_walk(SKey,Ti,{'>',A,B},FullMap) ->
+    condition(SKey,Ti,'>',A,B,FullMap);
+tree_walk(SKey,Ti,{'>=',A,B},FullMap) ->
+    condition(SKey,Ti,'>=',A,B,FullMap);
+tree_walk(SKey,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
+    in_condition(SKey,Ti,A,InList,FullMap);
+tree_walk(SKey,Ti,{'like',Str,Pat,<<>>},FullMap) ->
+    condition(SKey,Ti,'is_like',Str,Pat,FullMap); 
+tree_walk(SKey,Ti,{'fun',F,[P1]},FullMap) ->
     % ?Debug("Function Arg: ~p~n", [P1]),
-    Arg = tree_walk(SKey,Tmax,Ti,P1,FullMap),
+    Arg = tree_walk(SKey,Ti,P1,FullMap),
     % ?Debug("Unary function Arg: ~p~n", [Arg]),
     {binary_to_atom(F,utf8),Arg};                 %% F = unary function like abs | is_list | to_atom
-tree_walk(SKey,Tmax,Ti,{'fun',<<"is_member">>,[P1,P2]},FullMap) ->
-    condition(SKey,Tmax,Ti,is_member,P1,P2,FullMap); 
-tree_walk(SKey,Tmax,Ti,{'fun',<<"regexp_like">>,[P1,P2]},FullMap) ->
-    condition(SKey,Tmax,Ti,'regexp_like',P1,P2,FullMap); 
-tree_walk(SKey,Tmax,Ti,{'fun',F,[P1,P2]},FullMap) -> 
-    {binary_to_atom(F,utf8),tree_walk(SKey,Tmax,Ti,P1,FullMap),tree_walk(SKey,Tmax,Ti,P2,FullMap)};    %% F = binary function like element(E,Tuple) | is_member | is_element
-tree_walk(_SKey,_Tmax,_Ti,{'fun',F,Params},_FullMap) -> 
+tree_walk(SKey,Ti,{'fun',<<"is_like">>,[P1,P2]},FullMap) ->
+    condition(SKey,Ti,'is_like',P1,P2,FullMap); 
+tree_walk(SKey,Ti,{'fun',<<"is_member">>,[P1,P2]},FullMap) ->
+    condition(SKey,Ti,'is_member',P1,P2,FullMap); 
+tree_walk(SKey,Ti,{'fun',<<"regexp_like">>,[P1,P2]},FullMap) ->
+    condition(SKey,Ti,'is_regexp_like',P1,P2,FullMap); 
+tree_walk(SKey,Ti,{'fun',<<"is_regexp_like">>,[P1,P2]},FullMap) ->
+    condition(SKey,Ti,'is_regexp_like',P1,P2,FullMap); 
+tree_walk(SKey,Ti,{'fun',F,[P1,P2]},FullMap) -> 
+    {binary_to_atom(F,utf8),tree_walk(SKey,Ti,P1,FullMap),tree_walk(SKey,Ti,P2,FullMap)};    %% F = binary function like element(E,Tuple) | is_member | is_element
+tree_walk(_SKey,_Ti,{'fun',F,Params},_FullMap) -> 
     ?UnimplementedException({"Unsupported function aritry",{F,Params}});
-tree_walk(SKey,Tmax,Ti,{Op,WC1,WC2},FullMap) ->
-    {Op, tree_walk(SKey,Tmax,Ti,WC1,FullMap), tree_walk(SKey,Tmax,Ti,WC2,FullMap)};
-tree_walk(SKey,Tmax,Ti,Expr,FullMap) ->
+tree_walk(SKey,Ti,{Op,WC1,WC2},FullMap) ->
+    {Op, tree_walk(SKey,Ti,WC1,FullMap), tree_walk(SKey,Ti,WC2,FullMap)};
+tree_walk(SKey,Ti,Expr,FullMap) ->
     % ?Debug("tree_walk expression lookup Expr: ~p~n", [Expr]),
-    case expr_lookup(SKey,Tmax,Ti,Expr,FullMap) of
+    case expr_lookup(SKey,Ti,Expr,FullMap) of
         {0,V1,integer,_,_,_,_} ->   field_value(0,integer,0,0,?nav,V1);   
         {0,V2,float,_,_,_,_} ->     field_value(0,float,0,0,?nav,V2);     
         {0,V3,string,_,_,_,_} ->    field_value(0,term,0,0,?nav,V3);   
         {_,Tag,_,_,_,_,_} ->        Tag
     end.
 
-condition(SKey,Tmax,Ti,OP,A,B,FullMap) ->
+condition(SKey,Ti,OP,A,B,FullMap) ->
     try 
-        ExA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
+        ExA = expr_lookup(SKey,Ti,A,FullMap),
         ExB = try 
-            expr_lookup(SKey,Tmax,Ti,B,FullMap)
+            expr_lookup(SKey,Ti,B,FullMap)
         catch
             throw:{'JoinEvent','join_condition'} -> true;
             _:Reason2 ->
-                ?Warn("Failing expression lookup Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+                ?Warn("Failing expression lookup Ti/OP: ~p ~p~n", [Ti,OP]),
                 ?Warn("Failing expression B: ~p~n", [B]),
                 throw(Reason2)
         end,
-        compguard(Tmax,Ti,OP,ExA,ExB)
+        compguard(Ti,OP,ExA,ExB)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason1 ->
-            ?Warn("Failing expression lookup in Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,OP]),
+            ?Warn("Failing expression lookup in Ti/OP: ~p ~p~n", [Ti,OP]),
             ?Warn("Failing expression A: ~p~n", [A]),
             throw(Reason1)
     end.
 
-compguard(Tmax,Ti,OP,ExA,ExB) ->
+compguard(Ti,OP,ExA,ExB) ->
     {O,A,B} = if  
         (OP =='is_member') ->                   {OP,ExA,ExB};
-        (OP =='like') ->                        {OP,ExA,ExB};
-        (OP =='regexp_like') ->                 {OP,ExA,ExB};
+        (OP =='like') ->                        {'is_like',ExA,ExB};
+        (OP =='is_like') ->                     {OP,ExA,ExB};
+        (OP =='regexp_like') ->                 {'is_regexp_like',ExA,ExB};
+        (OP =='is_regexp_like') ->              {OP,ExA,ExB};
         (element(1,ExA) =< element(1,ExB)) ->   {OP,ExA,ExB};
         true ->                                 {reverse(OP),ExB,ExA}
     end,
     try 
-        % ?Info("calling compg Tmax,Ti,O,A,B:~n ~p ~p ~p ~p ~p~n", [Tmax,Ti,O,A,B]),
-        compg(Tmax,Ti,O,A,B)
+        % ?Info("calling compg Ti,O,A,B:~n ~p ~p ~p ~p~n", [Ti,O,A,B]),
+        compg(Ti,O,A,B)
     catch
         throw:{'JoinEvent','join_condition'} -> true;
         _:Reason ->
-            ?Warn("Failing condition eval Tmax/Ti/OP: ~p ~p ~p~n", [Tmax,Ti,O]),
+            ?Warn("Failing condition eval Ti/OP: ~p ~p~n", [Ti,O]),
             ?Warn("Failing condition A: ~p~n", [A]),
             ?Warn("Failing condition B: ~p~n", [B]),
             throw(Reason)
     end.
 
-compg(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1,A=<Tm; B>1,B=<Tm -> join;   %% join condition
-compg(_ ,_, 'is_member', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
-compg(_ ,_, 'is_member', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),B};           
-compg(_ ,_, 'is_member', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->       {'is_member',A,field_value(A,term,0,0,?nav,B)};           
-compg(_ ,_, 'is_member', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->       {'is_member',A,B};           
-compg(_ ,_, 'like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->        {'like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compg(_ ,_, 'like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->        {'like',field_value(B,string,0,0,?nav,A),B};           
-compg(_ ,_, 'like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->            {'like',A,field_value(A,string,0,0,?nav,B)};           
-compg(_ ,_, 'like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->            {'like',A,B};           
-compg(_ ,_, 'regexp_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) -> {'regexp_like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compg(_ ,_, 'regexp_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) -> {'regexp_like',field_value(B,string,0,0,?nav,A),B};           
-compg(_ ,_, 'regexp_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->     {'regexp_like',A,field_value(A,string,0,0,?nav,B)};           
-compg(_ ,_, 'regexp_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->     {'regexp_like',A,B};           
-compg(_ ,_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
-compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,?nav,A),B};
-compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,datetime,_,_,_,_}) ->  {OP,field_value(B,float,0,0,?nav,A),B};
-compg(_ ,_, OP, {0,A,string,_,_,_,_},   {_,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
-compg(_ ,_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
-compg(_ ,_, OP, {_,_,string,_,_,_,AN},  {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,string},OP,{BN,BT}}});
-compg(_ ,_, OP, {_,_,AT,_,_,_,AN},      {_,_,string,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},OP,{BN,string}}});
-compg(_ ,T, _,  {J,_,_,_,_,_,_},   {K,_,_,_,_,_,_}) when J>T;K>T -> join;
-compg(_ ,_, OP, {_,A,_,_,_,_,_},        {_,B,_,_,_,_,_}) ->         {OP,A,B}.
+compg(?MainIdx, _,    {A,_,_,_,_,_,_}, {B,_,_,_,_,_,_})  when A>?MainIdx; B>?MainIdx -> join;   %% join condition
+compg(_, 'is_member', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
+compg(_, 'is_member', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),B};           
+compg(_, 'is_member', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->       {'is_member',A,field_value(A,term,0,0,?nav,B)};           
+compg(_, 'is_member', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->       {'is_member',A,B};           
+compg(_, 'is_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->        {'is_like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->        {'is_like',field_value(B,string,0,0,?nav,A),B};           
+compg(_, 'is_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->            {'is_like',A,field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->            {'is_like',A,B};           
+compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) -> {'is_regexp_like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) -> {'is_regexp_like',field_value(B,string,0,0,?nav,A),B};           
+compg(_, 'is_regexp_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->     {'is_regexp_like',A,field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_regexp_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->     {'is_regexp_like',A,B};           
+compg(_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,?nav,A),B};
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,datetime,_,_,_,_}) ->  {OP,field_value(B,float,0,0,?nav,A),B};
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
+compg(_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
+compg(_, OP, {_,_,string,_,_,_,AN},  {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,string},OP,{BN,BT}}});
+compg(_, OP, {_,_,AT,_,_,_,AN},      {_,_,string,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},OP,{BN,string}}});
+compg(T, _,  {J,_,_,_,_,_,_},   {K,_,_,_,_,_,_}) when J>T;K>T -> join;
+compg(_, OP, {_,A,_,_,_,_,_},        {_,B,_,_,_,_,_}) ->         {OP,A,B}.
 
 reverse('==') -> '==';
 reverse('/=') -> '/=';
@@ -235,16 +240,16 @@ reverse(OP) -> ?UnimplementedException({"Cannot reverse operator",OP}).
 %     {const,list_to_tuple(guard_wrap(tuple_to_list(T)))};
 % guard_wrap(E) -> E.
 
-in_condition(SKey,Tmax,Ti,A,InList,FullMap) ->
-    in_condition_loop(SKey,Tmax,Ti,expr_lookup(SKey,Tmax,Ti,A,FullMap),InList,FullMap).
+in_condition(SKey,Ti,A,InList,FullMap) ->
+    in_condition_loop(SKey,Ti,expr_lookup(SKey,Ti,A,FullMap),InList,FullMap).
 
-in_condition_loop(_SKey,_Tmax,_Ti,_ALookup,[],_FullMap) -> false;    
-in_condition_loop(SKey,Tmax,Ti,ALookup,[B],FullMap) ->
-    compguard(Tmax,Ti, '==', ALookup, expr_lookup(SKey,Tmax,Ti,B,FullMap));
-in_condition_loop(SKey,Tmax,Ti,ALookup,[B|Rest],FullMap) ->
+in_condition_loop(_SKey,_Ti,_ALookup,[],_FullMap) -> false;    
+in_condition_loop(SKey,Ti,ALookup,[B],FullMap) ->
+    compguard(Ti, '==', ALookup, expr_lookup(SKey,Ti,B,FullMap));
+in_condition_loop(SKey,Ti,ALookup,[B|Rest],FullMap) ->
     {'or',
-        compguard(Tmax,Ti, '==', ALookup, expr_lookup(SKey,Tmax,Ti,B,FullMap)),
-            in_condition_loop(SKey,Tmax,Ti,ALookup,Rest,FullMap)}.
+        compguard(Ti, '==', ALookup, expr_lookup(SKey,Ti,B,FullMap)),
+            in_condition_loop(SKey,Ti,ALookup,Rest,FullMap)}.
 
 field_value(Tag,Type,Len,Prec,Def,Val) when is_binary(Val);is_list(Val) ->
     case imem_datatype:io_to_db(Tag,?nav,Type,Len,Prec,Def,false,imem_sql:un_escape_sql(Val)) of
@@ -281,11 +286,11 @@ field_lookup(Name,FullMap) ->
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
 
-expr_lookup(_SKey,_Tmax,_Ti,A,FullMap) when is_binary(A)->
+expr_lookup(_SKey,_Ti,A,FullMap) when is_binary(A)->
     field_lookup(A,FullMap);
-expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
+expr_lookup(SKey,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
     % ?Debug("expr_lookup {'fun',F,[Param]}: ~p ~p ~p ~p~n", [Tmax,Ti,F,Param]),
-    {Ta,A,T,L,P,D,AN} = expr_lookup(SKey,Tmax,Ti,Param,FullMap),
+    {Ta,A,T,L,P,D,AN} = expr_lookup(SKey,Ti,Param,FullMap),
     case {Ta,binary_to_atom(F,utf8),T} of
         {0,to_integer,integer} ->   {Ta,A,integer,L,P,D,AN};
         {0,to_string,integer} ->    {Ta,integer_to_list(A),string,L,P,D,AN};
@@ -313,41 +318,42 @@ expr_lookup(SKey,Tmax,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value funct
         {0,to_userid,integer} ->    {Ta,A,userid,0,0,?nav,AN};
         _ ->                        {Ta,{binary_to_atom(F,utf8),A},T,L,P,D,AN}
     end;          
-expr_lookup(SKey,Tmax,Ti,{'fun',<<"element">>,[P1,P2]},FullMap) ->  %% F = binary value function like 'element' 
-    {0,A,integer,_,_,_,_} = expr_lookup(SKey,Tmax,Ti,P1,FullMap),
-    {Tb,B,_,_,_,_,BN} = expr_lookup(SKey,Tmax,Ti,P2,FullMap),
+expr_lookup(SKey,Ti,{'fun',<<"element">>,[P1,P2]},FullMap) ->  %% F = binary value function like 'element' 
+    {0,A,integer,_,_,_,_} = expr_lookup(SKey,Ti,P1,FullMap),
+    {Tb,B,_,_,_,_,BN} = expr_lookup(SKey,Ti,P2,FullMap),
     {Tb,{'element',A,B},term,0,0,0,BN};
-expr_lookup(SKey,Tmax,Ti,{OP,A,B},FullMap) ->
-    EA = expr_lookup(SKey,Tmax,Ti,A,FullMap),
-    % ?Debug("expr_lookup Tmax,Ti,A:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,A,EA]),
-    EB = expr_lookup(SKey,Tmax,Ti,B,FullMap),
-    % ?Debug("expr_lookup Tmax,Ti,B:~n ~p ~p ~p -> Result ~p~n", [Tmax,Ti,B,EB]),
-    Res = exprguard(Tmax,Ti,OP,EA,EB),
-    % ?Debug("exprguard Tmax,Ti,OP,EA,EB~n~p ~p ~p ~p ~p -> Result:~n ~p~n", [Tmax,Ti,OP,EA,EB,Res]),
+expr_lookup(SKey,Ti,{OP,A,B},FullMap) ->
+    EA = expr_lookup(SKey,Ti,A,FullMap),
+    % ?Info("expr_lookup Ti,A:~n~p ~p -> Result ~p~n", [Ti,A,EA]),
+    EB = expr_lookup(SKey,Ti,B,FullMap),
+    % ?Info("expr_lookup Ti,B:~n~p ~p -> Result ~p~n", [Ti,B,EB]),
+    Res = exprguard(Ti,OP,EA,EB),
+    % ?Info("exprguard Ti,OP,EA,EB~n~p ~p ~p ~p -> Result:~n ~p~n", [Ti,OP,EA,EB,Res]),
     Res.
-exprguard(Tm,1, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>1, A=<Tm; B>1,B=<Tm -> throw({'JoinEvent','join_condition'});
-exprguard(_ ,1, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
-exprguard(_ ,1, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->     {X,{OP,A,B},timestamp,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,timestamp,L,P,D,AN}, {_,B,float,_,_,_,_}) ->       {X,{OP,A,B},timestamp,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->      {X,{OP,A,B},datetime,L,P,D,AN};
-exprguard(_ ,1, OP, {X,A,datetime,L,P,D,AN}, {_,B,float,_,_,_,_}) ->        {X,{OP,A,B},datetime,L,P,D,AN};
-% exprguard(_ ,1, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_ ,1, OP, {_,A,integer,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->     {X,{OP,A,B},timestamp,L,P,D,BN};
-exprguard(_ ,1, OP, {_,A,float,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->       {X,{OP,A,B},timestamp,L,P,D,BN};
-exprguard(_ ,1, OP, {_,A,integer,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->      {X,{OP,A,B},datetime,L,P,D,BN};
-exprguard(_ ,1, OP, {_,A,float,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->        {X,{OP,A,B},datetime,L,P,D,BN};
-% exprguard(_ ,1, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
-exprguard(_ ,1, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(_ ,1, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {1,OP,A,B}});
-exprguard(Tm,J, _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J,N=<Tm ->   ?UnimplementedException({"Unsupported join order",{A,B}});
-exprguard(Tm,J, _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J,N=<Tm ->   ?UnimplementedException({"Unsupported join order",{A,B}});
-exprguard(_ ,_, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
-exprguard(_ ,_, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_ ,_, OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 ->  {N,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_ ,_, OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 -> {N,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
-exprguard(_ ,_, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(_ ,J, OP, A, B) ->                                   ?SystemException({"Unexpected guard pattern", {J,OP,A,B}}).
+
+exprguard(?MainIdx, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>?MainIdx; B>?MainIdx -> throw({'JoinEvent','join_condition'});
+exprguard(?MainIdx, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
+exprguard(?MainIdx, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
+exprguard(?MainIdx, OP, {X,A,timestamp,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->     {X,{OP,A,B},timestamp,L,P,D,AN};
+exprguard(?MainIdx, OP, {X,A,timestamp,L,P,D,AN}, {_,B,float,_,_,_,_}) ->       {X,{OP,A,B},timestamp,L,P,D,AN};
+exprguard(?MainIdx, OP, {X,A,datetime,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->      {X,{OP,A,B},datetime,L,P,D,AN};
+exprguard(?MainIdx, OP, {X,A,datetime,L,P,D,AN}, {_,B,float,_,_,_,_}) ->        {X,{OP,A,B},datetime,L,P,D,AN};
+% exprguard(?MainIdx, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(?MainIdx, OP, {_,A,integer,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->     {X,{OP,A,B},timestamp,L,P,D,BN};
+exprguard(?MainIdx, OP, {_,A,float,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->       {X,{OP,A,B},timestamp,L,P,D,BN};
+exprguard(?MainIdx, OP, {_,A,integer,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->      {X,{OP,A,B},datetime,L,P,D,BN};
+exprguard(?MainIdx, OP, {_,A,float,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->        {X,{OP,A,B},datetime,L,P,D,BN};
+% exprguard(?MainIdx, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(?MainIdx, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->                ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
+exprguard(?MainIdx, OP, A, B) ->                                                ?SystemException({"Unexpected guard pattern", {?MainIdx,OP,A,B}});
+exprguard(J,        _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J ->         ?UnimplementedException({"Unsupported join order",{A,B}});
+exprguard(J,        _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J ->         ?UnimplementedException({"Unsupported join order",{A,B}});
+exprguard(_,        OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
+exprguard(_,        OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
+exprguard(_,        OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 ->  {N,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(_,        OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 -> {N,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(_,        _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->                ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
+exprguard(J,        OP, A, B) ->                                                ?SystemException({"Unexpected guard pattern", {J,OP,A,B}}).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -506,50 +512,6 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(1, length(R0a)),
 
 
-    %% like joins
-
-        exec_fetch_sort_equal(SKey, query7l, 100, IsSec, 
-            "select d1.col1, d2.col1 
-             from def d1, def d2
-             where d1.col1 > 10
-             and d2.col1 like '%5%'
-             and d2.col1 = d1.col1
-            " 
-            , 
-            [
-                {<<"15">>,<<"15">>}
-            ]
-        ),
-
-        % exec_fetch_sort_equal(SKey, query7m, 100, IsSec, 
-        %     "select d1.col1, d2.col1 
-        %      from def d1, def d2
-        %      where d1.col1 >= 5
-        %      and d2.col1 like '%5%'
-        %      and d2.col2 like '5%'
-        %      and d2.col1 = d1.col1
-        %     " 
-        %     , 
-        %     [
-        %         {<<"5">>,<<"5">>}
-        %     ]
-        % ),
-
-        % exec_fetch_sort_equal(SKey, query7n, 100, IsSec, 
-        %     "select d1.col1, d2.col1 
-        %      from def d1, def d2
-        %      where d1.col1 >= 5
-        %      and d2.col1 like '%5%'
-        %      and d2.col2 not like '1%'
-        %      and d2.col1 = d1.col1
-        %     " 
-        %     , 
-        %     [
-        %         {<<"5">>,<<"5">>}
-        %     ]
-        % ),
-
-
     %% simple queries on meta fields
 
         exec_fetch_sort_equal(SKey, query1, 100, IsSec, 
@@ -677,14 +639,14 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assertEqual(2, length(R2e)),
 
-        R2g = exec_fetch(SKey, query2g, 100, IsSec, 
-            "select logTime, logLevel, module, function, fields, message 
-             from " ++ atom_to_list(?LOG_TABLE) ++ "  
-             where logTime > systimestamp - 1.1574074074074073e-5 
-             and rownum <= 100"   %% 1.0 * ?OneSecond
-        ),
-        ?assert(length(R2g) >= 1),
-        ?assert(length(R2g) =< 100),
+        % R2g = exec_fetch(SKey, query2g, 100, IsSec, 
+        %     "select logTime, logLevel, module, function, fields, message 
+        %      from " ++ atom_to_list(?LOG_TABLE) ++ "  
+        %      where logTime > systimestamp - 1.1574074074074073e-5 
+        %      and rownum <= 100"   %% 1.0 * ?OneSecond
+        % ),
+        % ?assert(length(R2g) >= 1),
+        % ?assert(length(R2g) =< 100),
 
         if_call_mfa(IsSec, write,[SKey,def,
             {def,100,"\"text_in_quotes\"",{{2001,02,03},{4,5,6}},{10,132,7,92},{'Atom100',100}}
@@ -1350,6 +1312,48 @@ test_with_or_without_sec(IsSec) ->
             []
         ),
 
+    %% like joins
+
+        exec_fetch_sort_equal(SKey, query7l, 100, IsSec, 
+            "select d1.col1, d2.col1 
+             from def d1, def d2
+             where d1.col1 > 10
+             and d2.col1 like '%5%'
+             and d2.col1 = d1.col1
+            " 
+            , 
+            [
+                {<<"15">>,<<"15">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7m, 100, IsSec, 
+            "select d1.col1, d2.col1 
+             from def d1, def d2
+             where d1.col1 >= 5
+             and d2.col1 like '%5%'
+             and d2.col2 like '5%'
+             and d2.col1 = d1.col1
+            " 
+            , 
+            [
+                {<<"5">>,<<"5">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7n, 100, IsSec, 
+            "select d1.col1, d2.col1 
+             from def d1, def d2
+             where d1.col1 >= 5
+             and d2.col1 like '%5%'
+             and d2.col2 not like '1%'
+             and d2.col1 = d1.col1
+            " 
+            , 
+            [
+                {<<"5">>,<<"5">>}
+            ]
+        ),
 
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, imem, IsSec)),
@@ -1364,10 +1368,10 @@ test_with_or_without_sec(IsSec) ->
     catch
         Class:Reason ->
             timer:sleep(1000),  
-            ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?Log("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
-    ok. 
+    ok.     
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
@@ -1386,7 +1390,7 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?Log("Result: ~p~n", [RT]),
+    ?Log("Result:~n~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
@@ -1400,12 +1404,11 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?Log("Result  : ~p~n", [RT]),
+    ?Log("Result:~n~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
 exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
-    ?Log("~n", []),
     ?Log("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
     ?assertEqual(ok, RetCode),
@@ -1416,9 +1419,9 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 3 ->
-            ?Log("Result  : ~p~n", [RT]);
+            ?Log("Result:~n~p~n", [RT]);
         true ->
-            ?Log("Result  :  ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+            ?Log("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
     end,            
     RT.
 
@@ -1434,9 +1437,9 @@ exec_fetch(SKey,Id, BS, IsSec, Sql) ->
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 10 ->
-            ?Log("Result  : ~p~n", [RT]);
+            ?Log("Result:~n~p~n", [RT]);
         true ->
-            ?Log("Result  : ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+            ?Log("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
     end,            
     RT.
 

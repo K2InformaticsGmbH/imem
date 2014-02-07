@@ -3,6 +3,21 @@
 
 -define(NoFilter,{undefined,[]}).   %% empty filter spec $$$ also used in erlimem_fsm.erl $$$
 -define(NoMoreFilter,{_,[]}).       %% empty filter spec $$$ also used in erlimem_fsm.erl $$$
+-define(FilterTrue, fun(_) -> true end).
+-define(FilterFalse, fun(_) -> false end).
+
+
+-define(RecIdx, 1).                                       %% Record name position in records
+-define(KeyIdx, 2).                                       %% Key position in records
+-define(MetaIdx, 1).                                      %% Meta record (constants) is placed as first tuple in the SQL result
+-define(MainIdx, 2).                                      %% The main record is placed as second tuple in the SQL result
+-define(TableIdx(__N), 1+__N).                            %% Tables are numbered 0=Meta, 1=Main, 2=FirstJoinTable ...
+-define(MetaMain(__Meta,__Main), {__Meta,__Main}).        %% contstruct initial result tuple with meta and main table
+-define(Meta(__Rec), element(?MetaIdx,__Rec)).            %% pick meta tuple out of master tuple
+-define(Main(__Rec), element(?MainIdx,__Rec)).            %% pick main tuple (main table) out of master tuple 
+-define(Table(__N,__Rec), element(?TableIdx(__N),__Rec)). %% pick table N tuple out for master tuple
+
+-define(BoundVal(__Bind,__X), (fun({__Tag,__Ti,__Ci}) -> element(__Ci,element(__Ti,__X)) end)(__Bind) ).
 
 -define(EmptyWhere, {}).            %% empty where in the parse tree
 
@@ -35,7 +50,7 @@
        ).
 
 -record(statement,                                  %% Select statement 
-                    { tables = []                   ::list()            %% first one is master table others lookup joins
+                    { tables = []                   ::list({atom(),atom(),atom()})  %% {Schema,Name,Alias} first one is master table others lookup joins
                     , blockSize = 100               ::integer()         %% get data in chunks of (approximately) this size
                     , stmtStr = ""                  ::string()          %% SQL statement (optional)
                     , stmtParse = undefined         ::any()             %% SQL parse tree

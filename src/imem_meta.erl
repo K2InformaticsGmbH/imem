@@ -1180,6 +1180,8 @@ read(ddNode) ->
     lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
 read(ddSchema) ->
     [{ddSchema,{Schema,Node},[]} || {Schema,Node} <- data_nodes()];
+read(ddSize) ->
+    [hd(read(ddSize,Name)) || Name <- all_tables()];
 read(Table) ->
     imem_if:read(physical_table_name(Table)).
 
@@ -1305,8 +1307,10 @@ select(Table, MatchSpec, Limit) ->
 
 select_virtual(_Table, [{_,[false],['$_']}]) ->
     {[],true};
+select_virtual(Table, [{_,[true],['$_']}]) ->
+    {read(Table),true};                 %% used in select * from virtual_table
 select_virtual(Table, [{_,[],['$_']}]) ->
-    {read(Table),true};                %% used in select * from virtual_table
+    {read(Table),true};                 %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     Tag = element(2,MatchHead),
     % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
