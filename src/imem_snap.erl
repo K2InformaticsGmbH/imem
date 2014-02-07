@@ -371,10 +371,10 @@ restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, 
     [begin
         case P of
             #ddTable{} ->
-                Res = (catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner)),
+                _Res = (catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner)),
                 ?Debug("creating table ~p~n", [Tab]),
                 ?Debug(" with properties ~p~n result ~p~n", [P]),
-                ?Debug(" result ~p~n", [Res]);
+                ?Debug(" result ~p~n", [_Res]);
             _ -> ok
         end,
         mnesia:write_table_property(Tab,P)
@@ -466,16 +466,16 @@ take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
             ?Debug("empty ~p~n",[Tab]),
             close_file(Me, FHndl);
         {row, [?sot,?eot|Rows]} ->
-            NewRowCount = RowCount+length(Rows),
+            _NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
-            NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p all, total ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
+            _NewByteCount = ByteCount+byte_size(RowsBin),
+            ?Debug("snap ~p all, total ~p rows ~p bytes~n",[Tab, _NewRowCount, _NewByteCount]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?eot|Rows]} ->
-            NewRowCount = RowCount+length(Rows),
+            _NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
-            NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p last, total ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
+            _NewByteCount = ByteCount+byte_size(RowsBin),
+            ?Debug("snap ~p last, total ~p rows ~p bytes~n",[Tab, _NewRowCount, _NewByteCount]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?sot|Rows]} ->
             NewRowCount = RowCount+length(Rows),
@@ -504,7 +504,7 @@ take_chunked(Tab) ->
     PayloadSize = byte_size(TblPropBin),
     ok = file:write_file(NewBackFile, << PayloadSize:32, TblPropBin/binary >>),
     Me = self(),
-    Pid = spawn(fun() ->
+    _Pid = spawn(fun() ->
         AvgRowSize = case imem_meta:table_size(Tab) of
             0 -> imem_meta:table_memory(Tab);
             Sz -> imem_meta:table_memory(Tab) / Sz
@@ -522,15 +522,15 @@ take_chunked(Tab) ->
     end),
     receive
         done    ->
-            ?Debug("[~p] snapshoted ~p~n", [Pid, Tab]),
+            ?Debug("[~p] snapshoted ~p~n", [_Pid, Tab]),
             {ok, _} = file:copy(NewBackFile, BackFile),
             ok = file:delete(NewBackFile),
             ok;
         timeout ->
-            ?Debug("[~p] timeout while snapshoting ~p~n", [Pid, Tab]),
+            ?Debug("[~p] timeout while snapshoting ~p~n", [_Pid, Tab]),
             {error, timeout};
         {error, Error} ->
-            ?Debug("[~p] error while snapshoting ~p error ~p~n", [Pid, Tab, Error]),
+            ?Debug("[~p] error while snapshoting ~p error ~p~n", [_Pid, Tab, Error]),
             {error, Error}
     end.
 
@@ -574,7 +574,7 @@ set_snap_timestamps(Tab,Time) ->
         [] -> [];
         [#snap_properties{table=Tab}=Up|_] -> ets:insert(?SNAP_ETS_TAB, Up#snap_properties{last_snap=Time})
     end.
-snap_log(P,A) -> ?Log(P,A).
+snap_log(_P,_A) -> ?Log(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
 
 %%

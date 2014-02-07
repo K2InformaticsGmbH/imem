@@ -115,8 +115,8 @@ handle_info({'DOWN', _Ref, process, Pid, normal}, State) ->
     % ?Debug("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
-handle_info({'DOWN', Ref, process, Pid, Reason}, State) ->
-    ?Debug("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, Ref, Reason]),
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
+    ?Debug("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info(_Info, State) ->
@@ -327,7 +327,7 @@ seco_delete(SKeyM, SKey) ->
     try 
         if_delete(SKeyM, ddSeCo@, SKey)
     catch
-        Class:Reason -> ?Debug("~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, Class, Reason])
+        _Class:_Reason -> ?Debug("~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, _Class, _Reason])
     end.
 
 seco_perm_delete(_SKeyM, []) -> ok;
@@ -335,7 +335,7 @@ seco_perm_delete(SKeyM, [PKey|PKeys]) ->
     try
         if_delete(SKeyM, ddPerm@, PKey)
     catch
-        Class:Reason -> ?Debug("~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, Class, Reason])
+        _Class:_Reason -> ?Debug("~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, _Class, _Reason])
     end,
     seco_perm_delete(SKeyM, PKeys).
 

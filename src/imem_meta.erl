@@ -697,7 +697,7 @@ purge_time_partitioned_table(Alias, Opts) ->
                 PhName >= KeepName ->
                     0; %% no memory could be freed       
                 true ->
-                    % ?Debug("Purge PhName KeepName ~p ~p~n",[PhName,KeepName]),
+                    ?Debug("Purge PhName KeepName ~p ~p~n",[PhName,KeepName]),
                     case Rest of
                         [] ->   DummyName = partitioned_table_name(Alias,erlang:now()),
                                 % ?Debug("Purge DummyName ~p~n",[DummyName]),
@@ -987,8 +987,8 @@ failing_function([{M,N,_,FileInfo}|STrace]) ->
         false ->
             failing_function(STrace)
     end;
-failing_function(Other) ->
-    ?Debug("unexpected stack trace ~p~n", [Other]),
+failing_function(_Other) ->
+    ?Debug("unexpected stack trace ~p~n", [_Other]),
     {undefined,undefined, 0}.
 
 log_to_db(Level,Module,Function,Fields,Message)  ->
@@ -1047,7 +1047,7 @@ node_shard() ->
         {ok,node_name} ->                node_name(node());    
         {ok,node_hash} ->                node_hash(node());    
         {ok,NA} when is_atom(NA) ->      atom_to_list(NA);
-        Else ->     ?Debug("bad config parameter ~p ~p~n", [node_shard, Else]),
+        _Else ->    ?Debug("bad config parameter ~p ~p~n", [node_shard, _Else]),
                     node_hash(node())
     end.
 
@@ -1159,9 +1159,9 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
-    % ?Info("Virtual fetch start  : ~p ~p~n", [VTable,MatchSpec]),
+    % ?Debug("Virtual fetch start  : ~p ~p~n", [VTable,MatchSpec]),
     {Rows,true} = select(VTable, MatchSpec),
-    % ?Info("Virtual fetch result  : ~p~n", [Rows]),
+    % ?Debug("Virtual fetch result  : ~p~n", [Rows]),
     spawn(
         fun() ->
             receive
@@ -1313,23 +1313,23 @@ select_virtual(Table, [{_,[],['$_']}]) ->
     {read(Table),true};                 %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     Tag = element(2,MatchHead),
-    % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
+    % ?Debug("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case imem_sql:operand_match(Tag,Guard) of
         false ->                        read(Table);
-        {'==',Tag,{element,N,Tup1}} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
+        {'==',Tag,{element,N,Tup1}} ->  % ?Debug("Virtual Select Key : ~p~n", [element(N,Tup1)]),
                                         read(Table,element(N,Tup1));
-        {'==',{element,N,Tup2},Tag} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup2)]),
+        {'==',{element,N,Tup2},Tag} ->  % ?Debug("Virtual Select Key : ~p~n", [element(N,Tup2)]),
                                         read(Table,element(N,Tup2));
-        {'==',Tag,Val1} ->              % ?Info("Virtual Select Key : ~p~n", [Val1]),
+        {'==',Tag,Val1} ->              % ?Debug("Virtual Select Key : ~p~n", [Val1]),
                                         read(Table,Val1);
-        {'==',Val2,Tag} ->              % ?Info("Virtual Select Key : ~p~n", [Val2]),
+        {'==',Val2,Tag} ->              % ?Debug("Virtual Select Key : ~p~n", [Val2]),
                                         read(Table,Val2);
         _ ->                            read(Table)
     end,
-    % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
+    % ?Debug("Virtual Select Candidates  : ~p~n", [Candidates]),
     MS = ets:match_spec_compile(MatchSpec),
     Result = ets:match_spec_run(Candidates,MS),
-    % ?Info("Virtual Select Result  : ~p~n", [Result]),    
+    % ?Debug("Virtual Select Result  : ~p~n", [Result]),    
     {Result, true}.
 
 select_sort(Table, MatchSpec)->
@@ -1365,8 +1365,8 @@ write(Table, Record) ->
                 false ->
                     ?ClientError({"Table does not exist",T})
             end;
-        Class:Reason ->
-            ?Debug("Write error ~p:~p~n", [Class,Reason]),
+        _Class:Reason ->
+            ?Debug("Write error ~p:~p~n", [_Class,Reason]),
             throw(Reason)
     end. 
 
@@ -1392,8 +1392,8 @@ dirty_write(Table, Record) ->
                 false ->
                     ?ClientError({"Table does not exist",T})
             end;
-        Class:Reason ->
-            ?Debug("Dirty write error ~p:~p~n", [Class,Reason]),
+        _Class:Reason ->
+            ?Debug("Dirty write error ~p:~p~n", [_Class,Reason]),
             throw(Reason)
     end. 
 
@@ -1504,10 +1504,10 @@ meta_operations(_) ->
         SyEx = 'SystemException', 
         UiEx = 'UnimplementedException', 
 
-        ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
 
-        ?Log("schema ~p~n", [imem_meta:schema()]),
-        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Info("schema ~p~n", [imem_meta:schema()]),
+        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1520,17 +1520,17 @@ meta_operations(_) ->
 
         Now = erlang:now(),
         LogCount1 = table_size(?LOG_TABLE),
-        ?Log("ddLog@ count ~p~n", [LogCount1]),
+        ?Info("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
         ?assertEqual(ok, write(?LOG_TABLE, LogRec1)),
         LogCount2 = table_size(?LOG_TABLE),
-        ?Log("ddLog@ count ~p~n", [LogCount2]),
+        ?Info("ddLog@ count ~p~n", [LogCount2]),
         ?assert(LogCount2 > LogCount1),
         Log1=read(?LOG_TABLE,Now),
-        ?Log("ddLog@ content ~p~n", [Log1]),
+        ?Info("ddLog@ content ~p~n", [Log1]),
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
@@ -1538,7 +1538,7 @@ meta_operations(_) ->
         LogCount2a = table_size(?LOG_TABLE),
         ?assert(LogCount2a >= LogCount2+4),
 
-        ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
                     , #ddColumn{name=b1, type=string, len=20}    %% value 1
                     , #ddColumn{name=c1, type=string, len=30}    %% value 2
@@ -1558,7 +1558,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
-        ?Log("success ~p~n", [create_table_not_null]),
+        ?Info("success ~p~n", [create_table_not_null]),
 
         ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
         ?assertException(throw, {ClEr,{"Reserved table name", select}}, create_table(select, BadTypes2, [])),
@@ -1573,7 +1573,7 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
         LogCount4 = table_size(?LOG_TABLE),
-        ?Log("success ~p~n", [not_null_constraint]),
+        ?Info("success ~p~n", [not_null_constraint]),
         ?assertEqual(LogCount3+2, LogCount4),
 
         Keys4 = [
@@ -1594,7 +1594,7 @@ meta_operations(_) ->
         ?assertException(throw, {UiEx,{"Purge not supported on this table type",ddTable}}, purge_table(ddTable)),
 
         TimePartTable0 = physical_table_name(tpTest_1000@),
-        ?Log("TimePartTable ~p~n", [TimePartTable0]),
+        ?Info("TimePartTable ~p~n", [TimePartTable0]),
         ?assertEqual(TimePartTable0, physical_table_name(tpTest_1000@,erlang:now())),
         ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable0)),
@@ -1609,26 +1609,26 @@ meta_operations(_) ->
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 2">>},
         ?assertEqual(ok, write(tpTest_1000@, LogRec2)),
-        ?Log("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
+        ?Info("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
         ?assertEqual(0, purge_table(tpTest_1000@,[{purge_delay,10000}])),
         ?assertEqual(0, purge_table(tpTest_1000@)),
         PurgeResult = purge_table(tpTest_1000@,[{purge_delay,-3000}]),
-        ?Log("PurgeResult ~p~n", [PurgeResult]),
+        ?Info("PurgeResult ~p~n", [PurgeResult]),
         ?assert(PurgeResult>0),
         ?assertEqual(0, purge_table(tpTest_1000@)),
         ?assertEqual(ok, drop_table(tpTest_1000@)),
         ?assertEqual([],physical_table_names(tpTest_1000@)),
-        ?Log("success ~p~n", [tpTest_1000@]),
+        ?Info("success ~p~n", [tpTest_1000@]),
 
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
 
         DdNode0 = read(ddNode),
-        ?Log("ddNode0 ~p~n", [DdNode0]),
+        ?Info("ddNode0 ~p~n", [DdNode0]),
         DdNode1 = read(ddNode,node()),
-        ?Log("ddNode1 ~p~n", [DdNode1]),
+        ?Info("ddNode1 ~p~n", [DdNode1]),
         DdNode2 = select(ddNode,?MatchAllRecords),
-        ?Log("ddNode2 ~p~n", [DdNode2]),
+        ?Info("ddNode2 ~p~n", [DdNode2]),
 
         Schema0 = [{ddSchema,{schema(),node()},[]}],
         ?assertEqual(Schema0, read(ddSchema)),
@@ -1648,7 +1648,7 @@ meta_operations(_) ->
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
         ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
-        ?Log("success ~p~n", [get_config_hlk]),
+        ?Info("success ~p~n", [get_config_hlk]),
 
         ?assertEqual({error,{"Invalid table name",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name)),
         ?assertEqual([],physical_table_names(fakelog_1@)),
@@ -1665,7 +1665,7 @@ meta_operations(_) ->
         timer:sleep(1100),
         ?assertEqual(ok, create_partitioned_table_sync(physical_table_name(fakelog_1@))),
         ?assertEqual(3,length(physical_table_names(fakelog_1@))),
-        ?Log("success ~p~n", [create_partitioned_table]),
+        ?Info("success ~p~n", [create_partitioned_table]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
@@ -1673,10 +1673,12 @@ meta_operations(_) ->
         ?assertEqual(ok, drop_table(test_config)),
         ?assertEqual(ok,drop_table(fakelog_1@)),
 
-        ?Log("success ~p~n", [drop_tables])
+        ?Info("success ~p~n", [drop_tables])
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        throw ({Class, Reason})
+        Class:Reason ->     
+            timer:sleep(1000),
+            ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            throw ({Class, Reason})
     end,
     ok.
     

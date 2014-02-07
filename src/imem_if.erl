@@ -309,8 +309,8 @@ wait_table_tries(Tables, {0, _}) ->
 wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
     case mnesia:wait_for_tables(Tables, Timeout) of
         ok -> ok;
-        {timeout, BadTabList} ->
-            ?Debug("table ~p load time out attempt ~p~n", [BadTabList, Count]),
+        {timeout, _BadTabList} ->
+            ?Debug("table ~p load time out attempt ~p~n", [_BadTabList, Count]),
             wait_table_tries(Tables, {Count-1,Timeout});
         {error, Reason} -> ?ClientErrorNoLogging({"Error loading table~p", Reason})
     end.

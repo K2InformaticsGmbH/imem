@@ -321,34 +321,34 @@ guard_bind_value(Other) ->                            Other.
 
 guard_bind(_Rec, Guard, []) -> Guard;
 guard_bind(Rec, Guard0, [B|Binds]) ->
-    % ?Info("bind rec: ~p guard: ~p bind: ~p~n", [Rec, Guard0, B]),
+    % ?Debug("bind rec: ~p guard: ~p bind: ~p~n", [Rec, Guard0, B]),
     Guard1 = imem_sql:simplify_guard(guard_bind_one(Rec, Guard0, B)),
-    % ?Info("bind result: ~p~n", [Guard1]),
+    % ?Debug("bind result: ~p~n", [Guard1]),
     guard_bind(Rec, Guard1, Binds).
 
 guard_bind_one(_Rec,{const,T}, _) when is_tuple(T) -> {const,T};
 guard_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,guard_bind_value(element(Ci,element(Ti,Rec)))};
 guard_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,guard_bind_one(Rec,A,{Tag,Ti,Ci})};
 guard_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) -> 
-    % ?Info("guard_bind_one A rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
+    % ?Debug("guard_bind_one A rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
             guard_bind_value(imem_datatype:offset_datetime(Op,DT,B));
         {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
             guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},B));
         Other ->
-            % ?Info("guard_bind_one A result: ~p~n", [{Op,guard_bind_value(Other),B}]),
+            % ?Debug("guard_bind_one A result: ~p~n", [{Op,guard_bind_value(Other),B}]),
             {Op,guard_bind_value(Other),B}
     end;
 guard_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
-    % ?Info("guard_bind_one B rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,A,Tag}, {Tag,Ti,Ci}]),
+    % ?Debug("guard_bind_one B rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,A,Tag}, {Tag,Ti,Ci}]),
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
             guard_bind_value(imem_datatype:offset_datetime(Op,DT,A));
         {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
             guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},A));
         Other ->
-            % ?Info("guard_bind_one B result: ~p~n", [{Op,A,guard_bind_value(Other)}]),
+            % ?Debug("guard_bind_one B result: ~p~n", [{Op,A,guard_bind_value(Other)}]),
             {Op,A,guard_bind_value(Other)}
     end;
 guard_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
@@ -405,7 +405,6 @@ simplify_once({'length', List}) when is_list(List) ->                           
 simplify_once({'abs', N}) when is_number(N) ->                                          abs(N);
 simplify_once({'round', N}) when is_number(N) ->                                        round(N);
 simplify_once({'trunc', N}) when is_number(N) ->                                        trunc(N);
-simplify_once({ Op, Left, Right}) ->    {Op, simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', join}) ->         join; 
 simplify_once({'not', true}) ->         false; 
 simplify_once({'not', false}) ->        true; 
@@ -416,6 +415,24 @@ simplify_once({'not', {'<', Left, Right}}) ->  {'>=', simplify_once(Left), simpl
 simplify_once({'not', {'>=', Left, Right}}) -> {'<',  simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', {'>', Left, Right}}) ->  {'=<', simplify_once(Left), simplify_once(Right)};
 simplify_once({'not', Result}) ->       {'not', simplify_once(Result)};
+simplify_once({'or', {'and', C, B}, A}) ->  
+    case {filter_member(C),filter_member(B),filter_member(A)} of
+        {true,false,false} ->       {'and', {'or', C, A}, {'or', A, B}};
+        {false,true,false} ->       {'and', {'or', B, A}, {'or', C, A}};
+        _ ->                        {'or', simplify_once({'and', C, B}), simplify_once(A)}
+    end;
+simplify_once({'and', {'and', C, B}, A}) ->  
+    case {filter_member(C),filter_member(B),filter_member(A)} of
+        {true,false,false} ->       {'and', C, {'and', A, B}};
+        {false,true,false} ->       {'and', B, {'and', C, A}};
+        _ ->                        {'and', simplify_once({'and', C, B}), simplify_once(A)}
+    end;
+simplify_once({'or', B, A} = G) ->  
+    case {filter_member(B),filter_member(A)} of
+        {false,true} ->             {'or', A, B};
+        _ ->                        G
+    end;
+simplify_once({ Op, Left, Right}) ->    {Op, simplify_once(Left), simplify_once(Right)};
 simplify_once(Result) ->                Result.
 
 
@@ -438,18 +455,17 @@ create_scan_spec(Ti,FullMap,[SGuard0]) ->
     MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     % ?Debug("MatchHead (~p) ~p~n", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
-    ?Info("SGuard1 ~p~n", [SGuard1]),
+    % ?Debug("SGuard1 ~p~n", [SGuard1]),
     {SGuard2,FGuard} = split_filter_from_guard(SGuard1), 
-    % {SGuard2,FGuard} = {true,SGuard1},             %% ToDo: partition guard into a MNESIA part and a filter part $$$$$$$$$$$$$$
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
-    ?Info("SGuard2 ~p~n", [SGuard2]),
-    ?Info("FGuard ~p~n", [FGuard]),
+    % ?Debug("SGuard2 ~p~n", [SGuard2]),
+    % ?Debug("FGuard ~p~n", [FGuard]),
     SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
-    % ?Info("SBinds ~p~n", [SBinds]),
+    % ?Debug("SBinds ~p~n", [SBinds]),
     MBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [FGuard],[]),
-    % ?Info("MBinds ~p~n", [MBinds]),
+    % ?Debug("MBinds ~p~n", [MBinds]),
     FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
-    % ?Info("FBinds ~p~n", [FBinds]),
+    % ?Debug("FBinds ~p~n", [FBinds]),
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
 
 
@@ -1311,10 +1327,10 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        ?Log("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        ?Log("schema ~p~n", [imem_meta:schema()]),
-        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Info("schema ~p~n", [imem_meta:schema()]),
+        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1354,7 +1370,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, make_expr_fun(1,{'is_like', <<"12345">>, "%7__"}, [])),
         ?assertEqual(33, make_expr_fun(1, {'*',{'+',10,1},3}, [])),
         ?assertEqual(10, make_expr_fun(1, {'abs',{'-',10,20}}, [])),
-        ?Log("success ~p~n", ["make_expr_fun constants"]),
+        ?Info("success ~p~n", ["make_expr_fun constants"]),
 
         X1 = {{1,2,3},{2,2,2}},
         F1 = make_expr_fun(1, {'==', '$1','$2'}, [{'$1',1,2},{'$2',1,2}]),
@@ -1384,7 +1400,7 @@ test_with_or_without_sec(IsSec) ->
         F5 = make_expr_fun(1,{'is_member', a, '$_'}, []),
         ?assertEqual(true, F5({{},{1,a,[c,a,d]}})),        
         ?assertEqual(false, F5({{},{1,d,[c,a,d]}})),        
-        ?Log("success ~p~n", ["make_expr_fun with binds"]),
+        ?Info("success ~p~n", ["make_expr_fun with binds"]),
 
         % ?assert(false),
 
@@ -1397,10 +1413,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"^.A.*S\\^\\$\\.\\[\\]\\|\\(\\)\\?\\*\\+\\-\\{\\}m.th.*$">>, transform_like(<<"_A%S^$.[]|()?*+-{}m_th%">>, <<>>)),
         ?assertEqual(<<"^Sm_th.$">>, transform_like(<<"Sm@_th_">>, <<"@">>)),
         ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
-        ?Log("success ~p~n", [transform_like]),
+        ?Info("success ~p~n", [transform_like]),
 
     %% Regular Expressions
-        ?Log("testing regular expressions: ~p~n", ["like_compile"]),
+        ?Info("testing regular expressions: ~p~n", ["like_compile"]),
         RE1 = like_compile("abc_123%@@"),
         ?assertEqual(true,re_match(RE1,"abc_123%@@")),         
         ?assertEqual(true,re_match(RE1,<<"abc_123jhhsdhjhj@@">>)),         
@@ -1443,7 +1459,7 @@ test_with_or_without_sec(IsSec) ->
 
         %% ToDo: implement and test patterns involving regexp reserved characters
 
-        % ?Log("success ~p~n", [replace_match]),
+        % ?Info("success ~p~n", [replace_match]),
         % L = {like,'$6',"%5%"},
         % NL = {not_like,'$7',"1%"},
         % ?assertEqual( true, replace_match(L,L)),
@@ -1502,14 +1518,14 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual({imem,table,alias}, table_qname({<<"table">>,<<"alias">>})),
         ?assertEqual({schema,table,alias}, table_qname({<<"schema.table">>, <<"alias">>})),
 
-        ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?Log("success ~p~n", [schema]),
+        ?Info("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        ?Log("success ~p~n", [data_nodes]),
+        ?Info("success ~p~n", [data_nodes]),
 
-        ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
                     , #ddColumn{name=b1, type=char, len=1}    %% value 1
                     , #ddColumn{name=c1, type=char, len=1}    %% value 2
@@ -1526,7 +1542,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
-        ?Log("success ~p~n", [create_tables]),
+        ?Info("success ~p~n", [create_tables]),
 
         Table1 =    {imem, meta_table_1, meta_table_1},
         Table2 =    {undefined, meta_table_2, meta_table_2},
@@ -1537,7 +1553,7 @@ test_with_or_without_sec(IsSec) ->
         Alias2 =    {imem, meta_table_1, alias2},
 
         ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, column_map([TableX], [])),
-        ?Log("success ~p~n", [table_no_exists]),
+        ?Info("success ~p~n", [table_no_exists]),
 
         ColsE1=     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", name=x}
@@ -1545,7 +1561,7 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown column name", x}}, column_map([Table1], ColsE1)),
-        ?Log("success ~p~n", [unknown_column_name_1]),
+        ?Info("success ~p~n", [unknown_column_name_1]),
 
         ColsE2=     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a}
                     , #ddColMap{tag="A2", table=meta_table_x, name=b1}
@@ -1553,10 +1569,10 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown column name", {meta_table_x,b1}}}, column_map([Table1, Table2], ColsE2)),
-        ?Log("success ~p~n", [unknown_column_name_2]),
+        ?Info("success ~p~n", [unknown_column_name_2]),
 
         ?assertMatch([_,_,_], column_map([Table1], [])),
-        ?Log("success ~p~n", [empty_select_columns]),
+        ?Info("success ~p~n", [empty_select_columns]),
 
 
         ColsF =     [ #ddColMap{tag="A", tind=1, cind=1, schema=imem, table=meta_table_1, name=a, type=integer, alias= <<"a">>}
@@ -1581,7 +1597,7 @@ test_with_or_without_sec(IsSec) ->
         CB2a = {'=',<<"meta_table_1.b1">>,<<"'22''2'">>},
         ?assertEqual({'and',{'and',CA1,CB2a},{wt}}, filter_spec_where({'and',[FA1,FB2a]}, ColsF, {wt})),
 
-        ?Log("success ~p~n", [filter_spec_where]),
+        ?Info("success ~p~n", [filter_spec_where]),
 
         ?assertEqual([], sort_spec_order([], ColsF, ColsF)),
         SA = {1,1,<<"desc">>},
@@ -1601,7 +1617,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([OC,OA], sort_spec_order([SC,OA], ColsF, ColsF)),
         ?assertEqual([OB,OC,OA], sort_spec_order([OB,OC,OA], ColsF, ColsF)),
 
-        ?Log("success ~p~n", [sort_spec_order]),
+        ?Info("success ~p~n", [sort_spec_order]),
 
         ColsA =     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a, alias= <<"a">>}
                     , #ddColMap{tag="A2", table=meta_table_1, name=b1, alias= <<"b1">>}
@@ -1609,58 +1625,58 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Empty table list", _}}, column_map([], ColsA)),
-        ?Log("success ~p~n", [empty_table_list]),
+        ?Info("success ~p~n", [empty_table_list]),
 
         ?assertException(throw, {ClEr,{"Ambiguous column name", a}}, column_map([Table1, Table3], [#ddColMap{name=a}])),
-        ?Log("success ~p~n", [columns_ambiguous_a]),
+        ?Info("success ~p~n", [columns_ambiguous_a]),
 
         ?assertException(throw, {ClEr,{"Ambiguous column name", c1}}, column_map([Table1, Table3], ColsA)),
-        ?Log("success ~p~n", [columns_ambiguous_c1]),
+        ?Info("success ~p~n", [columns_ambiguous_c1]),
 
         ?assertMatch([_,_,_], column_map([Table1], ColsA)),
-        ?Log("success ~p~n", [columns_A]),
+        ?Info("success ~p~n", [columns_A]),
 
         ?assertMatch([_,_,_,_,_,_], column_map([Table1, Table3], [#ddColMap{name='*'}])),
-        ?Log("success ~p~n", [columns_13_join]),
+        ?Info("success ~p~n", [columns_13_join]),
 
         Cmap3 = column_map([Table1, Table2, Table3], [#ddColMap{name='*'}]),
-        % ?Log("ColMap3 ~p~n", [Cmap3]),        
+        % ?Info("ColMap3 ~p~n", [Cmap3]),        
         ?assertMatch([_,_,_,_,_,_,_,_], Cmap3),
         ?assertEqual(lists:sort(Cmap3), Cmap3),
-        ?Log("success ~p~n", [columns_123_join]),
+        ?Info("success ~p~n", [columns_123_join]),
 
         ?assertMatch([_,_,_,_,_,_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{name='*'}])),
-        ?Log("success ~p~n", [alias_113_join]),
+        ?Info("success ~p~n", [alias_113_join]),
 
         ?assertMatch([_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=meta_table_3, name='*'}])),
-        ?Log("success ~p~n", [columns_113_star1]),
+        ?Info("success ~p~n", [columns_113_star1]),
 
         ?assertMatch([_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name='*'},#ddColMap{table=meta_table_3, name='a'}])),
-        ?Log("success ~p~n", [columns_alias_1]),
+        ?Info("success ~p~n", [columns_alias_1]),
 
         ?assertMatch([_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name=a},#ddColMap{table=alias2, name='a'}])),
-        ?Log("success ~p~n", [columns_alias_2]),
+        ?Info("success ~p~n", [columns_alias_2]),
 
         ?assertMatch([_,_], column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=sysdate}])),
-        ?Log("success ~p~n", [sysdate]),
+        ?Info("success ~p~n", [sysdate]),
 
         ?assertException(throw, {ClEr,{"Unknown column name", {any,sysdate}}}, column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{table=any, name=sysdate}])),
-        ?Log("success ~p~n", [sysdate_reject]),
+        ?Info("success ~p~n", [sysdate_reject]),
 
         ?assertEqual(["imem.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}]),qname)),
-        ?Log("success ~p~n", [user]),
+        ?Info("success ~p~n", [user]),
 
         ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
-        ?Log("success ~p~n", [drop_tables]),
+        ?Info("success ~p~n", [drop_tables]),
 
         case IsSec of
             true -> ?imem_logout(SKey);
             _ ->    ok
         end
     catch
-        Class:Reason ->  ?Log("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Info("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
