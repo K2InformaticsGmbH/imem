@@ -136,13 +136,13 @@ select_rowfun_raw(ColMap) ->
 
 select_rowfun_raw(_Recs, [], Acc) ->
     lists:reverse(Acc);
-select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
+select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
     Fld = case element(Ti,Recs) of
         undefined ->    undefined;
         Rec ->          element(Ci,Rec)
     end,
     select_rowfun_raw(Recs, ColMap, [Fld|Acc]);
-select_rowfun_raw(Recs, [#ddColMap{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
+select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
     Fld = case element(Ti,Recs) of
         undefined ->    
             undefined;
@@ -163,7 +163,7 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
 
 select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     lists:reverse(Acc);
-select_rowfun_str(Recs, [#ddColMap{type=T,prec=P,tind=Ti,cind=Ci,func=F,default=D}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+select_rowfun_str(Recs, [#bind{type=T,prec=P,tind=Ti,cind=Ci,func=F,default=D}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = case element(Ti,Recs) of
         undefined ->    
             ?emptyStr;
@@ -1239,7 +1239,9 @@ data_types(_) ->
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
 
-        ?Log("----TEST--~p:test_data_types~n", [?MODULE]),
+        ?Info("----------------------------------~n"),
+        ?Info("TEST--- ~p ----Security ~p", [?MODULE, all]),
+        ?Info("----------------------------------~n"),
 
         ?assertEqual(<<"Imem.ddTable">>, name({'Imem',ddTable})),
         ?assertEqual(<<"Imem.ddäöü"/utf8>>, name({'Imem',<<"ddäöü">>})),
@@ -1550,7 +1552,7 @@ data_types(_) ->
 
         ?Log("io_to_binary success~n", []),
 
-        RF1 = select_rowfun_str([#ddColMap{type=integer,tind=1,cind=2}], eu, undefined, undefined),
+        RF1 = select_rowfun_str([#bind{type=integer,tind=1,cind=2}], eu, undefined, undefined),
         ?assert(is_function(RF1)), 
         ?assertEqual([<<"5">>],RF1({{dummy,5},{}})), 
         ?Log("rowfun success~n", []),   

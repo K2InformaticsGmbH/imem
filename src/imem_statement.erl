@@ -873,7 +873,7 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
     end,            
     ValMap = lists:usort(
         [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(Ti,Recs)),T,L,P,D,false,Value), R} || 
-            {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R, func=F},Value} 
+            {#bind{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R, func=F},Value} 
             <- lists:zip(ColMap,Values), Ti==?MainIdx, F==undefined]),    
     % ?Debug("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
@@ -906,17 +906,17 @@ update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
 tuple_update_map(Item,I,Recs,ColMap,Values) ->
     FuncName = list_to_atom("item" ++ integer_to_list(I)),
     [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),term,0,0,undefined,false,Value), R} || 
-        {#ddColMap{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
+        {#bind{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
         <- lists:zip(ColMap,Values), Ti==?MainIdx, T==tuple, F==FuncName, Value/=<<"">>]
     ++
     [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),element(I,T),0,0,undefined,false,Value), R} || 
-        {#ddColMap{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
+        {#bind{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
         <- lists:zip(ColMap,Values), Ti==?MainIdx, is_tuple(T), F==FuncName, Value/=<<"">>]
     .
 
 % tuple_insert_map(Item,I,ColMap,Values) ->
 %     FuncName = list_to_atom("item" ++ integer_to_list(I)),
-%     case [{Name,T,Ci,F,L,Value} || {#ddColMap{tind=Ti,cind=Ci,name=Name,type=T,len=L,func=F},Value} <- lists:zip(ColMap,Values), Ti==1, F/=undefined, Value/=<<"">>] of
+%     case [{Name,T,Ci,F,L,Value} || {#bind{tind=Ti,cind=Ci,name=Name,type=T,len=L,func=F},Value} <- lists:zip(ColMap,Values), Ti==1, F/=undefined, Value/=<<"">>] of
 %         [] ->   
 %             [];
 %         EMap ->
@@ -935,13 +935,13 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        
         true ->                                 ok    
     end,            
-    case [Name || {#ddColMap{tind=Ti,name=Name,func=F},Value} <- lists:zip(ColMap,Values), Ti==?MainIdx, F/=undefined, Value/=<<"">>] of
+    case [Name || {#bind{tind=Ti,name=Name,func=F},Value} <- lists:zip(ColMap,Values), Ti==?MainIdx, F/=undefined, Value/=<<"">>] of
         [] ->   ok;
         L ->    ?ClientError({"Need a complete value to insert into column",{Item,hd(L)}})
     end,    
     ValMap = lists:usort(
         [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
-            {#ddColMap{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
+            {#bind{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
             <- lists:zip(ColMap,Values), Ti==?MainIdx, Value/=<<"">>]),
     % ?Debug("value map~n~p~n", [ValMap]),
     IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
@@ -1074,9 +1074,10 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
-        ?Info("~n----------------------------------~n"),
+
+        ?Info("----------------------------------~n"),
         ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?Info("~n----------------------------------~n"),
+        ?Info("----------------------------------~n"),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -1096,7 +1097,9 @@ test_with_or_without_sec(IsSec) ->
                     , imem_sql:bind_guard(
                               {{def,20,"20",{{2014,2,3},{12,10,16}},{10,132,7,20},{'Atom20',20}},undefined,{}}
                             , {'and',{'==',20,'$1'},{is_member,'$6','$4'}}
-                            , [{'$4',1,5},{'$1',1,2}])
+                            , [#bind{tag='$4',tind=1,cind=5}
+                              ,#bind{tag='$1',tind=1,cind=2}
+                            ])
                     ),
 
     %% test table tuple_test
