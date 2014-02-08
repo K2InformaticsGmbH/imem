@@ -315,15 +315,15 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % ?Debug("SGuards before meta bind : ~p ~p~n", [SGuards0,SBinds]),
     SGuards1 = case SGuards0 of
         [] ->       [];
-        [SGuard0]-> [imem_sql:simplify_guard(imem_sql:guard_bind({MetaRec}, SGuard0, SBinds))]
+        [SGuard0]-> [imem_sql:simplify_guard(imem_sql:bind_guard({MetaRec}, SGuard0, SBinds))]
     end,
     % ?Debug("SGuards after meta bind :~n~p~n", [SGuards1]),
     SSpec = [{SHead, SGuards1, [Result]}],
     TailFilterSpec = ets:match_spec_compile(SSpec),         %% to be applied to the scan result record alone
     % ?Debug("FGuards before meta bind :~n~p~n~p~n", [FGuard, MBinds]),
-    FBound = imem_sql:guard_bind({MetaRec}, FGuard, MBinds),        %% to be applied to the truncated final record {MetaRec}         
+    FBound = imem_sql:bind_guard({MetaRec}, FGuard, MBinds),        %% to be applied to the truncated final record {MetaRec}         
     % ?Debug("FGuards before make_expr_fun :~n~p~n~p~n", [FBound,FBinds]),
-    SFilterFun = imem_sql:make_expr_fun(1,FBound, FBinds),  %% to be applied to {MetaRec,MainRec}
+    SFilterFun = imem_sql:make_expr_fun(FBound, FBinds),  %% to be applied to {MetaRec,MainRec}
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
         {true,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
             RecName = imem_meta:table_record_name(Table), 
@@ -620,7 +620,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
             [];
         _ ->    
             try 
-                [imem_sql:guard_bind(Rec, hd(Guard0), SBinds)]
+                [imem_sql:bind_guard(Rec, hd(Guard0), SBinds)]
             catch
                 throw:no_match ->   [false];
                 throw:_ ->          [false]
@@ -640,10 +640,10 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
                     % ?Debug("Join table records~n~p~n", [L]),
                     % ?Debug("Meta guard: ~p~n", [FGuard]),
                     % ?Debug("Meta binds: ~p~n", [MBinds]),
-                    MboundGuard = imem_sql:guard_bind(Rec, FGuard, MBinds),
+                    MboundGuard = imem_sql:bind_guard(Rec, FGuard, MBinds),
                     % ?Debug("Filter guard: ~p~n", [MboundGuard]),
                     % ?Debug("Filter binds: ~p~n", [FBinds]),
-                    case imem_sql:make_expr_fun(Ti, MboundGuard, FBinds) of
+                    case imem_sql:make_expr_fun(MboundGuard, FBinds) of
                         true ->     [setelement(Ti, Rec, I) || I <- L];
                         false ->    [];
                         Filter ->   Recs = [setelement(Ti, Rec, I) || I <- L],
@@ -657,7 +657,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
 join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,limit=Limit}) ->
     [{_,[SGuard],_}] = SSpec,
     MaxSize = Limit+1000,
-    case imem_sql:guard_bind(Rec, SGuard, SBinds) of
+    case imem_sql:bind_guard(Rec, SGuard, SBinds) of
         true ->
             case FGuard of
                 true ->
@@ -668,7 +668,7 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fgu
                     % ?Debug("Rec used for join bind~n~p~n", [Rec]),
                     % ?Debug("FGuard used for join bind ~p~n", [FGuard]),
                     % ?Debug("MBinds used for join bind ~p~n", [MBinds]),
-                    case imem_sql:guard_bind(Rec, FGuard, MBinds) of
+                    case imem_sql:bind_guard(Rec, FGuard, MBinds) of
                         {is_member,Tag, '$_'} when is_atom(Tag) ->
                             Items = element(?MainIdx,Rec),
                             % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
@@ -1074,7 +1074,9 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
-        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Info("~n----------------------------------~n"),
+        ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?Info("~n----------------------------------~n"),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -1091,7 +1093,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual({is_member,'$6',{const,{10,132,7,20}}}, imem_sql:simplify_guard({is_member,'$6',{const,{10,132,7,20}}})),
 
         ?assertEqual( {is_member,'$6',{const,{10,132,7,20}}}
-                    , imem_sql:guard_bind(
+                    , imem_sql:bind_guard(
                               {{def,20,"20",{{2014,2,3},{12,10,16}},{10,132,7,20},{'Atom20',20}},undefined,{}}
                             , {'and',{'==',20,'$1'},{is_member,'$6','$4'}}
                             , [{'$4',1,5},{'$1',1,2}])

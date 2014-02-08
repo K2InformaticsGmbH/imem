@@ -21,7 +21,7 @@
         , column_map_items/2
         , column_map/2
         , simplify_guard/1
-        , guard_bind/3
+        , bind_guard/3
         , create_scan_spec/3
         , operand_member/2
         , operand_match/2
@@ -38,7 +38,7 @@
         , re_match/2
         , like_compile/1
         , like_compile/2
-        , make_expr_fun/3
+        , make_expr_fun/2
         ]).
 
 parse(Sql) ->
@@ -315,54 +315,51 @@ index_of(_, [], _)  -> false;
 index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
-guard_bind_value({const,Tup}) when is_tuple(Tup) ->   {const,Tup};    %% ToDo: Is this necesary?
-guard_bind_value(Tup) when is_tuple(Tup) ->           {const,Tup};
-guard_bind_value(Other) ->                            Other.
+bind_guard_value({const,Tup}) when is_tuple(Tup) ->   {const,Tup};    %% ToDo: Is this necesary?
+bind_guard_value(Tup) when is_tuple(Tup) ->           {const,Tup};
+bind_guard_value(Other) ->                            Other.
 
-guard_bind(_Rec, Guard, []) -> Guard;
-guard_bind(Rec, Guard0, [B|Binds]) ->
+bind_guard(_Rec, Guard, []) -> Guard;
+bind_guard(Rec, Guard0, [B|Binds]) ->
     % ?Debug("bind rec: ~p guard: ~p bind: ~p~n", [Rec, Guard0, B]),
-    Guard1 = imem_sql:simplify_guard(guard_bind_one(Rec, Guard0, B)),
+    Guard1 = imem_sql:simplify_guard(bind_guard_one(Rec, Guard0, B)),
     % ?Debug("bind result: ~p~n", [Guard1]),
-    guard_bind(Rec, Guard1, Binds).
+    bind_guard(Rec, Guard1, Binds).
 
-guard_bind_one(_Rec,{const,T}, _) when is_tuple(T) -> {const,T};
-guard_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,guard_bind_value(element(Ci,element(Ti,Rec)))};
-guard_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,guard_bind_one(Rec,A,{Tag,Ti,Ci})};
-guard_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) -> 
-    % ?Debug("guard_bind_one A rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
+bind_guard_one(_Rec,{const,T}, _) when is_tuple(T) -> {const,T};
+bind_guard_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,bind_guard_value(element(Ci,element(Ti,Rec)))};
+bind_guard_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,bind_guard_one(Rec,A,{Tag,Ti,Ci})};
+bind_guard_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) -> 
+    % ?Debug("bind_guard_one A rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
-            guard_bind_value(imem_datatype:offset_datetime(Op,DT,B));
+            bind_guard_value(imem_datatype:offset_datetime(Op,DT,B));
         {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},B));
+            bind_guard_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},B));
         Other ->
-            % ?Debug("guard_bind_one A result: ~p~n", [{Op,guard_bind_value(Other),B}]),
-            {Op,guard_bind_value(Other),B}
+            % ?Debug("bind_guard_one A result: ~p~n", [{Op,bind_guard_value(Other),B}]),
+            {Op,bind_guard_value(Other),B}
     end;
-guard_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
-    % ?Debug("guard_bind_one B rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,A,Tag}, {Tag,Ti,Ci}]),
+bind_guard_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
+    % ?Debug("bind_guard_one B rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,A,Tag}, {Tag,Ti,Ci}]),
     case element(Ci,element(Ti,Rec)) of
         {{_,_,_},{_,_,_}} = DT ->
-            guard_bind_value(imem_datatype:offset_datetime(Op,DT,A));
+            bind_guard_value(imem_datatype:offset_datetime(Op,DT,A));
         {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},A));
+            bind_guard_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},A));
         Other ->
-            % ?Debug("guard_bind_one B result: ~p~n", [{Op,A,guard_bind_value(Other)}]),
-            {Op,A,guard_bind_value(Other)}
+            % ?Debug("bind_guard_one B result: ~p~n", [{Op,A,bind_guard_value(Other)}]),
+            {Op,A,bind_guard_value(Other)}
     end;
-guard_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    {Op,guard_bind_one(Rec,A,{Tag,Ti,Ci}),guard_bind_one(Rec,B,{Tag,Ti,Ci})};
-guard_bind_one(_, A, _) ->
-    guard_bind_value(A).
+bind_guard_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
+    {Op,bind_guard_one(Rec,A,{Tag,Ti,Ci}),bind_guard_one(Rec,B,{Tag,Ti,Ci})};
+bind_guard_one(_, A, _) ->
+    bind_guard_value(A).
 
 simplify_guard(Term) ->
     case  simplify_once(Term) of
-        join ->                             true;
-        {'and',join,R1} ->                  simplify_guard(R1);
-%        {'and',R2,join} ->                  simplify_guard(R2);
-        Term ->                             Term;
-        T ->                                simplify_guard(T)
+        Term ->     Term;
+        T ->        simplify_guard(T)
     end.
 
 %% warning: guard may contain unbound variables '$x' which must not be treated as atom values
@@ -433,6 +430,7 @@ simplify_once({'or', B, A} = G) ->
         _ ->                        G
     end;
 simplify_once({ Op, Left, Right}) ->    {Op, simplify_once(Left), simplify_once(Right)};
+simplify_once(join) ->                  true;
 simplify_once(Result) ->                Result.
 
 
@@ -898,63 +896,63 @@ re_match(RE, S) ->
     end.
 
 %% Constant tuple expressions
-make_expr_fun(_, {const, A}, _) when is_tuple(A) -> A;
+make_expr_fun({const, A}, _) when is_tuple(A) -> A;
 %% Comparison expressions
-make_expr_fun(_, {'==', Same, Same}, _) -> true;
-make_expr_fun(_, {'/=', Same, Same}, _) -> false;
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
-    make_comp_fun(Ctx, {Op, A, B}, FBinds); 
+make_expr_fun({'==', Same, Same}, _) -> true;
+make_expr_fun({'/=', Same, Same}, _) -> false;
+make_expr_fun({Op, A, B}, FBinds) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
+    make_comp_fun({Op, A, B}, FBinds); 
 %% Mathematical expressions    
-make_expr_fun(_, {'pi'}, _) -> math:pi();
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='+';Op=='-' ->
-    make_math_fun(Ctx, {Op, A}, FBinds); 
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
-    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
-    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
-    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
-    make_math_fun(Ctx, {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='pow';Op=='atan2' ->
-    make_module_fun(Ctx, 'math', {Op, A, B}, FBinds);
+make_expr_fun({'pi'}, _) -> math:pi();
+make_expr_fun({Op, A}, FBinds) when Op=='+';Op=='-' ->
+    make_math_fun({Op, A}, FBinds); 
+make_expr_fun({Op, A}, FBinds) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
+    make_module_fun('math', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
+    make_module_fun('math', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
+    make_module_fun('math', {Op, A}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
+    make_math_fun({Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='pow';Op=='atan2' ->
+    make_module_fun('math', {Op, A, B}, FBinds);
 %% Erlang module
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
 %% Lists module
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
-    make_module_fun(Ctx, 'lists', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
-    make_module_fun(Ctx, 'lists', {Op, A, B}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
+    make_module_fun('lists', {Op, A}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
+    make_module_fun('lists', {Op, A, B}, FBinds);
 %% Logical expressions
-make_expr_fun(Ctx, {'not', A}, FBinds) ->
-    case make_expr_fun(Ctx, A, FBinds) of
+make_expr_fun({'not', A}, FBinds) ->
+    case make_expr_fun(A, FBinds) of
         ?nav ->                     ?nav;
         true ->                     false;
         false ->                    true;
@@ -966,9 +964,9 @@ make_expr_fun(Ctx, {'not', A}, FBinds) ->
                                                 end
                                     end
     end;                       
-make_expr_fun(Ctx, {'and', A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
+make_expr_fun({'and', A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
     case {Fa,Fb} of
         {true,true} ->  true;
         {false,_} ->    false;
@@ -977,9 +975,9 @@ make_expr_fun(Ctx, {'and', A, B}, FBinds) ->
         {_,true} ->     Fa;         %% may be ?nav or a fun evaluating to ?nav
         {_,_} ->        fun(X) -> (Fa(X) and Fb(X)) end
     end;
-make_expr_fun(Ctx, {'or', A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
+make_expr_fun({'or', A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
     case {Fa,Fb} of
         {false,false}-> false;
         {true,_} ->     true;
@@ -989,54 +987,54 @@ make_expr_fun(Ctx, {'or', A, B}, FBinds) ->
         {_,_} ->        fun(X) -> (Fa(X) or Fb(X)) end
     end;
 %% Custom filters
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
-    make_filter_fun(Ctx,{Op, A, B}, FBinds);
-make_expr_fun(Ctx, {'safe', A}, FBinds) ->
-    make_safe_fun(Ctx, A, FBinds);
-make_expr_fun(_Ctx, {Op, A}, _FBinds) ->
+make_expr_fun({Op, A, B}, FBinds) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
+    make_filter_fun({Op, A, B}, FBinds);
+make_expr_fun({'safe', A}, FBinds) ->
+    make_safe_fun(A, FBinds);
+make_expr_fun({Op, A}, _FBinds) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
-make_expr_fun(_Ctx, {Op, A, B}, _FBinds) ->
+make_expr_fun({Op, A, B}, _FBinds) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
-make_expr_fun(_Ctx, Value, _FBinds)  -> Value.
+make_expr_fun(Value, _FBinds)  -> Value.
 
 
 bind_action(P,_FBinds) when is_function(P) -> true;     %% parameter already bound to function
 bind_action(P,FBinds) -> lists:keyfind(P,1,FBinds).     %% bind {'$x',Ti,Xi} or false for value prameter 
 
 
-make_safe_fun(Ctx, A, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    make_safe_fun_final(Ctx, Fa, FBinds).
+make_safe_fun(A, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    make_safe_fun_final(Fa, FBinds).
 
-make_safe_fun_final(_Ctx, A, FBinds) ->
+make_safe_fun_final(A, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             fun(X) -> try A(X) catch _:_ -> ?nav end end;       
         ABind ->            fun(X) -> try ?BoundVal(ABind,X) catch _:_ -> ?nav end end
     end.
 
-make_module_fun(Ctx, Mod, {Op, {const,A}}, FBinds) when is_tuple(A) ->
-    make_module_fun_final(Ctx, Mod, {Op, A}, FBinds);
-make_module_fun(Ctx, Mod, {Op, A}, FBinds) ->
-    make_module_fun_final(Ctx, Mod, {Op, make_expr_fun(Ctx,A,FBinds)}, FBinds);
-make_module_fun(Ctx, Mod, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
-    make_module_fun_final(Ctx, Mod, {Op, A, B}, FBinds);
-make_module_fun(Ctx, Mod, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
-    make_module_fun_final(Ctx, Mod, {Op, A, make_expr_fun(Ctx,B,FBinds)}, FBinds);
-make_module_fun(Ctx, Mod, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
-    make_module_fun_final(Ctx, Mod, {Op, make_expr_fun(Ctx,A,FBinds), B}, FBinds);
-make_module_fun(Ctx, Mod, {Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
-    make_module_fun_final(Ctx, Mod, {Op, Fa, Fb}, FBinds).
+make_module_fun(Mod, {Op, {const,A}}, FBinds) when is_tuple(A) ->
+    make_module_fun_final(Mod, {Op, A}, FBinds);
+make_module_fun(Mod, {Op, A}, FBinds) ->
+    make_module_fun_final(Mod, {Op, make_expr_fun(A,FBinds)}, FBinds);
+make_module_fun(Mod, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    make_module_fun_final(Mod, {Op, A, B}, FBinds);
+make_module_fun(Mod, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    make_module_fun_final(Mod, {Op, A, make_expr_fun(B,FBinds)}, FBinds);
+make_module_fun(Mod, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    make_module_fun_final(Mod, {Op, make_expr_fun(A,FBinds), B}, FBinds);
+make_module_fun(Mod, {Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
+    make_module_fun_final(Mod, {Op, Fa, Fb}, FBinds).
 
-make_module_fun_final(_Ctx, Mod, {Op, A}, FBinds) -> 
+make_module_fun_final(Mod, {Op, A}, FBinds) -> 
     case bind_action(A,FBinds) of 
         false ->        Mod:Op(A);
         true ->         fun(X) -> Mod:Op(A(X)) end;
         ABind ->        fun(X) -> Mod:Op(?BoundVal(ABind,X)) end
     end;
-make_module_fun_final(_Ctx, Mod, {Op, A, B}, FBinds) -> 
+make_module_fun_final(Mod, {Op, A, B}, FBinds) -> 
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->        Mod:Op(A,B);
         {false,true} ->         fun(X) -> Mod:Op(A,B(X)) end;
@@ -1049,20 +1047,20 @@ make_module_fun_final(_Ctx, Mod, {Op, A, B}, FBinds) ->
         {ABind,BBind} ->        fun(X) -> Mod:Op(?BoundVal(ABind,X),?BoundVal(BBind,X)) end 
     end.
 
-make_math_fun(Ctx, {Op, A}, FBinds) ->
-    make_math_fun_unary(Ctx, {Op, make_expr_fun(Ctx,A,FBinds)}, FBinds);
-make_math_fun(Ctx, {Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
-    make_math_fun_binary(Ctx, {Op, Fa, Fb}, FBinds).
+make_math_fun({Op, A}, FBinds) ->
+    make_math_fun_unary({Op, make_expr_fun(A,FBinds)}, FBinds);
+make_math_fun({Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
+    make_math_fun_binary({Op, Fa, Fb}, FBinds).
 
-make_math_fun_unary(_, {'+', A}, FBinds) ->
+make_math_fun_unary({'+', A}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             A;       
         ABind ->            fun(X) -> ?BoundVal(ABind,X) end
     end;
-make_math_fun_unary(_, {'-', A}, FBinds) ->
+make_math_fun_unary({'-', A}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             fun(X) -> (-A(X)) end;       
@@ -1079,7 +1077,7 @@ make_math_fun_unary(_, {'-', A}, FBinds) ->
                 'rem' ->    (__A rem __B)
             end).
 
-make_math_fun_binary(_Ti, {Op, A, B}, FBinds) ->
+make_math_fun_binary({Op, A, B}, FBinds) ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?MathOpBlockBinary(Op,A,B);
         {false,true} ->     fun(X) -> ?MathOpBlockBinary(Op,A,B(X)) end;
@@ -1092,16 +1090,16 @@ make_math_fun_binary(_Ti, {Op, A, B}, FBinds) ->
         {ABind,BBind} ->    fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),?BoundVal(BBind,X)) end
     end.
 
-make_comp_fun(Ctx, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
-    make_comp_fun_final(Ctx, {Op, A, B}, FBinds);
-make_comp_fun(Ctx, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
-    make_comp_fun_final(Ctx, {Op, A, make_expr_fun(Ctx,B,FBinds)}, FBinds);
-make_comp_fun(Ctx, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
-    make_comp_fun_final(Ctx, {Op, make_expr_fun(Ctx,A,FBinds), B}, FBinds);
-make_comp_fun(Ctx, {Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
-    make_comp_fun_final(Ctx, {Op, Fa, Fb}, FBinds).
+make_comp_fun({Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    make_comp_fun_final({Op, A, B}, FBinds);
+make_comp_fun({Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    make_comp_fun_final({Op, A, make_expr_fun(B,FBinds)}, FBinds);
+make_comp_fun({Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    make_comp_fun_final({Op, make_expr_fun(A,FBinds), B}, FBinds);
+make_comp_fun({Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
+    make_comp_fun_final({Op, Fa, Fb}, FBinds).
 
 
 -define(CompOpBlock(__Op,__A,__B), 
@@ -1119,7 +1117,7 @@ make_comp_fun(Ctx, {Op, A, B}, FBinds) ->
                 end
         end).
 
-make_comp_fun_final(_Ctx, {Op, A, B}, FBinds) ->
+make_comp_fun_final({Op, A, B}, FBinds) ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?CompOpBlock(Op,A,B);
         {false,true} ->     fun(X) -> Bbound=B(X),?CompOpBlock(Op,A,Bbound) end;
@@ -1132,17 +1130,17 @@ make_comp_fun_final(_Ctx, {Op, A, B}, FBinds) ->
         {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,Abound,Bbound) end
     end.
 
-make_filter_fun(Ctx, {Op, {const,A}, {const,B}}, FBinds) ->
-    make_filter_fun_final(Ctx,{Op, A, B}, FBinds);
-make_filter_fun(Ctx, {Op, {const,A}, B}, FBinds) ->
-    make_filter_fun_final(Ctx,{Op, A, make_expr_fun(Ctx, B, FBinds)}, FBinds);
-make_filter_fun(Ctx, {Op, A, {const,B}}, FBinds) ->
-    make_filter_fun_final(Ctx,{Op, make_filter_fun(Ctx, A, FBinds), B}, FBinds);
-make_filter_fun(Ctx, {Op, A, B}, FBinds) ->
-    FA = make_expr_fun(Ctx, A, FBinds),
-    FB = make_expr_fun(Ctx, B, FBinds),
-    make_filter_fun_final(Ctx, {Op, FA, FB}, FBinds);
-make_filter_fun(_Ti, Value, _FBinds) -> Value.
+make_filter_fun({Op, {const,A}, {const,B}}, FBinds) ->
+    make_filter_fun_final({Op, A, B}, FBinds);
+make_filter_fun({Op, {const,A}, B}, FBinds) ->
+    make_filter_fun_final({Op, A, make_expr_fun(B, FBinds)}, FBinds);
+make_filter_fun({Op, A, {const,B}}, FBinds) ->
+    make_filter_fun_final({Op, make_filter_fun(A, FBinds), B}, FBinds);
+make_filter_fun({Op, A, B}, FBinds) ->
+    FA = make_expr_fun(A, FBinds),
+    FB = make_expr_fun(B, FBinds),
+    make_filter_fun_final( {Op, FA, FB}, FBinds);
+make_filter_fun(Value, _FBinds) -> Value.
 
 
 -define(ElementOpBlock(__A,__B), 
@@ -1153,7 +1151,7 @@ make_filter_fun(_Ti, Value, _FBinds) -> Value.
         true -> element(__A,__B)
     end).
 
-make_filter_fun_final(_Ctx, {'element', A, B}, FBinds)  ->
+make_filter_fun_final({'element', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?ElementOpBlock(A,B);
         {false,true} ->     fun(X) -> Bbound=B(X),?ElementOpBlock(A,Bbound) end;
@@ -1165,7 +1163,7 @@ make_filter_fun_final(_Ctx, {'element', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> Abound=?BoundVal(ABind,X),Bbound=B(X),?ElementOpBlock(Abound,Bbound) end;
         {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?ElementOpBlock(Abound,Bbound) end
     end;
-make_filter_fun_final(_, {'is_member', A, '$_'}, FBinds) ->
+make_filter_fun_final({'is_member', A, '$_'}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->        
             fun(X) -> 
@@ -1180,7 +1178,7 @@ make_filter_fun_final(_, {'is_member', A, '$_'}, FBinds) ->
                 lists:member(?BoundVal(ABind,X),tl(tuple_to_list(element(?MainIdx,X))))
             end
     end;
-make_filter_fun_final(_Ctx, {'is_like', A, B}, FBinds)  ->
+make_filter_fun_final({'is_like', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    re_match(like_compile(B),A);
         {false,true} ->     fun(X) -> re_match(like_compile(B(X)),A) end;
@@ -1192,7 +1190,7 @@ make_filter_fun_final(_Ctx, {'is_like', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> re_match(like_compile(B(X)),?BoundVal(ABind,X)) end;
         {ABind,BBind} ->    fun(X) -> re_match(like_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
     end;
-make_filter_fun_final(_Ctx, {'is_regexp_like', A, B}, FBinds)  ->
+make_filter_fun_final({'is_regexp_like', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    re_match(re_compile(B),A);
         {false,true} ->     fun(X) -> re_match(re_compile(B(X)),A) end;
@@ -1204,7 +1202,7 @@ make_filter_fun_final(_Ctx, {'is_regexp_like', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> re_match(re_compile(B(X)),?BoundVal(ABind,X)) end;
         {ABind,BBind} ->    fun(X) -> re_match(re_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
     end;
-make_filter_fun_final(_Ctx, {'is_member', A, B}, FBinds)  ->
+make_filter_fun_final({'is_member', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->        
             if 
@@ -1286,8 +1284,8 @@ make_filter_fun_final(_Ctx, {'is_member', A, B}, FBinds)  ->
                 end
             end
     end;
-make_filter_fun_final(Ctx,FGuard, FBinds) ->
-    ?UnimplementedException({"Unsupported filter function",{Ctx, FGuard, FBinds}}).
+make_filter_fun_final(FGuard, FBinds) ->
+    ?UnimplementedException({"Unsupported filter function",{FGuard, FBinds}}).
 
 
 
@@ -1347,43 +1345,43 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, filter_member({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
     %% make_expr_fun
-        ?assertEqual(true, make_expr_fun(1, true, [])),
-        ?assertEqual(false, make_expr_fun(1, false, [])),
-        ?assertEqual(true, make_expr_fun(1, {'not', false}, [])),
-        ?assertEqual(false, make_expr_fun(1, {'not', true}, [])),
-        ?assertEqual(12, make_expr_fun(1, 12, [])),
-        ?assertEqual(a, make_expr_fun(1, a, [])),
-        ?assertEqual({a,b}, make_expr_fun(1, {const,{a,b}}, [])),
-        ?assertEqual(true, make_expr_fun(1, {'==', 10,10}, [])),
-        ?assertEqual(true, make_expr_fun(1, {'==', {const,{a,b}}, {const,{a,b}}}, [])), 
-        ?assertEqual(false, make_expr_fun(1, {'==', {const,{a,b}}, {const,{a,1}}}, [])), 
-        ?assertEqual(true, make_expr_fun(1,{'is_member', a, [a,b]}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_member', 1, [a,b,1]}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_member', 1, [a,b,c]}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_member', 1, {const,a,b,1}}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_member', 1, {const,a,b,c}}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', "12345", "%3%"}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', <<"12345">>, "%3__"}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', "12345", <<"1%">>}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', {'+',12300,45}, <<"%45">>}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_like', "12345", "%6%"}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_like', <<"12345">>, "%7__"}, [])),
-        ?assertEqual(33, make_expr_fun(1, {'*',{'+',10,1},3}, [])),
-        ?assertEqual(10, make_expr_fun(1, {'abs',{'-',10,20}}, [])),
+        ?assertEqual(true, make_expr_fun(true, [])),
+        ?assertEqual(false, make_expr_fun(false, [])),
+        ?assertEqual(true, make_expr_fun({'not', false}, [])),
+        ?assertEqual(false, make_expr_fun({'not', true}, [])),
+        ?assertEqual(12, make_expr_fun(12, [])),
+        ?assertEqual(a, make_expr_fun(a, [])),
+        ?assertEqual({a,b}, make_expr_fun({const,{a,b}}, [])),
+        ?assertEqual(true, make_expr_fun({'==', 10,10}, [])),
+        ?assertEqual(true, make_expr_fun({'==', {const,{a,b}}, {const,{a,b}}}, [])), 
+        ?assertEqual(false, make_expr_fun({'==', {const,{a,b}}, {const,{a,1}}}, [])), 
+        ?assertEqual(true, make_expr_fun({'is_member', a, [a,b]}, [])),
+        ?assertEqual(true, make_expr_fun({'is_member', 1, [a,b,1]}, [])),
+        ?assertEqual(false, make_expr_fun({'is_member', 1, [a,b,c]}, [])),
+        ?assertEqual(true, make_expr_fun({'is_member', 1, {const,a,b,1}}, [])),
+        ?assertEqual(false, make_expr_fun({'is_member', 1, {const,a,b,c}}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', "12345", "%3%"}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', <<"12345">>, "%3__"}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', "12345", <<"1%">>}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', {'+',12300,45}, <<"%45">>}, [])),
+        ?assertEqual(false, make_expr_fun({'is_like', "12345", "%6%"}, [])),
+        ?assertEqual(false, make_expr_fun({'is_like', <<"12345">>, "%7__"}, [])),
+        ?assertEqual(33, make_expr_fun({'*',{'+',10,1},3}, [])),
+        ?assertEqual(10, make_expr_fun({'abs',{'-',10,20}}, [])),
         ?Info("success ~p~n", ["make_expr_fun constants"]),
 
         X1 = {{1,2,3},{2,2,2}},
-        F1 = make_expr_fun(1, {'==', '$1','$2'}, [{'$1',1,2},{'$2',1,2}]),
+        F1 = make_expr_fun({'==', '$1','$2'}, [{'$1',1,2},{'$2',1,2}]),
         ?assertEqual(true, F1(X1)),
 
-        F1a = make_expr_fun(1, {'==', '$1','$2'}, [{'$1',1,2},{'$2',2,2}]),
+        F1a = make_expr_fun({'==', '$1','$2'}, [{'$1',1,2},{'$2',2,2}]),
         ?assertEqual(true, F1a(X1)),
 
-        F2 = make_expr_fun(1,{'is_member', a, '$3'}, [{'$3',1,3}]),
+        F2 = make_expr_fun({'is_member', a, '$3'}, [{'$3',1,3}]),
         ?assertEqual(false,F2({{1,2,[3,4,5]}})),        
         ?assertEqual(true, F2({{1,2,[c,a,d]}})),        
 
-        F3 = make_expr_fun(1,{'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        F3 = make_expr_fun({'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
         ?assertEqual(true, F3({{1,d,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,c,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,a,[c,a,d]}})),        
@@ -1393,11 +1391,11 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
         ?assertEqual(false,F3({{1,3,[]}})),        
 
-        F4 = make_expr_fun(1,{'is_member', {'+','$2',1}, '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        F4 = make_expr_fun({'is_member', {'+','$2',1}, '$3'}, [{'$2',1,2},{'$3',1,3}]),
         ?assertEqual(true, F4({{1,2,[3,4,5]}})),        
         ?assertEqual(false,F4({{1,2,[c,4,d]}})),        
 
-        F5 = make_expr_fun(1,{'is_member', a, '$_'}, []),
+        F5 = make_expr_fun({'is_member', a, '$_'}, []),
         ?assertEqual(true, F5({{},{1,a,[c,a,d]}})),        
         ?assertEqual(false, F5({{},{1,d,[c,a,d]}})),        
         ?Info("success ~p~n", ["make_expr_fun with binds"]),

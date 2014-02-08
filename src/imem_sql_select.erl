@@ -384,10 +384,11 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
+        {with,inorder,[
               fun test_without_sec/1
             , fun test_with_sec/1
-        ]}
+        ]
+        }
     }.
     
 test_without_sec(_) -> 
@@ -401,7 +402,9 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
 
-        ?Info("~n----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        ?Info("~n----------------------------------~n"),
+        ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?Info("~n----------------------------------~n"),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -1369,7 +1372,7 @@ test_with_or_without_sec(IsSec) ->
         Class:Reason ->
             timer:sleep(1000),  
             ?Info("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        ?assert( true == "all tests completed")
+            ?assert( true == "all tests completed")
     end,
     ok.     
 
