@@ -6,9 +6,12 @@
   {applications, [
                   kernel,
                   stdlib,
-                  %% lager,
                   sasl,
                   os_mon,
+                  crypto,
+                  asn1,
+                  public_key,
+                  ssl,
                   sqlparse
                  ]},
   {mod, { imem_app, []}},
@@ -29,6 +32,9 @@
          {snap_server, true},
          {tcp_server, true},
          {tcp_ip, "0.0.0.0"},
-         {tcp_port, 8124}
+         {tcp_port, 8124},
+         {ssl, [{certfile,  "cert/imem.crt"},
+                {keyfile,   "cert/imem.key"},
+                {password,  "mpro"}]}
         ]}
  ]}.

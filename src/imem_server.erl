@@ -12,15 +12,17 @@
         ]).
  
 start_link(Params) ->
-    {_, Interface} = lists:keyfind(tcp_ip,1,Params),
-    {_, ListenPort} = lists:keyfind(tcp_port,1,Params),
+    Interface   = proplists:get_value(tcp_ip,Params),
+    ListenPort  = proplists:get_value(tcp_port,Params),
+    SSL         = proplists:get_value(ssl,Params),
+    {THandler, Opts} = if length(SSL) > 0 -> {ranch_ssl, SSL}; true -> {ranch_tcp, []} end, 
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
             ?Error("~p [ERROR] not started ~p~n", [self(), Reason]),
             {error, Reason};
         {ok, ListenIf} when is_integer(ListenPort) ->
-            ?Info("~p listening on ~p:~p~n", [self(), ListenIf, ListenPort]),
-            ranch:start_listener(?MODULE, 1, ranch_tcp, [{ip, ListenIf}, {port, ListenPort}], ?MODULE, []);
+            ?Info("~p listening on ~p:~p ~s~n", [self(), ListenIf, ListenPort, if THandler =:= ranch_ssl -> "(ssl)"; true -> "" end]),
+            ranch:start_listener(?MODULE, 1, THandler, [{ip, ListenIf}, {port, ListenPort} | Opts], ?MODULE, if THandler =:= ranch_ssl -> [ssl]; true -> [] end);
         _ ->
             {stop, disabled}
     end.
@@ -32,14 +34,17 @@ start_link(ListenerPid, Socket, Transport, Opts) ->
 stop() ->
     ranch:stop_listener(?MODULE).
  
-init(ListenerPid, Socket, Transport, _Opts = []) ->
-    {ok, {Address, Port}} = inet:peername(Socket),
+init(ListenerPid, Socket, Transport, Opts) ->
+    PeerNameMod = case lists:member(ssl, Opts) of true -> ssl; _ -> inet end,
+    {ok, {Address, Port}} = PeerNameMod:peername(Socket),
     Str = lists:flatten(io_lib:format("~p received connection from ~p:~p", [self(), Address, Port])),
-    ?Log(Str++"~n", []),
-    imem_meta:log_to_db(info,?MODULE,init,[ListenerPid, Socket, Transport, _Opts], Str),
+    ?Info(Str++"~n", []),
+    imem_meta:log_to_db(info,?MODULE,init,[ListenerPid, Socket, Transport, Opts], Str),
     ok = ranch:accept_ack(ListenerPid),
     loop(Socket, Transport, <<>>, 0).
- 
+
+-define(TDebug(__F, __A), ok). 
+%-define(TDebug(__F, __A), ?Debug(__F, __A)). 
 loop(Socket, Transport, Buf, Len) ->
     {OK, Closed, Error} = Transport:messages(),
     Transport:setopts(Socket, [{active, once}]),   
@@ -48,7 +53,7 @@ loop(Socket, Transport, Buf, Len) ->
             {NewLen, NewBuf} =
                 if Buf =:= <<>> ->
                     << L:32, PayLoad/binary >> = Data,
-                    %?Debug(" term size ~p~n", [<< L:32 >>]),
+                    ?TDebug(" term size ~p~n", [<< L:32 >>]),
                     {L, PayLoad};
                 true -> {Len, <<Buf/binary, Data/binary>>}
             end,
@@ -87,31 +92,31 @@ mfa({Ref, Mod, which_applications, Args}, Transport) when Mod =:= imem_sec;
 mfa({Ref, Mod, Fun, Args}, Transport) ->
     NewArgs = args(Ref,Fun,Args,Transport),
     ApplyRes = try
-                   %?Debug("~p MFA -> R ~n ~p:~p(~p)~n", [Transport,Mod,Fun,NewArgs]),
+                   ?TDebug("~p MFA -> R ~n ~p:~p(~p)~n", [Transport,Mod,Fun,NewArgs]),
                    apply(Mod,Fun,NewArgs)
                catch 
                     _Class:Reason -> {error, {Reason, erlang:get_stacktrace()}}
                end,
-    %?Debug("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
-    %?Debug("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
+    ?TDebug("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
+    ?TDebug("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
     send_resp(ApplyRes, Transport),
     ok. % 'ok' returned for erlimem compatibility
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
-    %?Debug("fetch_recs_async, Args for TCP~n ~p~n", [Args]),
+    ?TDebug("fetch_recs_async, Args for TCP~n ~p~n", [Args]),
     Args;
 args(R, fetch_recs_async, A, {_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
-    %?Debug("fetch_recs_async, Args for direct~n ~p~n", [Args]),
+    ?TDebug("fetch_recs_async, Args for direct~n ~p~n", [Args]),
     Args;
 args(_, _F, A, _) ->
-    %?Debug("~p(~p)~n", [_F, A]),
+    ?TDebug("~p(~p)~n", [_F, A]),
     A.
 
 send_resp(Resp, {Transport, Socket, Ref}) ->
     RespBin = term_to_binary({Ref, Resp}),
-    %% - ?Debug("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
+    ?TDebug("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
     PayloadSize = byte_size(RespBin),
     Transport:send(Socket, << PayloadSize:32, RespBin/binary >>);
 send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
