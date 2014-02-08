@@ -41,6 +41,17 @@
 %%          {ok, Pid, State} |
 %%          {error, Reason}
 %% --------------------------------------------------------------------
+apps_start([]) -> ok;
+apps_start([A|Rest]) when is_atom(A) ->
+    case (case application:start(A) of
+             ok -> ok;
+             {error, {already_started, A}} -> ok;
+             Err -> {error, Err}
+         end) of
+        {error, Error} -> ?Error("~p start failed ~p~n", [A, Error]);
+        ok -> apps_start(Rest)
+    end.
+
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
     % it only helps to build up the cluster
@@ -55,16 +66,13 @@ start(_Type, StartArgs) ->
             end || CMNode <- CMNodes]
     end,
     % imem_server ranch listner (started unsupervised)
-    case application:start(ranch) of
-        ok -> ok;
-        {error, {already_started, ranch}} -> ok;
-        Err -> ?Info("ranch start failed ~p~n", [Err])
-    end,
+    apps_start([asn1, crypto, public_key, ssl, ranch]),
     case application:get_env(tcp_server) of
         {ok, true} ->
             {ok, TcpIf} = application:get_env(tcp_ip),
             {ok, TcpPort} = application:get_env(tcp_port),
-            imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}]);
+            {ok, SSL} = application:get_env(ssl),
+            imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}, {ssl, SSL}]);
         _ -> ?Info("imem TCP is not configured to start!~n")
     end,
     case imem_sup:start_link(StartArgs) of
