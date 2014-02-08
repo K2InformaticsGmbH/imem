@@ -3,15 +3,13 @@
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
+-define(GET_ROWNUM_LIMIT,?GET_IMEM_CONFIG(rownumDefaultLimit,[],10000)).
+-define(MaxChar,16#FFFFFF).
+-define(FilterFuns, ['is_member', 'is_like', 'is_regexp_like', 'safe']).
+
 -export([ exec/5
         , parse/1
         ]).
-
--define(GET_ROWNUM_LIMIT,?GET_IMEM_CONFIG(rownumDefaultLimit,[],10000)).
-
--define(MaxChar,16#FFFFFF).
-
--define(FilterFuns, ['is_member', 'is_like', 'is_regexp_like', 'safe']).
 
 -export([ field_qname/1
         , field_name/1
@@ -21,7 +19,7 @@
         , column_map_items/2
         , column_map/2
         , simplify_guard/1
-        , guard_bind/3
+        , bind_guard/3
         , create_scan_spec/3
         , operand_member/2
         , operand_match/2
@@ -38,7 +36,7 @@
         , re_match/2
         , like_compile/1
         , like_compile/2
-        , make_expr_fun/3
+        , make_expr_fun/2
         ]).
 
 parse(Sql) ->
@@ -151,36 +149,44 @@ table_qname(S, _A) ->
     ?ClientError({"Invalid table name", S}).
 
 column_map_items(Map, tag) ->
-    [C#ddColMap.tag || C <- Map];
+    [C#bind.tag || C <- Map];
 column_map_items(Map, schema) ->
-    [C#ddColMap.schema || C <- Map];
+    [C#bind.schema || C <- Map];
 column_map_items(Map, table) ->
-    [C#ddColMap.table || C <- Map];
+    [C#bind.table || C <- Map];
 column_map_items(Map, name) ->
-    [C#ddColMap.name || C <- Map];
+    [C#bind.name || C <- Map];
 column_map_items(Map, qname) ->
-    [lists:flatten(io_lib:format("~p.~p.~p", [C#ddColMap.schema,C#ddColMap.table,C#ddColMap.name])) || C <- Map];
+    [lists:flatten(io_lib:format("~p.~p.~p", [C#bind.schema,C#bind.table,C#bind.name])) || C <- Map];
 column_map_items(Map, qtype) ->
-    [lists:flatten(io_lib:format("~p(~p,~p)", [C#ddColMap.type,C#ddColMap.len,C#ddColMap.prec])) || C <- Map];
+    [lists:flatten(io_lib:format("~p(~p,~p)", [C#bind.type,C#bind.len,C#bind.prec])) || C <- Map];
 column_map_items(Map, tind) ->
-    [C#ddColMap.tind || C <- Map];
+    [C#bind.tind || C <- Map];
 column_map_items(Map, cind) ->
-    [C#ddColMap.cind || C <- Map];
+    [C#bind.cind || C <- Map];
 column_map_items(Map, type) ->
-    [C#ddColMap.type || C <- Map];
+    [C#bind.type || C <- Map];
 column_map_items(Map, len) ->
-    [C#ddColMap.len || C <- Map];
+    [C#bind.len || C <- Map];
 column_map_items(Map, prec) ->
-    [C#ddColMap.prec || C <- Map];
+    [C#bind.prec || C <- Map];
 column_map_items(Map, ptree) ->
-    [C#ddColMap.ptree || C <- Map];
+    [C#bind.ptree || C <- Map];
 column_map_items(_Map, Item) ->
     ?ClientError({"Invalid item",Item}).
 
+
+%% @doc generates list of bind records from list of tables and list of select fields.
+%% Tables:  given as {Schema,Name,Alias}
+%% Columns: given as parse tree terms (tuples)
+%%          may contain qualified/unqualified names (binary strings)
+%%          may contain expressions including functions  
+-spec column_map(list(tuple()),list(tuple())) -> list(#bind{}).
+%% throws ?ClientError, ?UnimplementedException
 column_map([], Columns) ->
     ?ClientError({"Empty table list",Columns});
 column_map(Tables, []) ->
-    column_map(Tables, [#ddColMap{name='*'}]);    
+    column_map(Tables, [#bind{name='*'}]);    
 column_map(Tables, Columns) ->
     column_map([{S,imem_meta:physical_table_name(T),A}||{S,T,A} <- Tables], Columns, ?MainIdx, [], [], []).    %% First table has index 2
 
@@ -193,18 +199,18 @@ column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
     % ?Debug("column_map columns ~p~n", [Columns]),
     column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
 
-column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+column_map([], [#bind{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Debug("column_map 1 ~p~n", [Cmap0]),
     NameList = [N ||  {_, _, _, _, N, _} <- Lookup],
     NameDups = length(Lookup) - length(lists:usort(NameList)),
     Cmaps = case NameDups of
-        0 -> [Cmap0#ddColMap{
+        0 -> [Cmap0#bind{
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
                 , alias=?atom_to_binary(N)
                 , ptree=?atom_to_binary(N)
               } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup
              ];
-        _ -> [Cmap0#ddColMap{
+        _ -> [Cmap0#bind{
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
                 , alias=list_to_binary([atom_to_list(T), ".", atom_to_list(N)])
                 , ptree=list_to_binary([atom_to_list(T), ".", atom_to_list(N)])
@@ -212,23 +218,23 @@ column_map([], [#ddColMap{schema=undefined, table=undefined, name='*'}=Cmap0|Col
              ]
     end,
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
-column_map([], [#ddColMap{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+column_map([], [#bind{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Debug("column_map 2 ~p~n", [Cmap0]),
-    column_map([], [Cmap0#ddColMap{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
-column_map([], [#ddColMap{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    column_map([], [Cmap0#bind{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
+column_map([], [#bind{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Debug("column_map 3 ~p~n", [Cmap0]),
     Prefix = case imem_meta:schema() of
         Schema ->   atom_to_list(Table);
         _ ->        atom_to_list(Schema) ++ "." ++ atom_to_list(Table)
     end,
-    Cmaps = [Cmap0#ddColMap{
+    Cmaps = [Cmap0#bind{
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
                 , alias=list_to_binary([Prefix, ".", atom_to_list(N)])
                 , ptree=list_to_binary([Prefix, ".", atom_to_list(N)])
              } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, S==Schema, T==Table
             ],
     column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
-column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+column_map([], [#bind{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Debug("column_map 4 ~p~n", [Cmap0]),
     Pred = fun(L) ->
         (Name == element(5, L)) andalso
@@ -247,7 +253,7 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
                 Index ->    {Index, Meta}
             end, 
             #ddColumn{type=Type, len=Len, prec=P} = imem_meta:meta_field_info(Name),
-            Cmap1 = Cmap0#ddColMap{tind=?MetaIdx, cind=Cindex, type=Type, len=Len, prec=P},
+            Cmap1 = Cmap0#bind{tind=?MetaIdx, cind=Cindex, type=Type, len=Len, prec=P},
             column_map([], Columns, Tindex, Lookup, Meta1, [Cmap1|Acc]);                          
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined)->  
             ?ClientError({"Unknown column name", Name});
@@ -264,7 +270,7 @@ column_map([], [#ddColMap{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
         true ->         
             {Ti, Ci, S, T, Name, #ddColumn{type=Type, len=Len, prec=P, default=D}} = hd(Lmatch),
             R = (Ti /= ?MainIdx),   %% Only main table is editable
-            Cmap1 = Cmap0#ddColMap{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
+            Cmap1 = Cmap0#bind{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
             column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
     end;
 column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
@@ -273,7 +279,7 @@ column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) 
         true ->
             {S,T,N} = field_qname(Name),
             Alias = list_to_binary([Fname, "(", Name, ")"]),
-            column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, func=binary_to_atom(Fname,utf8), ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+            column_map([], [#bind{schema=S, table=T, name=N, alias=Alias, func=binary_to_atom(Fname,utf8), ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
         false ->
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;        
@@ -282,18 +288,18 @@ column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
-            column_map([], [#ddColMap{schema=S, table=T, name=N, func=binary_to_atom(Fname,utf8), alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+            column_map([], [#bind{schema=S, table=T, name=N, func=binary_to_atom(Fname,utf8), alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
         false ->
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;                    
 column_map([], [{as, Name, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
     % ?Debug("column_map 7 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+    column_map([], [#bind{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
     % ?Debug("column_map 8 ~p~n", [Name]),
     {S,T,N} = field_qname(Name),
-    column_map([], [#ddColMap{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Tindex, Lookup, Meta, Acc);
+    column_map([], [#bind{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Tindex, Lookup, Meta, Acc);
 column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
     % ?Debug("column_map 9 ~p~n", [Expression]),
     ?UnimplementedException({"Expressions not supported", Expression});
@@ -315,54 +321,52 @@ index_of(_, [], _)  -> false;
 index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
-guard_bind_value({const,Tup}) when is_tuple(Tup) ->   {const,Tup};    %% ToDo: Is this necesary?
-guard_bind_value(Tup) when is_tuple(Tup) ->           {const,Tup};
-guard_bind_value(Other) ->                            Other.
+%% pass value for bind variable, tuples T are returned as {const,T}
+bind_guard_value({const,Tup}) when is_tuple(Tup) -> {const,Tup};    %% ToDo: Is this neccessary?
+bind_guard_value(Tup) when is_tuple(Tup) ->         {const,Tup};
+bind_guard_value(Other) ->                          Other.   
 
-guard_bind(_Rec, Guard, []) -> Guard;
-guard_bind(Rec, Guard0, [B|Binds]) ->
-    % ?Debug("bind rec: ~p guard: ~p bind: ~p~n", [Rec, Guard0, B]),
-    Guard1 = imem_sql:simplify_guard(guard_bind_one(Rec, Guard0, B)),
+bind_guard(_, Guard, []) -> Guard;
+bind_guard(X, Guard0, [B|Binds]) ->
+    % ?Debug("bind X: ~p guard: ~p bind: ~p~n", [X, Guard0, B]),
+    Guard1 = imem_sql:simplify_guard(bind_guard_one(X, Guard0, B)),
     % ?Debug("bind result: ~p~n", [Guard1]),
-    guard_bind(Rec, Guard1, Binds).
+    bind_guard(X, Guard1, Binds).
 
-guard_bind_one(_Rec,{const,T}, _) when is_tuple(T) -> {const,T};
-guard_bind_one(Rec, {Op,Tag}, {Tag,Ti,Ci}) ->    {Op,guard_bind_value(element(Ci,element(Ti,Rec)))};
-guard_bind_one(Rec, {Op,A}, {Tag,Ti,Ci}) ->      {Op,guard_bind_one(Rec,A,{Tag,Ti,Ci})};
-guard_bind_one(Rec, {Op,Tag,B}, {Tag,Ti,Ci}) -> 
-    % ?Debug("guard_bind_one A rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,Tag,B}, {Tag,Ti,Ci}]),
-    case element(Ci,element(Ti,Rec)) of
+bind_guard_one(_, {const,T}, _) when is_tuple(T) -> {const,T};
+bind_guard_one(X, {Op,Tag}, #bind{tag=Tag}=Bind) -> {Op,?BoundVal(Bind,X)};
+bind_guard_one(X, {Op,A}, Bind) ->                  {Op,bind_guard_one(X,A,Bind)};
+bind_guard_one(X, {Op,Tag,B}, #bind{tag=Tag}=Bind) -> 
+    % ?Debug("bind_guard_one A X: ~p guard: ~p bind: ~p~n", [X, {Op,Tag,B}, Bind]),
+    case ?BoundVal(Bind,X) of
         {{_,_,_},{_,_,_}} = DT ->
-            guard_bind_value(imem_datatype:offset_datetime(Op,DT,B));
+            bind_guard_value(imem_datatype:offset_datetime(Op,DT,B));
         {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},B));
+            bind_guard_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},B));
         Other ->
-            % ?Debug("guard_bind_one A result: ~p~n", [{Op,guard_bind_value(Other),B}]),
-            {Op,guard_bind_value(Other),B}
+            % ?Debug("bind_guard_one A result: ~p~n", [{Op,bind_guard_value(Other),B}]),
+            {Op,bind_guard_value(Other),B}
     end;
-guard_bind_one(Rec, {Op,A,Tag}, {Tag,Ti,Ci}) ->  
-    % ?Debug("guard_bind_one B rec: ~p guard: ~p bind: ~p~n", [Rec, {Op,A,Tag}, {Tag,Ti,Ci}]),
-    case element(Ci,element(Ti,Rec)) of
+bind_guard_one(X, {Op,A,Tag}, #bind{tag=Tag}=Bind) ->  
+    % ?Debug("bind_guard_one B X: ~p guard: ~p bind: ~p~n", [X, {Op,A,Tag}, {Tag,Ti,Ci}]),
+    case ?BoundVal(Bind,X) of
         {{_,_,_},{_,_,_}} = DT ->
-            guard_bind_value(imem_datatype:offset_datetime(Op,DT,A));
+            bind_guard_value(imem_datatype:offset_datetime(Op,DT,A));
         {Mega,Sec,Micro} when is_integer(Mega), is_integer(Sec), is_integer(Micro) ->
-            guard_bind_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},A));
+            bind_guard_value(imem_datatype:offset_timestamp(Op,{Mega,Sec,Micro},A));
         Other ->
-            % ?Debug("guard_bind_one B result: ~p~n", [{Op,A,guard_bind_value(Other)}]),
-            {Op,A,guard_bind_value(Other)}
+            % ?Debug("bind_guard_one B result: ~p~n", [{Op,A,bind_guard_value(Other)}]),
+            {Op,A,bind_guard_value(Other)}
     end;
-guard_bind_one(Rec, {Op,A,B}, {Tag,Ti,Ci}) ->
-    {Op,guard_bind_one(Rec,A,{Tag,Ti,Ci}),guard_bind_one(Rec,B,{Tag,Ti,Ci})};
-guard_bind_one(_, A, _) ->
-    guard_bind_value(A).
+bind_guard_one(X, {Op,A,B}, Bind) ->
+    {Op,bind_guard_one(X,A,Bind),bind_guard_one(X,B,Bind)};
+bind_guard_one(_, A, _) ->
+    bind_guard_value(A).
 
 simplify_guard(Term) ->
     case  simplify_once(Term) of
-        join ->                             true;
-        {'and',join,R1} ->                  simplify_guard(R1);
-%        {'and',R2,join} ->                  simplify_guard(R2);
-        Term ->                             Term;
-        T ->                                simplify_guard(T)
+        Term ->     Term;
+        T ->        simplify_guard(T)
     end.
 
 %% warning: guard may contain unbound variables '$x' which must not be treated as atom values
@@ -433,11 +437,12 @@ simplify_once({'or', B, A} = G) ->
         _ ->                        G
     end;
 simplify_once({ Op, Left, Right}) ->    {Op, simplify_once(Left), simplify_once(Right)};
+simplify_once(join) ->                  true;
 simplify_once(Result) ->                Result.
 
 
 create_scan_spec(Ti,FullMap,[]) ->
-    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
+    MatchHead = list_to_tuple(['_'|[Tag || #bind{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     #scanSpec{sspec=[{MatchHead, [], ['$_']}], limit=?GET_ROWNUM_LIMIT};
 create_scan_spec(Ti,FullMap,[SGuard0]) ->
     % ?Debug("SGuard0 ~p~n", [SGuard0]),
@@ -452,7 +457,7 @@ create_scan_spec(Ti,FullMap,[SGuard0]) ->
         Else ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
-    MatchHead = list_to_tuple(['_'|[Tag || #ddColMap{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
+    MatchHead = list_to_tuple(['_'|[Tag || #bind{tag=Tag, tind=Tind} <- FullMap, Tind==Ti]]),
     % ?Debug("MatchHead (~p) ~p~n", [Ti,MatchHead]),
     SGuard1 = simplify_guard(replace_rownum(SGuard0)),
     % ?Debug("SGuard1 ~p~n", [SGuard1]),
@@ -460,11 +465,11 @@ create_scan_spec(Ti,FullMap,[SGuard0]) ->
     SSpec = [{MatchHead, [SGuard2], ['$_']}],
     % ?Debug("SGuard2 ~p~n", [SGuard2]),
     % ?Debug("FGuard ~p~n", [FGuard]),
-    SBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [SGuard2],[]),
+    SBinds = [B || #bind{tag=Tag, tind=Tind}=B <- FullMap, (Tind/=Ti), operand_member(Tag,SGuard2)],
     % ?Debug("SBinds ~p~n", [SBinds]),
-    MBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind/=Ti)], [FGuard],[]),
+    MBinds = [B || #bind{tag=Tag, tind=Tind}=B <- FullMap, (Tind/=Ti), operand_member(Tag,FGuard)],
     % ?Debug("MBinds ~p~n", [MBinds]),
-    FBinds = binds([{Tag,Tind,Ci} || #ddColMap{tag=Tag, tind=Tind, cind=Ci} <- FullMap, (Tind==Ti)], [FGuard],[]),
+    FBinds = [B || #bind{tag=Tag, tind=Tind}=B <- FullMap, (Tind==Ti), operand_member(Tag,FGuard)],
     % ?Debug("FBinds ~p~n", [FBinds]),
     #scanSpec{sspec=SSpec,sbinds=SBinds,fguard=FGuard,mbinds=MBinds,fbinds=FBinds,limit=Limit}.
 
@@ -545,15 +550,6 @@ operand_member(Tx,{_,L,R}) -> operand_member(Tx,L) orelse operand_member(Tx,R);
 operand_member(Tx,Tx) -> true;
 operand_member(_,_) -> false.
 
-binds(_, [], []) -> [];
-binds(_, [true], []) -> [];
-binds([], _Guards, Acc) -> Acc;
-binds([{Tx,Ti,Ci}|Rest], [Guard], Acc) ->
-    case operand_member(Tx,Guard) of
-        true ->     binds(Rest,[Guard],[{Tx,Ti,Ci}|Acc]);
-        false ->    binds(Rest,[Guard],Acc)
-    end.
-
 operand_match(Tx,{_,Tx}=C0) ->      C0;
 operand_match(Tx,{_,R}) ->          operand_match(Tx,R);
 operand_match(Tx,{_,Tx,_}=C1) ->    C1;
@@ -604,15 +600,15 @@ sort_spec_item(Name,<<>>,FullMaps,ColMaps) ->
 sort_spec_item(Name,Direction,FullMaps,ColMaps) ->
     U = undefined,
     ML = case imem_sql:field_qname(Name) of
-        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMaps, Nam==N];
-        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMaps, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMaps, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {U,U,N} ->  [C || #bind{name=Nam}=C <- FullMaps, Nam==N];
+        {U,T1,N} -> [C || #bind{name=Nam,table=Tab}=C <- FullMaps, (Nam==N), (Tab==T1)];
+        {S,T2,N} -> [C || #bind{name=Nam,table=Tab,schema=Sch}=C <- FullMaps, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
         {} ->       []
     end,
     case length(ML) of
         0 ->    ?ClientError({"Bad sort expression", Name});
-        1 ->    #ddColMap{tind=Ti,cind=Ci,alias=A} = hd(ML),
-                case [Cp || {Cp,#ddColMap{tind=Tind,cind=Cind}} <- lists:zip(lists:seq(1,length(ColMaps)),ColMaps), Tind==Ti, Cind==Ci] of
+        1 ->    #bind{tind=Ti,cind=Ci,alias=A} = hd(ML),
+                case [Cp || {Cp,#bind{tind=Tind,cind=Cind}} <- lists:zip(lists:seq(1,length(ColMaps)),ColMaps), Tind==Ti, Cind==Ci] of
                     [CP|_] ->   {CP,Direction};
                      _ ->       {A,Direction}
                 end;
@@ -624,14 +620,14 @@ sort_fun_item(Name,<<>>,FullMap) ->
 sort_fun_item(Name,Direction,FullMap) ->
     U = undefined,
     ML = case imem_sql:field_qname(Name) of
-        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
-        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {U,U,N} ->  [C || #bind{name=Nam}=C <- FullMap, Nam==N];
+        {U,T1,N} -> [C || #bind{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
+        {S,T2,N} -> [C || #bind{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
         {} ->       []
     end,
     case length(ML) of
         0 ->    ?ClientError({"Bad sort expression", Name});
-        1 ->    #ddColMap{type=Type, tind=Ti, cind=Ci} = hd(ML),
+        1 ->    #bind{type=Type, tind=Ti, cind=Ci} = hd(ML),
                 sort_fun(Type,Ti,Ci,Direction);
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
@@ -651,12 +647,12 @@ filter_spec_where({FType,[ColF|ColFs]}, ColMaps, WhereTree, LeftTree) ->
     filter_spec_where({FType,ColFs}, ColMaps, WhereTree, {FType,LeftTree,FCond}).    
 
 filter_condition({Idx,[Val]}, ColMaps) ->
-    #ddColMap{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
     Tag = "Col" ++ integer_to_list(Idx),
     Value = filter_field_value(Tag,Type,L,P,D,Val),     % list_to_binary(
     {'=',list_to_binary(field_name(S,T,N)),Value};
 filter_condition({Idx,Vals}, ColMaps) ->
-    #ddColMap{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMaps),
     Tag = "Col" ++ integer_to_list(Idx),
     Values = [filter_field_value(Tag,Type,L,P,D,Val) || Val <- Vals],       % list_to_binary(
     {'in',list_to_binary(field_name(S,T,N)),{'list',Values}}.
@@ -676,19 +672,19 @@ sort_spec_order([SS|SortSpecs],FullMaps,ColMaps, Acc) ->
 
 sort_order({Ti,Ci,Direction},FullMaps,ColMaps) ->
     %% SortSpec given referencing FullMap Ti,Ci    
-    case [{S,T,N} || #ddColMap{tind=Tind,cind=Cind,schema=S,table=T,name=N} <- FullMaps, Tind==Ti, Cind==Ci] of
+    case [{S,T,N} || #bind{tind=Tind,cind=Cind,schema=S,table=T,name=N} <- FullMaps, Tind==Ti, Cind==Ci] of
         [QN] ->    {sort_name_short(QN,FullMaps,ColMaps),Direction};
         _ ->       ?ClientError({"Bad sort field reference", {Ti,Ci}})
     end;
 sort_order({Cp,Direction},FullMaps,ColMaps) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position    
-    #ddColMap{schema=S,table=T,name=N} = lists:nth(Cp,ColMaps),
+    #bind{schema=S,table=T,name=N} = lists:nth(Cp,ColMaps),
     {sort_name_short({S,T,N},FullMaps,ColMaps),Direction};
 sort_order({CName,Direction},_,_) ->
     {CName,Direction}.
 
 sort_name_short({_S,T,N},FullMaps,_ColMaps) ->
-    case length(lists:usort([{Su,Tu,Nu} || #ddColMap{schema=Su,table=Tu,name=Nu} <- FullMaps, Nu==N])) of
+    case length(lists:usort([{Su,Tu,Nu} || #bind{schema=Su,table=Tu,name=Nu} <- FullMaps, Nu==N])) of
         1 ->    list_to_binary(field_name({undefined,undefined,N}));
         _ ->    list_to_binary(field_name({undefined,T,N}))
     end.
@@ -705,19 +701,19 @@ sort_spec_fun([SS|SortSpecs],FullMaps,ColMaps,Acc) ->
 
 sort_fun_any({Ti,Ci,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap Ti,Ci    
-    case [Type || #ddColMap{tind=Tind,cind=Cind,type=Type} <- FullMaps, Tind==Ti, Cind==Ci] of
+    case [Type || #bind{tind=Tind,cind=Cind,type=Type} <- FullMaps, Tind==Ti, Cind==Ci] of
         [Typ] ->    sort_fun(Typ,Ti,Ci,Direction);
         Else ->     ?ClientError({"Bad sort field type", Else})
     end;
 sort_fun_any({Cp,Direction},_,ColMaps) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position
-    #ddColMap{tind=Ti,cind=Ci,type=Type} = lists:nth(Cp,ColMaps),
+    #bind{tind=Ti,cind=Ci,type=Type} = lists:nth(Cp,ColMaps),
     % ?Debug("sort on col position ~p Ti=~p Ci=~p ~p~n",[Cp,Ti,Ci,lists:nth(Cp,ColMaps)]),    
     sort_fun(Type,Ti,Ci,Direction);
 sort_fun_any({CName,Direction},FullMaps,_) ->
     %% SortSpec given referencing FullMap alias    
-    case lists:keysearch(CName, #ddColMap.alias, FullMaps) of
-        {value,#ddColMap{tind=Ti,cind=Ci,type=Type}} ->
+    case lists:keysearch(CName, #bind.alias, FullMaps) of
+        {value,#bind{tind=Ti,cind=Ci,type=Type}} ->
             % ?Debug("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
             sort_fun(Type,Ti,Ci,Direction);
         Else ->     
@@ -898,63 +894,63 @@ re_match(RE, S) ->
     end.
 
 %% Constant tuple expressions
-make_expr_fun(_, {const, A}, _) when is_tuple(A) -> A;
+make_expr_fun({const, A}, _) when is_tuple(A) -> A;
 %% Comparison expressions
-make_expr_fun(_, {'==', Same, Same}, _) -> true;
-make_expr_fun(_, {'/=', Same, Same}, _) -> false;
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
-    make_comp_fun(Ctx, {Op, A, B}, FBinds); 
+make_expr_fun({'==', Same, Same}, _) -> true;
+make_expr_fun({'/=', Same, Same}, _) -> false;
+make_expr_fun({Op, A, B}, FBinds) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
+    make_comp_fun({Op, A, B}, FBinds); 
 %% Mathematical expressions    
-make_expr_fun(_, {'pi'}, _) -> math:pi();
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='+';Op=='-' ->
-    make_math_fun(Ctx, {Op, A}, FBinds); 
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
-    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
-    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
-    make_module_fun(Ctx, 'math', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
-    make_math_fun(Ctx, {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='pow';Op=='atan2' ->
-    make_module_fun(Ctx, 'math', {Op, A, B}, FBinds);
+make_expr_fun({'pi'}, _) -> math:pi();
+make_expr_fun({Op, A}, FBinds) when Op=='+';Op=='-' ->
+    make_math_fun({Op, A}, FBinds); 
+make_expr_fun({Op, A}, FBinds) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
+    make_module_fun('math', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
+    make_module_fun('math', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
+    make_module_fun('math', {Op, A}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
+    make_math_fun({Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='pow';Op=='atan2' ->
+    make_module_fun('math', {Op, A, B}, FBinds);
 %% Erlang module
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
-    make_module_fun(Ctx, 'erlang', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
-    make_module_fun(Ctx, 'erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
+    make_module_fun('erlang', {Op, A}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
+    make_module_fun('erlang', {Op, A, B}, FBinds);
 %% Lists module
-make_expr_fun(Ctx, {Op, A}, FBinds) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
-    make_module_fun(Ctx, 'lists', {Op, A}, FBinds);
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
-    make_module_fun(Ctx, 'lists', {Op, A, B}, FBinds);
+make_expr_fun({Op, A}, FBinds) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
+    make_module_fun('lists', {Op, A}, FBinds);
+make_expr_fun({Op, A, B}, FBinds) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
+    make_module_fun('lists', {Op, A, B}, FBinds);
 %% Logical expressions
-make_expr_fun(Ctx, {'not', A}, FBinds) ->
-    case make_expr_fun(Ctx, A, FBinds) of
+make_expr_fun({'not', A}, FBinds) ->
+    case make_expr_fun(A, FBinds) of
         ?nav ->                     ?nav;
         true ->                     false;
         false ->                    true;
@@ -966,9 +962,9 @@ make_expr_fun(Ctx, {'not', A}, FBinds) ->
                                                 end
                                     end
     end;                       
-make_expr_fun(Ctx, {'and', A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
+make_expr_fun({'and', A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
     case {Fa,Fb} of
         {true,true} ->  true;
         {false,_} ->    false;
@@ -977,9 +973,9 @@ make_expr_fun(Ctx, {'and', A, B}, FBinds) ->
         {_,true} ->     Fa;         %% may be ?nav or a fun evaluating to ?nav
         {_,_} ->        fun(X) -> (Fa(X) and Fb(X)) end
     end;
-make_expr_fun(Ctx, {'or', A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
+make_expr_fun({'or', A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
     case {Fa,Fb} of
         {false,false}-> false;
         {true,_} ->     true;
@@ -989,54 +985,53 @@ make_expr_fun(Ctx, {'or', A, B}, FBinds) ->
         {_,_} ->        fun(X) -> (Fa(X) or Fb(X)) end
     end;
 %% Custom filters
-make_expr_fun(Ctx, {Op, A, B}, FBinds) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
-    make_filter_fun(Ctx,{Op, A, B}, FBinds);
-make_expr_fun(Ctx, {'safe', A}, FBinds) ->
-    make_safe_fun(Ctx, A, FBinds);
-make_expr_fun(_Ctx, {Op, A}, _FBinds) ->
+make_expr_fun({Op, A, B}, FBinds) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
+    make_filter_fun({Op, A, B}, FBinds);
+make_expr_fun({'safe', A}, FBinds) ->
+    make_safe_fun(A, FBinds);
+make_expr_fun({Op, A}, _FBinds) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
-make_expr_fun(_Ctx, {Op, A, B}, _FBinds) ->
+make_expr_fun({Op, A, B}, _FBinds) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
-make_expr_fun(_Ctx, Value, _FBinds)  -> Value.
+make_expr_fun(Value, _FBinds)  -> Value.
 
 
-bind_action(P,_FBinds) when is_function(P) -> true;     %% parameter already bound to function
-bind_action(P,FBinds) -> lists:keyfind(P,1,FBinds).     %% bind {'$x',Ti,Xi} or false for value prameter 
+bind_action(P,_Binds) when is_function(P) -> true;          %% parameter already bound to function
+bind_action(P,Binds) -> lists:keyfind(P,#bind.tag,Binds).   %% find bind by tag name or return false for value prameter
 
+make_safe_fun(A, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    make_safe_fun_final(Fa, FBinds).
 
-make_safe_fun(Ctx, A, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    make_safe_fun_final(Ctx, Fa, FBinds).
-
-make_safe_fun_final(_Ctx, A, FBinds) ->
+make_safe_fun_final(A, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             fun(X) -> try A(X) catch _:_ -> ?nav end end;       
         ABind ->            fun(X) -> try ?BoundVal(ABind,X) catch _:_ -> ?nav end end
     end.
 
-make_module_fun(Ctx, Mod, {Op, {const,A}}, FBinds) when is_tuple(A) ->
-    make_module_fun_final(Ctx, Mod, {Op, A}, FBinds);
-make_module_fun(Ctx, Mod, {Op, A}, FBinds) ->
-    make_module_fun_final(Ctx, Mod, {Op, make_expr_fun(Ctx,A,FBinds)}, FBinds);
-make_module_fun(Ctx, Mod, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
-    make_module_fun_final(Ctx, Mod, {Op, A, B}, FBinds);
-make_module_fun(Ctx, Mod, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
-    make_module_fun_final(Ctx, Mod, {Op, A, make_expr_fun(Ctx,B,FBinds)}, FBinds);
-make_module_fun(Ctx, Mod, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
-    make_module_fun_final(Ctx, Mod, {Op, make_expr_fun(Ctx,A,FBinds), B}, FBinds);
-make_module_fun(Ctx, Mod, {Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
-    make_module_fun_final(Ctx, Mod, {Op, Fa, Fb}, FBinds).
+make_module_fun(Mod, {Op, {const,A}}, FBinds) when is_tuple(A) ->
+    make_module_fun_final(Mod, {Op, A}, FBinds);
+make_module_fun(Mod, {Op, A}, FBinds) ->
+    make_module_fun_final(Mod, {Op, make_expr_fun(A,FBinds)}, FBinds);
+make_module_fun(Mod, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    make_module_fun_final(Mod, {Op, A, B}, FBinds);
+make_module_fun(Mod, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    make_module_fun_final(Mod, {Op, A, make_expr_fun(B,FBinds)}, FBinds);
+make_module_fun(Mod, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    make_module_fun_final(Mod, {Op, make_expr_fun(A,FBinds), B}, FBinds);
+make_module_fun(Mod, {Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
+    make_module_fun_final(Mod, {Op, Fa, Fb}, FBinds).
 
-make_module_fun_final(_Ctx, Mod, {Op, A}, FBinds) -> 
+make_module_fun_final(Mod, {Op, A}, FBinds) -> 
     case bind_action(A,FBinds) of 
         false ->        Mod:Op(A);
         true ->         fun(X) -> Mod:Op(A(X)) end;
         ABind ->        fun(X) -> Mod:Op(?BoundVal(ABind,X)) end
     end;
-make_module_fun_final(_Ctx, Mod, {Op, A, B}, FBinds) -> 
+make_module_fun_final(Mod, {Op, A, B}, FBinds) -> 
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->        Mod:Op(A,B);
         {false,true} ->         fun(X) -> Mod:Op(A,B(X)) end;
@@ -1049,20 +1044,20 @@ make_module_fun_final(_Ctx, Mod, {Op, A, B}, FBinds) ->
         {ABind,BBind} ->        fun(X) -> Mod:Op(?BoundVal(ABind,X),?BoundVal(BBind,X)) end 
     end.
 
-make_math_fun(Ctx, {Op, A}, FBinds) ->
-    make_math_fun_unary(Ctx, {Op, make_expr_fun(Ctx,A,FBinds)}, FBinds);
-make_math_fun(Ctx, {Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
-    make_math_fun_binary(Ctx, {Op, Fa, Fb}, FBinds).
+make_math_fun({Op, A}, FBinds) ->
+    make_math_fun_unary({Op, make_expr_fun(A,FBinds)}, FBinds);
+make_math_fun({Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
+    make_math_fun_binary({Op, Fa, Fb}, FBinds).
 
-make_math_fun_unary(_, {'+', A}, FBinds) ->
+make_math_fun_unary({'+', A}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             A;       
         ABind ->            fun(X) -> ?BoundVal(ABind,X) end
     end;
-make_math_fun_unary(_, {'-', A}, FBinds) ->
+make_math_fun_unary({'-', A}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             fun(X) -> (-A(X)) end;       
@@ -1079,7 +1074,7 @@ make_math_fun_unary(_, {'-', A}, FBinds) ->
                 'rem' ->    (__A rem __B)
             end).
 
-make_math_fun_binary(_Ti, {Op, A, B}, FBinds) ->
+make_math_fun_binary({Op, A, B}, FBinds) ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?MathOpBlockBinary(Op,A,B);
         {false,true} ->     fun(X) -> ?MathOpBlockBinary(Op,A,B(X)) end;
@@ -1092,16 +1087,16 @@ make_math_fun_binary(_Ti, {Op, A, B}, FBinds) ->
         {ABind,BBind} ->    fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),?BoundVal(BBind,X)) end
     end.
 
-make_comp_fun(Ctx, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
-    make_comp_fun_final(Ctx, {Op, A, B}, FBinds);
-make_comp_fun(Ctx, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
-    make_comp_fun_final(Ctx, {Op, A, make_expr_fun(Ctx,B,FBinds)}, FBinds);
-make_comp_fun(Ctx, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
-    make_comp_fun_final(Ctx, {Op, make_expr_fun(Ctx,A,FBinds), B}, FBinds);
-make_comp_fun(Ctx, {Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(Ctx,A,FBinds),
-    Fb = make_expr_fun(Ctx,B,FBinds),
-    make_comp_fun_final(Ctx, {Op, Fa, Fb}, FBinds).
+make_comp_fun({Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    make_comp_fun_final({Op, A, B}, FBinds);
+make_comp_fun({Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    make_comp_fun_final({Op, A, make_expr_fun(B,FBinds)}, FBinds);
+make_comp_fun({Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    make_comp_fun_final({Op, make_expr_fun(A,FBinds), B}, FBinds);
+make_comp_fun({Op, A, B}, FBinds) ->
+    Fa = make_expr_fun(A,FBinds),
+    Fb = make_expr_fun(B,FBinds),
+    make_comp_fun_final({Op, Fa, Fb}, FBinds).
 
 
 -define(CompOpBlock(__Op,__A,__B), 
@@ -1119,7 +1114,7 @@ make_comp_fun(Ctx, {Op, A, B}, FBinds) ->
                 end
         end).
 
-make_comp_fun_final(_Ctx, {Op, A, B}, FBinds) ->
+make_comp_fun_final({Op, A, B}, FBinds) ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?CompOpBlock(Op,A,B);
         {false,true} ->     fun(X) -> Bbound=B(X),?CompOpBlock(Op,A,Bbound) end;
@@ -1132,17 +1127,17 @@ make_comp_fun_final(_Ctx, {Op, A, B}, FBinds) ->
         {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,Abound,Bbound) end
     end.
 
-make_filter_fun(Ctx, {Op, {const,A}, {const,B}}, FBinds) ->
-    make_filter_fun_final(Ctx,{Op, A, B}, FBinds);
-make_filter_fun(Ctx, {Op, {const,A}, B}, FBinds) ->
-    make_filter_fun_final(Ctx,{Op, A, make_expr_fun(Ctx, B, FBinds)}, FBinds);
-make_filter_fun(Ctx, {Op, A, {const,B}}, FBinds) ->
-    make_filter_fun_final(Ctx,{Op, make_filter_fun(Ctx, A, FBinds), B}, FBinds);
-make_filter_fun(Ctx, {Op, A, B}, FBinds) ->
-    FA = make_expr_fun(Ctx, A, FBinds),
-    FB = make_expr_fun(Ctx, B, FBinds),
-    make_filter_fun_final(Ctx, {Op, FA, FB}, FBinds);
-make_filter_fun(_Ti, Value, _FBinds) -> Value.
+make_filter_fun({Op, {const,A}, {const,B}}, FBinds) ->
+    make_filter_fun_final({Op, A, B}, FBinds);
+make_filter_fun({Op, {const,A}, B}, FBinds) ->
+    make_filter_fun_final({Op, A, make_expr_fun(B, FBinds)}, FBinds);
+make_filter_fun({Op, A, {const,B}}, FBinds) ->
+    make_filter_fun_final({Op, make_filter_fun(A, FBinds), B}, FBinds);
+make_filter_fun({Op, A, B}, FBinds) ->
+    FA = make_expr_fun(A, FBinds),
+    FB = make_expr_fun(B, FBinds),
+    make_filter_fun_final( {Op, FA, FB}, FBinds);
+make_filter_fun(Value, _FBinds) -> Value.
 
 
 -define(ElementOpBlock(__A,__B), 
@@ -1153,7 +1148,7 @@ make_filter_fun(_Ti, Value, _FBinds) -> Value.
         true -> element(__A,__B)
     end).
 
-make_filter_fun_final(_Ctx, {'element', A, B}, FBinds)  ->
+make_filter_fun_final({'element', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?ElementOpBlock(A,B);
         {false,true} ->     fun(X) -> Bbound=B(X),?ElementOpBlock(A,Bbound) end;
@@ -1165,7 +1160,7 @@ make_filter_fun_final(_Ctx, {'element', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> Abound=?BoundVal(ABind,X),Bbound=B(X),?ElementOpBlock(Abound,Bbound) end;
         {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?ElementOpBlock(Abound,Bbound) end
     end;
-make_filter_fun_final(_, {'is_member', A, '$_'}, FBinds) ->
+make_filter_fun_final({'is_member', A, '$_'}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->        
             fun(X) -> 
@@ -1180,7 +1175,7 @@ make_filter_fun_final(_, {'is_member', A, '$_'}, FBinds) ->
                 lists:member(?BoundVal(ABind,X),tl(tuple_to_list(element(?MainIdx,X))))
             end
     end;
-make_filter_fun_final(_Ctx, {'is_like', A, B}, FBinds)  ->
+make_filter_fun_final({'is_like', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    re_match(like_compile(B),A);
         {false,true} ->     fun(X) -> re_match(like_compile(B(X)),A) end;
@@ -1192,7 +1187,7 @@ make_filter_fun_final(_Ctx, {'is_like', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> re_match(like_compile(B(X)),?BoundVal(ABind,X)) end;
         {ABind,BBind} ->    fun(X) -> re_match(like_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
     end;
-make_filter_fun_final(_Ctx, {'is_regexp_like', A, B}, FBinds)  ->
+make_filter_fun_final({'is_regexp_like', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    re_match(re_compile(B),A);
         {false,true} ->     fun(X) -> re_match(re_compile(B(X)),A) end;
@@ -1204,7 +1199,7 @@ make_filter_fun_final(_Ctx, {'is_regexp_like', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> re_match(re_compile(B(X)),?BoundVal(ABind,X)) end;
         {ABind,BBind} ->    fun(X) -> re_match(re_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
     end;
-make_filter_fun_final(_Ctx, {'is_member', A, B}, FBinds)  ->
+make_filter_fun_final({'is_member', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->        
             if 
@@ -1286,8 +1281,8 @@ make_filter_fun_final(_Ctx, {'is_member', A, B}, FBinds)  ->
                 end
             end
     end;
-make_filter_fun_final(Ctx,FGuard, FBinds) ->
-    ?UnimplementedException({"Unsupported filter function",{Ctx, FGuard, FBinds}}).
+make_filter_fun_final(FGuard, FBinds) ->
+    ?UnimplementedException({"Unsupported filter function",{FGuard, FBinds}}).
 
 
 
@@ -1327,7 +1322,9 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Info("----------------------------------~n"),
+        ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?Info("----------------------------------~n"),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -1347,43 +1344,47 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, filter_member({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
     %% make_expr_fun
-        ?assertEqual(true, make_expr_fun(1, true, [])),
-        ?assertEqual(false, make_expr_fun(1, false, [])),
-        ?assertEqual(true, make_expr_fun(1, {'not', false}, [])),
-        ?assertEqual(false, make_expr_fun(1, {'not', true}, [])),
-        ?assertEqual(12, make_expr_fun(1, 12, [])),
-        ?assertEqual(a, make_expr_fun(1, a, [])),
-        ?assertEqual({a,b}, make_expr_fun(1, {const,{a,b}}, [])),
-        ?assertEqual(true, make_expr_fun(1, {'==', 10,10}, [])),
-        ?assertEqual(true, make_expr_fun(1, {'==', {const,{a,b}}, {const,{a,b}}}, [])), 
-        ?assertEqual(false, make_expr_fun(1, {'==', {const,{a,b}}, {const,{a,1}}}, [])), 
-        ?assertEqual(true, make_expr_fun(1,{'is_member', a, [a,b]}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_member', 1, [a,b,1]}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_member', 1, [a,b,c]}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_member', 1, {const,a,b,1}}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_member', 1, {const,a,b,c}}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', "12345", "%3%"}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', <<"12345">>, "%3__"}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', "12345", <<"1%">>}, [])),
-        ?assertEqual(true, make_expr_fun(1,{'is_like', {'+',12300,45}, <<"%45">>}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_like', "12345", "%6%"}, [])),
-        ?assertEqual(false, make_expr_fun(1,{'is_like', <<"12345">>, "%7__"}, [])),
-        ?assertEqual(33, make_expr_fun(1, {'*',{'+',10,1},3}, [])),
-        ?assertEqual(10, make_expr_fun(1, {'abs',{'-',10,20}}, [])),
+        ?assertEqual(true, make_expr_fun(true, [])),
+        ?assertEqual(false, make_expr_fun(false, [])),
+        ?assertEqual(true, make_expr_fun({'not', false}, [])),
+        ?assertEqual(false, make_expr_fun({'not', true}, [])),
+        ?assertEqual(12, make_expr_fun(12, [])),
+        ?assertEqual(a, make_expr_fun(a, [])),
+        ?assertEqual({a,b}, make_expr_fun({const,{a,b}}, [])),
+        ?assertEqual(true, make_expr_fun({'==', 10,10}, [])),
+        ?assertEqual(true, make_expr_fun({'==', {const,{a,b}}, {const,{a,b}}}, [])), 
+        ?assertEqual(false, make_expr_fun({'==', {const,{a,b}}, {const,{a,1}}}, [])), 
+        ?assertEqual(true, make_expr_fun({'is_member', a, [a,b]}, [])),
+        ?assertEqual(true, make_expr_fun({'is_member', 1, [a,b,1]}, [])),
+        ?assertEqual(false, make_expr_fun({'is_member', 1, [a,b,c]}, [])),
+        ?assertEqual(true, make_expr_fun({'is_member', 1, {const,a,b,1}}, [])),
+        ?assertEqual(false, make_expr_fun({'is_member', 1, {const,a,b,c}}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', "12345", "%3%"}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', <<"12345">>, "%3__"}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', "12345", <<"1%">>}, [])),
+        ?assertEqual(true, make_expr_fun({'is_like', {'+',12300,45}, <<"%45">>}, [])),
+        ?assertEqual(false, make_expr_fun({'is_like', "12345", "%6%"}, [])),
+        ?assertEqual(false, make_expr_fun({'is_like', <<"12345">>, "%7__"}, [])),
+        ?assertEqual(33, make_expr_fun({'*',{'+',10,1},3}, [])),
+        ?assertEqual(10, make_expr_fun({'abs',{'-',10,20}}, [])),
         ?Info("success ~p~n", ["make_expr_fun constants"]),
 
         X1 = {{1,2,3},{2,2,2}},
-        F1 = make_expr_fun(1, {'==', '$1','$2'}, [{'$1',1,2},{'$2',1,2}]),
+        B1a = #bind{tag='$1',tind=1,cind=2},
+        B1b = #bind{tag='$2',tind=1,cind=2},
+        F1 = make_expr_fun({'==', '$1','$2'}, [B1a,B1b]),
         ?assertEqual(true, F1(X1)),
 
-        F1a = make_expr_fun(1, {'==', '$1','$2'}, [{'$1',1,2},{'$2',2,2}]),
+        B1c = #bind{tag='$2',tind=2,cind=2},
+        F1a = make_expr_fun({'==', '$1','$2'}, [B1a,B1c]),
         ?assertEqual(true, F1a(X1)),
 
-        F2 = make_expr_fun(1,{'is_member', a, '$3'}, [{'$3',1,3}]),
+        B2 = #bind{tag='$3',tind=1,cind=3},
+        F2 = make_expr_fun({'is_member', a, '$3'}, [B2]),
         ?assertEqual(false,F2({{1,2,[3,4,5]}})),        
         ?assertEqual(true, F2({{1,2,[c,a,d]}})),        
 
-        F3 = make_expr_fun(1,{'is_member', '$2', '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        F3 = make_expr_fun({'is_member', '$2', '$3'}, [B1b,B2]),
         ?assertEqual(true, F3({{1,d,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,c,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,a,[c,a,d]}})),        
@@ -1393,11 +1394,11 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
         ?assertEqual(false,F3({{1,3,[]}})),        
 
-        F4 = make_expr_fun(1,{'is_member', {'+','$2',1}, '$3'}, [{'$2',1,2},{'$3',1,3}]),
+        F4 = make_expr_fun({'is_member', {'+','$2',1}, '$3'}, [B1b,B2]),
         ?assertEqual(true, F4({{1,2,[3,4,5]}})),        
         ?assertEqual(false,F4({{1,2,[c,4,d]}})),        
 
-        F5 = make_expr_fun(1,{'is_member', a, '$_'}, []),
+        F5 = make_expr_fun({'is_member', a, '$_'}, []),
         ?assertEqual(true, F5({{},{1,a,[c,a,d]}})),        
         ?assertEqual(false, F5({{},{1,d,[c,a,d]}})),        
         ?Info("success ~p~n", ["make_expr_fun with binds"]),
@@ -1555,17 +1556,17 @@ test_with_or_without_sec(IsSec) ->
         ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, column_map([TableX], [])),
         ?Info("success ~p~n", [table_no_exists]),
 
-        ColsE1=     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a}
-                    , #ddColMap{tag="A2", name=x}
-                    , #ddColMap{tag="A3", name=c1}
+        ColsE1=     [ #bind{tag="A1", schema=imem, table=meta_table_1, name=a}
+                    , #bind{tag="A2", name=x}
+                    , #bind{tag="A3", name=c1}
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown column name", x}}, column_map([Table1], ColsE1)),
         ?Info("success ~p~n", [unknown_column_name_1]),
 
-        ColsE2=     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a}
-                    , #ddColMap{tag="A2", table=meta_table_x, name=b1}
-                    , #ddColMap{tag="A3", name=c1}
+        ColsE2=     [ #bind{tag="A1", schema=imem, table=meta_table_1, name=a}
+                    , #bind{tag="A2", table=meta_table_x, name=b1}
+                    , #bind{tag="A3", name=c1}
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown column name", {meta_table_x,b1}}}, column_map([Table1, Table2], ColsE2)),
@@ -1575,9 +1576,9 @@ test_with_or_without_sec(IsSec) ->
         ?Info("success ~p~n", [empty_select_columns]),
 
 
-        ColsF =     [ #ddColMap{tag="A", tind=1, cind=1, schema=imem, table=meta_table_1, name=a, type=integer, alias= <<"a">>}
-                    , #ddColMap{tag="B", tind=1, cind=2, table=meta_table_1, name=b1, type=string, alias= <<"b1">>}
-                    , #ddColMap{tag="C", tind=1, cind=3, name=c1, type=ipaddr, alias= <<"c1">>}
+        ColsF =     [ #bind{tag="A", tind=1, cind=1, schema=imem, table=meta_table_1, name=a, type=integer, alias= <<"a">>}
+                    , #bind{tag="B", tind=1, cind=2, table=meta_table_1, name=b1, type=string, alias= <<"b1">>}
+                    , #bind{tag="C", tind=1, cind=3, name=c1, type=ipaddr, alias= <<"c1">>}
                     ],
 
         ?assertEqual([], filter_spec_where(?NoFilter, ColsF, [])),
@@ -1619,15 +1620,15 @@ test_with_or_without_sec(IsSec) ->
 
         ?Info("success ~p~n", [sort_spec_order]),
 
-        ColsA =     [ #ddColMap{tag="A1", schema=imem, table=meta_table_1, name=a, alias= <<"a">>}
-                    , #ddColMap{tag="A2", table=meta_table_1, name=b1, alias= <<"b1">>}
-                    , #ddColMap{tag="A3", name=c1, alias= <<"c1">>}
+        ColsA =     [ #bind{tag="A1", schema=imem, table=meta_table_1, name=a, alias= <<"a">>}
+                    , #bind{tag="A2", table=meta_table_1, name=b1, alias= <<"b1">>}
+                    , #bind{tag="A3", name=c1, alias= <<"c1">>}
                     ],
 
         ?assertException(throw, {ClEr,{"Empty table list", _}}, column_map([], ColsA)),
         ?Info("success ~p~n", [empty_table_list]),
 
-        ?assertException(throw, {ClEr,{"Ambiguous column name", a}}, column_map([Table1, Table3], [#ddColMap{name=a}])),
+        ?assertException(throw, {ClEr,{"Ambiguous column name", a}}, column_map([Table1, Table3], [#bind{name=a}])),
         ?Info("success ~p~n", [columns_ambiguous_a]),
 
         ?assertException(throw, {ClEr,{"Ambiguous column name", c1}}, column_map([Table1, Table3], ColsA)),
@@ -1636,34 +1637,34 @@ test_with_or_without_sec(IsSec) ->
         ?assertMatch([_,_,_], column_map([Table1], ColsA)),
         ?Info("success ~p~n", [columns_A]),
 
-        ?assertMatch([_,_,_,_,_,_], column_map([Table1, Table3], [#ddColMap{name='*'}])),
+        ?assertMatch([_,_,_,_,_,_], column_map([Table1, Table3], [#bind{name='*'}])),
         ?Info("success ~p~n", [columns_13_join]),
 
-        Cmap3 = column_map([Table1, Table2, Table3], [#ddColMap{name='*'}]),
+        Cmap3 = column_map([Table1, Table2, Table3], [#bind{name='*'}]),
         % ?Info("ColMap3 ~p~n", [Cmap3]),        
         ?assertMatch([_,_,_,_,_,_,_,_], Cmap3),
         ?assertEqual(lists:sort(Cmap3), Cmap3),
         ?Info("success ~p~n", [columns_123_join]),
 
-        ?assertMatch([_,_,_,_,_,_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{name='*'}])),
+        ?assertMatch([_,_,_,_,_,_,_,_,_], column_map([Alias1, Alias2, Table3], [#bind{name='*'}])),
         ?Info("success ~p~n", [alias_113_join]),
 
-        ?assertMatch([_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=meta_table_3, name='*'}])),
+        ?assertMatch([_,_,_], column_map([Alias1, Alias2, Table3], [#bind{table=meta_table_3, name='*'}])),
         ?Info("success ~p~n", [columns_113_star1]),
 
-        ?assertMatch([_,_,_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name='*'},#ddColMap{table=meta_table_3, name='a'}])),
+        ?assertMatch([_,_,_,_], column_map([Alias1, Alias2, Table3], [#bind{table=alias1, name='*'},#bind{table=meta_table_3, name='a'}])),
         ?Info("success ~p~n", [columns_alias_1]),
 
-        ?assertMatch([_,_], column_map([Alias1, Alias2, Table3], [#ddColMap{table=alias1, name=a},#ddColMap{table=alias2, name='a'}])),
+        ?assertMatch([_,_], column_map([Alias1, Alias2, Table3], [#bind{table=alias1, name=a},#bind{table=alias2, name='a'}])),
         ?Info("success ~p~n", [columns_alias_2]),
 
-        ?assertMatch([_,_], column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=sysdate}])),
+        ?assertMatch([_,_], column_map([Alias1], [#bind{table=alias1, name=a},#bind{name=sysdate}])),
         ?Info("success ~p~n", [sysdate]),
 
-        ?assertException(throw, {ClEr,{"Unknown column name", {any,sysdate}}}, column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{table=any, name=sysdate}])),
+        ?assertException(throw, {ClEr,{"Unknown column name", {any,sysdate}}}, column_map([Alias1], [#bind{table=alias1, name=a},#bind{table=any, name=sysdate}])),
         ?Info("success ~p~n", [sysdate_reject]),
 
-        ?assertEqual(["imem.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#ddColMap{table=alias1, name=a},#ddColMap{name=user}]),qname)),
+        ?assertEqual(["imem.alias1.a","undefined.undefined.user"], column_map_items(column_map([Alias1], [#bind{table=alias1, name=a},#bind{name=user}]),qname)),
         ?Info("success ~p~n", [user]),
 
         ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),

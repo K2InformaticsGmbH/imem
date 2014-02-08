@@ -81,6 +81,17 @@
     ok
 end.">>)).
 
+-ifdef(TEST).
+    start_snap_loop() -> ok.
+-else.
+    start_snap_loop() ->
+        spawn(fun() ->
+            catch ?Info("~s~n", [zip({re, "*.bkp"})]),
+            erlang:whereis(?MODULE) ! imem_snap_loop
+        end).
+-endif.
+
+
 %% ----- SERVER INTERFACE ------------------------------------------------
 start_link(Params) ->
     ets:new(?MODULE, [public, named_table, {keypos,2}]),
@@ -88,10 +99,7 @@ start_link(Params) ->
 
 init(_) ->
     ?Info("~p starting...~n", [?MODULE]),
-    spawn(fun() ->
-        catch ?Info("~s~n", [zip({re, "*.bkp"})]),
-        erlang:whereis(?MODULE) ! imem_snap_loop
-    end),
+    start_snap_loop(),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
     case filelib:is_dir(SnapDir) of

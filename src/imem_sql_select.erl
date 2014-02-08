@@ -31,9 +31,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid select structure", CError})
     end,
-    ColMaps1 = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
+    ColMaps1 = [Item#bind{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
     % ?Debug("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
-    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #ddColMap{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
+    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
     % ?Debug("Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
@@ -44,7 +44,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
     % ?Debug("WhereTree ~p~n", [WhereTree]),
-    MetaFields0 = [ N || {_,N} <- lists:usort([{C#ddColMap.cind, C#ddColMap.name} || C <- ColMaps1, C#ddColMap.tind==?MetaIdx])],
+    MetaFields0 = [ N || {_,N} <- lists:usort([{C#bind.cind, C#bind.name} || C <- ColMaps1, C#bind.tind==?MetaIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
     % ?Debug("MetaFields:~n~p~n", [MetaFields1]),
     RawMap = case MetaFields1 of
@@ -52,11 +52,11 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             imem_sql:column_map(Tables,[]);
         MF ->   
             % ?Debug("MetaFields (~p)~n~p~n", [length(MF),MF]),
-            MetaMap0 = [{#ddColMap{name=N,tind=?MetaIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
-            MetaMap1 = [CM#ddColMap{type=T,len=L,prec=P} || {CM,#ddColumn{type=T, len=L, prec=P}} <- MetaMap0],
+            MetaMap0 = [{#bind{name=N,tind=?MetaIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
+            MetaMap1 = [CM#bind{type=T,len=L,prec=P} || {CM,#ddColumn{type=T, len=L, prec=P}} <- MetaMap0],
             imem_sql:column_map(Tables,[]) ++ MetaMap1
     end,
-    FullMap = [Item#ddColMap{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
+    FullMap = [Item#bind{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
     % ?Debug("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
     MainSpec = build_main_spec(SKey,?MainIdx,WhereTree,FullMap),
     % ?Debug("MainSpec:~n~p~n", [MainSpec]),
@@ -273,15 +273,15 @@ field_lookup(<<"rownum">>,_FullMap) -> {0,rownum,integer,0,0,1,<<"rownum">>};
 field_lookup(Name,FullMap) ->
     U = undefined,
     ML = case imem_sql:field_qname(Name) of
-        {U,U,N} ->  [C || #ddColMap{name=Nam}=C <- FullMap, Nam==N];
-        {U,T1,N} -> [C || #ddColMap{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #ddColMap{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
+        {U,U,N} ->  [C || #bind{name=Nam}=C <- FullMap, Nam==N];
+        {U,T1,N} -> [C || #bind{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
+        {S,T2,N} -> [C || #bind{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
         {} ->       []
     end,
     case length(ML) of
         0 ->    {Value,Type} = value_lookup(Name),
                 {0,Value,Type,U,U,U,Name};
-        1 ->    #ddColMap{tag=Tag,type=T,tind=Ti,len=L,prec=P,default=D} = hd(ML),
+        1 ->    #bind{tag=Tag,type=T,tind=Ti,len=L,prec=P,default=D} = hd(ML),
                 {Ti,Tag,T,L,P,D,Name};
         _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
     end.
@@ -384,10 +384,11 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
+        {with,inorder,[
               fun test_without_sec/1
             , fun test_with_sec/1
-        ]}
+        ]
+        }
     }.
     
 test_without_sec(_) -> 
@@ -401,7 +402,9 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
 
-        ?Info("~n----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        ?Info("----------------------------------~n"),
+        ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?Info("----------------------------------~n"),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -1369,7 +1372,7 @@ test_with_or_without_sec(IsSec) ->
         Class:Reason ->
             timer:sleep(1000),  
             ?Info("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        ?assert( true == "all tests completed")
+            ?assert( true == "all tests completed")
     end,
     ok.     
 

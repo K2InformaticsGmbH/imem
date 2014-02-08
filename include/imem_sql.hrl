@@ -17,21 +17,13 @@
 -define(Main(__Rec), element(?MainIdx,__Rec)).            %% pick main tuple (main table) out of master tuple 
 -define(Table(__N,__Rec), element(?TableIdx(__N),__Rec)). %% pick table N tuple out for master tuple
 
--define(BoundVal(__Bind,__X), (fun({__Tag,__Ti,__Ci}) -> element(__Ci,element(__Ti,__X)) end)(__Bind) ).
+-define(BoundVal(__Bind,__X), 
+          element(__Bind#bind.cind,element(__Bind#bind.tind,__X))
+        ).
 
 -define(EmptyWhere, {}).            %% empty where in the parse tree
 
--record(scanSpec,                                   %% scanner specification 
-                    { sspec = []                	::list()            %% scan matchspec for raw scan  [{MatchHead, Guards, [Result]}]
-                    , sbinds = []               	::list()            %% map for binding the scan Guards to meta values
-                    , fguard = true               ::tuple()|true      %% condition tree for filtering scan results
-                    , mbinds = []                 ::list()            %% map for binding the filter guard to meta values
-                    , fbinds = []              	  ::list()      		  %% map for binding the filter guard to main fields
-                    , limit = undefined           ::integer()         %% limit the total number or returned rows approximately
-                    }).
-
-
--record(ddColMap,                           %% column map entry
+-record(bind,                               %% bind record, column map entry
                   { tag = ""                ::any()
                   , schema                  ::atom()
                   , table                   ::atom()
@@ -39,7 +31,7 @@
                   , alias                   ::binary()    
                   , tind = 0                ::integer()               
                   , cind = 0                ::integer()               
-                  , type = term             ::atom()
+                  , type = 'term'           ::atom()
                   , len = 0                 ::integer()
                   , prec = 0                ::integer()
                   , default                 ::any()
@@ -49,13 +41,22 @@
                   }                  
        ).
 
+-record(scanSpec,                                   %% scanner specification 
+                    { sspec = []                  ::list()              %% scan matchspec for raw scan  [{MatchHead, Guards, [Result]}]
+                    , sbinds = []                 ::list(#bind{})       %% map for binding the scan Guards to meta values
+                    , fguard = true               ::tuple()|true|false  %% condition tree for filtering scan results
+                    , mbinds = []                 ::list(#bind{})       %% map for binding the filter guard to meta values
+                    , fbinds = []                 ::list(#bind{})       %% map for binding the filter guard to main fields
+                    , limit = undefined           ::integer()|undefined %% limit the total number or returned rows approximately
+                    }).
+
 -record(statement,                                  %% Select statement 
                     { tables = []                   ::list({atom(),atom(),atom()})  %% {Schema,Name,Alias} first one is master table others lookup joins
                     , blockSize = 100               ::integer()         %% get data in chunks of (approximately) this size
                     , stmtStr = ""                  ::string()          %% SQL statement (optional)
                     , stmtParse = undefined         ::any()             %% SQL parse tree
-                    , colMaps = []                  ::list(#ddColMap{}) %% column map
-                    , fullMaps = []                 ::list(#ddColMap{}) %% full map
+                    , colMaps = []                  ::list(#bind{}) %% column map
+                    , fullMaps = []                 ::list(#bind{}) %% full map
                     , metaFields = []               ::list(atom())      %% list of meta_field names needed by RowFun
                     , rowFun                        ::fun()             %% rendering fun for row {table recs} -> [ResultValues]
                     , sortFun                       ::fun()             %% rendering fun for sorting {table recs} -> SortColumn
