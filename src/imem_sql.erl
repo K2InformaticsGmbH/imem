@@ -188,18 +188,37 @@ column_map([], Columns) ->
 column_map(Tables, []) ->
     column_map(Tables, [#bind{name='*'}]);    
 column_map(Tables, Columns) ->
-    column_map([{S,imem_meta:physical_table_name(T),A}||{S,T,A} <- Tables], Columns, ?MainIdx, [], [], []).    %% First table has index 2
+    Lookup = column_map_tables([{S,imem_meta:physical_table_name(T),A}||{S,T,A} <- Tables], ?MainIdx, []),
+    column_map_columns(Columns, Lookup, [], []).
 
-column_map([{undefined,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
-    column_map([{imem_meta:schema(),Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc);
-column_map([{Schema,Table,Alias}|Tables], Columns, Tindex, Lookup, Meta, Acc) ->
+%% @doc generates list of table lookup information to which column names can be assigned later.
+%% Tables:  given as {Schema,Name,Alias}
+%% Tindex:  integer, highest table index seen so far
+%% Lookup:  list of 6-tuple, one per table involved (not for meta table)  
+-spec column_map_tables(list(tuple()),integer(),list(tuple())) -> list(tuple()).
+%% throws ?ClientError
+column_map_tables([], _Tindex, Lookup) -> Lookup;
+column_map_tables([{undefined,Table,Alias}|Tables], Tindex, Lookup) ->
+    column_map_tables([{imem_meta:schema(),Table,Alias}|Tables], Tindex, Lookup);
+column_map_tables([{Schema,Table,Alias}|Tables], Tindex, Lookup) ->
     Cols = imem_meta:column_infos({Schema,Table}),
     L = [{Tindex, Cindex, Schema, Alias, Cinfo#ddColumn.name, Cinfo} || {Cindex, Cinfo} <- lists:zip(lists:seq(2,length(Cols)+1), Cols)],
     % ?Debug("column_map lookup ~p~n", [Lookup++L]),
-    % ?Debug("column_map columns ~p~n", [Columns]),
-    column_map(Tables, Columns, Tindex+1, Lookup++L, Meta, Acc);
+    column_map_tables(Tables, Tindex+1, Lookup++L);
+column_map_tables(Tables, Tmax, Lookup) ->
+    ?Warn("column_map_tables error Tables ~p~n", [Tables]),
+    ?Warn("column_map_tables error Tmax ~p~n", [Tmax]),
+    ?Warn("column_map_tables error Lookup ~p~n", [Lookup]),
+    ?ClientError({"Column map invalid tables",Tables}).
 
-column_map([], [#bind{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+%% @doc generates list of column information for a select list.
+%% Tables:  given as {Schema,Name,Alias}
+%% Tindex:  integer, highest table index seen so far
+%% Lookup:  list of 6-tuple, one per table involved (not for meta table)
+%% Acc:     list of  
+-spec column_map_columns(list(#bind{}),list(tuple()),list(),list(#bind{})) -> list(#bind{}).
+%% throws ?ClientError, ?UnimplementedException
+column_map_columns([#bind{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Lookup, Meta, Acc) ->
     % ?Debug("column_map 1 ~p~n", [Cmap0]),
     NameList = [N ||  {_, _, _, _, N, _} <- Lookup],
     NameDups = length(Lookup) - length(lists:usort(NameList)),
@@ -217,11 +236,11 @@ column_map([], [#bind{schema=undefined, table=undefined, name='*'}=Cmap0|Columns
               } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup
              ]
     end,
-    column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
-column_map([], [#bind{schema=undefined, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    column_map_columns(Cmaps ++ Columns, Lookup, Meta, Acc);
+column_map_columns([#bind{schema=undefined, name='*'}=Cmap0|Columns], Lookup, Meta, Acc) ->
     % ?Debug("column_map 2 ~p~n", [Cmap0]),
-    column_map([], [Cmap0#bind{schema=imem_meta:schema()}|Columns], Tindex, Lookup, Meta, Acc);
-column_map([], [#bind{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    column_map_columns([Cmap0#bind{schema=imem_meta:schema()}|Columns], Lookup, Meta, Acc);
+column_map_columns([#bind{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Lookup, Meta, Acc) ->
     % ?Debug("column_map 3 ~p~n", [Cmap0]),
     Prefix = case imem_meta:schema() of
         Schema ->   atom_to_list(Table);
@@ -233,8 +252,8 @@ column_map([], [#bind{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Tind
                 , ptree=list_to_binary([Prefix, ".", atom_to_list(N)])
              } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, S==Schema, T==Table
             ],
-    column_map([], Cmaps ++ Columns, Tindex, Lookup, Meta, Acc);
-column_map([], [#bind{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tindex, Lookup, Meta, Acc) ->
+    column_map_columns(Cmaps ++ Columns, Lookup, Meta, Acc);
+column_map_columns([#bind{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Lookup, Meta, Acc) ->
     % ?Debug("column_map 4 ~p~n", [Cmap0]),
     Pred = fun(L) ->
         (Name == element(5, L)) andalso
@@ -254,7 +273,7 @@ column_map([], [#bind{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tin
             end, 
             #ddColumn{type=Type, len=Len, prec=P} = imem_meta:meta_field_info(Name),
             Cmap1 = Cmap0#bind{tind=?MetaIdx, cind=Cindex, type=Type, len=Len, prec=P},
-            column_map([], Columns, Tindex, Lookup, Meta1, [Cmap1|Acc]);                          
+            column_map_columns(Columns, Lookup, Meta1, [Cmap1|Acc]);                          
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined)->  
             ?ClientError({"Unknown column name", Name});
         (Tcount==0) andalso (Schema==undefined)->  
@@ -271,48 +290,46 @@ column_map([], [#bind{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Tin
             {Ti, Ci, S, T, Name, #ddColumn{type=Type, len=Len, prec=P, default=D}} = hd(Lmatch),
             R = (Ti /= ?MainIdx),   %% Only main table is editable
             Cmap1 = Cmap0#bind{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
-            column_map([], Columns, Tindex, Lookup, Meta, [Cmap1|Acc])
+            column_map_columns(Columns, Lookup, Meta, [Cmap1|Acc])
     end;
-column_map([], [{'fun',Fname,[Name]}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
+column_map_columns([{'fun',Fname,[Name]}=PTree|Columns], Lookup, Meta, Acc) ->
     % ?Debug("column_map 5 ~p~n", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
             Alias = list_to_binary([Fname, "(", Name, ")"]),
-            column_map([], [#bind{schema=S, table=T, name=N, alias=Alias, func=binary_to_atom(Fname,utf8), ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+            column_map_columns([#bind{schema=S, table=T, name=N, alias=Alias, func=binary_to_atom(Fname,utf8), ptree=PTree}|Columns], Lookup, Meta, Acc);
         false ->
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;        
-column_map([], [{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
+column_map_columns([{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Lookup, Meta, Acc) ->
     % ?Debug("column_map 6 ~p~n", [PTree]),
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = field_qname(Name),
-            column_map([], [#bind{schema=S, table=T, name=N, func=binary_to_atom(Fname,utf8), alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
+            column_map_columns([#bind{schema=S, table=T, name=N, func=binary_to_atom(Fname,utf8), alias=Alias, ptree=PTree}|Columns], Lookup, Meta, Acc);
         false ->
             ?UnimplementedException({"Unimplemented row function",{Fname,1}})
     end;                    
-column_map([], [{as, Name, Alias}=PTree|Columns], Tindex, Lookup, Meta, Acc) ->
+column_map_columns([{as, Name, Alias}=PTree|Columns], Lookup, Meta, Acc) ->
     % ?Debug("column_map 7 ~p~n", [PTree]),
     {S,T,N} = field_qname(Name),
-    column_map([], [#bind{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Tindex, Lookup, Meta, Acc);
-column_map([], [Name|Columns], Tindex, Lookup, Meta, Acc) when is_binary(Name)->
+    column_map_columns([#bind{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Lookup, Meta, Acc);
+column_map_columns([Name|Columns], Lookup, Meta, Acc) when is_binary(Name)->
     % ?Debug("column_map 8 ~p~n", [Name]),
     {S,T,N} = field_qname(Name),
-    column_map([], [#bind{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Tindex, Lookup, Meta, Acc);
-column_map([], [Expression|_], _Tindex, _Lookup, _Meta, _Acc)->
+    column_map_columns([#bind{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Lookup, Meta, Acc);
+column_map_columns([Expression|_], _Lookup, _Meta, _Acc)->
     % ?Debug("column_map 9 ~p~n", [Expression]),
     ?UnimplementedException({"Expressions not supported", Expression});
-column_map([], [], _Tindex, _Lookup, _Meta, Acc) ->
+column_map_columns([], _Lookup, _Meta, Acc) ->
     lists:reverse(Acc);
-column_map(Tables, Columns, Tmax, Lookup, Meta, Acc) ->
-    ?Warn("column_map error Tables ~p~n", [Tables]),
-    ?Warn("column_map error Columns ~p~n", [Columns]),
-    ?Warn("column_map error Tmax ~p~n", [Tmax]),
-    ?Warn("column_map error Lookup ~p~n", [Lookup]),
-    ?Warn("column_map error Meta ~p~n", [Meta]),
-    ?Warn("column_map error Acc ~p~n", [Acc]),
-    ?ClientError({"Column map invalid parameter",{Tables,Columns}}).
+column_map_columns(Columns, Lookup, Meta, Acc) ->
+    ?Warn("column_map_columns error Columns ~p~n", [Columns]),
+    ?Warn("column_map_columns error Lookup ~p~n", [Lookup]),
+    ?Warn("column_map_columns error Meta ~p~n", [Meta]),
+    ?Warn("column_map_columns error Acc ~p~n", [Acc]),
+    ?ClientError({"Column map invalid columns",Columns}).
 
 
 index_of(Item, List) -> index_of(Item, List, 1).
