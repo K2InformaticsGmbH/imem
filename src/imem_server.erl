@@ -15,14 +15,25 @@ start_link(Params) ->
     Interface   = proplists:get_value(tcp_ip,Params),
     ListenPort  = proplists:get_value(tcp_port,Params),
     SSL         = proplists:get_value(ssl,Params),
+    Pwd         = proplists:get_value(pwd,Params),
     {THandler, Opts} = if length(SSL) > 0 -> {ranch_ssl, SSL}; true -> {ranch_tcp, []} end, 
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
-            ?Error("~p [ERROR] not started ~p~n", [self(), Reason]),
+            ?Error("~p not started ~p~n", [self(), Reason]),
             {error, Reason};
         {ok, ListenIf} when is_integer(ListenPort) ->
             ?Info("~p listening on ~p:~p ~s~n", [self(), ListenIf, ListenPort, if THandler =:= ranch_ssl -> "(ssl)"; true -> "" end]),
-            ranch:start_listener(?MODULE, 1, THandler, [{ip, ListenIf}, {port, ListenPort} | Opts], ?MODULE, if THandler =:= ranch_ssl -> [ssl]; true -> [] end);
+            NewOpts = lists:foldl(fun({K, V}, Acc) ->
+                                    case K of
+                                        certfile -> [{K, filename:join([Pwd, V])} | Acc];
+                                        keyfile -> [{K, filename:join([Pwd, V])} | Acc];
+                                        _ -> [{K, V} | Acc]
+                                    end
+                                  end
+                        , []
+                        , Opts),
+            ?Info("NewOpts ~p~n", [NewOpts]),
+            ranch:start_listener(?MODULE, 1, THandler, [{ip, ListenIf}, {port, ListenPort} | NewOpts], ?MODULE, if THandler =:= ranch_ssl -> [ssl]; true -> [] end);
         _ ->
             {stop, disabled}
     end.

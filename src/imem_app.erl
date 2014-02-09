@@ -72,7 +72,8 @@ start(_Type, StartArgs) ->
             {ok, TcpIf} = application:get_env(tcp_ip),
             {ok, TcpPort} = application:get_env(tcp_port),
             {ok, SSL} = application:get_env(ssl),
-            imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}, {ssl, SSL}]);
+            Pwd = case code:lib_dir(imem) of {error, _} -> ""; Path -> Path end,
+            imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}, {pwd, Pwd}, {ssl, SSL}]);
         _ -> ?Info("imem TCP is not configured to start!~n")
     end,
     case imem_sup:start_link(StartArgs) of
