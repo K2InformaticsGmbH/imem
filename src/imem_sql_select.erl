@@ -23,7 +23,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         TError ->       ?ClientError({"Invalid from in select structure", TError})
     end,
     % ?Debug("Tables: ~p~n", [Tables]),
-    ColMaps0 = case lists:keyfind(fields, 1, SelectSections) of
+    ColMap = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql:column_map(Tables,[]);
         {_, FieldList} -> 
@@ -31,20 +31,19 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         CError ->        
             ?ClientError({"Invalid select structure", CError})
     end,
-    ColMaps1 = [Item#bind{tag=list_to_atom([$$|integer_to_list(I)])} || {I,Item} <- lists:zip(lists:seq(1,length(ColMaps0)), ColMaps0)],
-    % ?Debug("Column map: (~p)~n~p~n", [length(ColMaps1),ColMaps1]),
-    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMaps1],
+    ?LogDebug("Column map: (~p)~n~p~n", [length(ColMap),ColMap]),
+    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap],
     % ?Debug("Statement rows: ~p~n", [StmtCols]),
     RowFun = case ?DefaultRendering of
-        raw ->  imem_datatype:select_rowfun_raw(ColMaps1);
-        str ->  imem_datatype:select_rowfun_str(ColMaps1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
+        raw ->  imem_datatype:select_rowfun_raw(ColMap);
+        str ->  imem_datatype:select_rowfun_str(ColMap, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
     end,
     WhereTree = case lists:keyfind(where, 1, SelectSections) of
         {_, WT} ->  WT;
         WError ->   ?ClientError({"Invalid where structure", WError})
     end,
     % ?Debug("WhereTree ~p~n", [WhereTree]),
-    MetaFields0 = [ N || {_,N} <- lists:usort([{C#bind.cind, C#bind.name} || C <- ColMaps1, C#bind.tind==?MetaIdx])],
+    MetaFields0 = [ N || {_,N} <- lists:usort([{C#bind.cind, C#bind.name} || C <- ColMap, C#bind.tind==?MetaIdx])],
     MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
     % ?Debug("MetaFields:~n~p~n", [MetaFields1]),
     RawMap = case MetaFields1 of
@@ -63,11 +62,11 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     JoinSpecs = build_join_specs(SKey,?TableIdx(length(Tables)), WhereTree, FullMap, []), %% start with last join table, proceed to first 
     % ?Debug("JoinSpecs:~n~p~n", [JoinSpecs]),
     SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
-    SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMaps1),
+    SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMap),
     Statement = Stmt#statement{
                     stmtParse = {select, SelectSections},
                     tables=Tables, fullMaps=FullMap,
-                    colMaps=ColMaps1, metaFields=MetaFields1, 
+                    colMaps=ColMap, metaFields=MetaFields1, 
                     rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
                 },
@@ -153,9 +152,9 @@ tree_walk(SKey,Ti,{Op,WC1,WC2},FullMap) ->
 tree_walk(SKey,Ti,Expr,FullMap) ->
     % ?Debug("tree_walk expression lookup Expr: ~p~n", [Expr]),
     case expr_lookup(SKey,Ti,Expr,FullMap) of
-        {0,V1,integer,_,_,_,_} ->   field_value(0,integer,0,0,?nav,V1);   
-        {0,V2,float,_,_,_,_} ->     field_value(0,float,0,0,?nav,V2);     
-        {0,V3,string,_,_,_,_} ->    field_value(0,term,0,0,?nav,V3);   
+        {0,V1,integer,_,_,_,_} ->   imem_datatype:field_value(0,integer,0,0,?nav,V1);   
+        {0,V2,float,_,_,_,_} ->     imem_datatype:field_value(0,float,0,0,?nav,V2);     
+        {0,V3,string,_,_,_,_} ->    imem_datatype:field_value(0,term,0,0,?nav,V3);   
         {_,Tag,_,_,_,_,_} ->        Tag
     end.
 
@@ -203,23 +202,23 @@ compguard(Ti,OP,ExA,ExB) ->
     end.
 
 compg(?MainIdx, _,    {A,_,_,_,_,_,_}, {B,_,_,_,_,_,_})  when A>?MainIdx; B>?MainIdx -> join;   %% join condition
-compg(_, 'is_member', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),field_value(A,term,0,0,?nav,B)};           
-compg(_, 'is_member', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->   {'is_member',field_value(B,term,0,0,?nav,A),B};           
-compg(_, 'is_member', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->       {'is_member',A,field_value(A,term,0,0,?nav,B)};           
+compg(_, 'is_member', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->   {'is_member',imem_datatype:field_value(B,term,0,0,?nav,A),imem_datatype:field_value(A,term,0,0,?nav,B)};           
+compg(_, 'is_member', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->   {'is_member',imem_datatype:field_value(B,term,0,0,?nav,A),B};           
+compg(_, 'is_member', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->       {'is_member',A,imem_datatype:field_value(A,term,0,0,?nav,B)};           
 compg(_, 'is_member', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->       {'is_member',A,B};           
-compg(_, 'is_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->        {'is_like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compg(_, 'is_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->        {'is_like',field_value(B,string,0,0,?nav,A),B};           
-compg(_, 'is_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->            {'is_like',A,field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->        {'is_like',imem_datatype:field_value(B,string,0,0,?nav,A),imem_datatype:field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->        {'is_like',imem_datatype:field_value(B,string,0,0,?nav,A),B};           
+compg(_, 'is_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->            {'is_like',A,imem_datatype:field_value(A,string,0,0,?nav,B)};           
 compg(_, 'is_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->            {'is_like',A,B};           
-compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) -> {'is_regexp_like',field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) -> {'is_regexp_like',field_value(B,string,0,0,?nav,A),B};           
-compg(_, 'is_regexp_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->     {'is_regexp_like',A,field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) -> {'is_regexp_like',imem_datatype:field_value(B,string,0,0,?nav,A),imem_datatype:field_value(A,string,0,0,?nav,B)};           
+compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) -> {'is_regexp_like',imem_datatype:field_value(B,string,0,0,?nav,A),B};           
+compg(_, 'is_regexp_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->     {'is_regexp_like',A,imem_datatype:field_value(A,string,0,0,?nav,B)};           
 compg(_, 'is_regexp_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->     {'is_regexp_like',A,B};           
-compg(_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),field_value(A,string,0,0,?nav,B)};           
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,field_value(B,string,0,0,?nav,A),B};           
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,timestamp,_,_,_,_}) -> {OP,field_value(B,float,0,0,?nav,A),B};
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,datetime,_,_,_,_}) ->  {OP,field_value(B,float,0,0,?nav,A),B};
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,T,L,P,D,_}) ->         {OP,field_value(B,T,L,P,D,A),B};
+compg(_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,imem_datatype:field_value(B,string,0,0,?nav,A),imem_datatype:field_value(A,string,0,0,?nav,B)};           
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,imem_datatype:field_value(B,string,0,0,?nav,A),B};           
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,timestamp,_,_,_,_}) -> {OP,imem_datatype:field_value(B,float,0,0,?nav,A),B};
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,datetime,_,_,_,_}) ->  {OP,imem_datatype:field_value(B,float,0,0,?nav,A),B};
+compg(_, OP, {0,A,string,_,_,_,_},   {_,B,T,L,P,D,_}) ->         {OP,imem_datatype:field_value(B,T,L,P,D,A),B};
 compg(_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
 compg(_, OP, {_,_,string,_,_,_,AN},  {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,string},OP,{BN,BT}}});
 compg(_, OP, {_,_,AT,_,_,_,AN},      {_,_,string,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},OP,{BN,string}}});
@@ -250,14 +249,6 @@ in_condition_loop(SKey,Ti,ALookup,[B|Rest],FullMap) ->
     {'or',
         compguard(Ti, '==', ALookup, expr_lookup(SKey,Ti,B,FullMap)),
             in_condition_loop(SKey,Ti,ALookup,Rest,FullMap)}.
-
-field_value(Tag,Type,Len,Prec,Def,Val) when is_binary(Val);is_list(Val) ->
-    case imem_datatype:io_to_db(Tag,?nav,Type,Len,Prec,Def,false,imem_sql:un_escape_sql(Val)) of
-        T when is_tuple(T) ->   {const,T};
-        V ->                    V
-    end;
-field_value(_,_,_,_,_,Val) when is_tuple(Val) -> {const,Val};
-field_value(_,_,_,_,_,Val) -> Val.
 
 value_lookup(Val) when is_binary(Val) ->
     Str = imem_datatype:io_to_string(Val),  %% binary_to_list(Val),
@@ -298,23 +289,23 @@ expr_lookup(SKey,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function l
         {0,to_float,float} ->       {Ta,A,float,L,P,D,AN};
         {0,to_integer,float} ->     {Ta,round(A),integer,L,P,D,AN};
         {0,to_string,float} ->      {Ta,float_to_list(A),string,L,P,D,AN};
-        {0,to_atom,string} ->       {Ta,field_value(to_atom,atom,0,0,?nav,A),atom,0,0,?nav,AN};
-        {0,to_binary,string} ->     {Ta,field_value(to_binary,binary,0,0,?nav,imem_datatype:strip_quotes(A)),binary,0,0,?nav,AN};
-        {0,to_binstr,string} ->     {Ta,field_value(to_binstr,binstr,0,0,?nav,A),binstr,0,0,?nav,AN};
-        {0,to_boolean,string} ->    {Ta,field_value(to_boolean,boolean,0,0,?nav,imem_datatype:strip_quotes(A)),boolean,0,0,?nav,AN};
+        {0,to_atom,string} ->       {Ta,imem_datatype:field_value(to_atom,atom,0,0,?nav,A),atom,0,0,?nav,AN};
+        {0,to_binary,string} ->     {Ta,imem_datatype:field_value(to_binary,binary,0,0,?nav,imem_datatype:strip_quotes(A)),binary,0,0,?nav,AN};
+        {0,to_binstr,string} ->     {Ta,imem_datatype:field_value(to_binstr,binstr,0,0,?nav,A),binstr,0,0,?nav,AN};
+        {0,to_boolean,string} ->    {Ta,imem_datatype:field_value(to_boolean,boolean,0,0,?nav,imem_datatype:strip_quotes(A)),boolean,0,0,?nav,AN};
         {0,to_string,string} ->     {Ta,A,string,0,0,?nav,AN};
-        {0,to_datetime,string} ->   {Ta,field_value(to_datetime,datetime,0,0,?nav,imem_datatype:strip_quotes(A)),datetime,0,0,?nav,AN};
-        {0,to_decimal,integer} ->   {Ta,field_value(to_decimal,decimal,0,0,?nav,integer_to_list(A)),decimal,0,0,?nav,AN};
-        {0,to_decimal,float} ->     {Ta,field_value(to_decimal,decimal,0,0,?nav,float_to_list(A)),decimal,0,0,?nav,AN};
-        {0,to_integer,string} ->    {Ta,field_value(to_integer,integer,0,0,?nav,imem_datatype:strip_quotes(A)),integer,0,0,?nav,AN};
-        {0,to_list,string} ->       {Ta,field_value(to_list,list,0,0,?nav,imem_datatype:strip_quotes(A)),list,0,0,?nav,AN};
-        {0,to_fun,string} ->        {Ta,field_value(to_fun,'fun',0,0,?nav,A),'fun',0,0,?nav,AN};
-        {0,to_ipaddr,string} ->     {Ta,field_value(to_ipaddr,ipaddr,0,0,?nav,imem_datatype:strip_quotes(A)),ipaddr,0,0,?nav,AN};
-        {0,to_pid,string} ->        {Ta,field_value(to_pid,pid,0,0,?nav,imem_datatype:strip_quotes(A)),pid,0,0,?nav,AN};
-        {0,to_term,string} ->       {Ta,field_value(to_term,term,0,0,?nav,A),term,0,0,?nav,AN};
-        {0,to_timestamp,string} ->  {Ta,field_value(to_timestamp,timestamp,0,0,?nav,imem_datatype:strip_quotes(A)),timestamp,0,0,?nav,AN};
-        {0,to_tuple,string} ->      {Ta,field_value(to_tuple,tuple,0,0,?nav,imem_datatype:strip_quotes(A)),tuple,0,0,?nav,AN};
-        {0,to_userid,string} ->     {Ta,field_value(to_userid,userid,0,0,?nav,A),userid,0,0,?nav,AN};
+        {0,to_datetime,string} ->   {Ta,imem_datatype:field_value(to_datetime,datetime,0,0,?nav,imem_datatype:strip_quotes(A)),datetime,0,0,?nav,AN};
+        {0,to_decimal,integer} ->   {Ta,imem_datatype:field_value(to_decimal,decimal,0,0,?nav,integer_to_list(A)),decimal,0,0,?nav,AN};
+        {0,to_decimal,float} ->     {Ta,imem_datatype:field_value(to_decimal,decimal,0,0,?nav,float_to_list(A)),decimal,0,0,?nav,AN};
+        {0,to_integer,string} ->    {Ta,imem_datatype:field_value(to_integer,integer,0,0,?nav,imem_datatype:strip_quotes(A)),integer,0,0,?nav,AN};
+        {0,to_list,string} ->       {Ta,imem_datatype:field_value(to_list,list,0,0,?nav,imem_datatype:strip_quotes(A)),list,0,0,?nav,AN};
+        {0,to_fun,string} ->        {Ta,imem_datatype:field_value(to_fun,'fun',0,0,?nav,A),'fun',0,0,?nav,AN};
+        {0,to_ipaddr,string} ->     {Ta,imem_datatype:field_value(to_ipaddr,ipaddr,0,0,?nav,imem_datatype:strip_quotes(A)),ipaddr,0,0,?nav,AN};
+        {0,to_pid,string} ->        {Ta,imem_datatype:field_value(to_pid,pid,0,0,?nav,imem_datatype:strip_quotes(A)),pid,0,0,?nav,AN};
+        {0,to_term,string} ->       {Ta,imem_datatype:field_value(to_term,term,0,0,?nav,A),term,0,0,?nav,AN};
+        {0,to_timestamp,string} ->  {Ta,imem_datatype:field_value(to_timestamp,timestamp,0,0,?nav,imem_datatype:strip_quotes(A)),timestamp,0,0,?nav,AN};
+        {0,to_tuple,string} ->      {Ta,imem_datatype:field_value(to_tuple,tuple,0,0,?nav,imem_datatype:strip_quotes(A)),tuple,0,0,?nav,AN};
+        {0,to_userid,string} ->     {Ta,imem_datatype:field_value(to_userid,userid,0,0,?nav,A),userid,0,0,?nav,AN};
         {0,to_userid,integer} ->    {Ta,A,userid,0,0,?nav,AN};
         _ ->                        {Ta,{binary_to_atom(F,utf8),A},T,L,P,D,AN}
     end;          
@@ -338,20 +329,20 @@ exprguard(?MainIdx, OP, {X,A,timestamp,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->     
 exprguard(?MainIdx, OP, {X,A,timestamp,L,P,D,AN}, {_,B,float,_,_,_,_}) ->       {X,{OP,A,B},timestamp,L,P,D,AN};
 exprguard(?MainIdx, OP, {X,A,datetime,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->      {X,{OP,A,B},datetime,L,P,D,AN};
 exprguard(?MainIdx, OP, {X,A,datetime,L,P,D,AN}, {_,B,float,_,_,_,_}) ->        {X,{OP,A,B},datetime,L,P,D,AN};
-% exprguard(?MainIdx, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+% exprguard(?MainIdx, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,imem_datatype:field_value(A,T,L,P,D,B)},T,L,P,D,AN};
 exprguard(?MainIdx, OP, {_,A,integer,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->     {X,{OP,A,B},timestamp,L,P,D,BN};
 exprguard(?MainIdx, OP, {_,A,float,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->       {X,{OP,A,B},timestamp,L,P,D,BN};
 exprguard(?MainIdx, OP, {_,A,integer,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->      {X,{OP,A,B},datetime,L,P,D,BN};
 exprguard(?MainIdx, OP, {_,A,float,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->        {X,{OP,A,B},datetime,L,P,D,BN};
-% exprguard(?MainIdx, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+% exprguard(?MainIdx, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,imem_datatype:field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
 exprguard(?MainIdx, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->                ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(?MainIdx, OP, A, B) ->                                                ?SystemException({"Unexpected guard pattern", {?MainIdx,OP,A,B}});
 exprguard(J,        _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J ->         ?UnimplementedException({"Unsupported join order",{A,B}});
 exprguard(J,        _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J ->         ?UnimplementedException({"Unsupported join order",{A,B}});
 exprguard(_,        OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
 exprguard(_,        OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_,        OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 ->  {N,{OP,A,field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_,        OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 -> {N,{OP,field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
+exprguard(_,        OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 ->  {N,{OP,A,imem_datatype:field_value(A,T,L,P,D,B)},T,L,P,D,AN};
+exprguard(_,        OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 -> {N,{OP,imem_datatype:field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
 exprguard(_,        _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->                ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
 exprguard(J,        OP, A, B) ->                                                ?SystemException({"Unexpected guard pattern", {J,OP,A,B}}).
 
@@ -413,7 +404,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual([],imem_statement:receive_raw()),
 
-        ?assertEqual([imem], field_value(tag,list,0,0,[],<<"[imem]">>)),
+        ?assertEqual([imem], imem_datatype:field_value(tag,list,0,0,[],<<"[imem]">>)),
 
         timer:sleep(1100),
         % {TMega,TSec,TMicro} = erlang:now(),
@@ -515,6 +506,18 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(1, length(R0a)),
 
 
+        exec_fetch_sort_equal(SKey, query0b, 100, IsSec, 
+            "select 1 from ddTable where element(2,qname) = to_atom('def')",
+            [{<<"1">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query0c, 100, IsSec, 
+            "select 1 from dual",
+            [{<<"1">>}]
+        ),
+
+
+
     %% simple queries on meta fields
 
         exec_fetch_sort_equal(SKey, query1, 100, IsSec, 
@@ -577,11 +580,6 @@ test_with_or_without_sec(IsSec) ->
             "select * from def where 1=0"
         ),
         ?assertEqual(0, length(R1i)),
-
-        % exec_fetch_sort_equal(SKey, query1j, 100, IsSec, 
-        %     "select 1 from dual",
-        %     [{<<"1">>}]
-        % ),
 
         exec_fetch_sort_equal(SKey, query1k, 100, IsSec, 
             "select dummy from dual where rownum = 1",

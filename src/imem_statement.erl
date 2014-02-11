@@ -260,7 +260,7 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From
         NewSections1 = lists:keyreplace('where', 1, NewSections0, {'where',Filter}),
         %?Debug("NewSections1 ~p~n", [NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
-        %?Debug("NewSections2 ~p~n", [NewSections2]),
+        ?LogDebug("NewSections2 ~p~n", [NewSections2]),
         NewSql = sqlparse:fold({select,NewSections2}),     % sql_box:flat_from_pt({select,NewSections2}),
         %?Debug("NewSql ~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
@@ -322,8 +322,8 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     TailFilterSpec = ets:match_spec_compile(SSpec),         %% to be applied to the scan result record alone
     % ?Debug("FGuards before meta bind :~n~p~n~p~n", [FGuard, MBinds]),
     FBound = imem_sql:bind_guard({MetaRec}, FGuard, MBinds),        %% to be applied to the truncated final record {MetaRec}         
-    % ?Debug("FGuards before make_expr_fun :~n~p~n~p~n", [FBound,FBinds]),
-    SFilterFun = imem_sql:make_expr_fun(FBound, FBinds),  %% to be applied to {MetaRec,MainRec}
+    % ?Debug("FGuards before expr_fun :~n~p~n~p~n", [FBound,FBinds]),
+    SFilterFun = imem_sql:expr_fun(FBound, FBinds),  %% to be applied to {MetaRec,MainRec}
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
         {true,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
             RecName = imem_meta:table_record_name(Table), 
@@ -643,7 +643,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{sspec=SSpec,sbinds=SBinds,fguar
                     MboundGuard = imem_sql:bind_guard(Rec, FGuard, MBinds),
                     % ?Debug("Filter guard: ~p~n", [MboundGuard]),
                     % ?Debug("Filter binds: ~p~n", [FBinds]),
-                    case imem_sql:make_expr_fun(MboundGuard, FBinds) of
+                    case imem_sql:expr_fun(MboundGuard, FBinds) of
                         true ->     [setelement(Ti, Rec, I) || I <- L];
                         false ->    [];
                         Filter ->   Recs = [setelement(Ti, Rec, I) || I <- L],
