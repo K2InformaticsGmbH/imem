@@ -54,7 +54,7 @@ init(ListenerPid, Socket, Transport, Opts) ->
     ok = ranch:accept_ack(ListenerPid),
     loop(Socket, Transport, <<>>, 0).
 
--define(TDebug(__F, __A), ok). 
+-define(TLog(__F, __A), ok). 
 %-define(TLog(__F, __A), ?Info(__F, __A)). 
 loop(Socket, Transport, Buf, Len) ->
     {OK, Closed, Error} = Transport:messages(),
