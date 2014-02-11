@@ -55,7 +55,7 @@ init(ListenerPid, Socket, Transport, Opts) ->
     loop(Socket, Transport, <<>>, 0).
 
 -define(TDebug(__F, __A), ok). 
-%-define(TDebug(__F, __A), ?Debug(__F, __A)). 
+%-define(TLog(__F, __A), ?Info(__F, __A)). 
 loop(Socket, Transport, Buf, Len) ->
     {OK, Closed, Error} = Transport:messages(),
     Transport:setopts(Socket, [{active, once}]),   
@@ -64,7 +64,7 @@ loop(Socket, Transport, Buf, Len) ->
             {NewLen, NewBuf} =
                 if Buf =:= <<>> ->
                     << L:32, PayLoad/binary >> = Data,
-                    ?TDebug(" term size ~p~n", [<< L:32 >>]),
+                    ?TLog(" term size ~p~n", [<< L:32 >>]),
                     {L, PayLoad};
                 true -> {Len, <<Buf/binary, Data/binary>>}
             end,
@@ -103,31 +103,31 @@ mfa({Ref, Mod, which_applications, Args}, Transport) when Mod =:= imem_sec;
 mfa({Ref, Mod, Fun, Args}, Transport) ->
     NewArgs = args(Ref,Fun,Args,Transport),
     ApplyRes = try
-                   ?TDebug("~p MFA -> R ~n ~p:~p(~p)~n", [Transport,Mod,Fun,NewArgs]),
+                   ?TLog("~p MFA -> R ~n ~p:~p(~p)~n", [Transport,Mod,Fun,NewArgs]),
                    apply(Mod,Fun,NewArgs)
                catch 
                     _Class:Reason -> {error, {Reason, erlang:get_stacktrace()}}
                end,
-    ?TDebug("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
-    ?TDebug("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
+    ?TLog("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
+    ?TLog("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
     send_resp(ApplyRes, Transport),
     ok. % 'ok' returned for erlimem compatibility
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
-    ?TDebug("fetch_recs_async, Args for TCP~n ~p~n", [Args]),
+    ?TLog("fetch_recs_async, Args for TCP~n ~p~n", [Args]),
     Args;
 args(R, fetch_recs_async, A, {_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
-    ?TDebug("fetch_recs_async, Args for direct~n ~p~n", [Args]),
+    ?TLog("fetch_recs_async, Args for direct~n ~p~n", [Args]),
     Args;
 args(_, _F, A, _) ->
-    ?TDebug("~p(~p)~n", [_F, A]),
+    ?TLog("~p(~p)~n", [_F, A]),
     A.
 
 send_resp(Resp, {Transport, Socket, Ref}) ->
     RespBin = term_to_binary({Ref, Resp}),
-    ?TDebug("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
+    ?TLog("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
     PayloadSize = byte_size(RespBin),
     Transport:send(Socket, << PayloadSize:32, RespBin/binary >>);
 send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
