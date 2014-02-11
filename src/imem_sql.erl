@@ -36,7 +36,7 @@
         , re_match/2
         , like_compile/1
         , like_compile/2
-        , make_expr_fun/2
+        , expr_fun/2
         ]).
 
 parse(Sql) ->
@@ -189,12 +189,15 @@ column_map(Tables, []) ->
     column_map(Tables, [#bind{name='*'}]);    
 column_map(Tables, Columns) ->
     Lookup = column_map_tables([{S,imem_meta:physical_table_name(T),A}||{S,T,A} <- Tables], ?MainIdx, []),
-    column_map_columns(Columns, Lookup, [], []).
+    ColMap = column_map_columns(Columns, Lookup, []),
+    [Item#bind{tag=I} || {I,Item} <- lists:zip(lists:seq(1,length(ColMap)), ColMap)].
 
-%% @doc generates list of table lookup information to which column names can be assigned later.
+%% @doc Generates list of table and column name lookup information to which column
+%% names can be assigned in column_map_columns. This list is extended later in
+%% column_map_columns by meta field rows.
 %% Tables:  given as {Schema,Name,Alias}
 %% Tindex:  integer, highest table index seen so far
-%% Lookup:  list of 6-tuple, one per table involved (not for meta table)  
+%% Lookup:  list of {Tindex, Cindex, Schema, Alias, Name, Cinfo}, one per field in data dictionary for selected tables   
 -spec column_map_tables(list(tuple()),integer(),list(tuple())) -> list(tuple()).
 %% throws ?ClientError
 column_map_tables([], _Tindex, Lookup) -> Lookup;
@@ -211,14 +214,17 @@ column_map_tables(Tables, Tmax, Lookup) ->
     ?Warn("column_map_tables error Lookup ~p~n", [Lookup]),
     ?ClientError({"Column map invalid tables",Tables}).
 
-%% @doc generates list of column information for a select list.
-%% Tables:  given as {Schema,Name,Alias}
-%% Tindex:  integer, highest table index seen so far
-%% Lookup:  list of 6-tuple, one per table involved (not for meta table)
-%% Acc:     list of  
--spec column_map_columns(list(#bind{}),list(tuple()),list(),list(#bind{})) -> list(#bind{}).
+%% @doc Generates list of column information (bind records) for a select list.
+%% Bind records will be tagged with integers corresponding to the position in tghe select list (1..n).
+%% Bind records for metadata values will have tind=?MetaIdx and cind>0
+%% Expressions or functions will have tind=0 and cind=0 and are stored in btree and in func (as values of fun(1)).   
+%% Columns: list of field names or field expression tuples  
+%% Lookup:  list of 6-tuple, one per declared field for involved tables, meta fields added as we go
+%% Acc:     list of bind records so far
+-spec column_map_columns(list(),list(tuple()),list(#bind{})) -> list(#bind{}).
 %% throws ?ClientError, ?UnimplementedException
-column_map_columns([#bind{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Lookup, Meta, Acc) ->
+column_map_columns([#bind{schema=undefined, table=undefined, name='*'}=Cmap0|Columns], Lookup, Acc) ->
+    % Handle * column
     % ?Debug("column_map 1 ~p~n", [Cmap0]),
     NameList = [N ||  {_, _, _, _, N, _} <- Lookup],
     NameDups = length(Lookup) - length(lists:usort(NameList)),
@@ -227,20 +233,22 @@ column_map_columns([#bind{schema=undefined, table=undefined, name='*'}=Cmap0|Col
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
                 , alias=?atom_to_binary(N)
                 , ptree=?atom_to_binary(N)
-              } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup
+              } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, Ti /= ?MetaIdx
              ];
         _ -> [Cmap0#bind{
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
                 , alias=list_to_binary([atom_to_list(T), ".", atom_to_list(N)])
                 , ptree=list_to_binary([atom_to_list(T), ".", atom_to_list(N)])
-              } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup
+              } ||  {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, Ti /= ?MetaIdx
              ]
     end,
-    column_map_columns(Cmaps ++ Columns, Lookup, Meta, Acc);
-column_map_columns([#bind{schema=undefined, name='*'}=Cmap0|Columns], Lookup, Meta, Acc) ->
+    column_map_columns(Cmaps ++ Columns, Lookup, Acc);
+column_map_columns([#bind{schema=undefined, name='*'}=Cmap0|Columns], Lookup, Acc) ->
+    % Handle table.* column
     % ?Debug("column_map 2 ~p~n", [Cmap0]),
-    column_map_columns([Cmap0#bind{schema=imem_meta:schema()}|Columns], Lookup, Meta, Acc);
-column_map_columns([#bind{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Lookup, Meta, Acc) ->
+    column_map_columns([Cmap0#bind{schema=imem_meta:schema()}|Columns], Lookup, Acc);
+column_map_columns([#bind{schema=Schema, table=Table, name='*'}=Cmap0|Columns], Lookup, Acc) ->
+    % Handle schema.table.* column
     % ?Debug("column_map 3 ~p~n", [Cmap0]),
     Prefix = case imem_meta:schema() of
         Schema ->   atom_to_list(Table);
@@ -250,30 +258,56 @@ column_map_columns([#bind{schema=Schema, table=Table, name='*'}=Cmap0|Columns], 
                 schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, name=N
                 , alias=list_to_binary([Prefix, ".", atom_to_list(N)])
                 , ptree=list_to_binary([Prefix, ".", atom_to_list(N)])
-             } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, S==Schema, T==Table
+             } || {Ti, Ci, S, T, N, #ddColumn{type=Type, len=Len, prec=P}} <- Lookup, Ti /= ?MetaIdx, S==Schema, T==Table
             ],
-    column_map_columns(Cmaps ++ Columns, Lookup, Meta, Acc);
-column_map_columns([#bind{schema=Schema, table=Table, name=Name}=Cmap0|Columns], Lookup, Meta, Acc) ->
-    % ?Debug("column_map 4 ~p~n", [Cmap0]),
+    column_map_columns(Cmaps ++ Columns, Lookup, Acc);
+column_map_columns([#bind{schema=Schema,table=Table,name=Name,alias=Alias,ptree=PTree}|Columns], Lookup0, Acc) ->
+    % Handle expanded * columns of all 3 types
+    % ?Debug("column_map 4 ~p ~p ~p ~n", [Schema,Table,Name]),
+    % ?Debug("column_map 4 lookup~n~p~n", [Lookup0]),
+    {CMap,Lookup1} = column_map_lookup(Schema,Table,Name,Lookup0),
+    column_map_columns(Columns, Lookup1, [CMap#bind{alias=Alias,ptree=PTree}|Acc]);
+column_map_columns([{as, Expr, Alias}=PTree|Columns], Lookup0, Acc) ->
+    %?LogDebug("column_map 7 ~p~n", [{as, Expr, Alias}]),
+    {CMap,Lookup1} = expr(Expr,Lookup0,#bind{}),
+    column_map_columns(Columns, Lookup1, [CMap#bind{alias=Alias,ptree=PTree}|Acc]);
+column_map_columns([PTree|Columns], Lookup0, Acc) ->
+    ?LogDebug("column_map 9 ~p ~p ~p~n", [PTree, is_binary(PTree),is_integer(PTree)]),
+    case expr(PTree,Lookup0,#bind{}) of 
+        {CMap,Lookup1} ->
+            %% one select column returned
+            Alias = sqlparse:fold({fields,[PTree]}),
+            column_map_columns(Columns, Lookup1, [CMap#bind{alias=Alias,ptree=PTree}|Acc]);
+        #bind{}=CMap ->
+            %% one ** columns retured for expansion
+            column_map_columns([CMap|Columns], Lookup0, Acc)
+    end;
+column_map_columns([], _Lookup, Acc) ->
+    lists:reverse(Acc);
+column_map_columns(Columns, Lookup, Acc) ->
+    ?Warn("column_map_columns error Columns ~p~n", [Columns]),
+    ?Warn("column_map_columns error Lookup ~p~n", [Lookup]),
+    ?Warn("column_map_columns error Acc ~p~n", [Acc]),
+    ?ClientError({"Column map invalid columns",Columns}).
+
+column_map_lookup(Schema,Table,Name,Lookup0) ->
     Pred = fun(L) ->
         (Name == element(5, L)) andalso
         ((Table == undefined) or (Table == element(4, L))) andalso
         ((Schema == undefined) or (Schema == element(3, L)))
     end,
-    Lmatch = lists:filter(Pred, Lookup),
+    Lmatch = lists:filter(Pred, Lookup0),
     % ?Debug("column_map matching tables ~p~n", [Lmatch]),
     Tcount = length(lists:usort([{element(3, X), element(4, X)} || X <- Lmatch])),
     % ?Debug("column_map matching table count ~p~n", [Tcount]),
     MetaField = imem_meta:meta_field(Name),
     if 
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined) andalso MetaField ->
-            {Cindex, Meta1} = case index_of(Name, Meta) of
-                false ->    {length(Meta)+1, Meta ++ [Name]};
-                Index ->    {Index, Meta}
-            end, 
-            #ddColumn{type=Type, len=Len, prec=P} = imem_meta:meta_field_info(Name),
-            Cmap1 = Cmap0#bind{tind=?MetaIdx, cind=Cindex, type=Type, len=Len, prec=P},
-            column_map_columns(Columns, Lookup, Meta1, [Cmap1|Acc]);                          
+            %% add new meta field to lookup and use type as result
+            Cindex = length([ Ci || {Ti, Ci, _, _, _, _} <- Lookup0, Ti==?MetaIdx]) + 1,    %% Ci of next meta field
+            #ddColumn{type=Type,len=Len,prec=P} = Cinfo = imem_meta:meta_field_info(Name),
+            Lookup1 = [{?MetaIdx, Cindex, Schema, Name, Name, Cinfo}|Lookup0],
+            {#bind{schema=Schema,table=Table,name=Name,tind=?MetaIdx,cind=Cindex,type=Type,len=Len,prec=P,btree={'$',?MetaIdx,Cindex}}, Lookup1};
         (Tcount==0) andalso (Schema==undefined) andalso (Table==undefined)->  
             ?ClientError({"Unknown column name", Name});
         (Tcount==0) andalso (Schema==undefined)->  
@@ -289,48 +323,263 @@ column_map_columns([#bind{schema=Schema, table=Table, name=Name}=Cmap0|Columns],
         true ->         
             {Ti, Ci, S, T, Name, #ddColumn{type=Type, len=Len, prec=P, default=D}} = hd(Lmatch),
             R = (Ti /= ?MainIdx),   %% Only main table is editable
-            Cmap1 = Cmap0#bind{schema=S, table=T, tind=Ti, cind=Ci, type=Type, len=Len, prec=P, default=D, readonly=R},
-            column_map_columns(Columns, Lookup, Meta, [Cmap1|Acc])
-    end;
-column_map_columns([{'fun',Fname,[Name]}=PTree|Columns], Lookup, Meta, Acc) ->
-    % ?Debug("column_map 5 ~p~n", [PTree]),
-    case imem_datatype:is_rowfun_extension(Fname,1) of
-        true ->
-            {S,T,N} = field_qname(Name),
-            Alias = list_to_binary([Fname, "(", Name, ")"]),
-            column_map_columns([#bind{schema=S, table=T, name=N, alias=Alias, func=binary_to_atom(Fname,utf8), ptree=PTree}|Columns], Lookup, Meta, Acc);
-        false ->
-            ?UnimplementedException({"Unimplemented row function",{Fname,1}})
-    end;        
-column_map_columns([{as, {'fun',Fname,[Name]}, Alias}=PTree|Columns], Lookup, Meta, Acc) ->
-    % ?Debug("column_map 6 ~p~n", [PTree]),
-    case imem_datatype:is_rowfun_extension(Fname,1) of
-        true ->
-            {S,T,N} = field_qname(Name),
-            column_map_columns([#bind{schema=S, table=T, name=N, func=binary_to_atom(Fname,utf8), alias=Alias, ptree=PTree}|Columns], Lookup, Meta, Acc);
-        false ->
-            ?UnimplementedException({"Unimplemented row function",{Fname,1}})
-    end;                    
-column_map_columns([{as, Name, Alias}=PTree|Columns], Lookup, Meta, Acc) ->
-    % ?Debug("column_map 7 ~p~n", [PTree]),
-    {S,T,N} = field_qname(Name),
-    column_map_columns([#bind{schema=S, table=T, name=N, alias=Alias, ptree=PTree}|Columns], Lookup, Meta, Acc);
-column_map_columns([Name|Columns], Lookup, Meta, Acc) when is_binary(Name)->
-    % ?Debug("column_map 8 ~p~n", [Name]),
-    {S,T,N} = field_qname(Name),
-    column_map_columns([#bind{schema=S, table=T, name=N, alias=Name, ptree=Name}|Columns], Lookup, Meta, Acc);
-column_map_columns([Expression|_], _Lookup, _Meta, _Acc)->
-    % ?Debug("column_map 9 ~p~n", [Expression]),
-    ?UnimplementedException({"Expressions not supported", Expression});
-column_map_columns([], _Lookup, _Meta, Acc) ->
-    lists:reverse(Acc);
-column_map_columns(Columns, Lookup, Meta, Acc) ->
-    ?Warn("column_map_columns error Columns ~p~n", [Columns]),
-    ?Warn("column_map_columns error Lookup ~p~n", [Lookup]),
-    ?Warn("column_map_columns error Meta ~p~n", [Meta]),
-    ?Warn("column_map_columns error Acc ~p~n", [Acc]),
-    ?ClientError({"Column map invalid columns",Columns}).
+            {#bind{schema=S,table=T,name=Name,tind=Ti,cind=Ci,type=Type,len=Len,prec=P,default=D,readonly=R,btree={'$',Ti,Ci}}, Lookup0}
+    end.
 
+%% convert tree of binary parse term to expression tree with embedded bind structures
+expr(#bind{}=Bind, Lookup, _) -> {Bind, Lookup};
+expr(B0, Lookup0, BindTemplate) when is_binary(B0) -> 
+    case {imem_datatype:strip_squotes(B0),BindTemplate} of
+        {B0,_} ->
+            %% This is not a string, must be a name or a number
+            case (catch imem_datatype:io_to_term(B0)) of
+                N when is_integer(N) -> 
+                    {#bind{tind=0,cind=0,type=integer,readonly=true,btree=N,func=N}, Lookup0};
+                F when is_float(F) -> 
+                    {#bind{tind=0,cind=0,type=float,readonly=true,btree=F,func=F}, Lookup0};
+                _ ->
+                    {S,T,N} = field_qname(B0),
+                    case N of
+                        '*' ->  #bind{schema=S, table=T, name='*'};
+                        _ ->    column_map_lookup(S,T,N,Lookup0)
+                    end
+            end;
+        {_,#bind{}} -> %% must assume binstr, use to_atom() to create an constant atom
+            {Val,ValWrap,Type} =  imem_datatype:field_value_type(1,binstr,0,0,<<>>,B0),
+            {#bind{tind=0,cind=0,type=Type,default= <<>>,readonly=true,btree=ValWrap,func=Val}, Lookup0};
+        {_,Tbind} ->
+            {Val,ValWrap,Type,Prec} =  field_value_type(Tbind,B0),
+            Def = Tbind#bind.default,
+            {#bind{tind=0,cind=0,type=Type,default=Def,prec=Prec,readonly=true,btree=ValWrap,func=Val}, Lookup0}
+    end;
+expr({'fun',Fname,[A]}=PTree, Lookup0, _) -> 
+    case imem_datatype:is_rowfun_extension(Fname,1) of
+        true ->
+            {S,T,N} = field_qname(A),
+            {CMap,Lookup1} = column_map_lookup(S,T,N,Lookup0),
+            {CMap#bind{func=binary_to_existing_atom(Fname,utf8), ptree=PTree}, Lookup1};
+        false ->
+            case unary_fun_bind_type(Fname) of
+                undefined ->    
+                    ?UnimplementedException({"Unsupported unary sql function", Fname});
+                BT ->
+                    try            
+                        Func = binary_to_existing_atom(Fname,utf8),
+                        {#bind{func=F,btree=BTree},Lookup1} = expr(A,Lookup0,BT),
+                        Type = unary_fun_result_type(Fname),
+                        {#bind{type=Type,func=unary_fun(Func,F), btree={Func,BTree}}, Lookup1}
+                    catch
+                        _:_ -> ?UnimplementedException({"Unsupported unary sql function", Fname})
+                    end
+            end
+    end;        
+expr({'fun',Fname,[A,B]}, Lookup0, _) -> 
+    {CMapA,Lookup1} = case binary_fun_bind_type1(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
+        BA ->           expr(A,Lookup0,BA)
+    end,
+    {CMapB,Lookup2} = case binary_fun_bind_type2(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
+        BB ->           expr(B,Lookup1,BB)
+    end,
+    try 
+        Func = binary_to_existing_atom(Fname,utf8),
+        Type = binary_fun_result_type(Fname),
+        FA = CMapA#bind.func,
+        FB = CMapB#bind.func,
+        {#bind{type=Type,func=binary_fun(Func,FA,FB), btree={Func,CMapA#bind.btree,CMapB#bind.btree}}, Lookup2}
+    catch
+        _:_ -> ?UnimplementedException({"Unsupported binary sql function", Fname})
+    end;
+expr({Op,A}, Lookup0, _) when Op=='+';Op=='+' ->
+    {CMapA,Lookup1} = expr(A,Lookup0,#bind{type=number,default= ?nav}),
+    {#bind{type=number,func=unary_math(Op,CMapA#bind.func), btree={Op,CMapA#bind.btree}}, Lookup1};
+expr({Op,A,B}, Lookup0, _) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' -> 
+    {CMapA,Lookup1} = expr(A,Lookup0,#bind{type=number,default= ?nav}),
+    {CMapB,Lookup2} = expr(B,Lookup1,#bind{type=number,default= ?nav}),
+    FA = CMapA#bind.func,
+    FB = CMapB#bind.func,
+    {#bind{type=number,func=binary_math(Op,FA,FB), btree={Op,CMapA#bind.btree,CMapB#bind.btree}}, Lookup2};
+expr({'not', A}, Lookup0, _) ->
+    {CMapA,Lookup1} = expr(A,Lookup0,#bind{type=boolean,default= ?nav}),
+    case CMapA#bind.func of
+        ?nav ->     {#bind{type=boolean,func=?nav, btree=?nav}, Lookup1};
+        true ->     {#bind{type=boolean,func=false, btree=false}, Lookup1};
+        false ->    {#bind{type=boolean,func=true, btree=true}, Lookup1};
+        FA when is_function(FA) ->    
+                    F = fun(X) ->
+                            case FA(X) of 
+                                ?nav ->     ?nav; 
+                                true ->     false;
+                                false ->    true
+                            end
+                        end,
+                    {#bind{type=boolean,func=F, btree={'not',CMapA#bind.btree}}, Lookup1}
+    end;
+expr({'and', A, B}, Lookup0, _) ->
+    {CMapA,Lookup1} = expr(A,Lookup0,#bind{type=boolean,default= ?nav}),
+    {CMapB,Lookup2} = expr(B,Lookup1,#bind{type=boolean,default= ?nav}),
+    FA = CMapA#bind.func,
+    FB = CMapB#bind.func,
+    {Func,BTree} = case {FA,FB} of
+        {true,true} ->  {true,true};
+        {false,_} ->    {false,false};
+        {_,false} ->    {false,false};
+        {true,_} ->     {FB,CMapB#bind.btree};  %% may be ?nav or a fun evaluating to ?nav
+        {_,true} ->     {FA,CMapA#bind.btree};  %% may be ?nav or a fun evaluating to ?nav
+        {_,_} ->        { fun(X) -> 
+                            case {FA(X),FB(X)} of
+                                {?nav,_} -> ?nav;
+                                {_,?nav} -> ?nav;
+                                {AA,BB} ->  (AA and BB)
+                            end
+                          end
+                        , {'and',CMapA#bind.btree,CMapB#bind.btree}
+                        }
+
+    end,
+    {#bind{type=boolean,func=Func, btree=BTree}, Lookup2};
+expr({'or', A, B}, Lookup0, _) ->
+    {CMapA,Lookup1} = expr(A,Lookup0,#bind{type=boolean,default= ?nav}),
+    {CMapB,Lookup2} = expr(B,Lookup1,#bind{type=boolean,default= ?nav}),
+    FA = CMapA#bind.func,
+    FB = CMapB#bind.func,
+    {Func,BTree} = case {FA,FB} of
+        {false,false} ->{false,false};
+        {true,_} ->     {true,true};
+        {_,true} ->     {true,true};
+        {false,_} ->    {FB,CMapB#bind.btree};  %% may be ?nav or a fun evaluating to ?nav
+        {_,false} ->    {FA,CMapA#bind.btree};  %% may be ?nav or a fun evaluating to ?nav
+        {_,_} ->        { fun(X) -> 
+                            case {FA(X),FB(X)} of
+                                {true,_} -> true;
+                                {_,true} -> true;
+                                {AA,BB} ->  (AA or BB)
+                            end
+                          end
+                        , {'or',CMapA#bind.btree,CMapB#bind.btree}
+                        }
+
+    end,
+    {#bind{type=boolean,func=Func, btree=BTree}, Lookup2};
+
+expr(RawExpr, _Lookup0, _Type) ->
+    ?UnimplementedException({"Unsupported sql expression", RawExpr}).
+
+unary_math('+',F)                            -> F;
+unary_math('-',F) when is_function(F)        -> fun(X) -> -F(X) end;
+unary_math('-',F)                            -> -F.
+
+unary_fun(length,F) when is_function(F)     -> fun(X) -> length(F(X)) end;
+unary_fun(length,F)                         -> length(F);
+unary_fun(hd,F) when is_function(F)         -> fun(X) -> hd(F(X)) end;
+unary_fun(hd,F)                             -> hd(F);
+unary_fun(tl,F) when is_function(F)         -> fun(X) -> tl(F(X)) end;
+unary_fun(tl,F)                             -> tl(F);
+unary_fun(last,F) when is_function(F)       -> fun(X) -> lists:last(F(X)) end;
+unary_fun(last,F)                           -> lists:last(F);
+unary_fun(sort,F) when is_function(F)       -> fun(X) -> lists:sort(F(X)) end;
+unary_fun(sort,F)                           -> lists:sort(F);
+unary_fun(usort,F) when is_function(F)      -> fun(X) -> lists:usort(F(X)) end;
+unary_fun(usort,F)                          -> lists:usort(F);
+unary_fun(tuple_size,F) when is_function(F) -> fun(X) -> length(F(X)) end;
+unary_fun(tuple_size,F)                     -> tuple_size(F);
+unary_fun(Func,F) when is_function(F)       -> fun(X) -> math:Func(F(X)) end;
+unary_fun(Func,F)                           -> math:Func(F).
+
+-define(MathOpBlockBinary(__Op,__A,__B), 
+            case __Op of
+                '+' ->      (__A + __B);
+                '-' ->      (__A - __B);
+                '*' ->      (__A * __B);
+                '/' ->      (__A / __B);
+                'div' ->    (__A div __B);
+                'rem' ->    (__A rem __B)
+            end).
+
+binary_math(Op,A,B) -> 
+    case {is_function(A),is_function(B)} of
+        {true,true} ->      fun(X) -> ?MathOpBlockBinary(Op,A(X),B(X)) end;
+        {true,false} ->     fun(X) -> ?MathOpBlockBinary(Op,A(X),B) end;
+        {false,true} ->     fun(X) -> ?MathOpBlockBinary(Op,A,B(X)) end;
+        {false,false} ->    ?MathOpBlockBinary(Op,A,B)
+    end.        
+
+binary_fun(element,FA,FB) when is_function(FA),is_function(FB)  -> fun(X) -> element(FA(X),FB(X)) end;
+binary_fun(element,FA,FB) when is_function(FA)                  -> fun(X) -> element(FA(X),FB) end;
+binary_fun(element,FA,FB) when is_function(FB)                  -> fun(X) -> element(FA(X),FB) end;
+binary_fun(element,FA,FB)                                       -> element(FA,FB);
+binary_fun(Func,FA,FB) when is_function(FA),is_function(FB)     -> fun(X) -> math:Func(FA(X),FB(X)) end;
+binary_fun(Func,FA,FB) when is_function(FA)                     -> fun(X) -> math:Func(FA(X),FB) end;
+binary_fun(Func,FA,FB) when is_function(FB)                     -> fun(X) -> math:Func(FA,FB(X)) end;
+binary_fun(Func,FA,FB)                                          -> math:Func(FA,FB).
+
+unary_fun_bind_type(B) when is_binary(B) ->     unary_fun_bind_type(binary_to_list(B));
+unary_fun_bind_type([$t,$o,$_|_]) ->            #bind{type=binstr,default= <<>>};
+unary_fun_bind_type("is_integer") ->            #bind{type=integer,default=?nav};
+unary_fun_bind_type("is_float") ->              #bind{type=float,default=?nav};
+unary_fun_bind_type("is_boolean") ->            #bind{type=boolean,default=?nav};
+unary_fun_bind_type("is_binstr") ->             #bind{type=binstr,default= <<>>};
+unary_fun_bind_type("is_string") ->             #bind{type=string,default=[]};
+unary_fun_bind_type("is_tuple") ->              #bind{type=tuple,default=undefined};
+unary_fun_bind_type("is_list") ->               #bind{type=list,default=[]};
+unary_fun_bind_type("is_ipaddr") ->             #bind{type=ipaddr,default=undefined};
+unary_fun_bind_type("is_datetime") ->           #bind{type=datetime,default=undefined};
+unary_fun_bind_type("is_timestamp") ->          #bind{type=timestamp,default=undefined};
+unary_fun_bind_type("is_term") ->               #bind{type=term,default=undefined};
+unary_fun_bind_type([$i,$s,$_|_]) ->            #bind{type=term,default=undefined};
+unary_fun_bind_type("length") ->                #bind{type=list,default=[]};
+unary_fun_bind_type("hd") ->                    #bind{type=list,default=[]};
+unary_fun_bind_type("tl") ->                    #bind{type=list,default=[]};
+unary_fun_bind_type("last") ->                  #bind{type=list,default=[]};
+unary_fun_bind_type("sort") ->                  #bind{type=list,default=[]};
+unary_fun_bind_type("usort") ->                 #bind{type=list,default=[]};
+unary_fun_bind_type("size") ->                  #bind{type=tuple,default=undefined};
+unary_fun_bind_type("tuple_size") ->            #bind{type=tuple,default=undefined};
+unary_fun_bind_type("byte_size") ->             #bind{type=binary,default= <<>>};
+unary_fun_bind_type("bit_size") ->              #bind{type=binary,default= <<>>};
+unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
+
+unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
+unary_fun_result_type([$i,$s,$_|_]) ->          #bind{type=boolean,default=?nav};
+unary_fun_result_type("hd") ->                  #bind{type=term,default=undefined};
+unary_fun_result_type("last") ->                #bind{type=term,default=undefined};
+unary_fun_result_type("tl") ->                  #bind{type=list,default=[]};
+unary_fun_result_type("sort") ->                #bind{type=list,default=[]};
+unary_fun_result_type("usort") ->               #bind{type=list,default=[]};
+unary_fun_result_type("length") ->              #bind{type=integer,default=?nav};
+unary_fun_result_type("size") ->                #bind{type=integer,default=?nav};
+unary_fun_result_type("tuple_size") ->          #bind{type=integer,default=?nav};
+unary_fun_result_type("byte_size") ->           #bind{type=integer,default=?nav};
+unary_fun_result_type("bit_size") ->            #bind{type=integer,default=?nav};
+unary_fun_result_type(String) ->            
+    case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
+        {match,[integer]}->                     #bind{type=integer,default=?nav};
+        {match,[float]}->                       #bind{type=float,default=?nav};
+        {match,[decimal]}->                     #bind{type=decimal,default=?nav};
+        {match,[list]}->                        #bind{type=list,default=[]};
+        {match,[Name]}->                        #bind{type=list_to_atom(Name),default=undefined};
+        nomatch ->                              #bind{type=number,default=?nav}
+    end.
+
+binary_fun_bind_type1(B) when is_binary(B) ->   binary_fun_bind_type1(binary_to_list(B));
+binary_fun_bind_type1("element") ->             #bind{type=integer,default=?nav};
+binary_fun_bind_type1("nth") ->                 #bind{type=integer,default=?nav};
+binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
+
+
+binary_fun_bind_type2(B) when is_binary(B) ->   binary_fun_bind_type2(binary_to_list(B));
+binary_fun_bind_type2("element") ->             #bind{type=tuple,default=?nav};
+binary_fun_bind_type2("nth") ->                 #bind{type=list,default=[]};
+binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
+
+binary_fun_result_type(B) when is_binary(B) ->  binary_fun_result_type(binary_to_list(B));
+binary_fun_result_type("element") ->            #bind{type=term,default=?nav};
+binary_fun_result_type("nth") ->                #bind{type=term,default=?nav};
+binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
+
+field_value_type(#bind{tag=Tag,type=Type,len=Len,prec=Prec,default=Def},Val) ->
+    imem_datatype:field_value_type(Tag,Type,Len,Prec,Def,Val).
 
 index_of(Item, List) -> index_of(Item, List, 1).
 
@@ -911,63 +1160,63 @@ re_match(RE, S) ->
     end.
 
 %% Constant tuple expressions
-make_expr_fun({const, A}, _) when is_tuple(A) -> A;
+expr_fun({const, A}, _) when is_tuple(A) -> A;
 %% Comparison expressions
-make_expr_fun({'==', Same, Same}, _) -> true;
-make_expr_fun({'/=', Same, Same}, _) -> false;
-make_expr_fun({Op, A, B}, FBinds) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
-    make_comp_fun({Op, A, B}, FBinds); 
+expr_fun({'==', Same, Same}, _) -> true;
+expr_fun({'/=', Same, Same}, _) -> false;
+expr_fun({Op, A, B}, FBinds) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
+    comp_fun({Op, A, B}, FBinds); 
 %% Mathematical expressions    
-make_expr_fun({'pi'}, _) -> math:pi();
-make_expr_fun({Op, A}, FBinds) when Op=='+';Op=='-' ->
-    make_math_fun({Op, A}, FBinds); 
-make_expr_fun({Op, A}, FBinds) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
-    make_module_fun('math', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
-    make_module_fun('math', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
-    make_module_fun('math', {Op, A}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
-    make_math_fun({Op, A, B}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when Op=='pow';Op=='atan2' ->
-    make_module_fun('math', {Op, A, B}, FBinds);
+expr_fun({'pi'}, _) -> math:pi();
+expr_fun({Op, A}, FBinds) when Op=='+';Op=='-' ->
+    math_fun({Op, A}, FBinds); 
+expr_fun({Op, A}, FBinds) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
+    module_fun('math', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
+    module_fun('math', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
+    module_fun('math', {Op, A}, FBinds);
+expr_fun({Op, A, B}, FBinds) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
+    math_fun({Op, A, B}, FBinds);
+expr_fun({Op, A, B}, FBinds) when Op=='pow';Op=='atan2' ->
+    module_fun('math', {Op, A, B}, FBinds);
 %% Erlang module
-make_expr_fun({Op, A}, FBinds) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A}, FBinds) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
-    make_module_fun('erlang', {Op, A}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
-    make_module_fun('erlang', {Op, A, B}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
-    make_module_fun('erlang', {Op, A, B}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
-    make_module_fun('erlang', {Op, A, B}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
-    make_module_fun('erlang', {Op, A, B}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
-    make_module_fun('erlang', {Op, A, B}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
+    module_fun('erlang', {Op, A}, FBinds);
+expr_fun({Op, A, B}, FBinds) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
+    module_fun('erlang', {Op, A, B}, FBinds);
+expr_fun({Op, A, B}, FBinds) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
+    module_fun('erlang', {Op, A, B}, FBinds);
+expr_fun({Op, A, B}, FBinds) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
+    module_fun('erlang', {Op, A, B}, FBinds);
+expr_fun({Op, A, B}, FBinds) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
+    module_fun('erlang', {Op, A, B}, FBinds);
+expr_fun({Op, A, B}, FBinds) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
+    module_fun('erlang', {Op, A, B}, FBinds);
 %% Lists module
-make_expr_fun({Op, A}, FBinds) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
-    make_module_fun('lists', {Op, A}, FBinds);
-make_expr_fun({Op, A, B}, FBinds) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
-    make_module_fun('lists', {Op, A, B}, FBinds);
+expr_fun({Op, A}, FBinds) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
+    module_fun('lists', {Op, A}, FBinds);
+expr_fun({Op, A, B}, FBinds) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
+    module_fun('lists', {Op, A, B}, FBinds);
 %% Logical expressions
-make_expr_fun({'not', A}, FBinds) ->
-    case make_expr_fun(A, FBinds) of
+expr_fun({'not', A}, FBinds) ->
+    case expr_fun(A, FBinds) of
         ?nav ->                     ?nav;
         true ->                     false;
         false ->                    true;
@@ -979,9 +1228,9 @@ make_expr_fun({'not', A}, FBinds) ->
                                                 end
                                     end
     end;                       
-make_expr_fun({'and', A, B}, FBinds) ->
-    Fa = make_expr_fun(A,FBinds),
-    Fb = make_expr_fun(B,FBinds),
+expr_fun({'and', A, B}, FBinds) ->
+    Fa = expr_fun(A,FBinds),
+    Fb = expr_fun(B,FBinds),
     case {Fa,Fb} of
         {true,true} ->  true;
         {false,_} ->    false;
@@ -990,9 +1239,9 @@ make_expr_fun({'and', A, B}, FBinds) ->
         {_,true} ->     Fa;         %% may be ?nav or a fun evaluating to ?nav
         {_,_} ->        fun(X) -> (Fa(X) and Fb(X)) end
     end;
-make_expr_fun({'or', A, B}, FBinds) ->
-    Fa = make_expr_fun(A,FBinds),
-    Fb = make_expr_fun(B,FBinds),
+expr_fun({'or', A, B}, FBinds) ->
+    Fa = expr_fun(A,FBinds),
+    Fb = expr_fun(B,FBinds),
     case {Fa,Fb} of
         {false,false}-> false;
         {true,_} ->     true;
@@ -1002,53 +1251,53 @@ make_expr_fun({'or', A, B}, FBinds) ->
         {_,_} ->        fun(X) -> (Fa(X) or Fb(X)) end
     end;
 %% Custom filters
-make_expr_fun({Op, A, B}, FBinds) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
-    make_filter_fun({Op, A, B}, FBinds);
-make_expr_fun({'safe', A}, FBinds) ->
-    make_safe_fun(A, FBinds);
-make_expr_fun({Op, A}, _FBinds) ->
+expr_fun({Op, A, B}, FBinds) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
+    filter_fun({Op, A, B}, FBinds);
+expr_fun({'safe', A}, FBinds) ->
+    safe_fun(A, FBinds);
+expr_fun({Op, A}, _FBinds) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
-make_expr_fun({Op, A, B}, _FBinds) ->
+expr_fun({Op, A, B}, _FBinds) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
-make_expr_fun(Value, _FBinds)  -> Value.
+expr_fun(Value, _FBinds)  -> Value.
 
 
 bind_action(P,_Binds) when is_function(P) -> true;          %% parameter already bound to function
 bind_action(P,Binds) -> lists:keyfind(P,#bind.tag,Binds).   %% find bind by tag name or return false for value prameter
 
-make_safe_fun(A, FBinds) ->
-    Fa = make_expr_fun(A,FBinds),
-    make_safe_fun_final(Fa, FBinds).
+safe_fun(A, FBinds) ->
+    Fa = expr_fun(A,FBinds),
+    safe_fun_final(Fa, FBinds).
 
-make_safe_fun_final(A, FBinds) ->
+safe_fun_final(A, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             fun(X) -> try A(X) catch _:_ -> ?nav end end;       
         ABind ->            fun(X) -> try ?BoundVal(ABind,X) catch _:_ -> ?nav end end
     end.
 
-make_module_fun(Mod, {Op, {const,A}}, FBinds) when is_tuple(A) ->
-    make_module_fun_final(Mod, {Op, A}, FBinds);
-make_module_fun(Mod, {Op, A}, FBinds) ->
-    make_module_fun_final(Mod, {Op, make_expr_fun(A,FBinds)}, FBinds);
-make_module_fun(Mod, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
-    make_module_fun_final(Mod, {Op, A, B}, FBinds);
-make_module_fun(Mod, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
-    make_module_fun_final(Mod, {Op, A, make_expr_fun(B,FBinds)}, FBinds);
-make_module_fun(Mod, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
-    make_module_fun_final(Mod, {Op, make_expr_fun(A,FBinds), B}, FBinds);
-make_module_fun(Mod, {Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(A,FBinds),
-    Fb = make_expr_fun(B,FBinds),
-    make_module_fun_final(Mod, {Op, Fa, Fb}, FBinds).
+module_fun(Mod, {Op, {const,A}}, FBinds) when is_tuple(A) ->
+    module_fun_final(Mod, {Op, A}, FBinds);
+module_fun(Mod, {Op, A}, FBinds) ->
+    module_fun_final(Mod, {Op, expr_fun(A,FBinds)}, FBinds);
+module_fun(Mod, {Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    module_fun_final(Mod, {Op, A, B}, FBinds);
+module_fun(Mod, {Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    module_fun_final(Mod, {Op, A, expr_fun(B,FBinds)}, FBinds);
+module_fun(Mod, {Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    module_fun_final(Mod, {Op, expr_fun(A,FBinds), B}, FBinds);
+module_fun(Mod, {Op, A, B}, FBinds) ->
+    Fa = expr_fun(A,FBinds),
+    Fb = expr_fun(B,FBinds),
+    module_fun_final(Mod, {Op, Fa, Fb}, FBinds).
 
-make_module_fun_final(Mod, {Op, A}, FBinds) -> 
+module_fun_final(Mod, {Op, A}, FBinds) -> 
     case bind_action(A,FBinds) of 
         false ->        Mod:Op(A);
         true ->         fun(X) -> Mod:Op(A(X)) end;
         ABind ->        fun(X) -> Mod:Op(?BoundVal(ABind,X)) end
     end;
-make_module_fun_final(Mod, {Op, A, B}, FBinds) -> 
+module_fun_final(Mod, {Op, A, B}, FBinds) -> 
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->        Mod:Op(A,B);
         {false,true} ->         fun(X) -> Mod:Op(A,B(X)) end;
@@ -1061,37 +1310,27 @@ make_module_fun_final(Mod, {Op, A, B}, FBinds) ->
         {ABind,BBind} ->        fun(X) -> Mod:Op(?BoundVal(ABind,X),?BoundVal(BBind,X)) end 
     end.
 
-make_math_fun({Op, A}, FBinds) ->
-    make_math_fun_unary({Op, make_expr_fun(A,FBinds)}, FBinds);
-make_math_fun({Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(A,FBinds),
-    Fb = make_expr_fun(B,FBinds),
-    make_math_fun_binary({Op, Fa, Fb}, FBinds).
+math_fun({Op, A}, FBinds) ->
+    math_fun_unary({Op, expr_fun(A,FBinds)}, FBinds);
+math_fun({Op, A, B}, FBinds) ->
+    Fa = expr_fun(A,FBinds),
+    Fb = expr_fun(B,FBinds),
+    math_fun_binary({Op, Fa, Fb}, FBinds).
 
-make_math_fun_unary({'+', A}, FBinds) ->
+math_fun_unary({'+', A}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             A;       
         ABind ->            fun(X) -> ?BoundVal(ABind,X) end
     end;
-make_math_fun_unary({'-', A}, FBinds) ->
+math_fun_unary({'-', A}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->            A;        
         true ->             fun(X) -> (-A(X)) end;       
         ABind ->            fun(X) -> (-?BoundVal(ABind,X)) end
     end.
 
--define(MathOpBlockBinary(__Op,__A,__B), 
-            case __Op of
-                '+' ->      (__A + __B);
-                '-' ->      (__A - __B);
-                '*' ->      (__A * __B);
-                '/' ->      (__A / __B);
-                'div' ->    (__A div __B);
-                'rem' ->    (__A rem __B)
-            end).
-
-make_math_fun_binary({Op, A, B}, FBinds) ->
+math_fun_binary({Op, A, B}, FBinds) ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?MathOpBlockBinary(Op,A,B);
         {false,true} ->     fun(X) -> ?MathOpBlockBinary(Op,A,B(X)) end;
@@ -1104,16 +1343,16 @@ make_math_fun_binary({Op, A, B}, FBinds) ->
         {ABind,BBind} ->    fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),?BoundVal(BBind,X)) end
     end.
 
-make_comp_fun({Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
-    make_comp_fun_final({Op, A, B}, FBinds);
-make_comp_fun({Op, {const,A}, B}, FBinds) when is_tuple(A) ->
-    make_comp_fun_final({Op, A, make_expr_fun(B,FBinds)}, FBinds);
-make_comp_fun({Op, A, {const,B}}, FBinds) when is_tuple(B) ->
-    make_comp_fun_final({Op, make_expr_fun(A,FBinds), B}, FBinds);
-make_comp_fun({Op, A, B}, FBinds) ->
-    Fa = make_expr_fun(A,FBinds),
-    Fb = make_expr_fun(B,FBinds),
-    make_comp_fun_final({Op, Fa, Fb}, FBinds).
+comp_fun({Op, {const,A}, {const,B}}, FBinds) when is_tuple(A),is_tuple(B)->
+    comp_fun_final({Op, A, B}, FBinds);
+comp_fun({Op, {const,A}, B}, FBinds) when is_tuple(A) ->
+    comp_fun_final({Op, A, expr_fun(B,FBinds)}, FBinds);
+comp_fun({Op, A, {const,B}}, FBinds) when is_tuple(B) ->
+    comp_fun_final({Op, expr_fun(A,FBinds), B}, FBinds);
+comp_fun({Op, A, B}, FBinds) ->
+    Fa = expr_fun(A,FBinds),
+    Fb = expr_fun(B,FBinds),
+    comp_fun_final({Op, Fa, Fb}, FBinds).
 
 
 -define(CompOpBlock(__Op,__A,__B), 
@@ -1131,7 +1370,7 @@ make_comp_fun({Op, A, B}, FBinds) ->
                 end
         end).
 
-make_comp_fun_final({Op, A, B}, FBinds) ->
+comp_fun_final({Op, A, B}, FBinds) ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?CompOpBlock(Op,A,B);
         {false,true} ->     fun(X) -> Bbound=B(X),?CompOpBlock(Op,A,Bbound) end;
@@ -1144,17 +1383,17 @@ make_comp_fun_final({Op, A, B}, FBinds) ->
         {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,Abound,Bbound) end
     end.
 
-make_filter_fun({Op, {const,A}, {const,B}}, FBinds) ->
-    make_filter_fun_final({Op, A, B}, FBinds);
-make_filter_fun({Op, {const,A}, B}, FBinds) ->
-    make_filter_fun_final({Op, A, make_expr_fun(B, FBinds)}, FBinds);
-make_filter_fun({Op, A, {const,B}}, FBinds) ->
-    make_filter_fun_final({Op, make_filter_fun(A, FBinds), B}, FBinds);
-make_filter_fun({Op, A, B}, FBinds) ->
-    FA = make_expr_fun(A, FBinds),
-    FB = make_expr_fun(B, FBinds),
-    make_filter_fun_final( {Op, FA, FB}, FBinds);
-make_filter_fun(Value, _FBinds) -> Value.
+filter_fun({Op, {const,A}, {const,B}}, FBinds) ->
+    filter_fun_final({Op, A, B}, FBinds);
+filter_fun({Op, {const,A}, B}, FBinds) ->
+    filter_fun_final({Op, A, expr_fun(B, FBinds)}, FBinds);
+filter_fun({Op, A, {const,B}}, FBinds) ->
+    filter_fun_final({Op, filter_fun(A, FBinds), B}, FBinds);
+filter_fun({Op, A, B}, FBinds) ->
+    FA = expr_fun(A, FBinds),
+    FB = expr_fun(B, FBinds),
+    filter_fun_final( {Op, FA, FB}, FBinds);
+filter_fun(Value, _FBinds) -> Value.
 
 
 -define(ElementOpBlock(__A,__B), 
@@ -1165,7 +1404,7 @@ make_filter_fun(Value, _FBinds) -> Value.
         true -> element(__A,__B)
     end).
 
-make_filter_fun_final({'element', A, B}, FBinds)  ->
+filter_fun_final({'element', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    ?ElementOpBlock(A,B);
         {false,true} ->     fun(X) -> Bbound=B(X),?ElementOpBlock(A,Bbound) end;
@@ -1177,7 +1416,7 @@ make_filter_fun_final({'element', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> Abound=?BoundVal(ABind,X),Bbound=B(X),?ElementOpBlock(Abound,Bbound) end;
         {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?ElementOpBlock(Abound,Bbound) end
     end;
-make_filter_fun_final({'is_member', A, '$_'}, FBinds) ->
+filter_fun_final({'is_member', A, '$_'}, FBinds) ->
     case bind_action(A,FBinds) of 
         false ->        
             fun(X) -> 
@@ -1192,7 +1431,7 @@ make_filter_fun_final({'is_member', A, '$_'}, FBinds) ->
                 lists:member(?BoundVal(ABind,X),tl(tuple_to_list(element(?MainIdx,X))))
             end
     end;
-make_filter_fun_final({'is_like', A, B}, FBinds)  ->
+filter_fun_final({'is_like', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    re_match(like_compile(B),A);
         {false,true} ->     fun(X) -> re_match(like_compile(B(X)),A) end;
@@ -1204,7 +1443,7 @@ make_filter_fun_final({'is_like', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> re_match(like_compile(B(X)),?BoundVal(ABind,X)) end;
         {ABind,BBind} ->    fun(X) -> re_match(like_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
     end;
-make_filter_fun_final({'is_regexp_like', A, B}, FBinds)  ->
+filter_fun_final({'is_regexp_like', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->    re_match(re_compile(B),A);
         {false,true} ->     fun(X) -> re_match(re_compile(B(X)),A) end;
@@ -1216,7 +1455,7 @@ make_filter_fun_final({'is_regexp_like', A, B}, FBinds)  ->
         {ABind,true} ->     fun(X) -> re_match(re_compile(B(X)),?BoundVal(ABind,X)) end;
         {ABind,BBind} ->    fun(X) -> re_match(re_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
     end;
-make_filter_fun_final({'is_member', A, B}, FBinds)  ->
+filter_fun_final({'is_member', A, B}, FBinds)  ->
     case {bind_action(A,FBinds),bind_action(B,FBinds)} of 
         {false,false} ->        
             if 
@@ -1298,7 +1537,7 @@ make_filter_fun_final({'is_member', A, B}, FBinds)  ->
                 end
             end
     end;
-make_filter_fun_final(FGuard, FBinds) ->
+filter_fun_final(FGuard, FBinds) ->
     ?UnimplementedException({"Unsupported filter function",{FGuard, FBinds}}).
 
 
@@ -1360,48 +1599,48 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, filter_member({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, filter_member({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
-    %% make_expr_fun
-        ?assertEqual(true, make_expr_fun(true, [])),
-        ?assertEqual(false, make_expr_fun(false, [])),
-        ?assertEqual(true, make_expr_fun({'not', false}, [])),
-        ?assertEqual(false, make_expr_fun({'not', true}, [])),
-        ?assertEqual(12, make_expr_fun(12, [])),
-        ?assertEqual(a, make_expr_fun(a, [])),
-        ?assertEqual({a,b}, make_expr_fun({const,{a,b}}, [])),
-        ?assertEqual(true, make_expr_fun({'==', 10,10}, [])),
-        ?assertEqual(true, make_expr_fun({'==', {const,{a,b}}, {const,{a,b}}}, [])), 
-        ?assertEqual(false, make_expr_fun({'==', {const,{a,b}}, {const,{a,1}}}, [])), 
-        ?assertEqual(true, make_expr_fun({'is_member', a, [a,b]}, [])),
-        ?assertEqual(true, make_expr_fun({'is_member', 1, [a,b,1]}, [])),
-        ?assertEqual(false, make_expr_fun({'is_member', 1, [a,b,c]}, [])),
-        ?assertEqual(true, make_expr_fun({'is_member', 1, {const,a,b,1}}, [])),
-        ?assertEqual(false, make_expr_fun({'is_member', 1, {const,a,b,c}}, [])),
-        ?assertEqual(true, make_expr_fun({'is_like', "12345", "%3%"}, [])),
-        ?assertEqual(true, make_expr_fun({'is_like', <<"12345">>, "%3__"}, [])),
-        ?assertEqual(true, make_expr_fun({'is_like', "12345", <<"1%">>}, [])),
-        ?assertEqual(true, make_expr_fun({'is_like', {'+',12300,45}, <<"%45">>}, [])),
-        ?assertEqual(false, make_expr_fun({'is_like', "12345", "%6%"}, [])),
-        ?assertEqual(false, make_expr_fun({'is_like', <<"12345">>, "%7__"}, [])),
-        ?assertEqual(33, make_expr_fun({'*',{'+',10,1},3}, [])),
-        ?assertEqual(10, make_expr_fun({'abs',{'-',10,20}}, [])),
-        ?Info("success ~p~n", ["make_expr_fun constants"]),
+    %% expr_fun
+        ?assertEqual(true, expr_fun(true, [])),
+        ?assertEqual(false, expr_fun(false, [])),
+        ?assertEqual(true, expr_fun({'not', false}, [])),
+        ?assertEqual(false, expr_fun({'not', true}, [])),
+        ?assertEqual(12, expr_fun(12, [])),
+        ?assertEqual(a, expr_fun(a, [])),
+        ?assertEqual({a,b}, expr_fun({const,{a,b}}, [])),
+        ?assertEqual(true, expr_fun({'==', 10,10}, [])),
+        ?assertEqual(true, expr_fun({'==', {const,{a,b}}, {const,{a,b}}}, [])), 
+        ?assertEqual(false, expr_fun({'==', {const,{a,b}}, {const,{a,1}}}, [])), 
+        ?assertEqual(true, expr_fun({'is_member', a, [a,b]}, [])),
+        ?assertEqual(true, expr_fun({'is_member', 1, [a,b,1]}, [])),
+        ?assertEqual(false, expr_fun({'is_member', 1, [a,b,c]}, [])),
+        ?assertEqual(true, expr_fun({'is_member', 1, {const,a,b,1}}, [])),
+        ?assertEqual(false, expr_fun({'is_member', 1, {const,a,b,c}}, [])),
+        ?assertEqual(true, expr_fun({'is_like', "12345", "%3%"}, [])),
+        ?assertEqual(true, expr_fun({'is_like', <<"12345">>, "%3__"}, [])),
+        ?assertEqual(true, expr_fun({'is_like', "12345", <<"1%">>}, [])),
+        ?assertEqual(true, expr_fun({'is_like', {'+',12300,45}, <<"%45">>}, [])),
+        ?assertEqual(false, expr_fun({'is_like', "12345", "%6%"}, [])),
+        ?assertEqual(false, expr_fun({'is_like', <<"12345">>, "%7__"}, [])),
+        ?assertEqual(33, expr_fun({'*',{'+',10,1},3}, [])),
+        ?assertEqual(10, expr_fun({'abs',{'-',10,20}}, [])),
+        ?Info("success ~p~n", ["expr_fun constants"]),
 
         X1 = {{1,2,3},{2,2,2}},
         B1a = #bind{tag='$1',tind=1,cind=2},
         B1b = #bind{tag='$2',tind=1,cind=2},
-        F1 = make_expr_fun({'==', '$1','$2'}, [B1a,B1b]),
+        F1 = expr_fun({'==', '$1','$2'}, [B1a,B1b]),
         ?assertEqual(true, F1(X1)),
 
         B1c = #bind{tag='$2',tind=2,cind=2},
-        F1a = make_expr_fun({'==', '$1','$2'}, [B1a,B1c]),
+        F1a = expr_fun({'==', '$1','$2'}, [B1a,B1c]),
         ?assertEqual(true, F1a(X1)),
 
         B2 = #bind{tag='$3',tind=1,cind=3},
-        F2 = make_expr_fun({'is_member', a, '$3'}, [B2]),
+        F2 = expr_fun({'is_member', a, '$3'}, [B2]),
         ?assertEqual(false,F2({{1,2,[3,4,5]}})),        
         ?assertEqual(true, F2({{1,2,[c,a,d]}})),        
 
-        F3 = make_expr_fun({'is_member', '$2', '$3'}, [B1b,B2]),
+        F3 = expr_fun({'is_member', '$2', '$3'}, [B1b,B2]),
         ?assertEqual(true, F3({{1,d,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,c,[c,a,d]}})),        
         ?assertEqual(true, F3({{1,a,[c,a,d]}})),        
@@ -1411,14 +1650,14 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false,F3({{1,[a],[3,4,5]}})),        
         ?assertEqual(false,F3({{1,3,[]}})),        
 
-        F4 = make_expr_fun({'is_member', {'+','$2',1}, '$3'}, [B1b,B2]),
+        F4 = expr_fun({'is_member', {'+','$2',1}, '$3'}, [B1b,B2]),
         ?assertEqual(true, F4({{1,2,[3,4,5]}})),        
         ?assertEqual(false,F4({{1,2,[c,4,d]}})),        
 
-        F5 = make_expr_fun({'is_member', a, '$_'}, []),
+        F5 = expr_fun({'is_member', a, '$_'}, []),
         ?assertEqual(true, F5({{},{1,a,[c,a,d]}})),        
         ?assertEqual(false, F5({{},{1,d,[c,a,d]}})),        
-        ?Info("success ~p~n", ["make_expr_fun with binds"]),
+        ?Info("success ~p~n", ["expr_fun with binds"]),
 
         % ?assert(false),
 

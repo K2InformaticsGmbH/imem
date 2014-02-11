@@ -100,6 +100,10 @@
         , term_to_io/1
         ]).
 
+-export([ field_value/6
+        , field_value_type/6
+        ]).
+
 -export([ map/3
         , name/1
         , text/1
@@ -136,6 +140,12 @@ select_rowfun_raw(ColMap) ->
 
 select_rowfun_raw(_Recs, [], Acc) ->
     lists:reverse(Acc);
+select_rowfun_raw(Recs, [#bind{tind=0,cind=0,func=F}|ColMap], Acc) ->
+    Fld = case is_function(F) of
+        true ->     F(Recs);
+        false ->    F
+    end,
+    select_rowfun_raw(Recs, ColMap, [Fld|Acc]);
 select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
     Fld = case element(Ti,Recs) of
         undefined ->    undefined;
@@ -163,6 +173,12 @@ select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
 
 select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
     lists:reverse(Acc);
+select_rowfun_str(Recs, [#bind{type=T,prec=P,tind=0,cind=0,func=F}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
+    Str = case is_function(F) of
+        true -> db_to_io(T, P, DateFmt, NumFmt, StrFmt, F(Recs));
+        false -> db_to_io(T, P, DateFmt, NumFmt, StrFmt, F)
+    end,
+    select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
 select_rowfun_str(Recs, [#bind{type=T,prec=P,tind=Ti,cind=Ci,func=F,default=D}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = case element(Ti,Recs) of
         undefined ->    
@@ -1076,6 +1092,33 @@ integer_to_io(Val) ->
     list_to_binary(integer_to_list(Val)).
 
 %% ----- Helper Functions ---------------------------------------------
+
+field_value(Tag,Type,Len,Prec,Def,Val) when is_binary(Val);is_list(Val) ->
+    case io_to_db(Tag,?nav,Type,Len,Prec,Def,false,imem_sql:un_escape_sql(Val)) of
+        T when is_tuple(T) ->   {const,T};
+        V ->                    V
+    end;
+field_value(_,_,_,_,_,Val) when is_tuple(Val) -> {const,Val};
+field_value(_,_,_,_,_,Val) -> Val.
+
+field_value_type(Tag,Type,Len,Prec,Def,Val) when is_binary(Val);is_list(Val) ->
+    case io_to_db(Tag,?nav,Type,Len,Prec,Def,false,imem_sql:un_escape_sql(Val)) of
+        true ->                                     {true,true,boolean,0};
+        false ->                                    {false,false,boolean,0};
+        A when is_atom(A) ->                        {A,A,atom,0};
+        T when is_tuple(T),(Type==datetime) ->      {T,{const,T},datetime,tuple_size(T)};
+        T when is_tuple(T),(Type==timestamp) ->     {T,{const,T},timestamp,tuple_size(T)};
+        T when is_tuple(T),(Type==ipaddr) ->        {T,{const,T},ipaddr,tuple_size(T)};
+        T when is_tuple(T),(tuple_size(T)==Len) ->  {T,{const,T},tuple,tuple_size(T)};
+        T when is_tuple(T) ->                       {T,{const,T},tuple,0};
+        D when is_integer(D),(Type==decimal)->      {D,D,decimal,Prec};
+        I when is_integer(I)->                      {I,I,integer,0};
+        N when is_float(N)->                        {N,N,float,0};
+        F when is_function(F) ->                    {F,F,'fun',0};
+        S when is_list(S),(Type==string) ->         {S,S,string,0};
+        L when is_list(L) ->                        {L,L,list,0};
+        X ->                                        {X,X,term,0}
+    end.
 
 map(Val,From,To) ->
     if 

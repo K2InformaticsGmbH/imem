@@ -31,13 +31,14 @@
                   , alias                   ::binary()    
                   , tind = 0                ::integer()               
                   , cind = 0                ::integer()               
-                  , type = 'term'           ::atom()
+                  , type                    ::atom()
                   , len = 0                 ::integer()
                   , prec = 0                ::integer()
                   , default                 ::any()
                   , readonly = false        ::true|false
-                  , func = undefined        ::any()
-                  , ptree = undefined       ::any()     
+                  , func                    ::any()
+                  , ptree                   ::any()
+                  , btree                   ::any()     
                   }                  
        ).
 
