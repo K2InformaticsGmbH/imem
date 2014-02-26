@@ -8,7 +8,7 @@
 -define(DDNODE_TIMEOUT,3000).       %% RPC timeout for ddNode evaluation
 
 -define(META_TABLES,[ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
--define(META_FIELDS,[user,username,schema,node,sysdate,systimestamp]). %% ,rownum
+-define(META_FIELDS,[rownum,systimestamp,user,username,sysdate,schema,node]). 
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 
 -define(CONFIG_TABLE_OPTS, [{record_name,ddConfig}
@@ -21,6 +21,11 @@
                            ]).          
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
+
+% -define(RecIdx, 1).                                       %% Record name position in records
+% -define(FirstIdx, 2).                                     %% First field position in records
+-define(KeyIdx, 2).                                       %% Key position in records
+
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
@@ -57,12 +62,15 @@
         , tables_starting_with/1
         , tables_ending_with/1
         , node_shard/0
+        , qualified_table_name/1
+        , qualified_new_table_name/1
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
         , parse_table_name/1
         , is_system_table/1
         , is_readable_table/1
+        , is_virtual_table/1
         , is_time_partitioned_alias/1
         , is_local_time_partitioned_table/1
         , is_node_sharded_alias/1
@@ -274,16 +282,21 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 %% ------ META implementation -------------------------------------------------------
 
 
-is_system_table({_S,Table,_A}) -> is_system_table(Table);
-is_system_table({_,Table}) -> is_system_table(Table);
+% is_system_table({_S,Table,_A}) -> is_system_table(Table);   % TODO: May depend on Schema
+is_system_table({_,Table}) -> 
+    is_system_table(Table);       % TODO: May depend on Schema
 is_system_table(Table) when is_atom(Table) ->
     case lists:member(Table,?META_TABLES) of
         true ->     true;
         false ->    imem_if:is_system_table(Table)
     end;
-is_system_table(TableName) ->
-    is_system_table(imem_sql:table_qname(TableName)).
-
+is_system_table(Table) when is_binary(Table) ->
+    try
+        {S,T} = imem_sql_expr:binstr_to_qname2(Table), 
+        is_system_table({?binary_to_existing_atom(S),?binary_to_existing_atom(T)})
+    catch
+        _:_ -> false
+    end.
 
 check_table(Table) when is_atom(Table) ->
     imem_if:table_size(physical_table_name(Table)),
@@ -374,14 +387,17 @@ meta_field_info(user) ->
     #ddColumn{name=user, type='userid', len=20, prec=0};
 meta_field_info(username) ->
     #ddColumn{name=username, type='binstr', len=20, prec=0};
-% meta_field_info(rownum) ->
-%     #ddColumn{name=rownum, type='integer', len=10, prec=0};
+meta_field_info(rownum) ->
+    #ddColumn{name=rownum, type='integer', len=10, prec=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 
-meta_field_value(rownum) ->     1; 
-meta_field_value(username) ->   <<"unknown">>; 
-meta_field_value(user) ->       unknown; 
+meta_field_value(<<"rownum">>) ->   1; 
+meta_field_value(rownum) ->         1; 
+meta_field_value(<<"username">>) -> <<"unknown">>; 
+meta_field_value(username) ->       <<"unknown">>; 
+meta_field_value(<<"user">>) ->     unknown; 
+meta_field_value(user) ->           unknown; 
 meta_field_value(Name) ->
     imem_if:meta_field_value(Name). 
 
@@ -405,6 +421,8 @@ column_names(Infos)->
 
 column_infos(Table) when is_atom(Table) ->
     column_infos({schema(),Table});    
+column_infos({Schema,Table}) when is_binary(Schema), is_binary(Table) ->
+    column_infos({?binary_to_atom(Schema),?binary_to_atom(Table)});         %% TODO: find alternative
 column_infos({Schema,Table}) when is_atom(Schema), is_atom(Table) ->
     case lists:member(Table, ?DataTypes) of
         true -> 
@@ -446,7 +464,13 @@ create_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
     create_physical_table(Table,ColumnInfos,Opts,Owner);
 create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
-    create_physical_table(Table,ColumnInfos,Opts,Owner);
+    Conv = fun(X) ->
+        case X#ddColumn.name of
+            A when is_atom(A) -> X; 
+            B -> X#ddColumn{name=?binary_to_atom(B)} 
+        end
+    end,
+    create_physical_table(qualified_new_table_name(Table),lists:map(Conv,ColumnInfos),Opts,Owner);
 create_table(Table, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
     create_physical_table(Table,ColumnInfos,Opts,Owner).
@@ -455,8 +479,14 @@ create_check_table(Table, Columns, Opts) ->
     create_check_table(Table, Columns, Opts, (#ddTable{})#ddTable.owner).
 
 create_check_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
-    {ColumnNames, ColumnTypes, DefaultRecord} = from_column_infos(ColumnInfos),
-    create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner);
+    Conv = fun(X) ->
+        case X#ddColumn.name of
+            A when is_atom(A) -> X; 
+            B -> X#ddColumn{name=?binary_to_atom(B)} 
+        end
+    end,
+    {ColumnNames, ColumnTypes, DefaultRecord} = from_column_infos(lists:map(Conv,ColumnInfos)),
+    create_check_table(qualified_new_table_name(Table), {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner);
 create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
@@ -574,7 +604,7 @@ truncate_table(Alias) when is_atom(Alias) ->
     %% log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
     truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias)));
 truncate_table(TableName) ->
-    truncate_table(imem_sql:table_qname(TableName)).
+    truncate_table(qualified_table_name(TableName)).
 
 truncate_partitioned_tables([]) -> ok;
 truncate_partitioned_tables([PhName|PhNames]) ->
@@ -599,7 +629,7 @@ snapshot_table(Alias) when is_atom(Alias) ->
                 end
     end;
 snapshot_table(TableName) ->
-    snapshot_table(imem_sql:table_qname(TableName)).
+    snapshot_table(qualified_table_name(TableName)).
 
 snapshot_partitioned_tables([]) -> ok;
 snapshot_partitioned_tables([PhName|PhNames]) ->
@@ -628,11 +658,9 @@ restore_table(Alias) when is_atom(Alias) ->
 
     end;    
 restore_table(TableName) ->
-    restore_table(imem_sql:table_qname(TableName)).
+    restore_table(qualified_table_name(TableName)).
 
-drop_table({Schema,Table,_Alias}) -> 
-    drop_table({Schema,Table});
-drop_table({Schema,Table}) ->
+drop_table({Schema,Table}) when is_atom(Schema), is_atom(Table) ->
     MySchema = schema(),
     case Schema of
         MySchema -> drop_table(Table);
@@ -645,8 +673,8 @@ drop_table(?LOG_TABLE) ->
 drop_table(Alias) when is_atom(Alias) ->
     %% log_to_db(debug,?MODULE,drop_table,[{table,Alias}],"drop table"),
     drop_partitioned_tables_and_infos(lists:sort(simple_or_local_node_sharded_tables(Alias)));
-drop_table(TableName) ->
-    drop_table(imem_sql:table_qname(TableName)).
+drop_table(Table) when is_binary(Table) ->
+    drop_table(qualified_table_name(Table)).
 
 drop_partitioned_tables_and_infos([]) -> ok;
 drop_partitioned_tables_and_infos([PhName|PhNames]) ->
@@ -816,7 +844,7 @@ time_of_partition_expiry(Table) when is_list(Table) ->
             {Number div 1000000, Number rem 1000000, 0}
     end.
 
-physical_table_name({_S,N,_A}) -> physical_table_name(N);
+% physical_table_name({_S,N,_A}) -> physical_table_name(N);
 physical_table_name({_S,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
@@ -832,7 +860,7 @@ physical_table_name(Name) when is_list(Name) ->
         _ ->    list_to_atom(Name)
     end.
 
-physical_table_name({_S,N,_A},Key) -> physical_table_name(N,Key);
+% physical_table_name({_S,N,_A},Key) -> physical_table_name(N,Key);
 physical_table_name({_S,N},Key) -> physical_table_name(N,Key);
 physical_table_name(dba_tables,_) -> ddTable;
 physical_table_name(all_tables,_) -> ddTable;
@@ -901,6 +929,32 @@ partitioned_table_name(Name,Key) when is_list(Name) ->
             % node sharded table only   
             list_to_atom(lists:flatten(Name ++ node_shard()))
     end.
+
+qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(),Table};
+qualified_table_name(Table) when is_atom(Table) ->                          {schema(),Table};
+qualified_table_name({Schema,Table}) when is_atom(Schema),is_atom(Table) -> {Schema,Table};
+qualified_table_name({undefined,T}) when is_binary(T) ->
+    try
+        {schema(),?binary_to_existing_atom(T)}
+    catch
+        _:_ -> ?ClientError({"Unknown Table name",T})
+    end;
+qualified_table_name({S,T}) when is_binary(S),is_binary(T) ->
+    try
+        {?binary_to_existing_atom(S),?binary_to_existing_atom(T)}
+    catch
+        _:_ -> ?ClientError({"Unknown Schema or Table name",{S,T}})
+    end;
+qualified_table_name(Table) when is_binary(Table) ->                        
+    qualified_table_name(imem_sql_expr:binstr_to_qname2(Table)).
+
+qualified_new_table_name({undefined,Table}) when is_atom(Table) ->              {schema(),Table};
+qualified_new_table_name({undefined,Table}) when is_binary(Table) ->            {schema(),?binary_to_atom(Table)};
+qualified_new_table_name({Schema,Table}) when is_atom(Schema),is_atom(Table) -> {Schema,Table};
+qualified_new_table_name({S,T}) when is_binary(S),is_binary(T) ->               {?binary_to_atom(S),?binary_to_atom(T)};
+qualified_new_table_name(Table) when is_atom(Table) ->                          {schema(),Table};
+qualified_new_table_name(Table) when is_binary(Table) ->
+    qualified_new_table_name(imem_sql_expr:binstr_to_qname2(Table)).
 
 tables_starting_with(Prefix) when is_atom(Prefix) ->
     tables_starting_with(atom_to_list(Prefix));
@@ -1029,6 +1083,11 @@ is_readable_table({_Schema,Table}) ->
     is_readable_table(Table);   %% ToDo: may depend on schema
 is_readable_table(Table) ->
     imem_if:is_readable_table(Table).
+
+is_virtual_table({_Schema,Table}) ->
+    is_virtual_table(Table);   %% ToDo: may depend on schema
+is_virtual_table(Table) ->
+    lists:member(Table,?VirtualTables).
 
 node_shard() ->
     case application:get_env(imem, node_shard) of
@@ -1314,7 +1373,7 @@ select_virtual(Table, [{_,[],['$_']}]) ->
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     Tag = element(2,MatchHead),
     % ?Debug("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
-    Candidates = case imem_sql:operand_match(Tag,Guard) of
+    Candidates = case operand_match(Tag,Guard) of
         false ->                        read(Table);
         {'==',Tag,{element,N,Tup1}} ->  % ?Debug("Virtual Select Key : ~p~n", [element(N,Tup1)]),
                                         read(Table,element(N,Tup1));
@@ -1332,6 +1391,18 @@ select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     % ?Debug("Virtual Select Result  : ~p~n", [Result]),    
     {Result, true}.
 
+%% Does this guard use the operand Tx?      TODO: Generalize from guard tree to expression tree
+operand_match(Tx,{_,Tx}=C0) ->      C0;
+operand_match(Tx,{_,R}) ->          operand_match(Tx,R);
+operand_match(Tx,{_,Tx,_}=C1) ->    C1;
+operand_match(Tx,{_,_,Tx}=C2) ->    C2;
+operand_match(Tx,{_,L,R}) ->        case operand_match(Tx,L) of
+                                        false ->    operand_match(Tx,R);
+                                        Else ->     Else
+                                    end;    
+operand_match(Tx,Tx) ->             Tx;
+operand_match(_,_) ->               false.
+
 select_sort(Table, MatchSpec)->
     {L, true} = select(Table, MatchSpec),
     {lists:sort(L), true}.
@@ -1346,7 +1417,7 @@ write({_Schema,Table}, Record) ->
     write(Table, Record);           %% ToDo: may depend on schema 
 write(Table, Record) ->
     % log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
-    PTN = physical_table_name(Table,element(2,Record)),
+    PTN = physical_table_name(Table,element(?KeyIdx,Record)),
     try
         imem_if:write(PTN, Record)
     catch
@@ -1374,7 +1445,7 @@ dirty_write({_Schema,Table}, Record) ->
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
 dirty_write(Table, Record) -> 
     % log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
-    PTN = physical_table_name(Table,element(2,Record)),
+    PTN = physical_table_name(Table,element(?KeyIdx,Record)),
     try
         imem_if:dirty_write(PTN, Record)
     catch
@@ -1403,8 +1474,21 @@ insert(ddTable, Row) ->
     write(ddTable, Row);
 insert(Table, Row) when is_tuple(Row) ->
     case lists:member(?nav,tuple_to_list(Row)) of
-        false ->    write(physical_table_name(Table), Row);
-        true ->     ?ClientError({"Not null constraint violation", {Table,Row}})
+        false ->
+            PTN = physical_table_name(Table),   
+            case {read(PTN,element(?KeyIdx,Row)),table_type(PTN)} of     %% TODO: Wrap in single transaction
+                {[],_} ->   
+                    write(PTN, Row);    
+                {R,bag} ->
+                    case lists:member(Row,R) of  
+                        true ->     ?ConcurrencyException({"Insert failed, row already exists", {PTN,R}});
+                        false ->    write(PTN, Row)
+                    end;
+                {R,_} ->
+                    ?ConcurrencyException({"Insert failed, row already exists", {PTN,R}})
+            end;
+        true ->     
+            ?ClientError({"Not null constraint violation", {Table,Row}})
     end.
 
 delete({_Schema,Table}, Key) ->

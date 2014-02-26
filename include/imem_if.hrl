@@ -23,6 +23,7 @@
 -endif. %LAGER or CONSOLE
 -endif. %TEST
 
+-define(FP(__RecList, __Pattern), imem_if:field_pick(__RecList,__Pattern)).
 
 -define(THROW_EXCEPTION(__Ex,__Reason),
     (fun() ->

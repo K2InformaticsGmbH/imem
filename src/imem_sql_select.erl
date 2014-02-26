@@ -13,352 +13,69 @@
         ]).
 
 exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
-    Tables = case lists:keyfind(from, 1, SelectSections) of
-        {_, TNames} ->  Tabs = [imem_sql:table_qname(T) || T <- TNames],
-                        [{_,MainTab,_}|_] = Tabs,
-                        case lists:member(MainTab,[ddSize|?DataTypes]) of
-                            true ->     ?ClientError({"Virtual table can only be joined", MainTab});
-                            false ->    Tabs
-                        end;
-        TError ->       ?ClientError({"Invalid from in select structure", TError})
-    end,
-    % ?Debug("Tables: ~p~n", [Tables]),
-    ColMap = case lists:keyfind(fields, 1, SelectSections) of
+    {_, TableList} = lists:keyfind(from, 1, SelectSections),  
+    % ?Debug("TableList: ~p~n", [TableList]),
+    FullMap0 = imem_sql_expr:column_map_tables(TableList),
+    % ?LogDebug("FullMap0:~n~p~n", [?FP(FullMap0,"23678")]),
+    Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap0,Ti/=?MetaIdx,Ci==?FirstIdx],
+    % ?LogDebug("Tables: (~p)~n~p~n", [length(Tables),Tables]),
+    ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
-            imem_sql:column_map(Tables,[]);
-        {_, FieldList} -> 
-            imem_sql:column_map(Tables, FieldList);
-        CError ->        
-            ?ClientError({"Invalid select structure", CError})
+            imem_sql_expr:column_map_columns([],FullMap0);
+        {_, ParsedFieldList} -> 
+            imem_sql_expr:column_map_columns(ParsedFieldList, FullMap0)
     end,
-    ?LogDebug("Column map: (~p)~n~p~n", [length(ColMap),ColMap]),
-    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap],
-    % ?Debug("Statement rows: ~p~n", [StmtCols]),
+    % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
+    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
+    % ?Debug("Statement columns: (~p)~n~p~n", [StmtCols]),
+    {_, WPTree} = lists:keyfind(where, 1, SelectSections),
+    % ?LogDebug("WhereParseTree~n~p~n", [WPTree]),
+    WBTree0 = case WPTree of
+        ?EmptyWhere ->  
+            true;
+        _ ->            
+            #bind{btree=WBT} = imem_sql_expr:expr(WPTree, FullMap0, #bind{type=boolean,default=true}),
+            WBT
+    end,
+    % ?LogDebug("WhereBindTree0~n~p~n", [WBTree0]),
+    {ColMap1,WBTree1,FullMap1} = imem_sql_expr:purge_meta_fields(ColMap0,WBTree0,FullMap0), 
+    MetaFields = [ N || {_,N} <- lists:usort([{Ci, Name} || #bind{tind=Ti,cind=Ci,name=Name} <- FullMap1,Ti==?MetaIdx])],
+    % ?LogDebug("FullMap1: (~p)~n~p~n", [length(FullMap1),?FP(FullMap1,"23678(15)")]),
+    % ?LogDebug("ColMap1: (~p)~n~p~n", [length(ColMap1),?FP(ColMap1,"23678(15)")]),
+    % ?LogDebug("WhereBindTree1~n~p~n", [WBTree1]),
+    % ?LogDebug("MetaFields: (~p)~n~p~n", [length(MetaFields),MetaFields]),
+    MainSpec = imem_sql_expr:main_spec(WBTree1,FullMap1),
+    % ?LogDebug("MainSpec:~n~p~n", [MainSpec]),
+    JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree1, FullMap1), %% start with last join table, proceed to first 
+    % ?LogDebug("JoinSpecs:~n~p~n", [JoinSpecs]),
+    ColMap2 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
+                || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap1],
     RowFun = case ?DefaultRendering of
-        raw ->  imem_datatype:select_rowfun_raw(ColMap);
-        str ->  imem_datatype:select_rowfun_str(ColMap, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
+        raw ->  imem_datatype:select_rowfun_raw(ColMap2);
+        str ->  imem_datatype:select_rowfun_str(ColMap2, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
     end,
-    WhereTree = case lists:keyfind(where, 1, SelectSections) of
-        {_, WT} ->  WT;
-        WError ->   ?ClientError({"Invalid where structure", WError})
-    end,
-    % ?Debug("WhereTree ~p~n", [WhereTree]),
-    MetaFields0 = [ N || {_,N} <- lists:usort([{C#bind.cind, C#bind.name} || C <- ColMap, C#bind.tind==?MetaIdx])],
-    MetaFields1= add_where_clause_meta_fields(MetaFields0, WhereTree, if_call_mfa(IsSec,meta_field_list,[SKey])),
-    % ?Debug("MetaFields:~n~p~n", [MetaFields1]),
-    RawMap = case MetaFields1 of
-        [] ->   
-            imem_sql:column_map(Tables,[]);
-        MF ->   
-            % ?Debug("MetaFields (~p)~n~p~n", [length(MF),MF]),
-            MetaMap0 = [{#bind{name=N,tind=?MetaIdx,cind=Ci},if_call_mfa(IsSec,meta_field_info,[SKey,N])} || {Ci,N} <- lists:zip(lists:seq(1,length(MF)),MF)],
-            MetaMap1 = [CM#bind{type=T,len=L,prec=P} || {CM,#ddColumn{type=T, len=L, prec=P}} <- MetaMap0],
-            imem_sql:column_map(Tables,[]) ++ MetaMap1
-    end,
-    FullMap = [Item#bind{tag=list_to_atom([$$|integer_to_list(T)])} || {T,Item} <- lists:zip(lists:seq(1,length(RawMap)), RawMap)],
-    % ?Debug("FullMap (~p)~n~p~n", [length(FullMap),FullMap]),
-    MainSpec = build_main_spec(SKey,?MainIdx,WhereTree,FullMap),
-    % ?Debug("MainSpec:~n~p~n", [MainSpec]),
-    JoinSpecs = build_join_specs(SKey,?TableIdx(length(Tables)), WhereTree, FullMap, []), %% start with last join table, proceed to first 
-    % ?Debug("JoinSpecs:~n~p~n", [JoinSpecs]),
-    SortFun = imem_sql:build_sort_fun(SelectSections,FullMap),
-    SortSpec = imem_sql:build_sort_spec(SelectSections,FullMap,ColMap),
+    SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap1),
+    SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap1, ColMap2),
     Statement = Stmt#statement{
                     stmtParse = {select, SelectSections},
-                    tables=Tables, fullMaps=FullMap,
-                    colMaps=ColMap, metaFields=MetaFields1, 
+                    metaFields=MetaFields, tables=Tables,
+                    colMap=ColMap2, fullMap=FullMap1,
                     rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
     {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}}.
 
-build_main_spec(SKey,Ti,WhereTree,FullMap) ->
-    SGuards= query_guards(SKey,Ti,WhereTree,FullMap),
-    imem_sql:create_scan_spec(Ti,FullMap,SGuards).
+%% TESTS ------------------------------------------------------------------
+-ifdef(TEST).
 
-build_join_specs(_SKey, ?MainIdx, _WhereTree, _FullMap, Acc)-> Acc;  %% done when looking at main table
-build_join_specs(SKey, Ti, WhereTree, FullMap, Acc)->
-    SGuards = query_guards(SKey,Ti,WhereTree,FullMap),
-    JoinSpec = imem_sql:create_scan_spec(Ti,FullMap,SGuards),
-    build_join_specs(SKey, Ti-1, WhereTree, FullMap, [JoinSpec|Acc]).
-
-add_where_clause_meta_fields(MetaFields, _WhereTree, []) -> 
-    MetaFields;
-add_where_clause_meta_fields(MetaFields, WhereTree, [F|FieldList]) ->
-    case lists:member(F,MetaFields) of
-        true ->         
-            add_where_clause_meta_fields(MetaFields, WhereTree, FieldList);
-        false ->
-            case imem_sql:operand_member(list_to_binary(atom_to_list(F)),WhereTree) of
-                false ->
-                    add_where_clause_meta_fields(MetaFields, WhereTree, FieldList);
-                true ->
-                    add_where_clause_meta_fields(MetaFields++[F], WhereTree, FieldList)
-            end
-    end.
-
-query_guards(_SKey,_Ti,?EmptyWhere,_FullMap) -> [];
-query_guards(SKey,Ti,WhereTree,FullMap) ->
-    % ?Debug("WhereTree  : ~p~n", [WhereTree]),
-    Walked = tree_walk(SKey,Ti,WhereTree,FullMap),
-    % ?Debug("Walked     : ~p~n", [Walked]),
-    Simplified = imem_sql:simplify_guard(Walked), 
-    % ?Debug("Simplified : ~p~n", [Simplified]),
-    [Simplified].
-
-tree_walk(_SKey,_,<<"true">>,_FullMap) -> true;
-tree_walk(_SKey,_,<<"false">>,_FullMap) -> false;
-tree_walk(SKey,Ti,{'not',WC},FullMap) ->
-    {'not', tree_walk(SKey,Ti,WC,FullMap)};
-% tree_walk(_SKey,_Ti,{Op,_WC},_FullMap) -> 
-%     ?UnimplementedException({"Operator not supported in where clause",Op});
-tree_walk(_SKey,_Ti,{'=',A,A},_FullMap) -> true;
-tree_walk(SKey,Ti,{'=',A,B},FullMap) ->
-    condition(SKey,Ti,'==',A,B,FullMap);
-tree_walk(SKey,Ti,{'<>',A,B},FullMap) ->
-    condition(SKey,Ti,'/=',A,B,FullMap);
-tree_walk(SKey,Ti,{'<',A,B},FullMap) ->
-    condition(SKey,Ti,'<',A,B,FullMap);
-tree_walk(SKey,Ti,{'<=',A,B},FullMap) ->
-    condition(SKey,Ti,'=<',A,B,FullMap);
-tree_walk(SKey,Ti,{'>',A,B},FullMap) ->
-    condition(SKey,Ti,'>',A,B,FullMap);
-tree_walk(SKey,Ti,{'>=',A,B},FullMap) ->
-    condition(SKey,Ti,'>=',A,B,FullMap);
-tree_walk(SKey,Ti,{'in',A,{list,InList}},FullMap) when is_binary(A), is_list(InList) ->
-    in_condition(SKey,Ti,A,InList,FullMap);
-tree_walk(SKey,Ti,{'like',Str,Pat,<<>>},FullMap) ->
-    condition(SKey,Ti,'is_like',Str,Pat,FullMap); 
-tree_walk(SKey,Ti,{'fun',F,[P1]},FullMap) ->
-    % ?Debug("Function Arg: ~p~n", [P1]),
-    Arg = tree_walk(SKey,Ti,P1,FullMap),
-    % ?Debug("Unary function Arg: ~p~n", [Arg]),
-    {binary_to_atom(F,utf8),Arg};                 %% F = unary function like abs | is_list | to_atom
-tree_walk(SKey,Ti,{'fun',<<"is_like">>,[P1,P2]},FullMap) ->
-    condition(SKey,Ti,'is_like',P1,P2,FullMap); 
-tree_walk(SKey,Ti,{'fun',<<"is_member">>,[P1,P2]},FullMap) ->
-    condition(SKey,Ti,'is_member',P1,P2,FullMap); 
-tree_walk(SKey,Ti,{'fun',<<"regexp_like">>,[P1,P2]},FullMap) ->
-    condition(SKey,Ti,'is_regexp_like',P1,P2,FullMap); 
-tree_walk(SKey,Ti,{'fun',<<"is_regexp_like">>,[P1,P2]},FullMap) ->
-    condition(SKey,Ti,'is_regexp_like',P1,P2,FullMap); 
-tree_walk(SKey,Ti,{'fun',F,[P1,P2]},FullMap) -> 
-    {binary_to_atom(F,utf8),tree_walk(SKey,Ti,P1,FullMap),tree_walk(SKey,Ti,P2,FullMap)};    %% F = binary function like element(E,Tuple) | is_member | is_element
-tree_walk(_SKey,_Ti,{'fun',F,Params},_FullMap) -> 
-    ?UnimplementedException({"Unsupported function aritry",{F,Params}});
-tree_walk(SKey,Ti,{Op,WC1,WC2},FullMap) ->
-    {Op, tree_walk(SKey,Ti,WC1,FullMap), tree_walk(SKey,Ti,WC2,FullMap)};
-tree_walk(SKey,Ti,Expr,FullMap) ->
-    % ?Debug("tree_walk expression lookup Expr: ~p~n", [Expr]),
-    case expr_lookup(SKey,Ti,Expr,FullMap) of
-        {0,V1,integer,_,_,_,_} ->   imem_datatype:field_value(0,integer,0,0,?nav,V1);   
-        {0,V2,float,_,_,_,_} ->     imem_datatype:field_value(0,float,0,0,?nav,V2);     
-        {0,V3,string,_,_,_,_} ->    imem_datatype:field_value(0,term,0,0,?nav,V3);   
-        {_,Tag,_,_,_,_,_} ->        Tag
-    end.
-
-condition(SKey,Ti,OP,A,B,FullMap) ->
-    try 
-        ExA = expr_lookup(SKey,Ti,A,FullMap),
-        ExB = try 
-            expr_lookup(SKey,Ti,B,FullMap)
-        catch
-            throw:{'JoinEvent','join_condition'} -> true;
-            _:Reason2 ->
-                ?Warn("Failing expression lookup Ti/OP: ~p ~p~n", [Ti,OP]),
-                ?Warn("Failing expression B: ~p~n", [B]),
-                throw(Reason2)
-        end,
-        compguard(Ti,OP,ExA,ExB)
-    catch
-        throw:{'JoinEvent','join_condition'} -> true;
-        _:Reason1 ->
-            ?Warn("Failing expression lookup in Ti/OP: ~p ~p~n", [Ti,OP]),
-            ?Warn("Failing expression A: ~p~n", [A]),
-            throw(Reason1)
-    end.
-
-compguard(Ti,OP,ExA,ExB) ->
-    {O,A,B} = if  
-        (OP =='is_member') ->                   {OP,ExA,ExB};
-        (OP =='like') ->                        {'is_like',ExA,ExB};
-        (OP =='is_like') ->                     {OP,ExA,ExB};
-        (OP =='regexp_like') ->                 {'is_regexp_like',ExA,ExB};
-        (OP =='is_regexp_like') ->              {OP,ExA,ExB};
-        (element(1,ExA) =< element(1,ExB)) ->   {OP,ExA,ExB};
-        true ->                                 {reverse(OP),ExB,ExA}
-    end,
-    try 
-        % ?Debug("calling compg Ti,O,A,B:~n ~p ~p ~p ~p~n", [Ti,O,A,B]),
-        compg(Ti,O,A,B)
-    catch
-        throw:{'JoinEvent','join_condition'} -> true;
-        _:Reason ->
-            ?Warn("Failing condition eval Ti/OP: ~p ~p~n", [Ti,O]),
-            ?Warn("Failing condition A: ~p~n", [A]),
-            ?Warn("Failing condition B: ~p~n", [B]),
-            throw(Reason)
-    end.
-
-compg(?MainIdx, _,    {A,_,_,_,_,_,_}, {B,_,_,_,_,_,_})  when A>?MainIdx; B>?MainIdx -> join;   %% join condition
-compg(_, 'is_member', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->   {'is_member',imem_datatype:field_value(B,term,0,0,?nav,A),imem_datatype:field_value(A,term,0,0,?nav,B)};           
-compg(_, 'is_member', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->   {'is_member',imem_datatype:field_value(B,term,0,0,?nav,A),B};           
-compg(_, 'is_member', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->       {'is_member',A,imem_datatype:field_value(A,term,0,0,?nav,B)};           
-compg(_, 'is_member', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->       {'is_member',A,B};           
-compg(_, 'is_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) ->        {'is_like',imem_datatype:field_value(B,string,0,0,?nav,A),imem_datatype:field_value(A,string,0,0,?nav,B)};           
-compg(_, 'is_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) ->        {'is_like',imem_datatype:field_value(B,string,0,0,?nav,A),B};           
-compg(_, 'is_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->            {'is_like',A,imem_datatype:field_value(A,string,0,0,?nav,B)};           
-compg(_, 'is_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->            {'is_like',A,B};           
-compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{0,B,_,_,_,_,_}) -> {'is_regexp_like',imem_datatype:field_value(B,string,0,0,?nav,A),imem_datatype:field_value(A,string,0,0,?nav,B)};           
-compg(_, 'is_regexp_like', {0,A,string,_,_,_,_},{_,B,_,_,_,_,_}) -> {'is_regexp_like',imem_datatype:field_value(B,string,0,0,?nav,A),B};           
-compg(_, 'is_regexp_like', {_,A,_,_,_,_,_}, {0,B,_,_,_,_,_}) ->     {'is_regexp_like',A,imem_datatype:field_value(A,string,0,0,?nav,B)};           
-compg(_, 'is_regexp_like', {_,A,_,_,_,_,_}, {_,B,_,_,_,_,_}) ->     {'is_regexp_like',A,B};           
-compg(_, OP, {0,A,string,_,_,_,_},   {0,B,string,_,_,_,_}) ->    {OP,imem_datatype:field_value(B,string,0,0,?nav,A),imem_datatype:field_value(A,string,0,0,?nav,B)};           
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,string,_,_,_,_}) ->    {OP,imem_datatype:field_value(B,string,0,0,?nav,A),B};           
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,timestamp,_,_,_,_}) -> {OP,imem_datatype:field_value(B,float,0,0,?nav,A),B};
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,datetime,_,_,_,_}) ->  {OP,imem_datatype:field_value(B,float,0,0,?nav,A),B};
-compg(_, OP, {0,A,string,_,_,_,_},   {_,B,T,L,P,D,_}) ->         {OP,imem_datatype:field_value(B,T,L,P,D,A),B};
-compg(_, OP, {_,A,T,_,_,_,_},        {_,B,T,_,_,_,_}) ->         {OP,A,B};           
-compg(_, OP, {_,_,string,_,_,_,AN},  {_,_,BT,_,_,_,BN}) ->       ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,string},OP,{BN,BT}}});
-compg(_, OP, {_,_,AT,_,_,_,AN},      {_,_,string,_,_,_,BN}) ->   ?ClientError({"Inconsistent field types for comparison in where clause", {{AN,AT},OP,{BN,string}}});
-compg(T, _,  {J,_,_,_,_,_,_},   {K,_,_,_,_,_,_}) when J>T;K>T -> join;
-compg(_, OP, {_,A,_,_,_,_,_},        {_,B,_,_,_,_,_}) ->         {OP,A,B}.
-
-reverse('==') -> '==';
-reverse('/=') -> '/=';
-reverse('>=') -> '=<';
-reverse('=<') -> '>=';
-reverse('<') -> '>';
-reverse('>') -> '<';
-reverse(OP) -> ?UnimplementedException({"Cannot reverse operator",OP}).
-
-% guard_wrap(L) when is_list(L) ->
-%     [guard_wrap(Item) || Item <- L];
-% guard_wrap(T) when is_tuple(T) ->
-%     {const,list_to_tuple(guard_wrap(tuple_to_list(T)))};
-% guard_wrap(E) -> E.
-
-in_condition(SKey,Ti,A,InList,FullMap) ->
-    in_condition_loop(SKey,Ti,expr_lookup(SKey,Ti,A,FullMap),InList,FullMap).
-
-in_condition_loop(_SKey,_Ti,_ALookup,[],_FullMap) -> false;    
-in_condition_loop(SKey,Ti,ALookup,[B],FullMap) ->
-    compguard(Ti, '==', ALookup, expr_lookup(SKey,Ti,B,FullMap));
-in_condition_loop(SKey,Ti,ALookup,[B|Rest],FullMap) ->
-    {'or',
-        compguard(Ti, '==', ALookup, expr_lookup(SKey,Ti,B,FullMap)),
-            in_condition_loop(SKey,Ti,ALookup,Rest,FullMap)}.
-
-value_lookup(Val) when is_binary(Val) ->
-    Str = imem_datatype:io_to_string(Val),  %% binary_to_list(Val),
-    Int = (catch list_to_integer(Str)),
-    Float = (catch list_to_float(Str)),
-    if 
-        is_integer(Int) ->  {Int,integer};
-        is_float(Float) ->  {Float,float};
-        true ->             {Str,string}     %% promote as strings, convert to atoms/dates/lists/tuples when type is known
-    end.
-
-field_lookup(<<"rownum">>,_FullMap) -> {0,rownum,integer,0,0,1,<<"rownum">>};
-field_lookup(Name,FullMap) ->
-    U = undefined,
-    ML = case imem_sql:field_qname(Name) of
-        {U,U,N} ->  [C || #bind{name=Nam}=C <- FullMap, Nam==N];
-        {U,T1,N} -> [C || #bind{name=Nam,table=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #bind{name=Nam,table=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
-        {} ->       []
-    end,
-    case length(ML) of
-        0 ->    {Value,Type} = value_lookup(Name),
-                {0,Value,Type,U,U,U,Name};
-        1 ->    #bind{tag=Tag,type=T,tind=Ti,len=L,prec=P,default=D} = hd(ML),
-                {Ti,Tag,T,L,P,D,Name};
-        _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
-    end.
-
-expr_lookup(_SKey,_Ti,A,FullMap) when is_binary(A)->
-    field_lookup(A,FullMap);
-expr_lookup(SKey,Ti,{'fun',F,[Param]},FullMap) ->  %% F = unary value function like 'abs' 
-    % ?Debug("expr_lookup {'fun',F,[Param]}: ~p ~p ~p ~p~n", [Tmax,Ti,F,Param]),
-    {Ta,A,T,L,P,D,AN} = expr_lookup(SKey,Ti,Param,FullMap),
-    case {Ta,binary_to_atom(F,utf8),T} of
-        {0,to_integer,integer} ->   {Ta,A,integer,L,P,D,AN};
-        {0,to_string,integer} ->    {Ta,integer_to_list(A),string,L,P,D,AN};
-        {0,to_float,integer} ->     {Ta,float(A),float,L,P,D,AN};
-        {0,to_float,float} ->       {Ta,A,float,L,P,D,AN};
-        {0,to_integer,float} ->     {Ta,round(A),integer,L,P,D,AN};
-        {0,to_string,float} ->      {Ta,float_to_list(A),string,L,P,D,AN};
-        {0,to_atom,string} ->       {Ta,imem_datatype:field_value(to_atom,atom,0,0,?nav,A),atom,0,0,?nav,AN};
-        {0,to_binary,string} ->     {Ta,imem_datatype:field_value(to_binary,binary,0,0,?nav,imem_datatype:strip_quotes(A)),binary,0,0,?nav,AN};
-        {0,to_binstr,string} ->     {Ta,imem_datatype:field_value(to_binstr,binstr,0,0,?nav,A),binstr,0,0,?nav,AN};
-        {0,to_boolean,string} ->    {Ta,imem_datatype:field_value(to_boolean,boolean,0,0,?nav,imem_datatype:strip_quotes(A)),boolean,0,0,?nav,AN};
-        {0,to_string,string} ->     {Ta,A,string,0,0,?nav,AN};
-        {0,to_datetime,string} ->   {Ta,imem_datatype:field_value(to_datetime,datetime,0,0,?nav,imem_datatype:strip_quotes(A)),datetime,0,0,?nav,AN};
-        {0,to_decimal,integer} ->   {Ta,imem_datatype:field_value(to_decimal,decimal,0,0,?nav,integer_to_list(A)),decimal,0,0,?nav,AN};
-        {0,to_decimal,float} ->     {Ta,imem_datatype:field_value(to_decimal,decimal,0,0,?nav,float_to_list(A)),decimal,0,0,?nav,AN};
-        {0,to_integer,string} ->    {Ta,imem_datatype:field_value(to_integer,integer,0,0,?nav,imem_datatype:strip_quotes(A)),integer,0,0,?nav,AN};
-        {0,to_list,string} ->       {Ta,imem_datatype:field_value(to_list,list,0,0,?nav,imem_datatype:strip_quotes(A)),list,0,0,?nav,AN};
-        {0,to_fun,string} ->        {Ta,imem_datatype:field_value(to_fun,'fun',0,0,?nav,A),'fun',0,0,?nav,AN};
-        {0,to_ipaddr,string} ->     {Ta,imem_datatype:field_value(to_ipaddr,ipaddr,0,0,?nav,imem_datatype:strip_quotes(A)),ipaddr,0,0,?nav,AN};
-        {0,to_pid,string} ->        {Ta,imem_datatype:field_value(to_pid,pid,0,0,?nav,imem_datatype:strip_quotes(A)),pid,0,0,?nav,AN};
-        {0,to_term,string} ->       {Ta,imem_datatype:field_value(to_term,term,0,0,?nav,A),term,0,0,?nav,AN};
-        {0,to_timestamp,string} ->  {Ta,imem_datatype:field_value(to_timestamp,timestamp,0,0,?nav,imem_datatype:strip_quotes(A)),timestamp,0,0,?nav,AN};
-        {0,to_tuple,string} ->      {Ta,imem_datatype:field_value(to_tuple,tuple,0,0,?nav,imem_datatype:strip_quotes(A)),tuple,0,0,?nav,AN};
-        {0,to_userid,string} ->     {Ta,imem_datatype:field_value(to_userid,userid,0,0,?nav,A),userid,0,0,?nav,AN};
-        {0,to_userid,integer} ->    {Ta,A,userid,0,0,?nav,AN};
-        _ ->                        {Ta,{binary_to_atom(F,utf8),A},T,L,P,D,AN}
-    end;          
-expr_lookup(SKey,Ti,{'fun',<<"element">>,[P1,P2]},FullMap) ->  %% F = binary value function like 'element' 
-    {0,A,integer,_,_,_,_} = expr_lookup(SKey,Ti,P1,FullMap),
-    {Tb,B,_,_,_,_,BN} = expr_lookup(SKey,Ti,P2,FullMap),
-    {Tb,{'element',A,B},term,0,0,0,BN};
-expr_lookup(SKey,Ti,{OP,A,B},FullMap) ->
-    EA = expr_lookup(SKey,Ti,A,FullMap),
-    % ?Debug("expr_lookup Ti,A:~n~p ~p -> Result ~p~n", [Ti,A,EA]),
-    EB = expr_lookup(SKey,Ti,B,FullMap),
-    % ?Debug("expr_lookup Ti,B:~n~p ~p -> Result ~p~n", [Ti,B,EB]),
-    Res = exprguard(Ti,OP,EA,EB),
-    % ?Debug("exprguard Ti,OP,EA,EB~n~p ~p ~p ~p -> Result:~n ~p~n", [Ti,OP,EA,EB,Res]),
-    Res.
-
-exprguard(?MainIdx, _ , {A,_,_,_,_,_,_},   {B,_,_,_,_,_,_}) when A>?MainIdx; B>?MainIdx -> throw({'JoinEvent','join_condition'});
-exprguard(?MainIdx, OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
-exprguard(?MainIdx, OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(?MainIdx, OP, {X,A,timestamp,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->     {X,{OP,A,B},timestamp,L,P,D,AN};
-exprguard(?MainIdx, OP, {X,A,timestamp,L,P,D,AN}, {_,B,float,_,_,_,_}) ->       {X,{OP,A,B},timestamp,L,P,D,AN};
-exprguard(?MainIdx, OP, {X,A,datetime,L,P,D,AN}, {_,B,integer,_,_,_,_}) ->      {X,{OP,A,B},datetime,L,P,D,AN};
-exprguard(?MainIdx, OP, {X,A,datetime,L,P,D,AN}, {_,B,float,_,_,_,_}) ->        {X,{OP,A,B},datetime,L,P,D,AN};
-% exprguard(?MainIdx, OP, {1,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) ->             {1,{OP,A,imem_datatype:field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(?MainIdx, OP, {_,A,integer,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->     {X,{OP,A,B},timestamp,L,P,D,BN};
-exprguard(?MainIdx, OP, {_,A,float,_,_,_,_}, {X,B,timestamp,L,P,D,BN}) ->       {X,{OP,A,B},timestamp,L,P,D,BN};
-exprguard(?MainIdx, OP, {_,A,integer,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->      {X,{OP,A,B},datetime,L,P,D,BN};
-exprguard(?MainIdx, OP, {_,A,float,_,_,_,_}, {X,B,datetime,L,P,D,BN}) ->        {X,{OP,A,B},datetime,L,P,D,BN};
-% exprguard(?MainIdx, OP, {0,A,string,_,_,_,_},   {1,B,T,L,P,D,BN}) ->            {1,{OP,imem_datatype:field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
-exprguard(?MainIdx, _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->                ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(?MainIdx, OP, A, B) ->                                                ?SystemException({"Unexpected guard pattern", {?MainIdx,OP,A,B}});
-exprguard(J,        _,  {N,A,_,_,_,_,_},   {J,B,_,_,_,_,_}) when N>J ->         ?UnimplementedException({"Unsupported join order",{A,B}});
-exprguard(J,        _,  {J,A,_,_,_,_,_},   {N,B,_,_,_,_,_}) when N>J ->         ?UnimplementedException({"Unsupported join order",{A,B}});
-exprguard(_,        OP, {X,A,T,L,P,D,AN},  {Y,B,T,_,_,_,_}) when X >= Y ->      {X,{OP,A,B},T,L,P,D,AN};           
-exprguard(_,        OP, {_,A,T,_,_,_,_},   {Y,B,T,L,P,D,BN}) ->                 {Y,{OP,A,B},T,L,P,D,BN};           
-exprguard(_,        OP, {N,A,T,L,P,D,AN},  {0,B,string,_,_,_,_}) when N > 0 ->  {N,{OP,A,imem_datatype:field_value(A,T,L,P,D,B)},T,L,P,D,AN};
-exprguard(_,        OP, {0,A,string,_,_,_,_},   {N,B,T,L,P,D,BN}) when N > 0 -> {N,{OP,imem_datatype:field_value(B,T,L,P,D,A),B},T,L,P,D,BN};
-exprguard(_,        _,  {_,_,AT,_,_,_,AN}, {_,_,BT,_,_,_,BN}) ->                ?ClientError({"Inconsistent field types in where clause", {{AN,AT},{BN,BT}}});
-exprguard(J,        OP, A, B) ->                                                ?SystemException({"Unexpected guard pattern", {J,OP,A,B}}).
-
-%% --Interface functions  (calling imem_if for now, not exported) ---------
+-include_lib("eunit/include/eunit.hrl").
 
 if_call_mfa(IsSec,Fun,Args) ->
     case IsSec of
         true -> apply(imem_sec,Fun,Args);
         _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
     end.
-
-
-%% TESTS ------------------------------------------------------------------
--ifdef(TEST).
-
--include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
     ?imem_test_setup().
@@ -407,23 +124,31 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([imem], imem_datatype:field_value(tag,list,0,0,[],<<"[imem]">>)),
 
         timer:sleep(1100),
-        % {TMega,TSec,TMicro} = erlang:now(),
+        LoginTime = calendar:local_time(),
 
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none
         end,
 
-        % TestTime = erlang:now(),
+        QSTime = calendar:local_time(),
 
-        R2f = exec_fetch_sort(SKey, query2f, 100, IsSec, 
-            "select name, lastLoginTime 
-             from ddAccount 
-             where lastLoginTime > sysdate - 1.1574074074074073e-5"   %% 1.0 * ?OneSecond
+        R2f = exec_fetch_sort(SKey, query2f, 100, IsSec, "
+            select name, lastLoginTime 
+            from ddAccount 
+            where lastLoginTime >= sysdate - 1.1574074074074073e-5"   %% 1.0 * ?OneSecond
         ),
+        QETime = calendar:local_time(),
         case IsSec of
-            false -> ?assertEqual(0, length(R2f));
-            true ->  ?assertEqual(1, length(R2f))
+            false -> 
+                ?assertEqual(0, length(R2f));
+            true ->
+                ?Info("Login time: ~p~n", [LoginTime]),
+                ?Info("Query start time: ~p~n", [QSTime]),
+                ?Info("Query end time: ~p~n", [QETime]),
+                Accounts = imem_meta:read(ddAccount),
+                ?Info("Accounts: ~p~n", [Accounts]),
+                ?assertEqual(1, length(R2f))
         end,
 
         if
@@ -436,7 +161,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey,
             "create table def (
                 col1 integer, 
-                col2 char(20), 
+                col2 varchar2(20), 
                 col3 date,
                 col4 ipaddr,
                 col5 tuple
@@ -505,6 +230,7 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assertEqual(1, length(R0a)),
 
+%        ?assert(false),
 
         exec_fetch_sort_equal(SKey, query0b, 100, IsSec, 
             "select 1 from ddTable where element(2,qname) = to_atom('def')",
@@ -522,12 +248,12 @@ test_with_or_without_sec(IsSec) ->
 
         exec_fetch_sort_equal(SKey, query1, 100, IsSec, 
             "select dual.* from dual", 
-            [{<<"X">>,<<"'$not_a_value'">>}]
+            [{<<"\"X\"">>,<<"'$not_a_value'">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query1a, 100, IsSec, 
             "select dual.dummy from dual",
-            [{<<"X">>}]
+            [{<<"\"X\"">>}]
         ),
 
         R1b = exec_fetch_sort(SKey, query1b, 100, IsSec, 
@@ -550,7 +276,7 @@ test_with_or_without_sec(IsSec) ->
         end,
 
         R1e = exec_fetch_sort(SKey, query1e, 100, IsSec, 
-            "select all_tables.* from all_tables where owner = system"
+            "select all_tables.* from all_tables where owner = 'system'"
         ),
         ?assert(length(R1e) =< AllTableCount),
         ?assert(length(R1e) >= 5),
@@ -564,7 +290,7 @@ test_with_or_without_sec(IsSec) ->
         end,
 
         R1g = exec_fetch_sort(SKey, query1g, 100, IsSec, 
-            "select name, type from ddAccount where id=user and locked <> true"
+            "select name, type from ddAccount where id=user and locked <> 'true'"
         ),
         case IsSec of
             false -> ?assertEqual(0, length(R1g));
@@ -583,12 +309,12 @@ test_with_or_without_sec(IsSec) ->
 
         exec_fetch_sort_equal(SKey, query1k, 100, IsSec, 
             "select dummy from dual where rownum = 1",
-            [{<<"X">>}]
+            [{<<"\"X\"">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query1l, 100, IsSec, 
             "select dummy from dual where rownum <= 1",
-            [{<<"X">>}]
+            [{<<"\"X\"">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query1m, 100, IsSec, 
@@ -622,9 +348,14 @@ test_with_or_without_sec(IsSec) ->
             R2
         ),
 
-        ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"5">>,integer},'==',{<<"col2">>,string}}}}, 
-            exec_fetch_sort(SKey, query2c, 100, IsSec, "select col1, col2 from def where col2 in (5,6)")
-        ), 
+        exec_fetch_sort_equal(SKey, query2c, 100, IsSec, 
+            "select col1, col2 from def where col2 in (5,6)", 
+            []
+        ),
+
+        % ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"5">>,integer},'==',{<<"col2">>,string}}}}, 
+        %     exec_fetch_sort(SKey, query2c, 100, IsSec, "select col1, col2 from def where col2 in (5,6)")
+        % ), 
 
         exec_fetch_sort_equal(SKey, query2d, 100, IsSec, 
             "select col1, col2 from def where col2 in ('5',col2) and col1 <= 10", 
@@ -636,7 +367,7 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         R2e = exec_fetch_sort(SKey, query2e, 100, IsSec, 
-            "select * from def where col4 < \"10.132.7.3\""
+            "select * from def where col4 < '10.132.7.3'"
         ),
         ?assertEqual(2, length(R2e)),
 
@@ -650,7 +381,7 @@ test_with_or_without_sec(IsSec) ->
         % ?assert(length(R2g) =< 100),
 
         if_call_mfa(IsSec, write,[SKey,def,
-            {def,100,"\"text_in_quotes\"",{{2001,02,03},{4,5,6}},{10,132,7,92},{'Atom100',100}}
+            {def,100,<<"\"text_in_quotes\"">>,{{2001,02,03},{4,5,6}},{10,132,7,92},{'Atom100',100}}
         ]),
 
         exec_fetch_sort_equal(SKey, query2h, 100, IsSec, 
@@ -659,17 +390,7 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query2i, 100, IsSec, 
-            "select col1, col5 from def where element(1,col5) = to_atom(Atom5)",
-            [{<<"5">>,<<"{'Atom5',5}">>}]
-        ),
-
-        exec_fetch_sort_equal(SKey, query2j, 100, IsSec, 
             "select col1, col5 from def where element(1,col5) = to_atom('Atom5')",
-            [{<<"5">>,<<"{'Atom5',5}">>}]
-        ),
-
-        exec_fetch_sort_equal(SKey, query2k, 100, IsSec, 
-            "select col1, col5 from def where element(1,col5) = to_atom(\"Atom5\")",
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
@@ -689,55 +410,55 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query2o, 100, IsSec, 
-            "select col1, col5 from def where element(2,col5) = to_integer(\"5\")",
+            "select col1, col5 from def where element(2,col5) = to_integer('5')",
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query2p, 100, IsSec, 
-            "select col1, col5 from def where col5 = to_tuple(\"{'Atom5', 5}\")",
+            "select col1, col5 from def where col5 = to_tuple('{''Atom5'', 5}')",
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query2q, 100, IsSec, 
-            "select col1, col5 from def where col5 = \"{'Atom100',100}\"",
+            "select col1, col5 from def where col5 = '{''Atom100'',100}'",
             [{<<"100">>,<<"{'Atom100',100}">>}]
         ),
 
         ?assertEqual(ok , imem_monitor:write_monitor()),
 
-        R2h = exec_fetch(SKey, query2h, 100, IsSec, 
-            "select time 
-             from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
-             where time > systimestamp - 1.1574074074074073e-6 
-            " 
-        ),
-        ?assert(length(R2h) >= 1),
-        ?assert(length(R2h) =< 6),
+        % R2h = exec_fetch(SKey, query2h, 100, IsSec, 
+        %     "select time 
+        %      from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
+        %      where time > systimestamp - 1.1574074074074073e-6 
+        %     " 
+        % ),
+        % ?assert(length(R2h) >= 1),
+        % ?assert(length(R2h) =< 6),
 
-        R2i = exec_fetch(SKey, query2i, 100, IsSec, 
-            "select time 
-             from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
-             where time >  1 + systimestamp
-            " 
-        ),
-        ?assert(length(R2i) == 0),
+        % R2i = exec_fetch(SKey, query2i, 100, IsSec, 
+        %     "select time 
+        %      from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
+        %      where time >  1 + systimestamp
+        %     " 
+        % ),
+        % ?assert(length(R2i) == 0),
 
-        R2j = exec_fetch(SKey, query2j, 100, IsSec, 
-            "select time 
-             from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
-             where time >  -1.0/24.0  + systimestamp
-            " 
-        ),
-        ?assert(length(R2j) > 0),
-        ?assert(length(R2j) < 2000),
+        % R2j = exec_fetch(SKey, query2j, 100, IsSec, 
+        %     "select time 
+        %      from " ++ atom_to_list(?MONITOR_TABLE) ++ "  
+        %      where time >  -1.0/24.0  + systimestamp
+        %     " 
+        % ),
+        % ?assert(length(R2j) > 0),
+        % ?assert(length(R2j) < 2000),
 
     %% joins with virtual (datatype) tables
 
-        ?assertException(throw,{ClEr,{"Virtual table can only be joined",integer}}, 
+        ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"integer">>}}, 
             exec_fetch_sort(SKey, query3a1, 100, IsSec, "select item from integer")
         ),
 
-        ?assertException(throw,{ClEr,{"Virtual table can only be joined",ddSize}}, 
+        ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"ddSize">>}}, 
             exec_fetch_sort(SKey, query3a2, 100, IsSec, "select name from ddSize")
         ),
 
@@ -746,10 +467,10 @@ test_with_or_without_sec(IsSec) ->
             [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
         ),
 
-        R3b = exec_fetch_sort(SKey, query3b, 100, IsSec, 
-            "select col3, item from def, integer where is_member(item,\"'$_'\") and col1 <> 100"
-        ),
-        ?assertEqual(20, length(R3b)),
+        % R3b = exec_fetch_sort(SKey, query3b, 100, IsSec, 
+        %     "select col3, item from def, integer where is_member(item,to_atom('$_')) and col1 <> 100"
+        % ),
+        % ?assertEqual(20, length(R3b)),
 
         R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, 
             "select * from ddNode"
@@ -777,7 +498,7 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         if_call_mfa(IsSec, write,[SKey,def,
-            {def,0,integer_to_list(0),calendar:local_time(),{10,132,7,0},{list_to_atom("Atom" ++ integer_to_list(0)),node()}}
+            {def,0,<<"0">>,calendar:local_time(),{10,132,7,0},{list_to_atom("Atom" ++ integer_to_list(0)),node()}}
         ]),
 
         exec_fetch_sort_equal(SKey, query3h, 100, IsSec, 
@@ -786,12 +507,12 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query3i, 100, IsSec, 
-            "select col1, col5 from def, ddNode where element(2,col5) = 'nonode@nohost'",
+            "select col1, col5 from def, ddNode where element(2,col5) = to_atom('nonode@nohost')",
             [{<<"0">>,<<"{'Atom0',nonode@nohost}">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query3j, 100, IsSec, 
-            "select col1, col5 from def, ddNode where element(2,col5) = 'nonode@snotherhost'",
+            "select col1, col5 from def, ddNode where element(2,col5) = to_atom('nonode@anotherhost')",
             []
         ),
 
@@ -881,35 +602,35 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query5b, 100, IsSec, 
-            "select col1 from member_test where is_member(a,col2)",
+            "select col1 from member_test where is_member(to_atom('a'),col2)",
             [{<<"1">>},{<<"5">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query5c, 100, IsSec, 
-            "select col1 from member_test where is_member(\"{e}\",col2)",
+            "select col1 from member_test where is_member(to_tuple('{e}'),col2)",
             [{<<"2">>},{<<"5">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query5d, 100, IsSec, 
-            "select col1 from member_test where is_member(\"[e]\",col2)",
+            "select col1 from member_test where is_member(to_list('[e]'),col2)",
             [{<<"1">>},{<<"3">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5e, 100, IsSec, 
-            "select col1 from member_test where is_member(1,\"'$_'\")",
-            [{<<"1">>},{<<"3">>}]
-        ),
+        % exec_fetch_sort_equal(SKey, query5e, 100, IsSec, 
+        %     "select col1 from member_test where is_member(1,to_atom('$_'))",
+        %     [{<<"1">>},{<<"3">>}]
+        % ),
 
         exec_fetch_sort_equal(SKey, query5f, 100, IsSec, 
-            "select col1 from member_test where is_member(3,\"[1,2,3,4]\")",
+            "select col1 from member_test where is_member(3,to_list('[1,2,3,4]'))",
             [{<<"1">>},{<<"2">>},{<<"3">>},{<<"4">>},{<<"5">>}]
         ),
 
 
-        exec_fetch_sort_equal(SKey, query5g, 100, IsSec, 
-            "select col1 from member_test where is_member(undefined,\"'$_'\")",
-            [{<<"1">>},{<<"4">>}]
-        ),
+        % exec_fetch_sort_equal(SKey, query5g, 100, IsSec, 
+        %     "select col1 from member_test where is_member(to_atom('undefined'),to_atom('$_'))",
+        %     [{<<"1">>},{<<"4">>}]
+        % ),
 
         exec_fetch_sort_equal(SKey, query5h, 100, IsSec, 
             "select d.col1, m.col1 
@@ -956,7 +677,7 @@ test_with_or_without_sec(IsSec) ->
         R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, 
             "select name(qname) 
              from ddTable
-             where is_member(\"{virtual,true}\",opts)"
+             where is_member(to_tuple('{virtual,true}'),opts)"
         ),
         % ?assert(length(R5k) >= 18),
         ?assert(length(R5k) == 0),      % not used any more for DataTypes
@@ -968,7 +689,7 @@ test_with_or_without_sec(IsSec) ->
         R5l = exec_fetch_sort(SKey, query5l, 100, IsSec, 
             "select name(qname) 
              from ddTable
-             where not is_member(\"{virtual,true}\",opts)"
+             where not is_member(to_tuple('{virtual,true}'),opts)"
         ),
         ?assert(length(R5l) >= 5),
         ?assertNot(lists:member({<<"imem.atom">>},R5l)),
@@ -991,22 +712,22 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R5m) >= 5),
 
         exec_fetch_sort_equal(SKey, query5n, 100, IsSec, 
-            "select col1 from member_test where col3 = '{a,d,e}'",
+            "select col1 from member_test where col3 = to_tuple('{a,d,e}')",
             [{<<"4">>},{<<"5">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query5o, 100, IsSec, 
-            "select col1 from member_test where col3 = '{x,d,e}'",
+            "select col1 from member_test where col3 = to_tuple('{x,d,e}')",
             []
         ),
 
         exec_fetch_sort_equal(SKey, query5p, 100, IsSec, 
-            "select col1 from member_test where col3 = '{''a'',d,e}'",
+            "select col1 from member_test where col3 = to_tuple('{''a'',d,e}')",
             [{<<"4">>},{<<"5">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query5q, 100, IsSec, 
-            "select col1 from member_test where col3 = '{a,{\"d\"},e}'",
+            "select col1 from member_test where col3 = to_tuple('{a,{\"d\"},e}')",
             []
         ),
 
@@ -1028,7 +749,7 @@ test_with_or_without_sec(IsSec) ->
         R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
             "select name(qname), tte 
              from ddTable, ddSize
-             where element(2,qname) = name and tte <> undefined"
+             where element(2,qname) = name and tte <> to_atom('undefined')"
         ),
         % ?Info("Result R5t DIFF: ~n~p~n", [R5s -- R5t]),
         ?assert(length(R5t) > 0),
@@ -1037,7 +758,7 @@ test_with_or_without_sec(IsSec) ->
         R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
             "select name(qname), tte 
              from ddTable, ddSize
-             where element(2,qname) = name and tte = undefined"
+             where element(2,qname) = name and tte = to_atom('undefined')"
         ),
         % ?Info("Result R5u DIFF: ~n~p~n", [R5s -- R5u]),
         ?assert(length(R5u) > 0),
@@ -1047,12 +768,12 @@ test_with_or_without_sec(IsSec) ->
         R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, 
             "select name(qname), size, tte 
              from ddTable, ddSize
-             where element(2,qname) = name and tte <> undefined and tte > 0"
+             where element(2,qname) = name and tte <> to_atom('undefined') and tte > 0"
         ),
         ?assert(length(R5v) > 0),
 
         R5w = exec_fetch_sort(SKey, query5w, 100, IsSec, 
-            "select hkl from ddConfig where element ( 1 , hd ( hkl ) ) = imem"
+            "select hkl from ddConfig where element ( 1 , hd ( hkl ) ) = to_atom('imem')"
         ),
         ?assert(length(R5w) > 0),
 
@@ -1119,7 +840,7 @@ test_with_or_without_sec(IsSec) ->
             "select v.id, c.id
              from ddViewTest as v, ddCmdTest as c
              where c.id = v.cmd
-                and (c.owner = user or c.owner = system)
+                and (c.owner = user or c.owner = to_atom('system'))
                 and c.id in (1,2,3,91) 
              order by v.id, c.id
             "
@@ -1144,9 +865,9 @@ test_with_or_without_sec(IsSec) ->
             "select v.id, c.id
              from ddCmdTest as c, ddViewTest as v
              where c.id = v.cmd
-                and (c.owner = user or c.owner = system)
+                and (c.owner = user or c.owner = to_atom('system'))
                 and c.id in (1,2,3,91)
-                and is_member(b,c.opts) 
+                and is_member(to_atom('b'),c.opts) 
              order by v.id, c.id
             "
             ,
@@ -1167,9 +888,9 @@ test_with_or_without_sec(IsSec) ->
             "select v.id, c.id
              from ddViewTest as v, ddCmdTest as c
              where c.id = v.cmd
-                and (c.owner = user or c.owner = system)
+                and (c.owner = user or c.owner = to_atom('system'))
                 and c.id in (1,2,3,91)
-                and not is_member(c,c.opts) 
+                and not is_member(to_atom('c'),c.opts) 
              order by v.id, c.id
             "
             ,
@@ -1377,7 +1098,7 @@ test_with_or_without_sec(IsSec) ->
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     if_call_mfa(IsSec, write,[SKey,Table,
-        {Table,N,integer_to_list(N),calendar:local_time(),{10,132,7,N},{list_to_atom("Atom" ++ integer_to_list(N)),N}}
+        {Table,N,list_to_binary(integer_to_list(N)),calendar:local_time(),{10,132,7,N},{list_to_atom("Atom" ++ integer_to_list(N)),N}}
     ]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
 

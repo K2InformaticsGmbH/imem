@@ -117,6 +117,7 @@
                   , decimal
                   , float
                   , integer
+                  , number
                   , ipaddr
                   , list
                   , pid
@@ -128,3 +129,10 @@
                   , userid
                   ]).
 
+-define(NumberTypes,[ decimal
+                    , float
+                    , integer
+                    , number
+                    ]).
+
+-define(VirtualTables, [ddSize|?DataTypes]).

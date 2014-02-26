@@ -18,6 +18,7 @@
         , table_type/2
         , table_columns/2
         , table_size/2
+        , table_record_name/2
         , check_table/2
         , check_table_meta/3
         , check_table_columns/3
@@ -127,15 +128,20 @@ clone_seco(SKey, Pid) ->
 if_read(_SKey, Table, Key) -> 
     imem_meta:read(Table, Key).
 
-if_is_system_table(_SKey, {_Schema,Table,_Alias}) ->
-    if_is_system_table(_SKey, Table);
-if_is_system_table(_SKey, Table) when is_atom(Table) ->
+if_is_system_table(_SKey,{_,Table}) -> 
+    if_is_system_table(_SKey,Table);       % TODO: May depend on Schema
+if_is_system_table(_SKey,Table) when is_atom(Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
         false ->    imem_meta:is_system_table(Table)
     end;
-if_is_system_table(_SKey, Table) ->
-    if_is_system_table(_SKey, imem_sql:table_qname(Table)).
+if_is_system_table(_SKey,Table) when is_binary(Table) ->
+    try
+        {S,T} = imem_sql_expr:binstr_to_qname2(Table), 
+        if_is_system_table(_SKey,{?binary_to_existing_atom(S),?binary_to_existing_atom(T)})
+    catch
+        _:_ -> false
+    end.
 
 if_meta_field_list(_SKey) ->
     imem_meta:meta_field_list().
@@ -149,13 +155,20 @@ if_meta_field(_SKey, Name) ->
 if_meta_field_info(_SKey, Name) ->
     imem_meta:meta_field_info(Name).
 
+if_meta_field_value(SKey, <<"user">>) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    AccountId;
+if_meta_field_value(SKey, user) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    AccountId;
+if_meta_field_value(SKey, <<"username">>) ->
+    #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
+    [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
+    Name;
 if_meta_field_value(SKey, username) ->
     #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
     [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
     Name;
-if_meta_field_value(SKey, user) ->
-    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    AccountId;
 if_meta_field_value(_SKey, Name) ->
     imem_meta:meta_field_value(Name).
 
@@ -278,6 +291,12 @@ table_columns(SKey, Table) ->
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
+table_record_name(SKey, Table) ->
+    case have_table_permission(SKey, Table, select) of
+        true ->     imem_meta:table_record_name(Table);
+        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
+    end.
+
 table_size(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_size(Table);
@@ -343,7 +362,7 @@ create_table(SKey, Table, RecordInfo, Opts) ->
     case Owner of
         false ->
             ?SecurityException({"Create table unauthorized", {Table,SKey}});
-        Owner ->        
+        Owner ->
             imem_meta:create_table(Table, RecordInfo, Opts, Owner)
     end.
 
@@ -362,7 +381,13 @@ create_check_table(SKey, Table, RecordInfo, Opts) ->
         false ->
             ?SecurityException({"Create table unauthorized", {Table,SKey}});
         Owner ->        
-            imem_meta:create_check_table(Table, RecordInfo, Opts, Owner)
+            Conv = fun(X) ->
+                case X#ddColumn.name of
+                    A when is_atom(A) -> X; 
+                    B -> X#ddColumn{name=?binary_to_atom(B)} 
+                end
+            end,
+            imem_meta:create_check_table(imem_meta:qualified_new_table_name(Table), lists:map(Conv,RecordInfo), Opts, Owner)
     end.
 
 drop_table(SKey, Table) ->
@@ -718,17 +743,17 @@ seco_authorized(SKey) ->
             ?SecurityException({"Not logged in", SKey})
     end.   
 
-have_table_ownership(SKey, {Schema,Table,_Alias}) ->
-    have_table_ownership(SKey, {Schema,Table});
-have_table_ownership(SKey, {Schema,Table}) ->
+% have_table_ownership(SKey, {Schema,Table,_Alias}) ->
+%     have_table_ownership(SKey, {Schema,Table});
+have_table_ownership(SKey, {Schema,Table}) when is_atom(Schema), is_atom(Table) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     Owner = case imem_meta:read(ddTable, {Schema,Table}) of
         [#ddTable{owner=O}] ->  O;
         _ ->                    no_one
     end,
     (Owner =:= AccountId);
-have_table_ownership(SKey, Table) ->
-    have_table_ownership(SKey, imem_sql:table_qname(Table)).
+have_table_ownership(SKey, Table) when is_binary(Table) ->
+    have_table_ownership(SKey, imem_meta:qualified_table_name(Table)).
 
 have_table_permission(SKey, {Schema,Table,_Alias}, Operation, Type) ->
     have_table_permission(SKey, {Schema,Table}, Operation, Type);
@@ -753,7 +778,7 @@ have_table_permission(SKey, {Schema,Table}, Operation, false) ->
         _ ->    false
     end;
 have_table_permission(SKey, Table, Operation, Type) ->
-    have_table_permission(SKey, imem_sql:table_qname(Table), Operation, Type).
+    have_table_permission(SKey, imem_meta:qualified_table_name(Table), Operation, Type).
 
 set_permission_cache(SKey, Permission, true) ->
     imem_meta:write(ddPerm@,#ddPerm{pkey={SKey,Permission}, skey=SKey, pid=self(), value=true});

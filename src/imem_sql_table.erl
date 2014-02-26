@@ -7,21 +7,23 @@
     
 exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
 exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Schema, IsSec) ->
-    % ?Log("ParseTree ~p~n", [_ParseTree]),
-    QName = imem_sql:table_qname(TableName),      %% ?binary_to_existing_atom(Table),
+    % ?LogDebug("Drop Table ParseTree~n~p~n", [_ParseTree]),
+    QName = imem_meta:qualified_table_name(TableName), 
+    % ?LogDebug("Drop Table QName~n~p~n", [QName]),
     if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
 exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Schema, IsSec) ->
     % ?Log("Parse Tree ~p~n", [_ParseTree]),
-    if_call_mfa(IsSec, 'truncate_table', [SKey, imem_sql:table_qname(TableName)]);
+    if_call_mfa(IsSec, 'truncate_table', [SKey, imem_meta:qualified_table_name(TableName)]);
 
 exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Schema, IsSec) ->
     % ?Log("Parse Tree ~p~n", [_ParseTree]),
-    create_table(SKey, imem_sql:table_qname(TableName), TOpts, Columns, IsSec, []).
+    create_table(SKey, imem_sql_expr:binstr_to_qname2(TableName), TOpts, Columns, IsSec, []).
 
 create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
-    if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);
-create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) ->
+    if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);        %% {Schema,Table} not converted to atom yet !!!
+create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) when is_binary(Name) ->
+    % ?LogDebug("Create table column ~p of type ~p~n",[Name,Type]),
     {T,L,P} = case Type of
         B when is_binary(B) ->      {imem_datatype:io_to_term(imem_datatype:strip_squotes(binary_to_list(B))),undefined,undefined};
         A when is_atom(A) ->        {imem_datatype:imem_type(A),undefined,undefined};
@@ -57,7 +59,7 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) -
                     {imem_datatype:io_to_term(Str),lists:keydelete(default, 1, COpts)}
             end
     end,
-    C = #ddColumn{  name=?binary_to_atom(Name)
+    C = #ddColumn{  name=Name           %% not converted to atom yet !!!
                   , type=T
                   , len=L
                   , prec=P
@@ -119,7 +121,7 @@ test_with_or_without_sec(IsSec) ->
         SKey=?imem_test_admin_login(),
         Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [] end.);",
         Expected = 
-                [   {ddColumn,col1,string,10,undefined,?nav,[]},
+                [   {ddColumn,col1,binstr,10,undefined,?nav,[]},
                     {ddColumn,col2,integer,undefined,undefined,12,[]},
                     {ddColumn,col3,list,undefined,undefined,[],[]}
                 ],

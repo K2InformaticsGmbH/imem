@@ -6,6 +6,10 @@
 
 -define(TABLE_INFO_RPC_TIMEOUT,10000).
 
+% -define(RecIdx, 1).                                       %% Record name position in records
+% -define(FirstIdx, 2).                                     %% First field position in records
+-define(KeyIdx, 2).                                       %% Key position in records
+
 % gen_server
 -record(state, {}).
 
@@ -76,6 +80,10 @@
         , get_os_memory/0
         , get_vm_memory/0
         , spawn_sync_mfa/3
+        ]).
+
+
+-export([ field_pick/2
         ]).
 
 -define(INIT_SNAP(__Table,__Now),
@@ -150,12 +158,43 @@ transaction(Fun, Args, Retries) when is_function(Fun)->
 
 %% ---------- HELPER FUNCTIONS ------ exported -------------------------------
 
-meta_field_value(node) -> node();
-meta_field_value(user) -> <<"unknown">>;
-meta_field_value(username) -> <<"unknown">>;
-meta_field_value(schema) -> schema();
-meta_field_value(sysdate) -> calendar:local_time();
+%% @doc Picks a set of chosen elements out of a list of tuples.
+%% Integer pattern encodes element positions.
+%% Valid single digit positions 1..9
+%% use () for positions after 9
+%% 12(12)3 -> 1, 2, 12, 3.
+-spec field_pick(list(tuple()),list()) -> list(tuple()).
+field_pick(ListOfRecords,Pattern) ->
+    Pointers = field_pick_pointers(Pattern, []),
+    [field_pick_mapped(Tup,Pointers) || Tup <- ListOfRecords].
+
+field_pick_pointers([], Acc) -> lists:reverse(Acc); 
+field_pick_pointers([$(,A,$)|Rest], Acc) ->
+    field_pick_pointers(Rest, [(A-48)|Acc]);
+field_pick_pointers([$(,A,B,$)|Rest], Acc) ->
+    field_pick_pointers(Rest, [10*(A-48)+(B-48)|Acc]);
+field_pick_pointers([$(,A,B,C,$)|Rest], Acc) ->
+    field_pick_pointers(Rest, [100*(A-48)+10*(B-48)+(C-48)|Acc]);
+field_pick_pointers([A|Rest], Acc) ->
+    field_pick_pointers(Rest, [(A-48)|Acc]).
+
+field_pick_mapped(Tup,Pointers) when is_tuple(Tup) ->
+    EL = tuple_to_list(Tup),                %% tuple as list
+    catch list_to_tuple([E || P <- Pointers, {I,E} <- lists:zip(lists:seq(1,length(EL)),EL),P==I]);    
+field_pick_mapped(_,_) -> {}.
+
+meta_field_value(<<"systimestamp">>) -> erlang:now();
 meta_field_value(systimestamp) -> erlang:now();
+meta_field_value(<<"user">>) -> <<"unknown">>;
+meta_field_value(user) -> <<"unknown">>;
+meta_field_value(<<"sysdate">>) -> calendar:local_time();
+meta_field_value(sysdate) -> calendar:local_time();
+meta_field_value(<<"username">>) -> <<"unknown">>;
+meta_field_value(username) -> <<"unknown">>;
+meta_field_value(<<"schema">>) -> schema();
+meta_field_value(schema) -> schema();
+meta_field_value(<<"node">>) -> node();
+meta_field_value(node) -> node();
 meta_field_value(Name) -> ?ClientError({"Undefined meta value",Name}).
 
 schema() ->
@@ -589,7 +628,7 @@ delete_table_property(Table, PropName)  -> mnesia:delete_table_property(Table, P
 update_xt({_Table,bag}, _Item, _Lock, {}, {}) ->
     ok;
 update_xt({Table,bag}, Item, Lock, Old, {}) when is_atom(Table) ->
-    Current = mnesia:read(Table, element(2,Old)),
+    Current = mnesia:read(Table, element(?KeyIdx,Old)),
     Exists = lists:member(Old,Current),
     if
         Exists ->
@@ -602,7 +641,7 @@ update_xt({Table,bag}, Item, Lock, Old, {}) when is_atom(Table) ->
             ?ConcurrencyException({"Data is modified by someone else", {Item, Old}})
     end;
 update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
-    Current = mnesia:read(Table, element(2,New)),  %% may be expensive
+    Current = mnesia:read(Table, element(?KeyIdx,New)),  %% may be expensive
     Exists = lists:member(New,Current),
     if
         (Exists and (Lock==none)) ->
@@ -615,7 +654,7 @@ update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
             {Item,New}
     end;
 update_xt({Table,bag}, Item, Lock, Old, Old) when is_atom(Table) ->
-    Current = mnesia:read(Table, element(2,Old)),  %% may be expensive
+    Current = mnesia:read(Table, element(?KeyIdx,Old)),  %% may be expensive
     Exists = lists:member(Old,Current),
     if
         Exists ->
@@ -632,15 +671,15 @@ update_xt({Table,bag}, Item, Lock, Old, New) when is_atom(Table) ->
 update_xt({_Table,_}, _Item, _Lock, {}, {}) ->
     ok;
 update_xt({Table,_}, Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
-    %mnesia:delete(Table, element(2, Old), write),
-    mnesia_table_write_access(delete, [Table, element(2, Old), write]),
+    %mnesia:delete(Table, element(?KeyIdx, Old), write),
+    mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
     {Item,{}};
 update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
     if
         Lock == none ->
             ok;
         true ->
-            case mnesia:read(Table, element(2,New)) of
+            case mnesia:read(Table, element(?KeyIdx,New)) of
                 [New] ->    ok;
                 [] ->       ok;
                 Current ->  ?ConcurrencyException({"Key violation", {Item,{Current, New}}})
@@ -652,13 +691,13 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
 update_xt({Table,_}, Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
     {Item,Old};
 update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
-    case mnesia:read(Table, element(2,Old)) of
+    case mnesia:read(Table, element(?KeyIdx,Old)) of
         [Old] ->    {Item,Old};
         [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
         Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
     end;
 update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
-    OldKey=element(2,Old),
+    OldKey=element(?KeyIdx,Old),
     if
         Lock == none ->
             ok;
@@ -669,7 +708,7 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
                 Curr1 ->    ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Curr1}}})
             end
     end,
-    NewKey = element(2,New),
+    NewKey = element(?KeyIdx,New),
     case NewKey of
         OldKey ->
             %mnesia:write(Table,New,write),
@@ -876,6 +915,15 @@ table_operations(_) ->
         ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
+        ?assertEqual([{c,b,a}],field_pick([{a,b,c}],"321")),
+        ?assertEqual([{c,a}],?FP([{a,b,c}],"31")),
+        ?assertEqual([{b}],?FP([{a,b,c}],"2")),
+        ?assertEqual([{a,j}],?FP([{a,b,c,d,e,f,g,h,i,j,k}],"1(10)")),
+        ?assertEqual([{a,k}],?FP([{a,b,c,d,e,f,g,h,i,j,k}],"1(11)")),
+        ?assertEqual([{a,c}],?FP([{a,b,c,d,e,f,g,h,i}],"13(10)")),
+        ?assertEqual([{a,c}],?FP([{a,b,c,d,e,f,g,h,i}],"1(10)3")), %% TODO: should be [{a,'N/A',c}]
+
 
         ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
 
