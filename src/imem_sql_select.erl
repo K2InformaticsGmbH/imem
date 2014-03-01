@@ -26,6 +26,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
             imem_sql_expr:column_map_columns(ParsedFieldList, FullMap0)
     end,
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
+    % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
     % ?Debug("Statement columns: (~p)~n~p~n", [StmtCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
@@ -241,8 +242,6 @@ test_with_or_without_sec(IsSec) ->
             "select 1 from dual",
             [{<<"1">>}]
         ),
-
-
 
     %% simple queries on meta fields
 
@@ -1077,6 +1076,177 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
+    %% expressions and concatenations
+
+        exec_fetch_sort_equal(SKey, query8a, 100, IsSec, 
+            "select 'a' || 'b123' 
+             from dual
+            " 
+            , 
+            [
+                {<<"ab123">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8c, 100, IsSec, 
+            "select col2 || col2
+             from def
+             where col1 = 1 or col1=20
+            " 
+            , 
+            [
+                {<<"11">>},{<<"2020">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8c, 100, IsSec, 
+            "select col2 || to_binstr('XYZ')
+             from def
+             where col1 = 1 or col1=20
+            " 
+            , 
+            [
+                {<<"1XYZ">>},{<<"20XYZ">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8d, 100, IsSec, 
+            "select to_string('123') || to_string('XYZ') 
+             from member_test
+             where col1 = 5
+            " 
+            , 
+            [
+                {<<"\"123XYZ\"">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8e, 100, IsSec, 
+            "select col2 || to_string('XYZ') 
+             from member_test
+             where col1 = 1
+            " 
+            , 
+            [
+                {<<"[a,b,c,[e],88,89,90]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8f, 100, IsSec, 
+            "select col2 || to_string(sqrt(2.0)) 
+             from def
+             where col1 = 5
+            " 
+            , 
+            [
+                {<<"\"51.41421356237309510000e+00\"">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8g, 100, IsSec, 
+            "select col2 || to_binstr(sqrt(2.0)) 
+             from def
+             where col1 = 5
+            " 
+            , 
+            [
+                {<<"51.41421356237309510000e+00">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8h, 100, IsSec, 
+            "select col2 
+             from def
+             where col2 || to_binstr(sqrt(2.0)) = to_binstr('51.41421356237309510000e+00')
+            " 
+            , 
+            [
+                {<<"5">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8i, 100, IsSec, 
+            "select col2 
+             from def
+             where byte_size(col2) > 1 and col1 < 11
+            " 
+            , 
+            [
+                {<<"10">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8j, 100, IsSec, 
+            "select reverse(col2), hd(col2), last(col2)
+             from member_test
+             where col1 = 1
+            " 
+            , 
+            [
+                {<<"[[e],c,b,a]">>, <<"a">>, <<"[e]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8k, 100, IsSec, 
+            "select is_list(col2), is_list(last(col2)), is_tuple(hd(col2))
+             from member_test
+             where col1 = 1
+            " 
+            , 
+            [
+                {<<"true">>, <<"true">>, <<"false">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8l, 100, IsSec, 
+            "select col3
+             from member_test
+             where is_tuple(col3)
+            " 
+            , 
+            [
+                {<<"{a,d,e}">>}, {<<"{a,d,e}">>}, {<<"{imem,nonode@nohost}">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8m, 100, IsSec, 
+            "select element(1,col3)
+             from member_test
+             where is_tuple(col3)
+            " 
+            , 
+            [
+                {<<"a">>}, {<<"a">>}, {<<"imem">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8n, 100, IsSec, 
+            "select is_tuple(col3), element(1,col3)
+             from member_test
+            " 
+            , 
+            [
+             {<<"false">>,<<"'$not_a_value'">>}
+            ,{<<"false">>,<<"'$not_a_value'">>}
+            ,{<<"false">>,<<"'$not_a_value'">>}
+            ,{<<"true">>,<<"a">>}
+            ,{<<"true">>,<<"a">>}
+            ,{<<"true">>,<<"imem">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8o, 100, IsSec, 
+            "select is_tuple(col3), element(1,col3)
+             from member_test 
+             where is_nav(element(1,col3))
+            " 
+            , 
+            [
+             {<<"false">>,<<"'$not_a_value'">>}
+            ,{<<"false">>,<<"'$not_a_value'">>}
+            ,{<<"false">>,<<"'$not_a_value'">>}
+            ]
+        ),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, imem, IsSec)),
 

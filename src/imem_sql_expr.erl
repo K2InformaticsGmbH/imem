@@ -29,7 +29,6 @@
 
 -export([ binstr_to_qname3/1
         , binstr_to_qname2/1
-        , simplify_guard/1
         , uses_operator/2
         , uses_operand/2
         ]).
@@ -103,26 +102,6 @@ bind_virtual(Ti,X,ScanSpec0) ->
             FilterFun1 = imem_sql_funs:expr_fun(STree1),
             {SSpec1,TailSpec0,FilterFun1}
     end.
-
-%% @doc Binds an expression tree (extended ETS matchspec guard) using now available bind values.
-%% X:       Tuple structure known so far e.g. {{MetaRec},{MainRec}} for main table scan (Ti=2)
-%% Guard:   Guard expression to be simplified by binding values to unbound variables.
-%% Binds:   List of bind records
-%% throws   ?ClientError, ?UnimplementedException, ?SystemException
-% -spec bind_guard(tuple(), tuple(), list(#bind{})) -> tuple().
-% bind_guard(_, Guard, []) -> 
-%     Guard;
-% bind_guard(X, Guard0, [B|Binds]) ->
-%     bind_guard(X, simplify_guard(bind_guard_1(X, Guard0, B)), Binds).
-
-% %% bind guard to one single variable '$xy', tuples T are returned as {const,T}
-% bind_guard_1(_, {const,T}, _) when is_tuple(T) -> {const,T};
-% bind_guard_1(X, Tag, #bind{tag=Tag}=Bind) -> bind_value(?BoundVal(Bind,X));
-% bind_guard_1(X, {Op,A}, Bind) ->      bind_eval(X, {Op,bind_guard_1(X,A,Bind)});
-% bind_guard_1(X, {Op,A,B}, Bind) ->    bind_eval(X, {Op,bind_guard_1(X,A,Bind),bind_guard_1(X,B,Bind)});
-% bind_guard_1(X, {Op,A,B,C}, Bind) ->  bind_eval(X, {Op,bind_guard_1(X,A,Bind),bind_guard_1(X,B,Bind),bind_guard_1(X,C,Bind)});
-% bind_guard_1(_, A, _) ->              bind_value(A).
-
 
 %% Does expression tree use a bind with Ti ?
 uses_bind(_,{const,_}) ->              false;
@@ -201,6 +180,7 @@ bind_value(Other) ->                          Other.
 
 %% Is this expression tree completely bound?
 bind_done({_,A}) -> bind_done(A);
+bind_done(#bind{tind=0,cind=0,btree=BTree}) -> bind_done(BTree);
 bind_done(#bind{}) -> false;
 bind_done({_,A,B}) -> bind_done(A) andalso bind_done(B);
 bind_done({_,A,B,C}) -> bind_done(A) andalso bind_done(B) andalso bind_done(C);
@@ -208,19 +188,56 @@ bind_done({_,A,B,C,D}) -> bind_done(A) andalso bind_done(B) andalso bind_done(C)
 bind_done(_) -> true.
 
 
+% Unary eval rules
+bind_eval({_, ?nav}) ->             ?nav;
+% Binary eval rules
 bind_eval({'or', true, _}) ->       true; 
 bind_eval({'or', _, true}) ->       true; 
 bind_eval({'or', false, false}) ->  false; 
-bind_eval({'or', Left, false}) ->   bind_eval(Left); 
-bind_eval({'or', false, Right}) ->  bind_eval(Right); 
-bind_eval({'or', Same, Same}) ->    bind_eval(Same); 
+bind_eval({'or', Left, false}) ->   Left;           % bind_eval(Left); 
+bind_eval({'or', false, Right}) ->  Right;          % bind_eval(Right); 
 bind_eval({'and', false, _}) ->     false; 
 bind_eval({'and', _, false}) ->     false; 
 bind_eval({'and', true, true}) ->   true; 
-bind_eval({'and', Left, true}) ->   bind_eval(Left); 
-bind_eval({'and', true, Right}) ->  bind_eval(Right); 
+bind_eval({'and', Left, true}) ->   Left;           % bind_eval(Left); 
+bind_eval({'and', true, Right}) ->  Right;          % bind_eval(Right); 
 bind_eval({'not', true}) ->         false; 
-bind_eval({'not', false}) ->        true; 
+bind_eval({'not', false}) ->        true;
+bind_eval({'not', {'/=', Left, Right}}) -> {'==', Left, Right};
+bind_eval({'not', {'==', Left, Right}}) -> {'/=', Left, Right};
+bind_eval({'not', {'=<', Left, Right}}) -> {'>',  Left, Right};
+bind_eval({'not', {'<', Left, Right}}) ->  {'>=', Left, Right};
+bind_eval({'not', {'>=', Left, Right}}) -> {'<',  Left, Right};
+bind_eval({'not', {'>', Left, Right}}) ->  {'=<', Left, Right};
+bind_eval({_, A, B}) when A==?nav;B==?nav -> ?nav; 
+bind_eval({'or', Same, Same}) ->    Same;           % bind_eval(Same); 
+bind_eval({'and', Same, Same}) ->    Same;          % bind_eval(Same); 
+bind_eval({'or', {'and', C, B}, A}) ->  
+    case {uses_filter(C),uses_filter(B),uses_filter(A)} of
+        {true,false,false} ->       {'and', {'or', C, A}, {'or', A, B}};
+        {false,true,false} ->       {'and', {'or', B, A}, {'or', C, A}};
+        _ ->                        {'or', {'and', C, B}, A}
+    end;
+bind_eval({'and', {'and', C, B}, A}) ->  
+    case {uses_filter(C),uses_filter(B),uses_filter(A)} of
+        {true,false,false} ->       {'and', C, {'and', A, B}};
+        {false,true,false} ->       {'and', B, {'and', C, A}};
+        _ ->                        {'and', {'and', C, B}, A}
+    end;
+bind_eval({'or', B, A} = G) ->  
+    case {uses_filter(B),uses_filter(A)} of
+        {false,true} ->             {'or', A, B};
+        _ ->                        G
+    end;
+bind_eval({'and', B, A} = G) ->  
+    case {uses_filter(B),uses_filter(A)} of
+        {false,true} ->             {'and', A, B};
+        _ ->                        G
+    end;
+% Operators and functions with 3 parameters
+bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav; 
+% Functions with 4 parameters
+bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav; 
 bind_eval(BTree) ->
     case bind_done(BTree) of
         false ->    %% cannot simplify BTree here
@@ -233,7 +250,7 @@ bind_eval(BTree) ->
             end
     end.
 
-%% @doc Binds unbound variables for Table Ti in an expression tree, means that all variables  
+%% @doc Binds unbound variables for Table Ti in a condition tree, means that all variables  
 %% for tables with index smaller than Ti must be bound to values.
 %% X:       Tuple structure known so far e.g. {{MetaRec}} for main table scan (Ti=2)
 %% Ti:      Table index (?MainIdx=2,JoinTables=3,4..)
@@ -241,7 +258,10 @@ bind_eval(BTree) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_table(tuple(), integer(), tuple()) -> tuple().
 bind_table(X, Ti, BTree) ->
-    bind_tab(X, Ti, BTree).
+    case bind_tab(X, Ti, BTree) of
+        ?nav ->     false;
+        B ->        B
+    end.
 
 bind_tab(_,  _, {const,T}) when is_tuple(T) -> {const,T};
 bind_tab(X, Ti, #bind{tind=0,cind=0,btree=BT}) -> bind_eval(bind_tab(X, Ti, BT));
@@ -285,6 +305,35 @@ bind_t(X, {Op,A,B,C}) ->         bind_eval({Op,bind_t(X,A),bind_t(X,B),bind_t(X,
 bind_t(X, {Op,A,B,C,D}) ->       bind_eval({Op,bind_t(X,A),bind_t(X,B),bind_t(X,C),bind_t(X,D)});
 bind_t(_, A) ->                  bind_value(A).
 
+
+%% @doc Reforms the select field expression tree by evaluating
+%% constant subterms terms and simplifications. 
+%% BTree:   Expression bind tree, to be simplified and transformed
+%% throws   ?ClientError, ?UnimplementedException, ?SystemException
+-spec prune_tree(binary()|tuple()) -> list().
+prune_tree(#bind{tind=0,cind=0,btree=BT}=BTree) ->
+    % ?LogDebug("Tree to prune~n~p~n",[BTree]),
+    case bind_table(unknown,1,BT) of
+        ?nav ->     ?ClientError({"Cannot prune expression tree", BT});
+        Tree ->     BTree#bind{btree=Tree}
+    end;
+    % case prune_eval(prune_walk(BT)) of
+    %     ?nav ->     ?ClientError({"Cannot prune expression tree", BT});
+    %     Tree ->     BTree#bind{btree=Tree}
+    % end;
+prune_tree(BTree) ->
+    BTree.
+
+prune_walk({const,T}) when is_tuple(T) -> {const,T};
+prune_walk(#bind{tind=0,cind=0,btree=BTree}) -> prune_eval(prune_walk(BTree));
+prune_walk(#bind{}=Bind) -> Bind;
+prune_walk({Op}) -> prune_eval({Op});
+prune_walk({Op,A}) -> prune_eval({Op,prune_walk(A)});
+prune_walk({Op,A,B}) -> prune_eval({Op,prune_walk(A),prune_walk(B)});
+prune_walk({Op,A,B,C}) -> prune_eval({Op,prune_walk(A),prune_walk(B),prune_walk(C)});
+prune_walk({Op,A,B,C,D}) -> prune_eval({Op,prune_walk(A),prune_walk(B),prune_walk(C),prune_walk(D)});
+prune_walk(BTree) -> BTree.
+
 %% @doc Reforms the where clause boolean expression tree by pruning off
 %% terms which can only be known in the (next) join operation. 
 %% Ti:      Table Index
@@ -293,6 +342,7 @@ bind_t(_, A) ->                  bind_value(A).
 -spec prune_tree(integer(), binary()|tuple()) -> list().
 prune_tree(Ti, WBTree) ->
     case prune_eval(prune_walk(Ti, WBTree)) of
+        ?nav ->     ?ClientError({"Cannot evaluate pruned where clause", {Ti,WBTree}});
         ?Join ->    true;
         Tree ->     Tree
     end.
@@ -541,7 +591,7 @@ column_map_tables([{S,T,A}|Tables], Ti, Acc) ->
 %% throws ?ClientError, ?UnimplementedException
 column_map_columns(Columns, FullMap) ->
     ColMap = column_map_columns(Columns, FullMap, []),
-    [Item#bind{tag=I} || {I,Item} <- lists:zip(lists:seq(1,length(ColMap)), ColMap)].
+    [prune_tree(Item#bind{tag=I}) || {I,Item} <- lists:zip(lists:seq(1,length(ColMap)), ColMap)].
 
 -spec column_map_columns(list(),list(tuple()),list(#bind{})) -> list(#bind{}).
 column_map_columns([#bind{schema=undefined,table=undefined,name=?Star}|Columns], FullMap, Acc) ->
@@ -672,7 +722,7 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
                     try            
                         Func = binary_to_existing_atom(Fname,utf8),
                         CMapA = expr(A,FullMap,BT),
-                        Type = imem_sql_funs:unary_fun_result_type(Fname),
+                        #bind{type=Type} = imem_sql_funs:unary_fun_result_type(Fname),
                         #bind{type=Type,btree={Func,CMapA}}
                     catch
                         _:_ -> ?UnimplementedException({"Bad parameter for unary sql function", Fname})
@@ -681,6 +731,12 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
     end;        
 expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) -> 
     expr({'fun',<<"is_regexp_like">>,[A,B]}, FullMap, BT); 
+expr({'||',A,B}, FullMap, _) -> 
+    CMapA = expr(A,FullMap,#bind{type=binstr}),
+    CMapB = expr(B,FullMap,#bind{type=binstr}),
+    % ?LogDebug("Concatenation CMapA~n~p~n", [CMapA]),
+    % ?LogDebug("Concatenation CMapB~n~p~n", [CMapB]),
+    expr_concat(CMapA, CMapB);
 expr({'fun',Fname,[A,B]}, FullMap, _) -> 
     CMapA = case imem_sql_funs:binary_fun_bind_type1(Fname) of
         undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
@@ -692,7 +748,7 @@ expr({'fun',Fname,[A,B]}, FullMap, _) ->
     end,
     try 
         Func = binary_to_existing_atom(Fname,utf8),
-        Type = imem_sql_funs:binary_fun_result_type(Fname),
+        #bind{type=Type} = imem_sql_funs:binary_fun_result_type(Fname),
         #bind{type=Type,btree={Func,CMapA,CMapB}}
     catch
         _:_ -> ?UnimplementedException({"Unsupported binary sql function", Fname})
@@ -802,6 +858,17 @@ expr(RawExpr, _FullMap0, _Type) ->
 default_to_number(#bind{type=datetime}=BT) -> BT;
 default_to_number(#bind{type=timestamp}=BT) -> BT;
 default_to_number(_) -> #bind{type=number,default=?nav}.
+
+expr_concat(#bind{type=T}=CMapA, #bind{type=T}=CMapB) ->
+    #bind{type=T,btree={'concat',CMapA,CMapB}};
+expr_concat(#bind{type=list}=CMapA, #bind{type=string}=CMapB) ->
+    #bind{type=list,btree={'concat',CMapA,CMapB}};
+expr_concat(#bind{type=string}=CMapA, #bind{type=list}=CMapB) ->
+    #bind{type=list,btree={'concat',CMapA,CMapB}};
+expr_concat(CMapA, #bind{type=TB}=CMapB) when TB==list;TB==string ->
+    #bind{type=TB,btree={'concat',{'to_string',CMapA},CMapB}};
+expr_concat(#bind{type=TA}=CMapA, CMapB) when TA==list;TA==string ->
+    #bind{type=TA,btree={'concat',CMapA,{'to_string',CMapB}}}.
 
 expr_math(Op, CMapA, CMapB, BT) ->
     case C={CMapA#bind.type,CMapB#bind.type,Op,BT#bind.type} of
@@ -934,89 +1001,6 @@ purge_meta_fields(ColMap, WBTree, [MB|Rest], MetaMap) ->
         _ ->  
             purge_meta_fields(ColMap, WBTree, [], lists:reverse([MB|Rest])) 
     end.
-
-simplify_guard(Term) ->
-    case  simplify_once(Term) of
-        Term ->     Term;
-        T ->        simplify_guard(T)
-    end.
-
-%% warning: guard may contain unbound variables '$x' which must not be treated as atom values
-simplify_once({  _, ?Join}) ->          ?Join;  %% All unary operators and functions are join-dominant
-simplify_once({'and', ?Join, ?Join}) -> ?Join; 
-simplify_once({'and', Left, ?Join}) ->  simplify_once(Left); 
-simplify_once({'and', ?Join, Right}) -> simplify_once(Right); 
-simplify_once({'and', Same, Same}) ->   simplify_once(Same); 
-simplify_once({ Op, _, ?Join}) when Op/='and' -> ?Join;
-simplify_once({ Op, ?Join, _}) when Op/='and' -> ?Join;
-simplify_once({'+', Left}) when  is_number(Left) -> Left;
-simplify_once({'-', Left}) when  is_number(Left) -> (-Left);
-simplify_once({'+', Left, Right}) when  is_number(Left), is_number(Right) -> (Left + Right);
-simplify_once({'-', Left, Right}) when  is_number(Left), is_number(Right) -> (Left - Right);
-simplify_once({'*', Left, Right}) when  is_number(Left), is_number(Right) -> (Left * Right);
-simplify_once({'/', Left, Right}) when  is_number(Left), is_number(Right) -> (Left / Right);
-simplify_once({'div', Left, Right}) when is_number(Left), is_number(Right) -> (Left div Right);
-simplify_once({'rem', Left, Right}) when is_number(Left), is_number(Right) -> (Left rem Right);
-simplify_once({'>', Left, Right}) when  is_number(Left), is_number(Right) -> (Left > Right);
-simplify_once({'>=', Left, Right}) when is_number(Left), is_number(Right) -> (Left >= Right);
-simplify_once({'<', Left, Right}) when  is_number(Left), is_number(Right) -> (Left < Right);
-simplify_once({'=<', Left, Right}) when is_number(Left), is_number(Right) -> (Left =< Right);
-simplify_once({'==', Left, Right}) when is_number(Left), is_number(Right) -> (Left == Right);
-simplify_once({'/=', Left, Right}) when is_number(Left), is_number(Right) -> (Left /= Right);
-simplify_once({'add_dt', {const,DT}, Right}) when is_number(Right) -> 
-    {const, imem_datatype:offset_datetime('+',DT,Right)};
-simplify_once({'add_ts', {const,TS}, Right}) when is_number(Right) -> 
-    {const, imem_datatype:offset_timestamp('+',TS,Right)};
-simplify_once({'element', N, {const,Tup}}) when is_integer(N),is_tuple(Tup) ->          element(N,Tup);
-simplify_once({'element', _, Val}) when is_integer(Val);is_binary(Val);is_list(Val) ->  throw(no_match);
-simplify_once({'size', {const,Tup}}) when is_tuple(Tup) ->                              size(Tup);
-simplify_once({'hd', List}) when is_list(List) ->                                       hd(List);
-simplify_once({'hd', Val}) when is_integer(Val);is_binary(Val) ->                       throw(no_match);
-simplify_once({'tl', List}) when is_list(List) ->                                       tl(List);
-simplify_once({'length', List}) when is_list(List) ->                                   length(List);
-simplify_once({'abs', N}) when is_number(N) ->                                          abs(N);
-simplify_once({'round', N}) when is_number(N) ->                                        round(N);
-simplify_once({'trunc', N}) when is_number(N) ->                                        trunc(N);
-simplify_once({'or', true, _}) ->       true; 
-simplify_once({'or', _, true}) ->       true; 
-simplify_once({'or', false, false}) ->  false; 
-simplify_once({'or', Left, false}) ->   simplify_once(Left); 
-simplify_once({'or', false, Right}) ->  simplify_once(Right); 
-simplify_once({'or', Same, Same}) ->    simplify_once(Same); 
-simplify_once({'and', false, _}) ->     false; 
-simplify_once({'and', _, false}) ->     false; 
-simplify_once({'and', true, true}) ->   true; 
-simplify_once({'and', Left, true}) ->   simplify_once(Left); 
-simplify_once({'and', true, Right}) ->  simplify_once(Right); 
-simplify_once({'not', true}) ->         false; 
-simplify_once({'not', false}) ->        true; 
-simplify_once({'not', {'/=', Left, Right}}) -> {'==', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'==', Left, Right}}) -> {'/=', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'=<', Left, Right}}) -> {'>',  simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'<', Left, Right}}) ->  {'>=', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'>=', Left, Right}}) -> {'<',  simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', {'>', Left, Right}}) ->  {'=<', simplify_once(Left), simplify_once(Right)};
-simplify_once({'not', Result}) ->       {'not', simplify_once(Result)};
-simplify_once({'or', {'and', C, B}, A}) ->  
-    case {uses_filter(C),uses_filter(B),uses_filter(A)} of
-        {true,false,false} ->       {'and', {'or', C, A}, {'or', A, B}};
-        {false,true,false} ->       {'and', {'or', B, A}, {'or', C, A}};
-        _ ->                        {'or', simplify_once({'and', C, B}), simplify_once(A)}
-    end;
-simplify_once({'and', {'and', C, B}, A}) ->  
-    case {uses_filter(C),uses_filter(B),uses_filter(A)} of
-        {true,false,false} ->       {'and', C, {'and', A, B}};
-        {false,true,false} ->       {'and', B, {'and', C, A}};
-        _ ->                        {'and', simplify_once({'and', C, B}), simplify_once(A)}
-    end;
-simplify_once({'or', B, A} = G) ->  
-    case {uses_filter(B),uses_filter(A)} of
-        {false,true} ->             {'or', A, B};
-        _ ->                        G
-    end;
-simplify_once({ Op, Left, Right}) ->    {Op, simplify_once(Left), simplify_once(Right)};
-simplify_once(?Join) ->                 true;
-simplify_once(Result) ->                Result.
 
 %% Split guard into two pieces:
 %% -  a scan guard for mnesia
@@ -1388,6 +1372,20 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, uses_bind(2,6,BTreeSample)),
         ?assertEqual(true, uses_bind(1,4,BTreeSample)),
         ?assertEqual(true, uses_bind(0,0,BTreeSample)),
+
+        ColMapSample =  { bind,0,0,undefined,undefined,<<"'a' || 'b123'">>,undefined,binstr,0,0,undefined,false,undefined
+                        , {'||',<<"'a'">>,<<"'b123'">>}
+                        , {concat,{bind,0,0,undefined,undefined,undefined,undefined,binstr,0,0,<<>>,true,undefined,undefined,<<"a">>,[]}
+                                 ,{bind,0,0,undefined,undefined,undefined,undefined,binstr,0,0,<<>>,true,undefined,undefined,<<"b123">>,[]}
+                          }
+                        , 1
+                        },
+        ColMapExpected= { bind,0,0,undefined,undefined,<<"'a' || 'b123'">>,undefined,binstr,0,0,undefined,false,undefined
+                        , {'||',<<"'a'">>,<<"'b123'">>}
+                        , <<"ab123">>
+                        , 1
+                        },
+        ?assertEqual(ColMapExpected, prune_tree(ColMapSample)),
 
         ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key

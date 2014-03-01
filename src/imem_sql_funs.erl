@@ -4,12 +4,13 @@
 -include("imem_sql.hrl").
 
 -define( FilterFuns, 
-            [ safe 
+            [ safe, concat, is_nav 
             , is_member, is_like, is_regexp_like
             , add_dt, add_ts, diff_dt, diff_ts
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_term
             , to_decimal, from_decimal
+            , byte_size, bit_size, nth, sort, usort, reverse, last
             ]).
 
 -export([ filter_funs/0
@@ -21,6 +22,14 @@
         , binary_fun_bind_type1/1
         , binary_fun_bind_type2/1
         , binary_fun_result_type/1
+        , ternary_not/1
+        , ternary_and/2
+        , ternary_or/2
+        , mod_op_1/3
+        , mod_op_2/4
+        , math_plus/1
+        , math_minus/1
+        , is_nav/1
         ]).
 
 -export([ re_compile/1
@@ -41,12 +50,14 @@
         , to_term/1
         ]).
 
--export([ add_dt/2
+-export([ concat/2
+        , add_dt/2
         , add_ts/2
         , diff_dt/2
         , diff_ts/2
         , to_decimal/2
         , from_decimal/2
+        , is_member/2
         ]).
 
 
@@ -64,7 +75,6 @@ unary_fun_bind_type("is_list") ->               #bind{type=list,default=[]};
 unary_fun_bind_type("is_ipaddr") ->             #bind{type=ipaddr,default=undefined};
 unary_fun_bind_type("is_datetime") ->           #bind{type=datetime,default=undefined};
 unary_fun_bind_type("is_timestamp") ->          #bind{type=timestamp,default=undefined};
-unary_fun_bind_type("is_term") ->               #bind{type=term,default=undefined};
 unary_fun_bind_type([$i,$s,$_|_]) ->            #bind{type=term,default=undefined};
 unary_fun_bind_type("length") ->                #bind{type=list,default=[]};
 unary_fun_bind_type("hd") ->                    #bind{type=list,default=[]};
@@ -72,6 +82,7 @@ unary_fun_bind_type("tl") ->                    #bind{type=list,default=[]};
 unary_fun_bind_type("last") ->                  #bind{type=list,default=[]};
 unary_fun_bind_type("sort") ->                  #bind{type=list,default=[]};
 unary_fun_bind_type("usort") ->                 #bind{type=list,default=[]};
+unary_fun_bind_type("reverse") ->               #bind{type=list,default=[]};
 unary_fun_bind_type("size") ->                  #bind{type=tuple,default=undefined};
 unary_fun_bind_type("tuple_size") ->            #bind{type=tuple,default=undefined};
 unary_fun_bind_type("byte_size") ->             #bind{type=binary,default= <<>>};
@@ -85,6 +96,7 @@ unary_fun_result_type("last") ->                #bind{type=term,default=undefine
 unary_fun_result_type("tl") ->                  #bind{type=list,default=[]};
 unary_fun_result_type("sort") ->                #bind{type=list,default=[]};
 unary_fun_result_type("usort") ->               #bind{type=list,default=[]};
+unary_fun_result_type("reverse") ->             #bind{type=list,default=[]};
 unary_fun_result_type("length") ->              #bind{type=integer,default=?nav};
 unary_fun_result_type("size") ->                #bind{type=integer,default=?nav};
 unary_fun_result_type("tuple_size") ->          #bind{type=integer,default=?nav};
@@ -131,17 +143,20 @@ binary_fun_result_type("to_decimal") ->         #bind{type=decimal,default=?nav}
 binary_fun_result_type("from_decimal") ->       #bind{type=float,default=?nav};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 
+re_compile(?nav) -> ?nav;
 re_compile(S) when is_list(S);is_binary(S) ->
     case (catch re:compile(S))  of
         {ok, MP} -> MP;
-        _ ->        never_match
+        _ ->        ?nav
     end;
-re_compile(_) ->    never_match.
+re_compile(_) ->    ?nav.
 
 like_compile(S) -> like_compile(S, <<>>).
 
+like_compile(_, ?nav) -> ?nav;
+like_compile(?nav, _) -> ?nav;
 like_compile(S, Esc) when is_list(S); is_binary(S)  -> re_compile(transform_like(S, Esc));
-like_compile(_,_)                                   -> never_match.
+like_compile(_,_)     -> ?nav.
 
 transform_like(S, Esc) ->
     E = if
@@ -160,7 +175,8 @@ transform_like(S, Esc) ->
     S4 = re:replace(S3, Escape++"_", "_", [global, {return, binary}]),
     list_to_binary(["^",S4,"$"]).
 
-re_match(never_match, _) -> false;
+re_match(?nav, _) -> ?nav;
+re_match(_, ?nav) -> ?nav;
 re_match(RE, S) when is_list(S);is_binary(S) ->
     case re:run(S, RE) of
         nomatch ->  false;
@@ -174,6 +190,8 @@ re_match(RE, S) ->
 
 %% Constant tuple expressions
 expr_fun({const, A}) when is_tuple(A) -> A;
+%% Select field Expression header
+expr_fun(#bind{tind=0,cind=0,btree=BTree}) -> expr_fun(BTree);
 %% Comparison expressions
 % expr_fun({'==', Same, Same}) -> true;        %% TODO: Is this always true? (what if Same evaluates to ?nav)
 % expr_fun({'/=', Same, Same}) -> false;       %% TODO: Is this always true? (what if Same evaluates to ?nav)
@@ -230,16 +248,8 @@ expr_fun({Op, A, B}) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='
 %% Logical expressions
 expr_fun({'not', A}) ->
     case expr_fun(A) of
-        ?nav ->                     ?nav;
-        true ->                     false;
-        false ->                    true;
-        F when is_function(F) ->    fun(X) ->   Abound=F(X), 
-                                                case Abound of 
-                                                    ?nav -> ?nav; 
-                                                    true -> false;
-                                                    false -> true
-                                                end
-                                    end
+        F when is_function(F) ->    fun(X) -> ternary_not(F(X)) end;
+        V ->                        ternary_not(V)
     end;                       
 expr_fun({'and', A, B}) ->
     Fa = expr_fun(A),
@@ -250,7 +260,7 @@ expr_fun({'and', A, B}) ->
         {_,false} ->    false;
         {true,_} ->     Fb;         %% may be ?nav or a fun evaluating to ?nav
         {_,true} ->     Fa;         %% may be ?nav or a fun evaluating to ?nav
-        {_,_} ->        fun(X) -> (Fa(X) and Fb(X)) end
+        {_,_} ->        fun(X) -> ternary_and(Fa(X),Fb(X)) end
     end;
 expr_fun({'or', A, B}) ->
     Fa = expr_fun(A),
@@ -261,19 +271,19 @@ expr_fun({'or', A, B}) ->
         {_,true} ->     true;
         {false,_} ->    Fb;         %% may be ?nav or a fun evaluating to ?nav
         {_,false} ->    Fa;         %% may be ?nav or a fun evaluating to ?nav
-        {_,_} ->        fun(X) -> (Fa(X) or Fb(X)) end
+        {_,_} ->        fun(X) -> ternary_or(Fa(X),Fb(X)) end
     end;
 %% Unary custom filters
 expr_fun({'safe', A}) ->
     safe_fun(A);
 expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term' ->
+expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term';Op=='is_nav' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
 %% Binary custom filters
-expr_fun({Op, A, B}) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element' ->
+expr_fun({Op, A, B}) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element';Op=='concat' ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts' ->
     binary_fun({Op, A, B});
@@ -318,22 +328,29 @@ module_fun(Mod, {Op, A, B}) ->
 
 module_fun_final(Mod, {Op, A}) -> 
     case bind_action(A) of 
-        false ->        Mod:Op(A);
-        true ->         fun(X) -> Mod:Op(A(X)) end;
-        ABind ->        fun(X) -> Mod:Op(?BoundVal(ABind,X)) end
+        false ->        mod_op_1(Mod,Op,A);
+        true ->         fun(X) -> mod_op_1(Mod,Op,A(X)) end;
+        ABind ->        fun(X) -> mod_op_1(Mod,Op,?BoundVal(ABind,X)) end
     end;
 module_fun_final(Mod, {Op, A, B}) -> 
     case {bind_action(A),bind_action(B)} of 
-        {false,false} ->        Mod:Op(A,B);
-        {false,true} ->         fun(X) -> Mod:Op(A,B(X)) end;
-        {false,BBind} ->        fun(X) -> Mod:Op(A,?BoundVal(BBind,X)) end;
-        {true,false} ->         fun(X) -> Mod:Op(A(X),B) end;
-        {true,true} ->          fun(X) -> Mod:Op(A(X),B(X)) end; 
-        {true,BBind} ->         fun(X) -> Mod:Op(A(X),?BoundVal(BBind,X)) end; 
-        {ABind,false} ->        fun(X) -> Mod:Op(?BoundVal(ABind,X),B) end; 
-        {ABind,true} ->         fun(X) -> Mod:Op(?BoundVal(ABind,X),B(X)) end; 
-        {ABind,BBind} ->        fun(X) -> Mod:Op(?BoundVal(ABind,X),?BoundVal(BBind,X)) end 
+        {false,false} ->        mod_op_2(Mod,Op,A,B);
+        {false,true} ->         fun(X) -> mod_op_2(Mod,Op,A,B(X)) end;
+        {false,BBind} ->        fun(X) -> mod_op_2(Mod,Op,A,?BoundVal(BBind,X)) end;
+        {true,false} ->         fun(X) -> mod_op_2(Mod,Op,A(X),B) end;
+        {true,true} ->          fun(X) -> mod_op_2(Mod,Op,A(X),B(X)) end; 
+        {true,BBind} ->         fun(X) -> mod_op_2(Mod,Op,A(X),?BoundVal(BBind,X)) end; 
+        {ABind,false} ->        fun(X) -> mod_op_2(Mod,Op,?BoundVal(ABind,X),B) end; 
+        {ABind,true} ->         fun(X) -> mod_op_2(Mod,Op,?BoundVal(ABind,X),B(X)) end; 
+        {ABind,BBind} ->        fun(X) -> mod_op_2(Mod,Op,?BoundVal(ABind,X),?BoundVal(BBind,X)) end 
     end.
+
+mod_op_1(_,_,?nav) -> ?nav;
+mod_op_1(Mod,Op,A) -> Mod:Op(A).
+
+mod_op_2(_,_,_,?nav) -> ?nav;
+mod_op_2(_,_,?nav,_) -> ?nav;
+mod_op_2(Mod,Op,A,B) -> Mod:Op(A,B).
 
 math_fun({Op, A}) ->
     math_fun_unary({Op, expr_fun(A)});
@@ -344,39 +361,47 @@ math_fun({Op, A, B}) ->
 
 math_fun_unary({'+', A}) ->
     case bind_action(A) of 
-        false ->            A;        
-        true ->             A;       
-        ABind ->            fun(X) -> ?BoundVal(ABind,X) end
+        false ->            math_plus(A);        
+        true ->             fun(X) -> math_plus(A(X)) end;       
+        ABind ->            fun(X) -> math_plus(?BoundVal(ABind,X)) end
     end;
 math_fun_unary({'-', A}) ->
     case bind_action(A) of 
-        false ->            (-A);        
-        true ->             fun(X) -> (-A(X)) end;       
-        ABind ->            fun(X) -> (-?BoundVal(ABind,X)) end
+        false ->            math_minus(A);        
+        true ->             fun(X) -> math_minus(A(X)) end;
+        ABind ->            fun(X) -> math_minus(?BoundVal(ABind,X)) end
     end.
 
+math_plus(?nav) ->                  ?nav;
+math_plus(A) when is_number(A) ->   A;
+math_plus(_) ->                     ?nav.
+
+math_minus(?nav) ->                 ?nav;
+math_minus(A) when is_number(A) ->  (-A);
+math_minus(_) ->                    ?nav.
 
 -define(MathOpBlockBinary(__Op,__A,__B), 
-            case __Op of
-                '+' ->      (__A + __B);
-                '-' ->      (__A - __B);
-                '*' ->      (__A * __B);
-                '/' ->      (__A / __B);
-                'div' ->    (__A div __B);
-                'rem' ->    (__A rem __B)
-            end).
+        case __Op of
+            _ when (is_number(__A)==false);(is_number(__B)==false) -> ?nav;
+            '+'  ->      (__A + __B);
+            '-'  ->      (__A - __B);
+            '*'  ->      (__A * __B);
+            '/'  ->      (__A / __B);
+            'div'  ->    (__A div __B);
+            'rem'  ->    (__A rem __B)
+        end).
 
 math_fun_binary({Op, A, B}) ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    ?MathOpBlockBinary(Op,A,B);
-        {false,true} ->     fun(X) -> ?MathOpBlockBinary(Op,A,B(X)) end;
-        {false,BBind} ->    fun(X) -> ?MathOpBlockBinary(Op,A,?BoundVal(BBind,X)) end;
-        {true,false} ->     fun(X) -> ?MathOpBlockBinary(Op,A(X),B) end;
-        {true,true} ->      fun(X) -> ?MathOpBlockBinary(Op,A(X),B(X)) end;  
-        {true,BBind} ->     fun(X) -> ?MathOpBlockBinary(Op,A(X),?BoundVal(BBind,X)) end;  
-        {ABind,false} ->    fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),B) end;  
-        {ABind,true} ->     fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),B(X)) end;  
-        {ABind,BBind} ->    fun(X) -> ?MathOpBlockBinary(Op,?BoundVal(ABind,X),?BoundVal(BBind,X)) end
+        {false,true} ->     fun(X) -> Bb=B(X),?MathOpBlockBinary(Op,A,Bb) end;
+        {false,BBind} ->    fun(X) -> Bb=?BoundVal(BBind,X),?MathOpBlockBinary(Op,A,Bb) end;
+        {true,false} ->     fun(X) -> Ab=A(X),?MathOpBlockBinary(Op,Ab,B) end;
+        {true,true} ->      fun(X) -> Ab=A(X),Bb=B(X),?MathOpBlockBinary(Op,Ab,Bb) end;  
+        {true,BBind} ->     fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),?MathOpBlockBinary(Op,Ab,Bb) end;  
+        {ABind,false} ->    fun(X) -> Ab=?BoundVal(ABind,X),?MathOpBlockBinary(Op,Ab,B) end;  
+        {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),?MathOpBlockBinary(Op,Ab,Bb) end;  
+        {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),?MathOpBlockBinary(Op,Ab,Bb) end
     end.
 
 comp_fun({Op, {const,A}, {const,B}}) when is_tuple(A),is_tuple(B)->
@@ -392,31 +417,27 @@ comp_fun({Op, A, B}) ->
 
 
 -define(CompOpBlock(__Op,__A,__B), 
-        if
-            (__A == ?nav) -> ?nav;
-            (__B == ?nav) -> ?nav;
-            true ->
-                case __Op of
-                    '==' -> (__A == __B);
-                    '>' ->  (__A > __B);
-                    '>=' -> (__A >= __B);
-                    '<' ->  (__A < __B);
-                    '=<' -> (__A =< __B);
-                    '/=' -> (__A /= __B)
-                end
+        case __Op of
+             _   when __A==?nav;__B==?nav -> ?nav;
+            '==' ->  (__A==__B);
+            '>'  ->  (__A>__B);
+            '>=' ->  (__A>=__B);
+            '<'  ->  (__A<__B);
+            '=<' ->  (__A=<__B);
+            '/=' ->  (__A/=__B)
         end).
 
 comp_fun_final({Op, A, B}) ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    ?CompOpBlock(Op,A,B);
-        {false,true} ->     fun(X) -> Bbound=B(X),?CompOpBlock(Op,A,Bbound) end;
-        {false,BBind} ->    fun(X) -> Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,A,Bbound) end;
-        {true,false} ->     fun(X) -> Abound=A(X),?CompOpBlock(Op,Abound,B) end;
-        {true,true} ->      fun(X) -> Abound=A(X),Bbound=B(X),?CompOpBlock(Op,Abound,Bbound) end;  
-        {true,BBind} ->     fun(X) -> Abound=A(X),Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,Abound,Bbound) end;  
-        {ABind,false} ->    fun(X) -> Abound=?BoundVal(ABind,X),?CompOpBlock(Op,Abound,B) end;  
-        {ABind,true} ->     fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(ABind,X),?CompOpBlock(Op,Abound,Bbound) end;  
-        {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?CompOpBlock(Op,Abound,Bbound) end
+        {false,true} ->     fun(X) -> Bb=B(X),?CompOpBlock(Op,A,Bb) end;
+        {false,BBind} ->    fun(X) -> Bb=?BoundVal(BBind,X),?CompOpBlock(Op,A,Bb) end;
+        {true,false} ->     fun(X) -> Ab=A(X),?CompOpBlock(Op,Ab,B) end;
+        {true,true} ->      fun(X) -> Ab=A(X),Bb=B(X),?CompOpBlock(Op,Ab,Bb) end;  
+        {true,BBind} ->     fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),?CompOpBlock(Op,Ab,Bb) end;  
+        {ABind,false} ->    fun(X) -> Ab=?BoundVal(ABind,X),?CompOpBlock(Op,Ab,B) end;  
+        {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),?CompOpBlock(Op,Ab,Bb) end;  
+        {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),?CompOpBlock(Op,Ab,Bb) end
     end.
 
 unary_fun({Op, {const,A}}) when is_tuple(A) ->
@@ -425,12 +446,21 @@ unary_fun({Op, A}) ->
     unary_fun_final( {Op, expr_fun(A)});
 unary_fun(Value) -> Value.
 
+unary_fun_final({'is_nav', A}) -> 
+    case bind_action(A) of 
+        false ->        is_nav(A);
+        true ->         fun(X) -> Ab=A(X),is_nav(Ab) end;
+        ABind ->        fun(X) -> Ab=?BoundVal(ABind,X),is_nav(Ab) end
+    end;
 unary_fun_final({Op, A}) -> 
     case bind_action(A) of 
-        false ->        ?MODULE:Op(A);
-        true ->         fun(X) -> ?MODULE:Op(A(X)) end;
-        ABind ->        fun(X) -> ?MODULE:Op(?BoundVal(ABind,X)) end
+        false ->        mod_op_1(?MODULE,Op,A);
+        true ->         fun(X) -> Ab=A(X),mod_op_1(?MODULE,Op,Ab) end;
+        ABind ->        fun(X) -> Ab=?BoundVal(ABind,X),mod_op_1(?MODULE,Op,Ab) end
     end.
+
+is_nav(?nav) -> true;
+is_nav(_) -> false.
 
 to_atom(A) when is_atom(A) -> A;
 to_atom(B) when is_binary(B) -> ?binary_to_atom(B);
@@ -502,147 +532,65 @@ binary_fun(Value) -> Value.
 binary_fun_final({'element', A, B})  ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    ?ElementOpBlock(A,B);
-        {false,true} ->     fun(X) -> Bbound=B(X),?ElementOpBlock(A,Bbound) end;
-        {false,BBind} ->    fun(X) -> Bbound=?BoundVal(BBind,X),?ElementOpBlock(A,Bbound) end;
-        {true,false} ->     fun(X) -> Abound=A(X),?ElementOpBlock(Abound,B) end;
-        {true,true} ->      fun(X) -> Abound=A(X),Bbound=B(X),?ElementOpBlock(Abound,Bbound) end;
-        {true,BBind} ->     fun(X) -> Abound=A(X),Bbound=?BoundVal(BBind,X),?ElementOpBlock(Abound,Bbound) end;
-        {ABind,false} ->    fun(X) -> Abound=?BoundVal(ABind,X),?ElementOpBlock(Abound,B) end;
-        {ABind,true} ->     fun(X) -> Abound=?BoundVal(ABind,X),Bbound=B(X),?ElementOpBlock(Abound,Bbound) end;
-        {ABind,BBind} ->    fun(X) -> Abound=?BoundVal(ABind,X),Bbound=?BoundVal(BBind,X),?ElementOpBlock(Abound,Bbound) end
+        {false,true} ->     fun(X) -> Bb=B(X),?ElementOpBlock(A,Bb) end;
+        {false,BBind} ->    fun(X) -> Bb=?BoundVal(BBind,X),?ElementOpBlock(A,Bb) end;
+        {true,false} ->     fun(X) -> Ab=A(X),?ElementOpBlock(Ab,B) end;
+        {true,true} ->      fun(X) -> Ab=A(X),Bb=B(X),?ElementOpBlock(Ab,Bb) end;
+        {true,BBind} ->     fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),?ElementOpBlock(Ab,Bb) end;
+        {ABind,false} ->    fun(X) -> Ab=?BoundVal(ABind,X),?ElementOpBlock(Ab,B) end;
+        {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),?ElementOpBlock(Ab,Bb) end;
+        {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),?ElementOpBlock(Ab,Bb) end
     end;
-binary_fun_final({'is_member', A, '$_'}) ->
-    case bind_action(A) of 
-        false ->        
-            fun(X) -> 
-                lists:member(A,tl(tuple_to_list(element(?MainIdx,X))))
-            end;
-        true ->        
-            fun(X) -> 
-                lists:member(A(X),tl(tuple_to_list(element(?MainIdx,X))))
-            end;
-        ABind ->  
-            fun(X) ->
-                lists:member(?BoundVal(ABind,X),tl(tuple_to_list(element(?MainIdx,X))))
-            end
-    end;
+% binary_fun_final({'is_member', A, '$_'}) ->
+%     case bind_action(A) of 
+%         false ->        
+%             fun(X) -> 
+%                 lists:member(A,tl(tuple_to_list(element(?MainIdx,X))))
+%             end;
+%         true ->        
+%             fun(X) -> 
+%                 lists:member(A(X),tl(tuple_to_list(element(?MainIdx,X))))
+%             end;
+%         ABind ->  
+%             fun(X) ->
+%                 lists:member(?BoundVal(ABind,X),tl(tuple_to_list(element(?MainIdx,X))))
+%             end
+%     end;
 binary_fun_final({'is_like', A, B})  ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    re_match(like_compile(B),A);
-        {false,true} ->     fun(X) -> re_match(like_compile(B(X)),A) end;
-        {false,BBind} ->    fun(X) -> re_match(like_compile(?BoundVal(BBind,X)),A) end;
-        {true,false} ->     RE = like_compile(B), fun(X) -> re_match(RE,A(X)) end;
-        {true,true} ->      fun(X) -> re_match(like_compile(B(X)),A(X)) end;
-        {true,BBind} ->     fun(X) -> re_match(like_compile(A(X)),?BoundVal(BBind,X)) end;
-        {ABind,false} ->    RE = like_compile(B), fun(X) -> re_match(RE,?BoundVal(ABind,X)) end;
-        {ABind,true} ->     fun(X) -> re_match(like_compile(B(X)),?BoundVal(ABind,X)) end;
-        {ABind,BBind} ->    fun(X) -> re_match(like_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
+        {false,true} ->     fun(X) -> Bb=B(X),re_match(like_compile(Bb),A) end;
+        {false,BBind} ->    fun(X) -> Bb=?BoundVal(BBind,X),re_match(like_compile(Bb),A) end;
+        {true,false} ->     RE = like_compile(B),fun(X) -> Ab=A(X),re_match(RE,Ab) end;
+        {true,true} ->      fun(X) -> Ab=A(X),Bb=B(X),re_match(like_compile(Bb),Ab) end;
+        {true,BBind} ->     fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),re_match(like_compile(Ab),Bb) end;
+        {ABind,false} ->    RE = like_compile(B),fun(X) -> Bb=?BoundVal(ABind,X),re_match(RE,Bb) end;
+        {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(like_compile(Bb),Ab) end;
+        {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(like_compile(Bb),Ab) end
     end;
 binary_fun_final({'is_regexp_like', A, B})  ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    re_match(re_compile(B),A);
-        {false,true} ->     fun(X) -> re_match(re_compile(B(X)),A) end;
-        {false,BBind} ->    fun(X) -> re_match(re_compile(?BoundVal(BBind,X)),A) end;
-        {true,false} ->     RE = re_compile(B), fun(X) -> re_match(RE,A(X)) end;
-        {true,true} ->      fun(X) -> re_match(re_compile(B(X)),A(X)) end;
-        {true,BBind} ->     fun(X) -> re_match(re_compile(A(X)),?BoundVal(BBind,X)) end;
-        {ABind,false} ->    RE = re_compile(B), fun(X) -> re_match(RE,?BoundVal(ABind,X)) end;
-        {ABind,true} ->     fun(X) -> re_match(re_compile(B(X)),?BoundVal(ABind,X)) end;
-        {ABind,BBind} ->    fun(X) -> re_match(re_compile(?BoundVal(BBind,X)),?BoundVal(ABind,X)) end
+        {false,true} ->     fun(X) -> Bb=B(X),re_match(re_compile(Bb),A) end;
+        {false,BBind} ->    fun(X) -> Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),A) end;
+        {true,false} ->     RE = re_compile(B),fun(X) -> Ab=A(X),re_match(RE,Ab) end;
+        {true,true} ->      fun(X) -> Ab=A(X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
+        {true,BBind} ->     fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),re_match(re_compile(Ab),Bb) end;
+        {ABind,false} ->    RE = re_compile(B),fun(X) -> Ab=?BoundVal(ABind,X),re_match(RE,Ab) end;
+        {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
+        {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({'is_member', A, B})  ->
+binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat' ->
     case {bind_action(A),bind_action(B)} of 
-        {false,false} ->        
-            if 
-                is_list(B) ->   lists:member(A,B);
-                is_tuple(B) ->  lists:member(A,tuple_to_list(B));
-                true ->         false
-            end;
-        {false,true} ->
-            fun(X) ->
-                Bbound = B(X),
-                if 
-                    is_list(Bbound) ->  lists:member(A,Bbound);
-                    is_tuple(Bbound) -> lists:member(A,tuple_to_list(Bbound));
-                    true ->             false
-                end
-            end;
-        {false,BBind} ->
-            fun(X) ->
-                Bbound = ?BoundVal(BBind,X),
-                if 
-                    is_list(Bbound) ->  lists:member(A,Bbound);
-                    is_tuple(Bbound) -> lists:member(A,tuple_to_list(Bbound));
-                    true ->             false
-                end
-            end;
-        {true,false} ->  
-            fun(X) ->
-                Abound = A(X),
-                if 
-                    is_list(B) ->  lists:member(Abound,B);
-                    is_tuple(B) -> lists:member(Abound,tuple_to_list(B));
-                    true ->        false
-                end
-            end;
-        {true,true} ->  
-            fun(X) ->
-                Abound = A(X),
-                Bbound = B(X), 
-                if 
-                    is_list(Bbound) ->  lists:member(Abound,Bbound);
-                    is_tuple(Bbound) -> lists:member(Abound,tuple_to_list(Bbound));
-                    true ->             false
-                end
-            end;
-        {true,BBind} ->  
-            fun(X) ->
-                Abound = A(X),
-                Bbound = ?BoundVal(BBind,X), 
-                if 
-                    is_list(Bbound) ->  lists:member(Abound,Bbound);
-                    is_tuple(Bbound) -> lists:member(Abound,tuple_to_list(Bbound));
-                    true ->             false
-                end
-            end;
-        {ABind,false} ->  
-            fun(X) ->
-                if 
-                    is_list(B) ->  lists:member(?BoundVal(ABind,X),B);
-                    is_tuple(B) -> lists:member(?BoundVal(ABind,X),tuple_to_list(B));
-                    true ->        false
-                end
-            end;
-        {ABind,true} ->  
-            fun(X) ->
-                Bbound = B(X), 
-                if 
-                    is_list(Bbound) ->  lists:member(?BoundVal(ABind,X),Bbound);
-                    is_tuple(Bbound) -> lists:member(?BoundVal(ABind,X),tuple_to_list(Bbound));
-                    true ->             false
-                end
-            end;
-        {ABind,BBind} ->  
-            fun(X) ->
-                Bbound = ?BoundVal(BBind,X), 
-                if 
-                    is_list(Bbound) ->  lists:member(?BoundVal(ABind,X),Bbound);
-                    is_tuple(Bbound) -> lists:member(?BoundVal(ABind,X),tuple_to_list(Bbound));
-                    true ->             false
-                end
-            end
-    end;
-binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts' ->
-    case {bind_action(A),bind_action(B)} of 
-        {false,false} ->    ?MODULE:Op(A,B);        
-        {false,true} ->     fun(X) -> ?MODULE:Op(A,B(X)) end;
-        {false,BBind} ->    fun(X) -> ?MODULE:Op(A,?BoundVal(BBind,X)) end;
-        {true,false} ->     fun(X) -> ?MODULE:Op(A(X),B) end;
-        {true,true} ->      fun(X) -> ?MODULE:Op(A(X),B(X)) end;
-        {true,BBind} ->     fun(X) -> ?MODULE:Op(A(X),?BoundVal(BBind,X)) end;
-        {ABind,false} ->    fun(X) -> ?MODULE:Op(?BoundVal(ABind,X),B) end;
-        {ABind,true} ->     fun(X) -> ?MODULE:Op(?BoundVal(ABind,X),B(X)) end;
-        {ABind,BBind} ->    fun(X) -> ?MODULE:Op(?BoundVal(ABind,X),?BoundVal(BBind,X)) end
+        {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
+        {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
+        {false,BBind} ->    fun(X) -> Bb=?BoundVal(BBind,X),mod_op_2(?MODULE,Op,A,Bb) end;
+        {true,false} ->     fun(X) -> Ab=A(X),mod_op_2(?MODULE,Op,Ab,B) end;
+        {true,true} ->      fun(X) -> Ab=A(X),Bb=B(X),mod_op_2(?MODULE,Op,Ab,Bb) end;
+        {true,BBind} ->     fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),mod_op_2(?MODULE,Op,Ab,Bb) end;
+        {ABind,false} ->    fun(X) -> Ab=?BoundVal(ABind,X),mod_op_2(?MODULE,Op,Ab,B) end;
+        {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),mod_op_2(?MODULE,Op,Ab,Bb) end;
+        {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_2(?MODULE,Op,Ab,Bb) end
     end;
 binary_fun_final(BTree) ->
     ?UnimplementedException({"Unsupported filter function",{BTree}}).
@@ -653,9 +601,14 @@ add_dt(DT, Offset) when is_tuple(DT),is_number(Offset) ->
 add_ts(TS, Offset) when is_tuple(TS),is_number(Offset) -> 
     imem_datatype:offset_timestamp('+',TS,Offset).  %% Offset in (fractions of) days
 
-to_decimal(B,0) -> erlang:round(to_number(B));
-to_decimal(B,P) when is_integer(P),(P>0) ->
-    erlang:round(math:pow(10, P) * to_number(B)).
+concat(A, B) when is_list(A),is_list(B) -> A ++ B;
+concat(A, B) when is_binary(A),is_binary(B) -> <<A/binary,B/binary>>.
+
+diff_dt(A,B) when is_tuple(A),is_tuple(B) -> 
+    (calendar:datetime_to_gregorian_seconds(A)-calendar:datetime_to_gregorian_seconds(B))/86400.0.
+
+diff_ts({AM,AS,AMicro},{BM,BS,BMicro}) -> 
+    (1000000*(AM-BM)+AS-BS+0.000001*(AMicro-BMicro))/86400.0.
 
 from_decimal(I,0) when is_integer(I) -> I; 
 from_decimal(I,P) when is_integer(I),is_integer(P),(P>0) -> 
@@ -671,11 +624,28 @@ from_decimal(I,P) when is_integer(I),is_integer(P),(P>0) ->
     end;
 from_decimal(I,P) -> ?ClientError({"Invalid conversion from_decimal",{I,P}}).
 
-diff_dt(A,B) when is_tuple(A),is_tuple(B) -> 
-    (calendar:datetime_to_gregorian_seconds(A)-calendar:datetime_to_gregorian_seconds(B))/86400.0.
+is_member(A, B) when is_list(B) ->     lists:member(A,B);
+is_member(A, B) when is_tuple(B) ->    lists:member(A,tuple_to_list(B));
+is_member(_, _) ->                     false.
 
-diff_ts({AM,AS,AMicro},{BM,BS,BMicro}) -> 
-    (1000000*(AM-BM)+AS-BS+0.000001*(AMicro-BMicro))/86400.0.
+ternary_not(?nav) ->        ?nav;
+ternary_not(true) ->        false;
+ternary_not(false) ->       true.
+
+ternary_and(?nav,_)->       ?nav;
+ternary_and(_,?nav)->       ?nav;
+ternary_and(A,B)->          (A and B).
+
+ternary_or(?nav,true) ->    true;
+ternary_or(true,?nav) ->    true;
+ternary_or(_,false) ->      false;
+ternary_or(false,_) ->      false;
+ternary_or(A,B) ->          (A or B).
+
+to_decimal(B,0) -> erlang:round(to_number(B));
+to_decimal(B,P) when is_integer(P),(P>0) ->
+    erlang:round(math:pow(10, P) * to_number(B)).
+
 
 
 %% TESTS ------------------------------------------------------------------
@@ -838,11 +808,6 @@ test_with_or_without_sec(IsSec) ->
         F4 = expr_fun({'is_member', {'+',B1c,1}, B2}),
         ?assertEqual(true, F4({{1,2,[3,4,5]},{2,2,2}})),        
         ?assertEqual(false,F4({{1,2,[c,4,d]},{2,2,2}})),        
-
-        F5 = expr_fun({'is_member', a, '$_'}),
-        ?assertEqual(true, F5({{},{1,a,[c,a,d]}})),        
-        ?assertEqual(false, F5({{},{1,d,[c,a,d]}})),        
-        ?Info("success ~p~n", ["expr_fun with binds"]),
 
         ?assert(true)
     catch
