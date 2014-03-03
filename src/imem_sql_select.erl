@@ -306,6 +306,15 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assertEqual(0, length(R1i)),
 
+        exec_fetch_sort_equal(SKey, query1j, 100, IsSec, "
+            select col1 
+            from def 
+            where col1 between 3 and 5
+            "
+            ,
+            [{<<"3">>},{<<"4">>},{<<"5">>}]
+        ),
+
         exec_fetch_sort_equal(SKey, query1k, 100, IsSec, 
             "select dummy from dual where rownum = 1",
             [{<<"\"X\"">>}]
@@ -1317,22 +1326,22 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     end,            
     RT.
 
-exec_fetch(SKey,Id, BS, IsSec, Sql) ->
-    ?Info("~n", []),
-    ?Info("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
-    ?assertEqual(ok, RetCode),
-    #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
-    List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),
-    ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
-    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
-    RT = imem_statement:result_tuples(List,RowFun),
-    if 
-        length(RT) =< 10 ->
-            ?Info("Result:~n~p~n", [RT]);
-        true ->
-            ?Info("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
-    end,            
-    RT.
+% exec_fetch(SKey,Id, BS, IsSec, Sql) ->
+%     ?Info("~n", []),
+%     ?Info("~p : ~s~n", [Id,Sql]),
+%     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
+%     ?assertEqual(ok, RetCode),
+%     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
+%     List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),
+%     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
+%     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
+%     RT = imem_statement:result_tuples(List,RowFun),
+%     if 
+%         length(RT) =< 10 ->
+%             ?Info("Result:~n~p~n", [RT]);
+%         true ->
+%             ?Info("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+%     end,            
+%     RT.
 
 -endif.

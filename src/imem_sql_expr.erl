@@ -307,32 +307,18 @@ bind_t(_, A) ->                  bind_value(A).
 
 
 %% @doc Reforms the select field expression tree by evaluating
-%% constant subterms terms and simplifications. 
+%% constant terms in subtree (leaving header bind in place). 
 %% BTree:   Expression bind tree, to be simplified and transformed
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec prune_tree(binary()|tuple()) -> list().
-prune_tree(#bind{tind=0,cind=0,btree=BT}=BTree) ->
-    % ?LogDebug("Tree to prune~n~p~n",[BTree]),
+-spec bind_subtree_const(binary()|tuple()) -> list().
+bind_subtree_const(#bind{tind=0,cind=0,btree=BT}=BTree) ->
+    % ?LogDebug("Bind subtree constants~n~p~n",[BTree]),
     case bind_table(unknown,1,BT) of
-        ?nav ->     ?ClientError({"Cannot prune expression tree", BT});
+        ?nav ->     ?ClientError({"Cannot bind subtree constants", BT});
         Tree ->     BTree#bind{btree=Tree}
     end;
-    % case prune_eval(prune_walk(BT)) of
-    %     ?nav ->     ?ClientError({"Cannot prune expression tree", BT});
-    %     Tree ->     BTree#bind{btree=Tree}
-    % end;
-prune_tree(BTree) ->
+bind_subtree_const(BTree) ->
     BTree.
-
-prune_walk({const,T}) when is_tuple(T) -> {const,T};
-prune_walk(#bind{tind=0,cind=0,btree=BTree}) -> prune_eval(prune_walk(BTree));
-prune_walk(#bind{}=Bind) -> Bind;
-prune_walk({Op}) -> prune_eval({Op});
-prune_walk({Op,A}) -> prune_eval({Op,prune_walk(A)});
-prune_walk({Op,A,B}) -> prune_eval({Op,prune_walk(A),prune_walk(B)});
-prune_walk({Op,A,B,C}) -> prune_eval({Op,prune_walk(A),prune_walk(B),prune_walk(C)});
-prune_walk({Op,A,B,C,D}) -> prune_eval({Op,prune_walk(A),prune_walk(B),prune_walk(C),prune_walk(D)});
-prune_walk(BTree) -> BTree.
 
 %% @doc Reforms the where clause boolean expression tree by pruning off
 %% terms which can only be known in the (next) join operation. 
@@ -591,7 +577,7 @@ column_map_tables([{S,T,A}|Tables], Ti, Acc) ->
 %% throws ?ClientError, ?UnimplementedException
 column_map_columns(Columns, FullMap) ->
     ColMap = column_map_columns(Columns, FullMap, []),
-    [prune_tree(Item#bind{tag=I}) || {I,Item} <- lists:zip(lists:seq(1,length(ColMap)), ColMap)].
+    [bind_subtree_const(Item#bind{tag=I}) || {I,Item} <- lists:zip(lists:seq(1,length(ColMap)), ColMap)].
 
 -spec column_map_columns(list(),list(tuple()),list(#bind{})) -> list(#bind{}).
 column_map_columns([#bind{schema=undefined,table=undefined,name=?Star}|Columns], FullMap, Acc) ->
@@ -808,6 +794,8 @@ expr({Op, A, B}, FullMap, _) when Op=='and';Op=='or' ->
     CMapA = expr(A,FullMap,#bind{type=boolean,default= ?nav}),
     CMapB = expr(B,FullMap,#bind{type=boolean,default= ?nav}),
     #bind{type=boolean,btree={Op, CMapA, CMapB}};
+expr({'between', A, Low, High}, FullMap, BT) ->
+    expr({'and', {'>=',A,Low}, {'<=',A,High}}, FullMap, BT);
 expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op=='<>' ->
     CMapA = expr(A,FullMap,#bind{type=binstr}),
     CMapB = expr(B,FullMap,#bind{type=binstr}),
@@ -1385,7 +1373,7 @@ test_with_or_without_sec(IsSec) ->
                         , <<"ab123">>
                         , 1
                         },
-        ?assertEqual(ColMapExpected, prune_tree(ColMapSample)),
+        ?assertEqual(ColMapExpected, bind_subtree_const(ColMapSample)),
 
         ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key

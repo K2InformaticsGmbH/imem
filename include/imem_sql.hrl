@@ -25,7 +25,8 @@
           element(__Bind#bind.cind,element(__Bind#bind.tind,__X))
         ).
 
--define(EmptyWhere, {}).            %% empty where in the parse tree
+-define(EmptyWhere, {}).                    %% empty where in the parse tree
+-define(EmptyMR, {}).                       %% empty (unused) meta record
 
 -record(bind,                               %% bind record, column map entry
                   { tind = 0                ::integer()           %% tind=0 means as constant / tind=1 means a meta value               
