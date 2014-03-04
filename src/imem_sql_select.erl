@@ -55,8 +55,9 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         raw ->  imem_datatype:select_rowfun_raw(ColMap2);
         str ->  imem_datatype:select_rowfun_str(ColMap2, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
     end,
-    SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap1),
+    SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap1, ColMap2),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap1, ColMap2),
+    ?LogDebug("SortSpec:~p~n", [SortSpec]),
     Statement = Stmt#statement{
                     stmtParse = {select, SelectSections},
                     metaFields=MetaFields, tables=Tables,
@@ -939,6 +940,95 @@ test_with_or_without_sec(IsSec) ->
                 ,{<<"2">>,<<"2">>}
                 ,{<<"1">>,<<"1">>}
             ]
+        ),
+
+
+        exec_fetch_sort_equal(SKey, query6b, 100, IsSec, 
+            "select 2*col1
+             from def
+             where col1 <= 5 
+             and col1 <> 0 
+             order by 1 desc, col2"
+            , 
+            [
+                 {<<"10">>}
+                ,{<<"8">>}
+                ,{<<"6">>}
+                ,{<<"4">>}
+                ,{<<"2">>}
+            ]
+        ),
+
+        Q6bExpected=
+        [{<<"1">>,<<"8.94736842105263160000e-01">>}
+        ,{<<"2">>,<<"1.57894736842105270000e+00">>}
+        ,{<<"3">>,<<"2.05263157894736860000e+00">>}
+        ,{<<"4">>,<<"2.31578947368421060000e+00">>}
+        ,{<<"5">>,<<"2.36842105263157880000e+00">>}
+        ,{<<"6">>,<<"2.21052631578947390000e+00">>}
+        ,{<<"7">>,<<"1.84210526315789470000e+00">>}
+        ,{<<"8">>,<<"1.26315789473684250000e+00">>}
+        ,{<<"9">>,<<"4.73684210526315040000e-01">>}
+        ],
+        exec_fetch_sort_equal(SKey, query6b, 100, IsSec, 
+            "select col1, col1 - col1*col1/9.5
+             from def
+             where col1 <= 9 
+             and col1 <> 0 
+             order by 1"
+            , 
+            Q6bExpected
+        ),
+
+        exec_fetch_sort_equal(SKey, query6c, 100, IsSec, 
+            "select col1, col1 - col1*col1/9.5
+             from def
+             where col1 <= 9 
+             and col1 <> 0 
+             order by 1 desc"
+            , 
+            lists:reverse(Q6bExpected)
+        ),
+
+        Q6dExpected=
+        [{<<"9">>,<<"4.73684210526315040000e-01">>}
+        ,{<<"1">>,<<"8.94736842105263160000e-01">>}
+        ,{<<"8">>,<<"1.26315789473684250000e+00">>}
+        ,{<<"2">>,<<"1.57894736842105270000e+00">>}
+        ,{<<"7">>,<<"1.84210526315789470000e+00">>}
+        ,{<<"3">>,<<"2.05263157894736860000e+00">>}
+        ,{<<"6">>,<<"2.21052631578947390000e+00">>}
+        ,{<<"4">>,<<"2.31578947368421060000e+00">>}
+        ,{<<"5">>,<<"2.36842105263157880000e+00">>}
+        ],
+        exec_fetch_sort_equal(SKey, query6d, 100, IsSec, 
+            "select col1, col1 - col1*col1/9.5
+             from def
+             where col1 <= 9 
+             and col1 <> 0 
+             order by 2"
+            , 
+            Q6dExpected
+        ),
+
+        exec_fetch_sort_equal(SKey, query6e, 100, IsSec, 
+            "select col1, col1 - col1*col1/9.5
+             from def
+             where col1 <= 9 
+             and col1 <> 0 
+             order by 2 desc"
+            , 
+            lists:reverse(Q6dExpected)
+        ),
+
+        exec_fetch_sort_equal(SKey, query6f, 100, IsSec, 
+            "select col1, col1 - col1*col1/9.5
+             from def
+             where col1 <= 9 
+             and col1 <> 0 
+             order by col1 - col1*col1/9.5 desc"
+            , 
+            lists:reverse(Q6dExpected)
         ),
 
     %% like

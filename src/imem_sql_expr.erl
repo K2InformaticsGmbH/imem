@@ -20,7 +20,7 @@
 
 -export([ main_spec/2
         , join_specs/3
-        , sort_fun/2
+        , sort_fun/3
         , sort_spec/3
         , filter_spec_where/3
         , sort_spec_order/3
@@ -1008,11 +1008,11 @@ split_filter_from_guard(Guard) ->
         false ->            {Guard,true}
     end.
 
-sort_fun(SelectSections,FullMap) ->
+sort_fun(SelectSections,FullMap,ColMap) ->
     case lists:keyfind('order by', 1, SelectSections) of
         {_, []} ->      fun(_X) -> {} end;
         {_, Sorts} ->   ?Debug("Sorts: ~p~n", [Sorts]),
-                        SortFuns = [sort_fun_item(Name,Direction,FullMap) || {Name,Direction} <- Sorts],
+                        SortFuns = [sort_fun_item(Name,Direction,FullMap,ColMap) || {Name,Direction} <- Sorts],
                         fun(X) -> list_to_tuple([F(X)|| F <- SortFuns]) end;
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
     end.
@@ -1025,43 +1025,66 @@ sort_spec(SelectSections,FullMap,ColMap) ->
         SError ->       ?ClientError({"Invalid order by in select structure", SError})
     end.
 
-sort_spec_item(Name,<<>>,FullMap,ColMap) ->
-    sort_spec_item(Name,<<"asc">>,FullMap,ColMap);
-sort_spec_item(Name,Direction,FullMap,ColMap) ->
-    U = undefined,
-    % AL = [B || #bind{alias=N}=B <- ColMap, N==Name],
-    ML = case binstr_to_qname3(Name) of
-        {U,U,N} ->  [C || #bind{name=Nam}=C <- FullMap, Nam==N];
-        {U,T1,N} -> [C || #bind{name=Nam,alias=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #bind{name=Nam,alias=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
-        {} ->       []
+sort_spec_item(Expr,<<>>,FullMap,ColMap) ->
+    sort_spec_item(Expr,<<"asc">>,FullMap,ColMap);
+sort_spec_item(Expr,Direction,FullMap,ColMap) ->
+    % ?LogDebug("Sort Expression ~p~n",[Expr]),
+    % ?LogDebug("Sort ColMap~n~p~n",[ColMap]),
+    % ?LogDebug("Sort FullMap~n~p~n",[FullMap]),
+    IDs = case (catch list_to_integer(binary_to_list(Expr))) of
+        CP when is_integer(CP) ->
+            [ Tag || #bind{tag=Tag} <- ColMap, Tag==CP];     %% Index to select column given
+        _ ->
+            case [ Tag || #bind{tag=Tag,alias=A} <- ColMap, A==Expr] of
+                [] ->   
+                    case [ Tag || #bind{tag=Tag,ptree=PTree} <- ColMap, PTree==Expr] of
+                        [] ->   [sqlparse:fold({fields,[Expr]})]; 
+                        TT ->   TT      %% parse tree found (identical to select expression)
+                    end;
+                TA ->
+                    TA  %% select column alias given
+            end  
     end,
-    case length(ML) of
-        0 ->    ?ClientError({"Bad sort expression", Name});
-        1 ->    #bind{tind=Ti,cind=Ci,alias=A} = hd(ML),
-                case [Cp || {Cp,#bind{tind=Tind,cind=Cind}} <- lists:zip(lists:seq(1,length(ColMap)),ColMap), Tind==Ti, Cind==Ci] of
-                    [CP|_] ->   {CP,Direction};
-                     _ ->       {A,Direction}
-                end;
-        _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
+    case IDs of
+        [] ->   ?UnimplementedException({"Unknown sort field name", Expr});
+        [ID] -> {ID,Direction};
+        _ ->    ?ClientError({"Ambiguous column name in sort spec", Expr})
     end.
 
-sort_fun_item(Name,<<>>,FullMap) ->
-    sort_fun_item(Name,<<"asc">>,FullMap);
-sort_fun_item(Name,Direction,FullMap) ->
-    U = undefined,
-    % AL = [B || #bind{alias=N}=B <- ColMap, N==Name],
-    ML = case binstr_to_qname3(Name) of
-        {U,U,N} ->  [C || #bind{name=Nam}=C <- FullMap, Nam==N];
-        {U,T1,N} -> [C || #bind{name=Nam,alias=Tab}=C <- FullMap, (Nam==N), (Tab==T1)];
-        {S,T2,N} -> [C || #bind{name=Nam,alias=Tab,schema=Sch}=C <- FullMap, (Nam==N), ((Tab==T2) or (Tab==U)), ((Sch==S) or (Sch==U))];
-        {} ->       []
+sort_fun_item(Expr,<<>>,FullMap,ColMap) ->
+    sort_fun_item(Expr,<<"asc">>,FullMap,ColMap);
+sort_fun_item(Expr,Direction,FullMap,ColMap) ->
+    ML = case (catch list_to_integer(binary_to_list(Expr))) of
+        CP when is_integer(CP) ->
+            [ B || #bind{tag=Tag}=B <- ColMap, Tag==CP];     %% Index to select column given
+        _ ->
+            case [ B || #bind{alias=A}=B <- ColMap, A==Expr] of
+                [] ->   
+                    case [ B || #bind{alias=PTree}=B <- ColMap, PTree==Expr] of
+                        [] ->
+                            case bind_subtree_const(expr(Expr,FullMap,#bind{})) of
+                                #bind{tind=0,cind=0,btree=BT}=B0 -> 
+                                    [B0#bind{func=imem_sql_funs:expr_fun(BT)}];
+                                B1 ->
+                                    [B1]
+                            end; 
+                        BT ->
+                            BT  %% parse tree found (identical to select expression)
+                    end;
+                BA ->
+                    BA  %% select column alias given
+            end  
     end,
-    case length(ML) of
-        0 ->    ?ClientError({"Bad sort expression", Name});
-        1 ->    #bind{type=Type, tind=Ti, cind=Ci} = hd(ML),
-                sort_fun(Type,Ti,Ci,Direction);
-        _ ->    ?ClientError({"Ambiguous column name in where clause", Name})
+    case ML of
+        [] ->   
+            ?UnimplementedException({"Unsupported sort expression or unknown sort field name", Expr});
+        [#bind{tind=0,cind=0,type=Type,func=Func}] ->    
+            sort_fun_impl(Type,Func,Direction);
+        [#bind{type=Type}=Bind] ->    
+            Func = fun(X) -> ?BoundVal(Bind,X) end, 
+            sort_fun_impl(Type,Func,Direction);
+        _ ->    
+            ?ClientError({"Ambiguous column name in order by clause", Expr})
     end.
 
 filter_spec_where(?NoMoreFilter, _, WhereTree) -> 
@@ -1114,8 +1137,9 @@ sort_order({Ti,Ci,Direction},FullMap,_ColMap) ->
     end;
 sort_order({Cp,Direction},_FullMap,ColMap) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position    
-    #bind{alias=A} = lists:nth(Cp,ColMap),
-    {A,Direction};
+    %% #bind{alias=A} = lists:nth(Cp,ColMap),
+    %% {A,Direction};
+    {list_to_binary(integer_to_list(Cp)),Direction};
 sort_order({CName,Direction},_,_) ->
     {CName,Direction}.
 
@@ -1131,64 +1155,62 @@ sort_spec_fun([SS|SortSpecs],FullMap,ColMap,Acc) ->
 
 sort_fun_any({Ti,Ci,Direction},FullMap,_) ->
     %% SortSpec given referencing FullMap Ti,Ci    
-    case [Type || #bind{tind=Tind,cind=Cind,type=Type} <- FullMap, Tind==Ti, Cind==Ci] of
-        [Typ] ->    sort_fun(Typ,Ti,Ci,Direction);
-        Else ->     ?ClientError({"Bad sort field type", Else})
+    case [B || #bind{tind=Tind,cind=Cind}=B <- FullMap, Tind==Ti, Cind==Ci] of
+        [Bind] ->
+            Func = fun(X) -> ?BoundVal(Bind,X) end, 
+            sort_fun_impl(Bind#bind.type,Func,Direction);
+        Else ->     
+            ?ClientError({"Bad sort field binding", Else})
     end;
 sort_fun_any({Cp,Direction},_,ColMap) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position
-    #bind{tind=Ti,cind=Ci,type=Type} = lists:nth(Cp,ColMap),
-    % ?Debug("sort on col position ~p Ti=~p Ci=~p ~p~n",[Cp,Ti,Ci,lists:nth(Cp,ColMap)]),    
-    sort_fun(Type,Ti,Ci,Direction);
-sort_fun_any({CName,Direction},FullMap,_) ->
-    %% SortSpec given referencing FullMap alias    
-    case lists:keysearch(CName, #bind.alias, FullMap) of
-        {value,#bind{tind=Ti,cind=Ci,type=Type}} ->
-            % ?Debug("sort on col name  ~p Ti=~p Ci=~p ~p~n",[CName,Ti,Ci,Type]),    
-            sort_fun(Type,Ti,Ci,Direction);
-        Else ->     
-            ?ClientError({"Bad sort field", Else})
+    case lists:nth(Cp,ColMap) of
+        #bind{tind=0,cind=0,type=T,func=Func} -> 
+            sort_fun_impl(T,Func,Direction);
+        Bind -> 
+            Func = fun(X) -> ?BoundVal(Bind,X) end, 
+            sort_fun_impl(Bind#bind.type,Func,Direction)
     end.
 
-sort_fun(atom,Ti,Ci,<<"desc">>) -> 
+sort_fun_impl(atom,F,<<"desc">>) -> 
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             A when is_atom(A) ->
                 [ -Item || Item <- atom_to_list(A)] ++ [?MaxChar];
             V -> V
         end
     end;
-sort_fun(binstr,Ti,Ci,<<"desc">>) -> 
+sort_fun_impl(binstr,F,<<"desc">>) -> 
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             B when is_binary(B) ->
                 [ -Item || Item <- binary_to_list(B)] ++ [?MaxChar];
             V -> V
         end
     end;
-sort_fun(boolean,Ti,Ci,<<"desc">>) ->
+sort_fun_impl(boolean,F,<<"desc">>) ->
     fun(X) -> 
-        V = pick(Ci,Ti,X),
+        V = F(X),
         case V of
             true ->         false;
             false ->        true;
             _ ->            V
         end 
     end;
-sort_fun(datetime,Ti,Ci,<<"desc">>) -> 
+sort_fun_impl(datetime,F,<<"desc">>) -> 
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             {{Y,M,D},{Hh,Mm,Ss}} when is_integer(Y), is_integer(M), is_integer(D), is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
                 {{-Y,-M,-D},{-Hh,-Mm,-Ss}};
             V -> V
         end 
     end;
-sort_fun(decimal,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
-sort_fun(float,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
-sort_fun(integer,Ti,Ci,<<"desc">>) -> sort_fun(number,Ti,Ci,<<"desc">>);
-sort_fun(ipadr,Ti,Ci,<<"desc">>) -> 
+sort_fun_impl(decimal,F,<<"desc">>) -> sort_fun_impl(number,F,<<"desc">>);
+sort_fun_impl(float,F,<<"desc">>) ->   sort_fun_impl(number,F,<<"desc">>);
+sort_fun_impl(integer,F,<<"desc">>) -> sort_fun_impl(number,F,<<"desc">>);
+sort_fun_impl(ipadr,F,<<"desc">>) -> 
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             {A,B,C,D} when is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
                 {-A,-B,-C,-D};
             {A,B,C,D,E,F,G,H} when is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
@@ -1196,33 +1218,33 @@ sort_fun(ipadr,Ti,Ci,<<"desc">>) ->
             V -> V
         end
     end;
-sort_fun(number,Ti,Ci,<<"desc">>) ->
+sort_fun_impl(number,F,<<"desc">>) ->
     fun(X) -> 
-        V = pick(Ci,Ti,X),
+        V = F(X),
         case is_number(V) of
             true ->         (-V);
             false ->        V
         end 
     end;
-sort_fun(string,Ti,Ci,<<"desc">>) -> 
+sort_fun_impl(string,F,<<"desc">>) -> 
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             [H|T] when is_integer(H) ->
                 [ -Item || Item <- [H|T]] ++ [?MaxChar];
             V -> V
         end
     end;
-sort_fun(timestamp,Ti,Ci,<<"desc">>) -> 
+sort_fun_impl(timestamp,F,<<"desc">>) -> 
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             {Meg,Sec,Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
                 {-Meg,-Sec,-Micro};
             V -> V
         end    
     end;
-sort_fun({atom,atom},Ti,Ci,<<"desc">>) ->
+sort_fun_impl({atom,atom},F,<<"desc">>) ->
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             {T,A} when is_atom(T), is_atom(A) ->
                 {[ -ItemT || ItemT <- atom_to_list(T)] ++ [?MaxChar]
                 ,[ -ItemA || ItemA <- atom_to_list(A)] ++ [?MaxChar]
@@ -1230,21 +1252,21 @@ sort_fun({atom,atom},Ti,Ci,<<"desc">>) ->
             V -> V
         end    
     end;
-sort_fun({atom,integer},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
-sort_fun({atom,decimal},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
-sort_fun({atom,float},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
-sort_fun({atom,userid},Ti,Ci,<<"desc">>) -> sort_fun({atom,number},Ti,Ci,<<"desc">>);
-sort_fun({atom,number},Ti,Ci,<<"desc">>) ->
+sort_fun_impl({atom,integer},F,<<"desc">>) ->    sort_fun_impl({atom,number},F,<<"desc">>);
+sort_fun_impl({atom,decimal},F,<<"desc">>) ->    sort_fun_impl({atom,number},F,<<"desc">>);
+sort_fun_impl({atom,float},F,<<"desc">>) ->      sort_fun_impl({atom,number},F,<<"desc">>);
+sort_fun_impl({atom,userid},F,<<"desc">>) ->     sort_fun_impl({atom,number},F,<<"desc">>);
+sort_fun_impl({atom,number},F,<<"desc">>) ->
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             {T,N} when is_atom(T), is_number(N) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-N};
             V -> V
         end    
     end;
-sort_fun({atom,ipaddr},Ti,Ci,<<"desc">>) ->
+sort_fun_impl({atom,ipaddr},F,<<"desc">>) ->
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             {T,{A,B,C,D}} when is_atom(T), is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D};
             {T,{A,B,C,D,E,F,G,H}} when is_atom(T),is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
@@ -1252,9 +1274,9 @@ sort_fun({atom,ipaddr},Ti,Ci,<<"desc">>) ->
             V -> V   
         end    
     end;
-sort_fun(tuple,Ti,Ci,<<"desc">>) -> 
+sort_fun_impl(tuple,F,<<"desc">>) -> 
     fun(X) -> 
-        case pick(Ci,Ti,X) of 
+        case F(X) of 
             {T,A} when is_atom(T), is_atom(A) ->
                 {[ -ItemT || ItemT <- atom_to_list(T)] ++ [?MaxChar]
                 ,[ -ItemA || ItemA <- atom_to_list(A)] ++ [?MaxChar]
@@ -1270,17 +1292,14 @@ sort_fun(tuple,Ti,Ci,<<"desc">>) ->
             V -> V
         end    
     end;
-sort_fun(userid,Ti,Ci,<<"desc">>) ->   sort_fun(number,Ti,Ci,<<"desc">>);
-sort_fun(Type,_Ti,_Ci,<<"desc">>) ->
-    ?SystemException({"Unsupported datatype for sort desc", Type});
-sort_fun(_Type,Ti,Ci,_) -> 
-    % ?Debug("Sort ~p  : ~p ~p~n", [_Type, Ti,Ci]), 
-    fun(X) -> pick(Ci,Ti,X) end.
+sort_fun_impl(userid,F,<<"desc">>) ->    sort_fun_impl(number,F,<<"desc">>);
+sort_fun_impl(Type,_F,<<"desc">>) ->     ?UnimplementedException({"Unsupported datatype for sort desc", Type});
+sort_fun_impl(_,F,_) ->                  F.
 
-pick(Ci,Ti,X) -> pick(Ci,element(Ti,X)).
+% pick(Ci,Ti,X) -> pick(Ci,element(Ti,X)).
 
-pick(_,undefined) -> ?nav;
-pick(Ci,Tuple) -> element(Ci,Tuple).
+% pick(_,undefined) -> ?nav;
+% pick(Ci,Tuple) -> element(Ci,Tuple).
 
 
 %% TESTS ------------------------------------------------------------------

@@ -1665,7 +1665,7 @@ test_with_or_without_sec(IsSec) ->
             % ?Info("Result9a ~p~n", [Result9a]),
             {ok, Sql9a, _SF9a} = Result9a,
             % ?Info("Sql9a ~p~n", [Sql9a]),
-            Expected9a = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by a.col1 asc, b.col1 desc",
+            Expected9a = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by 1 asc, 3 desc",
             ?assertEqual(Expected9a, string:strip(binary_to_list(Sql9a))),
 
             Result9b = filter_and_sort(SKey, SR9a, {undefined,[]}, [{3,2,<<"asc">>},{2,3,<<"desc">>}], [1,3,2], IsSec),
