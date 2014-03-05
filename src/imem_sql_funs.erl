@@ -5,12 +5,13 @@
 
 -define( FilterFuns, 
             [ safe, concat, is_nav 
-            , is_member, is_like, is_regexp_like
+            , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_term
             , to_decimal, from_decimal
             , byte_size, bit_size, nth, sort, usort, reverse, last
+            , remap
             ]).
 
 -export([ filter_funs/0
@@ -27,6 +28,7 @@
         , ternary_or/2
         , mod_op_1/3
         , mod_op_2/4
+        , mod_op_3/5
         , math_plus/1
         , math_minus/1
         , is_nav/1
@@ -48,6 +50,8 @@
         , to_tuple/1
         , to_list/1
         , to_term/1
+        , to_name/1
+        , to_text/1
         ]).
 
 -export([ concat/2
@@ -58,6 +62,7 @@
         , to_decimal/2
         , from_decimal/2
         , is_member/2
+        , remap/3
         ]).
 
 
@@ -111,7 +116,9 @@ unary_fun_result_type(String) ->
         {match,["float"]}->                     #bind{type=float,default=?nav};
         {match,["integer"]}->                   #bind{type=integer,default=?nav};
         {match,["list"]}->                      #bind{type=list,default=[]};
+        {match,["name"]}->                      #bind{type=binstr,default=?nav};
         {match,["string"]}->                    #bind{type=string,default=?nav};
+        {match,["text"]}->                      #bind{type=binstr,default=?nav};
         {match,[Name]}->                        #bind{type=list_to_existing_atom(Name),default=undefined};
         nomatch ->                              #bind{type=number,default=?nav}
     end.
@@ -278,7 +285,7 @@ expr_fun({'safe', A}) ->
     safe_fun(A);
 expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term';Op=='is_nav' ->
+expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term';Op=='to_name';Op=='to_text';Op=='is_nav' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
@@ -289,6 +296,9 @@ expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
+%% Ternary custom filters
+expr_fun({Op, A, B, C}) when Op=='remap' ->
+    ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
 expr_fun({Op, A, B, C, D}) ->
@@ -351,6 +361,11 @@ mod_op_1(Mod,Op,A) -> Mod:Op(A).
 mod_op_2(_,_,_,?nav) -> ?nav;
 mod_op_2(_,_,?nav,_) -> ?nav;
 mod_op_2(Mod,Op,A,B) -> Mod:Op(A,B).
+
+mod_op_3(_,_,_,_,?nav) -> ?nav;
+mod_op_3(_,_,_,?nav,_) -> ?nav;
+mod_op_3(_,_,?nav,_,_) -> ?nav;
+mod_op_3(Mod,Op,A,B,C) -> Mod:Op(A,B,C).
 
 math_fun({Op, A}) ->
     math_fun_unary({Op, expr_fun(A)});
@@ -466,6 +481,32 @@ to_atom(A) when is_atom(A) -> A;
 to_atom(B) when is_binary(B) -> ?binary_to_atom(B);
 to_atom(L) when is_list(L) -> list_to_atom(L).
 
+to_name(T) when is_tuple(T) ->
+    imem_datatype:io_to_binstr(string:join([imem_datatype:strip_dquotes(to_string(E)) || E <- tuple_to_list(T)],"."));
+to_name(E) -> imem_datatype:strip_dquotes(to_binstr(E)).
+
+to_text(T) when is_binary(T) ->
+    to_text(binary_to_list(T));
+to_text(T) when is_list(T) ->
+    try
+        Mask=fun(X) ->
+                case unicode:characters_to_list([X], unicode) of
+                    [X] when (X<16#20) ->   $.;
+                    [X]  ->   X;
+                     _ -> 
+                        case unicode:characters_to_list([X], latin1) of
+                            [Y] -> Y;
+                             _ ->  $.
+                        end
+                end
+            end,
+        unicode:characters_to_binary(lists:map(Mask,T),unicode)
+    catch
+        _:_ -> imem_datatype:term_to_io(T)
+    end;
+to_text(T) ->
+    imem_datatype:term_to_io(T).
+
 to_tuple(B) when is_binary(B) -> imem_datatype:io_to_tuple(B,0).
 
 to_list(B) when is_binary(B) -> imem_datatype:io_to_list(B,0).
@@ -541,21 +582,6 @@ binary_fun_final({'element', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),?ElementOpBlock(Ab,Bb) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),?ElementOpBlock(Ab,Bb) end
     end;
-% binary_fun_final({'is_member', A, '$_'}) ->
-%     case bind_action(A) of 
-%         false ->        
-%             fun(X) -> 
-%                 lists:member(A,tl(tuple_to_list(element(?MainIdx,X))))
-%             end;
-%         true ->        
-%             fun(X) -> 
-%                 lists:member(A(X),tl(tuple_to_list(element(?MainIdx,X))))
-%             end;
-%         ABind ->  
-%             fun(X) ->
-%                 lists:member(?BoundVal(ABind,X),tl(tuple_to_list(element(?MainIdx,X))))
-%             end
-%     end;
 binary_fun_final({'is_like', A, B})  ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    re_match(like_compile(B),A);
@@ -646,7 +672,60 @@ to_decimal(B,0) -> erlang:round(to_number(B));
 to_decimal(B,P) when is_integer(P),(P>0) ->
     erlang:round(math:pow(10, P) * to_number(B)).
 
+ternary_fun({Op, {const,A}, B, C}) when is_tuple(A) ->
+    ternary_fun({Op, A, B, C});
+ternary_fun({Op, A, {const,B}, C}) when is_tuple(B) ->
+    ternary_fun({Op, A, B, C});
+ternary_fun({Op, A, B, {const,C}}) when is_tuple(C) ->
+    ternary_fun({Op, A, B, C});
+ternary_fun({Op, A, B, C}) ->
+    FA = expr_fun(A),
+    FB = expr_fun(B),
+    FC = expr_fun(C),
+    ternary_fun_final( {Op, FA, FB, FC});
+ternary_fun(Value) -> Value.
 
+ternary_fun_final({Op, A, B, C}) when Op=='remap' ->
+    case {bind_action(A),bind_action(B),bind_action(C)} of 
+        {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
+        {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
+        {false,BBind,false} ->  fun(X) -> Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,A,Bb,C) end;
+        {true,false,false} ->   fun(X) -> Ab=A(X),mod_op_3(?MODULE,Op,Ab,B,C) end;
+        {true,true,false} ->    fun(X) -> Ab=A(X),Bb=B(X),mod_op_3(?MODULE,Op,Ab,Bb,C) end;
+        {true,BBind,false} ->   fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,C) end;
+        {ABind,false,false} ->  fun(X) -> Ab=?BoundVal(ABind,X),mod_op_3(?MODULE,Op,Ab,B,C) end;
+        {ABind,true,false} ->   fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),mod_op_3(?MODULE,Op,Ab,Bb,C) end;
+        {ABind,BBind,false} ->  fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,C) end;
+
+        {false,false,true} ->   fun(X) -> Cb=C(X),mod_op_3(?MODULE,Op,A,B,Cb) end;        
+        {false,true,true} ->    fun(X) -> Cb=C(X),Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,Cb) end;
+        {false,BBind,true} ->   fun(X) -> Cb=C(X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,A,Bb,Cb) end;
+        {true,false,true} ->    fun(X) -> Cb=C(X),Ab=A(X),mod_op_3(?MODULE,Op,Ab,B,Cb) end;
+        {true,true,true} ->     fun(X) -> Cb=C(X),Ab=A(X),Bb=B(X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end;
+        {true,BBind,true} ->    fun(X) -> Cb=C(X),Ab=A(X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end;
+        {ABind,false,true} ->   fun(X) -> Cb=C(X),Ab=?BoundVal(ABind,X),mod_op_3(?MODULE,Op,Ab,B,Cb) end;
+        {ABind,true,true} ->    fun(X) -> Cb=C(X),Ab=?BoundVal(ABind,X),Bb=B(X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end;
+        {ABind,BBind,true} ->   fun(X) -> Cb=C(X),Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end;
+
+        {false,false,CBind} ->  fun(X) -> Cb=?BoundVal(CBind,X),mod_op_3(?MODULE,Op,A,B,Cb) end;        
+        {false,true,CBind} ->   fun(X) -> Cb=?BoundVal(CBind,X),Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,Cb) end;
+        {false,BBind,CBind} ->  fun(X) -> Cb=?BoundVal(CBind,X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,A,Bb,Cb) end;
+        {true,false,CBind} ->   fun(X) -> Cb=?BoundVal(CBind,X),Ab=A(X),mod_op_3(?MODULE,Op,Ab,B,Cb) end;
+        {true,true,CBind} ->    fun(X) -> Cb=?BoundVal(CBind,X),Ab=A(X),Bb=B(X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end;
+        {true,BBind,CBind} ->   fun(X) -> Cb=?BoundVal(CBind,X),Ab=A(X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end;
+        {ABind,false,CBind} ->  fun(X) -> Cb=?BoundVal(CBind,X),Ab=?BoundVal(ABind,X),mod_op_3(?MODULE,Op,Ab,B,Cb) end;
+        {ABind,true,CBind} ->   fun(X) -> Cb=?BoundVal(CBind,X),Ab=?BoundVal(ABind,X),Bb=B(X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end;
+        {ABind,BBind,CBind} ->  fun(X) -> Cb=?BoundVal(CBind,X),Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end
+    end;
+ternary_fun_final(BTree) ->
+    ?UnimplementedException({"Unsupported filter function",{BTree}}).
+
+
+remap(Val,From,To) ->
+    if 
+        Val == From ->  To;
+        true ->         Val
+    end.
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
@@ -684,6 +763,23 @@ test_with_or_without_sec(IsSec) ->
         ?Info("----------------------------------~n"),
         ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
         ?Info("----------------------------------~n"),
+
+        ?assertEqual(<<"'Imem'.ddTable">>, to_name({'Imem',ddTable})),
+        ?assertEqual(<<"imem.ddTable">>, to_name({'imem',ddTable})),
+        ?assertEqual(<<"undefined.ddTable">>, to_name({undefined,ddTable})),
+        ?assertEqual(<<"ddTable">>, to_name("ddTable")),
+        ?assertEqual(<<"ddTable">>, to_name(<<"ddTable">>)),
+        ?assertEqual(<<"imem.ddäöü"/utf8>>, to_name({<<"imem">>,<<"ddäöü">>})),
+        ?Info("to_name success~n", []),
+
+        ?assertEqual(<<"">>, to_text([])),
+        ?assertEqual(<<"SomeText1234">>, to_text("SomeText1234")),
+        ?assertEqual(<<"SomeText1234">>, to_text(<<"SomeText1234">>)),
+        ?assertEqual(<<".SomeText1234.">>, to_text([2|"SomeText1234"]++[3])),
+        ?assertEqual(<<"ddäöü"/utf8>>, to_text(<<"ddäöü">>)),
+        ?assertEqual(<<".ddäöü."/utf8>>, to_text(<<2,"ddäöü",3>>)),
+        ?assertEqual(<<"{'Imem',ddTable}">>, to_text({'Imem',ddTable})),
+        ?Info("to_text success~n", []),
 
     %% Like strig to Regex string
         ?assertEqual(<<"^Sm.th$">>, transform_like(<<"Sm_th">>, <<>>)),

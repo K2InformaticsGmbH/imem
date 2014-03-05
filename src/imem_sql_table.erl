@@ -13,11 +13,11 @@ exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}
     if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
     exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
 exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Schema, IsSec) ->
-    % ?Log("Parse Tree ~p~n", [_ParseTree]),
+    % ?Info("Parse Tree ~p~n", [_ParseTree]),
     if_call_mfa(IsSec, 'truncate_table', [SKey, imem_meta:qualified_table_name(TableName)]);
 
 exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Schema, IsSec) ->
-    % ?Log("Parse Tree ~p~n", [_ParseTree]),
+    % ?Info("Parse Tree ~p~n", [_ParseTree]),
     create_table(SKey, imem_sql_expr:binstr_to_qname2(TableName), TOpts, Columns, IsSec, []).
 
 create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
@@ -44,11 +44,11 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) w
             case re:run(Str, "fun[ \(\)\-\>]*(.*)end[ ]*.", [global, {capture, [1], list}]) of
                 {match,[Body]} ->
                     try 
-                        % ?Log("body ~p~n", [Body]),
+                        % ?Info("body ~p~n", [Body]),
                         {imem_datatype:io_to_term(Body),lists:keydelete(default, 1, COpts)}
                     catch
                         _:_ ->  try
-                                    % ?Log("str ~p~n", [Str]),
+                                    % ?Info("str ~p~n", [Str]),
                                     Fun = imem_datatype:io_to_fun(Str,0),
                                     {Fun(),lists:keydelete(default, 1, COpts)}
                                 catch
@@ -111,10 +111,10 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
-        ?Log("----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        ?Info("----TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
-        ?Log("schema ~p~n", [imem_meta:schema()]),
-        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Info("schema ~p~n", [imem_meta:schema()]),
+        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -127,7 +127,7 @@ test_with_or_without_sec(IsSec) ->
                 ],
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
-        ?Log("Meta table~n~p~n", [Meta]),
+        ?Info("Meta table~n~p~n", [Meta]),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertEqual(Expected,element(3,Meta)),    
 
@@ -145,17 +145,17 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, imem, IsSec)),
 
         Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
-        ?Log("Sql30: ~p~n", [Sql30]),
+        ?Info("Sql30: ~p~n", [Sql30]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
         TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
-        ?Log("TableDef: ~p~n", [TableDef]),
+        ?Info("TableDef: ~p~n", [TableDef]),
 
 
 
 
         Sql97 = "drop table key_test;",
-        ?Log("Sql97: ~p~n", [Sql97]),
+        ?Info("Sql97: ~p~n", [Sql97]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, imem, IsSec)),
 
 
@@ -163,7 +163,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec))
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

@@ -909,10 +909,10 @@ table_operations(_) ->
         SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
 
-        ?Log("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
 
-        ?Log("schema ~p~n", [imem_meta:schema()]),
-        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Info("schema ~p~n", [imem_meta:schema()]),
+        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -925,87 +925,87 @@ table_operations(_) ->
         ?assertEqual([{a,c}],?FP([{a,b,c,d,e,f,g,h,i}],"1(10)3")), %% TODO: should be [{a,'N/A',c}]
 
 
-        ?Log("----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
 
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
-        ?Log("success ~p~n", [table_size_no_exists]),
+        ?Info("success ~p~n", [table_size_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_memory(non_existing_table)),
-        ?Log("success ~p~n", [table_memory_no_exists]),
+        ?Info("success ~p~n", [table_memory_no_exists]),
 
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table)),
-        ?Log("success ~p~n", [table_read_no_exists]),
+        ?Info("success ~p~n", [table_read_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
-        ?Log("success ~p~n", [row_read_no_exists]),
+        ?Info("success ~p~n", [row_read_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
-        ?Log("success ~p~n", [row_write_no_exists]),
+        ?Info("success ~p~n", [row_write_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, dirty_write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
-        ?Log("success ~p~n", [row_dirty_write_no_exists]),
+        ?Info("success ~p~n", [row_dirty_write_no_exists]),
         ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
-        ?Log("success ~p~n", [row_write_bad_type]),
+        ?Info("success ~p~n", [row_write_bad_type]),
         ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [])),
-        ?Log("success ~p~n", [create_set_table]),
+        ?Info("success ~p~n", [create_set_table]),
         ?assertEqual(0, table_size(imem_table_123)),
-        ?Log("success ~p~n", [table_size_empty]),
+        ?Info("success ~p~n", [table_size_empty]),
         BaseMemory = table_memory(imem_table_123),
         ?assert(BaseMemory < 4000),    %% got value of 303 words x 8 bytes on 10.05.2013
-        ?Log("success ~p ~p~n", [table_memory_empty, BaseMemory]),
+        ?Info("success ~p ~p~n", [table_memory_empty, BaseMemory]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123,"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_123)),
-        ?Log("success ~p~n", [write_table]),
+        ?Info("success ~p~n", [write_table]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123,"AA","BB","CC"})),
         ?assertEqual(2, table_size(imem_table_123)),
-        ?Log("success ~p~n", [write_table]),
+        ?Info("success ~p~n", [write_table]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123,"AA","BB","cc"})),
         ?assertEqual(2, table_size(imem_table_123)),
-        ?Log("success ~p~n", [write_table]),
+        ?Info("success ~p~n", [write_table]),
         ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
-        ?Log("success ~p~n", [write_table]),
+        ?Info("success ~p~n", [write_table]),
         ?assertEqual(ok, dirty_write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
         ?assertEqual(3, table_size(imem_table_123)),
-        ?Log("success ~p~n", [write_table]),
+        ?Info("success ~p~n", [write_table]),
         FullMemory = table_memory(imem_table_123),
         ?assert(FullMemory > BaseMemory),
         ?assert(FullMemory < BaseMemory + 800),  %% got 362 words on 10.5.2013
-        ?Log("success ~p ~p~n", [table_memory_full, FullMemory]),
+        ?Info("success ~p ~p~n", [table_memory_full, FullMemory]),
         ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
-        ?Log("success ~p~n", [read_table_1]),
+        ?Info("success ~p~n", [read_table_1]),
         ?assertEqual([{imem_table_123,"AA","BB","cc"}], read(imem_table_123,"AA")),
-        ?Log("success ~p~n", [read_table_2]),
+        ?Info("success ~p~n", [read_table_2]),
         ?assertEqual([], read(imem_table_123,"XX")),
-        ?Log("success ~p~n", [read_table_3]),
+        ?Info("success ~p~n", [read_table_3]),
         AllRecords=lists:sort([{imem_table_123,"A","B","C"},{imem_table_123,"AA","BB","cc"},{imem_table_123,"AAA","BB","CC"}]),
         AllKeys=["A","AA","AAA"],
         ?assertEqual(AllRecords, lists:sort(read(imem_table_123))),
-        ?Log("success ~p~n", [read_table_4]),
+        ?Info("success ~p~n", [read_table_4]),
         ?assertEqual({AllRecords,true}, select_sort(imem_table_123, ?MatchAllRecords)),
-        ?Log("success ~p~n", [select_all_records]),
+        ?Info("success ~p~n", [select_all_records]),
         ?assertEqual({AllKeys,true}, select_sort(imem_table_123, ?MatchAllKeys)),
-        ?Log("success ~p~n", [select_all_keys]),
+        ?Info("success ~p~n", [select_all_keys]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, select(non_existing_table, ?MatchAllRecords)),
-        ?Log("success ~p~n", [select_table_no_exists]),
+        ?Info("success ~p~n", [select_table_no_exists]),
         MatchHead = {'$1','$2','$3','$4'},
         Guard = {'==', '$3', "BB"},
         Result = {{'$3','$4'}},
         DTupResult = lists:sort([{"BB","cc"},{"BB","CC"}]),
         ?assertEqual({DTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [Result]}])),
-        ?Log("success ~p~n", [select_some_data1]),
+        ?Info("success ~p~n", [select_some_data1]),
         STupResult = lists:sort(["cc","CC"]),
         ?assertEqual({STupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], ['$4']}])),
-        ?Log("success ~p~n", [select_some_data]),
+        ?Info("success ~p~n", [select_some_data]),
         NTupResult = lists:sort([{"cc"},{"CC"}]),
         ?assertEqual({NTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}])),
-        ?Log("success ~p~n", [select_some_data2]),
+        ?Info("success ~p~n", [select_some_data2]),
         Limit=10,
         SelRes=select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}], Limit),
         ?assertMatch({[_|_], true}, SelRes),
         {SelList, true} = SelRes,
         ?assertEqual(NTupResult, SelList),
-        ?Log("success ~p~n", [select_some_data3]),
+        ?Info("success ~p~n", [select_some_data3]),
 
-        ?Log("----TEST--~p:test_transactions~n", [?MODULE]),
+        ?Info("----TEST--~p:test_transactions~n", [?MODULE]),
 
-        ?Log("data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
+        ?Info("data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
 
         Update1 = fun(X) ->
             update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X}),
@@ -1014,14 +1014,14 @@ table_operations(_) ->
             lists:sort(read(imem_table_123))
         end,
         UR1 = return_atomic(transaction(Update1, ["99"])),
-        ?Log("updated data in table ~p~n~p~n", [imem_table_123, UR1]),
+        ?Info("updated data in table ~p~n~p~n", [imem_table_123, UR1]),
         ?assertEqual(UR1, [{imem_table_123,"A","B","C"},{imem_table_123,"AAA","11","99"},{imem_table_123,"XXX","11","22"}]),
 
         Update1a = fun(X) ->
             update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","11","99"}, {imem_table_123, "AAA","BB",X})
         end,
         UR1a = return_atomic(transaction(Update1a, ["xx"])),
-        ?Log("updated key ~p~n", [UR1a]),
+        ?Info("updated key ~p~n", [UR1a]),
         ?assertEqual({1,{imem_table_123, "AAA","BB","xx"}},UR1a),
 
 
@@ -1030,10 +1030,10 @@ table_operations(_) ->
         ?assertEqual(BaseMemory, table_memory(imem_table_123)),
 
         ?assertEqual(ok, drop_table(imem_table_123)),
-        ?Log("success ~p~n", [drop_table]),
+        ?Info("success ~p~n", [drop_table]),
 
         ?assertEqual(ok, create_table(imem_table_bag, [a,b,c], [{type, bag}])),
-        ?Log("success ~p~n", [create_bag_table]),
+        ?Info("success ~p~n", [create_bag_table]),
 
         ?assertEqual(ok, write(imem_table_bag, {imem_table_bag,"A","B","C"})),
         ?assertEqual(1, table_size(imem_table_bag)),
@@ -1046,8 +1046,8 @@ table_operations(_) ->
         ?assertEqual(ok, write(imem_table_bag, {imem_table_bag, "AAA","BB","CC"})),
         ?assertEqual(bag, table_info(imem_table_bag, type)),
         ?assertEqual(4, table_size(imem_table_bag)),
-        ?Log("data in table ~p~n~p~n", [imem_table_bag, lists:sort(read(imem_table_bag))]),
-        ?Log("success ~p~n", [write_table]),
+        ?Info("data in table ~p~n~p~n", [imem_table_bag, lists:sort(read(imem_table_bag))]),
+        ?Info("success ~p~n", [write_table]),
 
         Update2 = fun(X) ->
             update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag, "AA","BB","cc"}, {imem_table_bag, "AA","11",X}),
@@ -1056,7 +1056,7 @@ table_operations(_) ->
             lists:sort(read(imem_table_bag))
         end,
         UR2 = return_atomic(transaction(Update2, ["99"])),
-        ?Log("updated data in table ~p~n~p~n", [imem_table_bag, UR2]),
+        ?Info("updated data in table ~p~n~p~n", [imem_table_bag, UR2]),
         ?assertEqual([{imem_table_bag,"AA","11","99"},{imem_table_bag,"AA","BB","CC"},{imem_table_bag,"AAA","BB","CC"},{imem_table_bag,"XXX","11","22"}], UR2),
 
         Update3 = fun() ->
@@ -1070,10 +1070,10 @@ table_operations(_) ->
         ?assertEqual({1, {imem_table_bag, "AB","11","11"}}, return_atomic(transaction(Update4))),
 
         ?assertEqual(ok, drop_table(imem_table_bag)),
-        ?Log("success ~p~n", [drop_table]),
+        ?Info("success ~p~n", [drop_table]),
 
         ?assertEqual(ok, create_table(imem_table_123, [hlk,val], [])),
-        ?Log("success ~p~n", [imem_table_123]),
+        ?Info("success ~p~n", [imem_table_123]),
         ?assertEqual([], read_hlk(imem_table_123, [some_key])),
         HlkR1 = {imem_table_123, [some_key],some_value},
         ?assertEqual(ok, write(imem_table_123, HlkR1)),
@@ -1090,7 +1090,7 @@ table_operations(_) ->
         ?assertEqual(ok, drop_table(imem_table_123))
 
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.

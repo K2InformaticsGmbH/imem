@@ -684,7 +684,7 @@ test_with_or_without_sec(IsSec) ->
         % ), % ToDo: Mapping m.* to Table number and '$_' might do the trick
 
         R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, 
-            "select name(qname) 
+            "select to_name(qname) 
              from ddTable
              where is_member(to_tuple('{virtual,true}'),opts)"
         ),
@@ -696,7 +696,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertNot(lists:member({"imem.ddTable"},R5k)),
 
         R5l = exec_fetch_sort(SKey, query5l, 100, IsSec, 
-            "select name(qname) 
+            "select to_name(qname) 
              from ddTable
              where not is_member(to_tuple('{virtual,true}'),opts)"
         ),
@@ -708,7 +708,7 @@ test_with_or_without_sec(IsSec) ->
 
         R5m = exec_fetch_sort(SKey, query5m, 100, IsSec, 
             "select 
-                name(qname),  
+                to_name(qname),  
                 item2(item) as field,  
                 item3(item) as type,   
                 item4(item) as len,   
@@ -741,14 +741,14 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         R5r = exec_fetch_sort(SKey, query5r, 100, IsSec, 
-            "select name(qname), size, memory 
+            "select to_name(qname), size, memory 
              from ddTable, ddSize
              where element(2,qname) = name "
         ),
         ?assert(length(R5r) > 0),
 
         R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, 
-            "select name(qname), nodef(tte) 
+            "select to_name(qname), nodef(tte) 
              from ddTable, ddSize
              where name = element(2,qname)"
         ),
@@ -756,7 +756,7 @@ test_with_or_without_sec(IsSec) ->
         ?Info("Full Result R5s: ~n~p~n", [R5s]),
 
         R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
-            "select name(qname), tte 
+            "select to_name(qname), tte 
              from ddTable, ddSize
              where element(2,qname) = name and tte <> to_atom('undefined')"
         ),
@@ -765,7 +765,7 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R5t) < length(R5s)),
 
         R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
-            "select name(qname), tte 
+            "select to_name(qname), tte 
              from ddTable, ddSize
              where element(2,qname) = name and tte = to_atom('undefined')"
         ),
@@ -775,7 +775,7 @@ test_with_or_without_sec(IsSec) ->
         ?assert(length(R5t) + length(R5u) == length(R5s)),
 
         R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, 
-            "select name(qname), size, tte 
+            "select to_name(qname), size, tte 
              from ddTable, ddSize
              where element(2,qname) = name and tte <> to_atom('undefined') and tte > 0"
         ),
@@ -1224,7 +1224,7 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8c, 100, IsSec, 
+        exec_fetch_sort_equal(SKey, query8b, 100, IsSec, 
             "select col2 || col2
              from def
              where col1 = 1 or col1=20
@@ -1381,6 +1381,28 @@ test_with_or_without_sec(IsSec) ->
              {<<"false">>,<<"'$not_a_value'">>}
             ,{<<"false">>,<<"'$not_a_value'">>}
             ,{<<"false">>,<<"'$not_a_value'">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8p, 100, IsSec, 
+            "select to_text(to_list('[1,64,3]') || 'SomeText' || to_list('[7,64,9]'))
+             from member_test 
+             where col1 = 1
+            " 
+            , 
+            [
+             {<<".@.SomeText.@.">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8q, 100, IsSec, 
+            "select to_text(to_list('[1,64,3]') || to_binstr(col1) || to_list('[7,64,9]'))
+             from member_test 
+             where col1 = 1
+            " 
+            , 
+            [
+             {<<".@.1.@.">>}
             ]
         ),
 

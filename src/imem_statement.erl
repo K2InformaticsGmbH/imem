@@ -1524,7 +1524,7 @@ test_with_or_without_sec(IsSec) ->
         end,
 
         SR5 = exec(SKey,query5, 100, IsSec, "
-            select name(qname) from all_tables"
+            select to_name(qname) from all_tables"
         ),
         try
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),

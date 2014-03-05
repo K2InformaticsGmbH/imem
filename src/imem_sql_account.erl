@@ -39,29 +39,29 @@ exec(SKey, {'drop user', Name, Specs}, _Stmt, _Schema, IsSec) ->
     if_call_mfa(IsSec, admin_exec, [SKey, imem_account, delete, [Name, Specs]]);
 
 exec(SKey, {'grant', Privileges, {'on', <<>>}, {'to', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
-    % ?Log("grant privileges ~p~n", [Privileges]),
-    % ?Log("grant grantees ~p~n", [Grantees]),
-    % ?Log("grant opts ~p~n", [_Opts]),            % ToDo: implement grant options
+    % ?Info("grant privileges ~p~n", [Privileges]),
+    % ?Info("grant grantees ~p~n", [Grantees]),
+    % ?Info("grant opts ~p~n", [_Opts]),            % ToDo: implement grant options
     [grant_sys_priv(SKey,P,G) || P <- Privileges, G <- Grantees],
     ok;
 exec(SKey, {'grant', Privileges, {'on', Object}, {'to', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
-    % ?Log("grant privileges ~p~n", [Privileges]),
-    % ?Log("grant object ~p~n", [Object]),
-    % ?Log("grant grantees ~p~n", [Grantees]),
-    % ?Log("grant opts ~p~n", [_Opts]),            % ToDo: implement grant options
+    % ?Info("grant privileges ~p~n", [Privileges]),
+    % ?Info("grant object ~p~n", [Object]),
+    % ?Info("grant grantees ~p~n", [Grantees]),
+    % ?Info("grant opts ~p~n", [_Opts]),            % ToDo: implement grant options
     [grant_obj_priv(SKey,P,G,Object) || P <- Privileges, G <- Grantees],
     ok;
 exec(SKey, {'revoke', Privileges, {'on', <<>>}, {'from', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
-    % ?Log("revoke privileges ~p~n", [Privileges]),
-    % ?Log("revoke grantees ~p~n", [Grantees]),
-    % ?Log("revoke opts ~p~n", [_Opts]),
+    % ?Info("revoke privileges ~p~n", [Privileges]),
+    % ?Info("revoke grantees ~p~n", [Grantees]),
+    % ?Info("revoke opts ~p~n", [_Opts]),
     [revoke_sys_priv(SKey,P,G) || P <- Privileges, G <- Grantees],
     ok;
 exec(SKey, {'revoke', Privileges, {'on', Object}, {'from', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
-    % ?Log("revoke privileges ~p~n", [Privileges]),
-    % ?Log("revoke object ~p~n", [Object]),
-    % ?Log("revoke grantees ~p~n", [Grantees]),
-    % ?Log("revoke opts ~p~n", [_Opts]),
+    % ?Info("revoke privileges ~p~n", [Privileges]),
+    % ?Info("revoke object ~p~n", [Object]),
+    % ?Info("revoke grantees ~p~n", [Grantees]),
+    % ?Info("revoke opts ~p~n", [_Opts]),
     [revoke_obj_priv(SKey,P,G,Object) || P <- Privileges, G <- Grantees],
     ok.
 
@@ -199,17 +199,17 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException',
         % SeEx = 'SecurityException',
-        ?Log("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        ?Log("schema ~p~n", [imem_meta:schema()]),
-        ?Log("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?Info("schema ~p~n", [imem_meta:schema()]),
+        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
         ?assertEqual(ok, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "imem", IsSec)),
         UserId = imem_account:get_id_by_name(SKey,<<"test_user_1">>),
-        ?Log("UserId ~p~n", [UserId]),
+        ?Info("UserId ~p~n", [UserId]),
         ?assertException(throw, {ClEr,{"Account already exists", <<"test_user_1">>}}, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "imem", IsSec)),
         ?assertException(throw, {UiEx,{"Unimplemented account delete option",[cascade]}}, imem_sql:exec(SKey, "DROP USER test_user_1 CASCADE;", 0, "imem", IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),
@@ -217,7 +217,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, manage_system)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {module,imem_test,execute})),
         ?assertEqual(ok, imem_sql:exec(SKey, "GRANT EXECUTE ON imem_test TO test_user_1;", 0, "imem", IsSec)),
-        % ?Log("ddRole ~p~n", [imem_meta:read(ddRole)]),
+        % ?Info("ddRole ~p~n", [imem_meta:read(ddRole)]),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, {module,imem_test,execute})),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,select})),
         ?assertEqual(ok, imem_sql:exec(SKey, "GRANT SELECT ON ddTable TO test_user_1;", 0, "imem", IsSec)),
@@ -239,7 +239,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),
         ?assertEqual(ok, imem_sql:exec(SKey, "DROP USER test_user_1;", 0, "imem", IsSec))
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

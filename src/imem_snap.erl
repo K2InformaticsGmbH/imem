@@ -582,7 +582,7 @@ set_snap_timestamps(Tab,Time) ->
         [] -> [];
         [#snap_properties{table=Tab}=Up|_] -> ets:insert(?SNAP_ETS_TAB, Up#snap_properties{last_snap=Time})
     end.
-snap_log(_P,_A) -> ?Log(_P,_A).
+snap_log(_P,_A) -> ?Info(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
 
 %%
@@ -603,7 +603,7 @@ setup() ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     imem:start(),
     _ = ?EMPTY_DIR(SnapDir),
-    ?Log("after deleteing files ~p~n", [?FILENAMES("*.*", SnapDir)]).
+    ?Info("after deleteing files ~p~n", [?FILENAMES("*.*", SnapDir)]).
 
 teardown(_) ->
     imem:stop().
@@ -620,11 +620,11 @@ db_test_() ->
 test_snapshot(_) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     _ = ?EMPTY_DIR(SnapDir),
-    ?Log("snapshots :~n~p", [take(ddTable)]),                     
+    ?Info("snapshots :~n~p", [take(ddTable)]),                     
     ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
     _ = ?EMPTY_DIR(SnapDir),
     %% take([all]) times out
     %% ?assertEqual(?TABLES, ?FILENAMES("*"++?BKP_EXTN, SnapDir)),
-    ?Log("snapshot tests completed!~n", []).
+    ?Info("snapshot tests completed!~n", []).
 
 -endif.

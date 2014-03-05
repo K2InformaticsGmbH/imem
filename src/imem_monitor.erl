@@ -171,19 +171,19 @@ db_test_() ->
 monitor_operations(_) ->
     try 
 
-        ?Log("----TEST--~p:test_monitor~n", [?MODULE]),
+        ?Info("----TEST--~p:test_monitor~n", [?MODULE]),
 
         ?assertEqual(ok, write_monitor()),
         MonRecs = imem_meta:read(?MONITOR_TABLE),
-        ?Log("MonRecs count ~p~n", [length(MonRecs)]),
-        ?Log("MonRecs last ~p~n", [lists:last(MonRecs)]),
-        % ?Log("MonRecs[1] ~p~n", [hd(MonRecs)]),
-        % ?Log("MonRecs ~p~n", [MonRecs]),
+        ?Info("MonRecs count ~p~n", [length(MonRecs)]),
+        ?Info("MonRecs last ~p~n", [lists:last(MonRecs)]),
+        % ?Info("MonRecs[1] ~p~n", [hd(MonRecs)]),
+        % ?Info("MonRecs ~p~n", [MonRecs]),
         ?assert(length(MonRecs) > 0),
 
-        ?Log("success ~p~n", [monitor])
+        ?Info("success ~p~n", [monitor])
     catch
-        Class:Reason ->  ?Log("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.
