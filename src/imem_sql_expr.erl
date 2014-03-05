@@ -711,7 +711,10 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
                         #bind{type=Type} = imem_sql_funs:unary_fun_result_type(Fname),
                         #bind{type=Type,btree={Func,CMapA}}
                     catch
-                        _:_ -> ?UnimplementedException({"Bad parameter for unary sql function", Fname})
+                        _:{'ClientError',Reason} -> 
+                            ?ClientError(Reason);
+                        _:_ -> 
+                            ?UnimplementedException({"Bad parameter for unary sql function", Fname})
                     end
             end
     end;        
@@ -1027,7 +1030,7 @@ sort_spec(SelectSections,FullMap,ColMap) ->
 
 sort_spec_item(Expr,<<>>,FullMap,ColMap) ->
     sort_spec_item(Expr,<<"asc">>,FullMap,ColMap);
-sort_spec_item(Expr,Direction,FullMap,ColMap) ->
+sort_spec_item(Expr,Direction,_FullMap,ColMap) ->
     % ?LogDebug("Sort Expression ~p~n",[Expr]),
     % ?LogDebug("Sort ColMap~n~p~n",[ColMap]),
     % ?LogDebug("Sort FullMap~n~p~n",[FullMap]),
@@ -1078,8 +1081,11 @@ sort_fun_item(Expr,Direction,FullMap,ColMap) ->
     case ML of
         [] ->   
             ?UnimplementedException({"Unsupported sort expression or unknown sort field name", Expr});
-        [#bind{tind=0,cind=0,type=Type,func=Func}] ->    
+        [#bind{tind=0,cind=0,type=Type,func=Func}] when is_function(Func) ->    
             sort_fun_impl(Type,Func,Direction);
+        [#bind{tind=0,cind=0,type=Type,func=Func}] ->  %% TODO: constant, could be ignored in sort
+            F = fun(_) -> Func end, 
+            sort_fun_impl(Type,F,Direction);
         [#bind{type=Type}=Bind] ->    
             Func = fun(X) -> ?BoundVal(Bind,X) end, 
             sort_fun_impl(Type,Func,Direction);
@@ -1135,7 +1141,7 @@ sort_order({Ti,Ci,Direction},FullMap,_ColMap) ->
         _ ->       
             ?ClientError({"Bad sort field reference", {Ti,Ci}})
     end;
-sort_order({Cp,Direction},_FullMap,ColMap) when is_integer(Cp) ->
+sort_order({Cp,Direction},_FullMap,_ColMap) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position    
     %% #bind{alias=A} = lists:nth(Cp,ColMap),
     %% {A,Direction};
@@ -1165,8 +1171,11 @@ sort_fun_any({Ti,Ci,Direction},FullMap,_) ->
 sort_fun_any({Cp,Direction},_,ColMap) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position
     case lists:nth(Cp,ColMap) of
-        #bind{tind=0,cind=0,type=T,func=Func} -> 
+        #bind{tind=0,cind=0,type=T,func=Func} when is_function(Func) -> 
             sort_fun_impl(T,Func,Direction);
+        #bind{tind=0,cind=0,type=T,func=Func} ->
+            F = fun(_) -> Func end, 
+            sort_fun_impl(T,F,Direction);
         Bind -> 
             Func = fun(X) -> ?BoundVal(Bind,X) end, 
             sort_fun_impl(Bind#bind.type,Func,Direction)

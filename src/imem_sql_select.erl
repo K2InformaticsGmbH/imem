@@ -1031,6 +1031,43 @@ test_with_or_without_sec(IsSec) ->
             lists:reverse(Q6dExpected)
         ),
 
+        exec_fetch_sort_equal(SKey, query6g, 100, IsSec, 
+            "select col1, col1 - col1*col1/9.5
+             from def
+             where col1 <= 9 
+             and col1 <> 0 
+             order by '12' asc, col1 - col1*col1/9.5 desc"
+            , 
+            lists:reverse(Q6dExpected)
+        ),
+
+        exec_fetch_sort_equal(SKey, query6h, 100, IsSec, 
+            "select * 
+             from member_test
+             order by is_tuple(col3), col1"
+            , 
+            [{<<"1">>,<<"[a,b,c,[e]]">>,<<"undefined">>}
+            ,{<<"2">>,<<"[1,2,3,{e}]">>,<<"9">>}
+            ,{<<"3">>,<<"[[e],3,4,5]">>,<<"1">>}
+            ,{<<"4">>,<<"undefined">>,<<"{a,d,e}">>}
+            ,{<<"5">>,<<"[d,{e},a]">>,<<"{a,d,e}">>}
+            ,{<<"6">>,<<"[e,{f},g]">>,<<"{imem,nonode@nohost}">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query6i, 100, IsSec, 
+            "select * 
+             from member_test
+             order by is_tuple(col3), col1 desc"
+            , 
+            [{<<"3">>,<<"[[e],3,4,5]">>,<<"1">>}
+            ,{<<"2">>,<<"[1,2,3,{e}]">>,<<"9">>}
+            ,{<<"1">>,<<"[a,b,c,[e]]">>,<<"undefined">>}
+            ,{<<"6">>,<<"[e,{f},g]">>,<<"{imem,nonode@nohost}">>}
+            ,{<<"5">>,<<"[d,{e},a]">>,<<"{a,d,e}">>}
+            ,{<<"4">>,<<"undefined">>,<<"{a,d,e}">>}
+            ]
+        ),
     %% like
 
         exec_fetch_sort_equal(SKey, query7a, 100, IsSec, 
