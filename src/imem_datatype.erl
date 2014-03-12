@@ -1,3 +1,4 @@
+%% -*- coding: utf-8 -*-
 -module(imem_datatype).
 -compile(inline).
 -compile({inline_size,1000}).
@@ -1095,14 +1096,21 @@ t2s(T) when is_list(T) ->
     end;
 t2s(T) -> io_lib:format("~p", [T]).
 
+
+escape_io(Str) when is_list(Str) ->
+    re:replace(Str, "(\022)", "\\\022", [global, {return, list}]);   
+escape_io(Bin) when is_binary(Bin) ->
+    re:replace(Bin, "(\022)", "\\\022", [global, {return, binary}]). 
+
 string_to_io(Val) when is_list(Val) ->
-    IsString = io_lib:printable_unicode_list(Val),
-    if 
-        IsString ->     list_to_binary(io_lib:format("\"~ts\"",[Val]));   %% "~ts" ToDo: handle escaping and quoting etc.
-        true ->         list_to_binary(lists:flatten(io_lib:format("\"~tp\"",[Val])))
+    case io_lib:printable_unicode_list(Val) of
+        true ->    %% list_to_binary(io_lib:format("\"~ts\"",[Val]));
+            unicode:characters_to_binary([$" | escape_io(Val) ++ [$"]]);
+        false ->
+            list_to_binary(lists:flatten(io_lib:format("\"~tp\"",[Val])))
     end;                                    
 string_to_io(Val) ->
-    list_to_binary(lists:flatten(io_lib:format("\"~tp\"",[Val]))).
+    list_to_binary(lists:flatten(io_lib:format("~tp",[Val]))).      %% "\"~tp\""
 
 integer_to_io(Val) ->
     list_to_binary(integer_to_list(Val)).
@@ -1275,6 +1283,28 @@ data_types(_) ->
         %% ?assertEqual(<<"<<\"ddäöü\">>/utf8">>, item(2,{'Imem',<<"ddäöü"/utf8>>})),
         ?Info("item success~n", []),
 
+        ?assertEqual(<<"\"abcde\"">>, string_to_io("abcde")),
+        ?assertEqual(<<"\"123\"abc\"">>, string_to_io("123\"abc")),
+
+        ?assertEqual("abcde", io_to_string(<<"\"abcde\"">>)),
+        ?assertEqual("123\"abc", io_to_string(<<"\"123\"abc\"">>)),
+
+        ?Info("Str0 äöü -> ~p~n",[[0|"äöü"]]),
+
+        Str1 = "äöü",                       ?Info("Str1 äöü -> ~p~n",[[<<?H(I)>> || I <- Str1]]),
+        Utf8 = unicode:characters_to_binary("äöü",unicode,utf8), ?Info("Utf8 äöü -> ~p~n",[binary_to_hex(Utf8)]),        
+        Exp1 = <<"\"äöü\""/utf8>>,          ?Info("Exp1 äöü -> ~p~n",[binary_to_hex(Exp1)]), 
+        Ios1 = string_to_io(Str1),          ?Info("Ios1 äöü -> ~p~n",[binary_to_hex(Ios1)]),
+        ?assertEqual(Exp1, Ios1),
+
+        ?assertEqual("abcde", io_to_string(string_to_io("abcde"))),
+        ?assertEqual("123\"abc", io_to_string(string_to_io("123\"abc"))),
+        ?assertEqual(Str1, io_to_string(string_to_io(Str1))),
+
+        ?assertEqual(<<"\"abcde\"">>, string_to_io(io_to_string(<<"\"abcde\"">>))),
+        ?assertEqual(<<"\"123\"abc\"">>, string_to_io(io_to_string(<<"\"123\"abc\"">>))),
+        ?assertEqual(Exp1, string_to_io(io_to_string(Exp1))),
+
         ?assertEqual(<<"123">>, decimal_to_io(123,0)),
         ?assertEqual(<<"-123">>, decimal_to_io(-123,0)),
         ?assertEqual(<<"12.3">>, decimal_to_io(123,1)),
@@ -1388,7 +1418,7 @@ data_types(_) ->
 
     ?assertEqual(OldString, io_to_db(Item,OldString,binstr,Len,Prec,Def,true,<<"NewVal">>)),
         ?Info("io_to_db success 4a~n", []),
-        ?assertEqual(<<"NöVal">>, io_to_db(Item,OldString,binstr,6,undefined,Def,RW,<<"NöVal">>)),
+        ?assertEqual(<<"NöVal"/utf8>>, io_to_db(Item,OldString,binstr,6,undefined,Def,RW,<<"NöVal"/utf8>>)),
         ?assertEqual(default, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,?emptyStr)),
         ?assertEqual(<<>>, io_to_db(Item,OldString,binstr,Len,Prec,<<>>,RW,?emptyStr)),
         ?assertEqual(<<"{}">>, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,<<"{}">>)),
@@ -1397,9 +1427,9 @@ data_types(_) ->
         ?assertEqual(<<"-3.14">>, io_to_db(Item,OldString,binstr,5,Prec,Def,RW,<<"-3.14">>)),
         ?Info("io_to_db success 4b~n", []),
 
-        ?assertEqual(<<"OldäString">>, io_to_db(Item,<<"OldäString">>,binstr,11,Prec,Def,RW,<<"OldäString">>)),
-        ?assertException(throw,{ClEr,{"String is too long",{0,{<<"OldäString">>,3}}}},  io_to_db(Item,<<"OldäString">>,binstr,Len,Prec,Def,RW,<<"OldäString">>)),
-        ?assertException(throw,{ClEr,{"String is too long",{0,{<<"NewVal">>,3}}}}, io_to_db(Item,<<"OldäString">>,binstr,Len,Prec,Def,RW,<<"NewVal">>)),
+        ?assertEqual(<<"OldäString"/utf8>>, io_to_db(Item,<<"OldäString"/utf8>>,binstr,11,Prec,Def,RW,<<"OldäString"/utf8>>)),
+        ?assertException(throw,{ClEr,{"String is too long",{0,{<<"OldäString"/utf8>>,3}}}},  io_to_db(Item,<<"OldäString"/utf8>>,binstr,Len,Prec,Def,RW,<<"OldäString"/utf8>>)),
+        ?assertException(throw,{ClEr,{"String is too long",{0,{<<"NewVal">>,3}}}}, io_to_db(Item,<<"OldäString"/utf8>>,binstr,Len,Prec,Def,RW,<<"NewVal">>)),
         ?assertEqual(<<"NewVal">>, io_to_db(Item,OldString,binstr,6,Prec,Def,RW,<<"NewVal">>)),
         ?assertEqual(<<"[NewVal]">>, io_to_db(Item,OldString,binstr,8,Prec,Def,RW,<<"[NewVal]">>)),
         ?assertEqual(default, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,<<"default">>)),
