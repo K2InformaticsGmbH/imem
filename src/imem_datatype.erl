@@ -842,13 +842,15 @@ io_to_binstr(Val,Len) ->
 io_to_string(Bin) ->
     io_to_string(Bin,undefined).
 
-io_to_string(Bin,Len) ->
+io_to_string(Bin,Len) when is_binary(Bin) ->
     case strip_dquotes(Bin) of
         Bin ->  ?ClientError({"Missing double quotes for list string format",{Bin,Len}});
         B ->
             List = case unicode:characters_to_list(B, utf8) of
-                L when is_list(L) ->  L;                      %% Bin was utf8 encoded
-                _ ->                  binary_to_list(B)     %% Bin is bytewise encoded
+                L when is_list(L) ->
+                    lists:flatten(io_lib:format("~s",[un_escape_io(L)]));   %% Bin was utf8 encoded
+                _ ->                  
+                    lists:flatten(io_lib:format("~s",[un_escape_io(B)]))    %% Bin is bytewise encoded
             end,
             if
                 Len == undefined ->     List;
@@ -1096,16 +1098,20 @@ t2s(T) when is_list(T) ->
     end;
 t2s(T) -> io_lib:format("~p", [T]).
 
+% escape_io(Str) when is_list(Str) ->
+%     re:replace(Str, "(\")", "(\\\\\")", [global, {return, list}]);   
+% escape_io(Bin) when is_binary(Bin) ->
+%     re:replace(Bin, "(\")", "(\\\\\")", [global, {return, binary}]). 
 
-escape_io(Str) when is_list(Str) ->
-    re:replace(Str, "(\022)", "\\\022", [global, {return, list}]);   
-escape_io(Bin) when is_binary(Bin) ->
-    re:replace(Bin, "(\022)", "\\\022", [global, {return, binary}]). 
+un_escape_io(Str) when is_list(Str) ->
+    re:replace(Str, "(\\\\\")", "\"", [global, {return, list}]);
+un_escape_io(Bin) when is_binary(Bin) ->
+    re:replace(Bin, "(\\\\\")", "\"", [global, {return, binary}]).
 
 string_to_io(Val) when is_list(Val) ->
     case io_lib:printable_unicode_list(Val) of
-        true ->    %% list_to_binary(io_lib:format("\"~ts\"",[Val]));
-            unicode:characters_to_binary([$" | escape_io(Val) ++ [$"]]);
+        true ->    
+            unicode:characters_to_binary(io_lib:format("~p",[Val]));
         false ->
             list_to_binary(lists:flatten(io_lib:format("\"~tp\"",[Val])))
     end;                                    
@@ -1284,10 +1290,10 @@ data_types(_) ->
         ?Info("item success~n", []),
 
         ?assertEqual(<<"\"abcde\"">>, string_to_io("abcde")),
-        ?assertEqual(<<"\"123\"abc\"">>, string_to_io("123\"abc")),
+        ?assertEqual(<<"\"123\\\"abc\"">>, string_to_io("123\"abc")),
 
         ?assertEqual("abcde", io_to_string(<<"\"abcde\"">>)),
-        ?assertEqual("123\"abc", io_to_string(<<"\"123\"abc\"">>)),
+        ?assertEqual("123\"abc", io_to_string(<<"\"123\\\"abc\"">>)),
 
         ?Info("Str0 äöü -> ~p~n",[[0|"äöü"]]),
 
@@ -1302,7 +1308,7 @@ data_types(_) ->
         ?assertEqual(Str1, io_to_string(string_to_io(Str1))),
 
         ?assertEqual(<<"\"abcde\"">>, string_to_io(io_to_string(<<"\"abcde\"">>))),
-        ?assertEqual(<<"\"123\"abc\"">>, string_to_io(io_to_string(<<"\"123\"abc\"">>))),
+        ?assertEqual(<<"\"123\\\"abc\"">>, string_to_io(io_to_string(<<"\"123\\\"abc\"">>))),
         ?assertEqual(Exp1, string_to_io(io_to_string(Exp1))),
 
         ?assertEqual(<<"123">>, decimal_to_io(123,0)),
