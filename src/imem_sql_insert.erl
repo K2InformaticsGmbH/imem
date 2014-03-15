@@ -166,7 +166,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql4 = "insert into def (col1,col3) values ('F', \"COL\");",  
         ?Info("Sql3b: ~p~n", [Sql4]),
-        ?assertException(throw,{ClEr,{"Unknown column name",<<"\"COL\"">>}}, imem_sql:exec(SKey, Sql4, 0, imem, IsSec)),
+        ?assertException(throw,{ClEr,{"Unknown field or table name",<<"\"COL\"">>}}, imem_sql:exec(SKey, Sql4, 0, imem, IsSec)),
 
         Sql4a = "insert into def (col1,col3) values ('G', '[1,2,3]');",  
         ?Info("Sql3b: ~p~n", [Sql4a]),
@@ -175,7 +175,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql4b = "insert into def (col1,col3) values ('H', undefined);",  
         ?Info("Sql3b: ~p~n", [Sql4b]),
-        ?assertException(throw,{ClEr,{"Unknown column name",<<"undefined">>}}, imem_sql:exec(SKey, Sql4b, 0, imem, IsSec)),
+        ?assertException(throw,{ClEr,{"Unknown field or table name",<<"undefined">>}}, imem_sql:exec(SKey, Sql4b, 0, imem, IsSec)),
 
         Sql4c = "insert into def (col1,col3) values ('I', to_atom('an_atom'));",  
         ?Info("Sql3c: ~p~n", [Sql4c]),

@@ -625,21 +625,20 @@ test_with_or_without_sec(IsSec) ->
             [{<<"1">>},{<<"3">>}]
         ),
 
-        % exec_fetch_sort_equal(SKey, query5e, 100, IsSec, 
-        %     "select col1 from member_test where is_member(1,to_atom('$_'))",
-        %     [{<<"1">>},{<<"3">>}]
-        % ),
+        exec_fetch_sort_equal(SKey, query5e, 100, IsSec, 
+            "select col1 from member_test where is_member(1,member_test)",
+            [{<<"1">>},{<<"3">>}]
+        ),
 
         exec_fetch_sort_equal(SKey, query5f, 100, IsSec, 
             "select col1 from member_test where is_member(3,to_list('[1,2,3,4]'))",
             [{<<"1">>},{<<"2">>},{<<"3">>},{<<"4">>},{<<"5">>}]
         ),
 
-
-        % exec_fetch_sort_equal(SKey, query5g, 100, IsSec, 
-        %     "select col1 from member_test where is_member(to_atom('undefined'),to_atom('$_'))",
-        %     [{<<"1">>},{<<"4">>}]
-        % ),
+        exec_fetch_sort_equal(SKey, query5g, 100, IsSec, 
+            "select col1 from member_test a where is_member(to_atom('undefined'),a)",
+            [{<<"1">>},{<<"4">>}]
+        ),
 
         exec_fetch_sort_equal(SKey, query5h, 100, IsSec, 
             "select d.col1, m.col1 
@@ -668,20 +667,20 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),  % ToDo: reversing the table names crashes the server, unsupported join filter at runtime
 
-        % exec_fetch_sort_equal(SKey, query5j, 100, IsSec, 
-        %     "select d.col1, m.col1 
-        %      from def d, member_test m 
-        %      where is_member(d.col1,m.*)
-        %     ",
-        %     [
-        %         {<<"1">>,<<"1">>},{<<"1">>,<<"3">>},
-        %         {<<"2">>,<<"2">>},
-        %         {<<"3">>,<<"3">>},
-        %         {<<"4">>,<<"4">>},
-        %         {<<"5">>,<<"5">>},
-        %         {<<"9">>,<<"2">>}
-        %     ]
-        % ), % ToDo: Mapping m.* to Table number and '$_' might do the trick
+        exec_fetch_sort_equal(SKey, query5j, 100, IsSec, 
+            "select d.col1, m.col1 
+             from def d, member_test m 
+             where is_member(d.col1,m)
+            ",
+            [
+                {<<"1">>,<<"1">>},{<<"1">>,<<"3">>},
+                {<<"2">>,<<"2">>},
+                {<<"3">>,<<"3">>},
+                {<<"4">>,<<"4">>},
+                {<<"5">>,<<"5">>},
+                {<<"9">>,<<"2">>}
+            ]
+        ),
 
         R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, 
             "select to_name(qname) 

@@ -279,7 +279,6 @@ bind_tab(_,  _, A) ->            bind_value(A).
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec to_guard(tuple()) -> tuple().
 to_guard({const,T}) when is_tuple(T) -> {const,T};
-% to_guard(#bind{tind=0,cind=0,btree=BT}) -> to_guard(BT);
 to_guard(#bind{tag=Tag}) ->     Tag;
 to_guard({Op,A}) ->             {Op,to_guard(A)}; %% unary functions and operators
 to_guard({Op,A,B}) ->           {Op,to_guard(A),to_guard(B)}; %% binary functions/op.
@@ -455,11 +454,11 @@ binstr_to_qname2(Bin) when is_binary(Bin) ->
 %% into a "field qualified name" of 3 levels.
 %% <<"Schema.Table.Field">> -> {'Schema','Table','Field'}
 %% throws   ?ClientError
--spec binstr_to_qname3(binary()) -> {undefined|binary(),undefined|binary(),binary()}.
+-spec binstr_to_qname3(binary()) -> {undefined|binary(),undefined|binary(),undefined|binary()}.
 binstr_to_qname3(Bin) when is_binary(Bin) ->
     case string:tokens(binary_to_list(Bin), ".") of
-        [N] ->      {undefined, undefined, list_to_binary(N)};
-        [T,N] ->    {undefined, list_to_binary(T), list_to_binary(N)};
+        [N] ->      {undefined, undefined, list_to_binary(N)};          %% may need a left shift for a table name
+        [T,N] ->    {undefined, list_to_binary(T), list_to_binary(N)};  %% may need a left shift for a table name
         [S,T,N] ->  {list_to_binary(S), list_to_binary(T), list_to_binary(N)};
         _ ->        ?ClientError({"Invalid qualified name", Bin})
     end.
@@ -474,7 +473,9 @@ qname2_to_binstr({T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, "."
 %% @doc Convert a "field qualified name" of 3 levels into a binary string.
 %% <<"Schema.Table.Field">> -> {'Schema','Table','Field'}
 %% throws   ?ClientError
--spec qname3_to_binstr({undefined|binary(),undefined|binary(),binary()}) -> binary().
+-spec qname3_to_binstr({undefined|binary(),undefined|binary(),undefined|binary()}) -> binary().
+qname3_to_binstr({undefined,T,undefined}) when is_binary(T) -> T; 
+qname3_to_binstr({S,T,undefined}) when is_binary(S),is_binary(T) -> list_to_binary([S,".",T]); 
 qname3_to_binstr({undefined,undefined,N}) when is_binary(N) -> N;
 qname3_to_binstr({undefined,T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]); 
 qname3_to_binstr({S,T,N}) when is_binary(S),is_binary(T),is_binary(N) -> list_to_binary([S,".",T,".",N]). 
@@ -514,7 +515,8 @@ column_map_items(_Map, Item) ->
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.
-%% Unnecessary meta fields are purged later and remaining meta field bind positions are corrected.
+%% Unnecessary meta fields will be purged later and remaining meta field bind positions 
+%% are corrected (not yet implemented).
 %% Tables:  given as list of parse tree 'from' descriptions. Table names are converted to physical table names.
 %% throws   ?ClientError
 -spec column_map_tables(list(binary()|{as,_,_})) -> list(#bind{}).
@@ -569,6 +571,7 @@ column_map_tables([{S,T,A}|Tables], Ti, Acc) ->
 %% Bind records will be tagged with integers corresponding to the position in the select list (1..n).
 %% Bind records for metadata values will have tind=?MetaIdx and cind>0
 %% Expressions or functions will have tind=0 and cind=0 and are stored in btree as values or fun()
+%% Names pointing to table records have binds with tind>0 and cind=0. 
 %% Constant tuple values are wrapped with {const,Tup}   
 %% Columns: list of field names or sql expression tuples (extended by erlang expression types)
 %% FullMap: list of #bind{}, one per declared field for involved tables
@@ -640,23 +643,29 @@ column_map_columns(Columns, FullMap, Acc) ->
 column_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
     % ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,Name]),
     Pred = fun(__FM) ->
-        (Name == __FM#bind.name) 
-        andalso ((Table == undefined) or (Table == __FM#bind.alias)) 
-        andalso ((Schema == undefined) or (Schema == __FM#bind.schema))
+        ((Name == undefined) orelse (Name == __FM#bind.name)) 
+        andalso ((Table == undefined) orelse (Table == __FM#bind.alias)) 
+        andalso ((Schema == undefined) orelse (Schema == __FM#bind.schema))
     end,
     Bmatch = lists:filter(Pred, FullMap),
     % ?LogDebug("column_map matching tables ~p~n", [Bmatch]),
     Tcount = length(lists:usort([{B#bind.schema, B#bind.alias} || B <- Bmatch])),
     % ?Debug("column_map matching table count ~p~n", [Tcount]),
     if 
+        (Tcount==0) andalso (Schema == undefined) andalso (Name /= undefined) ->
+            %% Maybe we got a table name {undefined,Schema,Table}  
+            column_map_lookup({Table,Name,undefined},FullMap);
         (Tcount==0) ->  
-            ?ClientError({"Unknown column name", qname3_to_binstr(QN3)});
-        (Tcount > 1)->
-            ?ClientError({"Ambiguous column name", qname3_to_binstr(QN3)});
+            ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
+        (Tcount > 1) ->
+            ?ClientError({"Ambiguous field or table name", qname3_to_binstr(QN3)});
+        (Name == undefined) ->         
+            Bind = hd(Bmatch),
+            Bind#bind{cind=0,readonly=true};    %% bind to whole table record
         true ->         
             #bind{tind=Ti} = Bind = hd(Bmatch),
-            R = (Ti /= ?MainIdx),   %% Only main table is editable
-            Bind#bind{readonly=R}
+            R = (Ti /= ?MainIdx),               %% Only main table is editable
+            Bind#bind{readonly=R}               %% bind to a record field in a table
     end.
 
 %% 
@@ -683,7 +692,7 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
                     {S,T,N} = binstr_to_qname3(PTree),
                     case N of
                         ?Star ->    #bind{schema=S,table=T,name=?Star};
-                        _ ->        column_map_lookup({S,T,N},FullMap)
+                        _ ->        column_map_lookup({S,T,N},FullMap)  %% N could be a table name here
                     end
             end;
         {B,Tbind} when Tbind==#bind{} ->    %% assume binstr, use to_<datatype>() to override
@@ -1473,7 +1482,7 @@ test_with_or_without_sec(IsSec) ->
                     , <<"c1">>
                     ],
 
-        ?assertException(throw, {ClEr,{"Unknown column name", <<"x">>}}, column_map_columns(ColsE1,FullMap1)),
+        ?assertException(throw, {ClEr,{"Unknown field or table name", <<"x">>}}, column_map_columns(ColsE1,FullMap1)),
         ?Info("success ~p~n", [unknown_column_name_1]),
 
         % ColsE2=     [ #bind{tag="A1", schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>}
@@ -1485,7 +1494,7 @@ test_with_or_without_sec(IsSec) ->
                     , <<"c1">>
                     ],
 
-        ?assertException(throw, {ClEr,{"Unknown column name", <<"meta_table_x.b1">>}}, column_map_columns(ColsE2,FullMap1)),
+        ?assertException(throw, {ClEr,{"Unknown field or table name", <<"meta_table_x.b1">>}}, column_map_columns(ColsE2,FullMap1)),
         ?Info("success ~p~n", [unknown_column_name_2]),
 
         % ColsF =     [ {as, <<"imem.meta_table_1.a">>, <<"a">>}
@@ -1498,10 +1507,10 @@ test_with_or_without_sec(IsSec) ->
                     , {as, <<"c1">>, <<"c1">>}
                     ],
 
-        ?assertException(throw, {ClEr,{"Ambiguous column name", <<"a">>}}, column_map_columns([<<"a">>],FullMap13)),
+        ?assertException(throw, {ClEr,{"Ambiguous field or table name", <<"a">>}}, column_map_columns([<<"a">>],FullMap13)),
         ?Info("success ~p~n", [columns_ambiguous_a]),
 
-        ?assertException(throw, {ClEr,{"Ambiguous column name", <<"c1">>}}, column_map_columns(ColsA,FullMap13)),
+        ?assertException(throw, {ClEr,{"Ambiguous field or table name", <<"c1">>}}, column_map_columns(ColsA,FullMap13)),
         ?Info("success ~p~n", [columns_ambiguous_c1]),
 
         ?assertEqual(3, length(column_map_columns(ColsA,FullMap1))),
@@ -1548,7 +1557,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(2, length(column_map_columns([<<"alias1.a">>,<<"sysdate">>],AliasMap1))),
         ?Info("success ~p~n", [sysdate]),
 
-        ?assertException(throw, {ClEr,{"Unknown column name",  <<"any.sysdate">>}}, column_map_columns([<<"alias1.a">>,<<"any.sysdate">>],AliasMap1)),
+        ?assertException(throw, {ClEr,{"Unknown field or table name",  <<"any.sysdate">>}}, column_map_columns([<<"alias1.a">>,<<"any.sysdate">>],AliasMap1)),
         ?Info("success ~p~n", [sysdate_reject]),
 
         ColsFS =    [ #bind{tag="A", tind=1, cind=1, schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>, type=integer, alias= <<"a">>}

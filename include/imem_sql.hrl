@@ -22,7 +22,10 @@
 -define(RownumBind, #bind{tind=1,cind=1}).                %% Bind pattern for rownum variable
 
 -define(BoundVal(__Bind,__X), 
-          element(__Bind#bind.cind,element(__Bind#bind.tind,__X))
+          case __Bind#bind.cind of
+            0 ->        element(__Bind#bind.tind,__X);
+            _ ->        element(__Bind#bind.cind,element(__Bind#bind.tind,__X))
+          end
         ).
 
 -define(EmptyWhere, {}).                    %% empty where in the parse tree
