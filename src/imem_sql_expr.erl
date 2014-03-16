@@ -661,7 +661,7 @@ column_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
             ?ClientError({"Ambiguous field or table name", qname3_to_binstr(QN3)});
         (Name == undefined) ->         
             Bind = hd(Bmatch),
-            Bind#bind{cind=0,readonly=true};    %% bind to whole table record
+            Bind#bind{type=tuple,cind=0,readonly=true};    %% bind to whole table record
         true ->         
             #bind{tind=Ti} = Bind = hd(Bmatch),
             R = (Ti /= ?MainIdx),               %% Only main table is editable

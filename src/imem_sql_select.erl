@@ -362,10 +362,6 @@ test_with_or_without_sec(IsSec) ->
             []
         ),
 
-        % ?assertException(throw,{ClEr,{"Inconsistent field types for comparison in where clause",{{<<"5">>,integer},'==',{<<"col2">>,string}}}}, 
-        %     exec_fetch_sort(SKey, query2c, 100, IsSec, "select col1, col2 from def where col2 in (5,6)")
-        % ), 
-
         exec_fetch_sort_equal(SKey, query2d, 100, IsSec, 
             "select col1, col2 from def where col2 in ('5',col2) and col1 <= 10", 
             [
@@ -375,10 +371,22 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        R2e = exec_fetch_sort(SKey, query2e, 100, IsSec, 
-            "select * from def where col4 < '10.132.7.3'"
+        exec_fetch_sort_equal(SKey, query2e, 100, IsSec, 
+            "select col4 from def where col4 < '10.132.7.3'",
+            [
+                 {<<"10.132.7.1">>},{<<"10.132.7.2">>}
+            ]
         ),
-        ?assertEqual(2, length(R2e)),
+
+        exec_fetch_sort_equal(SKey, query2f, 100, IsSec, 
+            "select col2 from def where col2 in (5,6)",
+            []
+        ), 
+
+        % exec_fetch_sort_equal(SKey, query2g, 100, IsSec, 
+        %     "select def from def where col1 = 2", 
+        %     [{<<"{def,2,<<\"2\">>,{{2014,3,16},{11,5,55}},{10,132,7,2},{'Atom2',2}}">>}]
+        % ),
 
         % R2g = exec_fetch(SKey, query2g, 100, IsSec, 
         %     "select logTime, logLevel, module, function, fields, message 

@@ -6,8 +6,8 @@
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
--define(rawTypeStr,binary).
--define(emptyStr,<<>>).
+-define(rawTypeIo,binary).
+-define(emptyIo,<<>>).
 
 -define(ROWFUN_EXTENSIONS,[{<<"nodef">>,1}
                           ,{<<"item1">>,1},{<<"item2">>,1},{<<"item3">>,1},{<<"item4">>,1}
@@ -138,7 +138,10 @@ select_rowfun_raw(Recs, [#bind{tind=0,cind=0,func=F}|ColMap], Acc) ->
 select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
     Fld = case element(Ti,Recs) of
         undefined ->    undefined;
-        Rec ->          element(Ci,Rec)
+        Rec ->          case Ci of
+                            0 ->    Rec;
+                            _ ->    element(Ci,Rec)
+                        end
     end,
     select_rowfun_raw(Recs, ColMap, [Fld|Acc]);
 select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
@@ -147,7 +150,10 @@ select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
             undefined;
         Rec ->
             try
-                apply(F,[element(Ci,Rec)])
+                case Ci of
+                    0 ->    apply(F,[Rec]);
+                    _ ->    apply(F,[element(Ci,Rec)])
+                end
             catch
                 _:Reason ->  ?UnimplementedException({"Failed row function",{F,Reason}})
             end
@@ -171,13 +177,16 @@ select_rowfun_str(Recs, [#bind{type=T,prec=P,tind=0,cind=0,func=F}|ColMap], Date
 select_rowfun_str(Recs, [#bind{type=T,prec=P,tind=Ti,cind=Ci,func=F,default=D}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = case element(Ti,Recs) of
         undefined ->    
-            ?emptyStr;
+            ?emptyIo;
         Rec ->
-            X = element(Ci,Rec),
+            X = case Ci of
+                0 ->    Rec;
+                _ ->    element(Ci,Rec)
+            end,
             try
                 case F of
                     undefined ->        db_to_io(T, P, DateFmt, NumFmt, StrFmt, X);
-                    nodef when X==D ->  ?emptyStr;
+                    nodef when X==D ->  ?emptyIo;
                     nodef ->            db_to_io(T, P, DateFmt, NumFmt, StrFmt, X);
                     item1 ->            item1(X);
                     item2 ->            item2(X);
@@ -278,7 +287,7 @@ imem_type(Type) -> Type.
 
 raw_type(userid) -> integer;
 raw_type(binstr) -> binary;
-raw_type(string) -> ?rawTypeStr;
+raw_type(string) -> ?rawTypeIo;
 raw_type(decimal) -> integer;
 raw_type(datetime) -> tuple;
 raw_type(timestamp) -> tuple;
@@ -291,7 +300,7 @@ raw_type(Type) -> Type.
 io_to_db(_Item,Old,_Type,_Len,_Prec,_Def,true,_) -> Old;
 io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_function(Def,0) ->
     io_to_db(Item,Old,Type,Len,Prec,Def(),false,Val);
-io_to_db(_Item,_Old,_Type,_Len,_Prec,Def,false,?emptyStr) -> Def;
+io_to_db(_Item,_Old,_Type,_Len,_Prec,Def,false,?emptyIo) -> Def;
 io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_binary(Val);is_list(Val) ->
     try
         DefAsStr = io_to_binstr(io_lib:format("~p", [Def])),    %% strip_dquotes(),
@@ -339,7 +348,7 @@ add_dquotes(B) when is_binary(B) -> <<$",B/binary,$">>;
 add_dquotes([]) -> "\"\"";
 add_dquotes(String) when is_list(String) -> "\"" ++ String ++ "\"".
 
-strip_dquotes(<<>>) -> ?emptyStr;
+strip_dquotes(<<>>) -> ?emptyIo;
 strip_dquotes(<<H:8>>) -> <<H:8>>; 
 strip_dquotes(B) when is_binary(B) ->
     F = binary:first(B),
@@ -361,7 +370,7 @@ strip_dquotes([H|T]=Str) ->
             Str
     end.
 
-strip_squotes(<<>>) -> ?emptyStr;
+strip_squotes(<<>>) -> ?emptyIo;
 strip_squotes(<<H:8>>) -> <<H:8>>; 
 strip_squotes(B) when is_binary(B) ->
     F = binary:first(B),
@@ -381,7 +390,7 @@ strip_squotes([H|T]=Str) ->
         true ->                     Str
     end.
 
-strip_quotes(<<>>) -> ?emptyStr;
+strip_quotes(<<>>) -> ?emptyIo;
 strip_quotes(<<H:8>>) -> <<H:8>>; 
 strip_quotes(B) when is_binary(B) ->
     F = binary:first(B),
@@ -451,8 +460,8 @@ io_to_float(Val,Prec) ->
         true ->                 erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec)
     end.
 
-io_to_binary(<<>>,_Len) -> ?emptyStr;
-io_to_binary([],_Len) -> ?emptyStr;
+io_to_binary(<<>>,_Len) -> ?emptyIo;
+io_to_binary([],_Len) -> ?emptyIo;
 io_to_binary(Val,Len) when is_binary(Val) ->
     S = size(Val),
     F = binary:first(Val),
@@ -1169,16 +1178,16 @@ item(I,T) when is_tuple(T) ->
         size(T) >= I ->
             term_to_io(element(I,T));
         true ->
-            ?emptyStr        %% ?ClientError({"Tuple too short",{T,I}})
+            ?emptyIo        %% ?ClientError({"Tuple too short",{T,I}})
     end;
 item(I,L) when is_list(L) ->
     if 
         length(L) >= I ->
             term_to_io(lists:nth(I,L));
         true ->
-            ?emptyStr        %% ?ClientError({"List too short",{L,I}})
+            ?emptyIo        %% ?ClientError({"List too short",{L,I}})
     end;
-item(_,_) -> ?emptyStr.      %% ?ClientError({"Tuple or list expected",T}).
+item(_,_) -> ?emptyIo.      %% ?ClientError({"Tuple or list expected",T}).
 
 item1(T) -> item(1,T).
 item2(T) -> item(2,T).
@@ -1400,8 +1409,8 @@ data_types(_) ->
     ?assertEqual(OldString, io_to_db(Item,OldString,string,Len,Prec,Def,true,<<"NewVal">>)),
         ?Info("io_to_db success 1~n", []),
         ?assertEqual(io_to_string(<<"\"NöVal\"">>), io_to_db(Item,OldString,string,6,Prec,Def,RW,<<"\"NöVal\"">>)),
-        ?assertEqual(default, io_to_db(Item,OldString,string,Len,Prec,Def,RW,?emptyStr)),
-        ?assertEqual([], io_to_db(Item,OldString,string,Len,Prec,[],RW,?emptyStr)),
+        ?assertEqual(default, io_to_db(Item,OldString,string,Len,Prec,Def,RW,?emptyIo)),
+        ?assertEqual([], io_to_db(Item,OldString,string,Len,Prec,[],RW,?emptyIo)),
         ?assertEqual("{}", io_to_db(Item,OldString,string,Len,Prec,Def,RW,<<"\"{}\"">>)),
         ?assertEqual("[atom,atom]", io_to_db(Item,OldString,string,30,Prec,Def,RW,<<"\"[atom,atom]\"">>)),
         ?assertEqual("12", io_to_db(Item,OldString,string,Len,Prec,Def,RW,<<"\"12\"">>)),
@@ -1425,8 +1434,8 @@ data_types(_) ->
     ?assertEqual(OldString, io_to_db(Item,OldString,binstr,Len,Prec,Def,true,<<"NewVal">>)),
         ?Info("io_to_db success 4a~n", []),
         ?assertEqual(<<"NöVal"/utf8>>, io_to_db(Item,OldString,binstr,6,undefined,Def,RW,<<"NöVal"/utf8>>)),
-        ?assertEqual(default, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,?emptyStr)),
-        ?assertEqual(<<>>, io_to_db(Item,OldString,binstr,Len,Prec,<<>>,RW,?emptyStr)),
+        ?assertEqual(default, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,?emptyIo)),
+        ?assertEqual(<<>>, io_to_db(Item,OldString,binstr,Len,Prec,<<>>,RW,?emptyIo)),
         ?assertEqual(<<"{}">>, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,<<"{}">>)),
         ?assertEqual(<<"[atom,atom]">>, io_to_db(Item,OldString,binstr,30,Prec,Def,RW,<<"[atom,atom]">>)),
         ?assertEqual(<<"12">>, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,<<"12">>)),
@@ -1459,7 +1468,7 @@ data_types(_) ->
         ?assertEqual(12, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"120/10.0001">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"1234">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"1234">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,<<"-">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-">>)),
-        ?assertEqual(default, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,?emptyStr)),
+        ?assertEqual(default, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,?emptyIo)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"-100">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-100">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"9999">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"9999">>)),
 
