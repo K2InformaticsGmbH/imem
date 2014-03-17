@@ -57,7 +57,7 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
     end,
     SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap1, ColMap2),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap1, ColMap2),
-    ?LogDebug("SortSpec:~p~n", [SortSpec]),
+    % ?LogDebug("SortSpec:~p~n", [SortSpec]),
     Statement = Stmt#statement{
                     stmtParse = {select, SelectSections},
                     metaFields=MetaFields, tables=Tables,
@@ -1125,11 +1125,33 @@ test_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query7f, 100, IsSec, 
             "select col2 
              from def
-             where col2 not like '1%'
+             where col2 like '%1' or col2 like '1%'
+            " 
+            , 
+            [
+                 {<<"1">>}
+                ,{<<"10">>}
+                ,{<<"11">>}
+                ,{<<"12">>}
+                ,{<<"13">>}
+                ,{<<"14">>}
+                ,{<<"15">>}
+                ,{<<"16">>}
+                ,{<<"17">>}
+                ,{<<"18">>}
+                ,{<<"19">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query7fa, 100, IsSec, 
+            "select col2 
+             from def
+             where col2 like '%1' or col2 not like '1%'
             " 
             , 
             [
                  {<<"0">>}
+                ,{<<"1">>}
                 ,{<<"2">>}
                 ,{<<"3">>}
                 ,{<<"4">>}
@@ -1138,11 +1160,11 @@ test_with_or_without_sec(IsSec) ->
                 ,{<<"7">>}
                 ,{<<"8">>}
                 ,{<<"9">>}
+                ,{<<"11">>}
                 ,{<<"20">>}
                 ,{<<"\"text_in_quotes\"">>}
             ]
         ),
-
 
     %% regexp_like()
 

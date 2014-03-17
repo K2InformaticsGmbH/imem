@@ -662,10 +662,12 @@ ternary_and(?nav,_)->       ?nav;
 ternary_and(_,?nav)->       ?nav;
 ternary_and(A,B)->          (A and B).
 
-ternary_or(?nav,true) ->    true;
-ternary_or(true,?nav) ->    true;
-ternary_or(_,false) ->      false;
-ternary_or(false,_) ->      false;
+ternary_or(_,true) ->       true;
+ternary_or(true,_) ->       true;
+ternary_or(A,?nav) ->       A;
+ternary_or(?nav,B) ->       B;
+ternary_or(A,false) ->      A;
+ternary_or(false,B) ->      B;
 ternary_or(A,B) ->          (A or B).
 
 to_decimal(B,0) -> erlang:round(to_number(B));
