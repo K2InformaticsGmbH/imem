@@ -8,7 +8,7 @@
 -define(DDNODE_TIMEOUT,3000).       %% RPC timeout for ddNode evaluation
 
 -define(META_TABLES,[ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
--define(META_FIELDS,[rownum,systimestamp,user,username,sysdate,schema,node]). 
+-define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 
 -define(CONFIG_TABLE_OPTS, [{record_name,ddConfig}
@@ -372,23 +372,27 @@ drop_meta_tables() ->
 
 meta_field_list() -> ?META_FIELDS.
 
+meta_field(Name) when is_atom(Name) ->
+    meta_field(?atom_to_binary(Name));
 meta_field(Name) ->
     lists:member(Name,?META_FIELDS).
 
-meta_field_info(sysdate) ->
-    #ddColumn{name=sysdate, type='datetime', len=20, prec=0};
-meta_field_info(systimestamp) ->
-    #ddColumn{name=systimestamp, type='timestamp', len=20, prec=0};
-meta_field_info(schema) ->
-    #ddColumn{name=schema, type='atom', len=10, prec=0};
-meta_field_info(node) ->
-    #ddColumn{name=node, type='atom', len=30, prec=0};
-meta_field_info(user) ->
-    #ddColumn{name=user, type='userid', len=20, prec=0};
-meta_field_info(username) ->
-    #ddColumn{name=username, type='binstr', len=20, prec=0};
-meta_field_info(rownum) ->
-    #ddColumn{name=rownum, type='integer', len=10, prec=0};
+meta_field_info(Name) when is_atom(Name) ->
+    meta_field_info(?atom_to_binary(Name));
+meta_field_info(<<"sysdate">>=N) ->
+    #ddColumn{name=N, type='datetime', len=20, prec=0};
+meta_field_info(<<"systimestamp">>=N) ->
+    #ddColumn{name=N, type='timestamp', len=20, prec=0};
+meta_field_info(<<"schema">>=N) ->
+    #ddColumn{name=N, type='atom', len=10, prec=0};
+meta_field_info(<<"node">>=N) ->
+    #ddColumn{name=N, type='atom', len=30, prec=0};
+meta_field_info(<<"user">>=N) ->
+    #ddColumn{name=N, type='userid', len=20, prec=0};
+meta_field_info(<<"username">>=N) ->
+    #ddColumn{name=N, type='binstr', len=20, prec=0};
+meta_field_info(<<"rownum">>=N) ->
+    #ddColumn{name=N, type='integer', len=10, prec=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 

@@ -5,7 +5,7 @@
 -export([ exec/5
         ]).
 
-exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _StmtOpts, IsSec) ->
     if_call_mfa(IsSec, admin_exec, [SKey, imem_account, create, [user, Name, Name, Password]]),
     case lists:member({account,lock}, Opts) of 
         true -> if_call_mfa(IsSec, admin_exec, [SKey, imem_account, lock, [Name]]);
@@ -16,7 +16,7 @@ exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _Sch
         false -> if_call_mfa(IsSec, admin_exec, [SKey, imem_account, renew, [Name]])
     end;
 
-exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _StmtOpts, IsSec) ->
     case lists:member({account,unlock}, Specs) of 
         true -> if_call_mfa(IsSec, admin_exec, [SKey, imem_account, unlock, [Name]]);
         false -> ok
@@ -35,29 +35,29 @@ exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _Schema, IsSec) ->
         false -> ok
     end;
 
-exec(SKey, {'drop user', Name, Specs}, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'drop user', Name, Specs}, _Stmt, _StmtOpts, IsSec) ->
     if_call_mfa(IsSec, admin_exec, [SKey, imem_account, delete, [Name, Specs]]);
 
-exec(SKey, {'grant', Privileges, {'on', <<>>}, {'to', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
+exec(SKey, {'grant', Privileges, {'on', <<>>}, {'to', Grantees}, _Opts}, _Stmt, _StmtOpts, _IsSec) -> 
     % ?Info("grant privileges ~p~n", [Privileges]),
     % ?Info("grant grantees ~p~n", [Grantees]),
     % ?Info("grant opts ~p~n", [_Opts]),            % ToDo: implement grant options
     [grant_sys_priv(SKey,P,G) || P <- Privileges, G <- Grantees],
     ok;
-exec(SKey, {'grant', Privileges, {'on', Object}, {'to', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
+exec(SKey, {'grant', Privileges, {'on', Object}, {'to', Grantees}, _Opts}, _Stmt, _StmtOpts, _IsSec) -> 
     % ?Info("grant privileges ~p~n", [Privileges]),
     % ?Info("grant object ~p~n", [Object]),
     % ?Info("grant grantees ~p~n", [Grantees]),
     % ?Info("grant opts ~p~n", [_Opts]),            % ToDo: implement grant options
     [grant_obj_priv(SKey,P,G,Object) || P <- Privileges, G <- Grantees],
     ok;
-exec(SKey, {'revoke', Privileges, {'on', <<>>}, {'from', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
+exec(SKey, {'revoke', Privileges, {'on', <<>>}, {'from', Grantees}, _Opts}, _Stmt, _StmtOpts, _IsSec) -> 
     % ?Info("revoke privileges ~p~n", [Privileges]),
     % ?Info("revoke grantees ~p~n", [Grantees]),
     % ?Info("revoke opts ~p~n", [_Opts]),
     [revoke_sys_priv(SKey,P,G) || P <- Privileges, G <- Grantees],
     ok;
-exec(SKey, {'revoke', Privileges, {'on', Object}, {'from', Grantees}, _Opts}, _Stmt, _Schema, _IsSec) -> 
+exec(SKey, {'revoke', Privileges, {'on', Object}, {'from', Grantees}, _Opts}, _Stmt, _StmtOpts, _IsSec) -> 
     % ?Info("revoke privileges ~p~n", [Privileges]),
     % ?Info("revoke object ~p~n", [Object]),
     % ?Info("revoke grantees ~p~n", [Grantees]),
@@ -207,37 +207,37 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
-        ?assertEqual(ok, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
         UserId = imem_account:get_id_by_name(SKey,<<"test_user_1">>),
         ?Info("UserId ~p~n", [UserId]),
-        ?assertException(throw, {ClEr,{"Account already exists", <<"test_user_1">>}}, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, "imem", IsSec)),
-        ?assertException(throw, {UiEx,{"Unimplemented account delete option",[cascade]}}, imem_sql:exec(SKey, "DROP USER test_user_1 CASCADE;", 0, "imem", IsSec)),
+        ?assertException(throw, {ClEr,{"Account already exists", <<"test_user_1">>}}, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
+        ?assertException(throw, {UiEx,{"Unimplemented account delete option",[cascade]}}, imem_sql:exec(SKey, "DROP USER test_user_1 CASCADE;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),
-        ?assertEqual(ok, imem_sql:exec(SKey, "GRANT manage_system TO test_user_1 with admin option;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "GRANT manage_system TO test_user_1 with admin option;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, manage_system)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {module,imem_test,execute})),
-        ?assertEqual(ok, imem_sql:exec(SKey, "GRANT EXECUTE ON imem_test TO test_user_1;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "GRANT EXECUTE ON imem_test TO test_user_1;", 0, [{schema,imem}], IsSec)),
         % ?Info("ddRole ~p~n", [imem_meta:read(ddRole)]),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, {module,imem_test,execute})),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,select})),
-        ?assertEqual(ok, imem_sql:exec(SKey, "GRANT SELECT ON ddTable TO test_user_1;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "GRANT SELECT ON ddTable TO test_user_1;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, {table,ddTable,select})),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,update})),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,insert})),
-        ?assertEqual(ok, imem_sql:exec(SKey, "grant update, insert on ddTable to test_user_1;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "grant update, insert on ddTable to test_user_1;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, {table,ddTable,update})),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, {table,ddTable,insert})),
-        ?assertEqual(ok, imem_sql:exec(SKey, "revoke update on ddTable from test_user_1;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "revoke update on ddTable from test_user_1;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,update})),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, {table,ddTable,insert})),
-        ?assertEqual(ok, imem_sql:exec(SKey, "revoke update,insert on ddTable from test_user_1;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "revoke update,insert on ddTable from test_user_1;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,update})),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,insert})),
-        ?assertEqual(ok, imem_sql:exec(SKey, "revoke execute on imem_test from test_user_1;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "revoke execute on imem_test from test_user_1;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {module,imem_test,excecute})),
-        ?assertEqual(ok, imem_sql:exec(SKey, "revoke manage_system from test_user_1;", 0, "imem", IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "revoke manage_system from test_user_1;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),
-        ?assertEqual(ok, imem_sql:exec(SKey, "DROP USER test_user_1;", 0, "imem", IsSec))
+        ?assertEqual(ok, imem_sql:exec(SKey, "DROP USER test_user_1;", 0, [{schema,imem}], IsSec))
     catch
         Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")

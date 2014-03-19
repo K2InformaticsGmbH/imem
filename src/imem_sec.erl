@@ -1,7 +1,7 @@
 -module(imem_sec).
 
 -define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo@,ddPerm@,ddQuota@]).
--define(SECO_FIELDS,[user,username]).
+-define(SECO_FIELDS,[<<"user">>,<<"username">>]).
 
 -include("imem_seco.hrl").
 
@@ -146,6 +146,8 @@ if_is_system_table(_SKey,Table) when is_binary(Table) ->
 if_meta_field_list(_SKey) ->
     imem_meta:meta_field_list().
 
+if_meta_field(_SKey, Name) when is_atom(Name) ->
+    if_meta_field(_SKey, ?atom_to_binary(Name));
 if_meta_field(_SKey, Name) ->
     case lists:member(Name,?SECO_FIELDS) of
         true ->     true;
@@ -493,8 +495,8 @@ put_config_hlk(SKey, Table, Key, Context, Value, Remark) ->
         false ->    ?SecurityException({"Insert/update unauthorized", {Table,SKey}})
     end.    
 
-exec(SKey, Statement, BlockSize, Schema) ->
-    imem_sql:exec(SKey, Statement, BlockSize, Schema, true).   
+exec(SKey, Statement, BlockSize, Opts) ->
+    imem_sql:exec(SKey, Statement, BlockSize, Opts, true).   
 
 fetch_recs(SKey, Pid, Sock, Timeout) ->
     imem_statement:fetch_recs(SKey, Pid, Sock, Timeout, true).

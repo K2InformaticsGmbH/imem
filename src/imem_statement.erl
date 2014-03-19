@@ -1,5 +1,7 @@
 -module(imem_statement).
 
+-define(VALID_FETCH_OPTS, [fetch_mode, tail_mode, params]).
+
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
@@ -42,7 +44,8 @@
                     , status    ::atom()            %% undefined | waiting | fetching | done | tailing | aborted
                     , metarec   ::tuple()
                     , blockSize=100 ::integer()     %% could be adaptive
-                    , remaining=0   ::integer()         %% rows remaining to be fetched. initialized to Limit and decremented
+                    , rownum    ::undefined|integer %% next rownum to be used, if any, element(1,MetaRec)
+                    , remaining=0   ::integer()     %% rows remaining to be fetched. initialized to Limit and decremented
                     , opts = [] ::list()            %% fetch options like {tail_mode,true}
                     , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
                     , filter    ::any()             %% filter specification {Guard,Binds}
@@ -71,10 +74,14 @@ create_stmt(Statement, SKey, IsSec) ->
             {ok, Pid}
     end.
 
-fetch_recs(SKey, #stmtResult{stmtRef=Pid}, Sock, Timeout, IsSec) ->
-    fetch_recs(SKey, Pid, Sock, Timeout, IsSec);
-fetch_recs(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock,[]}),
+fetch_recs(SKey, Pid, Sock, Timeout, IsSec) ->
+    fetch_recs(SKey, Pid, Sock, Timeout, [], IsSec).
+
+
+fetch_recs(SKey, #stmtResult{stmtRef=Pid}, Sock, Timeout, Opts, IsSec) ->
+    fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec);
+fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
+    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}),
     Result = try
         case receive 
             R ->    R
@@ -117,8 +124,10 @@ fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
 
 recs_sort(Recs, SortFun) ->
-    List = [{SortFun(X),X} || X <- Recs],
-    [Rs || {_, Rs} <- lists:sort(List)].
+    % ?LogDebug("Recs:~n~p~n",[Recs]),
+    List = [{SortFun(X),setelement(1,X,{}),X} || X <- Recs],
+    % ?LogDebug("List:~n~p~n",[List]),
+    [Rs || {_, _, Rs} <- lists:sort(List)].
 
 fetch_recs_async(SKey, #stmtResult{stmtRef=Pid}, Sock, IsSec) ->
     fetch_recs_async(SKey, Pid, Sock, IsSec);
@@ -128,7 +137,7 @@ fetch_recs_async(SKey, Pid, Sock, IsSec) ->
 fetch_recs_async(SKey, #stmtResult{stmtRef=Pid}, Sock, Opts, IsSec) ->
     fetch_recs_async(SKey, Pid, Sock, Opts, IsSec);
 fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
-    case [{M,V} || {M,V} <- Opts, true =/= lists:member(M, ?TAIL_VALID_OPTS)] of
+    case [{M,V} || {M,V} <- Opts, true =/= lists:member(M, ?VALID_FETCH_OPTS)] of
         [] -> gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
         InvalidOpt -> ?ClientError({"Invalid option for fetch", InvalidOpt})
     end.
@@ -282,7 +291,7 @@ handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=
         tailing ->      unsubscribe(Stmt);              % client stops tail mode
         aborted ->      ok                              % client acknowledges abort
     end,
-    FetchCtx1 = FetchCtx0#fetchCtx{pid=undefined, monref=undefined, status=undefined},   
+    FetchCtx1 = FetchCtx0#fetchCtx{pid=undefined, monref=undefined, metarec=undefined, status=undefined},   
     {reply, ok, State#state{fetchCtx=FetchCtx1}}.      % client may restart the fetch now
 
 handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fetchCtx{status=done}}=State) ->
@@ -303,23 +312,42 @@ handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fet
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
     % ?LogDebug("fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     % ?LogDebug("fetch_recs_async called with Stmt~n~p~n", [Stmt]),
-    #statement{tables=[Table|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
+    #statement{tables=[Table|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
-    MR = meta_rec(IsSec,SKey,MetaFields,FetchCtx0#fetchCtx.metarec),
-    % ?LogDebug("Meta Rec: ~p~n", [MR]),
-    % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
-    {SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
-    % ?LogDebug("Scan Spec after meta bind:~n~p~n", [SSpec]),
-    % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
-    % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
+    Params1 = case lists:keyfind(params, 1, Opts) of
+        false ->    Params0;    %% from statement exec, only used on first fetch
+        {_, P} ->   P           %% from fetch_recs, only used on first fetch
+    end,
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
         {true,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
-            RecName = imem_meta:table_record_name(Table), 
+            RowNum = case MetaFields of
+                [<<"rownum">>|_] -> 1;
+                _ ->                undefined
+            end, 
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            % ?LogDebug("Meta Rec: ~p~n", [MR]),
+            % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
+            {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
+            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
+            RecName = imem_meta:table_record_name(Table),
             FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
-                                 ,remaining=MainSpec#scanSpec.limit,opts=Opts,tailSpec=TailSpec
+                                 ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
+                                 ,opts=Opts,tailSpec=TailSpec
                                  ,filter=FilterFun,recName=RecName},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkip}); 
         {false,undefined} ->     %% {SkipFetch, Pid} = {false, uninitialized} -> initialize fetch
+            RowNum = case MetaFields of
+                [<<"rownum">>|_] -> 1;
+                _ ->                undefined
+            end, 
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            % ?LogDebug("Meta Rec: ~p~n", [MR]),
+            % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
+            {SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+            % ?LogDebug("Scan Spec after meta bind:~n~p~n", [SSpec]),
+            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
+            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
             case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
@@ -327,7 +355,8 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                     % ?Debug("fetch opts ~p~n", [Opts]),
                     RecName = imem_meta:table_record_name(Table), 
                     FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
-                                          ,metarec=MR,blockSize=BlockSize,remaining=MainSpec#scanSpec.limit
+                                          ,metarec=MR,blockSize=BlockSize
+                                          ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
                                           ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
                                           ,recName=RecName},
                     {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
@@ -335,11 +364,23 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                     ?SystemException({"Cannot spawn async fetch process",Error})
             end;
         {true,_Pid} ->          %% skip ongoing fetch (and possibly go to tail_mode)
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            % ?LogDebug("Meta Rec: ~p~n", [MR]),
+            % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
+            {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
+            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
             FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            % ?LogDebug("Meta Rec: ~p~n", [MR]),
+            % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
+            {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
+            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
             Pid ! next,
-            % ?Debug("fetch opts ~p~n", [Opts]),
+            % ?LogDebug("fetch opts ~p~n", [Opts]),
             FetchContinue = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun}, 
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
@@ -366,10 +407,15 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             {noreply, State}
     end;        
-handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
+handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{isSec=IsSec,seco=SKey,reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
     % ?LogDebug("received mnesia subscription event ~p ~p~n", [write, Record]),
-    #fetchCtx{status=Status,metarec=MR0,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
+    #fetchCtx{status=Status,metarec=MR0,rownum=RowNum,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
+    MR1 = imem_sql:meta_rec(IsSec,SKey,Stmt#statement.metaFields,[],MR0),    %% Params cannot change any more after first fetch
+    MR2 = case RowNum of
+        undefined -> MR1;
+        _ ->         setelement(?RownumIdx,MR1,RowNum)
+    end,
     R1 = erlang:setelement(?RecIdx, R0, RecName),  %% Main Tail Record (record name recovered)
     % ?LogDebug("processing tail : record / tail / filter~n~p~n~p~n~p~n", [R1,TailSpec,FilterFun]),
     RawRecords = case {Status,TailSpec,FilterFun} of
@@ -377,22 +423,18 @@ handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{reply=Sock,fetch
         {tailing,_,false} ->        [];
         {tailing,undefined,_} ->    ?SystemException({"Undefined tail function for tail record",R1}); 
         {tailing,_,undefined} ->    ?SystemException({"Undefined filter function for tail record",R1}); 
-        {tailing,true,true} ->      [?MetaMain(MR0, R1)];
-        {tailing,true,_} ->         lists:filter(FilterFun, [?MetaMain(MR0, R1)]);
+        {tailing,true,true} ->      [?MetaMain(MR2, R1)];
+        {tailing,true,_} ->         lists:filter(FilterFun, [?MetaMain(MR2, R1)]);
         {tailing,_,true} ->         
             case ets:match_spec_run([R1], TailSpec) of
                 [] ->   [];
-                [R2] -> [?MetaMain(MR0, R2)]
+                [R2] -> [?MetaMain(MR2, R2)]
             end;
         {tailing,_,_} ->            
             case ets:match_spec_run([R1], TailSpec) of
                 [] ->   [];
-                [R2] -> lists:filter(FilterFun, [?MetaMain(MR0, R2)])
+                [R2] -> lists:filter(FilterFun, [?MetaMain(MR2, R2)])
             end
-    end,
-    RowNum = case MR0 of
-        ?EmptyMR -> undefined;
-         _ ->       element(?RownumIdx,MR0)
     end,
     case {RawRecords,length(Stmt#statement.tables),RowNum} of
         {[],_,_} ->   %% nothing to be returned  
@@ -410,17 +452,16 @@ handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{reply=Sock,fetch
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-1}}}
             end;
         {_,1,_FirstRN} ->    %% single table select, avoid join overhead but update RowNum meta field
-            MR1 = setelement(?RownumIdx,MR0,RowNum+1),  %% length(RawRecords) = 1
             if  
                 Rem0 =< 1 ->
                     % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
                     send_reply_to_client(Sock, {RawRecords,true}),  
                     unsubscribe(Stmt),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{metarec=MR1,status=done}}};
+                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                 true ->
                     % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
                     send_reply_to_client(Sock, {RawRecords,tail}),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{metarec=MR1,remaining=Rem0-1}}}
+                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+1,remaining=Rem0-1}}}
             end;
         {_,_,undefined} ->        %% join raw result of main scan with remaining tables
             case join_rows(RawRecords, FetchCtx0, Stmt) of
@@ -443,18 +484,17 @@ handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{reply=Sock,fetch
             case join_rows(RawRecords, FetchCtx0, Stmt) of
                 [] ->
                     {noreply, State};
-                JoinedRows ->    
-                    MR1 = setelement(?RownumIdx,MR0,RowNum+length(JoinedRows)),
+                JoinedRows ->
                     if 
                         (Rem0 =< length(JoinedRows)) ->
                             % ?LogDebug("send~n~p~n", [{Result,true}]),
-                            send_reply_to_client(Sock, {update_row_num(MR0, RowNum, JoinedRows), true}),
+                            send_reply_to_client(Sock, {update_row_num(MR2, RowNum, JoinedRows), true}),
                             unsubscribe(Stmt),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{metarec=MR1,status=done}}};
+                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                         true ->
                             % ?LogDebug("send~n~p~n", [{Result,tail}]),
-                            send_reply_to_client(Sock, {update_row_num(MR0, RowNum, JoinedRows), tail}),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{metarec=MR1,remaining=Rem0-length(JoinedRows)}}}
+                            send_reply_to_client(Sock, {update_row_num(MR2, RowNum, JoinedRows), tail}),
+                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+length(JoinedRows),remaining=Rem0-length(JoinedRows)}}}
                     end
             end
     end;
@@ -467,7 +507,7 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     % ?Debug("received mnesia subscription event ~p ~p~n", [delete, {_Tab, _Key}]),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MR0,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
+    #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
     % ?LogDebug("received ~p rows~n", [length(Rows0)]),
     % ?LogDebug("received rows~n~p~n", [Rows0]),
     {Rows1,Complete} = case {Status,Rows0} of
@@ -494,11 +534,11 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             {R,false}        
     end,   
     % ?LogDebug("Filtering ~p rows with filter ~p~n", [length(Rows1),FilterFun]),
-    Wrap = fun(X) -> ?MetaMain(MR0, X) end,
-    RowNum = case MR0 of
-        ?EmptyMR -> undefined;
-        _ ->        element(?RownumIdx,MR0)
+    MR1 = case RowNum of
+        undefined -> MR0;
+        _ ->         setelement(?RownumIdx,MR0,RowNum)
     end,
+    Wrap = fun(X) -> ?MetaMain(MR1, X) end,
     Result = case {length(Stmt#statement.tables),FilterFun,RowNum} of
         {_,false,_} ->
             [];
@@ -511,13 +551,13 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
         {_,_,undefined} ->
             join_rows(lists:filter(FilterFun,lists:map(Wrap, Rows1)), FetchCtx0, Stmt);
         {1,true,FirstRN} ->
-            update_row_num(MR0, FirstRN, take_remaining(Rem0, lists:map(Wrap, Rows1)));
+            update_row_num(MR1, FirstRN, take_remaining(Rem0, lists:map(Wrap, Rows1)));
         {_,true,FirstRN} ->
             JoinedRows = join_rows(lists:map(Wrap, Rows1), FetchCtx0, Stmt),
-            update_row_num(MR0, FirstRN, JoinedRows);
+            update_row_num(MR1, FirstRN, JoinedRows);
         {_,_,FirstRN} ->
             JoinedRows = join_rows(lists:filter(FilterFun,lists:map(Wrap,Rows1)), FetchCtx0, Stmt),
-            update_row_num(MR0, FirstRN, JoinedRows)
+            update_row_num(MR1, FirstRN, JoinedRows)
     end,
     case is_number(Rem0) of
         true ->
@@ -526,22 +566,14 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
                 true ->     
                     % ?LogDebug("send~n~p~n", [{Result, true}]),
                     send_reply_to_client(Sock, {Result, true}),
-                    case RowNum of
-                        undefined ->    
-                            handle_fetch_complete(State);
-                        RN ->
-                            MR1 = setelement(?RownumIdx,MR0,RN+length(Result)),
-                            FetchCtx1 = FetchCtx0#fetchCtx{metarec=MR1},
-                            handle_fetch_complete(State#state{fetchCtx=FetchCtx1})
-                    end;
+                    handle_fetch_complete(State);
                 false ->    
                     % ?LogDebug("send~n~p~n", [{Result, Complete}]),
                     send_reply_to_client(Sock, {Result, Complete}),
-                    MR1 = case RowNum of
-                        undefined ->    MR0;
-                        RN ->           setelement(?RownumIdx,MR0,RN+length(Result))
+                    FetchCtx1 = case RowNum of
+                        undefined ->    FetchCtx0#fetchCtx{remaining=Rem0-length(Result),status=fetching};
+                        _ ->            FetchCtx0#fetchCtx{rownum=RowNum+length(Result),remaining=Rem0-length(Result),status=fetching}
                     end,
-                    FetchCtx1 = FetchCtx0#fetchCtx{metarec=MR1,remaining=Rem0-length(Result),status=fetching},
                     PushMode = lists:member({fetch_mode,push},Opts),
                     if
                         Complete ->
@@ -642,14 +674,6 @@ take_remaining(Remaining, Rows) ->
 update_row_num(MR, FirstRN, Rows) ->
     UpdRN = fun({R,X}) -> setelement(?MetaIdx, X, setelement(?RownumIdx, MR, R)) end,
     lists:map(UpdRN, zip_row_num(FirstRN,Rows)).
-
-meta_rec(IsSec,SKey,MetaFields,?EmptyMR) ->
-    meta_rec(IsSec,SKey,MetaFields,undefined);
-meta_rec(IsSec,SKey,MetaFields,undefined) ->
-    list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]);
-meta_rec(IsSec,SKey,MetaFields,MR0) ->
-    MR1 = meta_rec(IsSec,SKey,MetaFields,undefined),
-    setelement(?RownumIdx, MR1, element(?RownumIdx, MR0)).
 
 zip_row_num(FirstRN,Rows) ->    
     lists:zip(lists:seq(FirstRN, FirstRN+length(Rows)-1), Rows).
@@ -1138,7 +1162,7 @@ test_with_or_without_sec(IsSec) ->
             col3 tuple(2),
             col4 integer
             );"
-                , 0, imem, IsSec)),
+                , 0, [{schema,imem}], IsSec)),
 
         Sql1a = "
             insert into tuple_test (
@@ -1150,7 +1174,7 @@ test_with_or_without_sec(IsSec) ->
                 ,1 
             );",  
         ?Info("Sql1a:~n~s~n", [Sql1a]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1a, 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)),
 
         Sql1b = "
             insert into tuple_test (
@@ -1162,7 +1186,7 @@ test_with_or_without_sec(IsSec) ->
                 ,2 
             );",  
         ?Info("Sql1b:~n~s~n", [Sql1b]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1b, 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1b, 0, [{schema,imem}], IsSec)),
 
         Sql1c = "
             insert into tuple_test (
@@ -1174,7 +1198,7 @@ test_with_or_without_sec(IsSec) ->
                 ,3 
             );",  
         ?Info("Sql1c:~n~s~n", [Sql1c]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1c, 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, Sql1c, 0, [{schema,imem}], IsSec)),
 
         TT1Rows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?Info("original table~n~p~n", [TT1Rows]),
@@ -1258,7 +1282,7 @@ test_with_or_without_sec(IsSec) ->
         % ?assertEqual(ok, close(SKey, TT1b)),
         % ?assertEqual(ok, close(SKey, TT2a)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, [{schema,imem}], IsSec)),
         ?Info("dropped table ~p~n", [tuple_test]),
 
     %% test table def
@@ -1268,7 +1292,7 @@ test_with_or_without_sec(IsSec) ->
                 col1 varchar2(10), 
                 col2 integer
             );"
-            , 0, imem, IsSec)),
+            , 0, [{schema,imem}], IsSec)),
 
         ?assertEqual(ok, insert_range(SKey, 15, def, imem, IsSec)),
 
@@ -1361,7 +1385,7 @@ test_with_or_without_sec(IsSec) ->
         ?Info("changed table~n~p~n", [TableRows3]),
         [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
         [?assertNot(lists:member(R,TableRows3)) || R <- RemovedRows3],
-        ?assertEqual(ExpectedKeys3,lists:sort(ChangedKeys3)),
+        ?assertEqual(ExpectedKeys3,lists:sort([ {I,setelement(?MetaIdx,C,?EmptyMR)} || {I,C} <- ChangedKeys3])),
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
         ?assertEqual(0,imem_meta:table_size(def)),
@@ -1581,14 +1605,47 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey, SR7, [{fetch_mode,skip},{tail_mode,true}], IsSec)),
             ?assertEqual([], receive_raw()),
             ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
-            List7a = receive_tuples(SR7,tail),
-            ?assertEqual(5, length(List7a)),
+            List7 = receive_tuples(SR7,tail),
+            ?assertEqual(5, length(List7)),
             ?assertEqual([], receive_raw()),
             ?assertEqual(ok, fetch_close(SKey, SR7, IsSec)),
             ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
             ?assertEqual([], receive_raw())
         after
             ?assertEqual(ok, close(SKey, SR7))
+        end,
+
+        SR7a = exec(SKey,query7a, 3, IsSec, [{params,[{<<":key">>,<<"integer">>,<<"0">>,[<<"3">>]}]}], "
+            select col2 from def where col2 = :key ;"
+        ),
+        try
+            ?assertEqual(ok, fetch_async(SKey, SR7a, [], IsSec)),
+            List7a = receive_tuples(SR7a,true),
+            ?assertEqual([{<<"3">>}], List7a),
+            ?assertEqual(ok, fetch_close(SKey, SR7a, IsSec)),
+            ?assertEqual(ok, fetch_async(SKey, SR7a, [{params,[{<<":key">>,<<"integer">>,<<"0">>,[<<"5">>]}]}], IsSec)),
+            List7a1 = receive_tuples(SR7a,true),
+            ?assertEqual([{<<"5">>}], List7a1),
+            ?assertEqual(ok, fetch_close(SKey, SR7a, IsSec))
+        after
+            ?assertEqual(ok, close(SKey, SR7a))
+        end,
+
+        SR7b = exec(SKey,query7b, 3, IsSec, [{params,[{<<":key">>,<<"integer">>,<<"0">>,[<<"3">>]}]}], "
+            select systimestamp, :key from def where col2 = :key ;"
+        ),
+        try
+            ?assertEqual(ok, fetch_async(SKey, SR7b, [{params,[{<<":key">>,<<"integer">>,<<"0">>,[<<"4">>]}]}], IsSec)),
+            List7b = receive_tuples(SR7b,true),
+            ?assertMatch([{<<_:16,$.,_:16,$.,_:32,32,_:16,$:,_:16,$:,_:16,$.,_:48>>,<<"4">>}], List7b),
+            ?assertEqual(ok, fetch_close(SKey, SR7b, IsSec)),
+            ?assertEqual(ok, fetch_async(SKey, SR7b, [{params,[{<<":key">>,<<"integer">>,<<"0">>,[<<"6">>]}]}], IsSec)),
+            List7b1 = receive_tuples(SR7b,true),
+            ?assertMatch([{<<_:16,$.,_:16,$.,_:32,32,_:16,$:,_:16,$:,_:16,$.,_:48>>,<<"6">>}], List7b1),
+            ?assertNotEqual(List7b,List7b1),
+            ?assertEqual(ok, fetch_close(SKey, SR7b, IsSec))
+        after
+            ?assertEqual(ok, close(SKey, SR7b))
         end,
 
         SR8 = exec(SKey,query8, 100, IsSec, "
@@ -1699,9 +1756,9 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, SR10, IsSec, ChangeList10)),
         Result10b = update_cursor_execute(SKey, SR10, IsSec, optimistic),        
         ?Info("Result10b ~p~n", [Result10b]),
-        ?assertEqual([{1,{?EmptyMR,{def,<<"X">>,5},{def,<<"X">>,5}}}],Result10b), 
+        ?assertMatch([{1,{_,{def,<<"X">>,5},{def,<<"X">>,5}}}],Result10b), 
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema,imem}], IsSec)),
 
         case IsSec of
             true ->     ?imem_logout(SKey);
@@ -1778,8 +1835,11 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 exec(SKey,Id, BS, IsSec, Sql) ->
+    exec(SKey,Id, BS, IsSec, [], Sql).
+
+exec(SKey,Id, BS, IsSec, Opts, Sql) ->
     ?Info("~p : ~s~n", [Id,lists:flatten(Sql)]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, Opts, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,
     %?Info("Statement Cols:~n~p~n", [StmtCols]),

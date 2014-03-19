@@ -12,18 +12,21 @@
 -export([ exec/5
         ]).
 
-exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
-    {_, TableList} = lists:keyfind(from, 1, SelectSections),  
+exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
+    {_, TableList} = lists:keyfind(from, 1, SelectSections),
     % ?Debug("TableList: ~p~n", [TableList]),
-    FullMap0 = imem_sql_expr:column_map_tables(TableList),
-    % ?LogDebug("FullMap0:~n~p~n", [?FP(FullMap0,"23678")]),
-    Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap0,Ti/=?MetaIdx,Ci==?FirstIdx],
+    Params = imem_sql:params_from_opts(Opts,ParseTree),
+    % ?LogDebug("Params: ~p~n", [Params]),
+    MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
+    FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
+    % ?LogDebug("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
+    Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
     % ?LogDebug("Tables: (~p)~n~p~n", [length(Tables),Tables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
-            imem_sql_expr:column_map_columns([],FullMap0);
+            imem_sql_expr:column_map_columns([],FullMap);
         {_, ParsedFieldList} -> 
-            imem_sql_expr:column_map_columns(ParsedFieldList, FullMap0)
+            imem_sql_expr:column_map_columns(ParsedFieldList, FullMap)
     end,
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
@@ -35,38 +38,34 @@ exec(SKey, {select, SelectSections}, Stmt, _Schema, IsSec) ->
         ?EmptyWhere ->  
             true;
         _ ->            
-            #bind{btree=WBT} = imem_sql_expr:expr(WPTree, FullMap0, #bind{type=boolean,default=true}),
+            #bind{btree=WBT} = imem_sql_expr:expr(WPTree, FullMap, #bind{type=boolean,default=true}),
             WBT
     end,
     % ?LogDebug("WhereBindTree0~n~p~n", [WBTree0]),
-    {ColMap1,WBTree1,FullMap1} = imem_sql_expr:purge_meta_fields(ColMap0,WBTree0,FullMap0), 
-    MetaFields = [ N || {_,N} <- lists:usort([{Ci, Name} || #bind{tind=Ti,cind=Ci,name=Name} <- FullMap1,Ti==?MetaIdx])],
-    % ?LogDebug("FullMap1: (~p)~n~p~n", [length(FullMap1),?FP(FullMap1,"23678(15)")]),
-    % ?LogDebug("ColMap1: (~p)~n~p~n", [length(ColMap1),?FP(ColMap1,"23678(15)")]),
-    % ?LogDebug("WhereBindTree1~n~p~n", [WBTree1]),
-    % ?LogDebug("MetaFields: (~p)~n~p~n", [length(MetaFields),MetaFields]),
-    MainSpec = imem_sql_expr:main_spec(WBTree1,FullMap1),
+    MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
     % ?LogDebug("MainSpec:~n~p~n", [MainSpec]),
-    JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree1, FullMap1), %% start with last join table, proceed to first 
+    JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
     % ?LogDebug("JoinSpecs:~n~p~n", [JoinSpecs]),
-    ColMap2 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
-                || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap1],
+    ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
+                || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
     RowFun = case ?DefaultRendering of
-        raw ->  imem_datatype:select_rowfun_raw(ColMap2);
-        str ->  imem_datatype:select_rowfun_str(ColMap2, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
+        raw ->  imem_datatype:select_rowfun_raw(ColMap1);
+        str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
     end,
-    SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap1, ColMap2),
-    SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap1, ColMap2),
+    SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap, ColMap1),
+    SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap, ColMap1),
     % ?LogDebug("SortSpec:~p~n", [SortSpec]),
     Statement = Stmt#statement{
                     stmtParse = {select, SelectSections},
+                    stmtParams = Params,
                     metaFields=MetaFields, tables=Tables,
-                    colMap=ColMap2, fullMap=FullMap1,
+                    colMap=ColMap1, fullMap=FullMap,
                     rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
     {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}}.
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
@@ -135,7 +134,7 @@ test_with_or_without_sec(IsSec) ->
 
         QSTime = calendar:local_time(),
 
-        R2f = exec_fetch_sort(SKey, query2f, 100, IsSec, "
+        R00 = exec_fetch_sort(SKey, query00, 100, IsSec, "
             select name, lastLoginTime 
             from ddAccount 
             where lastLoginTime >= sysdate - 1.1574074074074073e-5"   %% 1.0 * ?OneSecond
@@ -143,14 +142,14 @@ test_with_or_without_sec(IsSec) ->
         QETime = calendar:local_time(),
         case IsSec of
             false -> 
-                ?assertEqual(0, length(R2f));
+                ?assertEqual(0, length(R00));
             true ->
                 ?Info("Login time: ~p~n", [LoginTime]),
                 ?Info("Query start time: ~p~n", [QSTime]),
                 ?Info("Query end time: ~p~n", [QETime]),
                 Accounts = imem_meta:read(ddAccount),
                 ?Info("Accounts: ~p~n", [Accounts]),
-                ?assertEqual(1, length(R2f))
+                ?assertEqual(1, length(R00))
         end,
 
         if
@@ -167,7 +166,7 @@ test_with_or_without_sec(IsSec) ->
                 col3 date,
                 col4 ipaddr,
                 col5 tuple
-            );", 0, imem, IsSec)),
+            );", 0, [{schema,imem}], IsSec)),
 
         ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
 
@@ -177,9 +176,13 @@ test_with_or_without_sec(IsSec) ->
 
     %% test table member_test
 
-        ?assertEqual(ok, imem_sql:exec(SKey, 
-            "create table member_test (col1 integer, col2 list, col3 tuple);"
-            , 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "
+            create table member_test (
+                  col1 integer
+                , col2 list
+                , col3 tuple
+            );"
+            , 0, [{schema,imem}], IsSec)),
 
         if_call_mfa(IsSec, write,[SKey,member_test,
             {member_test,1, [a,b,c,[e]] ,   undefined}
@@ -222,52 +225,60 @@ test_with_or_without_sec(IsSec) ->
             true ->     ?assertEqual(2, length(L5))
         end,
 
-        R0 = exec_fetch_sort(SKey, query0, 100, IsSec, 
-            "select * from ddTable"
+        R0 = exec_fetch_sort(SKey, query0, 100, IsSec, "
+            select * from ddTable"
         ),
         ?assertEqual(AllTableCount, length(R0)),
 
-        R0a = exec_fetch_sort(SKey, query0a, 100, IsSec, 
-            "select * from ddTable where element(2,qname) = to_atom('def')"
+        R0a = exec_fetch_sort(SKey, query0a, 100, IsSec, "
+            select * 
+            from ddTable 
+            where element(2,qname) = to_atom('def')"
         ),
         ?assertEqual(1, length(R0a)),
 
 %        ?assert(false),
 
-        exec_fetch_sort_equal(SKey, query0b, 100, IsSec, 
-            "select 1 from ddTable where element(2,qname) = to_atom('def')",
+        exec_fetch_sort_equal(SKey, query0b, 100, IsSec, "
+            select 1 
+            from ddTable 
+            where element(2,qname) = to_atom('def')"
+            ,
             [{<<"1">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query0c, 100, IsSec, 
-            "select 1 from dual",
+        exec_fetch_sort_equal(SKey, query0c, 100, IsSec, "
+            select 1 from dual"
+            ,
             [{<<"1">>}]
         ),
 
     %% simple queries on meta fields
 
-        exec_fetch_sort_equal(SKey, query1, 100, IsSec, 
-            "select dual.* from dual", 
+        exec_fetch_sort_equal(SKey, query1, 100, IsSec, "
+            select dual.* from dual"
+            , 
             [{<<"\"X\"">>,<<"'$not_a_value'">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query1a, 100, IsSec, 
-            "select dual.dummy from dual",
+        exec_fetch_sort_equal(SKey, query1a, 100, IsSec, "
+            select dual.dummy from dual"
+            ,
             [{<<"\"X\"">>}]
         ),
 
-        R1b = exec_fetch_sort(SKey, query1b, 100, IsSec, 
-            "select sysdate from dual"
+        R1b = exec_fetch_sort(SKey, query1b, 100, IsSec, "
+            select sysdate from dual"
         ),
         ?assertEqual(19, size(element(1,hd(R1b)))),
 
-        R1c = exec_fetch_sort(SKey, query1c, 100, IsSec, 
-            "select systimestamp from dual"
+        R1c = exec_fetch_sort(SKey, query1c, 100, IsSec, "
+            select systimestamp from dual"
         ),
         ?assertEqual(26, size(element(1,hd(R1c)))),
 
-        R1d = exec_fetch_sort(SKey, query1d, 100, IsSec, 
-            "select user from dual"
+        R1d = exec_fetch_sort(SKey, query1d, 100, IsSec, "
+            select user from dual"
         ),
         case IsSec of
             false ->    ?assertEqual([{<<"unknown">>}], R1d);
@@ -275,35 +286,46 @@ test_with_or_without_sec(IsSec) ->
                         ?assertEqual([{Acid}], R1d)
         end,
 
-        R1e = exec_fetch_sort(SKey, query1e, 100, IsSec, 
-            "select all_tables.* from all_tables where owner = 'system'"
+        R1e = exec_fetch_sort(SKey, query1e, 100, IsSec, "
+            select all_tables.* 
+            from all_tables 
+            where owner = 'system'"
         ),
         ?assert(length(R1e) =< AllTableCount),
         ?assert(length(R1e) >= 5),
 
-        R1f = exec_fetch_sort(SKey, query1f, 100, IsSec, 
-            "select qname as qn from all_tables where owner=user"
+        R1f = exec_fetch_sort(SKey, query1f, 100, IsSec, "
+            select qname as qn 
+            from all_tables 
+            where owner=user"
         ),
         case IsSec of
             false -> ?assertEqual(0, length(R1f));
             true ->  ?assertEqual(2, length(R1f))
         end,
 
-        R1g = exec_fetch_sort(SKey, query1g, 100, IsSec, 
-            "select name, type from ddAccount where id=user and locked <> 'true'"
+        R1g = exec_fetch_sort(SKey, query1g, 100, IsSec, "
+            select name, type 
+            from ddAccount 
+            where id=user 
+            and locked <> 'true'"
         ),
         case IsSec of
             false -> ?assertEqual(0, length(R1g));
             true ->  ?assertEqual(1, length(R1g))
         end,
 
-        R1h = exec_fetch_sort(SKey, query1h, 100, IsSec, 
-            "select * from def where 1=1"
+        R1h = exec_fetch_sort(SKey, query1h, 100, IsSec, "
+            select * 
+            from def 
+            where 1=1"
         ),
         ?assertEqual(20, length(R1h)),
 
-        R1i = exec_fetch_sort(SKey, query1i, 100, IsSec, 
-            "select * from def where 1=0"
+        R1i = exec_fetch_sort(SKey, query1i, 100, IsSec, "
+            select * 
+            from def 
+            where 1=0"
         ),
         ?assertEqual(0, length(R1i)),
 
@@ -316,54 +338,84 @@ test_with_or_without_sec(IsSec) ->
             [{<<"3">>},{<<"4">>},{<<"5">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query1k, 100, IsSec, 
-            "select dummy from dual where rownum = 1",
+        exec_fetch_sort_equal(SKey, query1k, 100, IsSec, "
+            select dummy 
+            from dual 
+            where rownum = 1"
+            ,
             [{<<"\"X\"">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query1l, 100, IsSec, 
-            "select dummy from dual where rownum <= 1",
+        exec_fetch_sort_equal(SKey, query1l, 100, IsSec, "
+            select dummy 
+            from dual 
+            where rownum <= 1"
+            ,
             [{<<"\"X\"">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query1m, 100, IsSec, 
-            "select dummy from dual where rownum = 2",
+        exec_fetch_sort_equal(SKey, query1m, 100, IsSec, "
+            select dummy 
+            from dual 
+            where rownum = 2"
+            ,
             []
         ),
 
-        exec_fetch_sort_equal(SKey, query1n, 100, IsSec, 
-            "select dummy from dual where rownum = 0",
+        exec_fetch_sort_equal(SKey, query1n, 100, IsSec, "
+            select dummy 
+            from dual 
+            where rownum = 0"
+            ,
             []
         ),
 
-        exec_fetch_sort_equal(SKey, query1o, 100, IsSec, 
-            "select dummy from dual where rownum <= -1",
+        exec_fetch_sort_equal(SKey, query1o, 100, IsSec, "
+            select dummy 
+            from dual 
+            where rownum <= -1"
+            ,
             []
         ),
     %% simple queries on single table
 
-        R2 = exec_fetch_sort_equal(SKey, query2, 100, IsSec, 
-            "select col1, col2 from def where col1>=5 and col1<=6", 
+        R2 = exec_fetch_sort_equal(SKey, query2, 100, IsSec, "
+            select col1, col2 
+            from def 
+            where col1>=5 and col1<=6"
+            , 
             [{<<"5">>,<<"5">>},{<<"6">>,<<"6">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2a, 100, IsSec, 
-            "select col1, col2 from def where col1 in (5,6)", 
+        exec_fetch_sort_equal(SKey, query2a, 100, IsSec, "
+            select col1, col2 
+            from def 
+            where col1 in (5,6)"
+            , 
             R2
         ),
 
-        exec_fetch_sort_equal(SKey, query2b, 100, IsSec, 
-            "select col1, col2 from def where col2 in ('5','6')", 
+        exec_fetch_sort_equal(SKey, query2b, 100, IsSec, "
+            select col1, col2 
+            from def 
+            where col2 in ('5','6')"
+            , 
             R2
         ),
 
-        exec_fetch_sort_equal(SKey, query2c, 100, IsSec, 
-            "select col1, col2 from def where col2 in (5,6)", 
+        exec_fetch_sort_equal(SKey, query2c, 100, IsSec, "
+            select col1, col2 
+            from def 
+            where col2 in (5,6)"
+            , 
             []
         ),
 
-        exec_fetch_sort_equal(SKey, query2d, 100, IsSec, 
-            "select col1, col2 from def where col2 in ('5',col2) and col1 <= 10", 
+        exec_fetch_sort_equal(SKey, query2d, 100, IsSec, "
+            select col1, col2 
+            from def 
+            where col2 in ('5',col2) and col1 <= 10"
+            , 
             [
                 {<<"1">>,<<"1">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>},{<<"4">>,<<"4">>},
                 {<<"5">>,<<"5">>},{<<"6">>,<<"6">>},{<<"7">>,<<"7">>},{<<"8">>,<<"8">>},
@@ -371,15 +423,21 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query2e, 100, IsSec, 
-            "select col4 from def where col4 < '10.132.7.3'",
+        exec_fetch_sort_equal(SKey, query2e, 100, IsSec, "
+            select col4 
+            from def 
+            where col4 < '10.132.7.3'"
+            ,
             [
                  {<<"10.132.7.1">>},{<<"10.132.7.2">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query2f, 100, IsSec, 
-            "select col2 from def where col2 in (5,6)",
+        exec_fetch_sort_equal(SKey, query2f, 100, IsSec, "
+            select col2 
+            from def 
+            where col2 in (5,6)"
+            ,
             []
         ), 
 
@@ -401,43 +459,65 @@ test_with_or_without_sec(IsSec) ->
             {def,100,<<"\"text_in_quotes\"">>,{{2001,02,03},{4,5,6}},{10,132,7,92},{'Atom100',100}}
         ]),
 
-        exec_fetch_sort_equal(SKey, query2h, 100, IsSec, 
-            "select col2 from def where col1 = 100",
+        exec_fetch_sort_equal(SKey, query2h, 100, IsSec, "
+            select col2 
+            from def 
+            where col1 = 100"
+            ,
             [{<<"\"text_in_quotes\"">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2i, 100, IsSec, 
-            "select col1, col5 from def where element(1,col5) = to_atom('Atom5')",
+        exec_fetch_sort_equal(SKey, query2i, 100, IsSec, "
+            select col1, col5 
+            from def 
+            where element(1,col5) = to_atom('Atom5')"
+            ,
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2l, 100, IsSec, 
-            "select col1, col5 from def where element(2,col5) = 5",
+        exec_fetch_sort_equal(SKey, query2l, 100, IsSec, "
+            select col1, col5 
+            from def 
+            where element(2,col5) = 5"
+            ,
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2m, 100, IsSec, 
-            "select col1, col5 from def where element(2,col5) = to_integer(4+1)",
+        exec_fetch_sort_equal(SKey, query2m, 100, IsSec, "
+            select col1, col5 
+            from def 
+            where element(2,col5) = to_integer(4+1)"
+            ,
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2n, 100, IsSec, 
-            "select col1, col5 from def where element(2,col5) = to_integer(5.0)",
+        exec_fetch_sort_equal(SKey, query2n, 100, IsSec, "
+            select col1, col5 
+            from def 
+            where element(2,col5) = to_integer(5.0)"
+            ,
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2o, 100, IsSec, 
-            "select col1, col5 from def where element(2,col5) = to_integer('5')",
+        exec_fetch_sort_equal(SKey, query2o, 100, IsSec, "
+            select col1, col5 
+            from def 
+            where element(2,col5) = to_integer('5')"
+            ,
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2p, 100, IsSec, 
-            "select col1, col5 from def where col5 = to_tuple('{''Atom5'', 5}')",
+        exec_fetch_sort_equal(SKey, query2p, 100, IsSec, "
+            select col1, col5 
+            from def where col5 = to_tuple('{''Atom5'', 5}')"
+            ,
             [{<<"5">>,<<"{'Atom5',5}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query2q, 100, IsSec, 
-            "select col1, col5 from def where col5 = '{''Atom100'',100}'",
+        exec_fetch_sort_equal(SKey, query2q, 100, IsSec, "
+            select col1, col5 
+            from def where col5 = '{''Atom100'',100}'"
+            ,
             [{<<"100">>,<<"{'Atom100',100}">>}]
         ),
 
@@ -489,28 +569,35 @@ test_with_or_without_sec(IsSec) ->
         % ),
         % ?assertEqual(20, length(R3b)),
 
-        R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, 
-            "select * from ddNode"
+        R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, "
+            select * from ddNode"
         ),
         ?assertEqual(1, length(R3c)),
 
-        R3d = exec_fetch_sort(SKey, query3d, 100, IsSec, 
-            "select time, wall_clock from ddNode"
+        R3d = exec_fetch_sort(SKey, query3d, 100, IsSec, "
+            select time, wall_clock 
+            from ddNode"
         ),
         ?assertEqual(1, length(R3d)),
 
-        R3e = exec_fetch_sort(SKey, query3e, 100, IsSec, 
-            "select time, wall_clock from ddNode where name = '" ++ atom_to_list(node()) ++ "'"
+        R3e = exec_fetch_sort(SKey, query3e, 100, IsSec, "
+            select time, wall_clock 
+            from ddNode where name = '" ++ atom_to_list(node()) ++ "'"
         ),
         ?assertEqual(1, length(R3e)),
 
-        R3f = exec_fetch_sort(SKey, query3f, 100, IsSec, 
-            "select * from " ++ atom_to_list(?MONITOR_TABLE) ++ " m, ddNode n where rownum < 2 and m.node = n.name"
+        R3f = exec_fetch_sort(SKey, query3f, 100, IsSec, "
+            select * 
+            from " ++ atom_to_list(?MONITOR_TABLE) ++ " m, ddNode n 
+            where rownum < 2 and m.node = n.name"
         ),
         ?assertEqual(1, length(R3f)),
 
-        exec_fetch_sort_equal(SKey, query3g, 100, IsSec, 
-            "select col1, col5 from def, ddNode where element(2,col5) = name",
+        exec_fetch_sort_equal(SKey, query3g, 100, IsSec, "
+            select col1, col5 
+            from def, ddNode 
+            where element(2,col5) = name"
+            ,
             []
         ),
 
@@ -518,33 +605,42 @@ test_with_or_without_sec(IsSec) ->
             {def,0,<<"0">>,calendar:local_time(),{10,132,7,0},{list_to_atom("Atom" ++ integer_to_list(0)),node()}}
         ]),
 
-        exec_fetch_sort_equal(SKey, query3h, 100, IsSec, 
-            "select col1, col5 from def, ddNode where element(2,col5) = name",
+        exec_fetch_sort_equal(SKey, query3h, 100, IsSec, "
+            select col1, col5 
+            from def, ddNode 
+            where element(2,col5) = name"
+            ,
             [{<<"0">>,<<"{'Atom0',nonode@nohost}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query3i, 100, IsSec, 
-            "select col1, col5 from def, ddNode where element(2,col5) = to_atom('nonode@nohost')",
+        exec_fetch_sort_equal(SKey, query3i, 100, IsSec, "
+            select col1, col5 
+            from def, ddNode 
+            where element(2,col5) = to_atom('nonode@nohost')"
+            ,
             [{<<"0">>,<<"{'Atom0',nonode@nohost}">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query3j, 100, IsSec, 
-            "select col1, col5 from def, ddNode where element(2,col5) = to_atom('nonode@anotherhost')",
+        exec_fetch_sort_equal(SKey, query3j, 100, IsSec, "
+            select col1, col5 
+            from def, ddNode 
+            where element(2,col5) = to_atom('nonode@anotherhost')"
+            ,
             []
         ),
 
         %% self joins 
 
-        exec_fetch_sort_equal(SKey, query4, 100, IsSec, 
-            "select t1.col1, t2.col1 j
-             from def t1, def t2 
-             where t1.col1 in (5,6,7)
-             and t2.col1 > t1.col1 
-             and t2.col1 > t1.col1 
-             and t2.col1 <> 9
-             and t2.col1 <> 100
-             and t2.col1 < 11
-            ",
+        exec_fetch_sort_equal(SKey, query4, 100, IsSec, "
+            select t1.col1, t2.col1 j
+            from def t1, def t2 
+            where t1.col1 in (5,6,7)
+            and t2.col1 > t1.col1 
+            and t2.col1 > t1.col1 
+            and t2.col1 <> 9
+            and t2.col1 <> 100
+            and t2.col1 < 11"
+            ,
             [
                 {<<"5">>,<<"6">>},{<<"5">>,<<"7">>},{<<"5">>,<<"8">>},{<<"5">>,<<"10">>},
                 {<<"6">>,<<"7">>},{<<"6">>,<<"8">>},{<<"6">>,<<"10">>},
@@ -552,12 +648,13 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query4a, 100, IsSec, 
-            "select t1.col1, t2.col1
-             from def t1, def t2 
-             where t1.col1 in (5,6,7) 
-             and t2.col1 > t1.col1 
-             and t2.col1 <= t1.col1 + 2",
+        exec_fetch_sort_equal(SKey, query4a, 100, IsSec, "
+            select t1.col1, t2.col1
+            from def t1, def t2 
+            where t1.col1 in (5,6,7) 
+            and t2.col1 > t1.col1 
+            and t2.col1 <= t1.col1 + 2"
+            ,
             [
                 {<<"5">>,<<"6">>},{<<"5">>,<<"7">>},
                 {<<"6">>,<<"7">>},{<<"6">>,<<"8">>},
@@ -565,36 +662,39 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query4b, 100, IsSec, 
-            "select t1.col1, t2.col1 
-             from def t1, def t2 
-             where t1.col1 in (5,7) 
-             and abs(t2.col1-t1.col1) = 1", 
+        exec_fetch_sort_equal(SKey, query4b, 100, IsSec, "
+            select t1.col1, t2.col1 
+            from def t1, def t2 
+            where t1.col1 in (5,7) 
+            and abs(t2.col1-t1.col1) = 1"
+            , 
             [
                 {<<"5">>,<<"4">>},{<<"5">>,<<"6">>},
                 {<<"7">>,<<"6">>},{<<"7">>,<<"8">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query4c, 100, IsSec, 
-            "select t1.col1, t2.col1 
-             from def t1, def t2 
-             where t1.col1=5 
-             and t2.col1 > t1.col1 / 2 
-             and t2.col1 <= t1.col1", 
+        exec_fetch_sort_equal(SKey, query4c, 100, IsSec, "
+            select t1.col1, t2.col1 
+            from def t1, def t2 
+            where t1.col1=5 
+            and t2.col1 > t1.col1 / 2 
+            and t2.col1 <= t1.col1"
+            , 
             [
                 {<<"5">>,<<"3">>},{<<"5">>,<<"4">>},{<<"5">>,<<"5">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query4d, 100, IsSec, 
-            "select t1.col1, t2.col2 
-             from def t1, def t2 
-             where t1.col1 <> 5 
-             and t1.col1 <= 10
-             and t1.col1 <> 0
-             and not (t2.col2 = '7') 
-             and t2.col1 = t1.col1", 
+        exec_fetch_sort_equal(SKey, query4d, 100, IsSec, "
+            select t1.col1, t2.col2 
+            from def t1, def t2 
+            where t1.col1 <> 5 
+            and t1.col1 <= 10
+            and t1.col1 <> 0
+            and not (t2.col2 = '7') 
+            and t2.col1 = t1.col1"
+            , 
             [
                 {<<"1">>,<<"1">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>},{<<"4">>,<<"4">>},
                 {<<"6">>,<<"6">>},{<<"8">>,<<"8">>},{<<"9">>,<<"9">>},{<<"10">>,<<"10">>}
@@ -603,55 +703,77 @@ test_with_or_without_sec(IsSec) ->
 
     %% is_xxx function conditions
 
-        exec_fetch_sort_equal(SKey, query5, 100, IsSec, 
-            "select col1 from member_test 
-             where is_list(col2) 
-             or is_tuple(col3)",  
+        exec_fetch_sort_equal(SKey, query5, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_list(col2) 
+            or is_tuple(col3)"
+            ,  
             [{<<"1">>},{<<"2">>},{<<"3">>},{<<"4">>},{<<"5">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5a, 100, IsSec, 
-            "select col1 
-             from member_test 
-             where is_member(3,col2) 
-             and col1 > 0",
+        exec_fetch_sort_equal(SKey, query5a, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_member(3,col2) 
+            and col1 > 0"
+            ,
             [{<<"2">>},{<<"3">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5b, 100, IsSec, 
-            "select col1 from member_test where is_member(to_atom('a'),col2)",
+        exec_fetch_sort_equal(SKey, query5b, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_member(to_atom('a'),col2)"
+            ,
             [{<<"1">>},{<<"5">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5c, 100, IsSec, 
-            "select col1 from member_test where is_member(to_tuple('{e}'),col2)",
+        exec_fetch_sort_equal(SKey, query5c, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_member(to_tuple('{e}'),col2)"
+            ,
             [{<<"2">>},{<<"5">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5d, 100, IsSec, 
-            "select col1 from member_test where is_member(to_list('[e]'),col2)",
+        exec_fetch_sort_equal(SKey, query5d, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_member(to_list('[e]'),col2)"
+            ,
             [{<<"1">>},{<<"3">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5e, 100, IsSec, 
-            "select col1 from member_test where is_member(1,member_test)",
+        exec_fetch_sort_equal(SKey, query5e, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_member(1,member_test)"
+            ,
             [{<<"1">>},{<<"3">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5f, 100, IsSec, 
-            "select col1 from member_test where is_member(3,to_list('[1,2,3,4]'))",
+        exec_fetch_sort_equal(SKey, query5f, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_member(3,to_list('[1,2,3,4]'))"
+            ,
             [{<<"1">>},{<<"2">>},{<<"3">>},{<<"4">>},{<<"5">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5g, 100, IsSec, 
-            "select col1 from member_test a where is_member(to_atom('undefined'),a)",
+        exec_fetch_sort_equal(SKey, query5g, 100, IsSec, "
+            select col1 
+            from member_test a 
+            where is_member(to_atom('undefined'),a)"
+            ,
             [{<<"1">>},{<<"4">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5h, 100, IsSec, 
-            "select d.col1, m.col1 
-             from def as d, member_test as m 
-             where is_member(d.col1,m.col2)",
+        exec_fetch_sort_equal(SKey, query5h, 100, IsSec, "
+            select d.col1, m.col1 
+            from def as d, member_test as m 
+            where is_member(d.col1,m.col2)"
+            ,
             [
                 {<<"1">>,<<"2">>},
                 {<<"2">>,<<"2">>},
@@ -661,12 +783,12 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query5i, 100, IsSec, 
-            "select d.col1, m.col1 
-             from def as d, member_test as m
-             where d.col1 <> 0 
-             and is_member(d.col1+1,m.col2)
-            ",
+        exec_fetch_sort_equal(SKey, query5i, 100, IsSec, "
+            select d.col1, m.col1 
+            from def as d, member_test as m
+            where d.col1 <> 0 
+            and is_member(d.col1+1,m.col2)"
+            ,
             [
                 {<<"1">>,<<"2">>},
                 {<<"2">>,<<"2">>},{<<"2">>,<<"3">>},
@@ -675,11 +797,11 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),  % ToDo: reversing the table names crashes the server, unsupported join filter at runtime
 
-        exec_fetch_sort_equal(SKey, query5j, 100, IsSec, 
-            "select d.col1, m.col1 
-             from def d, member_test m 
-             where is_member(d.col1,m)
-            ",
+        exec_fetch_sort_equal(SKey, query5j, 100, IsSec, "
+            select d.col1, m.col1 
+            from def d, member_test m 
+            where is_member(d.col1,m)"
+            ,
             [
                 {<<"1">>,<<"1">>},{<<"1">>,<<"3">>},
                 {<<"2">>,<<"2">>},
@@ -690,10 +812,10 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, 
-            "select to_name(qname) 
-             from ddTable
-             where is_member(to_tuple('{virtual,true}'),opts)"
+        R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, "
+            select to_name(qname) 
+            from ddTable
+            where is_member(to_tuple('{virtual,true}'),opts)"
         ),
         % ?assert(length(R5k) >= 18),
         ?assert(length(R5k) == 0),      % not used any more for DataTypes
@@ -702,10 +824,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertNot(lists:member({"imem.ddTable"},R5k)),
         ?assertNot(lists:member({"imem.ddTable"},R5k)),
 
-        R5l = exec_fetch_sort(SKey, query5l, 100, IsSec, 
-            "select to_name(qname) 
-             from ddTable
-             where not is_member(to_tuple('{virtual,true}'),opts)"
+        R5l = exec_fetch_sort(SKey, query5l, 100, IsSec, "
+            select to_name(qname) 
+            from ddTable
+            where not is_member(to_tuple('{virtual,true}'),opts)"
         ),
         ?assert(length(R5l) >= 5),
         ?assertNot(lists:member({<<"imem.atom">>},R5l)),
@@ -713,83 +835,99 @@ test_with_or_without_sec(IsSec) ->
         ?assert(lists:member({<<"imem.ddTable">>},R5l)),
         ?assert(lists:member({<<"imem.ddAccount">>},R5l)),
 
-        R5m = exec_fetch_sort(SKey, query5m, 100, IsSec, 
-            "select 
+        R5m = exec_fetch_sort(SKey, query5m, 100, IsSec, "
+            select 
                 to_name(qname),  
                 item2(item) as field,  
                 item3(item) as type,   
                 item4(item) as len,   
                 item5(item) as prec,   
                 item6(item) as def
-             from ddTable, list
-             where is_member(item,columns)   
-             "
+            from ddTable, list
+            where is_member(item,columns)"
         ),
         ?assert(length(R5m) >= 5),
 
-        exec_fetch_sort_equal(SKey, query5n, 100, IsSec, 
-            "select col1 from member_test where col3 = to_tuple('{a,d,e}')",
+        exec_fetch_sort_equal(SKey, query5n, 100, IsSec, "
+            select col1 
+            from member_test 
+            where col3 = to_tuple('{a,d,e}')"
+            ,
             [{<<"4">>},{<<"5">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5o, 100, IsSec, 
-            "select col1 from member_test where col3 = to_tuple('{x,d,e}')",
+        exec_fetch_sort_equal(SKey, query5o, 100, IsSec, "
+            select col1 
+            from member_test 
+            where col3 = to_tuple('{x,d,e}')"
+            ,
             []
         ),
 
-        exec_fetch_sort_equal(SKey, query5p, 100, IsSec, 
-            "select col1 from member_test where col3 = to_tuple('{''a'',d,e}')",
+        exec_fetch_sort_equal(SKey, query5p, 100, IsSec, "
+            select col1 
+            from member_test 
+            where col3 = to_tuple('{''a'',d,e}')"
+            ,
             [{<<"4">>},{<<"5">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query5q, 100, IsSec, 
-            "select col1 from member_test where col3 = to_tuple('{a,{\"d\"},e}')",
+        exec_fetch_sort_equal(SKey, query5q, 100, IsSec, "
+            select col1 
+            from member_test 
+            where col3 = to_tuple('{a,{\"d\"},e}')"
+            ,
             []
         ),
 
-        R5r = exec_fetch_sort(SKey, query5r, 100, IsSec, 
-            "select to_name(qname), size, memory 
-             from ddTable, ddSize
-             where element(2,qname) = name "
+        R5r = exec_fetch_sort(SKey, query5r, 100, IsSec, "
+            select to_name(qname), size, memory 
+            from ddTable, ddSize
+            where element(2,qname) = name "
         ),
         ?assert(length(R5r) > 0),
 
-        R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, 
-            "select to_name(qname), nodef(tte) 
-             from ddTable, ddSize
-             where name = element(2,qname)"
+        R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, "
+            select to_name(qname), nodef(tte) 
+            from ddTable, ddSize
+            where name = element(2,qname)"
         ),
         ?assertEqual(length(R5s),length(R5r)),
         ?Info("Full Result R5s: ~n~p~n", [R5s]),
 
-        R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, 
-            "select to_name(qname), tte 
-             from ddTable, ddSize
-             where element(2,qname) = name and tte <> to_atom('undefined')"
+        R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, "
+            select to_name(qname), tte 
+            from ddTable, ddSize
+            where element(2,qname) = name 
+            and tte <> to_atom('undefined')"
         ),
         % ?Info("Result R5t DIFF: ~n~p~n", [R5s -- R5t]),
         ?assert(length(R5t) > 0),
         ?assert(length(R5t) < length(R5s)),
 
-        R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, 
-            "select to_name(qname), tte 
-             from ddTable, ddSize
-             where element(2,qname) = name and tte = to_atom('undefined')"
+        R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, "
+            select to_name(qname), tte 
+            from ddTable, ddSize
+            where element(2,qname) = name 
+            and tte = to_atom('undefined')"
         ),
         % ?Info("Result R5u DIFF: ~n~p~n", [R5s -- R5u]),
         ?assert(length(R5u) > 0),
         ?assert(length(R5u) < length(R5s)),
         ?assert(length(R5t) + length(R5u) == length(R5s)),
 
-        R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, 
-            "select to_name(qname), size, tte 
-             from ddTable, ddSize
-             where element(2,qname) = name and tte <> to_atom('undefined') and tte > 0"
+        R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, "
+            select to_name(qname), size, tte 
+            from ddTable, ddSize
+            where element(2,qname) = name 
+            and tte <> to_atom('undefined') and tte > 0"
         ),
         ?assert(length(R5v) > 0),
 
-        R5w = exec_fetch_sort(SKey, query5w, 100, IsSec, 
-            "select hkl from ddConfig where element ( 1 , hd ( hkl ) ) = to_atom('imem')"
+        R5w = exec_fetch_sort(SKey, query5w, 100, IsSec, "
+            select hkl 
+            from ddConfig 
+            where element ( 1 , hd ( hkl ) ) = to_atom('imem')"
         ),
         ?assert(length(R5w) > 0),
 
@@ -797,28 +935,27 @@ test_with_or_without_sec(IsSec) ->
             {member_test,6, [e,{f},g]   ,     {imem_meta:schema(),node()}}
         ]),
 
-        exec_fetch_sort_equal(SKey, query5x, 100, IsSec, 
-            "select col1 
-             from ddSchema, member_test 
-             where element ( 2 , col3 ) = element ( 2 , schemaNode )
-            "
+        exec_fetch_sort_equal(SKey, query5x, 100, IsSec, "
+            select col1 
+            from ddSchema, member_test 
+            where element ( 2 , col3 ) = element ( 2 , schemaNode )"
             ,
             [{<<"6">>}]
         ),
 
-        ?assertEqual(ok, imem_sql:exec(SKey,
-            "create table ddCmdTest (
+        ?assertEqual(ok, imem_sql:exec(SKey,"
+            create table ddCmdTest (
                 id integer,
                 owner userid,
                 opts term
-            );", 0, imem, IsSec)),
+            );", 0, [{schema,imem}], IsSec)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey,
-            "create table ddViewTest (
+        ?assertEqual(ok, imem_sql:exec(SKey,"
+            create table ddViewTest (
                 id integer, 
                 owner userid,
                 cmd integer
-            );", 0, imem, IsSec)),
+            );", 0, [{schema,imem}], IsSec)),
 
         if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,1,system,[a]}]),
         if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,2,system,[a,b]}]),
@@ -852,14 +989,13 @@ test_with_or_without_sec(IsSec) ->
                         ok                        
         end,
 
-        exec_fetch_sort_equal(SKey, query5y, 100, IsSec, 
-            "select v.id, c.id
-             from ddViewTest as v, ddCmdTest as c
-             where c.id = v.cmd
-                and (c.owner = user or c.owner = to_atom('system'))
-                and c.id in (1,2,3,91) 
-             order by v.id, c.id
-            "
+        exec_fetch_sort_equal(SKey, query5y, 100, IsSec, "
+            select v.id, c.id
+            from ddViewTest as v, ddCmdTest as c
+            where c.id = v.cmd
+            and (c.owner = user or c.owner = to_atom('system'))
+            and c.id in (1,2,3,91) 
+            order by v.id, c.id"
             ,
             case IsSec of
                 false ->    [{<<"1001">>,<<"1">>}
@@ -877,15 +1013,14 @@ test_with_or_without_sec(IsSec) ->
             end
         ),
 
-        exec_fetch_sort_equal(SKey, query5z, 100, IsSec, 
-            "select v.id, c.id
-             from ddCmdTest as c, ddViewTest as v
-             where c.id = v.cmd
-                and (c.owner = user or c.owner = to_atom('system'))
-                and c.id in (1,2,3,91)
-                and is_member(to_atom('b'),c.opts) 
-             order by v.id, c.id
-            "
+        exec_fetch_sort_equal(SKey, query5z, 100, IsSec, "
+            select v.id, c.id
+            from ddCmdTest as c, ddViewTest as v
+            where c.id = v.cmd
+            and (c.owner = user or c.owner = to_atom('system'))
+            and c.id in (1,2,3,91)
+            and is_member(to_atom('b'),c.opts) 
+            order by v.id, c.id"
             ,
             case IsSec of
                 false ->    [{<<"1002">>,<<"2">>}
@@ -900,15 +1035,14 @@ test_with_or_without_sec(IsSec) ->
             end
         ),
 
-        exec_fetch_sort_equal(SKey, query5z1, 100, IsSec, 
-            "select v.id, c.id
-             from ddViewTest as v, ddCmdTest as c
-             where c.id = v.cmd
-                and (c.owner = user or c.owner = to_atom('system'))
-                and c.id in (1,2,3,91)
-                and not is_member(to_atom('c'),c.opts) 
-             order by v.id, c.id
-            "
+        exec_fetch_sort_equal(SKey, query5z1, 100, IsSec, "
+            select v.id, c.id
+            from ddViewTest as v, ddCmdTest as c
+            where c.id = v.cmd
+            and (c.owner = user or c.owner = to_atom('system'))
+            and c.id in (1,2,3,91)
+            and not is_member(to_atom('c'),c.opts) 
+            order by v.id, c.id"
             ,
             case IsSec of
                 false ->    [{<<"1001">>,<<"1">>}
@@ -922,18 +1056,18 @@ test_with_or_without_sec(IsSec) ->
             end
         ),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddViewTest;", 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddViewTest;", 0, [{schema,imem}], IsSec)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddCmdTest;", 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddCmdTest;", 0, [{schema,imem}], IsSec)),
 
     %% sorting
 
-        exec_fetch_sort_equal(SKey, query6a, 100, IsSec, 
-            "select col1, col2 
-             from def
-             where col1 < 11 
-             and col1 <> 0 
-             order by col1 desc, col2"
+        exec_fetch_sort_equal(SKey, query6a, 100, IsSec, "
+            select col1, col2 
+            from def
+            where col1 < 11 
+            and col1 <> 0 
+            order by col1 desc, col2"
             , 
             [
                 {<<"10">>,<<"10">>}
@@ -950,12 +1084,12 @@ test_with_or_without_sec(IsSec) ->
         ),
 
 
-        exec_fetch_sort_equal(SKey, query6b, 100, IsSec, 
-            "select 2*col1
-             from def
-             where col1 <= 5 
-             and col1 <> 0 
-             order by 1 desc, col2"
+        exec_fetch_sort_equal(SKey, query6b, 100, IsSec, "
+            select 2*col1
+            from def
+            where col1 <= 5 
+            and col1 <> 0 
+            order by 1 desc, col2"
             , 
             [
                  {<<"10">>}
@@ -977,22 +1111,22 @@ test_with_or_without_sec(IsSec) ->
         ,{<<"8">>,<<"1.26315789473684250000e+00">>}
         ,{<<"9">>,<<"4.73684210526315040000e-01">>}
         ],
-        exec_fetch_sort_equal(SKey, query6b, 100, IsSec, 
-            "select col1, col1 - col1*col1/9.5
-             from def
-             where col1 <= 9 
-             and col1 <> 0 
-             order by 1"
+        exec_fetch_sort_equal(SKey, query6b, 100, IsSec, "
+            select col1, col1 - col1*col1/9.5
+            from def
+            where col1 <= 9 
+            and col1 <> 0 
+            order by 1"
             , 
             Q6bExpected
         ),
 
-        exec_fetch_sort_equal(SKey, query6c, 100, IsSec, 
-            "select col1, col1 - col1*col1/9.5
-             from def
-             where col1 <= 9 
-             and col1 <> 0 
-             order by 1 desc"
+        exec_fetch_sort_equal(SKey, query6c, 100, IsSec, "
+            select col1, col1 - col1*col1/9.5
+            from def
+            where col1 <= 9 
+            and col1 <> 0 
+            order by 1 desc"
             , 
             lists:reverse(Q6bExpected)
         ),
@@ -1008,50 +1142,50 @@ test_with_or_without_sec(IsSec) ->
         ,{<<"4">>,<<"2.31578947368421060000e+00">>}
         ,{<<"5">>,<<"2.36842105263157880000e+00">>}
         ],
-        exec_fetch_sort_equal(SKey, query6d, 100, IsSec, 
-            "select col1, col1 - col1*col1/9.5
-             from def
-             where col1 <= 9 
-             and col1 <> 0 
-             order by 2"
+        exec_fetch_sort_equal(SKey, query6d, 100, IsSec, "
+            select col1, col1 - col1*col1/9.5
+            from def
+            where col1 <= 9 
+            and col1 <> 0 
+            order by 2"
             , 
             Q6dExpected
         ),
 
-        exec_fetch_sort_equal(SKey, query6e, 100, IsSec, 
-            "select col1, col1 - col1*col1/9.5
-             from def
-             where col1 <= 9 
-             and col1 <> 0 
-             order by 2 desc"
+        exec_fetch_sort_equal(SKey, query6e, 100, IsSec, "
+            select col1, col1 - col1*col1/9.5
+            from def
+            where col1 <= 9 
+            and col1 <> 0 
+            order by 2 desc"
             , 
             lists:reverse(Q6dExpected)
         ),
 
-        exec_fetch_sort_equal(SKey, query6f, 100, IsSec, 
-            "select col1, col1 - col1*col1/9.5
-             from def
-             where col1 <= 9 
-             and col1 <> 0 
-             order by col1 - col1*col1/9.5 desc"
+        exec_fetch_sort_equal(SKey, query6f, 100, IsSec, "
+            select col1, col1 - col1*col1/9.5
+            from def
+            where col1 <= 9 
+            and col1 <> 0 
+            order by col1 - col1*col1/9.5 desc"
             , 
             lists:reverse(Q6dExpected)
         ),
 
-        exec_fetch_sort_equal(SKey, query6g, 100, IsSec, 
-            "select col1, col1 - col1*col1/9.5
-             from def
-             where col1 <= 9 
-             and col1 <> 0 
-             order by '12' asc, col1 - col1*col1/9.5 desc"
+        exec_fetch_sort_equal(SKey, query6g, 100, IsSec, "
+            select col1, col1 - col1*col1/9.5
+            from def
+            where col1 <= 9 
+            and col1 <> 0 
+            order by '12' asc, col1 - col1*col1/9.5 desc"
             , 
             lists:reverse(Q6dExpected)
         ),
 
-        exec_fetch_sort_equal(SKey, query6h, 100, IsSec, 
-            "select * 
-             from member_test
-             order by is_tuple(col3), col1"
+        exec_fetch_sort_equal(SKey, query6h, 100, IsSec, "
+            select * 
+            from member_test
+            order by is_tuple(col3), col1"
             , 
             [{<<"1">>,<<"[a,b,c,[e]]">>,<<"undefined">>}
             ,{<<"2">>,<<"[1,2,3,{e}]">>,<<"9">>}
@@ -1062,10 +1196,10 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query6i, 100, IsSec, 
-            "select * 
-             from member_test
-             order by is_tuple(col3), col1 desc"
+        exec_fetch_sort_equal(SKey, query6i, 100, IsSec, "
+            select * 
+            from member_test
+            order by is_tuple(col3), col1 desc"
             , 
             [{<<"3">>,<<"[[e],3,4,5]">>,<<"1">>}
             ,{<<"2">>,<<"[1,2,3,{e}]">>,<<"9">>}
@@ -1077,11 +1211,10 @@ test_with_or_without_sec(IsSec) ->
         ),
     %% like
 
-        exec_fetch_sort_equal(SKey, query7a, 100, IsSec, 
-            "select col2 
-             from def
-             where col2 like '1%'
-            " 
+        exec_fetch_sort_equal(SKey, query7a, 100, IsSec, "
+            select col2 
+            from def
+            where col2 like '1%'" 
             , 
             [
                  {<<"1">>}
@@ -1098,35 +1231,34 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query7b, 100, IsSec, 
-            "select col1, col2 from def where col2 like '%_in_%'" 
+        exec_fetch_sort_equal(SKey, query7b, 100, IsSec, "
+            select col1, col2 from def where col2 like '%_in_%'" 
             , 
             [{<<"100">>, <<"\"text_in_quotes\"">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query7c, 100, IsSec, 
-            "select col1 from def where col2 like '%quotes\"'" 
+        exec_fetch_sort_equal(SKey, query7c, 100, IsSec, "
+            select col1 from def where col2 like '%quotes\"'" 
             , 
             [{<<"100">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query7d, 100, IsSec, 
-            "select col1 from def where col2 like '_text_in%'" 
+        exec_fetch_sort_equal(SKey, query7d, 100, IsSec, "
+            select col1 from def where col2 like '_text_in%'" 
             , 
             [{<<"100">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query7e, 100, IsSec, 
-            "select col1 from def where col2 like 'text_in%'" 
+        exec_fetch_sort_equal(SKey, query7e, 100, IsSec, "
+            select col1 from def where col2 like 'text_in%'" 
             , 
             []
         ),
 
-        exec_fetch_sort_equal(SKey, query7f, 100, IsSec, 
-            "select col2 
-             from def
-             where col2 like '%1' or col2 like '1%'
-            " 
+        exec_fetch_sort_equal(SKey, query7f, 100, IsSec, "
+            select col2 
+            from def
+            where col2 like '%1' or col2 like '1%'" 
             , 
             [
                  {<<"1">>}
@@ -1143,11 +1275,10 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query7fa, 100, IsSec, 
-            "select col2 
-             from def
-             where col2 like '%1' or col2 not like '1%'
-            " 
+        exec_fetch_sort_equal(SKey, query7fa, 100, IsSec, "
+            select col2 
+            from def
+            where col2 like '%1' or col2 not like '1%'" 
             , 
             [
                  {<<"0">>}
@@ -1168,73 +1299,70 @@ test_with_or_without_sec(IsSec) ->
 
     %% regexp_like()
 
-        exec_fetch_sort_equal(SKey, query7g, 100, IsSec, 
-            "select col2 from def where regexp_like(col2,'0')" 
+        exec_fetch_sort_equal(SKey, query7g, 100, IsSec, "
+            select col2 from def where regexp_like(col2,'0')" 
             , 
             [{<<"0">>},{<<"10">>},{<<"20">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query7h, 100, IsSec, 
-            "select col1 from def where regexp_like(col2,'^\"')" 
+        exec_fetch_sort_equal(SKey, query7h, 100, IsSec, "
+            select col1 from def where regexp_like(col2,'^\"')" 
             , 
             [{<<"100">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query7i, 100, IsSec, 
-            "select col1 from def where regexp_like(col2,'s\"$')" 
+        exec_fetch_sort_equal(SKey, query7i, 100, IsSec, "
+            select col1 from def where regexp_like(col2,'s\"$')" 
             , 
             [{<<"100">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query7j, 100, IsSec, 
-            "select col1 from def where regexp_like(col2,'_.*_')" 
+        exec_fetch_sort_equal(SKey, query7j, 100, IsSec, "
+            select col1 from def where regexp_like(col2,'_.*_')" 
             , 
             [{<<"100">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query7k, 100, IsSec, 
-            "select col1 from def where regexp_like(col2,'^[^_]*_[^_]*$')" 
+        exec_fetch_sort_equal(SKey, query7k, 100, IsSec, "
+            select col1 from def where regexp_like(col2,'^[^_]*_[^_]*$')" 
             , 
             []
         ),
 
     %% like joins
 
-        exec_fetch_sort_equal(SKey, query7l, 100, IsSec, 
-            "select d1.col1, d2.col1 
-             from def d1, def d2
-             where d1.col1 > 10
-             and d2.col1 like '%5%'
-             and d2.col1 = d1.col1
-            " 
+        exec_fetch_sort_equal(SKey, query7l, 100, IsSec, "
+            select d1.col1, d2.col1 
+            from def d1, def d2
+            where d1.col1 > 10
+            and d2.col1 like '%5%'
+            and d2.col1 = d1.col1" 
             , 
             [
                 {<<"15">>,<<"15">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query7m, 100, IsSec, 
-            "select d1.col1, d2.col1 
-             from def d1, def d2
-             where d1.col1 >= 5
-             and d2.col1 like '%5%'
-             and d2.col2 like '5%'
-             and d2.col1 = d1.col1
-            " 
+        exec_fetch_sort_equal(SKey, query7m, 100, IsSec, "
+            select d1.col1, d2.col1 
+            from def d1, def d2
+            where d1.col1 >= 5
+            and d2.col1 like '%5%'
+            and d2.col2 like '5%'
+            and d2.col1 = d1.col1" 
             , 
             [
                 {<<"5">>,<<"5">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query7n, 100, IsSec, 
-            "select d1.col1, d2.col1 
-             from def d1, def d2
-             where d1.col1 >= 5
-             and d2.col1 like '%5%'
-             and d2.col2 not like '1%'
-             and d2.col1 = d1.col1
-            " 
+        exec_fetch_sort_equal(SKey, query7n, 100, IsSec, "
+            select d1.col1, d2.col1 
+            from def d1, def d2
+            where d1.col1 >= 5
+            and d2.col1 like '%5%'
+            and d2.col2 not like '1%'
+            and d2.col1 = d1.col1" 
             , 
             [
                 {<<"5">>,<<"5">>}
@@ -1243,152 +1371,138 @@ test_with_or_without_sec(IsSec) ->
 
     %% expressions and concatenations
 
-        exec_fetch_sort_equal(SKey, query8a, 100, IsSec, 
-            "select 'a' || 'b123' 
-             from dual
-            " 
+        exec_fetch_sort_equal(SKey, query8a, 100, IsSec, "
+            select 'a' || 'b123' 
+            from dual" 
             , 
             [
                 {<<"ab123">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8b, 100, IsSec, 
-            "select col2 || col2
-             from def
-             where col1 = 1 or col1=20
-            " 
+        exec_fetch_sort_equal(SKey, query8b, 100, IsSec, "
+            select col2 || col2
+            from def
+            where col1 = 1 or col1=20" 
             , 
             [
                 {<<"11">>},{<<"2020">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8c, 100, IsSec, 
-            "select col2 || to_binstr('XYZ')
-             from def
-             where col1 = 1 or col1=20
-            " 
+        exec_fetch_sort_equal(SKey, query8c, 100, IsSec, "
+            select col2 || to_binstr('XYZ')
+            from def
+            where col1 = 1 or col1=20" 
             , 
             [
                 {<<"1XYZ">>},{<<"20XYZ">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8d, 100, IsSec, 
-            "select to_string('123') || to_string('XYZ') 
-             from member_test
-             where col1 = 5
-            " 
+        exec_fetch_sort_equal(SKey, query8d, 100, IsSec, "
+            select to_string('123') || to_string('XYZ') 
+            from member_test
+            where col1 = 5" 
             , 
             [
                 {<<"\"123XYZ\"">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8e, 100, IsSec, 
-            "select col2 || to_string('XYZ') 
-             from member_test
-             where col1 = 1
-            " 
+        exec_fetch_sort_equal(SKey, query8e, 100, IsSec, "
+            select col2 || to_string('XYZ') 
+            from member_test
+            where col1 = 1" 
             , 
             [
                 {<<"[a,b,c,[e],88,89,90]">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8f, 100, IsSec, 
-            "select col2 || to_string(sqrt(2.0)) 
-             from def
-             where col1 = 5
-            " 
+        exec_fetch_sort_equal(SKey, query8f, 100, IsSec, "
+            select col2 || to_string(sqrt(2.0)) 
+            from def
+            where col1 = 5" 
             , 
             [
                 {<<"\"51.41421356237309510000e+00\"">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8g, 100, IsSec, 
-            "select col2 || to_binstr(sqrt(2.0)) 
-             from def
-             where col1 = 5
-            " 
+        exec_fetch_sort_equal(SKey, query8g, 100, IsSec, "
+            select col2 || to_binstr(sqrt(2.0)) 
+            from def
+            where col1 = 5" 
             , 
             [
                 {<<"51.41421356237309510000e+00">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8h, 100, IsSec, 
-            "select col2 
-             from def
-             where col2 || to_binstr(sqrt(2.0)) = to_binstr('51.41421356237309510000e+00')
-            " 
+        exec_fetch_sort_equal(SKey, query8h, 100, IsSec, "
+            select col2 
+            from def
+            where col2 || to_binstr(sqrt(2.0)) = to_binstr('51.41421356237309510000e+00')" 
             , 
             [
                 {<<"5">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8i, 100, IsSec, 
-            "select col2 
-             from def
-             where byte_size(col2) > 1 and col1 < 11
-            " 
+        exec_fetch_sort_equal(SKey, query8i, 100, IsSec, "
+            select col2 
+            from def
+            where byte_size(col2) > 1 and col1 < 11" 
             , 
             [
                 {<<"10">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8j, 100, IsSec, 
-            "select reverse(col2), hd(col2), last(col2)
-             from member_test
-             where col1 = 1
-            " 
+        exec_fetch_sort_equal(SKey, query8j, 100, IsSec, "
+            select reverse(col2), hd(col2), last(col2)
+            from member_test
+            where col1 = 1" 
             , 
             [
                 {<<"[[e],c,b,a]">>, <<"a">>, <<"[e]">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8k, 100, IsSec, 
-            "select is_list(col2), is_list(last(col2)), is_tuple(hd(col2))
-             from member_test
-             where col1 = 1
-            " 
+        exec_fetch_sort_equal(SKey, query8k, 100, IsSec, "
+            select is_list(col2), is_list(last(col2)), is_tuple(hd(col2))
+            from member_test
+            where col1 = 1" 
             , 
             [
                 {<<"true">>, <<"true">>, <<"false">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8l, 100, IsSec, 
-            "select col3
-             from member_test
-             where is_tuple(col3)
-            " 
+        exec_fetch_sort_equal(SKey, query8l, 100, IsSec, "
+            select col3
+            from member_test
+            where is_tuple(col3)" 
             , 
             [
                 {<<"{a,d,e}">>}, {<<"{a,d,e}">>}, {<<"{imem,nonode@nohost}">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8m, 100, IsSec, 
-            "select element(1,col3)
-             from member_test
-             where is_tuple(col3)
-            " 
+        exec_fetch_sort_equal(SKey, query8m, 100, IsSec, "
+            select element(1,col3)
+            from member_test
+            where is_tuple(col3)" 
             , 
             [
                 {<<"a">>}, {<<"a">>}, {<<"imem">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8n, 100, IsSec, 
-            "select is_tuple(col3), element(1,col3)
-             from member_test
-            " 
+        exec_fetch_sort_equal(SKey, query8n, 100, IsSec, "
+            select is_tuple(col3), element(1,col3)
+            from member_test" 
             , 
             [
              {<<"false">>,<<"'$not_a_value'">>}
@@ -1400,11 +1514,10 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8o, 100, IsSec, 
-            "select is_tuple(col3), element(1,col3)
-             from member_test 
-             where is_nav(element(1,col3))
-            " 
+        exec_fetch_sort_equal(SKey, query8o, 100, IsSec, "
+            select is_tuple(col3), element(1,col3)
+            from member_test 
+            where is_nav(element(1,col3))" 
             , 
             [
              {<<"false">>,<<"'$not_a_value'">>}
@@ -1413,31 +1526,29 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8p, 100, IsSec, 
-            "select to_text(to_list('[1,64,3]') || 'SomeText' || to_list('[7,64,9]'))
-             from member_test 
-             where col1 = 1
-            " 
+        exec_fetch_sort_equal(SKey, query8p, 100, IsSec, "
+            select to_text(to_list('[1,64,3]') || 'SomeText' || to_list('[7,64,9]'))
+            from member_test 
+            where col1 = 1" 
             , 
             [
              {<<".@.SomeText.@.">>}
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query8q, 100, IsSec, 
-            "select to_text(to_list('[1,64,3]') || to_binstr(col1) || to_list('[7,64,9]'))
-             from member_test 
-             where col1 = 1
-            " 
+        exec_fetch_sort_equal(SKey, query8q, 100, IsSec, "
+            select to_text(to_list('[1,64,3]') || to_binstr(col1) || to_list('[7,64,9]'))
+            from member_test 
+            where col1 = 1" 
             , 
             [
              {<<".@.1.@.">>}
             ]
         ),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, [{schema,imem}], IsSec)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema,imem}], IsSec)),
 
         case IsSec of
             true ->     ?imem_logout(SKey);
@@ -1462,7 +1573,7 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
 exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?Info("~n", []),
     ?Info("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),
@@ -1476,7 +1587,7 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
 exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?Info("~n", []),
     ?Info("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
@@ -1489,7 +1600,7 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
 
 exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     ?Info("~p : ~s~n", [Id,Sql]),
-    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
@@ -1507,7 +1618,7 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
 % exec_fetch(SKey,Id, BS, IsSec, Sql) ->
 %     ?Info("~n", []),
 %     ?Info("~p : ~s~n", [Id,Sql]),
-%     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, imem, IsSec),
+%     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
 %     ?assertEqual(ok, RetCode),
 %     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
 %     List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),

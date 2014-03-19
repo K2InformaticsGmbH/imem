@@ -11,7 +11,6 @@
 -define(FirstIdx, 2).                                     %% First field position in records
 -define(KeyIdx, 2).                                       %% Key position in records
 -define(MetaIdx, 1).                                      %% Meta record (constants) is placed as first tuple in the SQL result
--define(RownumIdx,1).                                     %% Position of rownum value in Meta Record
 -define(MainIdx, 2).                                      %% The main record is placed as second tuple in the SQL result
 -define(TableIdx(__N), 1+__N).                            %% Tables are numbered 0=Meta, 1=Main, 2=FirstJoinTable ...
 -define(MetaMain(__Meta,__Main), {__Meta,__Main}).        %% contstruct initial result tuple with meta and main table
@@ -19,7 +18,8 @@
 -define(Main(__Rec), element(?MainIdx,__Rec)).            %% pick main tuple (main table) out of master tuple 
 -define(Table(__N,__Rec), element(?TableIdx(__N),__Rec)). %% pick table N tuple out for master tuple
 
--define(RownumBind, #bind{tind=1,cind=1}).                %% Bind pattern for rownum variable
+-define(RownumIdx,1).                                     %% Position of rownum value in Meta Record
+-define(RownumBind, #bind{tind=1,cind=1,table= <<"_meta_">>,name= <<"rownum">>}).  %% Bind pattern for rownum variable
 
 -define(BoundVal(__Bind,__X), 
           case __Bind#bind.cind of
@@ -64,6 +64,7 @@
                   , blockSize = 100         ::integer()           %% get data in chunks of (approximately) this size
                   , stmtStr = ""            ::string()            %% SQL statement
                   , stmtParse = undefined   ::tuple()             %% SQL parse tree (tuple of atoms, binaries, numbers and and lists)
+                  , stmtParams = []         ::list()              %% Proplist with {<<":name">>,<<"type">>,[<<"value">>]}
                   , colMap = []             ::list(#bind{})       %% column map (one expression tree per selected column )
                   , fullMap = []            ::list(#bind{})       %% full map of bind records (meta fields and table fields used in query)
                   , metaFields = []         ::list(atom())        %% list of meta_field names needed by RowFun
@@ -93,5 +94,3 @@
                   , sortSpec = []                   ::list()
                   }
        ).
-
--define(TAIL_VALID_OPTS, [fetch_mode, tail_mode]).

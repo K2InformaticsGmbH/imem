@@ -7,12 +7,16 @@
 -define(Star,<<"*">>).
 -define(Join,'$join$').
 -define(GET_ROWNUM_LIMIT,?GET_IMEM_CONFIG(rownumDefaultLimit,[],10000)).
+-define(MetaTab,<<"_meta_">>).
+-define(ParamTab,<<"_param_">>).
+-define(ParamNameIdx,1).
+-define(ParamTypeIdx,2).
+-define(ParamPrecisionIdx,3).
 
--export([ column_map_tables/1
+-export([ column_map_tables/3
         , column_map_columns/2
         , column_map_items/2
         , expr/3
-        , purge_meta_fields/3
         , bind_scan/3
         , bind_virtual/3
         , bind_tree/2
@@ -114,16 +118,16 @@ uses_bind(Ti,{_,A,B,C,D}) -> uses_bind(Ti,A) orelse uses_bind(Ti,B) orelse uses_
 uses_bind(_,_) -> false.
 
 %% Does expression tree use a bind with Ti/Ci ?
-uses_bind(_, _ ,{const,_}) ->              false;
-uses_bind(Ti,Ci,#bind{tind=Ti,cind=Ci}) -> true;
-uses_bind(Ti,Ci,#bind{tind=0,cind=0,btree=BTree}) -> uses_bind(Ti,Ci,BTree);
-uses_bind(Ti,Ci,{_,A}) -> uses_bind(Ti,Ci,A);
-uses_bind(Ti,Ci,{_,A,B}) -> uses_bind(Ti,Ci,A) orelse uses_bind(Ti,Ci,B);
-uses_bind(Ti,Ci,{_,A,B,C}) -> uses_bind(Ti,Ci,A) orelse uses_bind(Ti,Ci,B) orelse uses_bind(Ti,Ci,C);
-uses_bind(Ti,Ci,{_,A,B,C,D}) -> uses_bind(Ti,Ci,A) orelse uses_bind(Ti,Ci,B) orelse uses_bind(Ti,Ci,C)  orelse uses_bind(Ti,Ci,D);
-uses_bind(_,_,_) -> false.
+% uses_bind(_, _ ,{const,_}) ->              false;
+% uses_bind(Ti,Ci,#bind{tind=Ti,cind=Ci}) -> true;
+% uses_bind(Ti,Ci,#bind{tind=0,cind=0,btree=BTree}) -> uses_bind(Ti,Ci,BTree);
+% uses_bind(Ti,Ci,{_,A}) -> uses_bind(Ti,Ci,A);
+% uses_bind(Ti,Ci,{_,A,B}) -> uses_bind(Ti,Ci,A) orelse uses_bind(Ti,Ci,B);
+% uses_bind(Ti,Ci,{_,A,B,C}) -> uses_bind(Ti,Ci,A) orelse uses_bind(Ti,Ci,B) orelse uses_bind(Ti,Ci,C);
+% uses_bind(Ti,Ci,{_,A,B,C,D}) -> uses_bind(Ti,Ci,A) orelse uses_bind(Ti,Ci,B) orelse uses_bind(Ti,Ci,C)  orelse uses_bind(Ti,Ci,D);
+% uses_bind(_,_,_) -> false.
 
-%% Does this guard use the operand Tx?      TODO: Generalize from guard tree to expression tree
+%% Does this guard use the rownum meta field? If yes, return the comparison expression.   
 rownum_match({_,R}) ->                  rownum_match(R);
 rownum_match({_,?RownumBind,_}=C1) ->   C1;
 rownum_match({_,_,?RownumBind}=C2) ->   C2;
@@ -410,7 +414,7 @@ scan_spec(Ti,STree0,FullMap) ->
         {'==',L,?RownumBind} when is_integer(L) ->  L;
         {'==',?RownumBind,L} when is_integer(L) ->  L;
         Else ->
-            ?UnimplementedException({"Unsupported use of rownum",{Else}}) %% TODO: treat rownum as extra table at end
+            ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     % ?LogDebug("STree0 (~p)~n~p~n", [Ti,to_guard(STree0)]),
     case {uses_bind(Ti-1,STree0),uses_filter(STree0)} of
@@ -519,36 +523,51 @@ column_map_items(_Map, Item) ->
 %% are corrected (not yet implemented).
 %% Tables:  given as list of parse tree 'from' descriptions. Table names are converted to physical table names.
 %% throws   ?ClientError
--spec column_map_tables(list(binary()|{as,_,_})) -> list(#bind{}).
-column_map_tables(Tables) ->
-    MetaBinds = column_map_meta_fields(imem_meta:meta_field_list(),?MetaIdx,[]),
-    TableBinds = column_map_tables(Tables, ?MainIdx, []),
-    MetaBinds ++ TableBinds.
+-spec column_map_tables(list(binary()|{as,_,_}), list(binary()), list(tuple())) -> list(#bind{}).
+column_map_tables(Tables, MetaFields, Params) ->
+    MetaBinds = column_map_meta_fields(MetaFields,?MetaIdx,[]),
+    ParamBinds = column_map_param_fields(Params,?MetaIdx,lists:reverse(MetaBinds)),
+    TableBinds = column_map_table_fields(Tables, ?MainIdx, []),
+    ParamBinds ++ TableBinds.
 
 -spec column_map_meta_fields(list(atom()), integer(), list(#bind{})) -> list(#bind{}).
 column_map_meta_fields([], _Ti, Acc) -> lists:reverse(Acc);
-column_map_meta_fields([Field|Fields], Ti, Acc) ->
+column_map_meta_fields([Name|Names], Ti, Acc) ->
     Cindex = length(Acc) + 1,    %% Ci of next meta field (starts with 1, not 2)
-    #ddColumn{type=Type,len=Len,prec=P,default=D} = imem_meta:meta_field_info(Field),
+    #ddColumn{type=Type,len=Len,prec=P,default=D} = imem_meta:meta_field_info(Name),
     S = ?atom_to_binary(imem_meta:schema()),
-    T = <<"meta">>,
-    N = ?atom_to_binary(Field),
     Tag = list_to_atom(lists:flatten([$$,integer_to_list(?MetaIdx),integer_to_list(Cindex)])),
-    Bind=#bind{schema=S,table=T,alias=T,name=N,tind=Ti,cind=Cindex,type=Type,len=Len,prec=P,default=D,tag=Tag}, 
-    column_map_meta_fields(Fields, Ti, [Bind|Acc]).
+    Bind=#bind{schema=S,table=?MetaTab,alias=?MetaTab,name=Name,tind=Ti,cind=Cindex,type=Type,len=Len,prec=P,default=D,tag=Tag}, 
+    column_map_meta_fields(Names, Ti, [Bind|Acc]).
 
--spec column_map_tables(list(),integer(),list(#bind{})) -> list(#bind{}).
-column_map_tables([], _Ti, Acc) -> Acc;
-column_map_tables([{as,Table,Alias}|Tables], Ti, Acc) when is_binary(Table),is_binary(Alias) ->
+-spec column_map_param_fields(list(atom()), integer(), list(#bind{})) -> list(#bind{}).
+column_map_param_fields([], _Ti, Acc) -> lists:reverse(Acc);
+column_map_param_fields([Param|Params], Ti, Acc) ->
+    case imem_datatype:is_datatype(element(?ParamTypeIdx,Param)) of
+        true -> 
+            N = element(?ParamNameIdx,Param),           %% Parameter name as binary in first element of triple
+            Type = ?binary_to_atom(element(?ParamTypeIdx,Param)),   %% Parameter type (imem datatype) as second element
+            Prec = list_to_integer(binary_to_list(element(?ParamPrecisionIdx,Param))),  %% Parameter precision (for decimals)
+            Cindex = length(Acc) + 1,       %% Ci of next param field, appended to meta fields
+            Tag = list_to_atom(lists:flatten([$$,integer_to_list(?MetaIdx),integer_to_list(Cindex)])),
+            Bind=#bind{table=?ParamTab,alias=?ParamTab,name=N,tind=Ti,cind=Cindex,type=Type,prec=Prec,tag=Tag}, 
+            column_map_param_fields(Params, Ti, [Bind|Acc]);
+        false ->
+            ?ClientError({"Invalid data type for parameter",{element(1,Param),element(2,Param)}})
+    end.
+
+-spec column_map_table_fields(list(),integer(),list(#bind{})) -> list(#bind{}).
+column_map_table_fields([], _Ti, Acc) -> Acc;
+column_map_table_fields([{as,Table,Alias}|Tables], Ti, Acc) when is_binary(Table),is_binary(Alias) ->
     {S,T} = binstr_to_qname2(Table),
-    column_map_tables([{S,T,Alias}|Tables], Ti, Acc);
-column_map_tables([Table|Tables], Ti, Acc) when is_binary(Table) ->
+    column_map_table_fields([{S,T,Alias}|Tables], Ti, Acc);
+column_map_table_fields([Table|Tables], Ti, Acc) when is_binary(Table) ->
     {S,T} = binstr_to_qname2(Table),
-    column_map_tables([{S,T,T}|Tables], Ti, Acc);
-column_map_tables([{undefined,T,A}|Tables], Ti, Acc) ->
+    column_map_table_fields([{S,T,T}|Tables], Ti, Acc);
+column_map_table_fields([{undefined,T,A}|Tables], Ti, Acc) ->
     S = ?atom_to_binary(imem_meta:schema()),
-    column_map_tables([{S,T,A}|Tables], Ti, Acc);
-column_map_tables([{S,T,A}|Tables], Ti, Acc) ->
+    column_map_table_fields([{S,T,A}|Tables], Ti, Acc);
+column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
     Cols = imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}),
     case Ti of
         ?MainIdx ->      
@@ -565,7 +584,7 @@ column_map_tables([{S,T,A}|Tables], Ti, Acc) ->
           || {Ci, #ddColumn{name=N,type=Type,len=Len,prec=P,default=D}} <- 
           lists:zip(lists:seq(?FirstIdx,length(Cols)+1), Cols)
         ],
-    column_map_tables(Tables, Ti+1, Acc ++ Binds).
+    column_map_table_fields(Tables, Ti+1, Acc ++ Binds).
 
 %% @doc Generates list of column information (bind records) for a select list.
 %% Bind records will be tagged with integers corresponding to the position in the select list (1..n).
@@ -703,6 +722,8 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
             {_,ValWrap,Type,Prec} = imem_datatype:field_value_type(Tag,T,L,P,D,imem_sql:un_escape_sql(B)),
             #bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}
     end;
+expr({param,Name}, FullMap, _) when is_binary(Name) -> 
+    column_map_lookup({undefined,?ParamTab,Name},FullMap);
 expr({'fun',Fname,[A]}=PTree, FullMap, _) -> 
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
@@ -965,42 +986,6 @@ reverse('<=') -> '>=';
 reverse('<') -> '>';
 reverse('>') -> '<';
 reverse(OP) -> ?UnimplementedException({"Cannot reverse sql operator",OP}).
-
-
-%% @doc Finds unused meta fields (tind=?MetaIdx) in Columns and in the where bind tree and removes these fields from FullMap.
-%% Record positions for the remaining meta fields (if any) are corrected in the bind trees (shifted towards lower cind values).
-%% ColMap:  select list bind tree 
-%% WBTree:  where bind tree (where clause)
-%% FullMap: Bind map of all involved tables and fields, including meta table
-%% TODO:    Current impl. returns on first used meta field and does not correct ColMap and WBTree by keeping
-%%          all meta fields before the first needed. Implement tree remapping in order to remove unused meta fields. 
--spec purge_meta_fields(list(#bind{}),#bind{},list(#bind{})) -> {list(#bind{}),#bind{},list(#bind{})}.
-purge_meta_fields(ColMap0, WBTree0, FullMap0) -> 
-    MetaMap0 = [B || #bind{tind=Ti}=B <- FullMap0, Ti==?MetaIdx],
-    % ?LogDebug("MetaMap0~n~p~n", [MetaMap0]),
-    {ColMap1, WBTree1, MetaMap1} = purge_meta_fields(ColMap0, WBTree0, lists:reverse(MetaMap0),[]),
-    % ?LogDebug("MetaMap1~n~p~n", [MetaMap1]),
-    {ColMap1, WBTree1, MetaMap1 ++ [B || #bind{tind=Ti}=B <- FullMap0, Ti/=?MetaIdx]}.
-
-purge_meta_fields(ColMap, WBTree, [], []) -> {ColMap, WBTree, []};
-purge_meta_fields(ColMap, WBTree, [], MetaMap) -> {ColMap, WBTree, MetaMap};
-purge_meta_fields(ColMap, WBTree, [MB|Rest], MetaMap) ->
-    Ti = MB#bind.tind,
-    Ci = MB#bind.cind,
-    case uses_bind(Ti,Ci,WBTree) of
-        false ->
-            case lists:usort([uses_bind(Ti,Ci,CBind) || CBind <- ColMap]) of
-                [false] ->  
-                    case lists:usort([uses_bind(Ti,Ci,CBind#bind.btree) || CBind <- ColMap]) of
-                        [false] ->  purge_meta_fields(ColMap, WBTree, Rest, MetaMap);
-                        _ ->        purge_meta_fields(ColMap, WBTree, [], lists:reverse([MB|Rest])) 
-                    end;
-                _ ->    
-                    purge_meta_fields(ColMap, WBTree, [], lists:reverse([MB|Rest])) 
-            end;
-        _ ->  
-            purge_meta_fields(ColMap, WBTree, [], lists:reverse([MB|Rest])) 
-    end.
 
 %% Split guard into two pieces:
 %% -  a scan guard for mnesia
@@ -1393,10 +1378,10 @@ test_with_or_without_sec(IsSec) ->
                     ,[]
                 }
             },
-        ?assertEqual(true, uses_bind(2,7,BTreeSample)),
-        ?assertEqual(false, uses_bind(2,6,BTreeSample)),
-        ?assertEqual(true, uses_bind(1,4,BTreeSample)),
-        ?assertEqual(true, uses_bind(0,0,BTreeSample)),
+        % ?assertEqual(true, uses_bind(2,7,BTreeSample)),
+        % ?assertEqual(false, uses_bind(2,6,BTreeSample)),
+        % ?assertEqual(true, uses_bind(1,4,BTreeSample)),
+        % ?assertEqual(true, uses_bind(0,0,BTreeSample)),
 
         ColMapSample =  { bind,0,0,undefined,undefined,<<"'a' || 'b123'">>,undefined,binstr,0,0,undefined,false,undefined
                         , {'||',<<"'a'">>,<<"'b123'">>}
@@ -1439,32 +1424,32 @@ test_with_or_without_sec(IsSec) ->
         Alias1 =    {as, <<"meta_table_1">>, <<"alias1">>},
         Alias2 =    {as, <<"imem.meta_table_1">>, <<"alias2">>},
 
-        ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, column_map_tables([Table1,TableX,Table3])),
+        ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, column_map_tables([Table1,TableX,Table3],[],[])),
         ?Info("success ~p~n", [table_no_exists]),
 
-        FullMap0 =  column_map_tables([]),
+        FullMap0 =  column_map_tables([],imem_meta:meta_field_list(),[]),
         ?Info("FullMap0~n~p~n", [FullMap0]),
         MetaFieldCount = length(imem_meta:meta_field_list()),
         ?assertEqual(MetaFieldCount, length(FullMap0)),
 
-        FullMap1 = column_map_tables([Table1]),
+        FullMap1 = column_map_tables([Table1],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+3, length(FullMap1)),
         ?Info("success ~p~n", [full_map_1]),
 
-        FullMap13 = column_map_tables([Table1,Table3]),
+        FullMap13 = column_map_tables([Table1,Table3],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+6, length(FullMap13)),
         ?Info("success ~p~n", [full_map_13]),
 
-        FullMap123 = column_map_tables([Table1,Table2,Table3]),
+        FullMap123 = column_map_tables([Table1,Table2,Table3],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+8, length(FullMap123)),
         ?Info("success ~p~n", [full_map_123]),
 
-        AliasMap1 = column_map_tables([Alias1]),
-        % ?Info("AliasMap1~n~p~n", [AliasMap1]),
+        AliasMap1 = column_map_tables([Alias1],imem_meta:meta_field_list(),[]),
+        ?Info("AliasMap1~n~p~n", [AliasMap1]),
         ?assertEqual(MetaFieldCount+3, length(AliasMap1)),
         ?Info("success ~p~n", [alias_map_1]),
 
-        AliasMap123 = column_map_tables([Alias1,Alias2,Table3]),    
+        AliasMap123 = column_map_tables([Alias1,Alias2,Table3],imem_meta:meta_field_list(),[]),    
         %% select from 
         %%            meta_table_1 as alias1        (a char, b1 char    , c1 char)
         %%          , imem.meta_table1 as alias2    (a char, b1 char    , c1 char)

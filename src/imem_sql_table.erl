@@ -5,18 +5,18 @@
 -export([ exec/5
         ]).
     
-exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Schema, _IsSec) -> ok;
-exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Schema, IsSec) ->
+exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Opts, _IsSec) -> ok;
+exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("Drop Table ParseTree~n~p~n", [_ParseTree]),
     QName = imem_meta:qualified_table_name(TableName), 
     % ?LogDebug("Drop Table QName~n~p~n", [QName]),
     if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
-    exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Schema, IsSec);
-exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Schema, IsSec) ->
+    exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Opts, IsSec);
+exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Opts, IsSec) ->
     % ?Info("Parse Tree ~p~n", [_ParseTree]),
     if_call_mfa(IsSec, 'truncate_table', [SKey, imem_meta:qualified_table_name(TableName)]);
 
-exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Schema, IsSec) ->
+exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Opts, IsSec) ->
     % ?Info("Parse Tree ~p~n", [_ParseTree]),
     create_table(SKey, imem_sql_expr:binstr_to_qname2(TableName), TOpts, Columns, IsSec, []).
 

@@ -261,6 +261,11 @@ is_number_type(Type) when is_atom(Type) -> lists:member(Type,?NumberTypes).
 
 is_datatype([]) -> false;
 is_datatype({}) -> false;
+is_datatype(Type) when is_binary(Type) -> 
+    case (catch ?binary_to_existing_atom(Type)) of
+        T when is_atom(T) ->    is_datatype(T);
+        _ ->                    false
+    end; 
 is_datatype(Type) when is_atom(Type) -> lists:member(Type,?DataTypes);
 is_datatype(Types) when is_list(Types) ->
     (not lists:member(false,[is_datatype(T) || T <- Types]));
