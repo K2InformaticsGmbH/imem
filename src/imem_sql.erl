@@ -121,6 +121,14 @@ meta_rec(IsSec,SKey,MetaFields,Params,MR) ->
     MetaRec = [if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields],
     list_to_tuple(MetaRec ++ lists:sublist(tuple_to_list(MR),length(MetaRec)+1,length(Params))).
 
+%% --Interface functions  (calling imem_if for now, not exported) ---------
+
+if_call_mfa(IsSec,Fun,Args) ->
+    case IsSec of
+        true -> apply(imem_sec,Fun,Args);
+        _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
+    end.
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
