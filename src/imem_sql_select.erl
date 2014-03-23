@@ -258,7 +258,7 @@ test_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query1, 100, IsSec, "
             select dual.* from dual"
             , 
-            [{<<"\"X\"">>,<<"'$not_a_value'">>}]
+            [{<<"\"X\"">>,?navio}]
         ),
 
         exec_fetch_sort_equal(SKey, query1a, 100, IsSec, "
@@ -1505,9 +1505,9 @@ test_with_or_without_sec(IsSec) ->
             from member_test" 
             , 
             [
-             {<<"false">>,<<"'$not_a_value'">>}
-            ,{<<"false">>,<<"'$not_a_value'">>}
-            ,{<<"false">>,<<"'$not_a_value'">>}
+             {<<"false">>,?navio}
+            ,{<<"false">>,?navio}
+            ,{<<"false">>,?navio}
             ,{<<"true">>,<<"a">>}
             ,{<<"true">>,<<"a">>}
             ,{<<"true">>,<<"imem">>}
@@ -1520,9 +1520,9 @@ test_with_or_without_sec(IsSec) ->
             where is_nav(element(1,col3))" 
             , 
             [
-             {<<"false">>,<<"'$not_a_value'">>}
-            ,{<<"false">>,<<"'$not_a_value'">>}
-            ,{<<"false">>,<<"'$not_a_value'">>}
+             {<<"false">>,?navio}
+            ,{<<"false">>,?navio}
+            ,{<<"false">>,?navio}
             ]
         ),
 

@@ -35,11 +35,11 @@ prune_fields(InFields, ParseTree) ->
     lists:usort(OutFields).
 
 params_from_opts(Opts,ParseTree) when is_list(Opts) ->
-    Params = case lists:keyfind(params, 1, Opts) of
+    case lists:keyfind(params, 1, Opts) of
         false ->    
             [];
-        {_, ParamTriples} ->
-            SortedTriples = lists:sort(ParamTriples),
+        {_, Params} ->
+            SortedTriples = lists:sort(Params),
             Names = [element(1,T) || T <- SortedTriples],   
             case imem_sql:prune_fields(Names,ParseTree) of
                 Names ->    SortedTriples;
@@ -128,7 +128,6 @@ if_call_mfa(IsSec,Fun,Args) ->
         true -> apply(imem_sec,Fun,Args);
         _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
     end.
-
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
@@ -236,11 +235,5 @@ test_with_or_without_sec(IsSec) ->
         ?assert( true == "all tests completed")
     end,
     ok. 
-
-if_call_mfa(IsSec,Fun,Args) ->
-    case IsSec of
-        true -> apply(imem_sec,Fun,Args);
-        _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
-    end.
 
 -endif.

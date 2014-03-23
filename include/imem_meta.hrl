@@ -81,7 +81,8 @@
        ).
 -define(ddMonitor, [timestamp,atom,integer,integer,integer,integer,integer,integer,integer,integer,list]).
 
--define(nav, '$not_a_value').    %% used as default value which must not be used (not null columns)
+-define(nav, '$not_a_value').           %% used as default value which must not be used (not null columns)
+-define(navio, <<"'$not_a_value'">>).   %% used as default value which must not be used (not null columns)
 -define(nac, '$not_a_column').   %% used as value column name for key only tables
 
 -record(dual,                               %% table    

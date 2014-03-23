@@ -35,13 +35,13 @@ exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=ParseTree 
     % TODO: Rest could be repeated for array bound Params (in transaction)
     MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params,undefined),
     % ?LogDebug("Meta Rec: ~p~n", [MR]),
-    ColBTrees1 = [{imem_sql_expr:bind_tree({MR},T),CMap} || {T,CMap} <- ColBTrees0],
+    ColBTrees1 = [{imem_sql_expr:bind_tree(T,{MR}),CMap} || {T,CMap} <- ColBTrees0],
     % ?LogDebug("ColBTrees1:~n~p~n", [ColBTrees1]),
     ColBTrees2 = [{ case imem_sql_funs:expr_fun(T) of
                         F when is_function(F) -> F({MR});
                         V -> V 
                     end,CMap} || {T,CMap} <- ColBTrees1],
-    % ?LogDebug("ColBTrees1:~n~p~n", [ColBTrees2]),
+    % ?LogDebug("ColBTrees2:~n~p~n", [ColBTrees2]),
     NewRec0 = merge_values(ColBTrees2, DefRec),
     % ?LogDebug("NewRec:~n~p~n", [NewRec0]),
     NewRec1 = evaluate_funs(NewRec0),

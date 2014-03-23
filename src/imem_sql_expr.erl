@@ -26,6 +26,7 @@
         , join_specs/3
         , sort_fun/3
         , sort_spec/3
+        , is_readonly/1
         , filter_spec_where/3
         , sort_spec_order/3
         , sort_spec_fun/3
@@ -53,7 +54,7 @@ bind_scan(Ti,X,ScanSpec0) ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
-            STree1 = bind_table(X, Ti, STree0),
+            STree1 = bind_table(Ti, STree0, X),
             % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [to_guard(STree1)], [Result]}],
             case Ti of
@@ -62,7 +63,7 @@ bind_scan(Ti,X,ScanSpec0) ->
             end;
         {_,_} ->                     %% both filter funs needs to be evaluated
             [{SHead, [undefined], [Result]}] = SSpec0,
-            STree1 = bind_table(X, Ti, STree0),
+            STree1 = bind_table(Ti, STree0, X),
             % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             {STree2,FTree} = split_filter_from_guard(STree1),
             % ?LogDebug("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
@@ -91,13 +92,13 @@ bind_virtual(Ti,X,ScanSpec0) ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
-            STree1 = bind_table(X, Ti, STree0),
+            STree1 = bind_table(Ti, STree0, X),
             % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [to_guard(STree1)], [Result]}],
             {SSpec1,TailSpec0,FilterFun0};
         {_,_} ->                                    %% filter fun needs to be evaluated
             [{SHead, [undefined], [Result]}] = SSpec0,
-            STree1 = bind_table(X, Ti, STree0),
+            STree1 = bind_table(Ti, STree0, X),
             % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             %% TODO: splitting into generator conditions and filter conditions
             %% For now, we assume that we only have generator conditions which define
@@ -256,26 +257,26 @@ bind_eval(BTree) ->
 
 %% @doc Binds unbound variables for Table Ti in a condition tree, means that all variables  
 %% for tables with index smaller than Ti must be bound to values.
-%% X:       Tuple structure known so far e.g. {{MetaRec}} for main table scan (Ti=2)
 %% Ti:      Table index (?MainIdx=2,JoinTables=3,4..)
 %% BTree:   Bind tree expression to be simplified by binding values to unbound variables.
+%% X:       Tuple structure known so far e.g. {{MetaRec}} for main table scan (Ti=2)
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec bind_table(tuple(), integer(), tuple()) -> tuple().
-bind_table(X, Ti, BTree) ->
-    case bind_tab(X, Ti, BTree) of
+-spec bind_table(integer(), tuple(), tuple()) -> tuple().
+bind_table(Ti, BTree, X) ->
+    case bind_tab(Ti, BTree, X) of
         ?nav ->     false;
         B ->        B
     end.
 
-bind_tab(_,  _, {const,T}) when is_tuple(T) -> {const,T};
-bind_tab(X, Ti, #bind{tind=0,cind=0,btree=BT}) -> bind_eval(bind_tab(X, Ti, BT));
-bind_tab(X, Ti, #bind{tind=Tind}=Bind) when Tind<Ti -> bind_value(?BoundVal(Bind,X));
-bind_tab(_,  _, #bind{}=Bind) -> Bind;
-bind_tab(X, Ti, {Op,A}) ->       bind_eval({Op,bind_tab(X,Ti,A)}); %% unary functions and operators
-bind_tab(X, Ti, {Op,A,B}) ->     bind_eval({Op,bind_tab(X,Ti,A),bind_tab(X,Ti,B)}); %% binary functions/op.
-bind_tab(X, Ti, {Op,A,B,C}) ->   bind_eval({Op,bind_tab(X,Ti,A),bind_tab(X,Ti,B),bind_tab(X,Ti,C)});
-bind_tab(X, Ti, {Op,A,B,C,D}) -> bind_eval({Op,bind_tab(X,Ti,A),bind_tab(X,Ti,B),bind_tab(X,Ti,C),bind_tab(X,Ti,D)});
-bind_tab(_,  _, A) ->            bind_value(A).
+bind_tab(_, {const,T}, _) when is_tuple(T) -> {const,T};
+bind_tab(Ti, #bind{tind=0,cind=0,btree=BT}, X) -> bind_eval(bind_tab(Ti, BT, X));
+bind_tab(Ti, #bind{tind=Tind}=Bind, X) when Tind<Ti -> bind_value(?BoundVal(Bind,X));
+bind_tab(_ , #bind{}=Bind, _) -> Bind;
+bind_tab(Ti, {Op,A}, X) ->       bind_eval({Op,bind_tab(Ti,A,X)}); %% unary functions and operators
+bind_tab(Ti, {Op,A,B}, X) ->     bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X)}); %% binary functions/op.
+bind_tab(Ti, {Op,A,B,C}, X) ->   bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X)});
+bind_tab(Ti, {Op,A,B,C,D}, X) -> bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X),bind_tab(Ti,D,X)});
+bind_tab(_ , A, _) ->            bind_value(A).
 
 
 %% @doc Transforms an expression tree into a matchspec guard by replacing bind records with their tag value.  
@@ -291,22 +292,21 @@ to_guard({Op,A,B,C,D}) ->       {Op,to_guard(A),to_guard(B),to_guard(C),to_guard
 to_guard(A) ->                  A.
 
 %% @doc Binds all unbound variables in an expression tree in one pass.
-%% X:       Tuple structure known so far e.g. {{MetaRec},{MainRec}} for main table scan (Ti=2)
 %% BTree:   Bind tree expression to be simplified by binding values to unbound variables.
+%% X:       Tuple structure known so far e.g. {{MetaRec},{MainRec}} for main table scan (Ti=2)
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_tree(tuple(), tuple()) -> tuple().
-bind_tree(X, BTree) ->
-    bind_t(X, BTree).
+bind_tree(BTree, X) ->  bind_t(BTree, X).
 
-bind_t(_, {const,T}) when is_tuple(T) -> {const,T};
-bind_t(X, #bind{tind=0,cind=0,btree=BT}) ->    bind_eval(bind_tree(X, BT));
-bind_t(X, #bind{}=Bind) ->       bind_value(?BoundVal(Bind,X));
-bind_t(_, {Op}) ->               bind_eval({Op});
-bind_t(X, {Op,A}) ->             bind_eval({Op,bind_t(X,A)});
-bind_t(X, {Op,A,B}) ->           bind_eval({Op,bind_t(X,A),bind_t(X,B)});
-bind_t(X, {Op,A,B,C}) ->         bind_eval({Op,bind_t(X,A),bind_t(X,B),bind_t(X,C)});
-bind_t(X, {Op,A,B,C,D}) ->       bind_eval({Op,bind_t(X,A),bind_t(X,B),bind_t(X,C),bind_t(X,D)});
-bind_t(_, A) ->                  bind_value(A).
+bind_t({const,T}, _) when is_tuple(T) -> {const,T};
+bind_t(#bind{tind=0,cind=0,btree=BT}, X) ->    bind_eval(bind_t(BT,X));
+bind_t(#bind{}=Bind, X) ->       bind_value(?BoundVal(Bind,X));
+bind_t({Op}, _) ->               bind_eval({Op});
+bind_t({Op,A}, X) ->             bind_eval({Op,bind_t(A,X)});
+bind_t({Op,A,B}, X) ->           bind_eval({Op,bind_t(A,X),bind_t(B,X)});
+bind_t({Op,A,B,C}, X) ->         bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X)});
+bind_t({Op,A,B,C,D}, X) ->       bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X),bind_t(D,X)});
+bind_t(A, _) ->                  bind_value(A).
 
 
 %% @doc Reforms the select field expression tree by evaluating
@@ -316,7 +316,7 @@ bind_t(_, A) ->                  bind_value(A).
 -spec bind_subtree_const(binary()|tuple()) -> list().
 bind_subtree_const(#bind{tind=0,cind=0,btree=BT}=BTree) ->
     % ?LogDebug("Bind subtree constants~n~p~n",[BTree]),
-    case bind_table(unknown,1,BT) of
+    case bind_table(1,BT,unknown) of
         ?nav ->     ?ClientError({"Cannot bind subtree constants", BT});
         Tree ->     BTree#bind{btree=Tree}
     end;
@@ -516,6 +516,17 @@ column_map_items(Map, ptree) ->
 column_map_items(_Map, Item) ->
     ?ClientError({"Invalid item",Item}).
 
+-spec is_readonly(#bind{}) -> boolean().
+is_readonly(#bind{tind=Ti}) when Ti > ?MainIdx -> true;
+is_readonly(#bind{tind=?MainIdx,cind=Ci}) when Ci>0 -> false;   
+is_readonly(#bind{tind=?MainIdx,cind=0}) -> true;               %% Vector field cannot be edited
+is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> true; %% Vector field cannot be edited
+is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> true; %% Vector field cannot be edited
+is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op=='element';Op=='nth' -> false;  %% editable projection
+is_readonly(_BTree) -> 
+    ?LogDebug("Positive readonly test for ~n~p~n",[_BTree]),
+    true.
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.
@@ -640,7 +651,8 @@ column_map_columns([#bind{schema=Schema,table=Table,name=Name,alias=Alias,ptree=
 column_map_columns([{as, Expr, Alias}=PTree|Columns], FullMap, Acc) ->
     % ?LogDebug("column_map 7 ~p~n", [{as, Expr, Alias}]),
     Bind = expr(Expr,FullMap,#bind{}),
-    column_map_columns(Columns, FullMap, [Bind#bind{alias=Alias,ptree=PTree}|Acc]);
+    R = is_readonly(Bind),
+    column_map_columns(Columns, FullMap, [Bind#bind{alias=Alias,readonly=R,ptree=PTree}|Acc]);
 column_map_columns([PTree|Columns], FullMap, Acc) ->
     % ?LogDebug("column_map 9 ~p ~p ~p~n", [PTree, is_binary(PTree),is_integer(PTree)]),
     case expr(PTree,FullMap,#bind{}) of 
@@ -650,7 +662,8 @@ column_map_columns([PTree|Columns], FullMap, Acc) ->
         #bind{} = CMap ->
             %% one select column returned
             Alias = sqlparse:fold({fields,[PTree]}),
-            column_map_columns(Columns, FullMap, [CMap#bind{alias=Alias,ptree=PTree}|Acc])
+            R = is_readonly(CMap),
+            column_map_columns(Columns, FullMap, [CMap#bind{alias=Alias,readonly=R,ptree=PTree}|Acc])
     end;
 column_map_columns([], _FullMap, Acc) -> lists:reverse(Acc);
 column_map_columns(Columns, FullMap, Acc) ->
@@ -680,11 +693,9 @@ column_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
             ?ClientError({"Ambiguous field or table name", qname3_to_binstr(QN3)});
         (Name == undefined) ->         
             Bind = hd(Bmatch),
-            Bind#bind{type=tuple,cind=0,readonly=true};    %% bind to whole table record
+            Bind#bind{type=tuple,cind=0};       %% bind to whole table record
         true ->         
-            #bind{tind=Ti} = Bind = hd(Bmatch),
-            R = (Ti /= ?MainIdx),               %% Only main table is editable
-            Bind#bind{readonly=R}               %% bind to a record field in a table
+            hd(Bmatch)
     end.
 
 %% 
@@ -703,7 +714,7 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
         {PTree,_} ->
             %% This is not a string, must be a name or a number
             case (catch imem_datatype:io_to_term(PTree)) of
-                I when is_integer(I) -> 
+                I when is_integer(I) ->  
                     #bind{tind=0,cind=0,type=integer,readonly=true,btree=I};
                 V when is_float(V) -> 
                     #bind{tind=0,cind=0,type=float,readonly=true,btree=V};

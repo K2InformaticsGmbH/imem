@@ -918,8 +918,10 @@ update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_prepare(IsSec, SKey, TableTypes, ColMap, ChangeList, []),
-    % ?Debug("prepared table changes~n~p~n", [UpdPlan]),
+    ?Debug("prepared table changes~n~p~n", [UpdPlan]),
     UpdPlan.
+
+-define(replace(__X,__Cx,__New), setelement(?MainIdx, __X, setelement(__Cx,element(?MainIdx,__X), __New))). 
 
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
 update_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
@@ -936,29 +938,70 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
         true ->                                 ok    
     end,            
-    ValMap = lists:usort(
-        [{Ci,imem_datatype:io_to_db(Item,element(Ci,element(Ti,Recs)),T,L,P,D,false,Value), R} || 
-            {#bind{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D, readonly=R, func=F},Value} 
-            <- lists:zip(ColMap,Values), Ti==?MainIdx, F==undefined]),    
-    % ?Debug("value map~n~p~n", [ValMap]),
-    IndMap = lists:usort([Ci || {Ci,_,_} <- ValMap]),
-    % ?Debug("ind map~n~p~n", [IndMap]),
-    TupleUpdMap = lists:usort(
-                lists:flatten([tuple_update_map(Item,I,Recs,ColMap,Values) || I <- lists:seq(1,9)])     %% item1..item9
-            ),    
-    % ?Debug("tuple item map~n~p~n", [TupleUpdMap]),
-    ROViolV = [{element(Ci,element(?MainIdx,Recs)),NewVal} || {Ci,NewVal,R} <- ValMap, R==true, element(Ci,element(?MainIdx,Recs)) /= NewVal],   
-    ROViolT = [{element(Ci,element(?MainIdx,Recs)),NewVal} || {Ci,Xi,NewVal,R} <- TupleUpdMap, R==true, element(Xi,element(Ci,element(?MainIdx,Recs))) /= NewVal],   
-    ROViol = ROViolV ++ ROViolT,
-    % ?Debug("key change~n~p~n", [ROViol]),
-    if  
-        length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column update",{Item,ValMap}});        
-        length(ROViol) /= 0 ->                  ?ClientError({"Cannot update readonly field",{Item,hd(ROViol)}});        
-        true ->                                 ok    
-    end,            
-    NewRec1 = lists:foldl(fun({Ci,Value,_},Rec) -> setelement(Ci,Rec,Value) end, element(?MainIdx,Recs), ValMap),    
-    NewRec2 = lists:foldl(fun({Ci,Xi,Value,_},Rec) -> setelement(Ci,Rec,setelement(Xi,element(Ci,Rec),Value)) end, NewRec1, TupleUpdMap),    
-    Action = [hd(Tables), Item, element(?MainIdx,Recs), NewRec2],     
+    UpdateMap = lists:sort(
+        [ case CMap of
+            #bind{tind=0,cind=0,func=Proj,btree=BTree} when is_function(Proj) ->
+                case BTree of
+                    {hd,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal ->   ?replace(X,Cx,[NewVal|tl(?BoundVal(B,X))])
+                            end
+                        end,     
+                        {Cx,1,Fx};
+                    {last,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                        Pos = length(?BoundVal(B,Recs)),
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal ->   ?replace(X,Cx,lists:sublist(?BoundVal(B,X),Pos-1) ++ NewVal)
+                            end
+                        end,     
+                        {Cx,Pos,Fx};
+                    {element,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->    
+                        Pos=imem_sql_expr:bind_tree(PosBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case imem_datatype:io_to_db(Item,Proj(X),tuple_type(Type,Pos),undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal ->   ?replace(X,Cx,setelement(Pos,?BoundVal(B,X),NewVal))
+                            end
+                        end,     
+                        {Cx,Pos,Fx};
+                    {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                        Pos = imem_sql_expr:bind_tree(PosBind,Recs),
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case imem_datatype:io_to_db(Item,Proj(X),list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                OldVal ->               
+                                    X;
+                                NewVal1 when Pos==1 ->  
+                                    ?replace(X,Cx,[NewVal1|tl(?BoundVal(B,X))]);
+                                NewVal2 ->              
+                                    Old = ?BoundVal(B,X),
+                                    ?replace(X,Cx,lists:sublist(Old,Pos-1) ++ NewVal2 ++ lists:nthtail(Old,Pos))
+                            end 
+                        end,     
+                        {Cx,Pos,Fx};
+                    Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
+                end;
+            #bind{tind=0,cind=0} ->  
+                ?SystemException({"Internal update error, constant projection binding",{Item,CMap}});
+            #bind{tind=?MainIdx,cind=Cx,type=T,len=L,prec=P,default=D} ->
+                Fx = fun(X) -> 
+                    ?replace(X,Cx,imem_datatype:io_to_db(Item,?BoundVal(CMap,X),T,L,P,D,false,Value))
+                end,     
+                {Cx,0,Fx}
+          end
+          || 
+          {#bind{readonly=R}=CMap,Value} 
+          <- lists:zip(ColMap,Values), R==false, Value /= ?navio
+        ]),    
+    % ?LogDebug("Update map item ~p ~n~p~n", [Item,UpdateMap]),
+    Action = [hd(Tables), Item, element(?MainIdx,Recs), element(?MainIdx,update_recs(Recs, UpdateMap))],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
@@ -968,29 +1011,23 @@ update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
 update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
 
-tuple_update_map(Item,I,Recs,ColMap,Values) ->
-    FuncName = list_to_atom("item" ++ integer_to_list(I)),
-    [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),term,0,0,undefined,false,Value), R} || 
-        {#bind{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
-        <- lists:zip(ColMap,Values), Ti==?MainIdx, T==tuple, F==FuncName, Value/=<<"">>]
-    ++
-    [{Ci,I,imem_datatype:io_to_db(Item,element(I,element(Ci,element(Ti,Recs))),element(I,T),0,0,undefined,false,Value), R} || 
-        {#bind{tind=Ti, cind=Ci, type=T, readonly=R, func=F},Value} 
-        <- lists:zip(ColMap,Values), Ti==?MainIdx, is_tuple(T), F==FuncName, Value/=<<"">>]
-    .
+update_recs(Recs, []) -> Recs;
+update_recs(Recs, [{_Cx,_Pos,Fx}|UpdateMap]) ->
+    % ?LogDebug("Update rec ~p:~p ~n~p~n", [_Cx,_Pos,Recs]),
+    NewRecs = Fx(Recs),
+    % ?LogDebug("Updated rec ~n~p~n", [NewRecs]),
+    update_recs(NewRecs, UpdateMap).
 
-% tuple_insert_map(Item,I,ColMap,Values) ->
-%     FuncName = list_to_atom("item" ++ integer_to_list(I)),
-%     case [{Name,T,Ci,F,L,Value} || {#bind{tind=Ti,cind=Ci,name=Name,type=T,len=L,func=F},Value} <- lists:zip(ColMap,Values), Ti==1, F/=undefined, Value/=<<"">>] of
-%         [] ->   
-%             [];
-%         EMap ->
-%             TupleMap1 = [{Name,T,Ci,F,L,imem_datatype:io_to_db(Item,?nav,term,0,0,undefined,false,Value)} || {Name,T,Ci,F,L,Value} <- EMap, T==tuple],
-%             TupleMap2 = [{Name,T,Ci,F,L,imem_datatype:io_to_db(Item,?nav,element(I,T),0,0,undefined,false,Value)} || {Name,T,Ci,F,L,Value} <- EMap, is_tuple(T)],
-%             TupleMap = TupleMap1 ++ TupleMap2,
+list_type(list) -> term;
+list_type([Type]) when is_atom(Type) -> Type;
+list_type(Other) -> ?ClientError({"Invalid list type",Other}).
 
-%             ?ClientError({"Need a complete value to insert into column",{Item,element(1,hd(L))}})
-%     end.
+tuple_type(tuple,_) -> term;
+tuple_type({Type},_) when is_atom(Type) -> Type;
+tuple_type(T,Pos) when is_tuple(T),(size(T)>=Pos),is_atom(element(Pos,T)) -> element(Pos,T);
+tuple_type(Other,_) -> ?ClientError({"Invalid tuple type",Other}).
+
+-define(ins_repl(__X,__Cx,__New), setelement(__Cx,__X, __New)). 
 
 update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
     % ?Debug("ColMap~n~p~n", [ColMap]),
@@ -1000,34 +1037,62 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
         length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        
         true ->                                 ok    
     end,            
-    case [Name || {#bind{tind=Ti,name=Name,func=F},Value} <- lists:zip(ColMap,Values), Ti==?MainIdx, F/=undefined, Value/=<<"">>] of
-        [] ->   ok;
-        L ->    ?ClientError({"Need a complete value to insert into column",{Item,hd(L)}})
-    end,    
-    ValMap = lists:usort(
-        [{Ci,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value)} || 
-            {#bind{tind=Ti, cind=Ci, type=T, len=L, prec=P, default=D},Value} 
-            <- lists:zip(ColMap,Values), Ti==?MainIdx, Value/=<<"">>]),
-    % ?Debug("value map~n~p~n", [ValMap]),
-    IndMap = lists:usort([Ci || {Ci,_} <- ValMap]),
-    % ?Debug("ind map~n~p~n", [IndMap]),
-    HasKey = lists:member(?KeyIdx,IndMap),
-    if 
-        length(ValMap) /= length(IndMap) ->     ?ClientError({"Contradicting column insert",{Item,ValMap}});
-        HasKey /= true  ->                      ?ClientError({"Missing key column",{Item,ValMap}});
-        true ->                                 ok
-    end,
-    Rec = lists:foldl(
-            fun({Ci,Value},Rec) ->
-                if 
-                    erlang:is_function(Value,0) -> 
-                        setelement(Ci,Rec,Value());
-                    true ->                 
-                        setelement(Ci,Rec,Value)
-                end
-            end, 
-            DefRec, ValMap),
-    Action = [hd(Tables), Item, {}, Rec],     
+    InsertMap = lists:sort(
+        [ case CMap of
+            #bind{tind=0,cind=0,func=Proj,btree=BTree} when is_function(Proj) ->
+                case BTree of
+                    {hd,#bind{tind=?MainIdx,cind=Cx,type=Type}} ->
+                        Fx = fun(X) -> 
+                            NewVal = imem_datatype:io_to_db(Item,<<>>,list_type(Type),undefined,undefined,<<>>,false,Value),
+                            ?ins_repl(X,Cx,[NewVal])
+                        end,     
+                        {Cx,1,Fx};
+                    {element,Pos,#bind{tind=?MainIdx,cind=Cx,name=Name,type=Type}} when is_number(Pos) ->    
+                        Fx = fun(X) -> 
+                            NewVal = imem_datatype:io_to_db(Item,<<>>,tuple_type(Type,Pos),undefined,undefined,<<>>,false,Value),
+                            OldList = case element(Cx,X) of
+                                T when is_tuple(T) ->   tuple_to_list(T);
+                                _ ->                    []
+                            end,
+                            NewPos = length(OldList) + 1,
+                            case Pos of
+                                1 ->        ?ins_repl(X,Cx,{NewVal}); 
+                                NewPos ->   ?ins_repl(X,Cx,list_to_tuple(OldList ++ [NewVal]));
+                                _ ->        ?ClientError({"Missing tuple element",{Item,Name,NewPos}})
+                            end
+                        end,     
+                        {Cx,Pos,Fx};
+                    {nth,Pos,#bind{tind=?MainIdx,cind=Cx,name=Name,type=Type}} when is_number(Pos) ->
+                        Fx = fun(X) -> 
+                            NewVal = imem_datatype:io_to_db(Item,<<>>,list_type(Type),undefined,undefined,<<>>,false,Value),
+                            OldList = case element(Cx,X) of
+                                L when is_list(L) ->    L;
+                                _ ->                    []
+                            end,
+                            NewPos = length(OldList) + 1,
+                            case Pos of
+                                1 ->        ?ins_repl(X,Cx,[NewVal]); 
+                                NewPos ->   ?ins_repl(X,Cx,OldList ++ [NewVal]);
+                                _ ->        ?ClientError({"Missing list element",{Item,Name,NewPos}})
+                            end
+                        end,     
+                        {Cx,Pos,Fx};
+                    Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
+                end;
+            #bind{tind=0,cind=0} ->  
+                ?SystemException({"Internal update error, constant projection binding",{Item,CMap}});
+            #bind{tind=?MainIdx,cind=Cx,type=T,len=L,prec=P,default=D} ->
+                Fx = fun(X) -> 
+                    ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value))
+                end,     
+                {Cx,0,Fx}
+          end
+          || 
+          {#bind{readonly=R}=CMap,Value} 
+          <- lists:zip(ColMap,Values), R==false, Value /= ?navio
+        ]),    
+    % ?LogDebug("Insert map item ~p ~n~p~n", [Item,InsertMap]),
+    Action = [hd(Tables), Item, {},  update_recs(DefRec, InsertMap)],     
     update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]).
 
 % update_bag(IsSec, SKey, Table, ColMap, [C|CList]) ->
@@ -1186,7 +1251,7 @@ test_with_or_without_sec(IsSec) ->
             ) values (
                  '{key2,somenode@somehost}'
                 ,'[key2a,key2b,3,4]'
-                ,'{a,2}'
+                ,'{a,''B2''}'
                 ,2 
             );",  
         ?Info("Sql1b:~n~s~n", [Sql1b]),
@@ -1208,7 +1273,7 @@ test_with_or_without_sec(IsSec) ->
         ?Info("original table~n~p~n", [TT1Rows]),
         TT1RowsExpected=
         [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}
-        ,{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,2},2}
+        ,{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}
         ,{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}
         ],
         ?assertEqual(TT1RowsExpected, TT1Rows),
@@ -1222,23 +1287,24 @@ test_with_or_without_sec(IsSec) ->
 
         TT1b = exec(SKey,tt1b, 4, IsSec, "
             select
-              item1(col1), item1(col3)
-            , item2(col3), col4 
-            from tuple_test where col4=1"),
+              element(1,col1)
+            , element(1,col3), element(2,col3)
+            , col4 
+            from tuple_test where col4=2"),
         ?assertEqual(ok, fetch_async(SKey,TT1b,[],IsSec)),
         ListTT1b = receive_tuples(TT1b,true),
         ?assertEqual(1, length(ListTT1b)),
 
         O1 = {tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
         O1X= {tuple_test,{keyX,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
-        O2 = {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,2},2},
-        O2X= {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,2},undefined},
+        O2 = {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2},
+        O2X= {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,b},undefined},
         O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3},
 
         TT1aChange = [
           [1,upd,{?EmptyMR,O1},<<"keyX">>,<<"key1">>,<<"{key1a,key1b}">>,<<"1">>] 
-        , [2,upd,{?EmptyMR,O2},<<"key2">>,<<"a">>,<<"">>,<<"">>] 
-        , [3,upd,{?EmptyMR,O3},<<"key3">>,<<"">>,<<"">>,<<"3">>]
+        , [2,upd,{?EmptyMR,O2},<<"key2">>,<<"a">>,<<"b">>,<<"">>] 
+        , [3,upd,{?EmptyMR,O3},<<"key3">>,<<"'$not_a_value'">>,<<"'$not_a_value'">>,<<"3">>]
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1aChange)),
         update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
@@ -1249,20 +1315,19 @@ test_with_or_without_sec(IsSec) ->
         ?assert(lists:member(O2X,TT1aRows)),
         ?assert(lists:member(O3,TT1aRows)),
 
+        O4X= {tuple_test,{key4},undefined,{<<"">>,<<"">>},4},
+
         TT1bChange = [[4,ins,{},<<"key4">>,<<"">>,<<"">>,<<"4">>]],
-        ?assertException(throw,
-            {error, {'ClientError',
-             {"Need a complete value to insert into column",{4,<<"col1">>}}}},
-            update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)
-        ),
+        ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)),
+        update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
         TT1bRows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?assertEqual(TT1aRows,TT1bRows),
+        ?Info("TT1bRows~n~p~n", [TT1bRows]),
+        ?assert(lists:member(O4X,TT1bRows)),
 
         TT2a = exec(SKey,tt2, 4, IsSec, "
             select 
               col1
-            , item1(col3)
-            , item2(col3)
+            , hd(col2), nth(2,col2)
             , col4
             from tuple_test
             where col4=1"),
@@ -1271,17 +1336,17 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(1, length(ListTT2a)),
 
         TT2aChange = [
-         [4,ins,{},<<"{key4,nonode@nohost}">>,<<"">>,<<"">>,<<"4">>]
-%        ,[5,ins,{},<<"{key5,somenode@somehost}">>,<<"a">>,<<"5">>,<<"">>]
+         [5,ins,{},<<"{key5,nonode@nohost}">>,<<"a5">>,<<"b5">>,<<"5">>]
+        ,[6,ins,{},<<"{key6,somenode@somehost}">>,<<"">>,<<"b6">>,<<"">>]
         ],
-        O4 = {tuple_test,{key4,nonode@nohost},undefined,undefined,4},
-        % O5 = {tuple_test,{key5,somenode@somehost},undefined,{a,5},undefined},
+        O5X = {tuple_test,{key5,nonode@nohost},[a5,b5],undefined,5},
+        O6X = {tuple_test,{key6,somenode@somehost},[<<"">>,b6],undefined,undefined},
         ?assertEqual(ok, update_cursor_prepare(SKey, TT2a, IsSec, TT2aChange)),
         update_cursor_execute(SKey, TT2a, IsSec, optimistic),        
         TT2aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?Info("appended table~n~p~n", [TT2aRows1]),
-        ?assert(lists:member(O4,TT2aRows1)),
-%        ?assert(lists:member(O5,TT2aRows1)),
+        ?assert(lists:member(O5X,TT2aRows1)),
+        ?assert(lists:member(O6X,TT2aRows1)),
 
         % ?assertEqual(ok, close(SKey, TT1b)),
         % ?assertEqual(ok, close(SKey, TT2a)),
