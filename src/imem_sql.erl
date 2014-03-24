@@ -31,7 +31,7 @@ prune_fields(InFields, ParseTree) ->
             _ ->    {In,Out}
         end
     end,
-    {InFields,OutFields} = sqlparse:fold(ParseTree,Pred,{InFields,[]}),
+    {InFields,OutFields} = sqlparse:foldtd(Pred,{InFields,[]},ParseTree),
     lists:usort(OutFields).
 
 params_from_opts(Opts,ParseTree) when is_list(Opts) ->

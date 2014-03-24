@@ -661,7 +661,7 @@ column_map_columns([PTree|Columns], FullMap, Acc) ->
             column_map_columns([CMap|Columns], FullMap, Acc);
         #bind{} = CMap ->
             %% one select column returned
-            Alias = sqlparse:fold({fields,[PTree]}),
+            Alias = sqlparse:pt_to_string({fields,[PTree]}),
             R = is_readonly(CMap),
             column_map_columns(Columns, FullMap, [CMap#bind{alias=Alias,readonly=R,ptree=PTree}|Acc])
     end;
@@ -1046,7 +1046,7 @@ sort_spec_item(Expr,Direction,_FullMap,ColMap) ->
             case [ Tag || #bind{tag=Tag,alias=A} <- ColMap, A==Expr] of
                 [] ->   
                     case [ Tag || #bind{tag=Tag,ptree=PTree} <- ColMap, PTree==Expr] of
-                        [] ->   [sqlparse:fold({fields,[Expr]})]; 
+                        [] ->   [sqlparse:pt_to_string({fields,[Expr]})]; 
                         TT ->   TT      %% parse tree found (identical to select expression)
                     end;
                 TA ->
