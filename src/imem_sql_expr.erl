@@ -1125,6 +1125,8 @@ filter_condition({Idx,Vals}, ColMap) ->
 
 filter_field_value(_Tag,integer,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,float,_Len,_Prec,_Def,Val) -> Val;
+filter_field_value(_Tag,decimal,_Len,_Prec,_Def,Val) -> Val;
+filter_field_value(_Tag,number,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,_Type,_Len,_Prec,_Def,Val) -> imem_datatype:add_squotes(imem_sql:escape_sql(Val)).    
 
 sort_spec_order([],_,_) -> [];
