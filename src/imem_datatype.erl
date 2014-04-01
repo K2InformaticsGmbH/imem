@@ -1014,6 +1014,8 @@ timestamp_to_io({Megas,Secs,Micros},_,Fmt) ->
 
    
 
+decimal_to_io(Val,undefined) -> 
+    decimal_to_io(Val,0);
 decimal_to_io(Val,0) ->
     list_to_binary(io_lib:format("~p",[Val]));   
 decimal_to_io(Val,Prec) when Val < 0 ->

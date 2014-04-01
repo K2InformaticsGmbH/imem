@@ -957,6 +957,8 @@ expr_comp(Op, #bind{type=T}=CMapA, #bind{type=T}=CMapB) ->
     {Op, CMapA, CMapB};                           %% equal types, direct comparison
 expr_comp(Op, #bind{type=binstr,btree=BTA}, #bind{type=string}=CMapB) ->
     {Op, binstr_to_string(BTA), CMapB};                           
+expr_comp(Op, #bind{type=decimal,prec=0}=CMapA, #bind{type=integer}=CMapB) ->
+    {Op, CMapA, CMapB}; 
 expr_comp(Op, #bind{type=decimal}=CMapA, #bind{type=integer}=CMapB) ->
     {Op, CMapA, integer_to_decimal(CMapB,CMapA#bind.prec)};  %% convert integer to decimal before comparing   
 expr_comp(Op, #bind{type=decimal}=CMapA, #bind{type=T}=CMapB) when T==float;T==integer;T==number ->
@@ -976,15 +978,23 @@ binstr_to_string(#bind{btree=BTree}=B) -> B#bind{type=string,btree={'to_string',
 % string_to_binstr(S) when is_list(S) -> list_to_binary(S);
 % string_to_binstr(#bind{btree=BTree}=S) -> S#bind{type=binstr,btree={'to_binstr',BTree}}.
 
+integer_to_decimal(I , 0) when is_integer(I)-> 
+    I;
 integer_to_decimal(I , Prec) when is_integer(I), is_integer(Prec), Prec>=0 -> 
     erlang:round(math:pow(10, Prec)) * I;
+integer_to_decimal(#bind{btree=BTree}=I,0) -> 
+    I#bind{type=integer,btree=BTree};
 integer_to_decimal(#bind{btree=BTree}=I,Prec) when is_integer(Prec), Prec>=0 -> 
     M = erlang:round(math:pow(10, Prec)),
-    I#bind{type=decimal,btree={'*',M,BTree}};
+    I#bind{type=decimal,prec=Prec,btree={'*',M,BTree}};
 integer_to_decimal(_ , _) -> ?nav.
 
+decimal_to_float(D , 0) when is_integer(D) -> 
+    D;
 decimal_to_float(D , Prec) when is_integer(D), is_integer(Prec), Prec>=0 -> 
     math:pow(10, -Prec) * D;
+decimal_to_float(#bind{btree=BTree}=D, 0)  -> 
+    D#bind{type=float,btree=BTree};
 decimal_to_float(#bind{btree=BTree}=D,Prec) when is_integer(Prec), Prec>=0 -> 
     F = math:pow(10, -Prec),
     D#bind{type=float,btree={'*',F,BTree}};

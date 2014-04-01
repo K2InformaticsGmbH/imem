@@ -25,6 +25,8 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) when is_binary(Name) ->
     % ?LogDebug("Create table column ~p of type ~p~n",[Name,Type]),
     {T,L,P} = case Type of
+        B when B==decimal;B==number ->          {decimal,38,0};
+        {B,SLen} when B==decimal;B==number ->   {decimal,list_to_integer(SLen),0};
         B when is_binary(B) ->      {imem_datatype:io_to_term(imem_datatype:strip_squotes(binary_to_list(B))),undefined,undefined};
         A when is_atom(A) ->        {imem_datatype:imem_type(A),undefined,undefined};
         {float,SPrec} ->            {float,undefined,list_to_integer(SPrec)};
