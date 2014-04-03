@@ -1515,11 +1515,13 @@ subscribe(EventCategory) ->
 
 unsubscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
+    Result = imem_if:unsubscribe({table, PTN, Mode}),
     log_to_db(debug,?MODULE,unsubscribe,[{ec,{table, PTN, Mode}}],"unsubscribe from mnesia"),
-    imem_if:unsubscribe({table, PTN, Mode});
+    Result;
 unsubscribe(EventCategory) ->
+    Result = imem_if:unsubscribe(EventCategory),
     log_to_db(debug,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
-    imem_if:unsubscribe(EventCategory).
+    Result.
 
 update_tables(UpdatePlan, Lock) ->
     update_tables(schema(), UpdatePlan, Lock, []).
