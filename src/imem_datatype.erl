@@ -850,12 +850,12 @@ io_to_decimal(Val,Len,Prec) when Prec > 0 ->
             ResultList = Sign ++ DotRemoved;
         true ->
             NewLength = Prec + PointPos - 1,
-            NextDigit = lists:nth(NewLength, DotRemoved),
+            NextDigit = lists:nth(NewLength + 1, DotRemoved),
             if
                 NextDigit >= $5 -> Accumulator = 1 - length(Sign) * 2;
                 true -> Accumulator = 0
             end,
-            ResultList = lists:flatten([Sign, string:substr(DotRemoved, 1, Prec + PointPos - 1)])
+            ResultList = lists:flatten([Sign, string:substr(DotRemoved, 1, NewLength)])
     end,
     Result = list_to_integer(ResultList) + Accumulator,
     if 
@@ -1545,6 +1545,7 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,6,5,"-1.123"}}}}, io_to_db(Item,OldDecimal,decimal,6,5,Def,RW,<<"-1.123">>)),
         ?assertEqual(-112300, io_to_db(Item,OldDecimal,decimal,7,5,Def,RW,<<"-1.123">>)),
         ?assertEqual(-112346, io_to_db(Item,OldDecimal,decimal,7,5,Def,RW,<<"-1.1234567">>)),
+        ?assertEqual(3123, io_to_db(Item,OldDecimal,decimal,10,3,Def,RW,<<"3.1226">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,Prec,"1234567.89"}}}}, io_to_db(Item,OldDecimal,decimal,5,Prec,Def,RW,<<"1234567.89">>)),
         ?assertEqual(1234500, io_to_db(Item,OldDecimal,decimal,7,2,Def,RW,<<"12345">>)),
         ?assertEqual(1234500, io_to_db(Item,OldDecimal,decimal,7,2,Def,RW,<<"12345.0000">>)),
