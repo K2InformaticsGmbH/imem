@@ -830,41 +830,51 @@ io_to_decimal(Val,Len,undefined) ->
     io_to_decimal(Val,Len,0);
 io_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
     io_to_integer(Val,Len,0);  
-io_to_decimal(Val,Len,Prec) when Prec > 0 ->
+io_to_decimal(Val,Len,Prec) ->
     case Val of
         [$-|Positive] -> Sign = [$-];
         Positive -> Sign = []
     end,
     case string:chr(Positive, $.) of
-        0 -> PointPos = length(Positive);
+        0 -> PointPos = length(Positive) + 1;
         PointPos -> PointPos
     end,
-    ZerosToAdd = Prec + PointPos - length(Positive),
     DotRemoved = lists:delete($., Positive),
-    if
-        ZerosToAdd > 0 ->
-            Accumulator = 0,
-            ResultList = lists:flatten([Sign, DotRemoved, lists:duplicate(ZerosToAdd, $0)]);
-        ZerosToAdd =:= 0 ->
-            Accumulator = 0,
-            ResultList = Sign ++ DotRemoved;
-        true ->
+    case string:to_integer(DotRemoved) of
+        {Valid, []} when Valid >= 0->
+            ZerosToAdd = Prec + PointPos - length(DotRemoved) - 1,
             NewLength = Prec + PointPos - 1,
-            NextDigit = lists:nth(NewLength + 1, DotRemoved),
-            if
-                NextDigit >= $5 -> Accumulator = 1 - length(Sign) * 2;
-                true -> Accumulator = 0
+            case io_to_decimal(DotRemoved, NewLength, Sign, ZerosToAdd) of
+                {Accumulator, []} ->
+                    Result = Accumulator,
+                    ResultLength = 1;
+                {Accumulator, ResultList} ->
+                    Result = list_to_integer(ResultList) + Accumulator,
+                    ResultLength = length(ResultList)
             end,
-            ResultList = lists:flatten([Sign, string:substr(DotRemoved, 1, NewLength)])
+            if
+                Len == undefined         ->  Result;
+                ResultLength > Len       ->  ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}});
+                true                     ->  Result
+            end;
+        _NotInteger ->
+            ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}})
+    end.
+
+
+io_to_decimal(DotRemoved, _NewLength, Sign, 0) ->
+    {0, Sign ++ DotRemoved};
+io_to_decimal(DotRemoved, _NewLength, Sign, ZerosToAdd) when ZerosToAdd > 0 ->
+    {0, lists:flatten([Sign, DotRemoved, lists:duplicate(ZerosToAdd, $0)])};
+io_to_decimal(_DotRemoved, NewLength, _Sign, _ZerosToAdd) when NewLength < 0 ->
+    {0, []};
+io_to_decimal(DotRemoved, NewLength, Sign, _ZerosToAdd) ->
+    NextDigit = lists:nth(NewLength + 1, DotRemoved),
+    if
+        NextDigit < $5 -> Accumulator = 0;
+        true -> Accumulator = 1 - length(Sign) * 2
     end,
-    Result = list_to_integer(ResultList) + Accumulator,
-    if 
-        Len == undefined         ->  Result;
-        length(ResultList) > Len ->  ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}});
-        true                     ->  Result
-    end;
-io_to_decimal(Val,Len,Prec) ->
-    ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}}).
+    {Accumulator, lists:flatten([Sign, string:substr(DotRemoved, 1, NewLength)])}.
 
 io_to_binstr(Val) ->
     io_to_binstr(Val,undefined).
@@ -1552,6 +1562,14 @@ data_types(_) ->
         ?assertEqual(-1234500, io_to_db(Item,OldDecimal,decimal,8,2,Def,RW,<<"-12345">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,2,"12345"}}}}, io_to_db(Item,OldDecimal,decimal,5,2,Def,RW,<<"12345">>)),
         ?assertEqual(300000000000000000000000000000000000000, io_to_db(Item,OldDecimal,decimal,undefined,38,Def,RW,<<"3">>)),
+        ?assertEqual(2, io_to_db(Item,OldDecimal,decimal,undefined,0,Def,RW,<<"2">>)),
+        ?assertEqual(2, io_to_db(Item,OldDecimal,decimal,undefined,-3,Def,RW,<<"2000">>)),
+        ?assertEqual(0, io_to_db(Item,OldDecimal,decimal,undefined,-4,Def,RW,<<"4999">>)),
+        ?assertEqual(0, io_to_db(Item,OldDecimal,decimal,undefined,-5,Def,RW,<<"9000">>)),
+        ?assertEqual(16, io_to_db(Item,OldDecimal,decimal,undefined,-2,Def,RW,<<"1590">>)),
+        ?assertEqual(1, io_to_db(Item,OldDecimal,decimal,undefined,-4,Def,RW,<<"5000">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,-2,"123bb"}}}}, io_to_db(Item,OldDecimal,decimal,5,-2,Def,RW,<<"123bb">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{decimal,5,-1,"--123"}}}}, io_to_db(Item,OldDecimal,decimal,5,-1,Def,RW,<<"--123">>)),
         ?Info("io_to_db success 8~n", []),
 
         OldTerm = {-1.2,[a,b,c]},
