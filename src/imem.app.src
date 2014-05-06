@@ -25,6 +25,7 @@
          {default_admin_pswd, <<"change_on_install">>},
          {node_shard,node_shard_fun},
          {node_shard_fun,"fun(N) -> imem_meta:host_name(N) -- \"!?#*:+-\\<|>/\" end"},
+         {if_sys_conf_server, true},
          {meta_server, true},
          {monitor_server, true},
          {purge_server, true},

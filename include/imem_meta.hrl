@@ -14,7 +14,7 @@
 -record(ddColumn,                           %% column definition    
                   { name                    ::atom()
                   , type = term             ::ddType()
-                  , len = undefined 	      ::integer()
+                  , len = undefined 	    ::integer()
                   , prec = undefined        ::integer()
                   , default = undefined     ::any()
                   , opts = []               ::list()

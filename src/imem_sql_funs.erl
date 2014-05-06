@@ -482,8 +482,8 @@ to_atom(B) when is_binary(B) -> ?binary_to_atom(B);
 to_atom(L) when is_list(L) -> list_to_atom(L).
 
 to_name(T) when is_tuple(T) ->
-    imem_datatype:io_to_binstr(string:join([imem_datatype:strip_dquotes(to_string(E)) || E <- tuple_to_list(T)],"."));
-to_name(E) -> imem_datatype:strip_dquotes(to_binstr(E)).
+    imem_datatype:io_to_binstr(string:join([imem_datatype:strip_squotes(to_string(E)) || E <- tuple_to_list(T)],"."));
+to_name(E) -> imem_datatype:strip_squotes(to_binstr(E)).
 
 to_text(T) when is_binary(T) ->
     to_text(binary_to_list(T));
@@ -543,11 +543,13 @@ to_number(L) when is_list(L) ->
 to_string(B) when is_binary(B) ->   binary_to_list(B);
 to_string(I) when is_integer(I) -> integer_to_list(I);
 to_string(F) when is_float(F) -> float_to_list(F);
+to_string(A) when is_atom(A) -> atom_to_list(A);
 to_string(X) -> io_lib:format("~p", [X]).
 
 to_binstr(B) when is_binary(B) ->   B;
 to_binstr(I) when is_integer(I) -> list_to_binary(integer_to_list(I));
 to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
+to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
 binary_fun({Op, {const,A}, {const,B}}) when is_tuple(A), is_tuple(B) ->

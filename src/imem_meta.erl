@@ -111,6 +111,7 @@
         , create_partitioned_table_sync/1
         , create_check_table/3
         , create_check_table/4
+        , create_sys_conf/1
         , drop_table/1
         , purge_table/1
         , purge_table/2
@@ -300,8 +301,11 @@ is_system_table(Table) when is_binary(Table) ->
 
 check_table(Table) when is_atom(Table) ->
     imem_if:table_size(physical_table_name(Table)),
-    ok.
+    ok;
+check_table({ddSysConf, _Table}) -> ok.
 
+
+check_table_meta({ddSysConf, _}, _) -> ok;
 check_table_meta(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
@@ -333,6 +337,7 @@ check_table_meta(Table, ColumnNames) when is_atom(Table) ->
             end          
     end.
 
+check_table_columns({ddSysConf, _}, _) -> ok;
 check_table_columns(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfo = column_infos(Names, Types, Defaults),
@@ -499,25 +504,28 @@ create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner
     check_table_columns(Table, ColumnNames),
     check_table_meta(Table, {ColumnNames, ColumnTypes, DefaultRecord}).
 
+create_sys_conf(Path) ->
+    imem_if_sys_conf:create_sys_conf(Path).    
+
 create_check_physical_table(Table,ColumnInfos,Opts,Owner) when is_atom(Table) ->
     create_check_physical_table({schema(),Table},ColumnInfos,Opts,Owner);    
 create_check_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
-    case Schema of
-        MySchema ->
+    case lists:member(Schema, [MySchema, ddSysConf]) of
+        true ->
             PhysicalName=physical_table_name(Table),
-            case read(ddTable,{MySchema,PhysicalName}) of 
+            case read(ddTable,{Schema,PhysicalName}) of 
                 [] ->
-                    create_physical_table(Table,ColumnInfos,Opts,Owner);
+                    create_physical_table({Schema,Table},ColumnInfos,Opts,Owner);
                 [#ddTable{opts=Opts,owner=Owner}] ->
-                    catch create_physical_table(Table,ColumnInfos,Opts,Owner),
+                    catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner),
                     ok;
                 [#ddTable{opts=Old,owner=Owner}] ->
                     OldOpts = lists:sort(lists:keydelete(purge_delay,1,Old)),
                     NewOpts = lists:sort(lists:keydelete(purge_delay,1,Opts)),
                     case NewOpts of
                         OldOpts ->
-                            catch create_physical_table(Table,ColumnInfos,Opts,Owner),
+                            catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner),
                             ok;
                         _ -> 
                             ?SystemException({"Wrong table options",{Table,Old}})
@@ -534,8 +542,8 @@ create_physical_table({Schema,Table,_Alias},ColumnInfos,Opts,Owner) ->
 create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
     case Schema of
-        MySchema ->
-                create_physical_table(Table,ColumnInfos,Opts,Owner);
+        MySchema -> create_physical_table(Table,ColumnInfos,Opts,Owner);
+        ddSysConf -> create_table_sys_conf(Table, ColumnInfos, Opts, Owner);
         _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
 create_physical_table(Table,ColumnInfos,Opts,Owner) ->
@@ -563,7 +571,7 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
         {_,BadT} -> ?ClientError({"Invalid data type",BadT})
     end,
     PhysicalName=physical_table_name(Table),
-    % ddTable Meta data is attempted to be inserted only if missing and 
+    % ddTable Meta data is attempted to be inserted only if missing and
     % DB reports that table already exists
     try
         % TODO : create_table and write(ddTable) should be executed in a single transaction
@@ -579,10 +587,31 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
             throw(Reason)
     end.
 
+create_table_sys_conf(PhysicalName, ColumnInfos, Opts, Owner) ->
+    % ddTable Meta data is attempted to be inserted only if missing and
+    % DB reports that table already exists
+    try
+        % TODO : create_table and write(ddTable) should be executed in a single transaction
+        DDTableRow = #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
+        imem_if:write(ddTable, DDTableRow)
+    catch
+        _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
+            case imem_if:read(ddTable, {ddSysConf,PhysicalName}) of
+                [] -> imem_if:write(ddTable, #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner});
+                _ -> ok
+            end,
+            throw(Reason)
+    end.
+
 is_valid_table_name(Table) when is_atom(Table) ->
     is_valid_table_name(atom_to_list(Table));
 is_valid_table_name(Table) when is_list(Table) ->
-    (length(Table) == length(Table -- ?BAD_NAME_CHARACTERS)).   
+    [H|_] = Table,
+    L = lists:last(Table),
+    if
+        H == $" andalso L == $" -> true;
+        true -> (length(Table) == length(Table -- ?BAD_NAME_CHARACTERS))
+    end.
 
 is_valid_column_name(Column) ->
     is_valid_table_name(atom_to_list(Column)).
@@ -1145,11 +1174,15 @@ node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
 
 
+table_type({ddSysConf,Table}) ->
+    imem_if_sys_conf:table_type(Table);
 table_type({_Schema,Table}) ->
     table_type(Table);          %% ToDo: may depend on schema
 table_type(Table) when is_atom(Table) ->
     imem_if:table_type(physical_table_name(Table)).
 
+table_record_name({ddSysConf,Table}) ->
+    imem_if_sys_conf:table_record_name(Table);   %% ToDo: may depend on schema
 table_record_name({_Schema,Table}) ->
     table_record_name(Table);   %% ToDo: may depend on schema
 table_record_name(ddNode)  -> ddNode;
@@ -1158,11 +1191,15 @@ table_record_name(ddSize)  -> ddSize;
 table_record_name(Table) when is_atom(Table) ->
     imem_if:table_record_name(physical_table_name(Table)).
 
+table_columns({ddSysConf,Table}) ->
+    imem_if_sys_conf:table_columns(Table);
 table_columns({_Schema,Table}) ->
     table_columns(Table);       %% ToDo: may depend on schema
 table_columns(Table) ->
     imem_if:table_columns(physical_table_name(Table)).
 
+table_size({ddSysConf,Table}) ->
+    imem_if_sys_conf:table_size(Table);
 table_size({_Schema,Table}) ->  table_size(Table);          %% ToDo: may depend on schema
 table_size(ddNode) ->           length(read(ddNode));
 table_size(ddSchema) ->         length(read(ddSchema));
@@ -1171,6 +1208,8 @@ table_size(Table) ->
     %% ToDo: sum should be returned for all local time partitions
     imem_if:table_size(physical_table_name(Table)).
 
+table_memory({ddSysConf,Table}) ->
+    imem_if_sys_conf:table_memory(Table);
 table_memory({_Schema,Table}) ->
     table_memory(Table);          %% ToDo: may depend on schema
 table_memory(Table) ->
@@ -1237,6 +1276,8 @@ fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
 close(Pid) ->
     imem_statement:close(none, Pid).
 
+read({ddSysConf,Table}) -> 
+    imem_if_sys_conf:read(physical_table_name(Table));
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) ->
@@ -1248,7 +1289,9 @@ read(ddSize) ->
 read(Table) ->
     imem_if:read(physical_table_name(Table)).
 
-read({_Schema,Table}, Key) -> 
+read({ddSysConf,Table}, Key) -> 
+    imem_if_sys_conf:read(physical_table_name(Table),Key);
+read({_Schema,Table}, Key) ->
     read(Table, Key);
 read(ddNode,Node) when is_atom(Node) ->
     case rpc:call(Node,erlang,statistics,[wall_clock],?DDNODE_TIMEOUT) of
@@ -1344,6 +1387,8 @@ put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
 put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
     write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
 
+select({ddSysConf,Table}, MatchSpec) ->
+    imem_if_sys_conf:select(physical_table_name(Table), MatchSpec);
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(ddNode, MatchSpec) ->
@@ -1353,10 +1398,13 @@ select(ddSchema, MatchSpec) ->
 select(ddSize, MatchSpec) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec) ->
+    io:format(user, "[~p:~p] select ~p~n", [?MODULE, ?LINE, Table]),
     imem_if:select(physical_table_name(Table), MatchSpec).
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
+select({ddSysConf,Table}, MatchSpec, Limit) ->
+    imem_if_sys_conf:select(physical_table_name(Table), MatchSpec, Limit);
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(ddNode, MatchSpec, _Limit) ->
@@ -1366,6 +1414,7 @@ select(ddSchema, MatchSpec, _Limit) ->
 select(ddSize, MatchSpec, _Limit) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec, Limit) ->
+    io:format(user, "[~p:~p] select ~p~n", [?MODULE, ?LINE, Table]),
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
 select_virtual(_Table, [{_,[false],['$_']}]) ->
@@ -1417,7 +1466,9 @@ select_sort(Table, MatchSpec, Limit) ->
 
 write_log(Record) -> write(?LOG_TABLE, Record).
 
-write({_Schema,Table}, Record) -> 
+write({ddSysConf,Table}, Record) -> 
+    imem_if_sys_conf:write(Table, Record);
+write({_Schema,Table}, Record) ->
     write(Table, Record);           %% ToDo: may depend on schema 
 write(Table, Record) ->
     % log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
@@ -1445,6 +1496,8 @@ write(Table, Record) ->
             throw(Reason)
     end. 
 
+dirty_write({ddSysConf,Table}, Record) -> 
+    imem_if_sys_conf:dirty_write(Table, Record);
 dirty_write({_Schema,Table}, Record) -> 
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
 dirty_write(Table, Record) -> 

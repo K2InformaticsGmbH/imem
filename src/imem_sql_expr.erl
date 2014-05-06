@@ -34,6 +34,7 @@
 
 -export([ binstr_to_qname3/1
         , binstr_to_qname2/1
+        , binstr_to_qname/1
         , uses_operator/2
         , uses_operand/2
         ]).
@@ -444,14 +445,28 @@ scan_spec(Ti,STree0,FullMap) ->
 
 %% @doc Decomposes a binary or string, assuming SQL dot notation
 %% into a "field qualified name" of 2 levels.
+%% <<"Schema.Table...">> -> [<<"Schema">>,<<"Table">>,...]
+%% throws   ?ClientError
+-spec binstr_to_qname(binary()) -> [].
+binstr_to_qname(Bin) when is_binary(Bin) ->
+    case re:run(Bin, "^(?<PART>((\"[^\"]*\")|([^\".]*)))[.]*(?<REST>.*)$"
+                , [{capture, ['PART','REST'], binary}]) of
+        {match, [<<>>,<<>>]} -> [];
+        {match, [Part,<<>>]} -> [Part];
+        {match, [Part,Rest]} -> lists:flatten([Part, binstr_to_qname(Rest)]);
+        nomatch -> [Bin]
+    end.
+
+%% @doc Decomposes a binary or string, assuming SQL dot notation
+%% into a "field qualified name" of 2 levels.
 %% <<"Schema.Table">> -> {<<"Schema">>,<<"Table">>}
 %% throws   ?ClientError
 -spec binstr_to_qname2(binary()) -> {undefined|binary(),binary()}.
-binstr_to_qname2(Bin) when is_binary(Bin) ->
-    case string:tokens(binary_to_list(Bin), ".") of
-        [T] ->      {undefined, list_to_binary(T)};
-        [S,T] ->    {list_to_binary(S), list_to_binary(T)};
-        _ ->        ?ClientError({"Invalid qualified name", Bin})
+binstr_to_qname2(Bin) when is_binary(Bin) ->    
+    case binstr_to_qname(Bin) of
+        [T] ->      {undefined, T};
+        [S,T] ->    {S, T};
+        Parts ->    ?ClientError({"Invalid qualified name", {Bin, Parts}})
     end.
 
 %% @doc Decomposes a binary or string, assuming SQL dot notation
@@ -460,11 +475,11 @@ binstr_to_qname2(Bin) when is_binary(Bin) ->
 %% throws   ?ClientError
 -spec binstr_to_qname3(binary()) -> {undefined|binary(),undefined|binary(),undefined|binary()}.
 binstr_to_qname3(Bin) when is_binary(Bin) ->
-    case string:tokens(binary_to_list(Bin), ".") of
-        [N] ->      {undefined, undefined, list_to_binary(N)};          %% may need a left shift for a table name
-        [T,N] ->    {undefined, list_to_binary(T), list_to_binary(N)};  %% may need a left shift for a table name
-        [S,T,N] ->  {list_to_binary(S), list_to_binary(T), list_to_binary(N)};
-        _ ->        ?ClientError({"Invalid qualified name", Bin})
+    case binstr_to_qname(Bin) of
+        [N] ->      {undefined, undefined, N};          %% may need a left shift for a table name
+        [T,N] ->    {undefined, T, N};  %% may need a left shift for a table name
+        [S,T,N] ->  {S, T, N};
+        Parts ->    ?ClientError({"Invalid qualified name", {Bin, Parts}})
     end.
 
 %% @doc Convert a "field qualified name" of 2 levels into a binary string.

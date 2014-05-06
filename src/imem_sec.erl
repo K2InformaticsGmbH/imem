@@ -50,6 +50,7 @@
 
 -export([ create_table/4
         , create_check_table/4
+        , create_sys_conf/2
 		, drop_table/2
         , purge_table/2
         , purge_table/3
@@ -390,6 +391,24 @@ create_check_table(SKey, Table, RecordInfo, Opts) ->
                 end
             end,
             imem_meta:create_check_table(imem_meta:qualified_new_table_name(Table), lists:map(Conv,RecordInfo), Opts, Owner)
+    end.
+
+create_sys_conf(SKey, Path) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    Owner = case if_is_system_table(SKey, Path) of
+        true ->     
+            system;
+        false ->    
+            case imem_seco:have_permission(SKey,[manage_user_tables, create_table]) of
+                true ->     AccountId;
+                false ->    false
+            end
+    end,
+    case Owner of
+        false ->
+            ?SecurityException({"Create sys conf schema unauthorized", {Path,SKey}});
+        Owner ->        
+            imem_meta:create_sys_conf(Path)
     end.
 
 drop_table(SKey, Table) ->

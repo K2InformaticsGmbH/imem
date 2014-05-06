@@ -83,32 +83,38 @@ init(_StartArgs) ->
     Children =
     % imem_if
     [?CHILD(imem_if, worker, [], ImemTimeout)]
-    % imem_meta
     ++
+    % imem_meta
     case application:get_env(meta_server) of
         {ok, true} -> [?CHILD(imem_meta, worker, [], ImemTimeout)];
         _ -> []
     end
-    % imem_monitor
     ++
+    % imem_if_sys_conf
+    case application:get_env(if_sys_conf_server) of
+        {ok, true} -> [?CHILD(imem_if_sys_conf, worker, [], ImemTimeout)];
+        _ -> []
+    end
+    ++
+    % imem_monitor
     case application:get_env(monitor_server) of
         {ok, true} -> [?CHILD(imem_monitor, worker, [], ImemTimeout)];
         _ -> []
     end
-    % imem_purge
     ++
+    % imem_purge
     case application:get_env(purge_server) of
         {ok, true} -> [?CHILD(imem_purge, worker, [], ImemTimeout)];
         _ -> []
     end
-    % imem_seco
     ++
+    % imem_seco
     case application:get_env(seco_server) of
         {ok, true} -> [?CHILD(imem_seco, worker, [], ImemTimeout)];
         _ -> []
     end
-    % imem_snap
     ++
+    % imem_snap
     case application:get_env(snap_server) of
         {ok, true} -> [?CHILD(imem_snap, worker, [], ImemTimeout)];
         _ -> []
