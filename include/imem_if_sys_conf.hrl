@@ -1,9 +1,11 @@
 -include("imem_if.hrl").
 
 -record(ddSysConf, %% System Config
-                  { content_str = <<>>      ::binary()
-                  , content_bin = <<>>      ::binary()
+                  { item            ::atom()
+                  , itemTrm         ::term()
+                  , itemStr = <<>>  ::binary()
+                  , itemBin = <<>>  ::binary()
                   }
        ).
--define(ddSysConf, [binstr,binary]).
+-define(ddSysConf, [atom,term,binstr,binary]).
 

@@ -3,6 +3,7 @@
 
 -include("imem.hrl").
 -include("imem_if_sys_conf.hrl").
+-include_lib("kernel/include/file.hrl").
 
 % gen_server
 -record(state, {path = ""}).
@@ -22,6 +23,8 @@
         , table_columns/1
         , table_type/1
         , table_record_name/1
+        , fetch_start/5
+        , path/0
         ]).
 
 %% ----- gen_server -------------------------------------------
@@ -34,6 +37,7 @@ init(_) ->
     ?Info("~p started!~n", [?MODULE]),
     {ok,#state{}}.
 
+handle_call(path, _From, State) -> {reply, {ok, State#state.path}, State};
 handle_call({add, Path, Table}, _From, State) ->
     try
         imem_meta:create_check_table({ddSysConf,Table}, {record_info(fields, ddSysConf),?ddSysConf, #ddSysConf{}}, [], system),
@@ -84,9 +88,46 @@ create_sys_conf(Path) ->
             end
     end.
 
+path() ->
+    {ok, Path} = gen_server:call(?MODULE, path),
+    Path.
+
 table_columns(_Table) ->
     record_info(fields, ddSysConf).
 
 table_type(_Table) -> set.
 table_record_name(_Table) -> ddSysConf.
 
+-define(FmtTime(__S), imem_datatype:datetime_to_io(__S)).
+
+fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) when is_atom(Table) ->
+    fetch_start(Pid, imem_datatype:strip_dquotes(atom_to_list(Table)), MatchSpec, BlockSize, Opts);
+fetch_start(Pid, Table, _MatchSpec, _BlockSize, _Opts) ->
+    spawn(
+        fun() ->
+            Path = path(),
+            File = filename:join([Path,Table]),
+            {ok, FileInfo} = file:read_file_info(File, [{time, local}]),            
+            FileContentRec = case file:consult(File) of
+                {ok, Terms} -> #ddSysConf{item = content, itemTrm = Terms};
+                _ ->
+                    case file:read_file(File) of
+                        {ok, FileContent} ->
+                            case io_lib:printable_unicode_list(binary_to_list(FileContent)) of
+                                true -> #ddSysConf{item = content, itemStr = FileContent};
+                                false -> #ddSysConf{item = content, itemBin = FileContent}
+                            end;
+                        _ -> #ddSysConf{item = content}
+                    end
+            end,
+            Rows = [ FileContentRec
+                   , #ddSysConf{item = size, itemStr = integer_to_binary(FileInfo#file_info.size)}
+                   , #ddSysConf{item = accessed, itemStr = ?FmtTime(FileInfo#file_info.atime)}
+                   , #ddSysConf{item = modified, itemStr = ?FmtTime(FileInfo#file_info.mtime)}
+                   , #ddSysConf{item = created, itemStr = ?FmtTime(FileInfo#file_info.ctime)}],
+            receive
+                abort ->    ok;
+                next ->     Pid ! {row, [?sot,?eot|Rows]}
+            end
+        end
+    ).

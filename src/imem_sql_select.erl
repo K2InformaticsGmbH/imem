@@ -173,8 +173,8 @@ test_with_or_without_sec(IsSec) ->
             select * 
             from ddSysConf.\"imem.app.src\"" 
         ),
-        ?assert(length(R9b) == 1),
-
+        ?Info("Rows from ddSysConf.\"imem.app.src\": ~p~n", [R9b]),
+        ?assertEqual(5, length(R9b)),
         
     %% test table def
 
