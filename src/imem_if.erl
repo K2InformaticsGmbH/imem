@@ -253,7 +253,7 @@ table_info(Table, InfoKey) ->
                 end
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", {Table,?MODULE,?LINE}});
+        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table});
         _:Error ->                      ?SystemExceptionNoLogging(Error)
     end.  
 
