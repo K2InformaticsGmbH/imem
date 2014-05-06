@@ -1249,6 +1249,8 @@ update_cursor_prepare(Pid, ChangeList) ->
 update_cursor_execute(Pid, Lock) ->
     imem_statement:update_cursor_execute(none, Pid, false, Lock).
 
+fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
+    imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->

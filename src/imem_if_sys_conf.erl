@@ -72,7 +72,8 @@ create_sys_conf(Path) ->
                  {error, Reason} ->
                      ?SystemException({"System Configuration setup failed",{Path,File,Reason}})
             end
-            || File <- filelib:wildcard("*.*", Path)];
+            || File <- filelib:wildcard("*.*", Path)],
+            ok;
         false ->
             DirPath = filname:dirname(Path),
             File = list_to_atom("\""++filname:basename(Path)++"\""),

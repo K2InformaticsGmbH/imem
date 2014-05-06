@@ -156,6 +156,25 @@ test_with_or_without_sec(IsSec) ->
             IsSec ->    ?assertEqual(<<"admin">>, imem_seco:account_name(SKey));
             true ->     ?assertException(throw,{SeEx,{"Not logged in",none}}, imem_seco:account_name(SKey))
         end,
+
+
+    %% test ddSysConf schema access
+
+        ?assertEqual(ok,imem_if_sys_conf:create_sys_conf("../src")),
+
+        R9a = exec_fetch_sort(SKey, query9a, 100, IsSec, "
+            select * 
+            from ddTable 
+            where element(1,qname) = to_atom('ddSysConf')"
+        ),
+        ?assert(length(R9a) >= 1),
+
+        R9b = exec_fetch_sort(SKey, query9b, 100, IsSec, "
+            select * 
+            from ddSysConf.\"imem.app.src\"" 
+        ),
+        ?assert(length(R9b) == 1),
+
         
     %% test table def
 
