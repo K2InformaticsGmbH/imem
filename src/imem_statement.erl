@@ -238,7 +238,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     catch
         _:Reason ->  
             imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{updPlan,UpdatePlan}],"update_cursor_execute error"),
-            {error,Reason}
+            {error,Reason,erlang:get_stacktrace()}
     end,
     % ?Debug("update_cursor_execute result ~p~n", [Reply]),
     % FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=aborted},   %% , metarec=undefined

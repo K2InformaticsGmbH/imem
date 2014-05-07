@@ -1576,12 +1576,14 @@ unsubscribe(EventCategory) ->
     log_to_db(debug,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
     Result.
 
-update_tables(UpdatePlan, Lock) ->
-    update_tables(schema(), UpdatePlan, Lock, []).
+update_tables([[{Schema,_,_}|_]|_] = UpdatePlan, Lock) ->
+    update_tables(Schema, UpdatePlan, Lock, []).
 
 update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax) ->
     imem_if:update_bound_counter(physical_table_name(Table), Field, Key, Incr, LimitMin, LimitMax).
 
+update_tables(ddSysConf, [], Lock, Acc) ->
+    imem_if_sys_conf:update_tables(Acc, Lock);  
 update_tables(_MySchema, [], Lock, Acc) ->
     imem_if:update_tables(Acc, Lock);  
 update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
