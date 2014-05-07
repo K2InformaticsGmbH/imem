@@ -121,10 +121,10 @@ fetch_start(Pid, Table, _MatchSpec, _BlockSize, _Opts) ->
                     end
             end,
             Rows = [ FileContentRec
-                   , #ddSysConf{item = size, itemStr = integer_to_binary(FileInfo#file_info.size)}
-                   , #ddSysConf{item = accessed, itemStr = ?FmtTime(FileInfo#file_info.atime)}
-                   , #ddSysConf{item = modified, itemStr = ?FmtTime(FileInfo#file_info.mtime)}
-                   , #ddSysConf{item = created, itemStr = ?FmtTime(FileInfo#file_info.ctime)}],
+                   , #ddSysConf{item = size,     itemTrm = FileInfo#file_info.size,  itemStr = integer_to_binary(FileInfo#file_info.size)}
+                   , #ddSysConf{item = accessed, itemTrm = FileInfo#file_info.atime, itemStr = ?FmtTime(FileInfo#file_info.atime)}
+                   , #ddSysConf{item = modified, itemTrm = FileInfo#file_info.mtime, itemStr = ?FmtTime(FileInfo#file_info.mtime)}
+                   , #ddSysConf{item = created,  itemTrm = FileInfo#file_info.ctime, itemStr = ?FmtTime(FileInfo#file_info.ctime)}],
             receive
                 abort ->    ok;
                 next ->     Pid ! {row, [?sot,?eot|Rows]}

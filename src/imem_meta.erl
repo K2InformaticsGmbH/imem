@@ -1400,7 +1400,6 @@ select(ddSchema, MatchSpec) ->
 select(ddSize, MatchSpec) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec) ->
-    io:format(user, "[~p:~p] select ~p~n", [?MODULE, ?LINE, Table]),
     imem_if:select(physical_table_name(Table), MatchSpec).
 
 select(Table, MatchSpec, 0) ->
@@ -1416,7 +1415,6 @@ select(ddSchema, MatchSpec, _Limit) ->
 select(ddSize, MatchSpec, _Limit) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec, Limit) ->
-    io:format(user, "[~p:~p] select ~p~n", [?MODULE, ?LINE, Table]),
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
 select_virtual(_Table, [{_,[false],['$_']}]) ->
