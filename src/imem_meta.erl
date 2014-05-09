@@ -163,6 +163,8 @@
         , return_atomic/1
         ]).
 
+-export([ simple_or_local_node_sharded_tables/1]).
+
 
 start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
@@ -681,14 +683,10 @@ restore_table(Alias) when is_atom(Alias) ->
     log_to_db(debug,?MODULE,restore_table,[{table,Alias}],"restore table"),
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
-        PTNs -> case lists:usort([check_table(T) || T <- PTNs]) of
-                    [ok] -> case imem_snap:restore(bkp,PTNs,destroy,false) of
-                                L when is_list(L) ->    ok;
-                                E ->                    ?SystemException({"Restore table failed with",E})
-                            end;
-                    _ ->    ?ClientError({"Table does not exist",Alias})
+        PTNs -> case imem_snap:restore(bkp,PTNs,destroy,false) of
+                    L when is_list(L) ->    ok;
+                    E ->                    ?SystemException({"Restore table failed with",E})
                 end
-
     end;    
 restore_table(TableName) ->
     restore_table(qualified_table_name(TableName)).
