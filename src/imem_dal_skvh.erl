@@ -53,8 +53,7 @@
 
 -export([ write/2 					%% (Channel, KVTable)    			' resource may not exist
 		, read/2					%% (Channel, KeyTable)   			' return empty Arraylist if none of these resources exists
-		, readKeyHeads/1 			%% (Channel)      		 			' return empty Arraylist if no resources exists
-		, readGELT/3				%% (Channel, CKey1, CKey2)			' start with first key after CKey1, end with last key before CKey2
+		, readGELT/4				%% (Channel, Item, CKey1, CKey2)	  start with first key after CKey1, end with last key before CKey2
  		, readGT/4					%% (Channel, Item, CKey1, Limit)	' start with first key after CKey1, return Limit results or less
  		, delete/2					%% (Channel, KeyTable)    			' do not complain if keys do not exist
  		, deleteGELT/3				%% (Channel, CKey1, CKey2)			
@@ -147,11 +146,22 @@ write(Cmd, {TN,AN}, [{K,V}|KVPairs], Acc)  ->
 	imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V}),	%% ToDo: wrap in transaction
 	write(Cmd, {TN,AN}, KVPairs, [Hash|Acc]).
 
-readKeyHeads(_Channel) ->
-	ok.
+readGELT(Channel, Item, CKey1, CKey2) ->
+	Cmd = [readGELT, Channel, Item, CKey1, CKey2],
+	readGELT(Cmd, create_check_channel(Channel), key_to_term(CKey1), key_to_term(CKey2)).
 
-readGELT(_Channel, _CKey1, _CKey2) ->
-	ok.
+readGELT(Cmd, {TN,AN}, Item, Key1, Key2) ->
+	MatchHead = {skvhTable, '$1', '$2', '$3'},
+	MatchFunction = {MatchHead, [{'>=', '$1', Key1}, {'<', '$1', Key2}], ['$1']},
+	{L,true} = imem_meta:select(TN, [MatchFunction]),
+	project(Cmd, L, Item, []).
+
+deleteGELT(Cmd, {TN,AN}, Key1, Key2) ->
+	MatchHead = {skvhTable, '$1', '$2', '$3'},
+	MatchFunction = {MatchHead, [{'>=', '$1', Key1}, {'<', '$1', Key2}], ['$1']},
+	{L,true} = imem_meta:select(TN, [MatchFunction]),
+	delete(Cmd, {TN,AN}, L, []).
+
 
 readGT(_Channel, _Item, _CKey1, _Limit) ->
 	ok.
@@ -177,7 +187,7 @@ deleteGELT(Channel, CKey1, CKey2) when is_binary(Channel), is_binary(CKey1), is_
 deleteGELT(Cmd, {TN,AN}, Key1, Key2) ->
 	MatchHead = {skvhTable, '$1', '$2', '$3'},
 	MatchFunction = {MatchHead, [{'>=', '$1', Key1}, {'<', '$1', Key2}], ['$1']},
-	{L,true} = imem_dal:select(TN, [MatchFunction]),
+	{L,true} = imem_meta:select(TN, [MatchFunction]),
 	delete(Cmd, {TN,AN}, L, []).
 
 deleteGTLT(Channel, CKey1, CKey2) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
@@ -187,7 +197,7 @@ deleteGTLT(Channel, CKey1, CKey2) when is_binary(Channel), is_binary(CKey1), is_
 deleteGTLT(Cmd, {TN,AN}, Key1, Key2) ->
 	MatchHead = {skvhTable, '$1', '$2', '$3'},
 	MatchFunction = {MatchHead, [{'>', '$1', Key1}, {'<', '$1', Key2}], ['$1']},
-	{L,true} = imem_dal:select(TN, [MatchFunction]),
+	{L,true} = imem_meta:select(TN, [MatchFunction]),
 	delete(Cmd, {TN,AN}, L, []).
 
 debug(Cmd, Resp) ->
@@ -255,6 +265,33 @@ skvh_operations(_) ->
         ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(Channel, <<"[1,a]">>)),
         ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(Channel, <<"[1,b]">>)),
         ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(Channel, <<"[1,c]">>)),
+
+        ?assertEqual({ok,[1296644,124793159,117221887]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[]">>)),
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[1,a]">>)),
+
+		?assertEqual({ok,[1296644]},deleteGELT(Channel, <<"[]">>, <<"[1,ab]">>)),
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[1,ab]">>)),
+
+		?assertEqual({ok,[124793159,117221887]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>)),		
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>)),
+
+        ?assertEqual({ok,[undefined,undefined,undefined]}, delete(Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+
+        ?assertEqual({ok,[1296644,124793159,117221887]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[]">>)),
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[1,a]">>)),
+
+		?assertEqual({ok,[1296644]},deleteGTLT(Channel, <<"[]">>, <<"[1,ab]">>)),
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[1,ab]">>)),
+
+		?assertEqual({ok,[117221887]},deleteGTLT(Channel, <<"[1,b]">>, <<"[1,d]">>)),		
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[1,b]">>, <<"[1,d]">>)),
+
+		?assertEqual({ok,[124793159]},deleteGTLT(Channel, <<"[1,a]">>, <<"[1,c]">>)),		
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[1,a]">>, <<"[1,c]">>)),		
 
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTEST)),
