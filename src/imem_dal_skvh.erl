@@ -51,13 +51,13 @@
 -define(E116,{116,<<"Invalid option value">>}).
 
 
--export([ write/2 					%% (Channel, KVTable)    			' resource may not exist
-		, read/2					%% (Channel, KeyTable)   			' return empty Arraylist if none of these resources exists
-		, readGELT/4				%% (Channel, Item, CKey1, CKey2)	  start with first key after CKey1, end with last key before CKey2
- 		, readGT/4					%% (Channel, Item, CKey1, Limit)	' start with first key after CKey1, return Limit results or less
- 		, delete/2					%% (Channel, KeyTable)    			' do not complain if keys do not exist
- 		, deleteGELT/3				%% (Channel, CKey1, CKey2)			
-		, deleteGTLT/3				%% (Channel, CKey1, CKey2)
+-export([ write/2 		%% (Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
+		, read/2		%% (Channel, KeyTable)   			return empty Arraylist if none of these resources exists
+		, readGELT/4	%% (Channel, Item, CKey1, CKey2)	start with first key after CKey1, end with last key before CKey2
+ 		, readGT/4		%% (Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less
+ 		, delete/2		%% (Channel, KeyTable)    			do not complain if keys do not exist
+ 		, deleteGELT/3	%% (Channel, CKey1, CKey2)			delete range of keys >= CKey1
+		, deleteGTLT/3	%% (Channel, CKey1, CKey2)			delete range of keys > CKey1
 		]).
 
 %% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
@@ -69,7 +69,7 @@
 -spec create_check_channel(binary()) -> {atom(),atom()}.
 create_check_channel(Channel) ->
 	TBin = ?TABLE(Channel),
-	Token = list_to_binary([TBin,integer_to_list(erlang:phash2(TBin))]),
+	Token = list_to_binary([TBin,integer_to_list(erlang:phash2({TBin,node()}))]),
 	try 
 		_ = ?binary_to_existing_atom(Token), 	%% probe atom cache for token
 		{?binary_to_existing_atom(TBin),?binary_to_existing_atom(?AUDIT(Channel))}
@@ -99,7 +99,9 @@ return_list(Cmd, List) ->
 % 	debug(Cmd, Tuple), 
 % 	{ok,Tuple}.
 
-clean_table(Bin) ->
+%% Converters for input parameters
+
+io_clean_table(Bin) ->
 	case binary:last(Bin) of
 		10 ->	binary:replace(binary_part(Bin,0,size(Bin)-1), <<13>>, <<>>, [global]);
 		_ ->	binary:replace(Bin, <<13>>, <<>>, [global])
@@ -108,33 +110,33 @@ clean_table(Bin) ->
 io_key_to_term(Key) when is_binary(Key) ->
 	imem_datatype:io_to_term(Key).
 
-term_key_to_io(Key) ->
-	imem_datatype:term_to_io(Key).
+io_value_to_term(V) -> V.	%% ToDo: Maybe convert to map datatype when available
 
 % io_hash_to_term(Hash) when is_binary(Hash) -> Hash.
-
-term_hash_to_io(Hash) when is_binary(Hash) -> 
-	Hash; 
-term_hash_to_io(Hash) when is_integer(Hash) -> 
-	list_to_binary(integer_to_list(Hash)).
-
-io_value_to_term(V) ->
-	% imem_datatype:io_to_term(V).
-	V.
-
-term_value_to_io(V) ->
-	% imem_datatype:term_to_io(V).
-	V.
-
-io_key_table_to_term_list(KeyTable) ->
-	BList = binary:split(clean_table(KeyTable),<<10>>,[global]),	%% split at line feed positions
-	[io_key_to_term(Key) || Key <- BList].
 
 io_kv_pair_to_tuple(KVPair) ->
 	case binary:split(KVPair,<<9>>,[global]) of			%% split at tab position
 		[K,V] -> 	{io_key_to_term(K),io_value_to_term(V)};
 		_ ->		?ClientError(?E102)
 	end.
+
+io_key_table_to_term_list(KeyTable) ->
+	BList = binary:split(io_clean_table(KeyTable),<<10>>,[global]),	%% split at line feed positions
+	[io_key_to_term(Key) || Key <- BList].
+
+io_kv_table_to_tuple_list(KVTable) ->
+	BList = binary:split(io_clean_table(KVTable),<<10>>,[global]),		%% split at line feed positions
+	[io_kv_pair_to_tuple(KVbin) || KVbin <- BList].
+
+%% Converters for output (results)
+
+term_key_to_io(Key) ->
+	imem_datatype:term_to_io(Key).
+
+term_value_to_io(V) -> V.   %% ToDo: Maybe convert from map datatype when available
+
+term_hash_to_io(Hash) when is_binary(Hash) -> Hash; 
+term_hash_to_io(Hash) when is_integer(Hash) -> list_to_binary(integer_to_list(Hash)).
 
 term_kv_tuple_to_io({K,V}) ->
 	KeyBin = term_key_to_io(K),
@@ -146,9 +148,7 @@ term_kh_tuple_to_io({K,H}) ->
 	HashBin = term_hash_to_io(H), 
 	<<KeyBin/binary,9,HashBin/binary>>.
 
-io_kv_table_to_tuple_list(KVTable) ->
-	BList = binary:split(clean_table(KVTable),<<10>>,[global]),		%% split at line feed positions
-	[io_kv_pair_to_tuple(KVbin) || KVbin <- BList].
+%% Data access per key (read,write,delete)
 
 read(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) ->
 	Cmd = [read,Channel,KeyTable],
@@ -174,37 +174,6 @@ write(Cmd, {TN,AN}, [{K,V}|KVPairs], Acc)  ->
 	imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V}),	%% ToDo: wrap in transaction
 	write(Cmd, {TN,AN}, KVPairs, [Hash|Acc]).
 
-readGELT(Channel, Item, CKey1, CKey2) when is_binary(Item), is_binary(CKey1), is_binary(CKey2) ->
-	Cmd = [readGELT, Channel, Item, CKey1, CKey2],
-	readGELT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2)).
-
-readGELT(Cmd, {TN,_}, Item, Key1, Key2) ->
-	MatchHead = {skvhTable, '$1', '$2', '$3'},
-	MatchFunction = {MatchHead, [{'>=', '$1', Key1}, {'<', '$1', Key2}], ['$_']},
-	{L,true} = imem_meta:select(TN, [MatchFunction]),
-	project_result(Cmd, L, Item).
-
-project_result(Cmd, L, <<"key">>) ->
-	return_list(Cmd, [term_key_to_io(K) ||  #skvhTable{ckey=K} <- L]);
-project_result(Cmd, L, <<"value">>) ->
-	return_list(Cmd, [term_value_to_io(V) ||  #skvhTable{cvalue=V} <- L]);
-project_result(Cmd, L, <<"hash">>) ->
-	return_list(Cmd, [term_hash_to_io(H) ||  #skvhTable{chash=H} <- L]);
-project_result(Cmd, L, <<"kvpair">>) ->
-	return_list(Cmd, [term_kv_tuple_to_io({K,V}) ||  #skvhTable{ckey=K,cvalue=V} <- L]);
-project_result(Cmd, L, <<"khpair">>) ->
-	return_list(Cmd, [term_kh_tuple_to_io({K,H}) ||  #skvhTable{ckey=K,chash=H} <- L]).
-
-readGT(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
-	Cmd = [readGT, Channel, Item, CKey1, Limit],
-	readGT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(Limit)).
-
-readGT(Cmd, {TN,_}, Item, Key1, Limit) ->
-	MatchHead = {skvhTable, '$1', '$2', '$3'},
-	MatchFunction = {MatchHead, [{'>', '$1', Key1}], ['$_']},
-	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
-	project_result(Cmd, L, Item).
-
 delete(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 
 	Cmd = [delete,Channel,KeyTable],
 	delete(Cmd, create_check_channel(Channel), io_key_table_to_term_list(KeyTable), []).
@@ -218,6 +187,28 @@ delete(Cmd, {TN,AN}, [Key|Keys], Acc)  ->
 	imem_meta:delete(TN,Key),									%% ToDo: wrap in transaction
 	imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=Key}),	%% ToDo: wrap in transaction
 	delete(Cmd, {TN,AN}, Keys, [Hash|Acc]).
+
+%% Data Access per key range
+
+readGELT(Channel, Item, CKey1, CKey2) when is_binary(Item), is_binary(CKey1), is_binary(CKey2) ->
+	Cmd = [readGELT, Channel, Item, CKey1, CKey2],
+	readGELT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2)).
+
+readGELT(Cmd, {TN,_}, Item, Key1, Key2) ->
+	MatchHead = {skvhTable, '$1', '$2', '$3'},
+	MatchFunction = {MatchHead, [{'>=', '$1', Key1}, {'<', '$1', Key2}], ['$_']},
+	{L,true} = imem_meta:select(TN, [MatchFunction]),
+	project_result(Cmd, L, Item).
+
+readGT(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
+	Cmd = [readGT, Channel, Item, CKey1, Limit],
+	readGT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(Limit)).
+
+readGT(Cmd, {TN,_}, Item, Key1, Limit) ->
+	MatchHead = {skvhTable, '$1', '$2', '$3'},
+	MatchFunction = {MatchHead, [{'>', '$1', Key1}], ['$_']},
+	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
+	project_result(Cmd, L, Item).
 
 deleteGELT(Channel, CKey1, CKey2) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGELT, Channel, CKey1, CKey2],
@@ -238,6 +229,17 @@ deleteGTLT(Cmd, {TN,AN}, Key1, Key2) ->
 	MatchFunction = {MatchHead, [{'>', '$1', Key1}, {'<', '$1', Key2}], ['$1']},
 	{L,true} = imem_meta:select(TN, [MatchFunction]),
 	delete(Cmd, {TN,AN}, L, []).
+
+project_result(Cmd, L, <<"key">>) ->
+	return_list(Cmd, [term_key_to_io(K) ||  #skvhTable{ckey=K} <- L]);
+project_result(Cmd, L, <<"value">>) ->
+	return_list(Cmd, [term_value_to_io(V) ||  #skvhTable{cvalue=V} <- L]);
+project_result(Cmd, L, <<"hash">>) ->
+	return_list(Cmd, [term_hash_to_io(H) ||  #skvhTable{chash=H} <- L]);
+project_result(Cmd, L, <<"kvpair">>) ->
+	return_list(Cmd, [term_kv_tuple_to_io({K,V}) ||  #skvhTable{ckey=K,cvalue=V} <- L]);
+project_result(Cmd, L, <<"khpair">>) ->
+	return_list(Cmd, [term_kh_tuple_to_io({K,H}) ||  #skvhTable{ckey=K,chash=H} <- L]).
 
 debug(Cmd, Resp) ->
     lager:debug([ {cmd, hd(Cmd)}]
