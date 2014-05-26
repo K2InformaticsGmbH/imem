@@ -69,17 +69,20 @@
 -spec create_check_channel(binary()) -> {atom(),atom()}.
 create_check_channel(Channel) ->
 	TBin = ?TABLE(Channel),
-	Token = list_to_binary([TBin,integer_to_list(erlang:phash2({TBin,node()}))]),
+	% Token = list_to_binary([TBin,integer_to_list(erlang:phash2({TBin,node()}))]),
 	try 
-		_ = ?binary_to_existing_atom(Token), 	%% probe atom cache for token
-		{?binary_to_existing_atom(TBin),?binary_to_existing_atom(?AUDIT(Channel))}
+		% _ = ?binary_to_existing_atom(Token), 	%% probe atom cache for token
+		T = ?binary_to_existing_atom(TBin),
+		A = ?binary_to_existing_atom(?AUDIT(Channel)),
+		imem_meta:check_table(T),
+		{T,A}
 	catch 
 		_:_ -> 
 			TN = ?binary_to_atom(TBin),
 			imem_meta:create_check_table(TN, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system),    
 			AN = ?binary_to_atom(?AUDIT(Channel)),
 			imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
-			_ = ?binary_to_atom(Token), 		%% put token to atom cache
+			% _ = ?binary_to_atom(Token), 		%% put token to atom cache
 			{TN,AN}
 	end.
 
@@ -170,8 +173,8 @@ write(Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 write(Cmd, _, [], Acc)  -> return_list(Cmd, lists:reverse(Acc));
 write(Cmd, {TN,AN}, [{K,V}|KVPairs], Acc)  ->
 	Hash = list_to_binary(integer_to_list(erlang:phash2({K,V}))),
-	imem_meta:write(TN,#skvhTable{ckey=K,cvalue=V,chash=Hash}),			%% ToDo: wrap in transaction
-	imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V}),	%% ToDo: wrap in transaction
+	imem_meta:write(TN,#skvhTable{ckey=K,cvalue=V,chash=Hash}),					%% ToDo: wrap in transaction
+	catch (imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V})),	%% ToDo: wrap in transaction
 	write(Cmd, {TN,AN}, KVPairs, [Hash|Acc]).
 
 delete(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 
@@ -303,6 +306,10 @@ skvh_operations(_) ->
 
         ?assertEqual({ok,[<<"1296644">>,<<"124793159">>,<<"117221887">>]}, delete(Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
+        Aud = imem_meta:read(skvhAuditTEST_86400@),
+        ?Info("audit trail~n~p~n", [Aud]),
+        ?assertEqual(6, length(Aud)),
+
         ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(Channel, <<"[1,a]">>)),
         ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(Channel, <<"[1,b]">>)),
         ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(Channel, <<"[1,c]">>)),
@@ -319,6 +326,8 @@ skvh_operations(_) ->
 		?assertEqual({ok,[]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>)),
 
         ?assertEqual({ok,[<<"undefined">>,<<"undefined">>,<<"undefined">>]}, delete(Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+
+		?assertEqual(ok,imem_meta:drop_table(skvhTEST)),
 
         ?assertEqual({ok,[<<"1296644">>,<<"124793159">>,<<"117221887">>]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
@@ -344,6 +353,8 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"234567">>]}, readGELT(Channel, <<"kvpair">>, <<"[1,ab]">>, <<"[1,c]">>)),
     	?assertEqual({ok,[<<"[1,b]",9,"124793159">>]}, readGELT(Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>)),
  
+    	?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),
+
         ?assertEqual({ok,[<<"1296644">>,<<"124793159">>,<<"117221887">>]}, readGT(Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[<<"124793159">>,<<"117221887">>]}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
     	?assertEqual({ok,[<<"124793159">>]}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
