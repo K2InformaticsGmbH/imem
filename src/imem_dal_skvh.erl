@@ -52,7 +52,7 @@
 
 
 -export([ write/2 		%% (Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
-		, read/2		%% (Channel, KeyTable)   			return empty Arraylist if none of these resources exists
+		, read/3		%% (Channel, KeyTable)   			return empty Arraylist if none of these resources exists
 		, readGELT/4	%% (Channel, Item, CKey1, CKey2)	start with first key after CKey1, end with last key before CKey2
  		, readGT/4		%% (Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less
  		, delete/2		%% (Channel, KeyTable)    			do not complain if keys do not exist
@@ -136,8 +136,10 @@ io_kv_table_to_tuple_list(KVTable) ->
 term_key_to_io(Key) ->
 	imem_datatype:term_to_io(Key).
 
-term_value_to_io(V) -> V.   %% ToDo: Maybe convert from map datatype when available
+term_value_to_io(undefined) -> <<"undefined">>;	%% ToDo: Maybe convert from map datatype when available
+term_value_to_io(V) -> V.   					%% ToDo: Maybe convert from map datatype when available
 
+term_hash_to_io(undefined) -> <<"undefined">>; 
 term_hash_to_io(Hash) when is_binary(Hash) -> Hash; 
 term_hash_to_io(Hash) when is_integer(Hash) -> list_to_binary(integer_to_list(Hash)).
 
@@ -153,17 +155,17 @@ term_kh_tuple_to_io({K,H}) ->
 
 %% Data access per key (read,write,delete)
 
-read(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) ->
-	Cmd = [read,Channel,KeyTable],
-	read(Cmd, create_check_channel(Channel), io_key_table_to_term_list(KeyTable), []).
+read(Channel, Item, KeyTable) when is_binary(Channel), is_binary(Item), is_binary(KeyTable) ->
+	Cmd = [read,Channel,Item,KeyTable],
+	read(Cmd, create_check_channel(Channel), Item, io_key_table_to_term_list(KeyTable), []).
 
-read(Cmd, _, [], Acc)  -> return_list(Cmd, lists:reverse(Acc));
-read(Cmd, {TN,AN}, [Key|Keys], Acc)  ->
+read(Cmd, _, Item, [], Acc)  -> project_result(Cmd, lists:reverse(Acc), Item);
+read(Cmd, {TN,AN}, Item, [Key|Keys], Acc)  ->
 	KVP = case imem_meta:read(TN,Key) of
-		[] ->								term_kv_tuple_to_io({Key,<<"undefined">>});
-		[#skvhTable{ckey=K,cvalue=V}] ->	term_kv_tuple_to_io({K,V})
+		[] ->		#skvhTable{ckey=Key} ;
+		[Rec] ->	Rec
 	end,
-	read(Cmd, {TN,AN}, Keys, [KVP|Acc]).
+	read(Cmd, {TN,AN}, Item, Keys, [KVP|Acc]).
 	
 
 write(Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
@@ -291,18 +293,25 @@ skvh_operations(_) ->
         KVb = <<"[1,b]",9,"234567">>,
         KVc = <<"[1,c]",9,"345678">>,
 
-        ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(Channel, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(Channel, <<"kvpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(Channel, <<"khpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,a]">>]}, read(Channel, <<"key">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"undefined">>]}, read(Channel, <<"value">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"undefined">>]}, read(Channel, <<"hash">>, <<"[1,a]">>)),
 
         ?assertEqual(ok, imem_meta:check_table(skvhTEST)),        
         ?assertEqual(ok, imem_meta:check_table(skvhAuditTEST_86400@)),
 
         ?assertEqual({ok,[<<"1296644">>,<<"124793159">>,<<"117221887">>]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-        ?assertEqual({ok,[KVa]}, read(Channel, <<"[1,a]">>)),
-        ?assertEqual({ok,[KVc]}, read(Channel, <<"[1,c]">>)),
-        ?assertEqual({ok,[KVb]}, read(Channel, <<"[1,b]">>)),
+        ?assertEqual({ok,[KVa]}, read(Channel, <<"kvpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[KVc]}, read(Channel, <<"kvpair">>, <<"[1,c]">>)),
+        ?assertEqual({ok,[KVb]}, read(Channel, <<"kvpair">>, <<"[1,b]">>)),
+        ?assertEqual({ok,[<<"[1,c]",9,"117221887">>]}, read(Channel, <<"khpair">>, <<"[1,c]">>)),
+        ?assertEqual({ok,[<<"124793159">>]}, read(Channel, <<"hash">>, <<"[1,b]">>)),
 
-        ?assertEqual({ok,[KVc,KVb,KVa]}, read(Channel, <<"[1,c]",13,10,"[1,b]",10,"[1,a]">>)),
+        ?assertEqual({ok,[KVc,KVb,KVa]}, read(Channel, <<"kvpair">>, <<"[1,c]",13,10,"[1,b]",10,"[1,a]">>)),
+        ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
         ?assertEqual({ok,[<<"1296644">>,<<"124793159">>,<<"117221887">>]}, delete(Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
@@ -310,9 +319,9 @@ skvh_operations(_) ->
         ?Info("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
 
-        ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(Channel, <<"[1,a]">>)),
-        ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(Channel, <<"[1,b]">>)),
-        ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(Channel, <<"[1,c]">>)),
+        ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(Channel, <<"kvpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(Channel, <<"kvpair">>, <<"[1,b]">>)),
+        ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(Channel, <<"kvpair">>, <<"[1,c]">>)),
 
         ?assertEqual({ok,[<<"1296644">>,<<"124793159">>,<<"117221887">>]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
