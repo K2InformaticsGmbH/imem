@@ -34,7 +34,7 @@
 
 % -define(E100,{100,"Invalid key"}).
 % -define(E101,{101,"Duplicate key"}).
--define(E102,{102,"Invalid key value pair"}).
+-define(E102(__Term),{102,"Invalid key value pair",__Term}).
 -define(E103,{103,<<"Invalid source peer key (short code)">>}).
 % -define(E104,{104,"Unknown white list IP addresses"}).
 -define(E105,{105,<<"Invalid white list IP address">>}).
@@ -120,7 +120,7 @@ io_value_to_term(V) -> V.	%% ToDo: Maybe convert to map datatype when available
 io_kv_pair_to_tuple(KVPair) ->
 	case binary:split(KVPair,<<9>>,[global]) of			%% split at tab position
 		[K,V] -> 	{io_key_to_term(K),io_value_to_term(V)};
-		_ ->		?ClientError(?E102)
+		Other ->	?ClientError(?E102(Other))
 	end.
 
 io_key_table_to_term_list(KeyTable) ->
@@ -335,6 +335,13 @@ skvh_operations(_) ->
 		?assertEqual({ok,[]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>)),
 
         ?assertEqual({ok,[<<"undefined">>,<<"undefined">>,<<"undefined">>]}, delete(Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+
+        ?assertEqual({ok,[<<"73740797">>]}, write(Channel, <<"[90074,[],\"AaaEnabled\"]",9,"true">>)),
+		?assertEqual({ok,[<<"81705319">>]}, write(Channel, <<"[90074,[],\"ContentSizeMax\"]",9,"297000">>)),
+		?assertEqual({ok,[<<"99247098">>]}, write(Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
+		?assertEqual({ok,[<<"55096411">>]}, write(Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
+
+        ?Info("audit trail~n~p~n", [imem_meta:read(skvhAuditTEST_86400@)]),
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTEST)),
 
