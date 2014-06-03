@@ -133,17 +133,29 @@ write_monitor(ExtraFun,DumpFun) ->
                          , output_io=Output
                          },
         Moni1 = case ExtraFun of
-            undefined ->    Moni0;
-            E ->            Moni0#ddMonitor{extra=E(Moni0)}
+            undefined -> Moni0;
+            ExtraFun ->
+                case (catch Moni0#ddMonitor{extra=ExtraFun(Moni0)}) of
+                    {'EXIT', ExtraError} ->
+                        ?Error("cannot monitor ~p", [ExtraError]),
+                        Moni0;
+                     M1 ->
+                        imem_meta:dirty_write(?MONITOR_TABLE, M1),
+                        M1
+                end
         end,
-        imem_meta:dirty_write(?MONITOR_TABLE, Moni1),
         case DumpFun of
-            undefined ->    ok;
-            D ->            D(Moni1)            
+            undefined -> ok;
+            DumpFun ->
+                case (catch DumpFun(Moni1)) of
+                    {'EXIT', DumpError} ->
+                        ?Error("cannot dump monitor ~p~n~p", [Moni1, DumpError]);
+                     _ -> ok
+                end
         end
     catch
         _:Err ->
-            ?Error("cannot monitor ~p", [Err]),
+            ?Error("cannot monitor ~p: ~p", [Err, erlang:get_stacktrace()]),
             {error,{"cannot monitor",Err}}
     end.
 
