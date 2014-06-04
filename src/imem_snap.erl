@@ -561,11 +561,10 @@ del_dirtree(Path) ->
 
 do_snapshot(SnapFun) ->
     try  
-        case SnapFun of
+        ok = case SnapFun of
             undefined -> ok;
-            SnapFun -> ok = SnapFun()
-        end,
-        ok
+            SnapFun when is_function(SnapFun) -> SnapFun()
+        end
     catch
         _:Err ->
             ?Error("cannot snap ~p~n", [Err]),

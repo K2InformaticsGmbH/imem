@@ -39,7 +39,7 @@ do
 done
 echo "Node $node and CMs $cms"
 
-Opts="-sname $node -pa ebin -pa deps/*/ebin -setcookie $cookie -env ERL_MAX_ETS_TABLES 10000 -imem start_monitor true -imem erl_cluster_mgrs [$cms] -s imem"
+Opts="-sname $node -pa ebin -pa deps/*/ebin -setcookie $cookie -env ERL_MAX_ETS_TABLES 10000 -imem start_monitor true -imem tcp_port 8125 -imem erl_cluster_mgrs [$cms] -s imem"
 echo "VM options $Opts"
 
 $exename $Opts
