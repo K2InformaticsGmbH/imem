@@ -605,12 +605,12 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assertEqual(1, length(R3e)),
 
-        R3f = exec_fetch_sort(SKey, query3f, 100, IsSec, "
-            select * 
-            from " ++ atom_to_list(?MONITOR_TABLE) ++ " m, ddNode n 
-            where rownum < 2 and m.node = n.name"
-        ),
-        ?assertEqual(1, length(R3f)),
+        % R3f = exec_fetch_sort(SKey, query3f, 100, IsSec, "
+        %     select * 
+        %     from " ++ atom_to_list(?MONITOR_TABLE) ++ " m, ddNode n 
+        %     where rownum < 2 and m.node = n.name"
+        % ),
+        % ?assertEqual(1, length(R3f)),
 
         exec_fetch_sort_equal(SKey, query3g, 100, IsSec, "
             select col1, col5 

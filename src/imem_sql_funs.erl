@@ -768,11 +768,11 @@ test_with_or_without_sec(IsSec) ->
         ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
         ?Info("----------------------------------~n"),
 
-        ?assertEqual(<<"'Imem'.ddTable">>, to_name({'Imem',ddTable})),
+        ?assertEqual(<<"Imem.ddTable">>, to_name({'Imem',ddTable})),
         ?assertEqual(<<"imem.ddTable">>, to_name({'imem',ddTable})),
         ?assertEqual(<<"undefined.ddTable">>, to_name({undefined,ddTable})),
-        ?assertEqual(<<"ddTable">>, to_name("ddTable")),
         ?assertEqual(<<"ddTable">>, to_name(<<"ddTable">>)),
+        % ?assertEqual(<<"ddTable">>, to_name("ddTable")),
         ?assertEqual(<<"imem.ddäöü"/utf8>>, to_name({<<"imem">>,<<"ddäöü">>})),
         ?Info("to_name success~n", []),
 

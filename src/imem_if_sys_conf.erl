@@ -79,7 +79,7 @@ create_sys_conf(Path) ->
             [case gen_server:call(?MODULE, {add, Path, list_to_atom("\""++File++"\"")}) of
                  ok -> ok;
                  {error, Reason} ->
-                     ?SystemException({"System Configuration setup failed",{Path,File,Reason}})
+                     ?SystemExceptionNoLogging({"System Configuration setup failed",{Path,File,Reason}})
             end
             || File <- filelib:wildcard("*.*", Path)],
             ok;
@@ -89,7 +89,7 @@ create_sys_conf(Path) ->
             case gen_server:call(?MODULE, {add, DirPath, File}) of
                  ok -> ok;
                  {error, Reason} ->
-                     ?SystemException({"System Configuration setup failed",{Path,Reason}})
+                     ?SystemExceptionNoLogging({"System Configuration setup failed",{Path,Reason}})
             end
     end.
 
@@ -120,7 +120,7 @@ fetch_start(Pid, Table, _MatchSpec, _BlockSize, _Opts) ->
                 end
             );
         false ->
-            ?SystemException({"File not found",File})
+            ?SystemExceptionNoLogging({"File not found",File})
     end.
 
 %% ----- public interface -------------------------------------
@@ -135,9 +135,9 @@ update_tables([], _Lock, Acc) -> lists:reverse(Acc);
 update_tables([[Table, Item, Old, New]|UpdatePlan], Lock, Acc) ->
     if
         New#ddSysConf.item =/= Old#ddSysConf.item ->
-            ?ClientError({"Key modification not allowed", {Old#ddSysConf.item, New#ddSysConf.item}});
+            ?ClientErrorNoLogging({"Key modification not allowed", {Old#ddSysConf.item, New#ddSysConf.item}});
         New#ddSysConf.item =/= content ->
-            ?ClientError({"Readonly field", New#ddSysConf.item});
+            ?ClientErrorNoLogging({"Readonly field", New#ddSysConf.item});
         true -> ok
     end,
     check_content(Old, New),
@@ -149,7 +149,7 @@ update_tables([[Table, Item, Old, New]|UpdatePlan], Lock, Acc) ->
 update_xt({_Table,_}, _Item, _Lock, {}, {}) ->
     ok;
 update_xt({Table,_}, _Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
-    ?ClientError({"Truncating file is not allowed", Table});
+    ?ClientErrorNoLogging({"Truncating file is not allowed", Table});
 update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
     File = filename:join([path(),?DQuoteStrip(Table)]),
     if
@@ -158,7 +158,7 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
         true ->            
             case file_content_rec(File) of
                 New ->      write_content(File, New);
-                Current ->  ?ConcurrencyException({"Key violation", {Item,{Current, New}}})
+                Current ->  ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Current, New}}})
             end
     end,
     {Item,New};
@@ -168,7 +168,7 @@ update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) -
     File = filename:join([path(),?DQuoteStrip(Table)]),
     case file_content_rec(File) of
         Old ->    {Item,Old};
-        Current ->  ?ConcurrencyException({"Data is modified by someone else", {File, Old, Current}})
+        Current ->  ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {File, Old, Current}})
     end;
 update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
     File = filename:join([path(),?DQuoteStrip(Table)]),
@@ -178,7 +178,7 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
         true ->
             case file_content_rec(File) of
                 Old ->      write_content(File, New);
-                Curr1 ->    ?ConcurrencyException({"Data is modified by someone else", {File, Old, Curr1}})
+                Curr1 ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {File, Old, Curr1}})
             end
     end,
     {Item, New}.
@@ -213,23 +213,23 @@ file_content_rec(File) ->
 check_content(Old, New) ->
     if
         (New#ddSysConf.itemStr =/= undefined) andalso (New#ddSysConf.itemBin =/= undefined) ->
-            ?ClientError({"Data provided in multiple formats"
+            ?ClientErrorNoLogging({"Data provided in multiple formats"
                           , {{itemStr, New#ddSysConf.itemStr}, {itemBin, New#ddSysConf.itemBin}}});
         true -> ok
     end,
     if
         (Old#ddSysConf.itemStr =/= undefined) andalso (New#ddSysConf.itemStr =:= undefined) ->
-            ?ClientError({"Input and Existing data format missmatch"
+            ?ClientErrorNoLogging({"Input and Existing data format missmatch"
                           , {{exist_str, Old#ddSysConf.itemStr}, {new_bin, New#ddSysConf.itemBin}}});
         (Old#ddSysConf.itemBin =/= undefined) andalso (New#ddSysConf.itemBin =:= undefined) ->
-            ?ClientError({"Input and Existing data format missmatch"
+            ?ClientErrorNoLogging({"Input and Existing data format missmatch"
                           , {{exist_bin, Old#ddSysConf.itemBin}, {new_str, New#ddSysConf.itemStr}}});
        true -> ok
     end,
     if
         is_binary(New#ddSysConf.itemStr) andalso (byte_size(New#ddSysConf.itemStr) == 0) andalso
         is_binary(New#ddSysConf.itemBin) andalso (byte_size(New#ddSysConf.itemBin) == 0) ->
-            ?ClientError("Invalid operation truncate");
+            ?ClientErrorNoLogging("Invalid operation truncate");
         true -> ok
     end.
 
@@ -239,6 +239,6 @@ write_content(File, Data) ->
         #ddSysConf{itemStr = DB, itemBin = undefined} -> DB
     end,
     case file:write_file(File, DataBin) of
-        {error, Reason} -> ?SystemException({"Failed to update", {File, Reason}});
+        {error, Reason} -> ?SystemExceptionNoLogging({"Failed to update", {File, Reason}});
         _ -> ok
     end.

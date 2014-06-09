@@ -126,8 +126,10 @@
         , select/3          %% select with limit
         , select_sort/2
         , select_sort/3
-        , insert/2    
-        , write/2           %% write single key
+        , insert/2          %% apply defaults and write row if key does not exist    
+        , update/2          %% apply defaults and write row if key exists
+        , merge/2           %% apply defaults and write row
+        , write/2           %% write row for single key
         , write_log/1
         , dirty_write/2
         , delete/2          %% delete row by key
@@ -137,6 +139,8 @@
 -export([ update_prepare/3          %% stateless creation of update plan from change list
         , update_cursor_prepare/2   %% take change list and generate update plan (stored in state)
         , update_cursor_execute/2   %% take update plan from state and execute it (fetch aborted first)
+        , apply_arity0_defaults/2   %% apply arity/0 funs of default record to ?nav values of current record
+        , apply_arity1_defaults/2   %% apply any arity/1 funs of default record to current record
         , fetch_recs/3
         , fetch_recs_sort/3 
         , fetch_recs_async/2        
@@ -242,7 +246,7 @@ create_nonexisting_partitioned_table(Name) ->
             Pred = fun(TN) -> is_local_time_partitioned_table(TN) end,
             case lists:filter(Pred,tables_starting_with(BaseName)) of
                 [] ->   
-                    ?Error("No table template found starting/ending with  ~p / ~p", [BaseName,NS]),   
+                    ?Error("No table template found starting/ending with  ~p / ~p", [BaseName,NS]), 
                     {error, {"No table template found starting/ending with", {BaseName,NS}}}; 
                 Cand -> 
                     Template = lists:last(lists:sort(Cand)),
@@ -1096,7 +1100,7 @@ when is_atom(Level)
     , is_binary(Message)
     , is_list(StackTrace) ->
     LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
-                    ,module=Module,function=Function,line=Line,node=node()
+                    ,module=Module,func=Function,line=Line,node=node()
                     ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
     dirty_write(?LOG_TABLE, LogRec).
@@ -1246,6 +1250,33 @@ update_cursor_prepare(Pid, ChangeList) ->
 
 update_cursor_execute(Pid, Lock) ->
     imem_statement:update_cursor_execute(none, Pid, false, Lock).
+
+apply_arity0_defaults(DefRec, Rec) when is_tuple(DefRec) ->
+    apply_arity0_defaults(tuple_to_list(DefRec), Rec);
+apply_arity0_defaults(DefRec, Rec) when is_list(DefRec), is_tuple(Rec) ->
+    apply_arity0_defaults(DefRec, Rec, 1).
+
+apply_arity0_defaults([], Rec, _) -> Rec;
+apply_arity0_defaults([D|DefRec], Rec0, N) ->
+    Rec1 = case {element(N,Rec0),is_function(D),is_function(D,0)} of
+        {?nav,true,true} ->     setelement(N,Rec0,D());
+        {?nav,false,false} ->   setelement(N,Rec0,D);
+        _ ->                    Rec0
+    end,
+    apply_arity0_defaults(DefRec, Rec1, N+1).
+
+apply_arity1_defaults(DefRec, Rec) when is_tuple(DefRec) ->
+    apply_arity1_defaults(tuple_to_list(DefRec), Rec);
+apply_arity1_defaults(DefRec, Rec) when is_list(DefRec), is_tuple(Rec) ->
+    apply_arity1_defaults(DefRec, Rec, 1).
+
+apply_arity1_defaults([], Rec, _) -> Rec;
+apply_arity1_defaults([D|DefRec], Rec0, N) ->
+    Rec1 = case is_function(D,1) of
+        true ->     setelement(N,Rec0,D(Rec0));
+        false ->    Rec0
+    end,
+    apply_arity1_defaults(DefRec, Rec1, N+1).
 
 fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
     imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
@@ -1527,34 +1558,92 @@ insert({_Schema,Table}, Row) ->
     insert(Table, Row);             %% ToDo: may depend on schema
 insert(ddTable, Row) ->
     write(ddTable, Row);
-insert(Table, Row) when is_tuple(Row) ->
-    case lists:member(?nav,tuple_to_list(Row)) of
+insert(Table, Row0) when is_tuple(Row0) ->
+    ColInfo = column_infos(Table),    
+    DefRec = [Table|column_info_items(ColInfo, default)],
+    Row1=apply_arity0_defaults(DefRec, Row0),
+    Row2=apply_arity1_defaults(DefRec, Row1),
+    Key = element(?KeyIdx,Row2),
+    case lists:member(?nav,tuple_to_list(Row2)) of
         false ->
-            PTN = physical_table_name(Table),   
-            case {read(PTN,element(?KeyIdx,Row)),table_type(PTN)} of     %% TODO: Wrap in single transaction
+            PTN = physical_table_name(Table,Key),   
+            case {read(PTN,Key),table_type(PTN)} of     %% TODO: Wrap in single transaction
                 {[],_} ->   
-                    write(PTN, Row);    
+                    write(PTN, Row2),
+                    Row2;    
                 {R,bag} ->
-                    case lists:member(Row,R) of  
+                    case lists:member(Row2,R) of  
                         true ->     ?ConcurrencyException({"Insert failed, row already exists", {PTN,R}});
-                        false ->    write(PTN, Row)
+                        false ->    
+                            write(PTN, Row2),
+                            Row2
                     end;
-                {R,_} ->
-                    ?ConcurrencyException({"Insert failed, row already exists", {PTN,R}})
+                {_,_} ->
+                    ?ConcurrencyException({"Insert failed, key already exists", {PTN,Key}})
             end;
         true ->     
-            ?ClientError({"Not null constraint violation", {Table,Row}})
+            ?ClientError({"Not null constraint violation", {Table,Row2}})
+    end.
+
+update({_Schema,Table}, Row) ->
+    insert(Table, Row);             %% ToDo: may depend on schema
+update(ddTable, Row) ->
+    write(ddTable, Row);
+update(Table, Row0) when is_tuple(Row0) ->
+    ColInfo = column_infos(Table),    
+    DefRec = [Table|column_info_items(ColInfo, default)],
+    Row1=apply_arity0_defaults(DefRec, Row0),
+    Row2=apply_arity1_defaults(DefRec, Row1),
+    Key = element(?KeyIdx,Row2),
+    case lists:member(?nav,tuple_to_list(Row2)) of
+        false ->
+            PTN = physical_table_name(Table,Key),   
+            case {read(PTN,Key),table_type(PTN)} of     %% TODO: Wrap in single transaction
+                {[],_} ->
+                    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
+                {R,bag} ->
+                    case lists:member(Row2,R) of  
+                        false ->     
+                            ?ConcurrencyException({"Update failed, row does not exist", {PTN,R}});
+                        true ->    
+                            write(PTN, Row2),
+                            Row2
+                    end;
+                {_,_} ->
+                    write(PTN, Row2),
+                    Row2 
+            end;
+        true ->     
+            ?ClientError({"Not null constraint violation", {Table,Row2}})
+    end.
+
+merge({_Schema,Table}, Row) ->
+    insert(Table, Row);             %% ToDo: may depend on schema
+merge(ddTable, Row) ->
+    write(ddTable, Row);
+merge(Table, Row0) when is_tuple(Row0) ->
+    ColInfo = column_infos(Table),    
+    DefRec = [Table|column_info_items(ColInfo, default)],
+    Row1=apply_arity0_defaults(DefRec, Row0),
+    Row2=apply_arity1_defaults(DefRec, Row1),
+    case lists:member(?nav,tuple_to_list(Row2)) of
+        false ->
+            PTN = physical_table_name(Table,element(?KeyIdx,Row2)),   
+            write(PTN, Row2),
+            Row2;    
+        true ->     
+            ?ClientError({"Not null constraint violation", {Table,Row2}})
     end.
 
 delete({_Schema,Table}, Key) ->
     delete(Table, Key);             %% ToDo: may depend on schema
 delete(Table, Key) ->
-    imem_if:delete(physical_table_name(Table), Key).
+    imem_if:delete(physical_table_name(Table,Key), Key).
 
 delete_object({_Schema,Table}, Row) ->
     delete_object(Table, Row);             %% ToDo: may depend on schema
 delete_object(Table, Row) ->
-    imem_if:delete_object(physical_table_name(Table), Row).
+    imem_if:delete_object(physical_table_name(Table,element(?KeyIdx,Row)), Row).
 
 subscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
@@ -1666,7 +1755,7 @@ meta_operations(_) ->
         ?Info("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
-                            ,module=?MODULE,function=meta_operations,node=node()
+                            ,module=?MODULE,func=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
         ?assertEqual(ok, write(?LOG_TABLE, LogRec1)),
         LogCount2 = table_size(?LOG_TABLE),
@@ -1710,14 +1799,13 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Reserved column name", current}}, create_table(bad_table_1, BadTypes2, [])),
         ?assertException(throw, {ClEr,{"Invalid data type", iinteger}}, create_table(bad_table_1, BadTypes3, [])),
 
-        ?assertEqual(ok, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},undefined})),
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav})),
         ?assertEqual(1, table_size(meta_table_3)),
         LogCount3 = table_size(?LOG_TABLE),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
         LogCount4 = table_size(?LOG_TABLE),
         ?Info("success ~p~n", [not_null_constraint]),
-        ?assertEqual(LogCount3+2, LogCount4),
+        ?assertEqual(LogCount3+1, LogCount4),
 
         Keys4 = [
         {1,{meta_table_3,{{2000,1,1},{12,45,59}},undefined}}
@@ -1749,7 +1837,7 @@ meta_operations(_) ->
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRec2 = #ddLog{logTime=Future,logLevel=info,pid=self()
-                            ,module=?MODULE,function=meta_operations,node=node()
+                            ,module=?MODULE,func=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 2">>},
         ?assertEqual(ok, write(tpTest_1000@, LogRec2)),
         ?Info("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
@@ -1798,7 +1886,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
         ?assertEqual(1,length(physical_table_names(fakelog_1@))),
         LogRec3 = #ddLog{logTime=erlang:now(),logLevel=debug,pid=self()
-                        ,module=?MODULE,function=test,node=node()
+                        ,module=?MODULE,func=test,node=node()
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)),

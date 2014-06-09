@@ -43,23 +43,24 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) w
             end;
         {_,Bin} ->  
             Str = binary_to_list(Bin),
-            case re:run(Str, "fun[ \(\)\-\>]*(.*)end[ ]*.", [global, {capture, [1], list}]) of
-                {match,[Body]} ->
+            FT = case re:run(Str, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], list}]) of
+                {match,[[_Params,Body]]} ->
+                    % ?LogDebug("Str ~p~n", [Str]),
+                    % ?LogDebug("Params ~p~n", [_Params]),
+                    % ?LogDebug("Body ~p~n", [Body]),
                     try 
-                        % ?Info("body ~p~n", [Body]),
-                        {imem_datatype:io_to_term(Body),lists:keydelete(default, 1, COpts)}
-                    catch
-                        _:_ ->  try
-                                    % ?Info("str ~p~n", [Str]),
-                                    Fun = imem_datatype:io_to_fun(Str,0),
-                                    {Fun(),lists:keydelete(default, 1, COpts)}
-                                catch
-                                    _:Reason -> ?ClientError({"Default evaluation fails",{Str,Reason}})
-                                end
+                        imem_datatype:io_to_term(Body)
+                    catch _:_ -> 
+                        try 
+                            imem_datatype:io_to_fun(Str,undefined)
+                        catch _:Reason -> 
+                            ?ClientError({"Bad default fun",Reason})
+                        end
                     end;
                 nomatch ->  
-                    {imem_datatype:io_to_term(Str),lists:keydelete(default, 1, COpts)}
-            end
+                    imem_datatype:io_to_term(Str)
+            end,
+            {FT,lists:keydelete(default, 1, COpts)}
     end,
     C = #ddColumn{  name=Name           %% not converted to atom yet !!!
                   , type=T
@@ -121,6 +122,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
+
+        Sql0 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [/] end.);",
+        ?assertException(throw, {ClEr,{"Bad default fun",_}}, imem_sql:exec(SKey, Sql0, 0, imem, IsSec)),
+
         Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [] end.);",
         Expected = 
                 [   {ddColumn,col1,binstr,10,undefined,?nav,[]},

@@ -195,7 +195,7 @@ meta_field_value(<<"schema">>) -> schema();
 meta_field_value(schema) -> schema();
 meta_field_value(<<"node">>) -> node();
 meta_field_value(node) -> node();
-meta_field_value(Name) -> ?ClientError({"Undefined meta value",Name}).
+meta_field_value(Name) -> ?ClientErrorNoLogging({"Undefined meta value",Name}).
 
 schema() ->
     %% schema identifier of local imem node
@@ -279,7 +279,7 @@ check_table_columns(Table, ColumnNames) ->
         ColumnNames =:= TableColumns ->
             ok;
         true ->
-            ?SystemException({"Column names do not match table structure",Table})
+            ?SystemExceptionNoLogging({"Column names do not match table structure",Table})
     end.
 
 
@@ -359,25 +359,25 @@ drop_table(Table) when is_atom(Table) ->
         {atomic,ok} ->
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
-        {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
+        {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                        ?SystemExceptionNoLogging(Error)
     end.
 
 create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-            ?ClientError({"Table does not exist", Table});
+            ?ClientErrorNoLogging({"Table does not exist", Table});
         {aborted, {already_exists, {Table,Column}}} ->
-            ?ClientError({"Index already exists", {Table,Column}});
+            ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
         Result -> return_atomic_ok(Result)
     end.
 
 drop_index(Table, Column) when is_atom(Table) ->
     case mnesia:del_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-            ?ClientError({"Table does not exist", Table});
+            ?ClientErrorNoLogging({"Table does not exist", Table});
         {aborted, {no_exists, {Table,Column}}} ->
-            ?ClientError({"Index does not exist", {Table,Column}});
+            ?ClientErrorNoLogging({"Index does not exist", {Table,Column}});
         Result -> return_atomic_ok(Result)
     end.
 
@@ -386,7 +386,7 @@ truncate_table(Table) when is_atom(Table) ->
         {atomic,ok} ->
             ?TOUCH_SNAP(Table),                  
             ok;
-        {aborted,{no_exists,Table}} ->  ?ClientError({"Table does not exist",Table});
+        {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                        ?SystemExceptionNoLogging(Error)
     end.
 
@@ -408,13 +408,13 @@ read(Table) when is_atom(Table) ->
     end,
     case transaction(Trans) of
         {atomic, Result} ->         Result;
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                    ?SystemExceptionNoLogging(Error)
     end.
 
 read(Table, Key) when is_atom(Table) ->
     Result = case transaction(read,[Table, Key]) of
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Res ->                      Res
     end,
     return_atomic_list(Result).
@@ -433,7 +433,7 @@ read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
     end,
     case transaction(Trans,[HListKey,Trans]) of
         {atomic, Result} ->         Result;
-        {aborted,{no_exists,_}} ->  ?ClientError({"Table does not exist",Table});
+        {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                    ?SystemExceptionNoLogging(Error)
     end.
 
@@ -469,7 +469,7 @@ delete(Table, Key) when is_atom(Table) ->
             ?TOUCH_SNAP(Table),
             {atomic,ok};
         {aborted,{no_exists,_}} ->          
-            ?ClientError({"Table does not exist",Table});
+            ?ClientErrorNoLogging({"Table does not exist",Table});
         Res ->
             Res
     end,
@@ -481,7 +481,7 @@ delete_object(Table, Row) when is_atom(Table) ->
             ?TOUCH_SNAP(Table),
             {atomic,ok};
         {aborted,{no_exists,_}} ->          
-            ?ClientError({"Table does not exist",Table});
+            ?ClientErrorNoLogging({"Table does not exist",Table});
         Res ->                              
             Res
     end,
@@ -490,7 +490,7 @@ delete_object(Table, Row) when is_atom(Table) ->
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of
         {atomic, L}     ->                  {L, true};
-        {aborted,{no_exists,_}} ->          ?ClientError({"Table does not exist",Table});
+        {aborted,{no_exists,_}} ->          ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                            ?SystemExceptionNoLogging(Error)
     end.
 
@@ -519,7 +519,7 @@ select(Table, MatchSpec, Limit) when is_atom(Table) ->
     end,
     case transaction(Start, [Next]) of
         {atomic, {Result, AllRead}} ->          {Result, AllRead};
-        {aborted,{no_exists,_}} ->              ?ClientError({"Table does not exist",Table});
+        {aborted,{no_exists,_}} ->              ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                                ?SystemExceptionNoLogging(Error)
     end.
 
@@ -638,7 +638,7 @@ update_xt({Table,bag}, Item, Lock, Old, {}) when is_atom(Table) ->
         Lock == none ->
             {Item,{}};
         true ->
-            ?ConcurrencyException({"Data is modified by someone else", {Item, Old}})
+            ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item, Old}})
     end;
 update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
     Current = mnesia:read(Table, element(?KeyIdx,New)),  %% may be expensive
@@ -647,7 +647,7 @@ update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
         (Exists and (Lock==none)) ->
             {Item,New};
         Exists ->
-            ?ConcurrencyException({"Record already exists", {Item, New}});
+            ?ConcurrencyExceptionNoLogging({"Record already exists", {Item, New}});
         true ->
             %mnesia:write(Table, New, write),
             mnesia_table_write_access(write, [Table, New, write]),
@@ -662,7 +662,7 @@ update_xt({Table,bag}, Item, Lock, Old, Old) when is_atom(Table) ->
         Lock == none ->
             {Item,Old};
         true ->
-            ?ConcurrencyException({"Data is modified by someone else", {Item, Old}})
+            ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item, Old}})
     end;
 update_xt({Table,bag}, Item, Lock, Old, New) when is_atom(Table) ->
     update_xt({Table,bag}, Item, Lock, Old, {}),
@@ -682,7 +682,7 @@ update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
             case mnesia:read(Table, element(?KeyIdx,New)) of
                 [New] ->    ok;
                 [] ->       ok;
-                Current ->  ?ConcurrencyException({"Key violation", {Item,{Current, New}}})
+                Current ->  ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Current, New}}})
             end
     end,
     %mnesia:write(Table,New,write),
@@ -693,8 +693,8 @@ update_xt({Table,_}, Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
 update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
     case mnesia:read(Table, element(?KeyIdx,Old)) of
         [Old] ->    {Item,Old};
-        [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
-        Current ->  ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Current}}})
+        [] ->       ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}});
+        Current ->  ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
     end;
 update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
     OldKey=element(?KeyIdx,Old),
@@ -704,8 +704,8 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
         true ->
             case mnesia:read(Table, OldKey) of
                 [Old] ->    ok;
-                [] ->       ?ConcurrencyException({"Data is deleted by someone else", {Item, Old}});
-                Curr1 ->    ?ConcurrencyException({"Data is modified by someone else", {Item,{Old, Curr1}}})
+                [] ->       ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}});
+                Curr1 ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Curr1}}})
             end
     end,
     NewKey = element(?KeyIdx,New),
@@ -726,7 +726,7 @@ update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), i
                             %mnesia:write(Table,New,write),
                             mnesia_table_write_access(write, [Table, New, write]),
                             {Item,New};
-                Curr2 ->    ?ConcurrencyException({"Modified key already exists", {Item,Curr2}})
+                Curr2 ->    ?ConcurrencyExceptionNoLogging({"Modified key already exists", {Item,Curr2}})
             end
     end.
 
@@ -737,14 +737,14 @@ subscribe({table, Tab, detailed}) ->
     {ok,_} = mnesia:subscribe({table, Tab, detailed}),
     ok;
 subscribe(EventCategory) ->
-    ?ClientError({"Unsupported event category", EventCategory}).
+    ?ClientErrorNoLogging({"Unsupported event category", EventCategory}).
 
 unsubscribe({table, Tab, simple}) ->
 mnesia:unsubscribe({table, Tab, simple});
 unsubscribe({table, Tab, detailed}) ->
 mnesia:unsubscribe({table, Tab, detailed});
 unsubscribe(EventCategory) ->
-    ?ClientError({"Unsupported event category", EventCategory}).
+    ?ClientErrorNoLogging({"Unsupported event category", EventCategory}).
 
 
 %% ----- gen_server -------------------------------------------

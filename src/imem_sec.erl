@@ -63,8 +63,10 @@
         , select/3
         , select/4
         , insert/3
-        , dirty_write/3    
+        , update/3
+        , merge/3
         , write/3
+        , dirty_write/3    
         , delete/3
         , delete_object/3
         , admin_exec/4
@@ -484,6 +486,18 @@ insert(SKey, Table, Row) ->
         false ->    ?SecurityException({"Insert unauthorized", {Table,SKey}})
     end.
 
+update(SKey, Table, Row) ->
+    case have_table_permission(SKey, Table, update) of
+        true ->     imem_meta:update(Table, Row) ;
+        false ->    ?SecurityException({"Update unauthorized", {Table,SKey}})
+    end.
+
+merge(SKey, Table, Row) ->
+    case have_table_permission(SKey, Table, update) of
+        true ->     imem_meta:merge(Table, Row) ;
+        false ->    ?SecurityException({"Merge (insert/update) unauthorized", {Table,SKey}})
+    end.
+
 read(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:read(Table);
@@ -844,8 +858,7 @@ test(_) ->
     try
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
-
-        % CoEx = 'ConcurrencyException',
+        CoEx = 'ConcurrencyException',
         % SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
@@ -977,10 +990,15 @@ test(_) ->
         ?assertEqual([],tables_starting_with(SeCoUser,ddTable)),
         ?assertEqual([],tables_starting_with(SeCoAdmin,"akkahadöl_")),
 
-        ?assertEqual(ok, insert(SeCoUser, user_table_123, {user_table_123,"A","B","C"})),
+        ?assertEqual({user_table_123,"A","B","C"}, insert(SeCoUser, user_table_123, {user_table_123,"A","B","C"})),
         ?assertEqual(1, table_size(SeCoUser, user_table_123)),
         ?Info("success ~p~n", [insert_own_table]),
-        ?assertEqual(ok, insert(SeCoUser, user_table_123, {user_table_123,"AA","BB","CC"})),
+        ?assertEqual({user_table_123,"AA","BB","CC"}, merge(SeCoUser, user_table_123, {user_table_123,"AA","BB","CC"})),
+        ?assertEqual(2, table_size(SeCoUser, user_table_123)),
+        ?assertEqual({user_table_123,"AA","B0","CC"}, update(SeCoUser, user_table_123, {user_table_123,"AA","B0","CC"})),
+        ?assertEqual(2, table_size(SeCoUser, user_table_123)),
+        ?assertException(throw, {CoEx,{"Update failed, key does not exist",_ }}, update(SeCoUser, user_table_123, {user_table_123,"A0","B0","CC"})),    
+
         ?assertEqual(2, table_size(SeCoUser, user_table_123)),
         ?Info("success ~p~n", [insert_own_table]),
         ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),

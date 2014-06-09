@@ -901,11 +901,14 @@ send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(),Result},
     imem_server:send_resp(NewResult, SockOrPid).
 
-update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
+update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
     % ?LogDebug("received change list tables~n~p~n", [Tables]),
     % ?LogDebug("received change list ColMap~n~p~n", [ColMap]),
     % ?LogDebug("received change list~n~p~n", [ChangeList]),
-    TableTypes = [{Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}])} || {Schema,Table} <- Tables],
+    ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
+    DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
+    % ?LogDebug("default record~n~p~n", [DefRec]),     
+    TableInfo = {Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}]), DefRec},
     % ?Debug("received change list~n~p~n", [ChangeList]),
     %% transform a ChangeList   
         % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],                     %% no operation on this line
@@ -917,20 +920,21 @@ update_prepare(IsSec, SKey, Tables, ColMap, ChangeList) ->
         % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
-    UpdPlan = update_prepare(IsSec, SKey, TableTypes, ColMap, ChangeList, []),
+    UpdPlan = update_prepare(IsSec, SKey, TableInfo, ColMap, ChangeList, []),
     ?Debug("prepared table changes~n~p~n", [UpdPlan]),
     UpdPlan.
 
 -define(replace(__X,__Cx,__New), setelement(?MainIdx, __X, setelement(__Cx,element(?MainIdx,__X), __New))). 
+-define(ins_repl(__X,__Cx,__New), setelement(__Cx,__X, __New)). 
 
-update_prepare(_IsSec, _SKey, _Tables, _ColMap, [], Acc) -> Acc;
-update_prepare(IsSec, SKey, Tables, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
-    Action = [hd(Tables), Item, element(?MainIdx,Recs), element(?MainIdx,Recs)],     
-    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, Tables, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
-    Action = [hd(Tables), Item, element(?MainIdx,Recs), {}],     
-    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
+update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> Acc;
+update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), element(?MainIdx,Recs)],     
+    update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, CList, [Action|Acc]);
+update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}],     
+    update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
     % ?Debug("ColMap~n~p~n", [ColMap]),
     % ?Debug("Values~n~p~n", [Values]),
     if  
@@ -1001,35 +1005,9 @@ update_prepare(IsSec, SKey, Tables, ColMap, [[Item,upd,Recs|Values]|CList], Acc)
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),    
     % ?LogDebug("Update map item ~p ~n~p~n", [Item,UpdateMap]),
-    Action = [hd(Tables), Item, element(?MainIdx,Recs), element(?MainIdx,update_recs(Recs, UpdateMap))],     
-    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, [{_,Table,_}|_]=Tables, ColMap, CList, Acc) ->
-    ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
-    DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    ?Debug("default record~n~p~n", [DefRec]),     
-    update_prepare(IsSec, SKey, Tables, ColMap, DefRec, CList, Acc);
-update_prepare(_IsSec, _SKey, _Tables, _ColMap, [CLItem|_], _Acc) ->
-    ?ClientError({"Invalid format of change list", CLItem}).
-
-update_recs(Recs, []) -> Recs;
-update_recs(Recs, [{_Cx,_Pos,Fx}|UpdateMap]) ->
-    % ?LogDebug("Update rec ~p:~p ~n~p~n", [_Cx,_Pos,Recs]),
-    NewRecs = Fx(Recs),
-    % ?LogDebug("Updated rec ~n~p~n", [NewRecs]),
-    update_recs(NewRecs, UpdateMap).
-
-list_type(list) -> term;
-list_type([Type]) when is_atom(Type) -> Type;
-list_type(Other) -> ?ClientError({"Invalid list type",Other}).
-
-tuple_type(tuple,_) -> term;
-tuple_type({Type},_) when is_atom(Type) -> Type;
-tuple_type(T,Pos) when is_tuple(T),(size(T)>=Pos),is_atom(element(Pos,T)) -> element(Pos,T);
-tuple_type(Other,_) -> ?ClientError({"Invalid tuple type",Other}).
-
--define(ins_repl(__X,__Cx,__New), setelement(__Cx,__X, __New)). 
-
-update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList], Acc) ->
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), imem_meta:apply_arity1_defaults(DefRec,element(?MainIdx,update_recs(Recs, UpdateMap)))],     
+    update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
     % ?Debug("ColMap~n~p~n", [ColMap]),
     % ?Debug("Values~n~p~n", [Values]),
     if  
@@ -1092,8 +1070,26 @@ update_prepare(IsSec, SKey, Tables, ColMap, DefRec, [[Item,ins,_|Values]|CList],
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),    
     % ?LogDebug("Insert map item ~p ~n~p~n", [Item,InsertMap]),
-    Action = [hd(Tables), Item, {},  update_recs(DefRec, InsertMap)],     
-    update_prepare(IsSec, SKey, Tables, ColMap, CList, [Action|Acc]).
+    Action = [{S,Tab,Typ}, Item, {},  imem_meta:apply_arity1_defaults(DefRec,update_recs(DefRec, InsertMap))],     
+    update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
+update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [CLItem|_], _Acc) ->
+    ?ClientError({"Invalid format of change list", CLItem}).
+
+update_recs(Recs, []) -> Recs;
+update_recs(Recs, [{_Cx,_Pos,Fx}|UpdateMap]) ->
+    % ?LogDebug("Update rec ~p:~p ~n~p~n", [_Cx,_Pos,Recs]),
+    NewRecs = Fx(Recs),
+    % ?LogDebug("Updated rec ~n~p~n", [NewRecs]),
+    update_recs(NewRecs, UpdateMap).
+
+list_type(list) -> term;
+list_type([Type]) when is_atom(Type) -> Type;
+list_type(Other) -> ?ClientError({"Invalid list type",Other}).
+
+tuple_type(tuple,_) -> term;
+tuple_type({Type},_) when is_atom(Type) -> Type;
+tuple_type(T,Pos) when is_tuple(T),(size(T)>=Pos),is_atom(element(Pos,T)) -> element(Pos,T);
+tuple_type(Other,_) -> ?ClientError({"Invalid tuple type",Other}).
 
 % update_bag(IsSec, SKey, Table, ColMap, [C|CList]) ->
 %     ?UnimplementedException({"Cursor update not supported for bag tables",Table}).
@@ -1174,11 +1170,15 @@ if_call_mfa(IsSec,Fun,Args) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
-    ?imem_test_setup().
+    ?imem_test_setup(),
+    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(tuple_test),
+    catch imem_meta:drop_table(fun_test).
 
 teardown(_SKey) -> 
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(tuple_test),
+    catch imem_meta:drop_table(fun_test),
     ?Info("test teardown....~n",[]),
     ?imem_test_teardown().
 
@@ -1225,13 +1225,53 @@ test_with_or_without_sec(IsSec) ->
     %% test table tuple_test
 
         ?assertEqual(ok, imem_sql:exec(SKey, "
+            create table fun_test (
+                col0 integer
+              , col1 integer default fun(Rec) -> element(2,Rec)*element(2,Rec) end.
+            );"
+            , 0, [{schema,imem}], IsSec)),
+
+        Sql0a = "insert into fun_test (col0) values (12)",  
+        ?Info("Sql0a:~n~s~n", [Sql0a]),
+        ?assertEqual([{fun_test,12,144}], imem_sql:exec(SKey, Sql0a, 0, [{schema,imem}], IsSec)),
+
+        TT0aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, fun_test])),
+        ?Info("fun_test~n~p~n", [TT0aRows]),
+        [{fun_test,Col0a,Col1a}] = TT0aRows,
+        ?assertEqual(Col0a*Col0a, Col1a),
+
+        SR00 = exec(SKey,query00, 15, IsSec, "select col0, col1 from fun_test;"),
+        ?assertEqual(ok, fetch_async(SKey,SR00,[],IsSec)),
+        [{<<"12">>,<<"144">>}] = receive_tuples(SR00,true),
+
+        ChangeList00 = [
+          [1,upd,{?EmptyMR,{fun_test,12,144}},<<"13">>,<<"0">>] 
+        ],
+        ?assertEqual(ok, update_cursor_prepare(SKey, SR00, IsSec, ChangeList00)),
+        ?assertEqual([{1,{?EmptyMR,{fun_test,13,169}}}], update_cursor_execute(SKey, SR00, IsSec, optimistic)),        
+
+        ChangeList01 = [
+          [2,ins,{?EmptyMR,{}},<<"15">>,<<"1">>] 
+        ],
+        ?assertEqual(ok, update_cursor_prepare(SKey, SR00, IsSec, ChangeList01)),
+        ?assertEqual([{2,{?EmptyMR,{fun_test,15,225}}}], update_cursor_execute(SKey, SR00, IsSec, optimistic)),        
+
+        ?assertEqual(ok, fetch_close(SKey,SR00,IsSec)),
+        ?assertEqual(ok, fetch_async(SKey,SR00,[],IsSec)),
+        [{<<"13">>,<<"169">>},{<<"15">>,<<"225">>}] = receive_tuples(SR00,true),
+        ?assertEqual(ok, close(SKey, SR00)),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table fun_test;", 0, [{schema,imem}], IsSec)),
+        ?Info("dropped table ~p~n", [fun_test]),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "
             create table tuple_test (
             col1 tuple, 
             col2 list,
             col3 tuple(2),
             col4 integer
             );"
-                , 0, [{schema,imem}], IsSec)),
+            , 0, [{schema,imem}], IsSec)),
 
         Sql1a = "
             insert into tuple_test (
@@ -1243,7 +1283,9 @@ test_with_or_without_sec(IsSec) ->
                 ,1 
             );",  
         ?Info("Sql1a:~n~s~n", [Sql1a]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)),
+        ?assertEqual( [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}]
+                    , imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)
+                    ),
 
         Sql1b = "
             insert into tuple_test (
@@ -1255,7 +1297,9 @@ test_with_or_without_sec(IsSec) ->
                 ,2 
             );",  
         ?Info("Sql1b:~n~s~n", [Sql1b]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1b, 0, [{schema,imem}], IsSec)),
+        ?assertEqual( [{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}]
+                    , imem_sql:exec(SKey, Sql1b, 0, [{schema,imem}], IsSec)
+                    ),
 
         Sql1c = "
             insert into tuple_test (
@@ -1267,7 +1311,9 @@ test_with_or_without_sec(IsSec) ->
                 ,3 
             );",  
         ?Info("Sql1c:~n~s~n", [Sql1c]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1c, 0, [{schema,imem}], IsSec)),
+        ?assertEqual( [{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}]
+                    , imem_sql:exec(SKey, Sql1c, 0, [{schema,imem}], IsSec)
+                    ),
 
         TT1Rows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?Info("original table~n~p~n", [TT1Rows]),

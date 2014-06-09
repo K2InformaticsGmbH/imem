@@ -1,5 +1,10 @@
 -include("imem_if.hrl").
 
+-define(ClientError(__Reason), ?THROW_EXCEPTION('ClientError',__Reason)).
+-define(SystemException(__Reason),  ?THROW_EXCEPTION('SystemException',__Reason)).
+-define(ConcurrencyException(__Reason),  ?THROW_EXCEPTION('ConcurrencyException',__Reason)).
+-define(UnimplementedException(__Reason),  ?THROW_EXCEPTION('UnimplementedException',__Reason)).
+
 -define(CONFIG_TABLE,ddConfig).                    
 -define(LOG_TABLE,ddLog_86400@).                    %% 86400 = 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
@@ -30,6 +35,21 @@
                   }
        ).
 -define(ddTable, [tuple,list,list,userid,boolean]).
+
+-record(ddLog,                              %% log table    
+                  { logTime                 ::ddTimestamp()             %% erlang timestamp {Mega,Sec,Micro}
+                  , logLevel                ::atom()
+                  , pid                     ::pid()      
+                  , module                  ::atom()
+                  , func                    ::atom()
+                  , line=0                  ::integer()
+                  , node                    ::atom()
+                  , fields=[]               ::list()
+                  , message= <<"">>         ::binary()
+                  , stacktrace=[]           ::list()
+                  }
+       ).
+-define(ddLog, [timestamp,atom,pid,atom,atom,integer,atom,list,binstr,list]).
 
 -record(ddNode,                             %% node    
                   { name                    ::atom()                    %% erlang node name
@@ -137,3 +157,44 @@
                     ]).
 
 -define(VirtualTables, [ddSize|?DataTypes]).
+
+-define(THROW_EXCEPTION(__Ex,__Reason),
+    (fun() ->
+        __Level = case __Ex of
+            'UnimplementedException' -> warning;
+            'ConcurrencyException' ->   warning;
+            'ClientError' ->            warning;
+            _ ->                        error
+        end,
+        _Rsn = __Reason,
+        {__Head,__Fields} = case _Rsn of
+            __Rsn when is_tuple(__Rsn) ->
+                [__H|__R] = tuple_to_list(__Rsn),
+                case __R of
+                    []  -> {__H,[]};
+                    __R when is_tuple(__R) ->
+                        __RL = tuple_to_list(__R),
+                        {__H, lists:zip([list_to_atom("ep"++integer_to_list(__N)) || __N <- lists:seq(1,length(__RL))], __RL)};
+                    __R -> {__H,__R}
+                end;
+            __Else -> {__Level,[{ep1,__Else}]}
+        end,            
+        __Message = if 
+            is_atom(__Head) -> list_to_binary(atom_to_list(__Head));
+            is_list(__Head) -> list_to_binary(__Head);
+            true            -> <<"invalid exception head">>
+        end,
+        {_, {_,[_|__ST]}} = (catch erlang:now(1)),
+        {__Module,__Function,__Line} = imem_meta:failing_function(__ST),
+        __LogRec = #ddLog{logTime=erlang:now(),logLevel=__Level,pid=self()
+                            ,module=__Module,func=__Function,line=__Line
+                            ,node=node(),fields=[{ex,__Ex}|__Fields]
+                            ,message= __Message,stacktrace = __ST},
+        catch imem_meta:write_log(__LogRec),
+        ?EXCP_LOG(__LogRec),
+        case __Ex of
+            'SecurityViolation' ->  exit({__Ex,__Reason});
+            _ ->                    throw({__Ex,__Reason})
+        end
+    end)()
+).
