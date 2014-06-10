@@ -902,26 +902,20 @@ send_reply_to_client(SockOrPid, Result) ->
     imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
-    % ?LogDebug("received change list tables~n~p~n", [Tables]),
-    % ?LogDebug("received change list ColMap~n~p~n", [ColMap]),
-    % ?LogDebug("received change list~n~p~n", [ChangeList]),
     ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
     DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    % ?LogDebug("default record~n~p~n", [DefRec]),     
     TableInfo = {Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}]), DefRec},
-    % ?Debug("received change list~n~p~n", [ChangeList]),
     %% transform a ChangeList   
-        % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],                     %% no operation on this line
+        % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],               %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
-        % [3,del,{?EmptyMR,{def,"5","'5'"}},"5"],                     %% delete {def,"5","'5'"}
-        % [4,upd,{?EmptyMR,{def,"12","'12'"}},"112"]                  %% update {def,"12","'12'"} to {def,"112","'12'"}
+        % [3,del,{?EmptyMR,{def,"5","'5'"}},"5"],               %% delete {def,"5","'5'"}
+        % [4,upd,{?EmptyMR,{def,"12","'12'"}},"112"]            %% update {def,"12","'12'"} to {def,"112","'12'"}
     %% into an UpdatePlan                                       {table} = {Schema,Table,Type}
         % [1,{table},{def,"2","'2'"},{def,"2","'2'"}],          %% no operation on this line
         % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
         % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_prepare(IsSec, SKey, TableInfo, ColMap, ChangeList, []),
-    ?Debug("prepared table changes~n~p~n", [UpdPlan]),
     UpdPlan.
 
 -define(replace(__X,__Cx,__New), setelement(?MainIdx, __X, setelement(__Cx,element(?MainIdx,__X), __New))). 
@@ -935,8 +929,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, [[Item,del,Recs|_]|
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % ?Debug("ColMap~n~p~n", [ColMap]),
-    % ?Debug("Values~n~p~n", [Values]),
+    ?LogDebug("ColMap~n~p~n", [ColMap]),
+    ?LogDebug("Values~n~p~n", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1004,8 +998,12 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,upd,Rec
           {#bind{readonly=R}=CMap,Value} 
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),    
-    % ?LogDebug("Update map item ~p ~n~p~n", [Item,UpdateMap]),
-    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), imem_meta:apply_arity1_defaults(DefRec,element(?MainIdx,update_recs(Recs, UpdateMap)))],     
+    ?LogDebug("Update map item ~p ~n~p~n", [Item,UpdateMap]),
+    UpdatedRecs = update_recs(Recs, UpdateMap),
+    ?LogDebug("UpdatedRecs ~p", [UpdatedRecs]),
+    NewRec = if_call_mfa(IsSec, apply_triggers, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
+    ?LogDebug("NewRec ~p", [NewRec]),
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
     % ?Debug("ColMap~n~p~n", [ColMap]),
@@ -1070,7 +1068,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,ins,_|V
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),    
     % ?LogDebug("Insert map item ~p ~n~p~n", [Item,InsertMap]),
-    Action = [{S,Tab,Typ}, Item, {},  imem_meta:apply_arity1_defaults(DefRec,update_recs(DefRec, InsertMap))],     
+    NewRec = if_call_mfa(IsSec, apply_triggers, [SKey, DefRec, update_recs(DefRec, InsertMap), Tab]),
+    Action = [{S,Tab,Typ}, Item, {},  NewRec],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
@@ -1227,7 +1226,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "
             create table fun_test (
                 col0 integer
-              , col1 integer default fun(Rec) -> element(2,Rec)*element(2,Rec) end.
+              , col1 integer default fun(_,Rec) -> element(2,Rec)*element(2,Rec) end.
             );"
             , 0, [{schema,imem}], IsSec)),
 

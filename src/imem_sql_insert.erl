@@ -6,6 +6,23 @@
 -export([ exec/5
         ]).
 
+
+exec(SKey, {insert, TableName, {}, {}, _Returning}=ParseTree , _Stmt, Opts, IsSec) ->
+    % ?LogDebug("insert default record into ~p~n", [TableName]),
+    % ?LogDebug("parse tree~n~p~n", [ParseTree]),
+    Params = imem_sql:params_from_opts(Opts,ParseTree),
+    % ?LogDebug("Params: ~p~n", [Params]),
+    MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
+    FullMap0 = imem_sql_expr:column_map_tables([TableName],MetaFields,Params),
+    % ?LogDebug("FullMap0:~n~p~n", [?FP(FullMap0,"23678")]),
+    [Tbin] = [{TS,TN} || #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap0,Ti/=?MetaIdx,Ci==?FirstIdx],
+    Table = imem_meta:qualified_table_name(Tbin),
+    % ?LogDebug("Table: ~p~n", [Table]),
+    RecName = if_call_mfa(IsSec,table_record_name,[SKey, Table]),
+    % ?LogDebug("RecName: ~p~n", [RecName]),
+    DefRec = list_to_tuple([RecName|[D || #bind{tind=Ti,default=D} <- FullMap0, Ti==?MainIdx]]),
+    % ?LogDebug("DefRec: ~p~n", [DefRec]),
+    [if_call_mfa(IsSec,insert,[SKey, Table, DefRec])];
 exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=ParseTree , _Stmt, Opts, IsSec) ->
     % ?LogDebug("insert ~p values ~p into ~p~n", [Columns, Values, TableName]),
     % ?LogDebug("parse tree~n~p~n", [ParseTree]),
@@ -19,10 +36,8 @@ exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=ParseTree 
     % ?LogDebug("Table: ~p~n", [Table]),
     RecName = if_call_mfa(IsSec,table_record_name,[SKey, Table]),
     % ?LogDebug("RecName: ~p~n", [RecName]),
-    DefRecList = [RecName|[D || #bind{tind=Ti,default=D} <- FullMap0, Ti==?MainIdx]],
-    DefRec = list_to_tuple(DefRecList),
+    DefRec = list_to_tuple([RecName|[D || #bind{tind=Ti,default=D} <- FullMap0, Ti==?MainIdx]]),
     % ?LogDebug("DefRec: ~p~n", [DefRec]),
-    ?LogDebug("DefRecList: ~p~n", [DefRecList]),
     ColMap0 = imem_sql_expr:column_map_columns(Columns, FullMap0),
     % ?LogDebug("ColMap0:~n~p~n", [?FP(ColMap0,"23678")]),
     CCount = length(ColMap0), 
@@ -46,9 +61,6 @@ exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=ParseTree 
     % ?LogDebug("ColBTrees2:~n~p~n", [ColBTrees2]),
     NewRec0 = merge_values(ColBTrees2, DefRec),
     % ?LogDebug("NewRec:~n~p~n", [NewRec0]),
-    % NewRec1 = evaluate_funs(NewRec0),
-    % ?LogDebug("NewRec1:~n~p~n", [NewRec1]),
-    % NewRec2 = imem_meta:apply_arity1_defaults(DefRecList,NewRec1),
     [if_call_mfa(IsSec,insert,[SKey, Table, NewRec0])].
 
 merge_values([], Rec) -> Rec;
@@ -117,18 +129,22 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "
             create table fun_test (
                 col0 integer default 12
-              , col1 integer default fun(Rec) -> element(2,Rec)*element(2,Rec) end.
+              , col1 integer default fun(_,Rec) -> element(2,Rec)*element(2,Rec) end.
             );"
             , 0, [{schema,imem}], IsSec)),
 
-        Sql0a = "insert into fun_test (col0) values (12)",  
+        Sql0a = "insert into fun_test (col0) values (5)",  
         ?Info("Sql0a:~n~s~n", [Sql0a]),
-        ?assertEqual([{fun_test,12,144}], imem_sql:exec(SKey, Sql0a, 0, [{schema,imem}], IsSec)),
+        ?assertEqual([{fun_test,5,25}], imem_sql:exec(SKey, Sql0a, 0, [{schema,imem}], IsSec)),
 
         TT0aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, fun_test])),
         ?Info("fun_test~n~p~n", [TT0aRows]),
         [{fun_test,Col0a,Col1a}] = TT0aRows,
         ?assertEqual(Col0a*Col0a, Col1a),
+
+        Sql0b = "insert into fun_test",  
+        ?Info("Sql0b:~n~s~n", [Sql0b]),
+        ?assertEqual([{fun_test,12,144}], imem_sql:exec(SKey, Sql0b, 0, [{schema,imem}], IsSec)),
 
         Sql1 = "create table def (col1 string, col2 integer, col3 term);",
         ?Info("Sql1: ~p~n", [Sql1]),

@@ -5,6 +5,7 @@
 
 -define(TABLE(__Channel),<<"skvh",__Channel/binary>>).
 -define(AUDIT(__Channel),<<"skvhAudit",__Channel/binary, "_86400@">>).
+-define(CHANNEL(__Table),list_to_binary(lists:nthtail(4,atom_to_list(__Table)))).
 
 -define(TABLE_OPTS, [{record_name,skvhTable}
                     ,{type,ordered_set}
@@ -15,21 +16,29 @@
                     ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
                     ]).          
 
--record(skvhTable,                            %% sorted key value hash table    
-                    { ckey                    :: term()
-                    , cvalue  				  :: binary()      
-                    , chash					  :: binary()
-                    }
-       ).
--define(skvhTable,  [term,binstr,binstr]).
-
 -record(skvhAudit,                            %% sorted key value hash audit table    
                     { time                    :: ddTimestamp()	%% erlang:now()
                     , ckey                    :: term()
-                    , cvalue               	  :: binary()      
+                    , cvalue               	  :: binary()
+                    , cuser					  :: ddEntityId()      
                     }
        ).
--define(skvhAudit,  [timestamp,term,binstr]).
+-define(skvhAudit,  [timestamp,term,binstr,userid]).
+
+-record(skvhTable,                            %% sorted key value hash table    
+                    { ckey                    		:: term()
+                    , cvalue  				  		:: binary()      
+                    , chash	= fun(_,Rec,T,U) ->
+                    				K = element(2,Rec),
+                    				V = element(3,Rec),
+                    				C = ?CHANNEL(T),
+                    				A = ?binary_to_existing_atom(?AUDIT(C)),
+                    				catch (imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=U})),
+                    				list_to_binary(io_lib:format("~.36B",[erlang:phash2({K,V})]))
+                    		  end					:: binary()
+                    }
+       ).
+-define(skvhTable,  [term,binstr,binstr]).
 
 -define(typeStr,1).
 
@@ -70,9 +79,7 @@
 -spec create_check_channel(binary()) -> {atom(),atom()}.
 create_check_channel(Channel) ->
 	TBin = ?TABLE(Channel),
-	% Token = list_to_binary([TBin,integer_to_list(erlang:phash2({TBin,node()}))]),
 	try 
-		% _ = ?binary_to_existing_atom(Token), 	%% probe atom cache for token
 		T = ?binary_to_existing_atom(TBin),
 		A = ?binary_to_existing_atom(?AUDIT(Channel)),
 		imem_meta:check_table(T),
@@ -141,6 +148,7 @@ term_value_to_io(undefined) -> <<"undefined">>;		%% ToDo: Maybe convert from map
 term_value_to_io(V) when is_binary(V) -> V.   		%% ToDo: Maybe convert from map datatype when available
 
 term_hash_to_io(undefined) -> <<"undefined">>;
+term_hash_to_io(F) when is_function(F) -> <<"undefined">>;
 term_hash_to_io(H) when is_binary(H) -> H.
 
 term_kv_tuple_to_io({K,V}) ->
@@ -180,9 +188,10 @@ write(Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 
 write(Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 write(Cmd, {TN,AN}, [{K,V}|KVPairs], Acc)  ->
-	Hash = list_to_binary(io_lib:format("~.36B",[erlang:phash2({K,V})])),
-	imem_meta:write(TN,#skvhTable{ckey=K,cvalue=V,chash=Hash}),					%% ToDo: wrap in transaction
-	catch (imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V})),	%% ToDo: wrap in transaction
+	% Hash = list_to_binary(io_lib:format("~.36B",[erlang:phash2({K,V})])),
+	% imem_meta:write(TN,#skvhTable{ckey=K,cvalue=V,chash=Hash}),				%% ToDo: wrap in transaction
+	#skvhTable{chash=Hash} = imem_meta:merge(TN,#skvhTable{ckey=K,cvalue=V}),	%% ToDo: wrap in transaction
+	% catch (imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V})),	%% ToDo: wrap in transaction
 	write(Cmd, {TN,AN}, KVPairs, [Hash|Acc]).
 
 delete(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 

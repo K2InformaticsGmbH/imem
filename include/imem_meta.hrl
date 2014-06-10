@@ -41,7 +41,7 @@
                   , logLevel                ::atom()
                   , pid                     ::pid()      
                   , module                  ::atom()
-                  , func                    ::atom()
+                  , function                ::atom()
                   , line=0                  ::integer()
                   , node                    ::atom()
                   , fields=[]               ::list()
@@ -187,7 +187,7 @@
         {_, {_,[_|__ST]}} = (catch erlang:now(1)),
         {__Module,__Function,__Line} = imem_meta:failing_function(__ST),
         __LogRec = #ddLog{logTime=erlang:now(),logLevel=__Level,pid=self()
-                            ,module=__Module,func=__Function,line=__Line
+                            ,module=__Module,function=__Function,line=__Line
                             ,node=node(),fields=[{ex,__Ex}|__Fields]
                             ,message= __Message,stacktrace = __ST},
         catch imem_meta:write_log(__LogRec),

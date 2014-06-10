@@ -127,8 +127,11 @@
         , select_sort/2
         , select_sort/3
         , insert/2          %% apply defaults and write row if key does not exist    
+        , insert/3          %% apply defaults and write row if key does not exist    
         , update/2          %% apply defaults and write row if key exists
+        , update/3          %% apply defaults and write row if key exists
         , merge/2           %% apply defaults and write row
+        , merge/3           %% apply defaults and write row
         , write/2           %% write row for single key
         , write_log/1
         , dirty_write/2
@@ -139,8 +142,9 @@
 -export([ update_prepare/3          %% stateless creation of update plan from change list
         , update_cursor_prepare/2   %% take change list and generate update plan (stored in state)
         , update_cursor_execute/2   %% take update plan from state and execute it (fetch aborted first)
-        , apply_arity0_defaults/2   %% apply arity/0 funs of default record to ?nav values of current record
-        , apply_arity1_defaults/2   %% apply any arity/1 funs of default record to current record
+        , apply_defaults/2          %% apply arity/0 funs of default record to ?nav values of current record
+        , apply_triggers/3          %% apply any arity funs of default record to current record
+        , apply_triggers/4          %% apply any arity funs of default record to current record
         , fetch_recs/3
         , fetch_recs_sort/3 
         , fetch_recs_async/2        
@@ -1100,7 +1104,7 @@ when is_atom(Level)
     , is_binary(Message)
     , is_list(StackTrace) ->
     LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
-                    ,module=Module,func=Function,line=Line,node=node()
+                    ,module=Module,function=Function,line=Line,node=node()
                     ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
     dirty_write(?LOG_TABLE, LogRec).
@@ -1251,32 +1255,38 @@ update_cursor_prepare(Pid, ChangeList) ->
 update_cursor_execute(Pid, Lock) ->
     imem_statement:update_cursor_execute(none, Pid, false, Lock).
 
-apply_arity0_defaults(DefRec, Rec) when is_tuple(DefRec) ->
-    apply_arity0_defaults(tuple_to_list(DefRec), Rec);
-apply_arity0_defaults(DefRec, Rec) when is_list(DefRec), is_tuple(Rec) ->
-    apply_arity0_defaults(DefRec, Rec, 1).
+apply_defaults(DefRec, Rec) when is_tuple(DefRec) ->
+    apply_defaults(tuple_to_list(DefRec), Rec);
+apply_defaults(DefRec, Rec) when is_list(DefRec), is_tuple(Rec) ->
+    apply_defaults(DefRec, Rec, 1).
 
-apply_arity0_defaults([], Rec, _) -> Rec;
-apply_arity0_defaults([D|DefRec], Rec0, N) ->
+apply_defaults([], Rec, _) -> Rec;
+apply_defaults([D|DefRec], Rec0, N) ->
     Rec1 = case {element(N,Rec0),is_function(D),is_function(D,0)} of
         {?nav,true,true} ->     setelement(N,Rec0,D());
         {?nav,false,false} ->   setelement(N,Rec0,D);
         _ ->                    Rec0
     end,
-    apply_arity0_defaults(DefRec, Rec1, N+1).
+    apply_defaults(DefRec, Rec1, N+1).
 
-apply_arity1_defaults(DefRec, Rec) when is_tuple(DefRec) ->
-    apply_arity1_defaults(tuple_to_list(DefRec), Rec);
-apply_arity1_defaults(DefRec, Rec) when is_list(DefRec), is_tuple(Rec) ->
-    apply_arity1_defaults(DefRec, Rec, 1).
+apply_triggers(DefRec, Rec, Table) ->
+    apply_triggers(DefRec, Rec, Table, meta_field_value(user)).
 
-apply_arity1_defaults([], Rec, _) -> Rec;
-apply_arity1_defaults([D|DefRec], Rec0, N) ->
-    Rec1 = case is_function(D,1) of
-        true ->     setelement(N,Rec0,D(Rec0));
-        false ->    Rec0
+apply_triggers(DefRec, Rec, Table, User) when is_tuple(DefRec) ->
+    apply_triggers(tuple_to_list(DefRec), Rec, Table, User);
+apply_triggers(DefRec, Rec, Table, User) when is_list(DefRec), is_tuple(Rec) ->
+    apply_triggers(DefRec, Rec, Table, User, 1).
+
+apply_triggers([], Rec, _, _, _) -> Rec;
+apply_triggers([D|DefRec], Rec0, Table, User, N) ->
+    Rec1 = if 
+        is_function(D,1) -> setelement(N,Rec0,D(element(N,Rec0)));  %% Params=[Field]
+        is_function(D,2) -> setelement(N,Rec0,D(element(N,Rec0),Rec0));  %% Params=[Field,Rec]
+        is_function(D,3) -> setelement(N,Rec0,D(element(N,Rec0),Rec0,Table));  %% Params=[Field,Rec,Table]
+        is_function(D,4) -> setelement(N,Rec0,D(element(N,Rec0),Rec0,Table,User));  %% Params=[Field,Rec,Table,User]
+        true ->             Rec0
     end,
-    apply_arity1_defaults(DefRec, Rec1, N+1).
+    apply_triggers(DefRec, Rec1, Table, User, N+1).
 
 fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
     imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
@@ -1554,15 +1564,19 @@ dirty_write(Table, Record) ->
             throw(Reason)
     end. 
 
-insert({_Schema,Table}, Row) ->
-    insert(Table, Row);             %% ToDo: may depend on schema
-insert(ddTable, Row) ->
-    write(ddTable, Row);
-insert(Table, Row0) when is_tuple(Row0) ->
+insert(Table, Row) ->
+    insert(Table,Row,meta_field_value(user)).
+
+insert({_Schema,Table}, Row, User) ->
+    insert(Table, Row, User);             %% ToDo: may depend on schema
+insert(ddTable, Row, _) ->
+    write(ddTable, Row),
+    Row;
+insert(Table, Row0, User) when is_tuple(Row0) ->
     ColInfo = column_infos(Table),    
     DefRec = [Table|column_info_items(ColInfo, default)],
-    Row1=apply_arity0_defaults(DefRec, Row0),
-    Row2=apply_arity1_defaults(DefRec, Row1),
+    Row1=apply_defaults(DefRec, Row0),
+    Row2=apply_triggers(DefRec, Row1, Table, User),
     Key = element(?KeyIdx,Row2),
     case lists:member(?nav,tuple_to_list(Row2)) of
         false ->
@@ -1585,15 +1599,19 @@ insert(Table, Row0) when is_tuple(Row0) ->
             ?ClientError({"Not null constraint violation", {Table,Row2}})
     end.
 
-update({_Schema,Table}, Row) ->
-    insert(Table, Row);             %% ToDo: may depend on schema
-update(ddTable, Row) ->
-    write(ddTable, Row);
-update(Table, Row0) when is_tuple(Row0) ->
+update(Table, Row) ->
+    update(Table, Row, meta_field_value(user)).
+
+update({_Schema,Table}, Row, User) ->
+    update(Table, Row, User);             %% ToDo: may depend on schema
+update(ddTable, Row, _) ->
+    write(ddTable, Row),
+    Row;
+update(Table, Row0, User) when is_tuple(Row0) ->
     ColInfo = column_infos(Table),    
     DefRec = [Table|column_info_items(ColInfo, default)],
-    Row1=apply_arity0_defaults(DefRec, Row0),
-    Row2=apply_arity1_defaults(DefRec, Row1),
+    Row1=apply_defaults(DefRec, Row0),
+    Row2=apply_triggers(DefRec, Row1, Table, User),
     Key = element(?KeyIdx,Row2),
     case lists:member(?nav,tuple_to_list(Row2)) of
         false ->
@@ -1617,15 +1635,19 @@ update(Table, Row0) when is_tuple(Row0) ->
             ?ClientError({"Not null constraint violation", {Table,Row2}})
     end.
 
-merge({_Schema,Table}, Row) ->
-    insert(Table, Row);             %% ToDo: may depend on schema
-merge(ddTable, Row) ->
-    write(ddTable, Row);
-merge(Table, Row0) when is_tuple(Row0) ->
+merge(Table, Row) ->
+    merge(Table, Row, meta_field_value(user)).
+
+merge({_Schema,Table}, Row, User) ->
+    merge(Table, Row, User);             %% ToDo: may depend on schema
+merge(ddTable, Row, _) ->
+    write(ddTable, Row),
+    Row;
+merge(Table, Row0, User) when is_tuple(Row0) ->
     ColInfo = column_infos(Table),    
     DefRec = [Table|column_info_items(ColInfo, default)],
-    Row1=apply_arity0_defaults(DefRec, Row0),
-    Row2=apply_arity1_defaults(DefRec, Row1),
+    Row1=apply_defaults(DefRec, Row0),
+    Row2=apply_triggers(DefRec, Row1, Table, User),
     case lists:member(?nav,tuple_to_list(Row2)) of
         false ->
             PTN = physical_table_name(Table,element(?KeyIdx,Row2)),   
@@ -1755,7 +1777,7 @@ meta_operations(_) ->
         ?Info("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
-                            ,module=?MODULE,func=meta_operations,node=node()
+                            ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
         ?assertEqual(ok, write(?LOG_TABLE, LogRec1)),
         LogCount2 = table_size(?LOG_TABLE),
@@ -1837,7 +1859,7 @@ meta_operations(_) ->
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRec2 = #ddLog{logTime=Future,logLevel=info,pid=self()
-                            ,module=?MODULE,func=meta_operations,node=node()
+                            ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 2">>},
         ?assertEqual(ok, write(tpTest_1000@, LogRec2)),
         ?Info("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
@@ -1886,7 +1908,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
         ?assertEqual(1,length(physical_table_names(fakelog_1@))),
         LogRec3 = #ddLog{logTime=erlang:now(),logLevel=debug,pid=self()
-                        ,module=?MODULE,func=test,node=node()
+                        ,module=?MODULE,function=test,node=node()
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)),
