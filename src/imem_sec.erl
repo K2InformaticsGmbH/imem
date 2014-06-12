@@ -65,6 +65,7 @@
         , insert/3
         , update/3
         , merge/3
+        , remove/3
         , write/3
         , dirty_write/3    
         , delete/3
@@ -76,7 +77,7 @@
 -export([ update_prepare/4          %% stateless creation of update plan from change list
         , update_cursor_prepare/3   %% stateful creation of update plan (stored in state)
         , update_cursor_execute/3   %% stateful execution of update plan (fetch aborted first)
-        , apply_triggers/4          %% apply any arity funs of default record to current record        
+        , apply_validators/4          %% apply any arity funs of default record to current record        
         , fetch_recs/4
         , fetch_recs_sort/4
         , fetch_recs_async/3        %% ToDo: implement proper return of RowFun(), match conditions and joins
@@ -481,9 +482,9 @@ purge_system_table(SKey, Table, Opts, _AccountId) ->
 
 %% imem_if but security context added --- DATA ACCESS CRUD -----
 
-apply_triggers(SKey, DefRec, Rec, Table) ->
+apply_validators(SKey, DefRec, Rec, Table) ->
     case have_table_permission(SKey, Table, insert) of
-        true ->     imem_meta:apply_triggers(DefRec, Rec, Table, if_meta_field_value(SKey, user));
+        true ->     imem_meta:apply_validators(DefRec, Rec, Table, if_meta_field_value(SKey, user));
         false ->    ?SecurityException({"Trigger unauthorized", {Table,SKey}})
     end.
 
@@ -503,6 +504,12 @@ merge(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, update) of
         true ->     imem_meta:merge(Table, Row, if_meta_field_value(SKey, user)) ;
         false ->    ?SecurityException({"Merge (insert/update) unauthorized", {Table,SKey}})
+    end.
+
+remove(SKey, Table, Row) ->
+    case have_table_permission(SKey, Table, delete) of
+        true ->     imem_meta:remove(Table, Row, if_meta_field_value(SKey, user)) ;
+        false ->    ?SecurityException({"Remove unauthorized (delete permission needed)", {Table,SKey}})
     end.
 
 read(SKey, Table) ->

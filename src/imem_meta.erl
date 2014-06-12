@@ -82,6 +82,7 @@
         , table_size/1
         , table_memory/1
         , table_record_name/1        
+        , trigger_infos/1
         , check_table/1
         , check_table_meta/2
         , check_table_columns/2
@@ -107,12 +108,14 @@
 
 -export([ create_table/3
         , create_table/4
+        , create_trigger/2
         , create_partitioned_table/1
         , create_partitioned_table_sync/1
         , create_check_table/3
         , create_check_table/4
         , create_sys_conf/1
         , drop_table/1
+        , drop_trigger/1
         , purge_table/1
         , purge_table/2
         , truncate_table/1
@@ -126,13 +129,15 @@
         , select/3          %% select with limit
         , select_sort/2
         , select_sort/3
-        , insert/2          %% apply defaults and write row if key does not exist    
-        , insert/3          %% apply defaults and write row if key does not exist    
-        , update/2          %% apply defaults and write row if key exists
-        , update/3          %% apply defaults and write row if key exists
-        , merge/2           %% apply defaults and write row
-        , merge/3           %% apply defaults and write row
-        , write/2           %% write row for single key
+        , modify/7          %% parameterized insert/update/merge/remove
+        , insert/2          %% apply defaults, write row if key does not exist, apply trigger
+        , insert/3          %% apply defaults, write row if key does not exist, apply trigger
+        , update/2          %% apply defaults, write row if key exists, apply trigger (bags not supported)
+        , update/3          %% apply defaults, write row if key exists, apply trigger (bags not supported)
+        , merge/2           %% apply defaults, write row, apply trigger (bags not supported)
+        , merge/3           %% apply defaults, write row, apply trigger (bags not supported)
+        , remove/2          %% delete row if key exists (if bag row exists), apply trigger
+        , write/2           %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
         , dirty_write/2
         , delete/2          %% delete row by key
@@ -143,8 +148,8 @@
         , update_cursor_prepare/2   %% take change list and generate update plan (stored in state)
         , update_cursor_execute/2   %% take update plan from state and execute it (fetch aborted first)
         , apply_defaults/2          %% apply arity/0 funs of default record to ?nav values of current record
-        , apply_triggers/3          %% apply any arity funs of default record to current record
-        , apply_triggers/4          %% apply any arity funs of default record to current record
+        , apply_validators/3          %% apply any arity funs of default record to current record
+        , apply_validators/4          %% apply any arity funs of default record to current record
         , fetch_recs/3
         , fetch_recs_sort/3 
         , fetch_recs_async/2        
@@ -611,6 +616,38 @@ create_table_sys_conf(PhysicalName, ColumnInfos, Opts, Owner) ->
                 _ -> ok
             end,
             throw(Reason)
+    end.
+
+create_trigger({Schema,Table},TFun) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> create_trigger(Table,TFun);
+        _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
+    end;
+create_trigger(Table,TFun) when is_atom(Table), is_function(TFun,4) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] -> 
+            Opts = lists:keydelete(trigger, 1, D#ddTable.opts) ++ [{trigger,TFun}],
+            write(ddTable, D#ddTable{opts=Opts});
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end;   
+create_trigger(Table,_) when is_atom(Table) ->
+    ?ClientError({"Bad fun for Create Trigger, expecting arity 4", Table}).
+
+drop_trigger({Schema,Table}) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> drop_trigger(Table);
+        _ ->        ?UnimplementedException({"Drop Trigger in foreign schema",{Schema,Table}})
+    end;
+drop_trigger(Table) when is_atom(Table) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] -> 
+            Opts = lists:keydelete(trigger, 1, D#ddTable.opts),
+            write(ddTable, D#ddTable{opts=Opts});
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
     end.
 
 is_valid_table_name(Table) when is_atom(Table) ->
@@ -1180,6 +1217,22 @@ node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
 
 
+trigger_infos({_Schema,Table}) ->
+    trigger_infos(Table);          %% ToDo: may depend on schema
+trigger_infos(Table) ->
+    case imem_if:read(ddTable,{schema(), Table}) of
+        [] ->
+            ?ClientError({"Table does not exist",Table}); 
+        [#ddTable{columns=ColumnInfos,opts=Opts}] ->
+            TableType = imem_if:table_type(physical_table_name(Table)),
+            DefRec = [table_record_name(Table)|column_info_items(ColumnInfos, default)],
+            Trigger = case lists:keyfind(trigger,1,Opts) of
+                false ->    fun(_Old,_New,_Tab,_User) -> ok end;
+                {_,TFun} -> TFun
+            end,
+            {TableType, DefRec, Trigger}
+    end.
+
 table_type({ddSysConf,Table}) ->
     imem_if_sys_conf:table_type(Table);
 table_type({_Schema,Table}) ->
@@ -1269,16 +1322,16 @@ apply_defaults([D|DefRec], Rec0, N) ->
     end,
     apply_defaults(DefRec, Rec1, N+1).
 
-apply_triggers(DefRec, Rec, Table) ->
-    apply_triggers(DefRec, Rec, Table, meta_field_value(user)).
+apply_validators(DefRec, Rec, Table) ->
+    apply_validators(DefRec, Rec, Table, meta_field_value(user)).
 
-apply_triggers(DefRec, Rec, Table, User) when is_tuple(DefRec) ->
-    apply_triggers(tuple_to_list(DefRec), Rec, Table, User);
-apply_triggers(DefRec, Rec, Table, User) when is_list(DefRec), is_tuple(Rec) ->
-    apply_triggers(DefRec, Rec, Table, User, 1).
+apply_validators(DefRec, Rec, Table, User) when is_tuple(DefRec) ->
+    apply_validators(tuple_to_list(DefRec), Rec, Table, User);
+apply_validators(DefRec, Rec, Table, User) when is_list(DefRec), is_tuple(Rec) ->
+    apply_validators(DefRec, Rec, Table, User, 1).
 
-apply_triggers([], Rec, _, _, _) -> Rec;
-apply_triggers([D|DefRec], Rec0, Table, User, N) ->
+apply_validators([], Rec, _, _, _) -> Rec;
+apply_validators([D|DefRec], Rec0, Table, User, N) ->
     Rec1 = if 
         is_function(D,1) -> setelement(N,Rec0,D(element(N,Rec0)));  %% Params=[Field]
         is_function(D,2) -> setelement(N,Rec0,D(element(N,Rec0),Rec0));  %% Params=[Field,Rec]
@@ -1286,7 +1339,7 @@ apply_triggers([D|DefRec], Rec0, Table, User, N) ->
         is_function(D,4) -> setelement(N,Rec0,D(element(N,Rec0),Rec0,Table,User));  %% Params=[Field,Rec,Table,User]
         true ->             Rec0
     end,
-    apply_triggers(DefRec, Rec1, Table, User, N+1).
+    apply_validators(DefRec, Rec1, Table, User, N+1).
 
 fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
     imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
@@ -1569,93 +1622,83 @@ insert(Table, Row) ->
 
 insert({_Schema,Table}, Row, User) ->
     insert(Table, Row, User);             %% ToDo: may depend on schema
-insert(ddTable, Row, _) ->
-    write(ddTable, Row),
-    Row;
-insert(Table, Row0, User) when is_tuple(Row0) ->
-    ColInfo = column_infos(Table),    
-    DefRec = [Table|column_info_items(ColInfo, default)],
-    Row1=apply_defaults(DefRec, Row0),
-    Row2=apply_triggers(DefRec, Row1, Table, User),
-    Key = element(?KeyIdx,Row2),
-    case lists:member(?nav,tuple_to_list(Row2)) of
-        false ->
-            PTN = physical_table_name(Table,Key),   
-            case {read(PTN,Key),table_type(PTN)} of     %% TODO: Wrap in single transaction
-                {[],_} ->   
-                    write(PTN, Row2),
-                    Row2;    
-                {R,bag} ->
-                    case lists:member(Row2,R) of  
-                        true ->     ?ConcurrencyException({"Insert failed, row already exists", {PTN,R}});
-                        false ->    
-                            write(PTN, Row2),
-                            Row2
-                    end;
-                {_,_} ->
-                    ?ConcurrencyException({"Insert failed, key already exists", {PTN,Key}})
-            end;
-        true ->     
-            ?ClientError({"Not null constraint violation", {Table,Row2}})
-    end.
+insert(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(Table),
+    modify(insert, TableType, Table, DefRec, Trigger, Row, User).
 
 update(Table, Row) ->
     update(Table, Row, meta_field_value(user)).
 
 update({_Schema,Table}, Row, User) ->
     update(Table, Row, User);             %% ToDo: may depend on schema
-update(ddTable, Row, _) ->
-    write(ddTable, Row),
-    Row;
-update(Table, Row0, User) when is_tuple(Row0) ->
-    ColInfo = column_infos(Table),    
-    DefRec = [Table|column_info_items(ColInfo, default)],
-    Row1=apply_defaults(DefRec, Row0),
-    Row2=apply_triggers(DefRec, Row1, Table, User),
-    Key = element(?KeyIdx,Row2),
-    case lists:member(?nav,tuple_to_list(Row2)) of
-        false ->
-            PTN = physical_table_name(Table,Key),   
-            case {read(PTN,Key),table_type(PTN)} of     %% TODO: Wrap in single transaction
-                {[],_} ->
-                    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
-                {R,bag} ->
-                    case lists:member(Row2,R) of  
-                        false ->     
-                            ?ConcurrencyException({"Update failed, row does not exist", {PTN,R}});
-                        true ->    
-                            write(PTN, Row2),
-                            Row2
-                    end;
-                {_,_} ->
-                    write(PTN, Row2),
-                    Row2 
-            end;
-        true ->     
-            ?ClientError({"Not null constraint violation", {Table,Row2}})
-    end.
+update(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(Table),
+    modify(update, TableType, Table, DefRec, Trigger, Row, User).
 
 merge(Table, Row) ->
     merge(Table, Row, meta_field_value(user)).
 
 merge({_Schema,Table}, Row, User) ->
     merge(Table, Row, User);             %% ToDo: may depend on schema
-merge(ddTable, Row, _) ->
-    write(ddTable, Row),
-    Row;
-merge(Table, Row0, User) when is_tuple(Row0) ->
-    ColInfo = column_infos(Table),    
-    DefRec = [Table|column_info_items(ColInfo, default)],
+merge(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(Table),
+    modify(merge, TableType, Table, DefRec, Trigger, Row, User).
+
+remove(Table, Row) ->
+    remove(Table, Row, meta_field_value(user)).
+
+remove({_Schema,Table}, Row, User) ->
+    remove(Table, Row, User);             %% ToDo: may depend on schema
+remove(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(Table),
+    modify(remove, TableType, Table, DefRec, Trigger, Row, User).
+
+modify(Operation, TableType, Table, DefRec, Trigger, Row0, User) when is_atom(Table), is_tuple(Row0) ->
     Row1=apply_defaults(DefRec, Row0),
-    Row2=apply_triggers(DefRec, Row1, Table, User),
-    case lists:member(?nav,tuple_to_list(Row2)) of
+    Row2=apply_validators(DefRec, Row1, Table, User),
+    Key = element(?KeyIdx,Row2),
+    case ((Table /= ddTable) and lists:member(?nav,tuple_to_list(Row2))) of
         false ->
-            PTN = physical_table_name(Table,element(?KeyIdx,Row2)),   
-            write(PTN, Row2),
-            Row2;    
+            PTN = physical_table_name(Table,Key),   
+            case {Operation, TableType, read(PTN,Key)} of     %% TODO: Wrap in single transaction
+                {insert,bag,Bag} -> case lists:member(Row2,Bag) of  
+                                        true ->     ?ConcurrencyException({"Insert failed, object already exists", {PTN,Row2}});
+                                        false ->    write(PTN, Row2),
+                                                    Trigger({},Row2,PTN,User),
+                                                    Row2
+                                    end;
+                {insert,_,[]} ->    write(PTN, Row2),
+                                    Trigger({},Row2,Table,User),
+                                    Row2;
+                {insert,_,R} ->     ?ConcurrencyException({"Insert failed, key already exists", {PTN,Key}});
+                {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", Table});
+                {update,_,[]} ->    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
+                {update,_,R} ->     write(PTN, Row2),
+                                    Trigger(R,Row2,Table,User),
+                                    Row2;
+                {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", Table});
+                {merge,_,[]} ->     write(PTN, Row2),
+                                    Trigger({},Row2,Table,User),
+                                    Row2;
+                {merge,_,R} ->      write(PTN, Row2),
+                                    Trigger(R,Row2,Table,User),
+                                    Row2;
+                {remove,bag,[]} ->  ?ConcurrencyException({"Delete failed, object does not exist", {PTN,Row2}});
+                {remove,_,[]} ->    ?ConcurrencyException({"Delete failed, key does not exist", {PTN,Key}});
+                {remove,bag,Bag} -> case lists:member(Row2,Bag) of  
+                                        false ->    ?ConcurrencyException({"Delete failed, object does not exist", {PTN,Row2}});
+                                        true ->     delete_object(PTN, Row2),
+                                                    Trigger(Row2,{},PTN,User),
+                                                    Row2
+                                    end;
+                {remove,_,R} ->     delete(Table, Key),
+                                    Trigger(R,{},Table,User),
+                                    Row2
+            end;
         true ->     
             ?ClientError({"Not null constraint violation", {Table,Row2}})
     end.
+
 
 delete({_Schema,Table}, Key) ->
     delete(Table, Key);             %% ToDo: may depend on schema
@@ -1813,6 +1856,8 @@ meta_operations(_) ->
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?Info("success ~p~n", [create_table_not_null]),
+        Trigger3 = fun(O,N,T,U) -> imem_meta:log_to_db(debug,?MODULE,trigger,[{table,T},{old,O},{new,N},{user,U}],"trigger") end,
+        ?assertEqual(ok, create_trigger(meta_table_3, Trigger3)),
 
         ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
         ?assertException(throw, {ClEr,{"Reserved table name", select}}, create_table(select, BadTypes2, [])),
@@ -1821,13 +1866,26 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Reserved column name", current}}, create_table(bad_table_1, BadTypes2, [])),
         ?assertException(throw, {ClEr,{"Invalid data type", iinteger}}, create_table(bad_table_1, BadTypes3, [])),
 
+        LogCount3 = table_size(?LOG_TABLE),
         ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav})),
         ?assertEqual(1, table_size(meta_table_3)),
-        LogCount3 = table_size(?LOG_TABLE),
+        ?assertEqual(LogCount3+1, table_size(?LOG_TABLE)),  %% trigger inserted one line      
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
-        LogCount4 = table_size(?LOG_TABLE),
+        ?assertEqual(LogCount3+2, table_size(?LOG_TABLE)),  %% error inserted one line
         ?Info("success ~p~n", [not_null_constraint]),
-        ?assertEqual(LogCount3+1, LogCount4),
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, update(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav})),
+        ?assertEqual(1, table_size(meta_table_3)),
+        ?assertEqual(LogCount3+3, table_size(?LOG_TABLE)),  %% trigger inserted one line 
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,56}},undefined}, merge(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
+        ?assertEqual(2, table_size(meta_table_3)),
+        ?assertEqual(LogCount3+4, table_size(?LOG_TABLE)),  %% trigger inserted one line 
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,56}},undefined}, remove(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
+        ?assertEqual(1, table_size(meta_table_3)),
+        ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% trigger inserted one line 
+        ?assertEqual(ok, drop_trigger(meta_table_3)),
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, update(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav})),
+        ?assertEqual(1, table_size(meta_table_3)),
+        ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% no trigger, no more log  
 
         Keys4 = [
         {1,{meta_table_3,{{2000,1,1},{12,45,59}},undefined}}

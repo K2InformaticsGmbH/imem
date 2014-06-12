@@ -188,10 +188,7 @@ write(Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 
 write(Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 write(Cmd, {TN,AN}, [{K,V}|KVPairs], Acc)  ->
-	% Hash = list_to_binary(io_lib:format("~.36B",[erlang:phash2({K,V})])),
-	% imem_meta:write(TN,#skvhTable{ckey=K,cvalue=V,chash=Hash}),				%% ToDo: wrap in transaction
 	#skvhTable{chash=Hash} = imem_meta:merge(TN,#skvhTable{ckey=K,cvalue=V}),	%% ToDo: wrap in transaction
-	% catch (imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V})),	%% ToDo: wrap in transaction
 	write(Cmd, {TN,AN}, KVPairs, [Hash|Acc]).
 
 delete(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 

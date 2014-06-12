@@ -929,8 +929,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, [[Item,del,Recs|_]|
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    ?LogDebug("ColMap~n~p~n", [ColMap]),
-    ?LogDebug("Values~n~p~n", [Values]),
+    % ?LogDebug("ColMap~n~p~n", [ColMap]),
+    % ?LogDebug("Values~n~p~n", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -998,11 +998,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,upd,Rec
           {#bind{readonly=R}=CMap,Value} 
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),    
-    ?LogDebug("Update map item ~p ~n~p~n", [Item,UpdateMap]),
     UpdatedRecs = update_recs(Recs, UpdateMap),
-    ?LogDebug("UpdatedRecs ~p", [UpdatedRecs]),
-    NewRec = if_call_mfa(IsSec, apply_triggers, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
-    ?LogDebug("NewRec ~p", [NewRec]),
+    NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
@@ -1067,8 +1064,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,ins,_|V
           {#bind{readonly=R}=CMap,Value} 
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),    
-    % ?LogDebug("Insert map item ~p ~n~p~n", [Item,InsertMap]),
-    NewRec = if_call_mfa(IsSec, apply_triggers, [SKey, DefRec, update_recs(DefRec, InsertMap), Tab]),
+    NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, update_recs(DefRec, InsertMap), Tab]),
     Action = [{S,Tab,Typ}, Item, {},  NewRec],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [CLItem|_], _Acc) ->
