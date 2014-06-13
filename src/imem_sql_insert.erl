@@ -244,7 +244,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql6 = "insert into def (col1) values ('C');",
         ?Info("Sql6: ~p~n", [Sql6]),
-        ?assertException(throw,{CoEx,{"Insert failed, key already exists",_}}, imem_sql:exec(SKey, Sql6, 0, [{schema,imem}], IsSec)),
+        ?assertException(throw,{CoEx,{"Insert failed, key already exists in",_}}, imem_sql:exec(SKey, Sql6, 0, [{schema,imem}], IsSec)),
 
         Sql6a = "insert into def (col1,col2) values ( 'O', sqrt(2)+1);",
         ?Info("Sql6a: ~p~n", [Sql6a]),

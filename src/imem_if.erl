@@ -93,7 +93,8 @@
 -define(TOUCH_SNAP(__Table),                  
         (fun(__T) ->
             [__Up] = ets:lookup(?SNAP_ETS_TAB, __T),
-            true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()})
+            true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
+            ok
         end)(__Table)
        ).
 
@@ -115,46 +116,62 @@ disc_schema_nodes(Schema) when is_atom(Schema) ->
 
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
+
 return_atomic_list({atomic, L}) when is_list(L) -> L;
-return_atomic_list({aborted,{throw,{Exception,Reason}}}) ->
-    throw({Exception,Reason});
-return_atomic_list({aborted,{exit,{Exception,Reason}}}) ->
-    exit({Exception,Reason});
-return_atomic_list(Error) -> ?SystemExceptionNoLogging(Error).
+return_atomic_list({aborted,{throw,{Exception,Reason}}}) -> throw({Exception,Reason});
+return_atomic_list({aborted,{exit,{Exception,Reason}}}) -> exit({Exception,Reason});
+return_atomic_list({aborted,Error}) ->      ?SystemExceptionNoLogging(Error);
+return_atomic_list(L) when is_list(L) ->    L;
+return_atomic_list(Error) ->                ?SystemExceptionNoLogging(Error).
 
-return_atomic_ok({atomic, ok}) -> ok;
-return_atomic_ok({aborted,{throw,{Exception,Reason}}}) ->
-    throw({Exception,Reason});
-return_atomic_ok({aborted,{exit,{Exception,Reason}}}) ->
-    exit({Exception,Reason});
-return_atomic_ok(Error) ->
-    ?SystemExceptionNoLogging(Error).
+return_atomic_ok({atomic, ok}) ->           ok;
+return_atomic_ok({aborted,{throw,{Exception,Reason}}}) -> throw({Exception,Reason});
+return_atomic_ok({aborted,{exit,{Exception,Reason}}}) -> exit({Exception,Reason});
+return_atomic_ok({aborted,Error}) ->        ?SystemExceptionNoLogging(Error);
+return_atomic_ok(ok) ->                     ok.
 
-return_atomic({atomic, Result}) -> Result;
-return_atomic({aborted, {throw,{Exception, Reason}}}) ->
-    throw({Exception, Reason});
-return_atomic({aborted, {exit, {Exception, Reason}}}) ->
-    exit({Exception, Reason});
-return_atomic(Error) ->  ?SystemExceptionNoLogging(Error).
+return_atomic({atomic, Result}) ->          Result;
+return_atomic({aborted, {throw,{Exception, Reason}}}) -> throw({Exception, Reason});
+return_atomic({aborted, {exit, {Exception, Reason}}}) -> exit({Exception, Reason});
+return_atomic({aborted, Error}) ->          ?SystemExceptionNoLogging(Error);
+return_atomic(Other) ->                     Other.
 
 
-transaction(Function) when is_atom(Function)->
-    F = fun() -> apply(mnesia, Function, []) end,
-    mnesia:transaction(F);
+transaction(Function) when is_atom(Function) ->
+    case mnesia:is_transaction() of
+        false ->    F = fun() -> apply(mnesia, Function, []) end,
+                    mnesia:transaction(F);
+        true ->     mnesia:Function()
+    end;
 transaction(Fun) when is_function(Fun)->
-    mnesia:transaction(Fun).
+    case mnesia:is_transaction() of
+        false ->    mnesia:transaction(Fun);
+        true ->     Fun()
+    end.
 
 transaction(Function, Args) when is_atom(Function)->
-    F = fun() -> apply(mnesia, Function, Args) end,
-    mnesia:transaction(F);
+    case mnesia:is_transaction() of
+        false ->    F = fun() -> apply(mnesia, Function, Args) end,
+                    mnesia:transaction(F);
+        true ->     apply(mnesia, Function, Args)
+    end;
 transaction(Fun, Args) when is_function(Fun)->
-    mnesia:transaction(Fun, Args).
+    case mnesia:is_transaction() of
+        false ->    mnesia:transaction(Fun, Args);
+        true ->     apply(Fun, Args)        
+    end.
 
 transaction(Function, Args, Retries) when is_atom(Function)->
-    F = fun() -> apply(mnesia, Function, Args) end,
-    mnesia:transaction(F, Retries);
+    case mnesia:is_transaction() of
+        false ->    F = fun() -> apply(mnesia, Function, Args) end,
+                    mnesia:transaction(F, Retries);
+        true ->     apply(mnesia, Function, Args)
+    end;
 transaction(Fun, Args, Retries) when is_function(Fun)->
-    mnesia:transaction(Fun, Args, Retries).
+    case mnesia:is_transaction() of
+        false ->    mnesia:transaction(Fun, Args, Retries);
+        true ->     ?ClientErrorNoLogging({"Cannot specify retries in nested transaction"})
+    end.
 
 %% ---------- HELPER FUNCTIONS ------ exported -------------------------------
 
@@ -347,18 +364,18 @@ wait_table_tries(Tables, {0, _}) ->
     ?ClientErrorNoLogging({"Loading table(s) timeout~p", Tables});
 wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
     case mnesia:wait_for_tables(Tables, Timeout) of
-        ok -> ok;
-        {timeout, _BadTabList} ->
-            ?Debug("table ~p load time out attempt ~p~n", [_BadTabList, Count]),
-            wait_table_tries(Tables, {Count-1,Timeout});
-        {error, Reason} -> ?ClientErrorNoLogging({"Error loading table~p", Reason})
+        ok ->                           ok;
+        {timeout, _BadTabList} ->       ?Debug("table ~p load time out attempt ~p~n", [_BadTabList, Count]),
+                                        wait_table_tries(Tables, {Count-1,Timeout});
+        {error, Reason} ->              ?ClientErrorNoLogging({"Error loading table~p", Reason})
     end.
 
 drop_table(Table) when is_atom(Table) ->
     case spawn_sync_mfa(mnesia,delete_table,[Table]) of
-        {atomic,ok} ->
-            true = ets:delete(?SNAP_ETS_TAB, Table),
-            ok;
+        ok ->                           true = ets:delete(?SNAP_ETS_TAB, Table),
+                                        ok;
+        {atomic,ok} ->                  true = ets:delete(?SNAP_ETS_TAB, Table),
+                                        ok;
         {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                        ?SystemExceptionNoLogging(Error)
     end.
@@ -366,28 +383,27 @@ drop_table(Table) when is_atom(Table) ->
 create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-            ?ClientErrorNoLogging({"Table does not exist", Table});
+                                        ?ClientErrorNoLogging({"Table does not exist", Table});
         {aborted, {already_exists, {Table,Column}}} ->
-            ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
-        Result -> return_atomic_ok(Result)
+                                        ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
+        Result ->                       return_atomic_ok(Result)
     end.
 
 drop_index(Table, Column) when is_atom(Table) ->
     case mnesia:del_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-            ?ClientErrorNoLogging({"Table does not exist", Table});
-        {aborted, {no_exists, {Table,Column}}} ->
-            ?ClientErrorNoLogging({"Index does not exist", {Table,Column}});
-        Result -> return_atomic_ok(Result)
+                                        ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {no_exists, {Table,Column}}} ->   
+                                        ?ClientErrorNoLogging({"Index does not exist", {Table,Column}});
+        Result ->                       return_atomic_ok(Result)
     end.
 
 truncate_table(Table) when is_atom(Table) ->
     case spawn_sync_mfa(mnesia,clear_table,[Table]) of
-        {atomic,ok} ->
-            ?TOUCH_SNAP(Table),                  
-            ok;
+        ok ->                           ?TOUCH_SNAP(Table);
+        {atomic,ok} ->                  ?TOUCH_SNAP(Table);
         {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        Error ->                        ?SystemExceptionNoLogging(Error)
+        Result ->                       return_atomic_ok(Result)
     end.
 
 % An MFA interface that is executed in a spawned short-lived process
@@ -407,18 +423,15 @@ read(Table) when is_atom(Table) ->
         lists:flatten([mnesia:read(Table, X) || X <- Keys])
     end,
     case transaction(Trans) of
-        {atomic, Result} ->         Result;
         {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        Error ->                    ?SystemExceptionNoLogging(Error)
+        Result ->                   return_atomic_list(Result)
     end.
 
 read(Table, Key) when is_atom(Table) ->
-    Result = case transaction(read,[Table, Key]) of
+    case transaction(read,[Table, Key]) of
         {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        Res ->                      Res
-    end,
-    return_atomic_list(Result).
-
+        Result ->                   return_atomic_list(Result)
+    end.
 
 read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
     % read using HierarchicalListKey 
@@ -432,9 +445,8 @@ read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
             end
     end,
     case transaction(Trans,[HListKey,Trans]) of
-        {atomic, Result} ->         Result;
         {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        Error ->                    ?SystemExceptionNoLogging(Error)
+        Result ->                   return_atomic(Result)
     end.
 
 
@@ -450,48 +462,35 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     %if Table =:= ddTable -> ?Debug("mnesia:write ~p ~p~n", [Table,Row]); true -> ok end,
-    Result = case transaction(write,[Table, Row, write]) of
-        {aborted,{no_exists,_}} ->
-            % ?Debug("cannot write ~p to ~p~n", [Row,Table]),
-            ?ClientErrorNoLogging({"Table does not exist",Table});
-        {atomic,ok} ->
-            ?TOUCH_SNAP(Table),
-            %if Table =:= ddTable -> io:format(user, "ddTable written ~p~n", [Up]); true -> ok end,
-            {atomic,ok};
-        Error ->
-            Error   
-    end,
-    return_atomic_ok(Result).
+    case transaction(write,[Table, Row, write]) of
+        ok ->                               ?TOUCH_SNAP(Table);
+        {atomic,ok} ->                      ?TOUCH_SNAP(Table);
+        {aborted,{no_exists,_}} ->          ?ClientErrorNoLogging({"Table does not exist",Table});
+        Result ->                           return_atomic_ok(Result)  
+    end.
 
 delete(Table, Key) when is_atom(Table) ->
-    Result = case transaction(delete,[{Table, Key}]) of
-        {atomic,ok} ->
-            ?TOUCH_SNAP(Table),
-            {atomic,ok};
-        {aborted,{no_exists,_}} ->          
-            ?ClientErrorNoLogging({"Table does not exist",Table});
-        Res ->
-            Res
-    end,
-    return_atomic_ok(Result).
+    case transaction(delete,[{Table, Key}]) of
+        ok ->                               ?TOUCH_SNAP(Table);
+        {atomic,ok} ->                      ?TOUCH_SNAP(Table);
+        {aborted,{no_exists,_}} ->          ?ClientErrorNoLogging({"Table does not exist",Table});
+        Result ->                           return_atomic_ok(Result)
+    end.
 
 delete_object(Table, Row) when is_atom(Table) ->
-    Result = case transaction(delete_object,[Table, Row, write]) of
-        {atomic,ok} ->
-            ?TOUCH_SNAP(Table),
-            {atomic,ok};
-        {aborted,{no_exists,_}} ->          
-            ?ClientErrorNoLogging({"Table does not exist",Table});
-        Res ->                              
-            Res
-    end,
-    return_atomic_ok(Result).
+    case transaction(delete_object,[Table, Row, write]) of
+        ok ->                               ?TOUCH_SNAP(Table);
+        {atomic,ok} ->                      ?TOUCH_SNAP(Table);
+        {aborted,{no_exists,_}} ->          ?ClientErrorNoLogging({"Table does not exist",Table});
+        Result ->                           return_atomic_ok(Result)
+    end.
 
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of
         {atomic, L}     ->                  {L, true};
+        L when is_list(L)     ->            {L, true};
         {aborted,{no_exists,_}} ->          ?ClientErrorNoLogging({"Table does not exist",Table});
-        Error ->                            ?SystemExceptionNoLogging(Error)
+        Result ->                           return_atomic_list(Result)
     end.
 
 select_sort(Table, MatchSpec) ->
@@ -520,6 +519,8 @@ select(Table, MatchSpec, Limit) when is_atom(Table) ->
     case transaction(Start, [Next]) of
         {atomic, {Result, AllRead}} ->          {Result, AllRead};
         {aborted,{no_exists,_}} ->              ?ClientErrorNoLogging({"Table does not exist",Table});
+        {aborted,Error} ->                      ?SystemExceptionNoLogging(Error);
+        {Result, AllRead} ->                    {Result, AllRead};
         Error ->                                ?SystemExceptionNoLogging(Error)
     end.
 
@@ -604,7 +605,7 @@ update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax)
          is_number(Incr),
          is_number(LimitMin),
          is_number(LimitMax) ->
-    mnesia:transaction(fun() ->
+    transaction(fun() ->
         case mnesia:read(Table, Key) of
             [Row|_] ->
                 N = element(Field+1, Row),
@@ -940,7 +941,7 @@ table_operations(_) ->
         ?Info("success ~p~n", [row_write_no_exists]),
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, dirty_write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
         ?Info("success ~p~n", [row_dirty_write_no_exists]),
-        ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
+%        ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
         ?Info("success ~p~n", [row_write_bad_type]),
         ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [])),
         ?Info("success ~p~n", [create_set_table]),

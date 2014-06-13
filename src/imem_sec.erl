@@ -624,7 +624,7 @@ delete_object(SKey, Table, Row) ->
 
 truncate_table(SKey, Table) ->
     case have_table_permission(SKey, Table, delete) of
-        true ->     imem_meta:truncate_table(Table);
+        true ->     imem_meta:truncate_table(Table, if_meta_field_value(SKey, user));
         false ->    ?SecurityException({"Truncate unauthorized", {Table,SKey}})
     end.
 

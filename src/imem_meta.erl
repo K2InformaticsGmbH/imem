@@ -119,6 +119,7 @@
         , purge_table/1
         , purge_table/2
         , truncate_table/1
+        , truncate_table/2
         , snapshot_table/1  %% dump local table to snapshot directory
         , restore_table/1   %% replace local table by version in snapshot directory
         , read/1            %% read whole table, only use for small tables 
@@ -446,7 +447,17 @@ column_names(Infos)->
 column_infos(Table) when is_atom(Table) ->
     column_infos({schema(),Table});    
 column_infos({Schema,Table}) when is_binary(Schema), is_binary(Table) ->
-    column_infos({?binary_to_atom(Schema),?binary_to_atom(Table)});         %% TODO: find alternative
+    S= try 
+        ?binary_to_existing_atom(Schema)
+    catch 
+        _:_ -> ?ClientError({"Schema does not exist",Schema})
+    end,
+    T = try 
+        ?binary_to_existing_atom(Table)
+    catch 
+        _:_ -> ?ClientError({"Table does not exist",Table})
+    end,        
+    column_infos({S,T});
 column_infos({Schema,Table}) when is_atom(Schema), is_atom(Table) ->
     case lists:member(Table, ?DataTypes) of
         true -> 
@@ -589,10 +600,14 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
     % ddTable Meta data is attempted to be inserted only if missing and
     % DB reports that table already exists
     try
-        % TODO : create_table and write(ddTable) should be executed in a single transaction
         DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
-        imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
-        imem_if:write(ddTable, DDTableRow)
+        % Trans = fun() ->
+        %    ?LogDebug("Create Table ~p",[PhysicalName]),
+            imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+        %    ?LogDebug("Insert ~p",[DDTableRow]),
+            imem_if:write(ddTable, DDTableRow)
+        %end,
+        % transaction(Trans)
     catch
         _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
             case imem_if:read(ddTable, {schema(),PhysicalName}) of
@@ -603,10 +618,7 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
     end.
 
 create_table_sys_conf(PhysicalName, ColumnInfos, Opts, Owner) ->
-    % ddTable Meta data is attempted to be inserted only if missing and
-    % DB reports that table already exists
     try
-        % TODO : create_table and write(ddTable) should be executed in a single transaction
         DDTableRow = #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
         imem_if:write(ddTable, DDTableRow)
     catch
@@ -672,24 +684,32 @@ if_opts(Opts,[]) -> Opts;
 if_opts(Opts,[MO|Others]) ->
     if_opts(lists:keydelete(MO, 1, Opts),Others).
 
-truncate_table({_Schema,Table,_Alias}) ->
-    truncate_table({_Schema,Table});    
-truncate_table({Schema,Table}) ->
+truncate_table(Table) ->
+    truncate_table(Table,meta_field_value(user)).
+
+truncate_table({_Schema,Table,_Alias},User) ->
+    truncate_table({_Schema,Table},User);    
+truncate_table({Schema,Table},User) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> truncate_table(Table);
+        MySchema -> truncate_table(Table, User);
         _ ->        ?UnimplementedException({"Truncate table in foreign schema",{Schema,Table}})
     end;
-truncate_table(Alias) when is_atom(Alias) ->
+truncate_table(Alias,User) when is_atom(Alias) ->
     %% log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
-    truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias)));
-truncate_table(TableName) ->
-    truncate_table(qualified_table_name(TableName)).
+    truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias)),User);
+truncate_table(TableName, User) ->
+    truncate_table(qualified_table_name(TableName),User).
 
-truncate_partitioned_tables([]) -> ok;
-truncate_partitioned_tables([PhName|PhNames]) ->
-    imem_if:truncate_table(PhName),
-    truncate_partitioned_tables(PhNames).
+truncate_partitioned_tables([],_) -> ok;
+truncate_partitioned_tables([PhName|PhNames], User) ->
+    {_, _, Trigger} =  trigger_infos(PhName),
+    Trans = fun() ->
+        Trigger({},{},PhName,User),
+        imem_if:truncate_table(PhName)
+    end,
+    return_atomic_ok(transaction(Trans)),
+    truncate_partitioned_tables(PhNames,User).
 
 snapshot_table({_Schema,Table,_Alias}) ->
     snapshot_table({_Schema,Table});    
@@ -1659,42 +1679,45 @@ modify(Operation, TableType, Table, DefRec, Trigger, Row0, User) when is_atom(Ta
     Key = element(?KeyIdx,Row2),
     case ((Table /= ddTable) and lists:member(?nav,tuple_to_list(Row2))) of
         false ->
-            PTN = physical_table_name(Table,Key),   
-            case {Operation, TableType, read(PTN,Key)} of     %% TODO: Wrap in single transaction
-                {insert,bag,Bag} -> case lists:member(Row2,Bag) of  
-                                        true ->     ?ConcurrencyException({"Insert failed, object already exists", {PTN,Row2}});
-                                        false ->    write(PTN, Row2),
-                                                    Trigger({},Row2,PTN,User),
-                                                    Row2
-                                    end;
-                {insert,_,[]} ->    write(PTN, Row2),
-                                    Trigger({},Row2,Table,User),
-                                    Row2;
-                {insert,_,R} ->     ?ConcurrencyException({"Insert failed, key already exists", {PTN,Key}});
-                {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", Table});
-                {update,_,[]} ->    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
-                {update,_,R} ->     write(PTN, Row2),
-                                    Trigger(R,Row2,Table,User),
-                                    Row2;
-                {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", Table});
-                {merge,_,[]} ->     write(PTN, Row2),
-                                    Trigger({},Row2,Table,User),
-                                    Row2;
-                {merge,_,R} ->      write(PTN, Row2),
-                                    Trigger(R,Row2,Table,User),
-                                    Row2;
-                {remove,bag,[]} ->  ?ConcurrencyException({"Delete failed, object does not exist", {PTN,Row2}});
-                {remove,_,[]} ->    ?ConcurrencyException({"Delete failed, key does not exist", {PTN,Key}});
-                {remove,bag,Bag} -> case lists:member(Row2,Bag) of  
-                                        false ->    ?ConcurrencyException({"Delete failed, object does not exist", {PTN,Row2}});
-                                        true ->     delete_object(PTN, Row2),
-                                                    Trigger(Row2,{},PTN,User),
-                                                    Row2
-                                    end;
-                {remove,_,R} ->     delete(Table, Key),
-                                    Trigger(R,{},Table,User),
-                                    Row2
-            end;
+            PTN = physical_table_name(Table,Key),
+            Trans = fun() ->   
+                case {Operation, TableType, read(PTN,Key)} of     %% TODO: Wrap in single transaction
+                    {insert,bag,Bag} -> case lists:member(Row2,Bag) of  
+                                            true ->     ?ConcurrencyException({"Insert failed, object already exists", {PTN,Row2}});
+                                            false ->    write(PTN, Row2),
+                                                        Trigger({},Row2,PTN,User),
+                                                        Row2
+                                        end;
+                    {insert,_,[]} ->    write(PTN, Row2),
+                                        Trigger({},Row2,Table,User),
+                                        Row2;
+                    {insert,_,[R]} ->   ?ConcurrencyException({"Insert failed, key already exists in", {PTN,R}});
+                    {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", Table});
+                    {update,_,[]} ->    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
+                    {update,_,[R]} ->   write(PTN, Row2),
+                                        Trigger(R,Row2,Table,User),
+                                        Row2;
+                    {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", Table});
+                    {merge,_,[]} ->     write(PTN, Row2),
+                                        Trigger({},Row2,Table,User),
+                                        Row2;
+                    {merge,_,[R]} ->    write(PTN, Row2),
+                                        Trigger(R,Row2,Table,User),
+                                        Row2;
+                    {remove,bag,[]} ->  ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row2}});
+                    {remove,_,[]} ->    ?ConcurrencyException({"Remove failed, key does not exist", {PTN,Key}});
+                    {remove,bag,Bag} -> case lists:member(Row2,Bag) of  
+                                            false ->    ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row2}});
+                                            true ->     delete_object(PTN, Row2),
+                                                        Trigger(Row2,{},PTN,User),
+                                                        Row2
+                                        end;
+                    {remove,_,[R]} ->   delete(Table, Key),
+                                        Trigger(R,{},Table,User),
+                                        R
+                end
+            end,
+            return_atomic(transaction(Trans));
         true ->     
             ?ClientError({"Not null constraint violation", {Table,Row2}})
     end.
@@ -1883,8 +1906,12 @@ meta_operations(_) ->
         ?assertEqual(1, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% trigger inserted one line 
         ?assertEqual(ok, drop_trigger(meta_table_3)),
-        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, update(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav})),
-        ?assertEqual(1, table_size(meta_table_3)),
+        Trans3 = fun() ->
+            update(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav}),
+            insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,57}},?nav})
+        end,
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,57}},undefined}, return_atomic(transaction(Trans3))),
+        ?assertEqual(2, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% no trigger, no more log  
 
         Keys4 = [

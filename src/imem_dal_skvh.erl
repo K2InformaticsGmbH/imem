@@ -18,27 +18,33 @@
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
                     { time                    :: ddTimestamp()	%% erlang:now()
-                    , ckey                    :: term()
-                    , cvalue               	  :: binary()
-                    , cuser					  :: ddEntityId()      
+                    , ckey                    :: term()|undefined
+                    , cvalue               	  :: binary()|undefined
+                    , cuser=unknown			  :: ddEntityId()|unknown
                     }
        ).
 -define(skvhAudit,  [timestamp,term,binstr,userid]).
 
 -record(skvhTable,                            %% sorted key value hash table    
-                    { ckey                    		:: term()
-                    , cvalue  				  		:: binary()      
-                    , chash	= fun(_,Rec,T,U) ->
-                    				K = element(2,Rec),
-                    				V = element(3,Rec),
-                    				C = ?CHANNEL(T),
-                    				A = ?binary_to_existing_atom(?AUDIT(C)),
-                    				catch (imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=U})),
-                    				list_to_binary(io_lib:format("~.36B",[erlang:phash2({K,V})]))
-                    		  end					:: binary()
+                    { ckey                    :: term()
+                    , cvalue  				  :: binary()      
+                    , chash	= fun(_,__Rec) ->
+                    				list_to_binary(io_lib:format("~.36B",[erlang:phash2({element(2,__Rec),element(3,__Rec)})]))
+                    		  end			  :: binary()
                     }
        ).
 -define(skvhTable,  [term,binstr,binstr]).
+-define(skvhTableTrigger,   fun (__OR,__NR,__T,__U) ->
+								{__K,__V} = case {__OR,__NR} of
+									{{},{}} ->	{undefined,undefined};				%% truncate table
+									{_,{}} ->	{element(2,__OR),undefined}; 		%% delete old rec
+                    				{_, _} ->	{element(2,__NR),element(3,__NR)}	%% write new rec
+	                    		end,
+                    			__C = ?CHANNEL(__T),
+                    			__A = ?binary_to_existing_atom(?AUDIT(__C)),
+                    			catch (imem_meta:write(__A,#skvhAudit{time=erlang:now(),ckey=__K,cvalue=__V,cuser=__U}))
+                    		end
+	   ).
 
 -define(typeStr,1).
 
@@ -91,6 +97,7 @@ create_check_channel(Channel) ->
 			AN = ?binary_to_atom(?AUDIT(Channel)),
 			imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
 			% _ = ?binary_to_atom(Token), 		%% put token to atom cache
+        	ok = imem_meta:create_trigger(TN, ?skvhTableTrigger),
 			{TN,AN}
 	end.
 
@@ -188,7 +195,7 @@ write(Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 
 write(Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 write(Cmd, {TN,AN}, [{K,V}|KVPairs], Acc)  ->
-	#skvhTable{chash=Hash} = imem_meta:merge(TN,#skvhTable{ckey=K,cvalue=V}),	%% ToDo: wrap in transaction
+	#skvhTable{chash=Hash} = imem_meta:merge(TN,#skvhTable{ckey=K,cvalue=V}),
 	write(Cmd, {TN,AN}, KVPairs, [Hash|Acc]).
 
 delete(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 
@@ -197,12 +204,12 @@ delete(Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) ->
 
 delete(Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 delete(Cmd, {TN,AN}, [Key|Keys], Acc)  ->
-	Hash = case imem_meta:read(TN,Key) of
-		[] ->						undefined;
-		[#skvhTable{chash=H}] ->	H
+	Hash = try
+		#skvhTable{chash=H} = imem_meta:remove(TN,#skvhTable{ckey=Key}),
+		H
+	catch
+		throw:{'ConcurrencyException',{"Remove failed, key does not exist", _}} -> undefined
 	end,
-	imem_meta:delete(TN,Key),									%% ToDo: wrap in transaction
-	imem_meta:write(AN,#skvhAudit{time=erlang:now(),ckey=Key}),	%% ToDo: wrap in transaction
 	delete(Cmd, {TN,AN}, Keys, [term_hash_to_io(Hash)|Acc]).
 
 %% Data Access per key range
@@ -328,6 +335,10 @@ skvh_operations(_) ->
         ?assertEqual({ok,[{1,KVc},{1,KVb},{1,KVa}]}, read(Channel, <<"kvpair">>, <<"[1,c]",13,10,"[1,b]",10,"[1,a]">>)),
         ?assertEqual({ok,[{1,KVa},{1,<<"[1,ab]",9,"undefined">>},{1,KVb},{1,KVc}]}, read(Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
+        Dat = imem_meta:read(skvhTEST),
+        ?Info("TEST data ~n~p~n", [Dat]),
+        ?assertEqual(3, length(Dat)),
+
         ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, delete(Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
         Aud = imem_meta:read(skvhAuditTEST_86400@),
@@ -356,6 +367,8 @@ skvh_operations(_) ->
 		?assertEqual({ok,[{1,<<"1N37JU">>}]}, write(Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
 		?assertEqual({ok,[{1,<<"WSWNV">>}]}, write(Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
 
+		?assertEqual(ok,imem_meta:truncate_table(skvhTEST)),
+				
         ?Info("audit trail~n~p~n", [imem_meta:read(skvhAuditTEST_86400@)]),
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTEST)),
