@@ -582,7 +582,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
 
 update_tables(UpdatePlan, Lock) ->
     Update = fun() ->
-        [update_xt(Table, Item, Lock, Old, New) || [Table, Item, Old, New] <- UpdatePlan]
+        [update_xt(Table, Item, Lock, Old, New, Trigger, User) || [Table, Item, Old, New, Trigger, User] <- UpdatePlan]
     end,
     return_atomic(transaction(Update)).
 
@@ -626,22 +626,22 @@ write_table_property(Table, Prop)       -> mnesia:write_table_property(Table, Pr
 read_table_property(Table, PropName)    -> mnesia:read_table_property(Table, PropName).
 delete_table_property(Table, PropName)  -> mnesia:delete_table_property(Table, PropName).
 
-update_xt({_Table,bag}, _Item, _Lock, {}, {}) ->
+update_xt({_Table,bag}, _Item, _Lock, {}, {}, _, _) ->
     ok;
-update_xt({Table,bag}, Item, Lock, Old, {}) when is_atom(Table) ->
+update_xt({Table,bag}, Item, Lock, Old, {}, Trigger, User) when is_atom(Table) ->
     Current = mnesia:read(Table, element(?KeyIdx,Old)),
     Exists = lists:member(Old,Current),
     if
         Exists ->
-            %mnesia:delete_object(Table, Old, write),
             mnesia_table_write_access(delete_object, [Table, Old, write]),
+            Trigger(Old, {}, Table, User),
             {Item,{}};
         Lock == none ->
             {Item,{}};
         true ->
             ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item, Old}})
     end;
-update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
+update_xt({Table,bag}, Item, Lock, {}, New, Trigger, User) when is_atom(Table) ->
     Current = mnesia:read(Table, element(?KeyIdx,New)),  %% may be expensive
     Exists = lists:member(New,Current),
     if
@@ -650,84 +650,117 @@ update_xt({Table,bag}, Item, Lock, {}, New) when is_atom(Table) ->
         Exists ->
             ?ConcurrencyExceptionNoLogging({"Record already exists", {Item, New}});
         true ->
-            %mnesia:write(Table, New, write),
             mnesia_table_write_access(write, [Table, New, write]),
+            Trigger({}, New, Table, User),
             {Item,New}
     end;
-update_xt({Table,bag}, Item, Lock, Old, Old) when is_atom(Table) ->
+update_xt({Table,bag}, Item, Lock, Old, Old, Trigger, User) when is_atom(Table) ->
     Current = mnesia:read(Table, element(?KeyIdx,Old)),  %% may be expensive
     Exists = lists:member(Old,Current),
     if
         Exists ->
+            Trigger(Old, Old, Table, User),
             {Item,Old};
         Lock == none ->
+            mnesia_table_write_access(write, [Table, Old, write]),
+            Trigger({}, Old, Table, User),
             {Item,Old};
         true ->
             ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item, Old}})
     end;
-update_xt({Table,bag}, Item, Lock, Old, New) when is_atom(Table) ->
-    update_xt({Table,bag}, Item, Lock, Old, {}),
-    update_xt({Table,bag}, Item, Lock, {}, New);
+update_xt({Table,bag}, Item, Lock, Old, New, Trigger, User) when is_atom(Table) ->
+    update_xt({Table,bag}, Item, Lock, Old, {}, Trigger, User),
+    update_xt({Table,bag}, Item, Lock, {}, New, Trigger, User);
 
-update_xt({_Table,_}, _Item, _Lock, {}, {}) ->
+update_xt({_Table,_}, _Item, _Lock, {}, {}, _, _) ->
     ok;
-update_xt({Table,_}, Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
-    %mnesia:delete(Table, element(?KeyIdx, Old), write),
-    mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
-    {Item,{}};
-update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
-    if
-        Lock == none ->
-            ok;
-        true ->
-            case mnesia:read(Table, element(?KeyIdx,New)) of
-                [New] ->    ok;
-                [] ->       ok;
-                Current ->  ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Current, New}}})
-            end
-    end,
-    %mnesia:write(Table,New,write),
-    mnesia_table_write_access(write, [Table, New, write]),
-    {Item,New};
-update_xt({Table,_}, Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
-    {Item,Old};
-update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
+update_xt({Table,_}, Item, Lock, Old, {}, Trigger, User) when is_atom(Table), is_tuple(Old) ->
     case mnesia:read(Table, element(?KeyIdx,Old)) of
-        [Old] ->    {Item,Old};
-        [] ->       ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}});
-        Current ->  ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
-    end;
-update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
-    OldKey=element(?KeyIdx,Old),
-    if
-        Lock == none ->
-            ok;
-        true ->
-            case mnesia:read(Table, OldKey) of
-                [Old] ->    ok;
-                [] ->       ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}});
-                Curr1 ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Curr1}}})
+        [Old] ->    
+            mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
+            Trigger(Old, {}, Table, User),
+            {Item,{}};
+        [] ->       
+            case Lock of
+                none -> {Item,{}};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Missing key", {Item,Old}})
+            end;
+        [Current] ->  
+            case Lock of
+                none -> mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
+                        Trigger(Current, {}, Table, User),
+                        {Item,{}};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Old,Current}}})
             end
-    end,
+    end;
+update_xt({Table,_}, Item, Lock, {}, New, Trigger, User) when is_atom(Table), is_tuple(New) ->
+    case mnesia:read(Table, element(?KeyIdx,New)) of
+        [] ->       mnesia_table_write_access(write, [Table, New, write]),
+                    Trigger({}, New, Table, User),
+                    {Item,New};
+        [New] ->    Trigger(New, New, Table, User),
+                    {Item,New};
+        [Current] ->  
+            case Lock of
+                none -> mnesia_table_write_access(write, [Table, New, write]),
+                        Trigger(Current, New, Table, User),
+                        {Item,New};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Key already exists", {Item,Current}})
+            end
+    end;
+update_xt({Table,_}, Item, Lock, Old, Old, Trigger, User) when is_atom(Table), is_tuple(Old) ->
+    case mnesia:read(Table, element(?KeyIdx,Old)) of
+        [Old] ->    Trigger(Old, Old, Table, User),
+                    {Item,Old};
+        [] ->       
+            case Lock of
+                none -> mnesia_table_write_access(write, [Table, Old, write]),
+                        Trigger({}, Old, Table, User),
+                        {Item,Old};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
+            end;
+        [Current] ->  
+            case Lock of
+                none -> mnesia_table_write_access(write, [Table, Old, write]),
+                        Trigger(Current, Old, Table, User),
+                        {Item,Old};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
+            end
+    end;
+update_xt({Table,_}, Item, Lock, Old, New, Trigger, User) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
+    OldKey=element(?KeyIdx,Old),
     NewKey = element(?KeyIdx,New),
-    case NewKey of
-        OldKey ->
-            %mnesia:write(Table,New,write),
+    case {mnesia:read(Table, OldKey),(OldKey==NewKey)} of
+        {[Old],true} ->    
             mnesia_table_write_access(write, [Table, New, write]),
+            Trigger(Old, New, Table, User),
             {Item,New};
-        NewKey ->
-            case mnesia:read(Table, NewKey) of
-                [New] ->    %mnesia:delete(Table,OldKey,write),
-                            mnesia_table_write_access(delete, [Table, OldKey, write]),
-                            %mnesia:write(Table,New,write),
-                            mnesia_table_write_access(write, [Table, New, write]),
-                            {Item,New};
-                [] ->       %mnesia:delete(Table,OldKey,write),
-                            mnesia_table_write_access(delete, [Table, OldKey, write]),
-                            %mnesia:write(Table,New,write),
-                            mnesia_table_write_access(write, [Table, New, write]),
-                            {Item,New};
-                Curr2 ->    ?ConcurrencyExceptionNoLogging({"Modified key already exists", {Item,Curr2}})
+        {[Old],false} ->
+            mnesia_table_write_access(delete, [Table, OldKey, write]),    
+            mnesia_table_write_access(write, [Table, New, write]),
+            Trigger(Old, New, Table, User),
+            {Item,New};
+        {[],_} ->       
+            case Lock of
+                none -> mnesia_table_write_access(write, [Table, New, write]),
+                        Trigger({}, New, Table, User),
+                        {Item,New};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
+            end;
+        {[Current],true} ->  
+            case Lock of
+                none -> mnesia_table_write_access(write, [Table, New, write]),
+                        Trigger(Current, New, Table, User),
+                        {Item,New};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
+            end;
+        {[Current],false} ->  
+            case Lock of
+                none -> mnesia_table_write_access(delete, [Table, OldKey, write]),
+                        mnesia_table_write_access(write, [Table, New, write]),
+                        Trigger(Current, New, Table, User),
+                        {Item,New};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
             end
     end.
 
@@ -1008,10 +1041,12 @@ table_operations(_) ->
 
         ?Info("data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
 
+        Trig = fun(O,N,T,U) -> imem_meta:log_to_db(debug,?MODULE,trigger,[{table,T},{old,O},{new,N},{user,U}],"trigger") end,
+        U = unknown,
         Update1 = fun(X) ->
-            update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X}),
-            update_xt({imem_table_123,set}, 2, optimistic, {}, {imem_table_123, "XXX","11","22"}),
-            update_xt({imem_table_123,set}, 3, optimistic, {imem_table_123, "AA","BB","cc"}, {}),
+            update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X},Trig,U),
+            update_xt({imem_table_123,set}, 2, optimistic, {}, {imem_table_123, "XXX","11","22"},Trig,U),
+            update_xt({imem_table_123,set}, 3, optimistic, {imem_table_123, "AA","BB","cc"}, {},Trig,U),
             lists:sort(read(imem_table_123))
         end,
         UR1 = return_atomic(transaction(Update1, ["99"])),
@@ -1019,7 +1054,7 @@ table_operations(_) ->
         ?assertEqual(UR1, [{imem_table_123,"A","B","C"},{imem_table_123,"AAA","11","99"},{imem_table_123,"XXX","11","22"}]),
 
         Update1a = fun(X) ->
-            update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","11","99"}, {imem_table_123, "AAA","BB",X})
+            update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","11","99"}, {imem_table_123, "AAA","BB",X},Trig,U)
         end,
         UR1a = return_atomic(transaction(Update1a, ["xx"])),
         ?Info("updated key ~p~n", [UR1a]),
@@ -1051,9 +1086,9 @@ table_operations(_) ->
         ?Info("success ~p~n", [write_table]),
 
         Update2 = fun(X) ->
-            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag, "AA","BB","cc"}, {imem_table_bag, "AA","11",X}),
-            update_xt({imem_table_bag,bag}, 2, optimistic, {}, {imem_table_bag, "XXX","11","22"}),
-            update_xt({imem_table_bag,bag}, 3, optimistic, {imem_table_bag, "A","B","C"}, {}),
+            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag, "AA","BB","cc"}, {imem_table_bag, "AA","11",X},Trig,U),
+            update_xt({imem_table_bag,bag}, 2, optimistic, {}, {imem_table_bag, "XXX","11","22"},Trig,U),
+            update_xt({imem_table_bag,bag}, 3, optimistic, {imem_table_bag, "A","B","C"}, {},Trig,U),
             lists:sort(read(imem_table_bag))
         end,
         UR2 = return_atomic(transaction(Update2, ["99"])),
@@ -1061,12 +1096,12 @@ table_operations(_) ->
         ?assertEqual([{imem_table_bag,"AA","11","99"},{imem_table_bag,"AA","BB","CC"},{imem_table_bag,"AAA","BB","CC"},{imem_table_bag,"XXX","11","22"}], UR2),
 
         Update3 = fun() ->
-            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag, "AA","BB","cc"}, {imem_table_bag, "AA","11","11"})
+            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag, "AA","BB","cc"}, {imem_table_bag, "AA","11","11"},Trig,U)
         end,
         ?assertException(throw, {CoEx, {"Data is modified by someone else", {1, {imem_table_bag, "AA","BB","cc"}}}}, return_atomic(transaction(Update3))),
 
         Update4 = fun() ->
-            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag,"AA","11","99"}, {imem_table_bag, "AB","11","11"})
+            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag,"AA","11","99"}, {imem_table_bag, "AB","11","11"},Trig,U)
         end,
         ?assertEqual({1, {imem_table_bag, "AB","11","11"}}, return_atomic(transaction(Update4))),
 

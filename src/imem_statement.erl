@@ -163,23 +163,17 @@ update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
         Error-> throw(Error)
     end.
 
-update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, none) ->
-    update_cursor_prepare(SKey, Pid, IsSec, none);
-update_cursor_execute(SKey, Pid, IsSec, none) when is_pid(Pid) ->
-    case gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, none}) of
-        KeyUpd when is_list(KeyUpd) -> KeyUpd;
-        Error ->    throw(Error)
-    end; 
-update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, optimistic) ->
-    update_cursor_execute(SKey, Pid, IsSec, optimistic);
-update_cursor_execute(SKey, Pid, IsSec, optimistic) when is_pid(Pid) ->
-    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, optimistic}),
+update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, Lock) ->
+    update_cursor_execute(SKey, Pid, IsSec, Lock);
+update_cursor_execute(SKey, Pid, IsSec, Lock) when is_pid(Pid) ->
+    update_cursor_exec(SKey, Pid, IsSec, Lock).
+
+update_cursor_exec(SKey, Pid, IsSec, Lock) when Lock==none;Lock==optimistic ->
+    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, Lock}),
     % ?Debug("update_cursor_execute ~p~n", [Result]),
     case Result of
-        KeyUpd when is_list(KeyUpd) -> 
-            KeyUpd;
-        Error ->
-            throw(Error)
+        KeyUpd when is_list(KeyUpd) ->  KeyUpd;
+        Error ->                        throw(Error)
     end.
 
 close(SKey, #stmtResult{stmtRef=Pid}) ->
@@ -902,9 +896,9 @@ send_reply_to_client(SockOrPid, Result) ->
     imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
-    ColInfo = if_call_mfa(IsSec, column_infos, [SKey, Table]),    
-    DefRec = list_to_tuple([Table|if_call_mfa(IsSec,column_info_items, [SKey, ColInfo, default])]),    
-    TableInfo = {Schema,Table,if_call_mfa(IsSec,table_type,[SKey,{Schema,Table}]), DefRec},
+    {TableType, DefRec, Trigger} =  imem_meta:trigger_infos(Table),
+    User = if_call_mfa(IsSec, meta_field_value, [SKey, user]),
+    TableInfo = {Schema,Table,TableType,list_to_tuple(DefRec),Trigger,User},
     %% transform a ChangeList   
         % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],               %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
@@ -922,13 +916,13 @@ update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
 -define(ins_repl(__X,__Cx,__New), setelement(__Cx,__X, __New)). 
 
 update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> Acc;
-update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
-    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), element(?MainIdx,Recs)],     
-    update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,_}=TableInfo, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
-    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}],     
+update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger, User}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), element(?MainIdx,Recs),Trigger, User],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
+update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger, User}=TableInfo, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {},Trigger, User],     
+    update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
     % ?LogDebug("ColMap~n~p~n", [ColMap]),
     % ?LogDebug("Values~n~p~n", [Values]),
     if  
@@ -1000,9 +994,9 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,upd,Rec
         ]),    
     UpdatedRecs = update_recs(Recs, UpdateMap),
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
-    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec],     
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec,Trigger, User],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
     % ?Debug("ColMap~n~p~n", [ColMap]),
     % ?Debug("Values~n~p~n", [Values]),
     if  
@@ -1065,7 +1059,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec}=TableInfo, ColMap, [[Item,ins,_|V
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),    
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, update_recs(DefRec, InsertMap), Tab]),
-    Action = [{S,Tab,Typ}, Item, {},  NewRec],     
+    Action = [{S,Tab,Typ}, Item, {},  NewRec,Trigger, User],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).

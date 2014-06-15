@@ -132,7 +132,7 @@ path() ->
 
 update_tables(UpdatePlans, Lock) -> update_tables(UpdatePlans, Lock, []).
 update_tables([], _Lock, Acc) -> lists:reverse(Acc);
-update_tables([[Table, Item, Old, New]|UpdatePlan], Lock, Acc) ->
+update_tables([[Table, Item, Old, New, Trigger, User]|UpdatePlan], Lock, Acc) ->
     if
         New#ddSysConf.item =/= Old#ddSysConf.item ->
             ?ClientErrorNoLogging({"Key modification not allowed", {Old#ddSysConf.item, New#ddSysConf.item}});
@@ -141,47 +141,79 @@ update_tables([[Table, Item, Old, New]|UpdatePlan], Lock, Acc) ->
         true -> ok
     end,
     check_content(Old, New),
-    update_tables(UpdatePlan, Lock, [update_xt(Table, Item, Lock, Old, New) | Acc]).
+    update_tables(UpdatePlan, Lock, [update_xt(Table, Item, Lock, Old, New, Trigger, User) | Acc]).
 
 %% ----- helper internal --------------------------------------
 
 -define(DQuoteStrip(__T), imem_datatype:strip_dquotes(atom_to_list(__T))).
-update_xt({_Table,_}, _Item, _Lock, {}, {}) ->
+update_xt({_Table,_}, _Item, _Lock, {}, {}, Trigger, User) ->
     ok;
-update_xt({Table,_}, _Item, _Lock, Old, {}) when is_atom(Table), is_tuple(Old) ->
-    ?ClientErrorNoLogging({"Truncating file is not allowed", Table});
-update_xt({Table,_}, Item, Lock, {}, New) when is_atom(Table), is_tuple(New) ->
-    File = filename:join([path(),?DQuoteStrip(Table)]),
-    if
-        Lock == none ->
-            write_content(File, New);
-        true ->            
-            case file_content_rec(File) of
-                New ->      write_content(File, New);
-                Current ->  ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Current, New}}})
-            end
-    end,
-    {Item,New};
-update_xt({Table,_}, Item, none, Old, Old) when is_atom(Table), is_tuple(Old) ->
-    {Item,Old};
-update_xt({Table,_}, Item, _Lock, Old, Old) when is_atom(Table), is_tuple(Old) ->
+update_xt({Table,_}, _Item, _Lock, Old, {}, Trigger, User) when is_atom(Table), is_tuple(Old) ->
+    ?ClientErrorNoLogging({"Truncating file is not allowed", Table}); %% ToDo: Why not?
+update_xt({Table,_}, Item, Lock, {}, New, Trigger, User) when is_atom(Table), is_tuple(New) ->
     File = filename:join([path(),?DQuoteStrip(Table)]),
     case file_content_rec(File) of
-        Old ->    {Item,Old};
-        Current ->  ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {File, Old, Current}})
+        #ddSysConf{item = content} ->      
+            write_content(File, New),
+            Trigger({},New,Table,User),
+            {Item,New};
+        New ->  
+            case Lock of
+                none ->
+                    Trigger(New,New,Table,User),
+                    {Item,New};
+                _ ->    
+                    ?ConcurrencyExceptionNoLogging({"Data is already created by someone else", {File, New}})
+            end;
+        Current ->  
+            case Lock of
+                none ->
+                    write_content(File, New),
+                    Trigger(Current,New,Table,User),
+                    {Item,New};
+                _ ->    
+                    ?ConcurrencyExceptionNoLogging({"Data is already created by someone else", {File, Current}})
+            end
     end;
-update_xt({Table,_}, Item, Lock, Old, New) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
+update_xt({Table,_}, Item, Lock, Old, Old, Trigger, User) when is_atom(Table), is_tuple(Old) ->
+    File = filename:join([path(),?DQuoteStrip(Table)]),
+    case file_content_rec(File) of
+        Old ->      Trigger(Old,Old,Table,User),
+                    {Item,Old};
+        #ddSysConf{item = content} ->      
+            case Lock of
+                none ->
+                    write_content(File, Old),
+                    Trigger({},Old,Table,User),      
+                    {Item,Old};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {File, Old}})
+            end;
+        Current ->  
+            case Lock of
+                none ->
+                    write_content(File, Old),
+                    Trigger(Current,Old,Table,User),      
+                    {Item,Old};
+                _ ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {File, Old, Current}})
+            end
+    end;
+update_xt({Table,_}, Item, Lock, Old, New, Trigger, User) when is_atom(Table), is_tuple(Old), is_tuple(New) ->
     File = filename:join([path(),?DQuoteStrip(Table)]),
     if
         Lock == none ->
-            write_content(File, New);
+            write_content(File, New),
+            Trigger(file_content_rec(File),New,Table,User),
+            {Item,New};
         true ->
             case file_content_rec(File) of
-                Old ->      write_content(File, New);
-                Curr1 ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {File, Old, Curr1}})
+                Old ->      
+                    write_content(File, New),
+                    Trigger(Old,New,Table,User),
+                    {Item,New};
+                Curr1 ->    
+                    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {File, Old, Curr1}})
             end
-    end,
-    {Item, New}.
+    end.
 
 %% ----- media access -----------------------------------------
 

@@ -18,10 +18,7 @@ exec(SKey, {insert, TableName, {}, {}, _Returning}=ParseTree , _Stmt, Opts, IsSe
     [Tbin] = [{TS,TN} || #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap0,Ti/=?MetaIdx,Ci==?FirstIdx],
     Table = imem_meta:qualified_table_name(Tbin),
     % ?LogDebug("Table: ~p~n", [Table]),
-    RecName = if_call_mfa(IsSec,table_record_name,[SKey, Table]),
-    % ?LogDebug("RecName: ~p~n", [RecName]),
-    DefRec = list_to_tuple([RecName|[D || #bind{tind=Ti,default=D} <- FullMap0, Ti==?MainIdx]]),
-    % ?LogDebug("DefRec: ~p~n", [DefRec]),
+    DefRec = list_to_tuple([?nav|[?nav || #bind{tind=Ti} <- FullMap0,Ti==?MainIdx]]),
     [if_call_mfa(IsSec,insert,[SKey, Table, DefRec])];
 exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=ParseTree , _Stmt, Opts, IsSec) ->
     % ?LogDebug("insert ~p values ~p into ~p~n", [Columns, Values, TableName]),
@@ -34,10 +31,7 @@ exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=ParseTree 
     [Tbin] = [{TS,TN} || #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap0,Ti/=?MetaIdx,Ci==?FirstIdx],
     Table = imem_meta:qualified_table_name(Tbin),
     % ?LogDebug("Table: ~p~n", [Table]),
-    RecName = if_call_mfa(IsSec,table_record_name,[SKey, Table]),
-    % ?LogDebug("RecName: ~p~n", [RecName]),
-    DefRec = list_to_tuple([RecName|[D || #bind{tind=Ti,default=D} <- FullMap0, Ti==?MainIdx]]),
-    % ?LogDebug("DefRec: ~p~n", [DefRec]),
+    DefRec = list_to_tuple([?nav|[?nav || #bind{tind=Ti} <- FullMap0,Ti==?MainIdx]]),
     ColMap0 = imem_sql_expr:column_map_columns(Columns, FullMap0),
     % ?LogDebug("ColMap0:~n~p~n", [?FP(ColMap0,"23678")]),
     CCount = length(ColMap0), 
@@ -60,7 +54,6 @@ exec(SKey, {insert, TableName, {_, Columns}, {_, Values}, _Returning}=ParseTree 
                     end,CMap} || {T,CMap} <- ColBTrees1],
     % ?LogDebug("ColBTrees2:~n~p~n", [ColBTrees2]),
     NewRec0 = merge_values(ColBTrees2, DefRec),
-    % ?LogDebug("NewRec:~n~p~n", [NewRec0]),
     [if_call_mfa(IsSec,insert,[SKey, Table, NewRec0])].
 
 merge_values([], Rec) -> Rec;

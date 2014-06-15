@@ -618,17 +618,8 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
     end.
 
 create_table_sys_conf(PhysicalName, ColumnInfos, Opts, Owner) ->
-    try
-        DDTableRow = #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
-        imem_if:write(ddTable, DDTableRow)
-    catch
-        _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
-            case imem_if:read(ddTable, {ddSysConf,PhysicalName}) of
-                [] -> imem_if:write(ddTable, #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner});
-                _ -> ok
-            end,
-            throw(Reason)
-    end.
+    DDTableRow = #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
+    return_atomic_ok(imem_if:write(ddTable, DDTableRow)).
 
 create_trigger({Schema,Table},TFun) ->
     MySchema = schema(),
@@ -1765,9 +1756,9 @@ update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
     % log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
     update_tables(MySchema, UPlan, Lock, [update_table_name(MySchema, UEntry)|Acc]).
 
-update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New]) ->
+update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New, Trig, User]) ->
     case lists:member(?nav,tuple_to_list(New)) of
-        false ->    [{physical_table_name(Tab),Type}, Item, Old, New];
+        false ->    [{physical_table_name(Tab),Type}, Item, Old, New, Trig, User];
         true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
     end.
 
@@ -1879,8 +1870,8 @@ meta_operations(_) ->
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?Info("success ~p~n", [create_table_not_null]),
-        Trigger3 = fun(O,N,T,U) -> imem_meta:log_to_db(debug,?MODULE,trigger,[{table,T},{old,O},{new,N},{user,U}],"trigger") end,
-        ?assertEqual(ok, create_trigger(meta_table_3, Trigger3)),
+        Trig = fun(O,N,T,U) -> imem_meta:log_to_db(debug,?MODULE,trigger,[{table,T},{old,O},{new,N},{user,U}],"trigger") end,
+        ?assertEqual(ok, create_trigger(meta_table_3, Trig)),
 
         ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
         ?assertException(throw, {ClEr,{"Reserved table name", select}}, create_table(select, BadTypes2, [])),
@@ -1917,9 +1908,10 @@ meta_operations(_) ->
         Keys4 = [
         {1,{meta_table_3,{{2000,1,1},{12,45,59}},undefined}}
         ],
-        ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined}]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined}]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav}]], optimistic)),
+        U = unknown,
+        ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined},Trig,U]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined},Trig,U]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav},Trig,U]], optimistic)),
         
         LogTable = physical_table_name(?LOG_TABLE),
         ?assert(lists:member(LogTable,physical_table_names(?LOG_TABLE))),
