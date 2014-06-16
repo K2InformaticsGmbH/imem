@@ -146,9 +146,9 @@ update_tables([[Table, Item, Old, New, Trigger, User]|UpdatePlan], Lock, Acc) ->
 %% ----- helper internal --------------------------------------
 
 -define(DQuoteStrip(__T), imem_datatype:strip_dquotes(atom_to_list(__T))).
-update_xt({_Table,_}, _Item, _Lock, {}, {}, Trigger, User) ->
+update_xt({_Table,_}, _Item, _Lock, {}, {}, _Trigger, _User) ->
     ok;
-update_xt({Table,_}, _Item, _Lock, Old, {}, Trigger, User) when is_atom(Table), is_tuple(Old) ->
+update_xt({Table,_}, _Item, _Lock, Old, {}, _Trigger, _User) when is_atom(Table), is_tuple(Old) ->
     ?ClientErrorNoLogging({"Truncating file is not allowed", Table}); %% ToDo: Why not?
 update_xt({Table,_}, Item, Lock, {}, New, Trigger, User) when is_atom(Table), is_tuple(New) ->
     File = filename:join([path(),?DQuoteStrip(Table)]),

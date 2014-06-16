@@ -71,6 +71,7 @@
 		, read/3		%% (Channel, KeyTable)   			return empty Arraylist if none of these resources exists
 		, readGELT/4	%% (Channel, Item, CKey1, CKey2)	start with first key after CKey1, end with last key before CKey2
  		, readGT/4		%% (Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less
+ 		, readGE/4		%% (Channel, Item, CKey1, Limit)	start with first key at or after CKey1, return Limit results or less
  		, delete/2		%% (Channel, KeyTable)    			do not complain if keys do not exist
  		, deleteGELT/3	%% (Channel, CKey1, CKey2)			delete range of keys >= CKey1
 		, deleteGTLT/3	%% (Channel, CKey1, CKey2)			delete range of keys > CKey1
@@ -231,6 +232,16 @@ readGT(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_
 readGT(Cmd, {TN,_}, Item, Key1, Limit) ->
 	MatchHead = {skvhTable, '$1', '$2', '$3'},
 	MatchFunction = {MatchHead, [{'>', '$1', Key1}], ['$_']},
+	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
+	project_result(Cmd, L, Item).
+
+readGE(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
+	Cmd = [readGT, Channel, Item, CKey1, Limit],
+	readGE(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(Limit)).
+
+readGE(Cmd, {TN,_}, Item, Key1, Limit) ->
+	MatchHead = {skvhTable, '$1', '$2', '$3'},
+	MatchFunction = {MatchHead, [{'>=', '$1', Key1}], ['$_']},
 	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
 	project_result(Cmd, L, Item).
 
