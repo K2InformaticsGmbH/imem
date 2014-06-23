@@ -88,7 +88,8 @@ init(_Args) ->
                     if_write(none, ddAccount, User),                    
                     if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
-        end,        
+        end,
+        imem_meta:fail({"Fail in imem_seco:init on purpose"}),        
         if_truncate_table(none,ddSeCo@),
         if_truncate_table(none,ddPerm@),
         if_truncate_table(none,ddQuota@),
@@ -96,7 +97,7 @@ init(_Args) ->
         {ok,#state{}}    
     catch
         Class:Reason -> ?Error("~p failed with ~p:~n~p~n", [?MODULE,Class,Reason]),
-                        {stop, "Insufficient resources for start"} 
+                        {stop, {"Insufficient resources for start",erlang:get_stacktrace()}} 
     end,
     Result.
 

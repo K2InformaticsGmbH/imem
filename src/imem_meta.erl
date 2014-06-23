@@ -44,6 +44,7 @@
         , terminate/2
         , code_change/3
         , format_status/2
+        , fail/1
         ]).
 
 
@@ -301,6 +302,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 format_status(_Opt, [_PDict, _State]) -> ok.
 
+fail(Reason) ->
+    throw(Reason).
 
 %% ------ META implementation -------------------------------------------------------
 
