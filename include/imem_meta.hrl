@@ -8,6 +8,7 @@
 -define(CONFIG_TABLE,ddConfig).                    
 -define(LOG_TABLE,ddLog_86400@).                    %% 86400 = 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
+-define(CACHE_TABLE,ddCache@).
 
 -define(GET_IMEM_CONFIG(__PName,__Context,__Default),
         imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
@@ -16,10 +17,19 @@
 -type ddEntityId() :: 	reference() | integer() | atom().
 -type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 
+
+-record(ddCache,                            %% local kv cache, created empty              
+                  { ckey                    :: term()             %% key
+                  , cvalue                  :: term()             %% value
+                  , opts = []               :: list()             %% options
+                  }     
+       ). 
+-define(ddCache, [term,term,list]).
+
 -record(ddColumn,                           %% column definition    
                   { name                    ::atom()
                   , type = term             ::ddType()
-                  , len = undefined 	    ::integer()
+                  , len = undefined 	      ::integer()
                   , prec = undefined        ::integer()
                   , default = undefined     ::any()
                   , opts = []               ::list()

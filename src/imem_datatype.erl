@@ -24,7 +24,9 @@
         , is_datatype/1
         , is_number_type/1
         , is_unicode_binary/1
-        , is_rowfun_extension/2 
+        , is_rowfun_extension/2
+        , is_term_or_fun_text/1
+        , to_term_or_fun/1 
         ]).
 
 -export([ add_squotes/1
@@ -271,6 +273,40 @@ is_datatype(Types) when is_list(Types) ->
     (not lists:member(false,[is_datatype(T) || T <- Types]));
 is_datatype(Type) when is_tuple(Type) -> is_datatype(tuple_to_list(Type));
 is_datatype(_) -> false.
+
+is_term_or_fun_text(B) when is_binary(B) ->
+    is_term_or_fun_text(binary_to_list(B));
+is_term_or_fun_text([$f,$u,$n|_]=Str) ->
+    try 
+        case re:run(Str, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], list}]) of
+            {match,[[_Params,_Body]]} ->
+                is_function((catch io_to_fun(Str,undefined)));
+            nomatch ->  
+                true
+        end
+    catch
+        throw:{'ClientError',Reason} -> ?ClientError(Reason);
+        _:_ -> true    %% some term, not a string
+    end;
+is_term_or_fun_text(_) -> true.
+
+to_term_or_fun(B) when is_binary(B) ->
+    to_term_or_fun(B, binary_to_list(B));
+to_term_or_fun(L) when is_list(L) ->
+    to_term_or_fun(L, L);
+to_term_or_fun(T) -> T.
+
+to_term_or_fun(T, [$f,$u,$n|_]=Str) ->
+    try 
+        case re:run(Str, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], list}]) of
+            {match,[[_Params,_Body]]} ->    io_to_fun(Str,undefined);
+            nomatch ->                      T
+        end
+    catch
+        throw:{'ClientError',Reason} -> ?ClientError(Reason);
+        _:_ -> T        %% not a valid string representation of a fun
+    end;
+to_term_or_fun(T, _) -> T.
 
 is_rowfun_extension(Func,Arity) when is_atom(Func) -> is_rowfun_extension(atom_to_binary(Func, utf8),Arity);
 is_rowfun_extension(Func,Arity) -> lists:member({Func,Arity},?ROWFUN_EXTENSIONS).
@@ -1701,6 +1737,14 @@ data_types(_) ->
         ?Info("Now- 100s: ~p~n", [offset_timestamp('-', ENow, 100.0*OneSec)]),
         ?Info("Now-1000s: ~p~n", [offset_timestamp('-', ENow, 1000.0*OneSec)]),
 
+        ?assertEqual(true, is_term_or_fun_text(a)),
+        ?assertEqual(true, is_term_or_fun_text([1,2,3])),
+        ?assertEqual(true, is_term_or_fun_text("fun")),
+        ?assertEqual(true, is_term_or_fun_text("fun()-> ok end.")),
+        ?assertEqual(true, is_term_or_fun_text(<<"fun(X,Y)-> erlang:now() end.">>)),
+        ?assertEqual(false, is_term_or_fun_text(<<"fun()-> A end.">>)),
+        ?assertEqual(true, is_term_or_fun_text("fun()-> A end")),
+        ?assertEqual(true, is_term_or_fun_text("fun()- A end.")),
 
         ?assertEqual(true, true)
     catch

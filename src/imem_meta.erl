@@ -7,7 +7,7 @@
 
 -define(DDNODE_TIMEOUT,3000).       %% RPC timeout for ddNode evaluation
 
--define(META_TABLES,[ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
+-define(META_TABLES,[?CACHE_TABLE,ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
 
@@ -187,10 +187,16 @@ init(_Args) ->
     ?Info("~p starting...~n", [?MODULE]),
     Result = try
         application:set_env(imem, node_shard, node_shard()),
+
         catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
         catch check_table(ddTable),
         catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
+
+        CDef = {record_info(fields, ddCache), ?ddCache, #ddCache{}},
+        COpts = [{scope,local}, {local_content,true},{record_name,ddCache}],
+        catch create_check_table(?CACHE_TABLE, CDef, COpts, system),
+
         catch create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
         catch create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
         catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
@@ -432,6 +438,8 @@ column_info_items(Info, type) ->
     [C#ddColumn.type || C <- Info];
 column_info_items(Info, default) ->
     [C#ddColumn.default || C <- Info];
+column_info_items(Info, default_fun) ->
+    lists:map(fun imem_datatype:to_term_or_fun/1, [C#ddColumn.default || C <- Info]);
 column_info_items(Info, len) ->
     [C#ddColumn.len || C <- Info];
 column_info_items(Info, prec) ->
@@ -478,7 +486,7 @@ column_infos(Names, Types, Defaults)->
     if (NamesLength =/= TypesLength)
        orelse (NamesLength =/= DefaultsLength)
        orelse (TypesLength =/= DefaultsLength) ->
-        ?ClientError({"Column defn params length missmatch", { {"Names", NamesLength}
+        ?ClientError({"Column definition params length mismatch", { {"Names", NamesLength}
                                                              , {"Types", TypesLength}
                                                              , {"Defaults", DefaultsLength}}});
     true -> ok
@@ -572,7 +580,7 @@ create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
         ddSysConf -> create_table_sys_conf(Table, ColumnInfos, Opts, Owner);
         _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
     end;
-create_physical_table(Table,ColumnInfos,Opts,Owner) ->
+create_physical_table(Table,ColInfos,Opts,Owner) ->
     case is_valid_table_name(Table) of
         true ->     ok;
         false ->    ?ClientError({"Invalid character(s) in table name",Table})
@@ -581,37 +589,41 @@ create_physical_table(Table,ColumnInfos,Opts,Owner) ->
         false ->    ok;
         true ->     ?ClientError({"Reserved table name",Table})
     end,
-    CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColumnInfos, name)],
+    CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(false, 1, CharsCheck) of
         false ->    ok;
         {_,BadN} -> ?ClientError({"Invalid character(s) in column name",BadN})
     end,
-    ReservedCheck = [{sqlparse:is_reserved(Name),Name} || Name <- column_info_items(ColumnInfos, name)],
+    ReservedCheck = [{sqlparse:is_reserved(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(true, 1, ReservedCheck) of
         false ->    ok;
         {_,BadC} -> ?ClientError({"Reserved column name",BadC})
     end,
-    TypeCheck = [{imem_datatype:is_datatype(Type),Type} || Type <- column_info_items(ColumnInfos, type)],
+    TypeCheck = [{imem_datatype:is_datatype(Type),Type} || Type <- column_info_items(ColInfos, type)],
     case lists:keyfind(false, 1, TypeCheck) of
         false ->    ok;
         {_,BadT} -> ?ClientError({"Invalid data type",BadT})
     end,
+    FunCheck = [{imem_datatype:is_term_or_fun_text(Def),Def} || Def <- column_info_items(ColInfos, default)],
+    case lists:keyfind(false, 1, FunCheck) of
+        false ->    ok;
+        {_,BadDef} -> ?ClientError({"Invalid default fun",BadDef})
+    end,
     PhysicalName=physical_table_name(Table),
-    % ddTable Meta data is attempted to be inserted only if missing and
-    % DB reports that table already exists
+    DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColInfos, opts=Opts, owner=Owner},
     try
-        DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
         % Trans = fun() ->
         %    ?LogDebug("Create Table ~p",[PhysicalName]),
-            imem_if:create_table(PhysicalName, column_names(ColumnInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+            imem_if:create_table(PhysicalName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
         %    ?LogDebug("Insert ~p",[DDTableRow]),
             imem_if:write(ddTable, DDTableRow)
         %end,
         % transaction(Trans)
     catch
+        % ddTable Meta data is attempted to be inserted only if missing and
         _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
             case imem_if:read(ddTable, {schema(),PhysicalName}) of
-                [] -> imem_if:write(ddTable, #ddTable{qname={schema(),PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner});
+                [] -> imem_if:write(ddTable, DDTableRow);
                 _ -> ok
             end,
             throw(Reason)
@@ -627,16 +639,22 @@ create_trigger({Schema,Table},TFun) ->
         MySchema -> create_trigger(Table,TFun);
         _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
     end;
-create_trigger(Table,TFun) when is_atom(Table), is_function(TFun,4) ->
+create_trigger(Table,TFunStr) when is_atom(Table) ->
+    % ?LogDebug("Create trigger ~p~n~p",[Table,TFunStr]),
+    imem_datatype:io_to_fun(TFunStr,4),
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
-            Opts = lists:keydelete(trigger, 1, D#ddTable.opts) ++ [{trigger,TFun}],
-            write(ddTable, D#ddTable{opts=Opts});
+            Opts = lists:keydelete(trigger, 1, D#ddTable.opts) ++ [{trigger,TFunStr}],
+            Trans = fun() ->
+                write(ddTable, D#ddTable{opts=Opts}),                       
+                imem_cache:clear({?MODULE, trigger, schema(), Table})
+            end,
+            return_atomic_ok(transaction(Trans));
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end;   
 create_trigger(Table,_) when is_atom(Table) ->
-    ?ClientError({"Bad fun for Create Trigger, expecting arity 4", Table}).
+    ?ClientError({"Bad fun for create_trigger, expecting arity 4", Table}).
 
 drop_trigger({Schema,Table}) ->
     MySchema = schema(),
@@ -648,7 +666,11 @@ drop_trigger(Table) when is_atom(Table) ->
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
             Opts = lists:keydelete(trigger, 1, D#ddTable.opts),
-            write(ddTable, D#ddTable{opts=Opts});
+            Trans = fun() ->
+                write(ddTable, D#ddTable{opts=Opts}),                       
+                imem_cache:clear({?MODULE, trigger, schema(), Table})
+            end,
+            return_atomic_ok(transaction(Trans));
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end.
@@ -1227,21 +1249,36 @@ node_name(Node) when is_atom(Node) ->
 node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
 
-
-trigger_infos({_Schema,Table}) ->
-    trigger_infos(Table);          %% ToDo: may depend on schema
-trigger_infos(Table) ->
-    case imem_if:read(ddTable,{schema(), Table}) of
+trigger_infos(Table) when is_atom(Table) ->
+    trigger_infos({schema(),Table});
+trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
+    Key = {?MODULE,trigger,Schema,Table},
+    case imem_cache:read(Key) of 
         [] ->
-            ?ClientError({"Table does not exist",Table}); 
-        [#ddTable{columns=ColumnInfos,opts=Opts}] ->
-            TableType = imem_if:table_type(physical_table_name(Table)),
-            DefRec = [table_record_name(Table)|column_info_items(ColumnInfos, default)],
-            Trigger = case lists:keyfind(trigger,1,Opts) of
-                false ->    fun(_Old,_New,_Tab,_User) -> ok end;
-                {_,TFun} -> TFun
-            end,
-            {TableType, DefRec, Trigger}
+            case imem_if:read(ddTable,{Schema, Table}) of
+                [] ->
+                    ?ClientError({"Table does not exist",{Schema, Table}}); 
+                [#ddTable{columns=ColumnInfos,opts=Opts}] ->
+                    TableType = case lists:keyfind(type,1,Opts) of
+                        false ->    set;
+                        {_,Type} -> Type
+                    end,
+                    RecordName = case lists:keyfind(record_name,1,Opts) of
+                        false ->    Table;
+                        {_,Name} -> Name
+                    end,
+                    DefRec = [RecordName|column_info_items(ColumnInfos, default_fun)],
+                    Trigger = case lists:keyfind(trigger,1,Opts) of
+                        false ->    fun(_Old,_New,_Tab,_User) -> ok end;
+                        {_,TFun} -> imem_datatype:io_to_fun(TFun,undefined)
+                    end,
+                    Result = {TableType, DefRec, Trigger},
+                    imem_cache:write(Key,Result),
+                    ?LogDebug("trigger_infos ~p",[Result]),
+                    Result
+            end;
+        [{TT, DR, TR}] ->
+            {TT, DR, TR}
     end.
 
 table_type({ddSysConf,Table}) ->
@@ -1829,6 +1866,8 @@ meta_operations(_) ->
         ?assertException(throw,{SyEx,{"Wrong table options",{?LOG_TABLE,_}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog1},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(?LOG_TABLE)),
 
+        ?assertEqual(ok, check_table(?CACHE_TABLE)),
+
         Now = erlang:now(),
         LogCount1 = table_size(?LOG_TABLE),
         ?Info("ddLog@ count ~p~n", [LogCount1]),
@@ -1870,7 +1909,7 @@ meta_operations(_) ->
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?Info("success ~p~n", [create_table_not_null]),
-        Trig = fun(O,N,T,U) -> imem_meta:log_to_db(debug,?MODULE,trigger,[{table,T},{old,O},{new,N},{user,U}],"trigger") end,
+        Trig = <<"fun(O,N,T,U) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U}],\"trigger\") end.">>,
         ?assertEqual(ok, create_trigger(meta_table_3, Trig)),
 
         ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
@@ -1909,9 +1948,10 @@ meta_operations(_) ->
         {1,{meta_table_3,{{2000,1,1},{12,45,59}},undefined}}
         ],
         U = unknown,
-        ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined},Trig,U]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined},Trig,U]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav},Trig,U]], optimistic)),
+        {TT4,_DefRec,TrigFun} = trigger_infos(meta_table_3),
+        ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined},TrigFun,U]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined},TrigFun,U]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav},TrigFun,U]], optimistic)),
         
         LogTable = physical_table_name(?LOG_TABLE),
         ?assert(lists:member(LogTable,physical_table_names(?LOG_TABLE))),

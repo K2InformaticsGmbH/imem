@@ -3,9 +3,9 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
+-define(CHANNEL(__Table),list_to_binary(lists:nthtail(4,atom_to_list(__Table)))).
 -define(TABLE(__Channel),<<"skvh",__Channel/binary>>).
 -define(AUDIT(__Channel),<<"skvhAudit",__Channel/binary, "_86400@">>).
--define(CHANNEL(__Table),list_to_binary(lists:nthtail(4,atom_to_list(__Table)))).
 
 -define(TABLE_OPTS, [{record_name,skvhTable}
                     ,{type,ordered_set}
@@ -28,22 +28,14 @@
 -record(skvhTable,                            %% sorted key value hash table    
                     { ckey                    :: term()
                     , cvalue  				  :: binary()      
-                    , chash	= fun(_,__Rec) ->
-                    				list_to_binary(io_lib:format("~.36B",[erlang:phash2({element(2,__Rec),element(3,__Rec)})]))
-                    		  end			  :: binary()
+                    , chash	= <<"fun(_,__Rec) -> list_to_binary(io_lib:format(\"~.36B\",[erlang:phash2({element(2,__Rec),element(3,__Rec)})])) end.">>
+                    						  :: binary()
                     }
        ).
 -define(skvhTable,  [term,binstr,binstr]).
--define(skvhTableTrigger,   fun (__OR,__NR,__T,__U) ->
-								{__K,__V} = case {__OR,__NR} of
-									{{},{}} ->	{undefined,undefined};				%% truncate table
-									{_,{}} ->	{element(2,__OR),undefined}; 		%% delete old rec
-                    				{_, _} ->	{element(2,__NR),element(3,__NR)}	%% write new rec
-	                    		end,
-                    			__C = ?CHANNEL(__T),
-                    			__A = ?binary_to_existing_atom(?AUDIT(__C)),
-                    			catch (imem_meta:write(__A,#skvhAudit{time=erlang:now(),ckey=__K,cvalue=__V,cuser=__U}))
-                    		end
+-define(skvhTableTrigger, <<"fun (__OR,__NR,__T,__U) ->
+                    			imem_dal_skvh:write_audit(__OR,__NR,__T,__U)
+                    		end.">>
 	   ).
 
 -define(typeStr,1).
@@ -75,6 +67,7 @@
  		, delete/2		%% (Channel, KeyTable)    			do not complain if keys do not exist
  		, deleteGELT/3	%% (Channel, CKey1, CKey2)			delete range of keys >= CKey1
 		, deleteGTLT/3	%% (Channel, CKey1, CKey2)			delete range of keys > CKey1
+		, write_audit/4 %% (OldRec,NewRec,Table,User)		default trigger for writing audit trail
 		]).
 
 %% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
@@ -97,10 +90,19 @@ create_check_channel(Channel) ->
 			imem_meta:create_check_table(TN, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system),    
 			AN = ?binary_to_atom(?AUDIT(Channel)),
 			imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
-			% _ = ?binary_to_atom(Token), 		%% put token to atom cache
         	ok = imem_meta:create_trigger(TN, ?skvhTableTrigger),
 			{TN,AN}
 	end.
+
+write_audit(OldRec,NewRec,Table,User) ->
+	{K,V} = case {OldRec,NewRec} of
+		{{},{}} ->	{undefined,undefined};					%% truncate table
+		{_,{}} ->	{element(2,OldRec),undefined}; 			%% delete old rec
+		{_, _} ->	{element(2,NewRec),element(3,NewRec)}	%% write new rec
+	end,
+	CH = ?CHANNEL(Table),
+	A = ?binary_to_existing_atom(?AUDIT(CH)),
+	catch (imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User})).
 
 % return(Cmd, Result) ->
 % 	debug(Cmd, Result), 
