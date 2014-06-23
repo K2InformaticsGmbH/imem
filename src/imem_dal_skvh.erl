@@ -316,7 +316,7 @@ skvh_operations(_) ->
         ClEr = 'ClientError',
         Channel = <<"TEST">>,
 
-        ?Info("----TEST--~p:test_skvh~n", [?MODULE]),
+        ?Info("---TEST---~p:test_skvh~n", [?MODULE]),
 
         ?assertEqual(<<"skvhTEST">>, ?TABLE(Channel)),
 

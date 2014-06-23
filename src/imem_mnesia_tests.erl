@@ -38,7 +38,7 @@ imem_mnesia_test_() ->
     }.
 
 run_test_eunit(_) ->
-    ?Info("EUNIT ---~n", []),
+    ?Info("---TEST---~n", []),
     run_test_core().
 
 run_test_core() ->

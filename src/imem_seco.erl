@@ -89,15 +89,14 @@ init(_Args) ->
                     if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok       
         end,
-        imem_meta:fail({"Fail in imem_seco:init on purpose"}),        
+        % imem_meta:fail({"Fail in imem_seco:init on purpose"}),        
         if_truncate_table(none,ddSeCo@),
         if_truncate_table(none,ddPerm@),
         if_truncate_table(none,ddQuota@),
         ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
-        Class:Reason -> ?Error("~p failed with ~p:~n~p~n", [?MODULE,Class,Reason]),
-                        {stop, {"Insufficient resources for start",erlang:get_stacktrace()}} 
+        _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
     end,
     Result.
 
@@ -480,14 +479,14 @@ test(_) ->
         % SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
-        ?Info("----TEST--~p~n", [?MODULE]),
+        ?Info("---TEST---~p~n", [?MODULE]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?Info("----TEST--~p:test_database~n", [?MODULE]),
+        ?Info("~p:test_database~n", [?MODULE]),
 
         Seco0 = imem_meta:table_size(ddSeCo@),
         Perm0 = imem_meta:table_size(ddPerm@),
@@ -495,7 +494,7 @@ test(_) ->
         ?assert(0 =< imem_meta:table_size(ddPerm@)),
         ?Info("success ~p~n", [minimum_table_sizes]),
 
-        ?Info("----TEST--~p:test_admin_login~n", [?MODULE]),
+        ?Info("~p:test_admin_login~n", [?MODULE]),
 
         SeCoAdmin0=?imem_test_admin_login(),
         ?Info("success ~p~n", [test_admin_login]),
@@ -519,7 +518,7 @@ test(_) ->
         ?assertEqual(Perm0,Perm3),        
         ?Info("success ~p~n", [status2]),
 
-        ?Info("----TEST--~p:test_imem_seco~n", [?MODULE])
+        ?Info("~p:test_imem_seco~n", [?MODULE])
     catch
         Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})

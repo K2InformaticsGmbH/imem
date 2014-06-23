@@ -210,8 +210,7 @@ init(_Args) ->
         ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
-        Class:Reason -> ?Error("failed with ~p:~p~n", [Class,Reason]),
-                        {stop, {"Insufficient/invalid resources for start", Class, Reason}}
+        _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
     end,
     Result.
 
@@ -1855,7 +1854,7 @@ meta_operations(_) ->
         SyEx = 'SystemException', 
         UiEx = 'UnimplementedException', 
 
-        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("---TEST---~p:test_mnesia~n", [?MODULE]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -1891,7 +1890,7 @@ meta_operations(_) ->
         LogCount2a = table_size(?LOG_TABLE),
         ?assert(LogCount2a >= LogCount2+4),
 
-        ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Info("~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
                     , #ddColumn{name=b1, type=string, len=20}    %% value 1
                     , #ddColumn{name=c1, type=string, len=30}    %% value 2

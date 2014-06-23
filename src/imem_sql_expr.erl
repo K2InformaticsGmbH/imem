@@ -1374,7 +1374,7 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         ?Info("----------------------------------~n"),
-        ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?Info("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
         ?Info("----------------------------------~n"),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
@@ -1435,7 +1435,7 @@ test_with_or_without_sec(IsSec) ->
                         },
         ?assertEqual(ColMapExpected, bind_subtree_const(ColMapSample)),
 
-        ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Info("~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
                     , #ddColumn{name=b1, type=char, len=1}    %% value 1
                     , #ddColumn{name=c1, type=char, len=1}    %% value 2

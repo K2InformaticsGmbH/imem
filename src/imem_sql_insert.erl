@@ -110,7 +110,7 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
         CoEx = 'ConcurrencyException',
-        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Info("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
         Schema = imem_meta:schema(),
         ?Info("schema ~p~n", [Schema]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),

@@ -39,14 +39,14 @@ test(_) ->
         SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
-        ?Info("----TEST--~p~n", [?MODULE]),
+        ?Info("---TEST---~p~n", [?MODULE]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?Info("----TEST--~p:test_database~n", [?MODULE]),
+        ?Info("~p:test_database~n", [?MODULE]),
 
         ?assert(1 =< imem_meta:table_size(ddAccount)),       %% pre_generated admin account
         ?assert(1 =< imem_meta:table_size(ddRole)),          %% pre_generated admin role
@@ -56,7 +56,7 @@ test(_) ->
         ?assert(6 =< imem_meta:table_size(ddTable)),
         ?Info("success ~p~n", [minimum_table_sizes]),
 
-        ?Info("----TEST--~p:test_admin_login~n", [?MODULE]),
+        ?Info("~p:test_admin_login~n", [?MODULE]),
 
         UserId = imem_account:make_id(),
         UserName= <<"test_admin">>,
@@ -96,7 +96,7 @@ test(_) ->
         ?assertEqual(ok, imem_role:grant_permission(SeCoAdmin1, UserId, {ddQuota,select})),
         ?Info("success ~p~n", [create_test_admin_permissions]), 
      
-        ?Info("----TEST--~p:test_authentication~n", [?MODULE]),
+        ?Info("~p:test_authentication~n", [?MODULE]),
 
         SeCo0=imem_seco:authenticate(someSessionId, UserName, UserCred),
         ?assertEqual(true, is_integer(SeCo0)),
@@ -147,7 +147,7 @@ test(_) ->
         ?assertException(throw, {SeEx,{"Not logged in",SeCo1}}, imem_seco:have_permission(SeCo1, manage_accounts)), 
         ?Info("success ~p~n", [have_permission_rejected]),
 
-        ?Info("----TEST--~p:test_manage_accounts~n", [?MODULE]),
+        ?Info("~p:test_manage_accounts~n", [?MODULE]),
 
         AccountId = imem_account:make_id(),
         AccountCred={pwdmd5, erlang:md5(<<"TestPwd">>)},
@@ -229,7 +229,7 @@ test(_) ->
         ?assertEqual(false, imem_seco:have_permission(SeCo4, manage_bananas)), 
         ?Info("success ~p~n", [have_permission]),
 
-        ?Info("----TEST--~p:test_manage_account_rejectss~n", [?MODULE]),
+        ?Info("~p:test_manage_account_rejectss~n", [?MODULE]),
 
         ?assertException(throw, {SeEx,{"Drop system table unauthorized",{ddTable,SeCo4}}}, imem_sec:drop_table(SeCo4,ddTable)),
         ?Info("success ~p~n", [drop_table_table_rejected]), 
@@ -252,7 +252,7 @@ test(_) ->
         ?Info("success ~p~n", [unauthorized_rejected]),
 
 
-        ?Info("----TEST--~p:test_manage_account_roles~n", [?MODULE]),
+        ?Info("~p:test_manage_account_roles~n", [?MODULE]),
 
         ?assertEqual(true, imem_seco:has_role(SeCo, AccountId, AccountId)),
         ?Info("success ~p~n", [role_has_own_role]), 
@@ -335,7 +335,7 @@ test(_) ->
         ?assertEqual(true, imem_seco:has_permission(SeCo, AccountId, [crap1,perform_tests,{crap2,read}])),
         ?Info("success ~p~n", [role_has_test_permission]), 
 
-        ?Info("----TEST--~p:test_manage_account_role rejects~n", [?MODULE]),
+        ?Info("~p:test_manage_account_role rejects~n", [?MODULE]),
 
         ?assertException(throw, {SeEx,{"Create role unauthorized",SeCo4}}, imem_role:create(SeCo4, #ddRole{id=test_role,roles=[],permissions=[perform_tests]})),
         ?assertException(throw, {SeEx,{"Create role unauthorized",SeCo4}}, imem_role:create(SeCo4, table_creator)),
@@ -348,7 +348,7 @@ test(_) ->
         ?assertException(throw, {SeEx,{"Revoke role unauthorized",SeCo4}}, imem_role:revoke_role(SeCo4, AccountId, table_creator)),
         ?Info("success ~p~n", [manage_account_roles_rejects]), 
 
-        ?Info("----TEST--~p:test_manage_account_permissions~n", [?MODULE]),
+        ?Info("~p:test_manage_account_permissions~n", [?MODULE]),
 
         ?assertEqual(ok, imem_role:grant_permission(SeCo, test_role, delete_tests)),
         ?Info("success ~p~n", [role_grant_test_role_delete_tests]), 
@@ -377,7 +377,7 @@ test(_) ->
         ?assertEqual(ok, imem_role:revoke_permission(SeCo, test_role, delete_tests)),
         ?Info("success ~p~n", [role_revoket_test_role_delete_tests]), 
 
-        ?Info("----TEST--~p:test_manage_account_permission_rejects~n", [?MODULE]),
+        ?Info("~p:test_manage_account_permission_rejects~n", [?MODULE]),
 
         ?assertException(throw, {SeEx,{"Has permission unauthorized",SeCo4}}, imem_seco:has_permission(SeCo4, UserId, manage_accounts)), 
         ?assertException(throw, {SeEx,{"Has permission unauthorized",SeCo4}}, imem_seco:has_permission(SeCo4, AccountId, perform_tests)),
@@ -385,7 +385,7 @@ test(_) ->
         ?assertException(throw, {SeEx,{"Revoke permission unauthorized",SeCo4}}, imem_role:revoke_permission(SeCo4, test_role, delete_tests)),
         ?Info("success ~p~n", [test_manage_account_permission_rejects]), 
 
-        ?Info("----TEST--~p:test_imem_seco~n", [?MODULE])
+        ?Info("~p:test_imem_seco~n", [?MODULE])
 
         %% Cleanup too dangerous for dev or prod setup
         % ?assertException(throw, {SeEx,{"Drop seco tables unauthorized",SeCo}}, imem_seco:drop_seco_tables(SeCo)),

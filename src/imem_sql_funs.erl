@@ -765,7 +765,7 @@ test_with_or_without_sec(IsSec) ->
         % SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
         ?Info("----------------------------------~n"),
-        ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?Info("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
         ?Info("----------------------------------~n"),
 
         ?assertEqual(<<"Imem.ddTable">>, to_name({'Imem',ddTable})),

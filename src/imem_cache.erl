@@ -48,21 +48,21 @@ test_without_sec(_) ->
         _ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, false]),
+        ?Info("---TEST--- ~p ----Security ~p ~n", [?MODULE, false]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("~p:test_mnesia~n", [?MODULE]),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?Info("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
         ?Info("success ~p~n", [data_nodes]),
 
-        ?Info("----TEST--~p:cache_operations~n", [?MODULE]),
+        ?Info("~p:cache_operations~n", [?MODULE]),
 
         ?assertEqual([], read(some_test_key)),
         ?assertEqual(ok, write(some_test_key,"Test Value")),

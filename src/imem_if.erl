@@ -943,7 +943,7 @@ table_operations(_) ->
         SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
 
-        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("---TEST---~p:test_mnesia~n", [?MODULE]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -959,7 +959,7 @@ table_operations(_) ->
         ?assertEqual([{a,c}],?FP([{a,b,c,d,e,f,g,h,i}],"1(10)3")), %% TODO: should be [{a,'N/A',c}]
 
 
-        ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Info("~p:test_database_operations~n", [?MODULE]),
 
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
         ?Info("success ~p~n", [table_size_no_exists]),
@@ -1037,7 +1037,7 @@ table_operations(_) ->
         ?assertEqual(NTupResult, SelList),
         ?Info("success ~p~n", [select_some_data3]),
 
-        ?Info("----TEST--~p:test_transactions~n", [?MODULE]),
+        ?Info("~p:test_transactions~n", [?MODULE]),
 
         ?Info("data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
 

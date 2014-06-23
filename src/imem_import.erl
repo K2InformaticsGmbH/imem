@@ -76,7 +76,7 @@ test_with_or_without_sec(IsSec) ->
         _ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Info("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -88,14 +88,14 @@ test_with_or_without_sec(IsSec) ->
             _ ->    ok
         end,
 
-        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("~p:test_mnesia~n", [?MODULE]),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?Info("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
         ?Info("success ~p~n", [data_nodes]),
 
-        ?Info("----TEST--~p:import from string~n", [?MODULE]),
+        ?Info("~p:import from string~n", [?MODULE]),
 
         Imp1 = "
         table_name\n

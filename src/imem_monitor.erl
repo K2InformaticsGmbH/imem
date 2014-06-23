@@ -52,16 +52,14 @@ start_link(Params) ->
 
 init(_Args) ->
     ?Info("~p starting...~n", [?MODULE]),
-    Result = try
+    try
         catch imem_meta:create_check_table(?MONITOR_TABLE, {record_info(fields, ddMonitor),?ddMonitor, #ddMonitor{}}, ?MONITOR_TABLE_OPTS, system),    
         erlang:send_after(2000, self(), imem_monitor_loop),
         ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
-        Class:Reason -> ?Error("failed with ~p:~p~n", [Class,Reason]),
-                        {stop, {"Insufficient/invalid resources for start", Class, Reason}}
-    end,
-    Result.
+        _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
+    end.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -183,7 +181,7 @@ db_test_() ->
 monitor_operations(_) ->
     try 
 
-        ?Info("----TEST--~p:test_monitor~n", [?MODULE]),
+        ?Info("---TEST---~p:test_monitor~n", [?MODULE]),
 
         ?assertEqual(ok, write_monitor()),
         MonRecs = imem_meta:read(?MONITOR_TABLE),

@@ -1196,7 +1196,7 @@ test_with_or_without_sec(IsSec) ->
         % SeEx = 'SecurityException',
 
         ?Info("----------------------------------~n"),
-        ?Info("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?Info("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
         ?Info("----------------------------------~n"),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),

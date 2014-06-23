@@ -619,7 +619,7 @@ db_test_() ->
 test_snapshot(_) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     _ = ?EMPTY_DIR(SnapDir),
-    ?Info("snapshots :~n~p", [take(ddTable)]),                     
+    ?Info("---TEST--- snapshots :~n~p", [take(ddTable)]),                     
     ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
     _ = ?EMPTY_DIR(SnapDir),
     %% take([all]) times out

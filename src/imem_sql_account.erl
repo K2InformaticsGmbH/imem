@@ -199,7 +199,7 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException',
         % SeEx = 'SecurityException',
-        ?Info("----TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?Info("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),

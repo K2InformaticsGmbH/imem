@@ -1363,7 +1363,7 @@ data_types(_) ->
         %% SyEx = 'SystemException',    %% difficult to test
 
         ?Info("----------------------------------~n"),
-        ?Info("TEST--- ~p ----Security ~p", [?MODULE, all]),
+        ?Info("---TEST--- ~p ----Security ~p", [?MODULE, all]),
         ?Info("----------------------------------~n"),
 
         ?assertEqual(<<"'Imem'">>, item1({'Imem',ddTable})),

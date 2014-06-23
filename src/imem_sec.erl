@@ -876,14 +876,14 @@ test(_) ->
         % SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
-        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("---TEST---~p:test_mnesia~n", [?MODULE]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
         ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?Info("----TEST--~p:test_admin_login~n", [?MODULE]),
+        ?Info("~p:test_admin_login~n", [?MODULE]),
 
         SeCoAdmin=?imem_test_admin_login(),
         ?Info("success ~p~n", [admin_login]),
@@ -898,7 +898,7 @@ test(_) ->
         ?assertEqual(true, lists:member(ddTable,AllTablesAdmin)),
         ?Info("success ~p~n", [all_tables_admin]), 
 
-        ?Info("----TEST--~p:test_admin_exec~n", [?MODULE]),
+        ?Info("~p:test_admin_exec~n", [?MODULE]),
 
         ?Info("accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
@@ -909,7 +909,7 @@ test(_) ->
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [<<"test_user_123">>, create_table])),
         ?Info("success ~p~n", [create_test_admin_permissions]), 
      
-        ?Info("----TEST--~p:test_user_login~n", [?MODULE]),
+        ?Info("~p:test_user_login~n", [?MODULE]),
 
         SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}),
         ?assertEqual(true, is_integer(SeCoUser0)),

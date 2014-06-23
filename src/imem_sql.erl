@@ -196,13 +196,13 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"ab'c">>, un_escape_sql(<<"ab''c">>)),
         ?assertEqual(<<"'ab'c'">>, un_escape_sql(<<"'ab''c'">>)),
 
-        ?Info("----TEST--~p:test_mnesia~n", [?MODULE]),
+        ?Info("---TEST---~p:test_mnesia~n", [?MODULE]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?Info("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
         ?Info("success ~p~n", [data_nodes]),
 
-        ?Info("----TEST--~p:test_database_operations~n", [?MODULE]),
+        ?Info("~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
                     , #ddColumn{name=b1, type=char, len=1}    %% value 1
                     , #ddColumn{name=c1, type=char, len=1}    %% value 2
