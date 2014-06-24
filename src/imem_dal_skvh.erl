@@ -89,9 +89,9 @@ create_check_channel(Channel) ->
 	catch 
 		_:_ -> 
 			TN = ?binary_to_atom(TBin),
-			imem_meta:create_check_table(TN, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system),    
+			catch imem_meta:create_check_table(TN, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system),    
 			AN = ?binary_to_atom(?AUDIT(Channel)),
-			imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
+			catch imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
         	ok = imem_meta:create_trigger(TN, ?skvhTableTrigger),
 			{TN,AN}
 	end.
