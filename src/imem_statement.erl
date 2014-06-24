@@ -896,7 +896,7 @@ send_reply_to_client(SockOrPid, Result) ->
     imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
-    {TableType, DefRec, Trigger} =  imem_meta:trigger_infos(Table),
+    {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,Table}),
     User = if_call_mfa(IsSec, meta_field_value, [SKey, user]),
     TableInfo = {Schema,Table,TableType,list_to_tuple(DefRec),Trigger,User},
     %% transform a ChangeList   

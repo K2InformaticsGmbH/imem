@@ -1670,8 +1670,10 @@ dirty_write(Table, Record) ->
 insert(Table, Row) ->
     insert(Table,Row,meta_field_value(user)).
 
+insert({ddSysConf,Table}, Row, _User) ->
+    imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
 insert({_Schema,Table}, Row, User) ->
-    insert(Table, Row, User);             %% ToDo: may depend on schema
+    insert(Table, Row, User);               %% ToDo: may depend on schema
 insert(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(Table),
     modify(insert, TableType, Table, DefRec, Trigger, Row, User).
@@ -1679,8 +1681,10 @@ insert(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
 update(Table, Row) ->
     update(Table, Row, meta_field_value(user)).
 
+update({ddSysConf,Table}, Row, _User) ->
+    imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
 update({_Schema,Table}, Row, User) ->
-    update(Table, Row, User);             %% ToDo: may depend on schema
+    update(Table, Row, User);               %% ToDo: may depend on schema
 update(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(Table),
     modify(update, TableType, Table, DefRec, Trigger, Row, User).
@@ -1688,8 +1692,10 @@ update(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
 merge(Table, Row) ->
     merge(Table, Row, meta_field_value(user)).
 
+merge({ddSysConf,Table}, Row, _User) ->
+    imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
 merge({_Schema,Table}, Row, User) ->
-    merge(Table, Row, User);             %% ToDo: may depend on schema
+    merge(Table, Row, User);                %% ToDo: may depend on schema
 merge(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(Table),
     modify(merge, TableType, Table, DefRec, Trigger, Row, User).
@@ -1697,8 +1703,10 @@ merge(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
 remove(Table, Row) ->
     remove(Table, Row, meta_field_value(user)).
 
+remove({ddSysConf,Table}, Row, _User) ->
+    imem_if_sys_conf:delete(Table, Row);    %% mapped to unconditional delete
 remove({_Schema,Table}, Row, User) ->
-    remove(Table, Row, User);             %% ToDo: may depend on schema
+    remove(Table, Row, User);               %% ToDo: may depend on schema
 remove(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(Table),
     modify(remove, TableType, Table, DefRec, Trigger, Row, User).
