@@ -231,7 +231,7 @@ readGT(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_
 
 readGT(Cmd, {TN,TA}, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}], ['$_']},
-	read_with_limit(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+	read_limited(Cmd, {TN,TA}, Item, MatchFunction, Limit).
 
 
 readGE(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
@@ -240,8 +240,11 @@ readGE(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_
 
 readGE(Cmd, {TN,TA}, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}], ['$_']},
-	read_with_limit(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+	read_limited(Cmd, {TN,TA}, Item, MatchFunction, Limit).
 
+read_limited(Cmd, {TN,_}, Item, MatchFunction, Limit) ->
+	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
+	project_result(Cmd, L, Item).
 
 readGELT(Channel, Item, CKey1, CKey2, Limit) when is_binary(Item), is_binary(CKey1), is_binary(CKey2), is_binary(Limit) ->
 	Cmd = [readGELT, Channel, Item, CKey1, CKey2, Limit],
@@ -437,7 +440,7 @@ skvh_operations(_) ->
 
         ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGT(Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
-    	?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
+    	?assertEqual({ok,[{1,<<"22AR0N">>}]}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
     	?assertEqual({ok,[{1,<<"[1,b]">>},{1,<<"[1,c]">>}]}, readGT(Channel, <<"key">>, <<"[1,a]">>, <<"2">>)),
     	?assertEqual({ok,[{1,<<"234567">>},{1,<<"345678">>}]}, readGT(Channel, <<"value">>, <<"[1,ab]">>, <<"2">>)),
     	?assertEqual({ok,[{1,<<"[1,b]",9,"234567">>},{1,<<"[1,c]",9,"345678">>}]}, readGT(Channel, <<"kvpair">>, <<"[1,ab]">>, <<"2">>)),
