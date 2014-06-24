@@ -1276,7 +1276,7 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
                     end,
                     Result = {TableType, DefRec, Trigger},
                     imem_cache:write(Key,Result),
-                    ?LogDebug("trigger_infos ~p",[Result]),
+                    % ?LogDebug("trigger_infos ~p",[Result]),
                     Result
             end;
         [{TT, DR, TR}] ->
@@ -1307,9 +1307,10 @@ table_columns({_Schema,Table}) ->
 table_columns(Table) ->
     imem_if:table_columns(physical_table_name(Table)).
 
-table_size({ddSysConf,Table}) ->
-    imem_if_sys_conf:table_size(Table);
-table_size({_Schema,Table}) ->  table_size(Table);          %% ToDo: may depend on schema
+table_size({ddSysConf,_Table}) ->
+    %% imem_if_sys_conf:table_size(Table);
+    0;                                                  %% ToDo: implement there
+table_size({_Schema,Table}) ->  table_size(Table);      %% ToDo: may depend on schema
 table_size(ddNode) ->           length(read(ddNode));
 table_size(ddSchema) ->         length(read(ddSchema));
 table_size(ddSize) ->           1;
@@ -1317,10 +1318,11 @@ table_size(Table) ->
     %% ToDo: sum should be returned for all local time partitions
     imem_if:table_size(physical_table_name(Table)).
 
-table_memory({ddSysConf,Table}) ->
-    imem_if_sys_conf:table_memory(Table);
+table_memory({ddSysConf,_Table}) ->
+    %% imem_if_sys_conf:table_memory(Table);
+    0;                                                  %% ToDo: implement there                    
 table_memory({_Schema,Table}) ->
-    table_memory(Table);          %% ToDo: may depend on schema
+    table_memory(Table);                                %% ToDo: may depend on schema
 table_memory(Table) ->
     %% ToDo: sum should be returned for all local time partitions
     imem_if:table_memory(physical_table_name(Table)).
@@ -1420,8 +1422,9 @@ fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
 close(Pid) ->
     imem_statement:close(none, Pid).
 
-read({ddSysConf,Table}) -> 
-    imem_if_sys_conf:read(physical_table_name(Table));
+read({ddSysConf,_Table}) -> 
+    % imem_if_sys_conf:read(physical_table_name(Table));
+    ?UnimplementedException({"Cannot read from ddSysConf schema, use DDerl GUI instead"});
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) ->
@@ -1433,8 +1436,9 @@ read(ddSize) ->
 read(Table) ->
     imem_if:read(physical_table_name(Table)).
 
-read({ddSysConf,Table}, Key) -> 
-    imem_if_sys_conf:read(physical_table_name(Table),Key);
+read({ddSysConf,Table}, _Key) -> 
+    % imem_if_sys_conf:read(physical_table_name(Table),Key);
+    ?UnimplementedException({"Cannot read from ddSysConf schema, use DDerl GUI instead",Table});
 read({_Schema,Table}, Key) ->
     read(Table, Key);
 read(ddNode,Node) when is_atom(Node) ->
@@ -1531,8 +1535,9 @@ put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
 put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
     write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
 
-select({ddSysConf,Table}, MatchSpec) ->
-    imem_if_sys_conf:select(physical_table_name(Table), MatchSpec);
+select({ddSysConf,Table}, _MatchSpec) ->
+    % imem_if_sys_conf:select(physical_table_name(Table), MatchSpec);
+    ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(ddNode, MatchSpec) ->
@@ -1546,8 +1551,9 @@ select(Table, MatchSpec) ->
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
-select({ddSysConf,Table}, MatchSpec, Limit) ->
-    imem_if_sys_conf:select(physical_table_name(Table), MatchSpec, Limit);
+select({ddSysConf,Table}, _MatchSpec, _Limit) ->
+    % imem_if_sys_conf:select(physical_table_name(Table), MatchSpec, Limit);
+    ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(ddNode, MatchSpec, _Limit) ->
@@ -1608,8 +1614,9 @@ select_sort(Table, MatchSpec, Limit) ->
 
 write_log(Record) -> write(?LOG_TABLE, Record).
 
-write({ddSysConf,Table}, Record) -> 
-    imem_if_sys_conf:write(Table, Record);
+write({ddSysConf,Table}, _Record) -> 
+    % imem_if_sys_conf:write(Table, Record);
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});
 write({_Schema,Table}, Record) ->
     write(Table, Record);           %% ToDo: may depend on schema 
 write(Table, Record) ->
@@ -1638,8 +1645,9 @@ write(Table, Record) ->
             throw(Reason)
     end. 
 
-dirty_write({ddSysConf,Table}, Record) -> 
-    imem_if_sys_conf:dirty_write(Table, Record);
+dirty_write({ddSysConf,Table}, _Record) -> 
+    % imem_if_sys_conf:dirty_write(Table, Record);
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});
 dirty_write({_Schema,Table}, Record) -> 
     dirty_write(Table, Record);           %% ToDo: may depend on schema 
 dirty_write(Table, Record) -> 
@@ -1670,8 +1678,9 @@ dirty_write(Table, Record) ->
 insert(Table, Row) ->
     insert(Table,Row,meta_field_value(user)).
 
-insert({ddSysConf,Table}, Row, _User) ->
-    imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
+insert({ddSysConf,Table}, _Row, _User) ->
+    % imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});
 insert({_Schema,Table}, Row, User) ->
     insert(Table, Row, User);               %% ToDo: may depend on schema
 insert(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
@@ -1681,8 +1690,9 @@ insert(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
 update(Table, Row) ->
     update(Table, Row, meta_field_value(user)).
 
-update({ddSysConf,Table}, Row, _User) ->
-    imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
+update({ddSysConf,Table}, _Row, _User) ->
+    % imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});    
 update({_Schema,Table}, Row, User) ->
     update(Table, Row, User);               %% ToDo: may depend on schema
 update(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
@@ -1692,8 +1702,9 @@ update(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
 merge(Table, Row) ->
     merge(Table, Row, meta_field_value(user)).
 
-merge({ddSysConf,Table}, Row, _User) ->
-    imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
+merge({ddSysConf,Table}, _Row, _User) ->
+    % imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});    
 merge({_Schema,Table}, Row, User) ->
     merge(Table, Row, User);                %% ToDo: may depend on schema
 merge(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
@@ -1703,8 +1714,9 @@ merge(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
 remove(Table, Row) ->
     remove(Table, Row, meta_field_value(user)).
 
-remove({ddSysConf,Table}, Row, _User) ->
-    imem_if_sys_conf:delete(Table, Row);    %% mapped to unconditional delete
+remove({ddSysConf,Table}, _Row, _User) ->
+    % imem_if_sys_conf:delete(Table, Row);    %% mapped to unconditional delete
+    ?UnimplementedException({"Cannot delete from ddSysConf schema, use DDerl GUI instead",Table});
 remove({_Schema,Table}, Row, User) ->
     remove(Table, Row, User);               %% ToDo: may depend on schema
 remove(Table, Row, User) when is_atom(Table), is_tuple(Row) ->

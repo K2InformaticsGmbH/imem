@@ -6,6 +6,7 @@
 -define(CHANNEL(__Table),list_to_binary(lists:nthtail(4,atom_to_list(__Table)))).
 -define(TABLE(__Channel),<<"skvh",__Channel/binary>>).
 -define(AUDIT(__Channel),<<"skvhAudit",__Channel/binary, "_86400@">>).
+-define(MATCHHEAD,{skvhTable, '$1', '$2', '$3'}).
 
 -define(TABLE_OPTS, [{record_name,skvhTable}
                     ,{type,ordered_set}
@@ -43,30 +44,31 @@
 % -define(E100,{100,"Invalid key"}).
 % -define(E101,{101,"Duplicate key"}).
 -define(E102(__Term),{102,"Invalid key value pair",__Term}).
--define(E103,{103,<<"Invalid source peer key (short code)">>}).
+% -define(E103,{103,<<"Invalid source peer key (short code)">>}).
 % -define(E104,{104,"Unknown white list IP addresses"}).
--define(E105,{105,<<"Invalid white list IP address">>}).
--define(E106,{106,<<"Unknown source peer">>}).
+% -define(E105,{105,<<"Invalid white list IP address">>}).
+% -define(E106,{106,<<"Unknown source peer">>}).
 % -define(E107,{107,"Duplicate SMS proxy service"}).
 % -define(E108,{108,"Invalid service name"}).
--define(E109,{109,<<"Invalid destination channel (port)">>}).
+% -define(E109,{109,<<"Invalid destination channel (port)">>}).
 % -define(E110,{110,"Duplicate white list IP address"}).
 % -define(E111,{111,"Invalid WAP push preference value"}).
 % -define(E112,{112,"Unknown error"}).
 % -define(E113,{113,"Could not delete content provider with SMS short code <value> because SMS proxy service exists for it."}).
 % -define(E114,{114,"Could not create SMS proxy service."}).
 % -define(E115,{115,"Could not activate SMS proxy service."}).
--define(E116,{116,<<"Invalid option value">>}).
+% -define(E116,{116,<<"Invalid option value">>}).
+-define(E117(__Term),{117,"Too many values, Limit exceeded",__Term}).
 
 
 -export([ write/2 		%% (Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
 		, read/3		%% (Channel, KeyTable)   			return empty Arraylist if none of these resources exists
-		, readGELT/4	%% (Channel, Item, CKey1, CKey2)	start with first key after CKey1, end with last key before CKey2
+		, readGELT/5	%% (Channel, Item, CKey1, CKey2, L)	start with first key after CKey1, end with last key before CKey2, fails if more than L rows
  		, readGT/4		%% (Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less
  		, readGE/4		%% (Channel, Item, CKey1, Limit)	start with first key at or after CKey1, return Limit results or less
  		, delete/2		%% (Channel, KeyTable)    			do not complain if keys do not exist
- 		, deleteGELT/3	%% (Channel, CKey1, CKey2)			delete range of keys >= CKey1
-		, deleteGTLT/3	%% (Channel, CKey1, CKey2)			delete range of keys > CKey1
+ 		, deleteGELT/4	%% (Channel, CKey1, CKey2), L		delete range of keys >= CKey1 and < CKey2, fails if more than L rows
+		, deleteGTLT/4	%% (Channel, CKey1, CKey2), L		delete range of keys > CKey1 and < CKey2, fails if more than L rows
 		, write_audit/4 %% (OldRec,NewRec,Table,User)		default trigger for writing audit trail
 		]).
 
@@ -131,6 +133,9 @@ io_clean_table(Bin) ->
 io_key_to_term(Key) when is_binary(Key) ->
 	imem_datatype:io_to_term(Key).
 
+io_key_to_integer(Key) when is_binary(Key) ->
+	imem_datatype:io_to_integer(Key,0,0).
+
 io_value_to_term(V) when is_binary(V) -> V.		%% ToDo: Maybe convert to map datatype when available
 
 % io_hash_to_term(Hash) when is_binary(Hash) -> Hash.
@@ -186,7 +191,7 @@ read(Channel, Item, KeyTable) when is_binary(Channel), is_binary(Item), is_binar
 read(Cmd, _, Item, [], Acc)  -> project_result(Cmd, lists:reverse(Acc), Item);
 read(Cmd, {TN,AN}, Item, [Key|Keys], Acc)  ->
 	KVP = case imem_meta:read(TN,Key) of
-		[] ->		#skvhTable{ckey=Key} ;
+		[] ->		#skvhTable{ckey=Key,cvalue=undefined,chash=undefined} ;
 		[Rec] ->	Rec
 	end,
 	read(Cmd, {TN,AN}, Item, Keys, [KVP|Acc]).
@@ -217,55 +222,65 @@ delete(Cmd, {TN,AN}, [Key|Keys], Acc)  ->
 
 %% Data Access per key range
 
-readGELT(Channel, Item, CKey1, CKey2) when is_binary(Item), is_binary(CKey1), is_binary(CKey2) ->
-	Cmd = [readGELT, Channel, Item, CKey1, CKey2],
-	readGELT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2)).
-
-readGELT(Cmd, {TN,_}, Item, Key1, Key2) ->
-	MatchHead = {skvhTable, '$1', '$2', '$3'},
-	MatchFunction = {MatchHead, [{'>=', '$1', Key1}, {'<', '$1', Key2}], ['$_']},
-	{L,true} = imem_meta:select(TN, [MatchFunction]),
-	project_result(Cmd, L, Item).
+match_val(T) when is_tuple(T) -> {const,T};
+match_val(V) -> V.
 
 readGT(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
 	Cmd = [readGT, Channel, Item, CKey1, Limit],
-	readGT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(Limit)).
+	readGT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_integer(Limit)).
 
-readGT(Cmd, {TN,_}, Item, Key1, Limit) ->
-	MatchHead = {skvhTable, '$1', '$2', '$3'},
-	MatchFunction = {MatchHead, [{'>', '$1', Key1}], ['$_']},
-	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
-	project_result(Cmd, L, Item).
+readGT(Cmd, {TN,TA}, Item, Key1, Limit) ->
+	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}], ['$_']},
+	read_with_limit(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+
 
 readGE(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
 	Cmd = [readGT, Channel, Item, CKey1, Limit],
-	readGE(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(Limit)).
+	readGE(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_integer(Limit)).
 
-readGE(Cmd, {TN,_}, Item, Key1, Limit) ->
-	MatchHead = {skvhTable, '$1', '$2', '$3'},
-	MatchFunction = {MatchHead, [{'>=', '$1', Key1}], ['$_']},
-	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
-	project_result(Cmd, L, Item).
+readGE(Cmd, {TN,TA}, Item, Key1, Limit) ->
+	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}], ['$_']},
+	read_with_limit(Cmd, {TN,TA}, Item, MatchFunction, Limit).
 
-deleteGELT(Channel, CKey1, CKey2) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
-	Cmd = [deleteGELT, Channel, CKey1, CKey2],
-	deleteGELT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2)).
 
-deleteGELT(Cmd, {TN,AN}, Key1, Key2) ->
-	MatchHead = {skvhTable, '$1', '$2', '$3'},
-	MatchFunction = {MatchHead, [{'>=', '$1', Key1}, {'<', '$1', Key2}], ['$1']},
-	{L,true} = imem_meta:select(TN, [MatchFunction]),
-	delete(Cmd, {TN,AN}, L, []).
+readGELT(Channel, Item, CKey1, CKey2, Limit) when is_binary(Item), is_binary(CKey1), is_binary(CKey2), is_binary(Limit) ->
+	Cmd = [readGELT, Channel, Item, CKey1, CKey2, Limit],
+	readGELT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2), io_key_to_integer(Limit)).
 
-deleteGTLT(Channel, CKey1, CKey2) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
-	Cmd = [deleteGTLT, Channel, CKey1, CKey2],
-	deleteGTLT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2)).
+readGELT(Cmd, {TN,TA}, Item, Key1, Key2, Limit) ->
+	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
+	read_with_limit(Cmd, {TN,TA}, Item, MatchFunction, Limit).
 
-deleteGTLT(Cmd, {TN,AN}, Key1, Key2) ->
-	MatchHead = {skvhTable, '$1', '$2', '$3'},
-	MatchFunction = {MatchHead, [{'>', '$1', Key1}, {'<', '$1', Key2}], ['$1']},
-	{L,true} = imem_meta:select(TN, [MatchFunction]),
-	delete(Cmd, {TN,AN}, L, []).
+read_with_limit(Cmd, {TN,_}, Item, MatchFunction, Limit) ->
+	{L,_} = imem_meta:select(TN, [MatchFunction], Limit+1),
+	if  
+		length(L) > Limit ->	?ClientError(?E117(Limit));
+		true ->					project_result(Cmd, L, Item)
+	end.
+
+
+deleteGELT(Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2), is_binary(Limit) ->
+	Cmd = [deleteGELT, Channel, CKey1, CKey2, Limit],
+	deleteGELT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_key_to_integer(Limit)).
+
+deleteGELT(Cmd, {TN,AN}, Key1, Key2, Limit) ->
+	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
+	delete_with_limit(Cmd, {TN,AN}, MatchFunction, Limit).
+
+deleteGTLT(Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2), is_binary(Limit) ->
+	Cmd = [deleteGTLT, Channel, CKey1, CKey2, Limit],
+	deleteGTLT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_key_to_integer(Limit)).
+
+deleteGTLT(Cmd, {TN,AN}, Key1, Key2, Limit) ->
+	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
+	delete_with_limit(Cmd, {TN,AN}, MatchFunction, Limit).
+
+delete_with_limit(Cmd, {TN,AN}, MatchFunction, Limit) ->
+	{L,_} = imem_meta:select(TN, [MatchFunction], Limit+1),
+	if  
+		length(L) > Limit ->	?ClientError(?E117(Limit));
+		true ->					delete(Cmd, {TN,AN}, L, [])
+	end.
 
 project_result(Cmd, L, <<"key">>) ->
 	return_stringlist(Cmd, [term_key_to_io(K) ||  #skvhTable{ckey=K} <- L]);
@@ -320,13 +335,17 @@ skvh_operations(_) ->
 
         ?assertEqual(<<"skvhTEST">>, ?TABLE(Channel)),
 
-        ?assertException(throw, {'ClientError',{"Table does not exist",_}}, imem_meta:check_table(skvhTEST)), 
-        ?assertException(throw, {'ClientError',{"Table does not exist",_}}, imem_meta:check_table(skvhAuditTEST_86400@)), 
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTEST)), 
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhAuditTEST_86400@)), 
 
         KVa = <<"[1,a]",9,"123456">>,
         KVb = <<"[1,b]",9,"234567">>,
         KVc = <<"[1,c]",9,"345678">>,
 
+		K0 = <<"{<<\"0\">>,<<>>,<<>>}">>,
+
+        ?assertEqual({ok,[{1,<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>}]}, read(Channel, <<"kvpair">>, K0)),
+		?assertEqual({ok,[]}, readGT(Channel, <<"khpair">>, <<"{<<\"0\">>,<<>>,<<>>}">>, <<"1000">>)),
 
         ?assertEqual({ok,[{1,<<"[1,a]\tundefined">>}]}, read(Channel, <<"kvpair">>, <<"[1,a]">>)),
         ?assertEqual({ok,[{1,<<"[1,a]\tundefined">>}]}, read(Channel, <<"khpair">>, <<"[1,a]">>)),
@@ -364,14 +383,15 @@ skvh_operations(_) ->
 
         ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[]">>)),
-		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[1,a]">>)),
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[]">>, <<"2">>)),
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[1,a]">>, <<"2">>)),
 
-		?assertEqual({ok,[{1,<<"RSHW">>}]},deleteGELT(Channel, <<"[]">>, <<"[1,ab]">>)),
-		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[1,ab]">>)),
+		?assertEqual({ok,[{1,<<"RSHW">>}]},deleteGELT(Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
 
-		?assertEqual({ok,[{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>)),		
-		?assertEqual({ok,[]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>)),
+		?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"1">>)),		
+		?assertEqual({ok,[{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),		
+		?assertEqual({ok,[]},deleteGELT(Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
 
         ?assertEqual({ok,[{1,<<"undefined">>},{1,<<"undefined">>},{1,<<"undefined">>}]}, delete(Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
@@ -388,38 +408,40 @@ skvh_operations(_) ->
 
         ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[]">>)),
-		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[1,a]">>)),
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[]">>, <<"1">>)),
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[1,a]">>, <<"1">>)),
 
-		?assertEqual({ok,[{1,<<"RSHW">>}]},deleteGTLT(Channel, <<"[]">>, <<"[1,ab]">>)),
-		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[1,ab]">>)),
+		?assertEqual({ok,[{1,<<"RSHW">>}]},deleteGTLT(Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
 
-		?assertEqual({ok,[{1,<<"1XSGZJ">>}]},deleteGTLT(Channel, <<"[1,b]">>, <<"[1,d]">>)),		
-		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[1,b]">>, <<"[1,d]">>)),
+		?assertEqual({ok,[{1,<<"1XSGZJ">>}]},deleteGTLT(Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),		
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),
 
-		?assertEqual({ok,[{1,<<"22AR0N">>}]},deleteGTLT(Channel, <<"[1,a]">>, <<"[1,c]">>)),		
-		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[1,a]">>, <<"[1,c]">>)),		
+		?assertEqual({ok,[{1,<<"22AR0N">>}]},deleteGTLT(Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
+		?assertEqual({ok,[]},deleteGTLT(Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
 
         ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, write(Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-        ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGELT(Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>)),
-        ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGELT(Channel, <<"hash">>, <<"[1,a]">>, <<"[1,d]">>)),
-    	?assertEqual({ok,[{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGELT(Channel, <<"hash">>, <<"[1,ab]">>, <<"[1,d]">>)),
-    	?assertEqual({ok,[{1,<<"[1,b]">>}]}, readGELT(Channel, <<"key">>, <<"[1,ab]">>, <<"[1,c]">>)),
-    	?assertEqual({ok,[{1,<<"234567">>}]}, readGELT(Channel, <<"value">>, <<"[1,ab]">>, <<"[1,c]">>)),
-    	?assertEqual({ok,[{1,<<"[1,b]",9,"234567">>}]}, readGELT(Channel, <<"kvpair">>, <<"[1,ab]">>, <<"[1,c]">>)),
-    	?assertEqual({ok,[{1,<<"[1,b]",9,"22AR0N">>}]}, readGELT(Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>)),
-    	?assertEqual({ok,[{1,<<"[1,b]",9,"234567",9,"22AR0N">>}]}, readGELT(Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>)),
+        ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"1">>)),
+        ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGELT(Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"3">>)),
+
+        ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGELT(Channel, <<"hash">>, <<"[1,a]">>, <<"[1,d]">>, <<"5">>)),
+    	?assertEqual({ok,[{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGELT(Channel, <<"hash">>, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
+    	?assertEqual({ok,[{1,<<"[1,b]">>}]}, readGELT(Channel, <<"key">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[{1,<<"234567">>}]}, readGELT(Channel, <<"value">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[{1,<<"[1,b]",9,"234567">>}]}, readGELT(Channel, <<"kvpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[{1,<<"[1,b]",9,"22AR0N">>}]}, readGELT(Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[{1,<<"[1,b]",9,"234567",9,"22AR0N">>}]}, readGELT(Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
     	?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),
 
         ?assertEqual({ok,[{1,<<"RSHW">>},{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGT(Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[{1,<<"22AR0N">>},{1,<<"1XSGZJ">>}]}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
-    	?assertEqual({ok,[{1,<<"22AR0N">>}]}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
+    	?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGT(Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
     	?assertEqual({ok,[{1,<<"[1,b]">>},{1,<<"[1,c]">>}]}, readGT(Channel, <<"key">>, <<"[1,a]">>, <<"2">>)),
-    	?assertEqual({ok,[{1,<<"234567">>}]}, readGT(Channel, <<"value">>, <<"[1,ab]">>, <<"1">>)),
-    	?assertEqual({ok,[{1,<<"[1,b]",9,"234567">>}]}, readGT(Channel, <<"kvpair">>, <<"[1,ab]">>, <<"1">>)),
-    	?assertEqual({ok,[{1,<<"[1,b]",9,"22AR0N">>}]}, readGT(Channel, <<"khpair">>, <<"[1,ab]">>, <<"1">>)),
+    	?assertEqual({ok,[{1,<<"234567">>},{1,<<"345678">>}]}, readGT(Channel, <<"value">>, <<"[1,ab]">>, <<"2">>)),
+    	?assertEqual({ok,[{1,<<"[1,b]",9,"234567">>},{1,<<"[1,c]",9,"345678">>}]}, readGT(Channel, <<"kvpair">>, <<"[1,ab]">>, <<"2">>)),
+    	?assertEqual({ok,[{1,<<"[1,b]",9,"22AR0N">>},{1,<<"[1,c]",9,"1XSGZJ">>}]}, readGT(Channel, <<"khpair">>, <<"[1,ab]">>, <<"2">>)),
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTEST)),
         ?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),
