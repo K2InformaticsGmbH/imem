@@ -7,6 +7,7 @@
 -define(TABLE(__Channel),<<"skvh",__Channel/binary>>).
 -define(AUDIT(__Channel),<<"skvhAudit",__Channel/binary, "_86400@">>).
 -define(MATCHHEAD,{skvhTable, '$1', '$2', '$3'}).
+-define(AUDIT_MATCHHEAD,{skvhAudit, '$1', '$2', '$3', '$4'}).
 
 -define(TABLE_OPTS, [{record_name,skvhTable}
                     ,{type,ordered_set}
@@ -61,15 +62,16 @@
 -define(E117(__Term),{117,"Too many values, Limit exceeded",__Term}).
 
 
--export([ write/2 		%% (Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
-		, read/3		%% (Channel, KeyTable)   			return empty Arraylist if none of these resources exists
-		, readGELT/5	%% (Channel, Item, CKey1, CKey2, L)	start with first key after CKey1, end with last key before CKey2, fails if more than L rows
- 		, readGT/4		%% (Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less
- 		, readGE/4		%% (Channel, Item, CKey1, Limit)	start with first key at or after CKey1, return Limit results or less
- 		, delete/2		%% (Channel, KeyTable)    			do not complain if keys do not exist
- 		, deleteGELT/4	%% (Channel, CKey1, CKey2), L		delete range of keys >= CKey1 and < CKey2, fails if more than L rows
-		, deleteGTLT/4	%% (Channel, CKey1, CKey2), L		delete range of keys > CKey1 and < CKey2, fails if more than L rows
-		, write_audit/4 %% (OldRec,NewRec,Table,User)		default trigger for writing audit trail
+-export([ write/2 			%% (Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
+		, read/3			%% (Channel, KeyTable)   			return empty Arraylist if none of these resources exists
+		, readGELT/5		%% (Channel, Item, CKey1, CKey2, L)	start with first key after CKey1, end with last key before CKey2, fails if more than L rows
+		, readGT/4			%% (Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less
+		, audit_readGT/4	%% (Channel, Item, TS1, Limit)		read audit info after Timestamp1, return Limit results or less
+ 		, readGE/4			%% (Channel, Item, CKey1, Limit)	start with first key at or after CKey1, return Limit results or less
+ 		, delete/2			%% (Channel, KeyTable)    			do not complain if keys do not exist
+ 		, deleteGELT/4		%% (Channel, CKey1, CKey2), L		delete range of keys >= CKey1 and < CKey2, fails if more than L rows
+		, deleteGTLT/4		%% (Channel, CKey1, CKey2), L		delete range of keys > CKey1 and < CKey2, fails if more than L rows
+		, write_audit/4 	%% (OldRec,NewRec,Table,User)		default trigger for writing audit trail
 		]).
 
 %% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
@@ -133,10 +135,10 @@ io_clean_table(Bin) ->
 io_key_to_term(Key) when is_binary(Key) ->
 	imem_datatype:io_to_term(Key).
 
-io_key_to_integer(Key) when is_binary(Key) ->
-	imem_datatype:io_to_integer(Key,0,0).
+io_to_integer(I) when is_integer(I) -> 		I;
+io_to_integer(Key) when is_binary(Key) ->	imem_datatype:io_to_integer(Key,0,0).
 
-io_value_to_term(V) when is_binary(V) -> V.		%% ToDo: Maybe convert to map datatype when available
+io_value_to_term(V) when is_binary(V) -> 		V.	%% ToDo: Maybe convert to map datatype when available
 
 % io_hash_to_term(Hash) when is_binary(Hash) -> Hash.
 
@@ -156,8 +158,9 @@ io_kv_table_to_tuple_list(KVTable) ->
 
 %% Converters for output (results)
 
-term_key_to_io(Key) ->
-	imem_datatype:term_to_io(Key).
+term_key_to_io(Key) ->	imem_datatype:term_to_io(Key).
+
+term_time_to_io(T) ->	imem_datatype:timestamp_to_io(T).
 
 term_value_to_io(undefined) -> <<"undefined">>;		%% ToDo: Maybe convert from map datatype when available
 term_value_to_io(V) when is_binary(V) -> V.   		%% ToDo: Maybe convert from map datatype when available
@@ -165,6 +168,8 @@ term_value_to_io(V) when is_binary(V) -> V.   		%% ToDo: Maybe convert from map 
 term_hash_to_io(undefined) -> <<"undefined">>;
 term_hash_to_io(F) when is_function(F) -> <<"undefined">>;
 term_hash_to_io(H) when is_binary(H) -> H.
+
+term_user_to_io(U) ->	imem_datatype:userid_to_io(U).
 
 term_kv_tuple_to_io({K,V}) ->
 	KeyBin = term_key_to_io(K),
@@ -181,6 +186,19 @@ term_kvh_triple_to_io({K,V,H}) ->
 	ValueBin = term_value_to_io(V), 
 	HashBin = term_hash_to_io(H), 
 	<<KeyBin/binary,9,ValueBin/binary,9,HashBin/binary>>.
+
+term_tkv_triple_to_io({T,K,V}) ->
+	TimeBin = term_time_to_io(T),
+	KeyBin = term_key_to_io(K),
+	ValueBin = term_value_to_io(V), 
+	<<TimeBin/binary,9,KeyBin/binary,9,ValueBin/binary>>.
+
+term_tkvu_quadruple_to_io({T,K,V,U}) ->
+	TimeBin = term_time_to_io(T),
+	KeyBin = term_key_to_io(K),
+	ValueBin = term_value_to_io(V), 
+	UserBin = term_user_to_io(U),
+	<<TimeBin/binary,9,KeyBin/binary,9,ValueBin/binary,9,UserBin/binary>>.
 
 %% Data access per key (read,write,delete)
 
@@ -225,18 +243,29 @@ delete(Cmd, {TN,AN}, [Key|Keys], Acc)  ->
 match_val(T) when is_tuple(T) -> {const,T};
 match_val(V) -> V.
 
-readGT(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
+readGT(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1) ->
 	Cmd = [readGT, Channel, Item, CKey1, Limit],
-	readGT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_integer(Limit)).
+	readGT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
 
 readGT(Cmd, {TN,TA}, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}], ['$_']},
 	read_limited(Cmd, {TN,TA}, Item, MatchFunction, Limit).
 
+audit_readGT(Channel, Item, TS1, Limit)  when is_binary(Item), is_binary(TS1) ->
+	Cmd = [audit_readGT, Channel, Item, TS1, Limit],
+	audit_readGT(Cmd, create_check_channel(Channel), Item, imem_datatype:io_to_timestamp(TS1), io_to_integer(Limit)).
 
-readGE(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1), is_binary(Limit) ->
+audit_readGT(Cmd, {TN,TA}, Item, TS1, Limit) ->
+	MatchFunction = {?AUDIT_MATCHHEAD, [{'>', '$1', match_val(TS1)}], ['$_']},
+	audit_read_limited(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+
+audit_read_limited(Cmd, {_,TA}, Item, MatchFunction, Limit) ->
+	{L,_} = imem_meta:select(TA, [MatchFunction], Limit),
+	audit_project_result(Cmd, L, Item).
+
+readGE(Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1) ->
 	Cmd = [readGT, Channel, Item, CKey1, Limit],
-	readGE(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_integer(Limit)).
+	readGE(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
 
 readGE(Cmd, {TN,TA}, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}], ['$_']},
@@ -246,9 +275,9 @@ read_limited(Cmd, {TN,_}, Item, MatchFunction, Limit) ->
 	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
 	project_result(Cmd, L, Item).
 
-readGELT(Channel, Item, CKey1, CKey2, Limit) when is_binary(Item), is_binary(CKey1), is_binary(CKey2), is_binary(Limit) ->
+readGELT(Channel, Item, CKey1, CKey2, Limit) when is_binary(Item), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [readGELT, Channel, Item, CKey1, CKey2, Limit],
-	readGELT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2), io_key_to_integer(Limit)).
+	readGELT(Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
 readGELT(Cmd, {TN,TA}, Item, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
@@ -262,17 +291,17 @@ read_with_limit(Cmd, {TN,_}, Item, MatchFunction, Limit) ->
 	end.
 
 
-deleteGELT(Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2), is_binary(Limit) ->
+deleteGELT(Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGELT, Channel, CKey1, CKey2, Limit],
-	deleteGELT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_key_to_integer(Limit)).
+	deleteGELT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
 deleteGELT(Cmd, {TN,AN}, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
 	delete_with_limit(Cmd, {TN,AN}, MatchFunction, Limit).
 
-deleteGTLT(Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2), is_binary(Limit) ->
+deleteGTLT(Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGTLT, Channel, CKey1, CKey2, Limit],
-	deleteGTLT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_key_to_integer(Limit)).
+	deleteGTLT(Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
 deleteGTLT(Cmd, {TN,AN}, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
@@ -297,6 +326,22 @@ project_result(Cmd, L, <<"kvhtriple">>) ->
 	return_stringlist(Cmd, [term_kvh_triple_to_io({K,V,H}) ||  #skvhTable{ckey=K,cvalue=V,chash=H} <- L]);
 project_result(Cmd, L, <<"khpair">>) ->
 	return_stringlist(Cmd, [term_kh_tuple_to_io({K,H}) ||  #skvhTable{ckey=K,chash=H} <- L]).
+
+
+audit_project_result(Cmd, L, <<"time">>) ->
+	return_stringlist(Cmd, [term_time_to_io(T) ||  #skvhAudit{time=T} <- L]);
+audit_project_result(Cmd, L, <<"key">>) ->
+	return_stringlist(Cmd, [term_key_to_io(K) ||  #skvhAudit{ckey=K} <- L]);
+audit_project_result(Cmd, L, <<"value">>) ->
+	return_stringlist(Cmd, [term_value_to_io(V) ||  #skvhAudit{cvalue=V} <- L]);
+audit_project_result(Cmd, L, <<"user">>) ->
+	return_stringlist(Cmd, [term_user_to_io(U) ||  #skvhAudit{cuser=U} <- L]);
+audit_project_result(Cmd, L, <<"kvpair">>) ->
+	return_stringlist(Cmd, [term_kv_tuple_to_io({K,V}) ||  #skvhAudit{ckey=K,cvalue=V} <- L]);
+audit_project_result(Cmd, L, <<"tkvtriple">>) ->
+	return_stringlist(Cmd, [term_tkv_triple_to_io({T,K,V}) ||  #skvhAudit{time=T,ckey=K,cvalue=V} <- L]);
+audit_project_result(Cmd, L, <<"tkvuquadruple">>) ->
+	return_stringlist(Cmd, [term_tkvu_quadruple_to_io({T,K,V,U}) ||  #skvhAudit{time=T,ckey=K,cvalue=V,cuser=U} <- L]).
 
 debug(Cmd, Resp) ->
     lager:debug([ {cmd, hd(Cmd)}]
@@ -379,6 +424,19 @@ skvh_operations(_) ->
         Aud = imem_meta:read(skvhAuditTEST_86400@),
         ?Info("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
+        {ok,Aud1} = audit_readGT(Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
+        ?Info("audit trail~n~p~n", [Aud1]),
+        ?assertEqual(6, length(Aud1)),
+        {ok,Aud2} = audit_readGT(Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
+        ?assertEqual(4, length(Aud2)),
+        {ok,Aud3} = audit_readGT(Channel,<<"kvpair">>, <<"now">>, 100),
+        ?assertEqual(0, length(Aud3)),
+        {ok,Aud4} = audit_readGT(Channel,<<"key">>, <<"2100-01-01">>, 100),
+        ?assertEqual(0, length(Aud4)),
+        Ex4 = {'ClientError',{"Data conversion format error",{timestamp,"1900-01-01",{"Cannot handle dates before 1970"}}}},
+        ?assertException(throw,Ex4,audit_readGT(Channel,<<"tkvuquadruple">>, <<"1900-01-01">>, 100)),
+        {ok,Aud5} = audit_readGT(Channel,<<"tkvuquadruple">>, <<"1970-01-01">>, 100),
+        ?assertEqual(Aud1, Aud5),
 
         ?assertEqual({ok,[{1,<<"[1,a]",9,"undefined">>}]}, read(Channel, <<"kvpair">>, <<"[1,a]">>)),
         ?assertEqual({ok,[{1,<<"[1,b]",9,"undefined">>}]}, read(Channel, <<"kvpair">>, <<"[1,b]">>)),
@@ -445,6 +503,15 @@ skvh_operations(_) ->
     	?assertEqual({ok,[{1,<<"234567">>},{1,<<"345678">>}]}, readGT(Channel, <<"value">>, <<"[1,ab]">>, <<"2">>)),
     	?assertEqual({ok,[{1,<<"[1,b]",9,"234567">>},{1,<<"[1,c]",9,"345678">>}]}, readGT(Channel, <<"kvpair">>, <<"[1,ab]">>, <<"2">>)),
     	?assertEqual({ok,[{1,<<"[1,b]",9,"22AR0N">>},{1,<<"[1,c]",9,"1XSGZJ">>}]}, readGT(Channel, <<"khpair">>, <<"[1,ab]">>, <<"2">>)),
+
+		?assertEqual(ok,imem_meta:truncate_table(skvhTEST)),
+    	KVtab = <<"{<<\"52015\">>,<<>>,<<\"AaaEnabled\">>}	false
+{<<\"52015\">>,<<\"SMS-SUB-52015\">>,<<\"AaaEnabled\">>}	false">>,
+		TabRes1 = write(Channel, KVtab),
+        ?assertEqual({ok,[{1,<<"1ES4AG">>},{1,<<"DXS1E">>}]}, TabRes1),
+        KVLong = 
+<<"{<<\"52015\">>,<<>>,<<\"AllowedContentTypes\">>}	\"audio/amr;audio/mp3;audio/x-rmf;audio/x-beatnic-rmf;audio/sp-midi;audio/imelody;audio/smaf;audio/rmf;text/x-imelody;text/x-vcalendar;text/x-vcard;text/xml;text/html;text/plain;text/x-melody;image/png;image/vnd.wap.wbmp;image/bmp;image/gif;image/ief;image/jpeg;image/jpg;image/tiff;image/x-xwindowdump;image/vnd.nokwallpaper;application/smil;application/postscript;application/rtf;application/x-tex;application/x-texinfo;application/x-troff;audio/basic;audio/midi;audio/x-aifc;audio/x-aiff;audio/x-mpeg;audio/x-wav;video/3gpp;video/mpeg;video/quicktime;video/x-msvideo;video/x-rn-mp4;video/x-pn-realvideo;video/mpeg4;multipart/related;multipart/mixed;multipart/alternative;message/rfc822;application/vnd.oma.drm.message;application/vnd.oma.dm.message;application/vnd.sem.mms.protected;application/vnd.sonyericsson.mms-template;application/vnd.smaf;application/xml;video/mp4;\"">>,
+        ?assertEqual({ok,[{1,<<"1KTZC8">>}]}, write(Channel, KVLong)),
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTEST)),
         ?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),

@@ -553,6 +553,8 @@ hexstr_to_bin([X,Y|T], Acc) ->
 
 io_to_userid(<<"system">>) -> system;
 io_to_userid("system") -> system;
+io_to_userid(<<"unknown">>) -> unknown;
+io_to_userid("unknown") -> unknown;
 io_to_userid(Id) when is_binary(Id) ->
     try 
         list_to_integer(binary_to_list(Id))
@@ -604,13 +606,11 @@ io_to_timestamp(Val,6) ->
                 end;
             {match,["-"]} ->    
                 case string:tokens(Val, " ") of
-                    [D,T] ->  case re:split(T,"[$.]",[{return,list}]) of
-                                        [Hms,M] -> 
-                                            {parse_date_int(D),parse_time(Hms),parse_micro(M)};
-                                        [Hms] ->
-                                            {parse_date_int(D),parse_time(Hms),0.0}
-                                    end;
-                    [D] ->       {parse_date_int(D),{0,0,0},0.0}
+                    [D,T] ->    case re:split(T,"[$.]",[{return,list}]) of
+                                    [Hms,M] ->  {parse_date_int(D),parse_time(Hms),parse_micro(M)};
+                                    [Hms] ->    {parse_date_int(D),parse_time(Hms),0.0}
+                                end;
+                    [D] ->      {parse_date_int(D),{0,0,0},0.0}
                 end;
             {match,["."]} ->    
                 case string:tokens(Val, " ") of
@@ -637,7 +637,8 @@ io_to_timestamp(Val,6) ->
         {Meg,Sec, 0} = utc_seconds_to_now(local_datetime_to_utc_seconds({Date, Time})),
         {Meg,Sec,round(1000000*Micro)}
     catch
-        _:_ ->  ?ClientError({"Data conversion format error",{timestamp,Val}})
+        _:{'ClientError',Reason} -> ?ClientError({"Data conversion format error",{timestamp,Val,Reason}});
+        _:Reason ->  ?ClientError({"Data conversion format error",{timestamp,Val,Reason}})
     end;   
 io_to_timestamp(Val,Prec) when Prec == 0 ->
     {Megas,Secs,Micros} = io_to_timestamp(Val,6),
@@ -709,26 +710,26 @@ io_to_datetime(Val) ->
 parse_date_eu(Val) ->
     case string:tokens(Val, ".") of
         [Day,Month,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
-        _ ->                    ?ClientError({})
+        _ ->                    ?ClientError({"parse_date_eu",Val})
     end.    
 
 parse_date_us(Val) ->
     case string:tokens(Val, "/") of
         [Month,Day,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
-        _ ->                    ?ClientError({})
+        _ ->                    ?ClientError({"parse_date_us",Val})
     end.    
 
 parse_date_int(Val) ->
     case string:tokens(Val, "-") of
         [Year,Month,Day] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
-        _ ->                    ?ClientError({})
+        _ ->                    ?ClientError({"parse_date_int",Val})
     end.    
 
 parse_date_raw(Val) ->
     case length(Val) of
         8 ->    validate_date({parse_year(lists:sublist(Val,1,4)),parse_month(lists:sublist(Val,5,2)),parse_day(lists:sublist(Val,7,2))});
         6 ->    validate_date({parse_year(lists:sublist(Val,1,2)),parse_month(lists:sublist(Val,3,2)),parse_day(lists:sublist(Val,5,2))});
-        _ ->    ?ClientError({})
+        _ ->    ?ClientError({"parse_date_raw",Val})
     end.    
 
 parse_year(Val) ->
@@ -739,21 +740,21 @@ parse_year(Val) ->
                    Year2 < 50 ->    2000+Year2;
                    true ->          1900+Year2
                 end;   
-        _ ->    ?ClientError({})
+        _ ->    ?ClientError({"parse_year",Val})
     end.    
 
 parse_month(Val) ->
     case length(Val) of
         1 ->                    list_to_integer(Val);
         2 ->                    list_to_integer(Val);
-        _ ->                    ?ClientError({})
+        _ ->                    ?ClientError({"parse_month",Val})
     end.    
 
 parse_day(Val) ->
     case length(Val) of
         1 ->                    list_to_integer(Val);
         2 ->                    list_to_integer(Val);
-        _ ->                    ?ClientError({})
+        _ ->                    ?ClientError({"parse_day",Val})
     end.    
 
 parse_time(Val) ->
@@ -766,7 +767,7 @@ parse_time(Val) ->
                 4 ->    {parse_hour(lists:sublist(Val,1,2)),parse_minute(lists:sublist(Val,3,2)),0};
                 2 ->    {parse_hour(lists:sublist(Val,1,2)),0,0};
                 0 ->    {0,0,0};
-                _ ->    ?ClientError({})
+                _ ->    ?ClientError({"parse_time",Val})
             end
     end.    
 
@@ -774,21 +775,21 @@ parse_hour(Val) ->
     H = list_to_integer(Val),
     if
         H >= 0 andalso H < 25 ->    H;
-        true ->                     ?ClientError({})
+        true ->                     ?ClientError({"parse_hour",Val})
     end.
 
 parse_minute(Val) ->
     M = list_to_integer(Val),
     if
         M >= 0 andalso M < 60 ->    M;
-        true ->                     ?ClientError({})
+        true ->                     ?ClientError({"parse_minute",Val})
     end.
 
 parse_second(Val) ->
     S = list_to_integer(Val),
     if
         S >= 0 andalso S < 60 ->    S;
-        true ->                     ?ClientError({})
+        true ->                     ?ClientError({"parse_second",Val})
     end.
 
 parse_micro(Val) ->
@@ -803,6 +804,8 @@ utc_seconds_to_now(SecondsUtc) ->
     Seconds1970 = SecondsUtc - 2208988800,
     {Seconds1970 div 1000000, Seconds1970 rem 1000000, 0}.
 
+local_datetime_to_utc_seconds({{Year,_,_}, _}) when Year < 1970 ->
+    ?ClientError({"Cannot handle dates before 1970"});
 local_datetime_to_utc_seconds({Date, Time}) ->
 %%  DateTime1900 = calendar:datetime_to_gregorian_seconds({{1900, 01, 01}, {00, 00, 00}}),
 %%  calendar:datetime_to_gregorian_seconds({Date, Time}) - DateTime1900.
@@ -816,7 +819,7 @@ local_datetime_to_utc_seconds({Date, Time}) ->
 validate_date(Date) ->
     case calendar:valid_date(Date) of
         true ->     Date;
-        false ->    ?ClientError({})
+        false ->    ?ClientError({"validate_date",Date})
     end.    
 
 io_to_ipaddr(Val) ->
@@ -1116,7 +1119,7 @@ binary_to_io(Val) ->
     end.
 
 
-userid_to_io(system) -> <<"system">>;
+userid_to_io(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 userid_to_io(Val) ->    integer_to_binary(Val).
     % case imem_if:read(ddAccount,Val) of
     %     [] ->           ?ClientError({"Account does not exist",Val});
@@ -1415,6 +1418,13 @@ data_types(_) ->
         ?assertEqual(<<"1.2.3.4">>, ipaddr_to_io({1,2,3,4})),
         ?Info("ipaddr_to_io success~n", []),
 
+        ?assertEqual(2208985200,local_datetime_to_utc_seconds({{1970, 01, 01}, {00, 00, 00}})),
+        ?assertException(throw,{ClEr,{"Cannot handle dates before 1970"}},local_datetime_to_utc_seconds({{1900, 01, 01}, {00, 00, 00}})),
+        ?assertEqual({1900,2,1}, parse_date_eu("01.02.1900")),
+        ?assertEqual({1900,2,1}, parse_date_us("02/01/1900")),
+        ?assertEqual({1900,2,1}, parse_date_us("02/01/1900")),
+        ?assertEqual({1900,2,1}, parse_date_int("1900-02-01")),
+        ?assertException(throw,{ClEr,{"parse_month","1900"}}, parse_date_us("1900/02/01")),
         ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,0,123456},0)),  %% with DLS offset wintertime CH
         ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,0},0)),  %% with DLS offset wintertime CH
         ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,0,123000},3)),  %% with DLS offset wintertime CH
@@ -1423,6 +1433,9 @@ data_types(_) ->
         ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1,2,1234},3,raw)),  %% with DLS offset wintertime CH
         ?Info("timestamp_to_io success~n", []),
         ?assertEqual({0,0,0}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),  %% with DLS offset wintertime CH
+        ?assertEqual({0,-3600,0}, io_to_timestamp(<<"01.01.1970">>,0)),                  %% with DLS offset wintertime CH
+        ?assertEqual({0,-3600,0}, io_to_timestamp(<<"1970-01-01">>)),                  %% with DLS offset wintertime CH
+        ?assertEqual({162,946800,0}, io_to_timestamp(<<"1975-03-02">>)),                  %% with DLS offset wintertime CH
         ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
         ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.70 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
         ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,6)),  %% with DLS offset wintertime CH

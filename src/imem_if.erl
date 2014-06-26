@@ -90,14 +90,23 @@
             true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now})
        ).
 
--define(TOUCH_SNAP(__Table),                  
-        (fun(__T) ->
-            [__Up] = ets:lookup(?SNAP_ETS_TAB, __T),
-            true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
-            ok
-        end)(__Table)
-       ).
+% -define(TOUCH_SNAP(__Table),                  
+%         (fun(__T) ->
+%             case ets:lookup(?SNAP_ETS_TAB, __T) of
+%                 [__Up] ->   true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
+%                             ok;
+%                 [] ->       ?SystemExceptionNoLogging({"No entry in snapshot tracking ETS table", __T})
+%             end
+%         end)(__Table)
+%        ).
 
+-define(TOUCH_SNAP(__Table),                  
+            case ets:lookup(?SNAP_ETS_TAB, __Table) of
+                [__Up] ->   true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
+                            ok;
+                [] ->       ?SystemExceptionNoLogging({"No entry in snapshot tracking ETS table", __Table})
+            end
+       ).
 
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
