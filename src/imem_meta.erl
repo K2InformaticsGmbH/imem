@@ -563,10 +563,12 @@ create_check_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
                         OldOpts ->
                             catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner),
                             ok;
-                        _ -> 
+                        _ ->
+                            catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner), 
                             ?SystemException({"Wrong table options",{Table,Old}})
                     end;        
                 [#ddTable{owner=Own}] ->
+                    catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner),
                     ?SystemException({"Wrong table owner",{Table,Own}})        
             end;
         _ ->        
@@ -614,13 +616,8 @@ create_physical_table(Table,ColInfos,Opts,Owner) ->
     PhysicalName=physical_table_name(Table),
     DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColInfos, opts=Opts, owner=Owner},
     try
-        % Trans = fun() ->
-        %    ?LogDebug("Create Table ~p",[PhysicalName]),
-            imem_if:create_table(PhysicalName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
-        %    ?LogDebug("Insert ~p",[DDTableRow]),
-            imem_if:write(ddTable, DDTableRow)
-        %end,
-        % transaction(Trans)
+        imem_if:create_table(PhysicalName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+        imem_if:write(ddTable, DDTableRow)
     catch
         % ddTable Meta data is attempted to be inserted only if missing and
         _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
