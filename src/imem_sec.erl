@@ -71,6 +71,7 @@
         , delete/3
         , delete_object/3
         , admin_exec/4
+        , dal_exec/4
         ]).
 
 
@@ -159,31 +160,17 @@ if_meta_field(_SKey, Name) ->
         false ->    imem_meta:meta_field(Name)
     end.
 
-if_meta_field_info(_SKey, Name) ->
-    imem_meta:meta_field_info(Name).
+if_meta_field_info(_SKey, Name) ->              imem_meta:meta_field_info(Name).
 
-if_meta_field_value(SKey, <<"user">>) ->
-    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    AccountId;
-if_meta_field_value(SKey, user) ->
-    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    AccountId;
-if_meta_field_value(SKey, <<"username">>) ->
-    #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
-    [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
-    Name;
-if_meta_field_value(SKey, username) ->
-    #ddSeCo{accountId=AccountId} = SeCo = seco_authorized(SKey),
-    [#ddAccount{name=Name}] = if_read(SeCo, ddAccount, AccountId),
-    Name;
-if_meta_field_value(_SKey, Name) ->
-    imem_meta:meta_field_value(Name).
+if_meta_field_value(SKey, <<"user">>) ->        imem_seco:account_id(SKey);
+if_meta_field_value(SKey, user) ->              imem_seco:account_id(SKey);
+if_meta_field_value(SKey, <<"username">>) ->    imem_seco:account_name(SKey);
+if_meta_field_value(SKey, username) ->          imem_seco:account_name(SKey);
+if_meta_field_value(_SKey, Name) ->             imem_meta:meta_field_value(Name).
 
-add_attribute(_SKey, A, Opts) -> 
-    imem_meta:add_attribute(A, Opts).
+add_attribute(_SKey, A, Opts) ->                imem_meta:add_attribute(A, Opts).
 
-update_opts(_SKey, T, Opts) ->
-    imem_meta:update_opts(T, Opts).
+update_opts(_SKey, T, Opts) ->                  imem_meta:update_opts(T, Opts).
 
 %% imem_if but security context added --- META INFORMATION ------
 
@@ -484,31 +471,31 @@ purge_system_table(SKey, Table, Opts, _AccountId) ->
 
 apply_validators(SKey, DefRec, Rec, Table) ->
     case have_table_permission(SKey, Table, insert) of
-        true ->     imem_meta:apply_validators(DefRec, Rec, Table, if_meta_field_value(SKey, user));
+        true ->     imem_meta:apply_validators(DefRec, Rec, Table, imem_seco:account_id(SKey));
         false ->    ?SecurityException({"Trigger unauthorized", {Table,SKey}})
     end.
 
 insert(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, insert) of
-        true ->     imem_meta:insert(Table, Row, if_meta_field_value(SKey, user)) ;
+        true ->     imem_meta:insert(Table, Row, imem_seco:account_id(SKey)) ;
         false ->    ?SecurityException({"Insert unauthorized", {Table,SKey}})
     end.
 
 update(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, update) of
-        true ->     imem_meta:update(Table, Row, if_meta_field_value(SKey, user)) ;
+        true ->     imem_meta:update(Table, Row, imem_seco:account_id(SKey)) ;
         false ->    ?SecurityException({"Update unauthorized", {Table,SKey}})
     end.
 
 merge(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, update) of
-        true ->     imem_meta:merge(Table, Row, if_meta_field_value(SKey, user)) ;
+        true ->     imem_meta:merge(Table, Row, imem_seco:account_id(SKey)) ;
         false ->    ?SecurityException({"Merge (insert/update) unauthorized", {Table,SKey}})
     end.
 
 remove(SKey, Table, Row) ->
     case have_table_permission(SKey, Table, delete) of
-        true ->     imem_meta:remove(Table, Row, if_meta_field_value(SKey, user)) ;
+        true ->     imem_meta:remove(Table, Row, imem_seco:account_id(SKey)) ;
         false ->    ?SecurityException({"Remove unauthorized (delete permission needed)", {Table,SKey}})
     end.
 
@@ -624,7 +611,7 @@ delete_object(SKey, Table, Row) ->
 
 truncate_table(SKey, Table) ->
     case have_table_permission(SKey, Table, delete) of
-        true ->     imem_meta:truncate_table(Table, if_meta_field_value(SKey, user));
+        true ->     imem_meta:truncate_table(Table, imem_seco:account_id(SKey));
         false ->    ?SecurityException({"Truncate unauthorized", {Table,SKey}})
     end.
 
@@ -736,6 +723,21 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
         false ->
             ?SecurityException({"Admin execute unauthorized", {Module,Function,Params,SKey}})
     end.
+
+dal_exec(SKey, Module, Function, Params) ->
+    case re:run(atom_to_list(Module),"_dal_",[]) of
+        nomatch ->  ?SecurityException({"Dal execute unauthorized", {Module,Function,Params,SKey}});
+        _ ->        dal_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}])
+    end.
+
+dal_apply(SKey, Module, Function, Params, Permissions) ->
+    case imem_seco:have_permission(SKey, Permissions) of
+        true ->
+            apply(Module,Function,[imem_seco:account_id(SKey)|Params]);
+        false ->
+            ?SecurityException({"Dal execute unauthorized", {Module,Function,Params,SKey}})
+    end.
+
 
 %% ------- security extension for sql and tables (exported) ---------------------------------
 

@@ -139,6 +139,7 @@
         , merge/2           %% apply defaults, write row, apply trigger (bags not supported)
         , merge/3           %% apply defaults, write row, apply trigger (bags not supported)
         , remove/2          %% delete row if key exists (if bag row exists), apply trigger
+        , remove/3          %% delete row if key exists (if bag row exists), apply trigger
         , write/2           %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
         , dirty_write/2
