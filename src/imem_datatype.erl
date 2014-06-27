@@ -552,9 +552,7 @@ hexstr_to_bin([X,Y|T], Acc) ->
     hexstr_to_bin(T, [V | Acc]).
 
 io_to_userid(<<"system">>) -> system;
-io_to_userid("system") -> system;
 io_to_userid(<<"unknown">>) -> unknown;
-io_to_userid("unknown") -> unknown;
 io_to_userid(Id) when is_binary(Id) ->
     try 
         list_to_integer(binary_to_list(Id))

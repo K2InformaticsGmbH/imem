@@ -131,9 +131,6 @@ clone_seco(SKey, Pid) ->
 
 %% from imem_meta --- HELPER FUNCTIONS do not export!! --------
 
-if_read(_SKey, Table, Key) -> 
-    imem_meta:read(Table, Key).
-
 if_is_system_table(_SKey,{_,Table}) -> 
     if_is_system_table(_SKey,Table);       % TODO: May depend on Schema
 if_is_system_table(_SKey,Table) when is_atom(Table) ->
