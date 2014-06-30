@@ -5,7 +5,7 @@
 
 -define(CHANNEL(__Table),list_to_binary(lists:nthtail(4,atom_to_list(__Table)))).
 -define(TABLE(__Channel),<<"skvh",__Channel/binary>>).
--define(AUDIT(__Channel),<<"skvhAudit",__Channel/binary, "_86400@">>).
+-define(AUDIT(__Channel),"skvhAudit" ++ binary_to_list(__Channel) ++ "_86400@").
 -define(MATCHHEAD,{skvhTable, '$1', '$2', '$3'}).
 -define(AUDIT_MATCHHEAD,{skvhAudit, '$1', '$2', '$3', '$4'}).
 
@@ -83,7 +83,7 @@ create_check_channel(Channel) ->
 	TBin = ?TABLE(Channel),
 	try 
 		T = ?binary_to_existing_atom(TBin),
-		A = ?binary_to_existing_atom(?AUDIT(Channel)),
+		A = list_to_existing_atom(?AUDIT(Channel)),
 		imem_meta:check_table(T),
 		{T,A}
 	catch 
@@ -94,7 +94,7 @@ create_check_channel(Channel) ->
     			{error, Reason} -> 	imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TN}],io_lib:format("~p",[Reason]));
     			Reason -> 			imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TN}],io_lib:format("~p",[Reason]))
     		end,
-			AN = ?binary_to_atom(?AUDIT(Channel)),
+			AN = list_to_atom(?AUDIT(Channel)),
 			catch imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
         	ok = imem_meta:create_trigger(TN, ?skvhTableTrigger),
 			{TN,AN}
@@ -107,7 +107,7 @@ write_audit(OldRec,NewRec,Table,User) ->
 		{_, _} ->	{element(2,NewRec),element(3,NewRec)}	%% write new rec
 	end,
 	CH = ?CHANNEL(Table),
-	A = ?binary_to_existing_atom(?AUDIT(CH)),
+	A = list_to_atom(?AUDIT(CH)),
 	catch (imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User})).
 
 % return(Cmd, Result) ->
@@ -257,13 +257,22 @@ audit_readGT(User, Channel, Item, TS1, Limit)  when is_binary(Item), is_binary(T
 	Cmd = [audit_readGT, User, Channel, Item, TS1, Limit],
 	audit_readGT(User, Cmd, create_check_channel(Channel), Item, imem_datatype:io_to_timestamp(TS1), io_to_integer(Limit)).
 
-audit_readGT(_User, Cmd, {TN,TA}, Item, TS1, Limit) ->
+audit_readGT(_User, Cmd, {_TN,TA}, Item, TS1, Limit) ->
 	MatchFunction = {?AUDIT_MATCHHEAD, [{'>', '$1', match_val(TS1)}], ['$_']},
-	audit_read_limited(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+	audit_read_limited(Cmd, audit_partitions(TA,TS1), Item, MatchFunction, Limit, []).
 
-audit_read_limited(Cmd, {_,TA}, Item, MatchFunction, Limit) ->
-	{L,_} = imem_meta:select(TA, [MatchFunction], Limit),
-	audit_project_result(Cmd, L, Item).
+audit_partitions(Alias, TS1) ->
+	FirstPartitionName = imem_meta:partitioned_table_name(Alias,TS1),
+	Pred = fun(N) -> (N >= FirstPartitionName) end,
+	lists:filter(Pred, imem_meta:physical_table_names(Alias)).
+
+audit_read_limited(Cmd, _, Item, _MatchFunction, 0, Acc) ->
+	audit_project_result(Cmd, Acc, Item);							%% enough audits collected
+audit_read_limited(Cmd, [], Item, _MatchFunction, _Limit, Acc) ->
+	audit_project_result(Cmd, Acc, Item);							%% no more partitions
+audit_read_limited(Cmd, [TP|Partitions], Item, MatchFunction, Limit, Acc) ->
+	{L,_} = imem_meta:select(TP, [MatchFunction], Limit),
+	audit_read_limited(Cmd, Partitions, Item, MatchFunction, Limit-length(L), L++ Acc).
 
 readGE(User, Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1) ->
 	Cmd = [readGT, User, Channel, Item, CKey1, Limit],

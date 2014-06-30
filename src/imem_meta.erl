@@ -68,6 +68,7 @@
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
+        , partitioned_table_name/2
         , parse_table_name/1
         , is_system_table/1
         , is_readable_table/1
@@ -958,15 +959,15 @@ physical_table_name({_S,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
 physical_table_name(user_tables) -> ddTable;
-physical_table_name(Name) when is_atom(Name) ->
-    case lists:member(Name,?DataTypes) of
-        true ->     Name;
-        false ->    physical_table_name(atom_to_list(Name))
+physical_table_name(Alias) when is_atom(Alias) ->
+    case lists:member(Alias,?DataTypes) of
+        true ->     Alias;
+        false ->    physical_table_name(atom_to_list(Alias))
     end;
-physical_table_name(Name) when is_list(Name) ->
-    case lists:last(Name) of
-        $@ ->   partitioned_table_name(Name,erlang:now());
-        _ ->    list_to_atom(Name)
+physical_table_name(Alias) when is_list(Alias) ->
+    case lists:last(Alias) of
+        $@ ->   partitioned_table_name(Alias,erlang:now());
+        _ ->    list_to_atom(Alias)
     end.
 
 % physical_table_name({_S,N,_A},Key) -> physical_table_name(N,Key);
@@ -974,17 +975,17 @@ physical_table_name({_S,N},Key) -> physical_table_name(N,Key);
 physical_table_name(dba_tables,_) -> ddTable;
 physical_table_name(all_tables,_) -> ddTable;
 physical_table_name(user_tables,_) -> ddTable;
-physical_table_name(Name,Key) when is_atom(Name) ->
-    case lists:member(Name,?DataTypes) of
-        true ->     Name;
-        false ->    physical_table_name(atom_to_list(Name),Key)
+physical_table_name(Alias,Key) when is_atom(Alias) ->
+    case lists:member(Alias,?DataTypes) of
+        true ->     Alias;
+        false ->    physical_table_name(atom_to_list(Alias),Key)
     end;
-physical_table_name(Name,Key) when is_list(Name) ->
-    case lists:last(Name) of
+physical_table_name(Alias,Key) when is_list(Alias) ->
+    case lists:last(Alias) of
         $@ ->
-            partitioned_table_name(Name,Key);
+            partitioned_table_name(Alias,Key);
         _ ->    
-            list_to_atom(Name)
+            list_to_atom(Alias)
     end.
 
 physical_table_names({_S,N,_A}) -> physical_table_names(N);
@@ -992,51 +993,52 @@ physical_table_names({_S,N}) -> physical_table_names(N);
 physical_table_names(dba_tables) -> [ddTable];
 physical_table_names(all_tables) -> [ddTable];
 physical_table_names(user_tables) -> [ddTable];
-physical_table_names(Name) when is_atom(Name) ->
-    case lists:member(Name,?DataTypes) of
-        true ->     [Name];
-        false ->    physical_table_names(atom_to_list(Name))
+physical_table_names(Alias) when is_atom(Alias) ->
+    case lists:member(Alias,?DataTypes) of
+        true ->     [Alias];
+        false ->    physical_table_names(atom_to_list(Alias))
     end;
-physical_table_names(Name) when is_list(Name) ->
-    case lists:last(Name) of
+physical_table_names(Alias) when is_list(Alias) ->
+    case lists:last(Alias) of
         $@ ->   
-            case string:tokens(lists:reverse(Name), "_") of
+            case string:tokens(lists:reverse(Alias), "_") of
                 [[$@|RN]|_] ->
                     % timestamp sharded node sharded tables 
                     try 
                         _ = list_to_integer(lists:reverse(RN)),
-                        {BaseName,_} = lists:split(length(Name)-length(RN)-1, Name),
+                        {BaseName,_} = lists:split(length(Alias)-length(RN)-1, Alias),
                         Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
                         lists:filter(Pred,tables_starting_with(BaseName))
                     catch
-                        _:_ -> tables_starting_with(Name)
+                        _:_ -> tables_starting_with(Alias)
                     end;
                  _ ->   
                     % node sharded tables only   
-                    tables_starting_with(Name)
+                    tables_starting_with(Alias)
             end;
         _ ->    
-            [list_to_atom(Name)]
+            [list_to_atom(Alias)]
     end.
 
-partitioned_table_name(Name,Key) when is_atom(Name) ->
-    partitioned_table_name(atom_to_list(Name),Key);
-partitioned_table_name(Name,Key) when is_list(Name) ->
-    case string:tokens(lists:reverse(Name), "_") of
+partitioned_table_name(Alias,Key) when is_atom(Alias) ->
+    partitioned_table_name(atom_to_list(Alias),Key);
+partitioned_table_name(Alias,Key) when is_list(Alias) ->
+    case string:tokens(lists:reverse(Alias), "_") of
         [[$@|RN]|_] ->
             % timestamp sharded node sharded table 
             try 
                 Period = list_to_integer(lists:reverse(RN)),
                 {Mega,Sec,_} = Key,
                 PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
-                {BaseName,_} = lists:split(length(Name)-length(RN)-1, Name),
-                list_to_atom(lists:flatten(BaseName ++ PartitionEnd ++ "@" ++ node_shard()))
+                Prefix = lists:duplicate(10-length(PartitionEnd),$0),
+                {BaseName,_} = lists:split(length(Alias)-length(RN)-1, Alias),
+                list_to_atom(lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard()))
             catch
-                _:_ -> list_to_atom(lists:flatten(Name ++ node_shard()))
+                _:_ -> list_to_atom(lists:flatten(Alias ++ node_shard()))
             end;
          _ ->
             % node sharded table only   
-            list_to_atom(lists:flatten(Name ++ node_shard()))
+            list_to_atom(lists:flatten(Alias ++ node_shard()))
     end.
 
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(),Table};
