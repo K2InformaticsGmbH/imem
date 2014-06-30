@@ -35,9 +35,7 @@
                     }
        ).
 -define(skvhTable,  [term,binstr,binstr]).
--define(skvhTableTrigger, <<"fun (__OR,__NR,__T,__U) ->
-                    			imem_dal_skvh:write_audit(__OR,__NR,__T,__U)
-                    		end.">>
+-define(skvhTableTrigger, <<"fun(__OR,__NR,__T,__U) -> imem_dal_skvh:write_audit(__OR,__NR,__T,__U) end.">>
 	   ).
 
 % -define(E100,{100,"Invalid key"}).
