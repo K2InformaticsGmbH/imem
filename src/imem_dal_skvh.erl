@@ -106,7 +106,8 @@ write_audit(OldRec,NewRec,Table,User) ->
 	end,
 	CH = ?CHANNEL(Table),
 	A = list_to_atom(?AUDIT(CH)),
-	catch (imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User})).
+	%% catch (imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User})).
+	imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User}).
 
 % return(Cmd, Result) ->
 % 	debug(Cmd, Result), 
