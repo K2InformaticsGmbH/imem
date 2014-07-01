@@ -82,7 +82,10 @@ create_check_channel(Channel) ->
 	try 
 		T = ?binary_to_existing_atom(TBin),
 		A = list_to_existing_atom(?AUDIT(Channel)),
+		P = imem_meta:partitioned_table_name_str(A,erlang:now()), 	%% ToDo: remove when partitions are pre-created
+		PN = list_to_existing_atom(P), 								%% ToDo: remove when partitions are pre-created
 		imem_meta:check_table(T),
+		imem_meta:check_table(PN),
 		{T,A}
 	catch 
 		_:_ -> 
@@ -94,7 +97,7 @@ create_check_channel(Channel) ->
     		end,
 			AN = list_to_atom(?AUDIT(Channel)),
 			catch imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
-        	ok = imem_meta:create_trigger(TN, ?skvhTableTrigger),
+        	catch imem_meta:create_trigger(TN, ?skvhTableTrigger),
 			{TN,AN}
 	end.
 
@@ -106,7 +109,6 @@ write_audit(OldRec,NewRec,Table,User) ->
 	end,
 	CH = ?CHANNEL(Table),
 	A = list_to_atom(?AUDIT(CH)),
-	%% catch (imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User})).
 	imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User}).
 
 % return(Cmd, Result) ->

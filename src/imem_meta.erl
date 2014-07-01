@@ -20,6 +20,10 @@
                            ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
                            ]).          
 
+-define(ddTableTrigger,    <<"fun(__OR,__NR,__T,__U) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U) end.">> ).
+-define(DD_TABLE_OPTS,     [{trigger,?ddTableTrigger}]).          
+
+
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
 % -define(RecIdx, 1).                                       %% Record name position in records
@@ -68,6 +72,7 @@
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
+        , partitioned_table_name_str/2
         , partitioned_table_name/2
         , parse_table_name/1
         , is_system_table/1
@@ -85,6 +90,7 @@
         , table_memory/1
         , table_record_name/1        
         , trigger_infos/1
+        , dictionary_trigger/4
         , check_table/1
         , check_table_meta/2
         , check_table_columns/2
@@ -111,6 +117,7 @@
 -export([ create_table/3
         , create_table/4
         , create_trigger/2
+        , create_or_replace_trigger/2
         , create_partitioned_table/1
         , create_partitioned_table_sync/1
         , create_check_table/3
@@ -191,7 +198,7 @@ init(_Args) ->
     Result = try
         application:set_env(imem, node_shard, node_shard()),
 
-        catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
+        catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, ?DD_TABLE_OPTS, system),
         catch check_table(ddTable),
         catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
@@ -199,7 +206,9 @@ init(_Args) ->
         CDef = {record_info(fields, ddCache), ?ddCache, #ddCache{}},
         COpts = [{scope,local}, {local_content,true},{record_name,ddCache}],
         catch create_check_table(?CACHE_TABLE, CDef, COpts, system),
-
+ 
+        catch imem_meta:create_trigger(ddTable, ?ddTableTrigger),
+ 
         catch create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
         catch create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
         catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
@@ -305,6 +314,20 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 fail(Reason) ->
     throw(Reason).
+
+dictionary_trigger(OldRec,NewRec,ddTable,_User) ->
+    %% clears cached trigger information when ddTable is 
+    %% modified in GUI or with insert/update/merge/remove functions
+    case {OldRec,NewRec} of
+        {{},{}} ->  %% truncate ddTable should never happen
+            ok;          
+        {{},_}  ->  %% write new rec (maybe fixing something)
+            {S,T} = element(2,NewRec),
+            imem_cache:clear({?MODULE, trigger, S, T});
+        {_,_}  ->  %% update old rec (maybe fixing something)
+            {S,T} = element(2,OldRec),
+            imem_cache:clear({?MODULE, trigger, S, T})
+    end.
 
 %% ------ META implementation -------------------------------------------------------
 
@@ -619,7 +642,8 @@ create_physical_table(Table,ColInfos,Opts,Owner) ->
     DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColInfos, opts=Opts, owner=Owner},
     try
         imem_if:create_table(PhysicalName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
-        imem_if:write(ddTable, DDTableRow)
+        imem_if:write(ddTable, DDTableRow),
+        imem_cache:clear({?MODULE, trigger, schema(), PhysicalName})
     catch
         % ddTable Meta data is attempted to be inserted only if missing and
         _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
@@ -634,6 +658,7 @@ create_table_sys_conf(PhysicalName, ColumnInfos, Opts, Owner) ->
     DDTableRow = #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
     return_atomic_ok(imem_if:write(ddTable, DDTableRow)).
 
+
 create_trigger({Schema,Table},TFun) ->
     MySchema = schema(),
     case Schema of
@@ -641,6 +666,23 @@ create_trigger({Schema,Table},TFun) ->
         _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
     end;
 create_trigger(Table,TFunStr) when is_atom(Table) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] -> 
+            case lists:keysearch(trigger, 1, D#ddTable.opts) of
+                false ->        create_or_replace_trigger(Table,TFunStr);
+                {value,Trig} -> ?ClientError({"Trigger already exists",{Table,Trig}})
+            end;
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end.
+
+create_or_replace_trigger({Schema,Table},TFun) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> create_or_replace_trigger(Table,TFun);
+        _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
+    end;
+create_or_replace_trigger(Table,TFunStr) when is_atom(Table) ->
     % ?LogDebug("Create trigger ~p~n~p",[Table,TFunStr]),
     imem_datatype:io_to_fun(TFunStr,4),
     case read(ddTable,{schema(), Table}) of
@@ -654,8 +696,8 @@ create_trigger(Table,TFunStr) when is_atom(Table) ->
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end;   
-create_trigger(Table,_) when is_atom(Table) ->
-    ?ClientError({"Bad fun for create_trigger, expecting arity 4", Table}).
+create_or_replace_trigger(Table,_) when is_atom(Table) ->
+    ?ClientError({"Bad fun for create_or_replace_trigger, expecting arity 4", Table}).
 
 drop_trigger({Schema,Table}) ->
     MySchema = schema(),
@@ -1020,9 +1062,12 @@ physical_table_names(Alias) when is_list(Alias) ->
             [list_to_atom(Alias)]
     end.
 
-partitioned_table_name(Alias,Key) when is_atom(Alias) ->
-    partitioned_table_name(atom_to_list(Alias),Key);
-partitioned_table_name(Alias,Key) when is_list(Alias) ->
+partitioned_table_name(Alias,Key) ->
+    list_to_atom(partitioned_table_name_str(Alias,Key)).
+
+partitioned_table_name_str(Alias,Key) when is_atom(Alias) ->
+    partitioned_table_name_str(atom_to_list(Alias),Key);
+partitioned_table_name_str(Alias,Key) when is_list(Alias) ->
     case string:tokens(lists:reverse(Alias), "_") of
         [[$@|RN]|_] ->
             % timestamp sharded node sharded table 
@@ -1032,13 +1077,13 @@ partitioned_table_name(Alias,Key) when is_list(Alias) ->
                 PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
                 Prefix = lists:duplicate(10-length(PartitionEnd),$0),
                 {BaseName,_} = lists:split(length(Alias)-length(RN)-1, Alias),
-                list_to_atom(lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard()))
+                lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard())
             catch
-                _:_ -> list_to_atom(lists:flatten(Alias ++ node_shard()))
+                _:_ -> lists:flatten(Alias ++ node_shard())
             end;
          _ ->
             % node sharded table only   
-            list_to_atom(lists:flatten(Alias ++ node_shard()))
+            lists:flatten(Alias ++ node_shard())
     end.
 
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(),Table};
@@ -1932,7 +1977,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?Info("success ~p~n", [create_table_not_null]),
         Trig = <<"fun(O,N,T,U) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U}],\"trigger\") end.">>,
-        ?assertEqual(ok, create_trigger(meta_table_3, Trig)),
+        ?assertEqual(ok, create_or_replace_trigger(meta_table_3, Trig)),
 
         ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
         ?assertException(throw, {ClEr,{"Reserved table name", select}}, create_table(select, BadTypes2, [])),
