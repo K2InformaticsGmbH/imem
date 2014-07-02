@@ -57,8 +57,8 @@
                imem_meta:physical_table_name(mproConnectionProbe@)],
     [(fun() ->
         case imem_snap:get_snap_properties(T) of
-            [] -> ok;           
-            [#snap_properties{table=T, last_write=Wt, last_snap=St} = Prop] -> 
+            {} ->               ok;           
+            {Prop, Wt, St} -> 
                 if 
                     St < Wt ->
                         Res = imem_snap:take(T),
@@ -69,7 +69,7 @@
                                 imem_meta:log_to_db(info,imem_snap,handle_info,[snapshot],Str);
                             {error, T, Reason}  -> imem_snap:snap_err(\"snapshot of ~p failed for ~p\", [T, Reason])
                         end || R <- Res],
-                        true = imem_snap:set_snap_properties(Prop#snap_properties{last_snap= erlang:now()});
+                        true = imem_snap:set_snap_properties(Prop);
                     true -> 
                         ok % no backup needed
                 end
@@ -569,9 +569,13 @@ do_snapshot(SnapFun) ->
             {error,{"cannot snap",Err}}
     end.
 
-get_snap_properties(Tab) -> ets:lookup(?SNAP_ETS_TAB, Tab).
+get_snap_properties(Tab) -> 
+    case ets:lookup(?SNAP_ETS_TAB, Tab) of
+        [] ->       {};
+        [Prop] ->   {Prop, Prop#snap_properties.last_write, Prop#snap_properties.last_snap}
+    end.
 
-set_snap_properties(Prop) -> ets:insert(?SNAP_ETS_TAB, Prop).
+set_snap_properties(Prop) -> ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap= erlang:now()}).
 
 snap_log(_P,_A) -> ?Info(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
