@@ -779,15 +779,21 @@ subscribe({table, Tab, simple}) ->
 subscribe({table, Tab, detailed}) ->
     {ok,_} = mnesia:subscribe({table, Tab, detailed}),
     ok;
+subscribe({table, schema}) ->
+    {ok,_} = mnesia:subscribe({table,schema}),
+    ok;
+subscribe(system) ->
+    {ok,_} = mnesia:subscribe(system),
+    ok;
 subscribe(EventCategory) ->
-    ?ClientErrorNoLogging({"Unsupported event category", EventCategory}).
+    ?ClientErrorNoLogging({"Unsupported event category subscription", EventCategory}).
 
-unsubscribe({table, Tab, simple}) ->
-mnesia:unsubscribe({table, Tab, simple});
-unsubscribe({table, Tab, detailed}) ->
-mnesia:unsubscribe({table, Tab, detailed});
+unsubscribe({table, Tab, simple})   -> mnesia:unsubscribe({table, Tab, simple});
+unsubscribe({table, Tab, detailed}) -> mnesia:unsubscribe({table, Tab, detailed});
+unsubscribe({table,schema})         -> mnesia:unsubscribe({table, schema});
+unsubscribe(system)                 -> mnesia:unsubscribe(system);
 unsubscribe(EventCategory) ->
-    ?ClientErrorNoLogging({"Unsupported event category", EventCategory}).
+    ?ClientErrorNoLogging({"Unsupported event category unsubscription", EventCategory}).
 
 
 %% ----- gen_server -------------------------------------------
