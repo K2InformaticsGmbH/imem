@@ -9,7 +9,7 @@
 
 -define(META_TABLES,[?CACHE_TABLE,ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
--define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
+-define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
 
 -define(CONFIG_TABLE_OPTS, [{record_name,ddConfig}
                            ,{type,ordered_set}
@@ -641,8 +641,11 @@ create_physical_table(Table,ColInfos,Opts,Owner) ->
     PhysicalName=physical_table_name(Table),
     DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColInfos, opts=Opts, owner=Owner},
     try
+        % ?Info("creating table with opts ~p ~p ~n", [PhysicalName,if_opts(Opts)]),
         imem_if:create_table(PhysicalName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+        % ?Info("register table ~p ~n", [PhysicalName]),
         imem_if:write(ddTable, DDTableRow),
+        % ?Info("clear trigger cache for table ~p ~n", [PhysicalName]),
         imem_cache:clear({?MODULE, trigger, schema(), PhysicalName})
     catch
         % ddTable Meta data is attempted to be inserted only if missing and

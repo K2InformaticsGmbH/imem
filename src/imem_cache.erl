@@ -19,7 +19,7 @@ write(Key,Value) ->
     imem_meta:write(?CACHE_TABLE,#ddCache{ckey=Key,cvalue=Value}).
 
 clear(Key) -> 
-    imem_meta:delete(?CACHE_TABLE,Key).
+    catch (imem_meta:delete(?CACHE_TABLE,Key)).
 
 
 %% TESTS ------------------------------------------------------------------
