@@ -35,8 +35,8 @@
 
 % fun access exports
 -export([ timestamp/1
-        , get_snap_timestamps/1
-        , set_snap_timestamps/2
+        , get_snap_properties/1
+        , set_snap_properties/1
         , snap_log/2
         , snap_err/2
         , do_snapshot/1
@@ -56,13 +56,11 @@
                imem_meta:physical_table_name(ddSeCo@),
                imem_meta:physical_table_name(mproConnectionProbe@)],
     [(fun() ->
-        case imem_snap:get_snap_timestamps(T) of
-            [] -> ok;
-            {Wt,St} ->
-                LastWriteTime = imem_snap:timestamp(Wt),
-                LastSnapTime = imem_snap:timestamp(St),
+        case imem_snap:get_snap_properties(T) of
+            [] -> ok;           
+            [#snap_properties{table=T, last_write=Wt, last_snap=St} = Prop] -> 
                 if 
-                    LastSnapTime < LastWriteTime ->
+                    St < Wt ->
                         Res = imem_snap:take(T),
                         [case R of
                             {ok, T} ->
@@ -71,7 +69,7 @@
                                 imem_meta:log_to_db(info,imem_snap,handle_info,[snapshot],Str);
                             {error, T, Reason}  -> imem_snap:snap_err(\"snapshot of ~p failed for ~p\", [T, Reason])
                         end || R <- Res],
-                        true = imem_snap:set_snap_timestamps(T, erlang:now());
+                        true = imem_snap:set_snap_properties(Prop#snap_properties{last_snap= erlang:now()});
                     true -> 
                         ok % no backup needed
                 end
@@ -571,16 +569,10 @@ do_snapshot(SnapFun) ->
             {error,{"cannot snap",Err}}
     end.
 
-get_snap_timestamps(Tab) ->
-    case ets:lookup(?SNAP_ETS_TAB, Tab) of
-        [] -> [];
-        [#snap_properties{table=Tab, last_write=Wt, last_snap=St}|_] -> {Wt,St}
-    end.
-set_snap_timestamps(Tab,Time) ->
-    case ets:lookup(?SNAP_ETS_TAB, Tab) of
-        [] -> [];
-        [#snap_properties{table=Tab}=Up|_] -> ets:insert(?SNAP_ETS_TAB, Up#snap_properties{last_snap=Time})
-    end.
+get_snap_properties(Tab) -> ets:lookup(?SNAP_ETS_TAB, Tab).
+
+set_snap_properties(Prop) -> ets:insert(?SNAP_ETS_TAB, Prop).
+
 snap_log(_P,_A) -> ?Info(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
 

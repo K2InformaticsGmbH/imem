@@ -86,25 +86,15 @@
 -export([ field_pick/2
         ]).
 
--define(INIT_SNAP(__Table,__Now),
-            true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now})
-       ).
-
-% -define(TOUCH_SNAP(__Table),                  
-%         (fun(__T) ->
-%             case ets:lookup(?SNAP_ETS_TAB, __T) of
-%                 [__Up] ->   true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
-%                             ok;
-%                 [] ->       ?SystemExceptionNoLogging({"No entry in snapshot tracking ETS table", __T})
-%             end
-%         end)(__Table)
-%        ).
-
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
-                [__Up] ->   true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
-                            ok;
-                [] ->       ?SystemExceptionNoLogging({"No entry in snapshot tracking ETS table", __Table})
+                [__Up] ->   
+                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
+                    ok;
+                [] ->
+                    __Now = erlang:now(),
+                    true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now}),
+                    ok
             end
        ).
 
@@ -344,14 +334,12 @@ create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);
 create_table(Table, Opts) when is_atom(Table) ->
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
-    Now = erlang:now(),
     case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
             % ?Debug("table ~p locally exists~n", [Table]),
             mnesia:add_table_copy(Table, node(), ram_copies),
             yes = mnesia:force_load_table(Table),
             wait_table_tries([Table], Conf),
-            ?INIT_SNAP(Table,Now),
             ?ClientErrorNoLogging({"Table already exists", Table});
         {aborted, {already_exists, Table, _Node}} ->
             % ?Debug("table ~p exists at ~p~n", [Table, _Node]),
@@ -359,13 +347,11 @@ create_table(Table, Opts) when is_atom(Table) ->
                 yes -> ok;
                 Error -> ?ClientErrorNoLogging({"Loading table(s) timeout~p", Error})
             end,
-            ?INIT_SNAP(Table,Now),
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result ->
             % ?Debug("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
-            ?INIT_SNAP(Table,Now),
             return_atomic_ok(Result)
     end.
 
