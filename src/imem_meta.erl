@@ -9,7 +9,7 @@
 
 -define(META_TABLES,[?CACHE_TABLE,ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
--define(META_OPTS,[purge_delay]). % table options only used in imem_meta and above
+-define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
 
 -define(CONFIG_TABLE_OPTS, [{record_name,ddConfig}
                            ,{type,ordered_set}
@@ -19,6 +19,10 @@
                            ,{type,ordered_set}
                            ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
                            ]).          
+
+-define(ddTableTrigger,    <<"fun(__OR,__NR,__T,__U) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U) end.">> ).
+-define(DD_TABLE_OPTS,     [{trigger,?ddTableTrigger}]).          
+
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
@@ -68,6 +72,8 @@
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
+        , partitioned_table_name_str/2
+        , partitioned_table_name/2
         , parse_table_name/1
         , is_system_table/1
         , is_readable_table/1
@@ -84,6 +90,7 @@
         , table_memory/1
         , table_record_name/1        
         , trigger_infos/1
+        , dictionary_trigger/4
         , check_table/1
         , check_table_meta/2
         , check_table_columns/2
@@ -110,6 +117,7 @@
 -export([ create_table/3
         , create_table/4
         , create_trigger/2
+        , create_or_replace_trigger/2
         , create_partitioned_table/1
         , create_partitioned_table_sync/1
         , create_check_table/3
@@ -190,7 +198,7 @@ init(_Args) ->
     Result = try
         application:set_env(imem, node_shard, node_shard()),
 
-        catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, [], system),
+        catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, ?DD_TABLE_OPTS, system),
         catch check_table(ddTable),
         catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
@@ -198,7 +206,9 @@ init(_Args) ->
         CDef = {record_info(fields, ddCache), ?ddCache, #ddCache{}},
         COpts = [{scope,local}, {local_content,true},{record_name,ddCache}],
         catch create_check_table(?CACHE_TABLE, CDef, COpts, system),
-
+ 
+        catch imem_meta:create_trigger(ddTable, ?ddTableTrigger),
+ 
         catch create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
         catch create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
         catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
@@ -304,6 +314,20 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 fail(Reason) ->
     throw(Reason).
+
+dictionary_trigger(OldRec,NewRec,ddTable,_User) ->
+    %% clears cached trigger information when ddTable is 
+    %% modified in GUI or with insert/update/merge/remove functions
+    case {OldRec,NewRec} of
+        {{},{}} ->  %% truncate ddTable should never happen
+            ok;          
+        {{},_}  ->  %% write new rec (maybe fixing something)
+            {S,T} = element(2,NewRec),
+            imem_cache:clear({?MODULE, trigger, S, T});
+        {_,_}  ->  %% update old rec (maybe fixing something)
+            {S,T} = element(2,OldRec),
+            imem_cache:clear({?MODULE, trigger, S, T})
+    end.
 
 %% ------ META implementation -------------------------------------------------------
 
@@ -617,8 +641,12 @@ create_physical_table(Table,ColInfos,Opts,Owner) ->
     PhysicalName=physical_table_name(Table),
     DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColInfos, opts=Opts, owner=Owner},
     try
+        % ?Info("creating table with opts ~p ~p ~n", [PhysicalName,if_opts(Opts)]),
         imem_if:create_table(PhysicalName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
-        imem_if:write(ddTable, DDTableRow)
+        % ?Info("register table ~p ~n", [PhysicalName]),
+        imem_if:write(ddTable, DDTableRow),
+        % ?Info("clear trigger cache for table ~p ~n", [PhysicalName]),
+        imem_cache:clear({?MODULE, trigger, schema(), PhysicalName})
     catch
         % ddTable Meta data is attempted to be inserted only if missing and
         _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
@@ -633,6 +661,7 @@ create_table_sys_conf(PhysicalName, ColumnInfos, Opts, Owner) ->
     DDTableRow = #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
     return_atomic_ok(imem_if:write(ddTable, DDTableRow)).
 
+
 create_trigger({Schema,Table},TFun) ->
     MySchema = schema(),
     case Schema of
@@ -640,6 +669,23 @@ create_trigger({Schema,Table},TFun) ->
         _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
     end;
 create_trigger(Table,TFunStr) when is_atom(Table) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] -> 
+            case lists:keysearch(trigger, 1, D#ddTable.opts) of
+                false ->        create_or_replace_trigger(Table,TFunStr);
+                {value,Trig} -> ?ClientError({"Trigger already exists",{Table,Trig}})
+            end;
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end.
+
+create_or_replace_trigger({Schema,Table},TFun) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> create_or_replace_trigger(Table,TFun);
+        _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
+    end;
+create_or_replace_trigger(Table,TFunStr) when is_atom(Table) ->
     % ?LogDebug("Create trigger ~p~n~p",[Table,TFunStr]),
     imem_datatype:io_to_fun(TFunStr,4),
     case read(ddTable,{schema(), Table}) of
@@ -653,8 +699,8 @@ create_trigger(Table,TFunStr) when is_atom(Table) ->
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end;   
-create_trigger(Table,_) when is_atom(Table) ->
-    ?ClientError({"Bad fun for create_trigger, expecting arity 4", Table}).
+create_or_replace_trigger(Table,_) when is_atom(Table) ->
+    ?ClientError({"Bad fun for create_or_replace_trigger, expecting arity 4", Table}).
 
 drop_trigger({Schema,Table}) ->
     MySchema = schema(),
@@ -700,8 +746,8 @@ if_opts(Opts,[MO|Others]) ->
 truncate_table(Table) ->
     truncate_table(Table,meta_field_value(user)).
 
-truncate_table({_Schema,Table,_Alias},User) ->
-    truncate_table({_Schema,Table},User);    
+truncate_table({Schema,Table,_Alias},User) ->
+    truncate_table({Schema,Table},User);    
 truncate_table({Schema,Table},User) ->
     MySchema = schema(),
     case Schema of
@@ -958,15 +1004,15 @@ physical_table_name({_S,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
 physical_table_name(user_tables) -> ddTable;
-physical_table_name(Name) when is_atom(Name) ->
-    case lists:member(Name,?DataTypes) of
-        true ->     Name;
-        false ->    physical_table_name(atom_to_list(Name))
+physical_table_name(Alias) when is_atom(Alias) ->
+    case lists:member(Alias,?DataTypes) of
+        true ->     Alias;
+        false ->    physical_table_name(atom_to_list(Alias))
     end;
-physical_table_name(Name) when is_list(Name) ->
-    case lists:last(Name) of
-        $@ ->   partitioned_table_name(Name,erlang:now());
-        _ ->    list_to_atom(Name)
+physical_table_name(Alias) when is_list(Alias) ->
+    case lists:last(Alias) of
+        $@ ->   partitioned_table_name(Alias,erlang:now());
+        _ ->    list_to_atom(Alias)
     end.
 
 % physical_table_name({_S,N,_A},Key) -> physical_table_name(N,Key);
@@ -974,17 +1020,17 @@ physical_table_name({_S,N},Key) -> physical_table_name(N,Key);
 physical_table_name(dba_tables,_) -> ddTable;
 physical_table_name(all_tables,_) -> ddTable;
 physical_table_name(user_tables,_) -> ddTable;
-physical_table_name(Name,Key) when is_atom(Name) ->
-    case lists:member(Name,?DataTypes) of
-        true ->     Name;
-        false ->    physical_table_name(atom_to_list(Name),Key)
+physical_table_name(Alias,Key) when is_atom(Alias) ->
+    case lists:member(Alias,?DataTypes) of
+        true ->     Alias;
+        false ->    physical_table_name(atom_to_list(Alias),Key)
     end;
-physical_table_name(Name,Key) when is_list(Name) ->
-    case lists:last(Name) of
+physical_table_name(Alias,Key) when is_list(Alias) ->
+    case lists:last(Alias) of
         $@ ->
-            partitioned_table_name(Name,Key);
+            partitioned_table_name(Alias,Key);
         _ ->    
-            list_to_atom(Name)
+            list_to_atom(Alias)
     end.
 
 physical_table_names({_S,N,_A}) -> physical_table_names(N);
@@ -992,51 +1038,55 @@ physical_table_names({_S,N}) -> physical_table_names(N);
 physical_table_names(dba_tables) -> [ddTable];
 physical_table_names(all_tables) -> [ddTable];
 physical_table_names(user_tables) -> [ddTable];
-physical_table_names(Name) when is_atom(Name) ->
-    case lists:member(Name,?DataTypes) of
-        true ->     [Name];
-        false ->    physical_table_names(atom_to_list(Name))
+physical_table_names(Alias) when is_atom(Alias) ->
+    case lists:member(Alias,?DataTypes) of
+        true ->     [Alias];
+        false ->    physical_table_names(atom_to_list(Alias))
     end;
-physical_table_names(Name) when is_list(Name) ->
-    case lists:last(Name) of
+physical_table_names(Alias) when is_list(Alias) ->
+    case lists:last(Alias) of
         $@ ->   
-            case string:tokens(lists:reverse(Name), "_") of
+            case string:tokens(lists:reverse(Alias), "_") of
                 [[$@|RN]|_] ->
                     % timestamp sharded node sharded tables 
                     try 
                         _ = list_to_integer(lists:reverse(RN)),
-                        {BaseName,_} = lists:split(length(Name)-length(RN)-1, Name),
+                        {BaseName,_} = lists:split(length(Alias)-length(RN)-1, Alias),
                         Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
                         lists:filter(Pred,tables_starting_with(BaseName))
                     catch
-                        _:_ -> tables_starting_with(Name)
+                        _:_ -> tables_starting_with(Alias)
                     end;
                  _ ->   
                     % node sharded tables only   
-                    tables_starting_with(Name)
+                    tables_starting_with(Alias)
             end;
         _ ->    
-            [list_to_atom(Name)]
+            [list_to_atom(Alias)]
     end.
 
-partitioned_table_name(Name,Key) when is_atom(Name) ->
-    partitioned_table_name(atom_to_list(Name),Key);
-partitioned_table_name(Name,Key) when is_list(Name) ->
-    case string:tokens(lists:reverse(Name), "_") of
+partitioned_table_name(Alias,Key) ->
+    list_to_atom(partitioned_table_name_str(Alias,Key)).
+
+partitioned_table_name_str(Alias,Key) when is_atom(Alias) ->
+    partitioned_table_name_str(atom_to_list(Alias),Key);
+partitioned_table_name_str(Alias,Key) when is_list(Alias) ->
+    case string:tokens(lists:reverse(Alias), "_") of
         [[$@|RN]|_] ->
             % timestamp sharded node sharded table 
             try 
                 Period = list_to_integer(lists:reverse(RN)),
                 {Mega,Sec,_} = Key,
                 PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
-                {BaseName,_} = lists:split(length(Name)-length(RN)-1, Name),
-                list_to_atom(lists:flatten(BaseName ++ PartitionEnd ++ "@" ++ node_shard()))
+                Prefix = lists:duplicate(10-length(PartitionEnd),$0),
+                {BaseName,_} = lists:split(length(Alias)-length(RN)-1, Alias),
+                lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard())
             catch
-                _:_ -> list_to_atom(lists:flatten(Name ++ node_shard()))
+                _:_ -> lists:flatten(Alias ++ node_shard())
             end;
          _ ->
             % node sharded table only   
-            list_to_atom(lists:flatten(Name ++ node_shard()))
+            lists:flatten(Alias ++ node_shard())
     end.
 
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(),Table};
@@ -1930,7 +1980,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?Info("success ~p~n", [create_table_not_null]),
         Trig = <<"fun(O,N,T,U) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U}],\"trigger\") end.">>,
-        ?assertEqual(ok, create_trigger(meta_table_3, Trig)),
+        ?assertEqual(ok, create_or_replace_trigger(meta_table_3, Trig)),
 
         ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
         ?assertException(throw, {ClEr,{"Reserved table name", select}}, create_table(select, BadTypes2, [])),
