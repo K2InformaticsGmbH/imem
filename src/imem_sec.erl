@@ -723,7 +723,7 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
 
 dal_exec(SKey, Module, Function, Params) ->
     case re:run(atom_to_list(Module),"_dal_",[]) of
-        nomatch ->  ?SecurityException({"Dal execute unauthorized", {Module,Function,Params,SKey}});
+        nomatch ->  ?SecurityException({"dal_exec attempted on wrong module", {Module,Function,Params,SKey}});
         _ ->        dal_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}])
     end.
 

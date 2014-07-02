@@ -746,8 +746,8 @@ if_opts(Opts,[MO|Others]) ->
 truncate_table(Table) ->
     truncate_table(Table,meta_field_value(user)).
 
-truncate_table({_Schema,Table,_Alias},User) ->
-    truncate_table({_Schema,Table},User);    
+truncate_table({Schema,Table,_Alias},User) ->
+    truncate_table({Schema,Table},User);    
 truncate_table({Schema,Table},User) ->
     MySchema = schema(),
     case Schema of
