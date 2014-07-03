@@ -2,7 +2,7 @@
 
 -record(loadControl,
                   { operation = channel     ::atom()
-                  , state = stopped         ::atom()
+                  , state = stop            ::atom()
                   , keyregex = <<".*">>     ::binary()
                   , limit = 1000 	        ::integer()                  
                   , readdelay = 0           ::integer()

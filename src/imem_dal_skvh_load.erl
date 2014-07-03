@@ -15,9 +15,10 @@
             ctrl_table
           , output_table
           , channel
-          , ltr = #loadOutput{}
+          , ltrc = #loadOutput{operation = channel}
+          , ltra = #loadOutput{operation = audit}
           , reader_pid = undefined
-          , start_read
+          , audit_reader_pid = undefined
          }).
 
 start(Channel) when is_list(Channel) -> start(list_to_binary(Channel));
@@ -32,43 +33,42 @@ init([Channel]) ->
     ok = imem_meta:create_table(CtrlTable, {record_info(fields, loadControl),?loadControl,#loadControl{}}
                            , [{record_name,loadControl}], system),
     ok = imem_if:write(CtrlTable, #loadControl{}),
+    ok = imem_if:write(CtrlTable, #loadControl{ operation = audit
+                                              , keyregex = <<"01.01.1970 00:00:00">>}),
     ok = imem_if:subscribe({table, CtrlTable, detailed}),
     OutputTable = list_to_atom(lists:flatten(io_lib:format("~p_~s_output", [?MODULE, Channel]))),
     catch imem_meta:drop_table(OutputTable),
     ok = imem_meta:create_table(OutputTable, {record_info(fields, loadOutput),?loadOutput,#loadOutput{}}
                            , [{record_name,loadOutput}], system),
     ok = imem_if:write(OutputTable, #loadOutput{}),
+    ok = imem_if:write(OutputTable, #loadOutput{operation = audit}),
     Self = self(),
     F = fun(F) ->
             ok = imem_if:subscribe({table, schema}),
             receive
                 {mnesia_table_event,{delete,{schema,CtrlTable,_},_}} ->
-                    Self ! {die,table_dropped,CtrlTable};
+                    Self ! {die,{table_dropped,CtrlTable}};
                 {mnesia_table_event,{delete,{schema,OutputTable,_},_}} ->
-                    Self ! {die,table_dropped,OutputTable};
+                    Self ! {die,{table_dropped,OutputTable}};
                 _ -> F(F)
             end
         end,
     spawn(fun() -> F(F) end),
     {ok, #state{ctrl_table=CtrlTable, output_table = OutputTable, channel = Channel}}.
 
-handle_call(Req, _From, State) ->
-    {ok, Req, State}.
-
-handle_cast(Msg, State) ->
-    io:format(user, "handle_cast ~p~n", [Msg]),
-    {noreply, State}.
+handle_call(Req, _From, State) -> io:format(user, "Unknown handle_call ~p~n", [Req]), {ok, Req, State}.
+handle_cast(Msg, State) -> io:format(user, "Unknown handle_cast ~p~n", [Msg]), {noreply, State}.
 
 handle_info({mnesia_table_event, {write, CtrlTable
-        , #loadControl{state = getkey, keyregex = KRegx, limit = Limit}, _, _}}
+        , #loadControl{state = getkeys, operation = channel, keyregex = KRegx, limit = Limit}, _, _}}
         , #state{ctrl_table = CtrlTable} = State) ->
     {ok, _} = imem_if:unsubscribe({table, State#state.ctrl_table, detailed}),
     Parent = self(),
     spawn(fun() ->
         keys_read_process(Parent, State#state.channel, KRegx, <<"-1.0e100">>, Limit)
     end),
-    {noreply, State#state{ltr = (State#state.ltr)#loadOutput{keys = [], keycounter = 0}}};
-handle_info({mnesia_table_event, {write, CtrlTable, #loadControl{state = stopped}, _, _}}
+    {noreply, State#state{ltrc = (State#state.ltrc)#loadOutput{keys = [], keycounter = 0}}};
+handle_info({mnesia_table_event, {write, CtrlTable, #loadControl{state = stop, operation = channel}, _, _}}
         , #state{ctrl_table = CtrlTable} = State) ->
     if State#state.reader_pid /= undefined ->
         case erlang:is_process_alive(State#state.reader_pid) of
@@ -80,24 +80,52 @@ handle_info({mnesia_table_event, {write, CtrlTable, #loadControl{state = stopped
         true -> ok
     end,
     ok = imem_meta:write(State#state.output_table, #loadOutput{}),
-    {noreply, State#state{ltr = #loadOutput{}, reader_pid = undefined}};
+    {noreply, State#state{ltrc = #loadOutput{operation = channel}, reader_pid = undefined}};
 handle_info({mnesia_table_event, {write, CtrlTable,
-    #loadControl{state = run, readdelay = ReadDelay}, _, _}},
+    #loadControl{state = run, operation = channel, readdelay = ReadDelay}, _, _}},
     #state{ctrl_table = CtrlTable} =  State) ->
     ReaderPid =
         if State#state.reader_pid == undefined ->
                Parent = self(),
                spawn(fun() ->
-                             Begning = now_us(),
+                             Begning = erlang:now(),
                              random_read_process(Parent, State#state.channel
-                                                 , ReadDelay, (State#state.ltr)#loadOutput.keys
+                                                 , ReadDelay, (State#state.ltrc)#loadOutput.keys
                                                  , {Begning, Begning, 0})
                      end);
            true -> State#state.reader_pid
         end,
-    {noreply, State#state{reader_pid = ReaderPid, start_read = erlang:now()}};
-handle_info({die, Reason}, State) ->
-    {stop, Reason, State};
+    {noreply, State#state{reader_pid = ReaderPid}};
+
+handle_info({mnesia_table_event, {write, CtrlTable, #loadControl{state = stop, operation = audit}, _, _}}
+        , #state{ctrl_table = CtrlTable} = State) ->
+    if State#state.audit_reader_pid /= undefined ->
+        case erlang:is_process_alive(State#state.audit_reader_pid) of
+            true ->
+                io:format(user, "Killing audit reader ~p~n", [State#state.audit_reader_pid]),
+                State#state.audit_reader_pid ! kill;
+            _ -> ok
+        end;
+        true -> ok
+    end,
+    ok = imem_meta:write(State#state.output_table, #loadOutput{operation = audit}),
+    {noreply, State#state{ltra = #loadOutput{operation = audit}, audit_reader_pid = undefined}};
+handle_info({mnesia_table_event, {write, CtrlTable,
+    #loadControl{state = run, operation = audit, keyregex = Key, readdelay = ReadDelay, limit = Limit}, _, _}},
+    #state{ctrl_table = CtrlTable} =  State) ->
+    ReaderPid =
+        if State#state.audit_reader_pid == undefined ->
+               Parent = self(),
+               spawn(fun() ->
+                             Begning = erlang:now(),
+                             audit_read_process(Parent, State#state.channel
+                                               , ReadDelay, Key, Limit
+                                               , {Begning, Begning, 0})
+                     end);
+           true -> State#state.audit_reader_pid
+        end,
+    {noreply, State#state{audit_reader_pid = ReaderPid}};
+
 handle_info({mnesia_table_event, {delete,Table,_,_,_}}, #state{ctrl_table = Table} = State) ->
     % Delete rows event from control table is ignored
     {noreply, State};
@@ -105,26 +133,36 @@ handle_info({mnesia_table_event, {delete,Table,_,_,_}}, #state{ctrl_table = Tabl
 handle_info(resubscribe, State) ->
     ok = imem_if:subscribe({table, State#state.ctrl_table, detailed}),
     {noreply, State};
-handle_info({keys, Keys}, #state{ltr = LTRec} = State) ->
+handle_info({keys, Keys}, #state{ltrc = LTRec} = State) ->
     NewLTRec = LTRec#loadOutput{keys = LTRec#loadOutput.keys ++ Keys
                               , keycounter = LTRec#loadOutput.keycounter + length(Keys)},
     ok = imem_if:write(State#state.output_table, NewLTRec),
-    {noreply, State#state{ltr = NewLTRec}};
+    {noreply, State#state{ltrc = NewLTRec}};
 
-handle_info({read, Count, Begning, Now, Key, Value}, State) ->
-    TimeDiff = (Now - Begning) / 1000000,
-    NewTotalRead = (State#state.ltr)#loadOutput.totalread + Count,
-    Rate = NewTotalRead / TimeDiff,
-    NewLTRec = (State#state.ltr)#loadOutput{ time = erlang:now()
-                                   , totalread = NewTotalRead
-                                   , rate = Rate
+handle_info({read, Count, TDiffSec, Key, Value}, State) ->
+    NewLTRec = (State#state.ltrc)#loadOutput{ time = erlang:now()
+                                   , totalread = Count
+                                   , rate = Count / TDiffSec
                                    , lastItem = Key
                                    , lastValue = Value },
     ok = imem_if:write(State#state.output_table, NewLTRec),
-    {noreply, State#state{ltr = NewLTRec}};
+    {noreply, State#state{ltrc = NewLTRec}};
+
+handle_info({read_audit, Count, TDiffSec, Value}, State) ->
+    NewLTRec = (State#state.ltra)#loadOutput{
+                                   operation = audit
+                                   , time = erlang:now()
+                                   , totalread = Count
+                                   , rate = Count / TDiffSec
+                                   , lastValue = Value },
+    ok = imem_if:write(State#state.output_table, NewLTRec),
+    {noreply, State#state{ltra = NewLTRec}};
+
+handle_info({die, Reason}, State) ->
+    {stop, Reason, State};
 
 handle_info(Msg, State) ->
-    io:format(user, "handle_info ~p~n", [Msg]),
+    io:format(user, "Unknown handle_info ~p~n", [Msg]),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -151,10 +189,11 @@ keys_read_process(Parent, Channel, KeyRegex, FromKey, Limit) ->
 random_read_process(Parent, Channel, ReadDelay, Keys, {Begning, LastUpdate, Count}) ->
     Key = lists:nth(random:uniform(length(Keys)), Keys),
     {ok, Value} = imem_dal_skvh:read(system, Channel, <<"value">>, Key),
-    NowUs = now_us(),
-    {NewLastUpdate, NewCount} = if ((NowUs - LastUpdate) > 1000000) ->
-                                     Parent ! {read, Count, Begning, NowUs, Key, Value},
-                                     {NowUs, 0};
+    NowUs = erlang:now(),
+    TDiffUs = timer:now_diff(NowUs, LastUpdate),
+    {NewLastUpdate, NewCount} = if (TDiffUs > 1000000) ->
+                                       Parent ! {read, Count, TDiffUs / 1000000, Key, Value},
+                                       {NowUs, Count + 1};
                                  true ->
                                        {LastUpdate, Count + 1}
                               end,
@@ -163,6 +202,24 @@ random_read_process(Parent, Channel, ReadDelay, Keys, {Begning, LastUpdate, Coun
     after 1 -> random_read_process(Parent, Channel, ReadDelay, Keys, {Begning, NewLastUpdate, NewCount})
     end.
 
-now_us() ->
-    {MegaSecs,Secs,MicroSecs} = erlang:now(),
-	(MegaSecs*1000000 + Secs)*1000000 + MicroSecs.
+audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {Begning, LastUpdate, Count}) ->
+    {ok, Values} = imem_dal_skvh:audit_readGT(system, Channel, <<"tkvuquadruple">>, Key, Limit),
+    NewCount = Count + length(Values),
+    NowUs = erlang:now(),
+    TDiffUs = timer:now_diff(NowUs, LastUpdate),
+    {NewLastUpdate, NewCount} = if length(Values) > 0->
+                                       Parent ! {read_audit, NewCount, TDiffUs / 1000000, lists:last(Values)},
+                                       {NowUs, NewCount};
+                                 true ->
+                                       {LastUpdate, NewCount}
+                              end,
+    if ReadDelay > 0 -> timer:sleep(ReadDelay); true -> ok end,
+    receive _ -> die
+    after 1 ->              
+              NextKey = if length(Values) > 0 ->
+                               lists:nth(1, re:split(lists:last(Values), "\t"));
+                           true -> Key
+                        end,
+              audit_read_process(Parent, Channel, ReadDelay, NextKey
+                                 , Limit, {Begning, NewLastUpdate, NewCount})
+    end.
