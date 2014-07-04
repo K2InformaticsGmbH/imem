@@ -88,10 +88,10 @@ handle_info({mnesia_table_event, {write, CtrlTable,
         if State#state.reader_pid == undefined ->
                Parent = self(),
                spawn(fun() ->
-                             Begning = erlang:now(),
+                             StartTime = erlang:now(),
                              random_read_process(Parent, State#state.channel
                                                  , ReadDelay, (State#state.ltrc)#loadOutput.keys
-                                                 , {Begning, Begning, 0})
+                                                 , {StartTime, StartTime, 0})
                      end);
            true -> State#state.reader_pid
         end,
@@ -117,10 +117,10 @@ handle_info({mnesia_table_event, {write, CtrlTable,
         if State#state.audit_reader_pid == undefined ->
                Parent = self(),
                spawn(fun() ->
-                             Begning = erlang:now(),
+                             StartTime = erlang:now(),
                              audit_read_process(Parent, State#state.channel
                                                , ReadDelay, Key, Limit
-                                               , {Begning, Begning, 0})
+                                               , {StartTime, StartTime, 0})
                      end);
            true -> State#state.audit_reader_pid
         end,
@@ -186,40 +186,40 @@ keys_read_process(Parent, Channel, KeyRegex, FromKey, Limit) ->
         true -> Parent ! resubscribe
     end.
 
-random_read_process(Parent, Channel, ReadDelay, Keys, {Begning, LastUpdate, Count}) ->
+random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Count}) ->
     Key = lists:nth(random:uniform(length(Keys)), Keys),
     {ok, Value} = imem_dal_skvh:read(system, Channel, <<"value">>, Key),
-    NowUs = erlang:now(),
-    TDiffUs = timer:now_diff(NowUs, LastUpdate),
+    Now = erlang:now(),
+    TDiffUs = timer:now_diff(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if (TDiffUs > 1000000) ->
-                                       Parent ! {read, Count, TDiffUs / 1000000, Key, Value},
-                                       {NowUs, Count + 1};
+                                       Parent ! {read, Count+1, TDiffUs / 1000000, Key, Value},
+                                       {Now, Count + 1};
                                  true ->
                                        {LastUpdate, Count + 1}
                               end,
     if ReadDelay > 0 -> timer:sleep(ReadDelay); true -> ok end,
     receive _ -> die
-    after 1 -> random_read_process(Parent, Channel, ReadDelay, Keys, {Begning, NewLastUpdate, NewCount})
+    after 0 -> random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, NewLastUpdate, NewCount})
     end.
 
-audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {Begning, LastUpdate, Count}) ->
+audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {StartTime, LastUpdate, Count}) ->
     {ok, Values} = imem_dal_skvh:audit_readGT(system, Channel, <<"tkvuquadruple">>, Key, Limit),
     NewCount = Count + length(Values),
-    NowUs = erlang:now(),
-    TDiffUs = timer:now_diff(NowUs, LastUpdate),
+    Now = erlang:now(),
+    TDiffUs = timer:now_diff(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if length(Values) > 0->
                                        Parent ! {read_audit, NewCount, TDiffUs / 1000000, lists:last(Values)},
-                                       {NowUs, NewCount};
+                                       {Now, NewCount};
                                  true ->
                                        {LastUpdate, NewCount}
                               end,
     if ReadDelay > 0 -> timer:sleep(ReadDelay); true -> ok end,
     receive _ -> die
-    after 1 ->              
+    after 0 ->              
               NextKey = if length(Values) > 0 ->
                                lists:nth(1, re:split(lists:last(Values), "\t"));
                            true -> Key
                         end,
               audit_read_process(Parent, Channel, ReadDelay, NextKey
-                                 , Limit, {Begning, NewLastUpdate, NewCount})
+                                 , Limit, {StartTime, NewLastUpdate, NewCount})
     end.
