@@ -192,7 +192,7 @@ random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Co
     Now = erlang:now(),
     TDiffUs = timer:now_diff(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if (TDiffUs > 1000000) ->
-                                       Parent ! {read, Count+1, TDiffUs / 1000000, Key, Value},
+                                       Parent ! {read, Count+1, timer:now_diff(Now, StartTime) / 1000000, Key, Value},
                                        {Now, Count + 1};
                                  true ->
                                        {LastUpdate, Count + 1}
@@ -206,9 +206,8 @@ audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {StartTime, LastUpdat
     {ok, Values} = imem_dal_skvh:audit_readGT(system, Channel, <<"tkvuquadruple">>, Key, Limit),
     NewCount = Count + length(Values),
     Now = erlang:now(),
-    TDiffUs = timer:now_diff(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if length(Values) > 0->
-                                       Parent ! {read_audit, NewCount, TDiffUs / 1000000, lists:last(Values)},
+                                       Parent ! {read_audit, NewCount, timer:now_diff(Now,StartTime) / 1000000, lists:last(Values)},
                                        {Now, NewCount};
                                  true ->
                                        {LastUpdate, NewCount}
