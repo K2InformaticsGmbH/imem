@@ -12,14 +12,17 @@ setup() ->
     ?imem_test_setup().
 
 teardown(_) ->
-    SKey = ?imem_test_admin_login(),
-    catch imem_account:delete(SKey, <<"test">>),
-    catch imem_account:delete(SKey, <<"test_admin">>),
-    catch imem_role:delete(SKey, table_creator),
-    catch imem_role:delete(SKey, test_role),
-    catch imem_seco:logout(SKey),
-    catch imem_meta:drop_table(user_table_123),
-    ?imem_test_teardown().
+    try 
+        SKey = ?imem_test_admin_login(),
+        catch imem_account:delete(SKey, <<"test">>),
+        catch imem_account:delete(SKey, <<"test_admin">>),
+        catch imem_role:delete(SKey, table_creator),
+        catch imem_role:delete(SKey, test_role),
+        catch imem_seco:logout(SKey),
+        catch imem_meta:drop_table(user_table_123),
+        ?imem_test_teardown()
+    catch _:_ -> ok
+    end.
 
 db_test_() ->
     {
@@ -305,10 +308,10 @@ test(_) ->
         ?Info("success ~p~n", [permissions_own_table]),      
         ?assertEqual(#ddRole{id=AccountId,roles=[]}, imem_role:get(SeCo, AccountId)),
         ?Info("success ~p~n", [role_get]),
-        ?assertEqual(ok, imem_sec:insert(SeCo4, user_table_123, {user_table_123,"A","B","C"})),
+        ?assertEqual({user_table_123,"A","B","C"}, imem_sec:insert(SeCo4, user_table_123, {user_table_123,"A","B","C"})),
         ?assertEqual(1, imem_sec:table_size(SeCo4, user_table_123)),
         ?Info("success ~p~n", [insert_own_table]),
-        ?assertEqual(ok, imem_sec:insert(SeCo4, user_table_123, {user_table_123,"AA","BB","CC"})),
+        ?assertEqual({user_table_123,"AA","BB","CC"}, imem_sec:insert(SeCo4, user_table_123, {user_table_123,"AA","BB","CC"})),
         ?assertEqual(2, imem_sec:table_size(SeCo4, user_table_123)),
         ?Info("success ~p~n", [insert_own_table]),
         ?assertEqual(ok, imem_sec:drop_table(SeCo4, user_table_123)),
@@ -385,8 +388,6 @@ test(_) ->
         ?assertException(throw, {SeEx,{"Revoke permission unauthorized",SeCo4}}, imem_role:revoke_permission(SeCo4, test_role, delete_tests)),
         ?Info("success ~p~n", [test_manage_account_permission_rejects]), 
 
-        ?Info("~p:test_imem_seco~n", [?MODULE])
-
         %% Cleanup too dangerous for dev or prod setup
         % ?assertException(throw, {SeEx,{"Drop seco tables unauthorized",SeCo}}, imem_seco:drop_seco_tables(SeCo)),
         % ?Info("success ~p~n", [drop_seco_tables_reject]), 
@@ -395,7 +396,10 @@ test(_) ->
         % ?assertEqual(ok, imem_seco:drop_seco_tables(SeCo)),
         % ?Info("success ~p~n", [drop_seco_tables]), 
         % ?assertEqual(ok, imem_meta:drop_meta_tables()),
-        % ?Info("success ~p~n", [drop_meta_tables])     
+        % ?Info("success ~p~n", [drop_meta_tables]),     
+
+        ?Info("~p:test_imem_cleanup~n", [?MODULE])
+
     catch
         Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})

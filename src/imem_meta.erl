@@ -7,7 +7,7 @@
 
 -define(DDNODE_TIMEOUT,3000).       %% RPC timeout for ddNode evaluation
 
--define(META_TABLES,[?CACHE_TABLE,ddTable,ddNode,ddSchema,ddSize,dual,?LOG_TABLE,?MONITOR_TABLE]).
+-define(META_TABLES,[?CACHE_TABLE,?LOG_TABLE,?MONITOR_TABLE,dual,ddNode,ddSchema,ddSize,ddAlias,ddTable]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
 
@@ -21,6 +21,7 @@
                            ]).          
 
 -define(ddTableTrigger,    <<"fun(__OR,__NR,__T,__U) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U) end.">> ).
+-define(DD_ALIAS_OPTS,     [{trigger,?ddTableTrigger}]).          
 -define(DD_TABLE_OPTS,     [{trigger,?ddTableTrigger}]).          
 
 
@@ -53,6 +54,7 @@
 
 
 -export([ drop_meta_tables/0
+        , drop_system_table/1
         ]).
 
 -export([ schema/0
@@ -198,6 +200,8 @@ init(_Args) ->
     Result = try
         application:set_env(imem, node_shard, node_shard()),
 
+        catch create_table(ddAlias, {record_info(fields, ddAlias),?ddAlias, #ddAlias{}}, ?DD_ALIAS_OPTS, system),
+
         catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, ?DD_TABLE_OPTS, system),
         catch check_table(ddTable),
         catch check_table_columns(ddTable, record_info(fields, ddTable)),
@@ -214,6 +218,7 @@ init(_Args) ->
         catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
         catch create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
         catch create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
+
         case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
             ok ->   catch write(dual,#dual{});
             _ ->    ok
@@ -315,11 +320,11 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 fail(Reason) ->
     throw(Reason).
 
-dictionary_trigger(OldRec,NewRec,ddTable,_User) ->
+dictionary_trigger(OldRec,NewRec,T,_User) when T==ddTable; T==ddAlias ->
     %% clears cached trigger information when ddTable is 
     %% modified in GUI or with insert/update/merge/remove functions
     case {OldRec,NewRec} of
-        {{},{}} ->  %% truncate ddTable should never happen
+        {{},{}} ->  %% truncate ddTable/ddAlias should never happen, allow for recovery operations
             ok;          
         {{},_}  ->  %% write new rec (maybe fixing something)
             {S,T} = element(2,NewRec),
@@ -419,10 +424,12 @@ check_table_columns(Table, ColumnNames) when is_atom(Table) ->
     end.
 
 drop_meta_tables() ->
-    drop_table(?MONITOR_TABLE),
-    drop_table(?LOG_TABLE),
-    drop_table(?CONFIG_TABLE),
-    drop_table(ddTable).     
+    drop_meta_tables(?META_TABLES).
+
+drop_meta_tables([]) -> ok;
+drop_meta_tables([Table|Tables]) ->
+    drop_system_table(Table),
+    drop_meta_tables(Tables).
 
 meta_field_list() -> ?META_FIELDS.
 
@@ -568,55 +575,55 @@ create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner
 create_sys_conf(Path) ->
     imem_if_sys_conf:create_sys_conf(Path).    
 
-create_check_physical_table(Table,ColumnInfos,Opts,Owner) when is_atom(Table) ->
-    create_check_physical_table({schema(),Table},ColumnInfos,Opts,Owner);    
-create_check_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
+create_check_physical_table(TableAlias,ColumnInfos,Opts,Owner) when is_atom(TableAlias) ->
+    create_check_physical_table({schema(),TableAlias},ColumnInfos,Opts,Owner);    
+create_check_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
     case lists:member(Schema, [MySchema, ddSysConf]) of
         true ->
-            PhysicalName=physical_table_name(Table),
+            PhysicalName=physical_table_name(TableAlias),
             case read(ddTable,{Schema,PhysicalName}) of 
                 [] ->
-                    create_physical_table({Schema,Table},ColumnInfos,Opts,Owner);
+                    create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner);
                 [#ddTable{opts=Opts,owner=Owner}] ->
-                    catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner),
+                    catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner),
                     ok;
                 [#ddTable{opts=Old,owner=Owner}] ->
                     OldOpts = lists:sort(lists:keydelete(purge_delay,1,Old)),
                     NewOpts = lists:sort(lists:keydelete(purge_delay,1,Opts)),
                     case NewOpts of
                         OldOpts ->
-                            catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner),
+                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner),
                             ok;
                         _ ->
-                            catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner), 
-                            ?SystemException({"Wrong table options",{Table,Old}})
+                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner), 
+                            ?SystemException({"Wrong table options",{TableAlias,Old}})
                     end;        
                 [#ddTable{owner=Own}] ->
-                    catch create_physical_table({Schema,Table},ColumnInfos,Opts,Owner),
-                    ?SystemException({"Wrong table owner",{Table,Own}})        
+                    catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner),
+                    ?SystemException({"Wrong table owner",{TableAlias,Own}})        
             end;
         _ ->        
-            ?UnimplementedException({"Create/check table in foreign schema",{Schema,Table}})
+            ?UnimplementedException({"Create/check table in foreign schema",{Schema,TableAlias}})
     end.
 
-create_physical_table({Schema,Table,_Alias},ColumnInfos,Opts,Owner) ->
-    create_physical_table({Schema,Table},ColumnInfos,Opts,Owner);
-create_physical_table({Schema,Table},ColumnInfos,Opts,Owner) ->
+create_physical_table({Schema,TableAlias,_Alias},ColumnInfos,Opts,Owner) ->
+    create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner);
+create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> create_physical_table(Table,ColumnInfos,Opts,Owner);
-        ddSysConf -> create_table_sys_conf(Table, ColumnInfos, Opts, Owner);
-        _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,Table}})
+        MySchema -> create_physical_table(TableAlias,ColumnInfos,Opts,Owner);
+        ddSysConf -> create_table_sys_conf(TableAlias, ColumnInfos, Opts, Owner);
+        _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,TableAlias}})
     end;
-create_physical_table(Table,ColInfos,Opts,Owner) ->
-    case is_valid_table_name(Table) of
+create_physical_table(TableAlias,ColInfos,Opts,Owner) ->
+    case is_valid_table_name(TableAlias) of
         true ->     ok;
-        false ->    ?ClientError({"Invalid character(s) in table name",Table})
+        false ->    ?ClientError({"Invalid character(s) in table name",TableAlias})
     end,    
-    case sqlparse:is_reserved(Table) of
+    case sqlparse:is_reserved(TableAlias) of
         false ->    ok;
-        true ->     ?ClientError({"Reserved table name",Table})
+        true ->     ?ClientError({"Reserved table name",TableAlias})
     end,
     CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(false, 1, CharsCheck) of
@@ -638,27 +645,57 @@ create_physical_table(Table,ColInfos,Opts,Owner) ->
         false ->    ok;
         {_,BadDef} -> ?ClientError({"Invalid default fun",BadDef})
     end,
-    PhysicalName=physical_table_name(Table),
-    DDTableRow = #ddTable{qname={schema(),PhysicalName}, columns=ColInfos, opts=Opts, owner=Owner},
-    try
-        % ?Info("creating table with opts ~p ~p ~n", [PhysicalName,if_opts(Opts)]),
-        imem_if:create_table(PhysicalName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
-        % ?Info("register table ~p ~n", [PhysicalName]),
-        imem_if:write(ddTable, DDTableRow),
-        % ?Info("clear trigger cache for table ~p ~n", [PhysicalName]),
-        imem_cache:clear({?MODULE, trigger, schema(), PhysicalName})
-    catch
-        % ddTable Meta data is attempted to be inserted only if missing and
-        _:{'ClientError',{"Table already exists",PhysicalName}} = Reason ->
-            case imem_if:read(ddTable, {schema(),PhysicalName}) of
-                [] -> imem_if:write(ddTable, DDTableRow);
-                _ -> ok
-            end,
-            throw(Reason)
+    TableName=physical_table_name(TableAlias),
+    DDTableRow = #ddTable{qname={schema(),TableName}, columns=ColInfos, opts=Opts, owner=Owner},
+    DDAliasRow = #ddAlias{qname={schema(),TableAlias}, columns=ColInfos, opts=Opts, owner=Owner},
+    case TableName of
+        ddAlias ->  
+            % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts)]),
+            imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+            % ?Info("clear trigger cache for table ~p ~n", [TableName]),
+            imem_cache:clear({?MODULE, trigger, schema(), TableName});
+        TableAlias ->
+            try
+                % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts)]),
+                imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+                % ?Info("register table ~p ~n", [TableName]),
+                imem_if:write(ddTable, DDTableRow),
+                % ?Info("clear trigger cache for table ~p ~n", [TableName]),
+                imem_cache:clear({?MODULE, trigger, schema(), TableName})
+            catch
+                _:{'ClientError',{"Table already exists",TableName}} = Reason ->
+                    case imem_if:read(ddTable, {schema(),TableName}) of
+                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data is missing
+                        _ ->    ok
+                    end,
+                    throw(Reason)
+            end;
+        _ ->
+            try        
+                % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts)]),
+                imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+                % ?Info("register alias and table ~p ~p~n", [TableAlias, TableName]),
+                imem_if:write(ddTable, DDTableRow),
+                imem_if:write(ddAlias, DDAliasRow),
+                imem_cache:clear({?MODULE, trigger, schema(), TableAlias}),
+                % ?Info("clear trigger cache for table ~p ~n", [TableName]),
+                imem_cache:clear({?MODULE, trigger, schema(), TableName})
+            catch
+                _:{'ClientError',{"Table already exists",TableName}} = Reason ->
+                    case imem_if:read(ddTable, {schema(),TableName}) of
+                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data is missing
+                        _ ->    ok
+                    end,
+                    case imem_if:read(ddAlias, {schema(),TableAlias}) of
+                        [] ->   imem_if:write(ddAlias, DDAliasRow); % ddAlias meta data is missing
+                        _ ->    ok
+                    end,
+                    throw(Reason)
+            end
     end.
 
-create_table_sys_conf(PhysicalName, ColumnInfos, Opts, Owner) ->
-    DDTableRow = #ddTable{qname={ddSysConf,PhysicalName}, columns=ColumnInfos, opts=Opts, owner=Owner},
+create_table_sys_conf(TableName, ColumnInfos, Opts, Owner) ->
+    DDTableRow = #ddTable{qname={ddSysConf,TableName}, columns=ColumnInfos, opts=Opts, owner=Owner},
     return_atomic_ok(imem_if:write(ddTable, DDTableRow)).
 
 
@@ -815,34 +852,45 @@ restore_table(Alias) when is_atom(Alias) ->
 restore_table(TableName) ->
     restore_table(qualified_table_name(TableName)).
 
-drop_table({Schema,Table}) when is_atom(Schema), is_atom(Table) ->
+drop_table({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> drop_table(Table);
-        _ ->        ?UnimplementedException({"Drop table in foreign schema",{Schema,Table}})
+        MySchema -> drop_table(TableAlias);
+        _ ->        ?UnimplementedException({"Drop table in foreign schema",{Schema,TableAlias}})
     end;
-drop_table(ddTable) -> 
-    imem_if:drop_table(ddTable);
-drop_table(?LOG_TABLE) ->
-    drop_table_and_info(physical_table_name(?LOG_TABLE));
-drop_table(Alias) when is_atom(Alias) ->
-    %% log_to_db(debug,?MODULE,drop_table,[{table,Alias}],"drop table"),
-    drop_partitioned_tables_and_infos(lists:sort(simple_or_local_node_sharded_tables(Alias)));
-drop_table(Table) when is_binary(Table) ->
-    drop_table(qualified_table_name(Table)).
+drop_table(TableAlias) when is_atom(TableAlias) ->
+    case is_system_table(TableAlias) of
+        true -> ?ClientError({"Cannot drop system table",TableAlias});
+        false-> drop_partitioned_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+    end;
+drop_table(TableAlias) when is_binary(TableAlias) ->
+    drop_table(qualified_table_name(TableAlias)).
 
-drop_partitioned_tables_and_infos([]) -> ok;
-drop_partitioned_tables_and_infos([PhName|PhNames]) ->
-    drop_table_and_info(PhName),
-    drop_partitioned_tables_and_infos(PhNames).
+drop_system_table(TableAlias) when is_atom(TableAlias) ->
+    case is_system_table(TableAlias) of
+        false -> ?ClientError({"Not a system table",TableAlias});
+        true ->  drop_partitioned_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+    end.
 
-drop_table_and_info(PhysicalName) ->
+drop_partitioned_tables_and_infos(TableName,[TableName]) ->
+    drop_table_and_info(TableName);
+drop_partitioned_tables_and_infos(TableAlias, []) -> 
+     imem_if:delete(ddAlias, {schema(),TableAlias});
+drop_partitioned_tables_and_infos(TableAlias,[TableName|TableNames]) ->
+    drop_table_and_info(TableName),
+    drop_partitioned_tables_and_infos(TableAlias,TableNames).
+
+drop_table_and_info(TableName) ->
     try
-        imem_if:drop_table(PhysicalName),
-        imem_if:delete(ddTable, {schema(),PhysicalName})
+        imem_if:drop_table(TableName),
+        case TableName of
+            ddTable ->  ok;
+            ddAlias ->  ok;
+            _ ->        imem_if:delete(ddTable, {schema(),TableName})
+        end
     catch
         throw:{'ClientError',{"Table does not exist",Table}} ->
-            catch imem_if:delete(ddTable, {schema(),PhysicalName}),
+            catch imem_if:delete(ddTable, {schema(),TableName}),
             throw({'ClientError',{"Table does not exist",Table}})
     end.       
 
@@ -2039,6 +2087,11 @@ meta_operations(_) ->
         ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable0)),
         ?assertEqual(0, table_size(TimePartTable0)),
+
+        Alias0 = read(ddAlias),
+        % ?Info("Alias0 ~p~n", [Alias0]),
+        ?assert(lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias0])),
+
         ?assertEqual(ok, write(tpTest_1000@, LogRec1)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(tpTest_1000@)),
@@ -2058,6 +2111,9 @@ meta_operations(_) ->
         ?assertEqual(0, purge_table(tpTest_1000@)),
         ?assertEqual(ok, drop_table(tpTest_1000@)),
         ?assertEqual([],physical_table_names(tpTest_1000@)),
+        Alias1 = read(ddAlias),
+        % ?Info("Alias1 ~p~n", [Alias1]),
+        ?assertEqual(false,lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias1])),
         ?Info("success ~p~n", [tpTest_1000@]),
 
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),

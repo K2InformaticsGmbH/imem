@@ -36,6 +36,16 @@
                   }
         ).
 
+-record(ddAlias,                            %% table alias for partitioned tables
+                  { qname                   ::{atom(),atom()}   %% {Schema,TableAlias}
+                  , columns                 ::list(#ddColumn{})
+                  , opts = []               ::list()      
+                  , owner=system            ::ddEntityId()          %% AccountId of creator / owner
+                  , readonly='false'        ::'true' | 'false'
+                  }
+       ).
+-define(ddAlias, [tuple,list,list,userid,boolean]).
+
 -record(ddTable,                            %% table    
                   { qname                   ::{atom(),atom()}		%% {Schema,Table}
                   , columns                 ::list(#ddColumn{})
