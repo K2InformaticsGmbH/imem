@@ -120,8 +120,8 @@
         , create_table/4
         , create_trigger/2
         , create_or_replace_trigger/2
-        , create_partitioned_table/1
-        , create_partitioned_table_sync/1
+        , create_partitioned_table/2
+        , create_partitioned_table_sync/2
         , create_check_table/3
         , create_check_table/4
         , create_sys_conf/1
@@ -230,27 +230,27 @@ init(_Args) ->
     end,
     Result.
 
-create_partitioned_table_sync(Name) when is_atom(Name) ->
+create_partitioned_table_sync(TableAlias,TableName) when is_atom(TableAlias), is_atom(TableName) ->
     ImemMetaPid = erlang:whereis(?MODULE),
     case self() of
         ImemMetaPid ->
             {error,recursive_call};   %% cannot call myself
         _ ->
-            gen_server:call(?MODULE, {create_partitioned_table, Name},35000)
+            gen_server:call(?MODULE, {create_partitioned_table, TableAlias, TableName},35000)
     end. 
 
-create_partitioned_table(Name) when is_atom(Name) ->
+create_partitioned_table(TableAlias, TableName) when is_atom(TableName) ->
     try 
-        case imem_if:read(ddTable,{schema(), Name}) of
+        case imem_if:read(ddTable,{schema(), TableName}) of
             [#ddTable{}] ->
                 % Table seems to exist, may need to load it
-                case catch(check_table(Name)) of
+                case catch(check_table(TableName)) of
                     ok ->   ok;
-                    {'ClientError',{"Table does not exist",Name}} ->
-                        create_nonexisting_partitioned_table(Name);
+                    {'ClientError',{"Table does not exist",TableName}} ->
+                        create_nonexisting_partitioned_table(TableName);
                     Res ->
-                        ?Info("Waiting for partitioned table ~p needed because of ~p", [Name,Res]),
-                        case mnesia:wait_for_tables([Name], 30000) of
+                        ?Info("Waiting for partitioned table ~p needed because of ~p", [TableName,Res]),
+                        case mnesia:wait_for_tables([TableName], 30000) of
                             ok ->   ok;   
                             Error ->            
                                 ?Error("Waiting for partitioned table failed with ~p", [Error]),
@@ -259,7 +259,7 @@ create_partitioned_table(Name) when is_atom(Name) ->
                 end;
             [] ->
                 % Table does not exist in ddTable, must create it similar to existing
-                create_nonexisting_partitioned_table(Name)   
+                create_nonexisting_partitioned_table(TableName)   
         end
     catch
         _:Reason1 ->
@@ -267,12 +267,12 @@ create_partitioned_table(Name) when is_atom(Name) ->
             {error,Reason1}
     end.
 
-create_nonexisting_partitioned_table(Name) ->
+create_nonexisting_partitioned_table(TableName) ->
     NS = node_shard(),
-    case parse_table_name(Name) of
+    case parse_table_name(TableName) of
         [_,_,_,"",_,_] ->
-            ?Error("Invalid table name ~p", [Name]),   
-            {error, {"Invalid table name",Name}};
+            ?Error("Invalid table name ~p", [TableName]),   
+            {error, {"Invalid table name",TableName}};
         ["","",BaseName,_,"@",NS] ->
             % choose template table name (name pattern with highest timestamp)
             Pred = fun(TN) -> is_local_time_partitioned_table(TN) end,
@@ -289,7 +289,7 @@ create_nonexisting_partitioned_table(Name) ->
                             {error, {"Table template not found", Template}}; 
                         [#ddTable{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
                             try
-                                create_table(Name, ColumnInfos, Opts, Owner)
+                                create_table(TableName, ColumnInfos, Opts, Owner)
                             catch
                                 _:Reason2 -> {error, Reason2}
                             end
@@ -297,8 +297,8 @@ create_nonexisting_partitioned_table(Name) ->
             end
     end.
 
-handle_call({create_partitioned_table, Name}, _From, State) ->
-    {reply, create_partitioned_table(Name), State};
+handle_call({create_partitioned_table, TableAlias, TableName}, _From, State) ->
+    {reply, create_partitioned_table(TableAlias,TableName), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -360,11 +360,11 @@ check_table({ddSysConf, _Table}) -> ok.
 
 
 check_table_meta({ddSysConf, _}, _) -> ok;
-check_table_meta(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
+check_table_meta(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAlias) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
-    case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
-        [] ->   ?SystemException({"Missing table metadata",Table}); 
+    case imem_if:read(ddTable,{schema(), physical_table_name(TableAlias)}) of
+        [] ->   ?SystemException({"Missing table metadata",TableAlias}); 
         [#ddTable{columns=ColumnInfos}] ->
             CINames = column_info_items(ColumnInfos, name),
             CITypes = column_info_items(ColumnInfos, type),
@@ -373,53 +373,53 @@ check_table_meta(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
                 (CINames =:= Names) andalso (CITypes =:= Types) andalso (CIDefaults =:= Defaults) ->  
                     ok;
                 true ->                 
-                    ?SystemException({"Record does not match table metadata",Table})
+                    ?SystemException({"Record does not match table metadata",TableAlias})
             end;
         Else -> 
-            ?SystemException({"Column definition does not match table metadata",{Table,Else}})    
+            ?SystemException({"Column definition does not match table metadata",{TableAlias,Else}})    
     end;  
-check_table_meta(Table, ColumnNames) when is_atom(Table) ->
-    case imem_if:read(ddTable,{schema(), physical_table_name(Table)}) of
-        [] ->   ?SystemException({"Missing table metadata",Table}); 
+check_table_meta(TableAlias, ColumnNames) when is_atom(TableAlias) ->
+    case imem_if:read(ddTable,{schema(), physical_table_name(TableAlias)}) of
+        [] ->   ?SystemException({"Missing table metadata",TableAlias}); 
         [#ddTable{columns=ColumnInfo}] ->
             CINames = column_info_items(ColumnInfo, name),
             if
                 CINames =:= ColumnNames ->  
                     ok;
                 true ->                 
-                    ?SystemException({"Record field names do not match table metadata",Table})
+                    ?SystemException({"Record field names do not match table metadata",TableAlias})
             end          
     end.
 
 check_table_columns({ddSysConf, _}, _) -> ok;
-check_table_columns(Table, {Names, Types, DefaultRecord}) when is_atom(Table) ->
+check_table_columns(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAlias) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfo = column_infos(Names, Types, Defaults),
-    TableColumns = table_columns(Table),    
-    MetaInfo = column_infos(Table),    
+    TableColumns = table_columns(TableAlias),    
+    MetaInfo = column_infos(TableAlias),    
     if
         Names /= TableColumns ->
-            ?SystemException({"Column names do not match table structure",Table});             
+            ?SystemException({"Column names do not match table structure",TableAlias});             
         ColumnInfo /= MetaInfo ->
-            ?SystemException({"Column info does not match table metadata",Table});
+            ?SystemException({"Column info does not match table metadata",TableAlias});
         true ->     ok
     end;
-check_table_columns(Table, [CI|_]=ColumnInfo) when is_atom(Table), is_tuple(CI) ->
+check_table_columns(TableAlias, [CI|_]=ColumnInfo) when is_atom(TableAlias), is_tuple(CI) ->
     ColumnNames = column_info_items(ColumnInfo, name),
-    TableColumns = table_columns(Table),
-    MetaInfo = column_infos(Table),    
+    TableColumns = table_columns(TableAlias),
+    MetaInfo = column_infos(TableAlias),    
     if
         ColumnNames /= TableColumns ->
-            ?SystemException({"Column info does not match table structure",Table}) ;
+            ?SystemException({"Column info does not match table structure",TableAlias}) ;
         ColumnInfo /= MetaInfo ->
-            ?SystemException({"Column info does not match table metadata",Table});
+            ?SystemException({"Column info does not match table metadata",TableAlias});
         true ->     ok                           
     end;
-check_table_columns(Table, ColumnNames) when is_atom(Table) ->
-    TableColumns = table_columns(Table),
+check_table_columns(TableAlias, ColumnNames) when is_atom(TableAlias) ->
+    TableColumns = table_columns(TableAlias),
     if
         ColumnNames /= TableColumns ->
-            ?SystemException({"Column info does not match table structure",Table}) ;
+            ?SystemException({"Column info does not match table structure",TableAlias}) ;
         true ->     ok                           
     end.
 
@@ -427,8 +427,8 @@ drop_meta_tables() ->
     drop_meta_tables(?META_TABLES).
 
 drop_meta_tables([]) -> ok;
-drop_meta_tables([Table|Tables]) ->
-    drop_system_table(Table),
+drop_meta_tables([TableAlias|Tables]) ->
+    drop_system_table(TableAlias),
     drop_meta_tables(Tables).
 
 meta_field_list() -> ?META_FIELDS.
@@ -486,27 +486,27 @@ column_info_items(_Info, Item) ->
 column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
-column_infos(Table) when is_atom(Table) ->
-    column_infos({schema(),Table});    
-column_infos({Schema,Table}) when is_binary(Schema), is_binary(Table) ->
+column_infos(TableAlias) when is_atom(TableAlias) ->
+    column_infos({schema(),TableAlias});    
+column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
     S= try 
         ?binary_to_existing_atom(Schema)
     catch 
         _:_ -> ?ClientError({"Schema does not exist",Schema})
     end,
     T = try 
-        ?binary_to_existing_atom(Table)
+        ?binary_to_existing_atom(TableAlias)
     catch 
-        _:_ -> ?ClientError({"Table does not exist",Table})
+        _:_ -> ?ClientError({"Table does not exist",TableAlias})
     end,        
     column_infos({S,T});
-column_infos({Schema,Table}) when is_atom(Schema), is_atom(Table) ->
-    case lists:member(Table, ?DataTypes) of
+column_infos({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
+    case lists:member(TableAlias, ?DataTypes) of
         true -> 
-            [#ddColumn{name=item, type=Table, len=0, prec=0, default=undefined}];
+            [#ddColumn{name=item, type=TableAlias, len=0, prec=0, default=undefined}];
         false ->
-            case imem_if:read(ddTable,{Schema, physical_table_name(Table)}) of
-                [] ->                       ?ClientError({"Table does not exist",{Schema,Table}}); 
+            case imem_if:read(ddTable,{Schema, physical_table_name(TableAlias)}) of
+                [] ->                       ?ClientError({"Table does not exist",{Schema,TableAlias}}); 
                 [#ddTable{columns=CI}] ->   CI
             end
     end;  
@@ -533,29 +533,29 @@ from_column_infos([#ddColumn{}|_] = ColumnInfos) ->
     DefaultRecord = list_to_tuple([rec|column_info_items(ColumnInfos, default)]),
     {ColumnNames, ColumnTypes, DefaultRecord}.
 
-create_table(Table, Columns, Opts) ->
-    create_table(Table, Columns, Opts, #ddTable{}#ddTable.owner).
+create_table(TableAlias, Columns, Opts) ->
+    create_table(TableAlias, Columns, Opts, #ddTable{}#ddTable.owner).
 
-create_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
+create_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
-    create_physical_table(Table,ColumnInfos,Opts,Owner);
-create_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
+    create_physical_table(TableAlias,ColumnInfos,Opts,Owner);
+create_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
     Conv = fun(X) ->
         case X#ddColumn.name of
             A when is_atom(A) -> X; 
             B -> X#ddColumn{name=?binary_to_atom(B)} 
         end
     end,
-    create_physical_table(qualified_new_table_name(Table),lists:map(Conv,ColumnInfos),Opts,Owner);
-create_table(Table, ColumnNames, Opts, Owner) ->
+    create_physical_table(qualified_new_table_name(TableAlias),lists:map(Conv,ColumnInfos),Opts,Owner);
+create_table(TableAlias, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
-    create_physical_table(Table,ColumnInfos,Opts,Owner).
+    create_physical_table(TableAlias,ColumnInfos,Opts,Owner).
 
-create_check_table(Table, Columns, Opts) ->
-    create_check_table(Table, Columns, Opts, (#ddTable{})#ddTable.owner).
+create_check_table(TableAlias, Columns, Opts) ->
+    create_check_table(TableAlias, Columns, Opts, (#ddTable{})#ddTable.owner).
 
-create_check_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
+create_check_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
     Conv = fun(X) ->
         case X#ddColumn.name of
             A when is_atom(A) -> X; 
@@ -563,14 +563,14 @@ create_check_table(Table, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
         end
     end,
     {ColumnNames, ColumnTypes, DefaultRecord} = from_column_infos(lists:map(Conv,ColumnInfos)),
-    create_check_table(qualified_new_table_name(Table), {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner);
-create_check_table(Table, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
+    create_check_table(qualified_new_table_name(TableAlias), {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner);
+create_check_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
-    create_check_physical_table(Table,ColumnInfos,Opts,Owner),
-    check_table(Table),
-    check_table_columns(Table, ColumnNames),
-    check_table_meta(Table, {ColumnNames, ColumnTypes, DefaultRecord}).
+    create_check_physical_table(TableAlias,ColumnInfos,Opts,Owner),
+    check_table(TableAlias),
+    check_table_columns(TableAlias, ColumnNames),
+    check_table_meta(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}).
 
 create_sys_conf(Path) ->
     imem_if_sys_conf:create_sys_conf(Path).    
@@ -913,26 +913,26 @@ purge_table(Alias, Opts) ->
             purge_time_partitioned_table(Alias, Opts)
     end.
 
-purge_time_partitioned_table(Alias, Opts) ->
-    case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
+purge_time_partitioned_table(TableAlias, Opts) ->
+    case lists:sort(simple_or_local_node_sharded_tables(TableAlias)) of
         [] ->
-            ?ClientError({"Table to be purged does not exist",Alias});
+            ?ClientError({"Table to be purged does not exist",TableAlias});
         [PhName|Rest] ->
             KeepTime = case proplists:get_value(purge_delay, Opts) of
                 undefined ->    erlang:now();
                 Seconds ->      {Mega,Secs,Micro} = erlang:now(),
                                 {Mega,Secs-Seconds,Micro}
             end,
-            KeepName = partitioned_table_name(Alias,KeepTime),
+            KeepName = partitioned_table_name(TableAlias,KeepTime),
             if  
                 PhName >= KeepName ->
                     0; %% no memory could be freed       
                 true ->
                     ?Debug("Purge PhName KeepName ~p ~p~n",[PhName,KeepName]),
                     case Rest of
-                        [] ->   DummyName = partitioned_table_name(Alias,erlang:now()),
+                        [] ->   DummyName = partitioned_table_name(TableAlias,erlang:now()),
                                 % ?Debug("Purge DummyName ~p~n",[DummyName]),
-                                create_partitioned_table(DummyName);
+                                create_partitioned_table(TableAlias,DummyName);
                         _ ->    ok
                     end,
                     FreedMemory = table_memory(PhName),
@@ -943,33 +943,33 @@ purge_time_partitioned_table(Alias, Opts) ->
             end
     end.
 
-simple_or_local_node_sharded_tables(Alias) ->    
-    case is_node_sharded_alias(Alias) of
+simple_or_local_node_sharded_tables(TableAlias) ->    
+    case is_node_sharded_alias(TableAlias) of
         true ->
-            case is_time_partitioned_alias(Alias) of
+            case is_time_partitioned_alias(TableAlias) of
                 true ->
                     Tail = lists:reverse("@" ++ node_shard()),
                     Pred = fun(TN) -> lists:prefix(Tail, lists:reverse(atom_to_list(TN))) end,
-                    lists:filter(Pred,physical_table_names(Alias));
+                    lists:filter(Pred,physical_table_names(TableAlias));
                 false ->
-                    [physical_table_name(Alias)]
+                    [physical_table_name(TableAlias)]
             end;        
         false ->
-            [physical_table_name(Alias)]
+            [physical_table_name(TableAlias)]
     end.
 
-is_node_sharded_alias(Alias) when is_atom(Alias) -> 
-    is_node_sharded_alias(atom_to_list(Alias));
-is_node_sharded_alias(Alias) when is_list(Alias) -> (lists:last(Alias) == $@).
+is_node_sharded_alias(TableAlias) when is_atom(TableAlias) -> 
+    is_node_sharded_alias(atom_to_list(TableAlias));
+is_node_sharded_alias(TableAlias) when is_list(TableAlias) -> (lists:last(TableAlias) == $@).
 
-is_time_partitioned_alias(Alias) when is_atom(Alias) ->
-    is_time_partitioned_alias(atom_to_list(Alias));
-is_time_partitioned_alias(Alias) when is_list(Alias) ->
-    case is_node_sharded_alias(Alias) of
+is_time_partitioned_alias(TableAlias) when is_atom(TableAlias) ->
+    is_time_partitioned_alias(atom_to_list(TableAlias));
+is_time_partitioned_alias(TableAlias) when is_list(TableAlias) ->
+    case is_node_sharded_alias(TableAlias) of
         false -> 
             false;
         true ->
-            case string:tokens(lists:reverse(Alias), "_") of
+            case string:tokens(lists:reverse(TableAlias), "_") of
                 [[$@|RN]|_] -> 
                     try 
                         _ = list_to_integer(lists:reverse(RN)),
@@ -1052,15 +1052,15 @@ physical_table_name({_S,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
 physical_table_name(user_tables) -> ddTable;
-physical_table_name(Alias) when is_atom(Alias) ->
-    case lists:member(Alias,?DataTypes) of
-        true ->     Alias;
-        false ->    physical_table_name(atom_to_list(Alias))
+physical_table_name(TableAlias) when is_atom(TableAlias) ->
+    case lists:member(TableAlias,?DataTypes) of
+        true ->     TableAlias;
+        false ->    physical_table_name(atom_to_list(TableAlias))
     end;
-physical_table_name(Alias) when is_list(Alias) ->
-    case lists:last(Alias) of
-        $@ ->   partitioned_table_name(Alias,erlang:now());
-        _ ->    list_to_atom(Alias)
+physical_table_name(TableAlias) when is_list(TableAlias) ->
+    case lists:last(TableAlias) of
+        $@ ->   partitioned_table_name(TableAlias,erlang:now());
+        _ ->    list_to_atom(TableAlias)
     end.
 
 % physical_table_name({_S,N,_A},Key) -> physical_table_name(N,Key);
@@ -1068,17 +1068,17 @@ physical_table_name({_S,N},Key) -> physical_table_name(N,Key);
 physical_table_name(dba_tables,_) -> ddTable;
 physical_table_name(all_tables,_) -> ddTable;
 physical_table_name(user_tables,_) -> ddTable;
-physical_table_name(Alias,Key) when is_atom(Alias) ->
-    case lists:member(Alias,?DataTypes) of
-        true ->     Alias;
-        false ->    physical_table_name(atom_to_list(Alias),Key)
+physical_table_name(TableAlias,Key) when is_atom(TableAlias) ->
+    case lists:member(TableAlias,?DataTypes) of
+        true ->     TableAlias;
+        false ->    physical_table_name(atom_to_list(TableAlias),Key)
     end;
-physical_table_name(Alias,Key) when is_list(Alias) ->
-    case lists:last(Alias) of
+physical_table_name(TableAlias,Key) when is_list(TableAlias) ->
+    case lists:last(TableAlias) of
         $@ ->
-            partitioned_table_name(Alias,Key);
+            partitioned_table_name(TableAlias,Key);
         _ ->    
-            list_to_atom(Alias)
+            list_to_atom(TableAlias)
     end.
 
 physical_table_names({_S,N,_A}) -> physical_table_names(N);
@@ -1086,40 +1086,40 @@ physical_table_names({_S,N}) -> physical_table_names(N);
 physical_table_names(dba_tables) -> [ddTable];
 physical_table_names(all_tables) -> [ddTable];
 physical_table_names(user_tables) -> [ddTable];
-physical_table_names(Alias) when is_atom(Alias) ->
-    case lists:member(Alias,?DataTypes) of
-        true ->     [Alias];
-        false ->    physical_table_names(atom_to_list(Alias))
+physical_table_names(TableAlias) when is_atom(TableAlias) ->
+    case lists:member(TableAlias,?DataTypes) of
+        true ->     [TableAlias];
+        false ->    physical_table_names(atom_to_list(TableAlias))
     end;
-physical_table_names(Alias) when is_list(Alias) ->
-    case lists:last(Alias) of
+physical_table_names(TableAlias) when is_list(TableAlias) ->
+    case lists:last(TableAlias) of
         $@ ->   
-            case string:tokens(lists:reverse(Alias), "_") of
+            case string:tokens(lists:reverse(TableAlias), "_") of
                 [[$@|RN]|_] ->
                     % timestamp sharded node sharded tables 
                     try 
                         _ = list_to_integer(lists:reverse(RN)),
-                        {BaseName,_} = lists:split(length(Alias)-length(RN)-1, Alias),
+                        {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
                         Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
                         lists:filter(Pred,tables_starting_with(BaseName))
                     catch
-                        _:_ -> tables_starting_with(Alias)
+                        _:_ -> tables_starting_with(TableAlias)
                     end;
                  _ ->   
                     % node sharded tables only   
-                    tables_starting_with(Alias)
+                    tables_starting_with(TableAlias)
             end;
         _ ->    
-            [list_to_atom(Alias)]
+            [list_to_atom(TableAlias)]
     end.
 
-partitioned_table_name(Alias,Key) ->
-    list_to_atom(partitioned_table_name_str(Alias,Key)).
+partitioned_table_name(TableAlias,Key) ->
+    list_to_atom(partitioned_table_name_str(TableAlias,Key)).
 
-partitioned_table_name_str(Alias,Key) when is_atom(Alias) ->
-    partitioned_table_name_str(atom_to_list(Alias),Key);
-partitioned_table_name_str(Alias,Key) when is_list(Alias) ->
-    case string:tokens(lists:reverse(Alias), "_") of
+partitioned_table_name_str(TableAlias,Key) when is_atom(TableAlias) ->
+    partitioned_table_name_str(atom_to_list(TableAlias),Key);
+partitioned_table_name_str(TableAlias,Key) when is_list(TableAlias) ->
+    case string:tokens(lists:reverse(TableAlias), "_") of
         [[$@|RN]|_] ->
             % timestamp sharded node sharded table 
             try 
@@ -1127,14 +1127,14 @@ partitioned_table_name_str(Alias,Key) when is_list(Alias) ->
                 {Mega,Sec,_} = Key,
                 PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
                 Prefix = lists:duplicate(10-length(PartitionEnd),$0),
-                {BaseName,_} = lists:split(length(Alias)-length(RN)-1, Alias),
+                {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
                 lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard())
             catch
-                _:_ -> lists:flatten(Alias ++ node_shard())
+                _:_ -> lists:flatten(TableAlias ++ node_shard())
             end;
          _ ->
             % node sharded table only   
-            lists:flatten(Alias ++ node_shard())
+            lists:flatten(TableAlias ++ node_shard())
     end.
 
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(),Table};
@@ -1710,22 +1710,22 @@ select_sort(Table, MatchSpec, Limit) ->
 
 write_log(Record) -> write(?LOG_TABLE, Record).
 
-write({ddSysConf,Table}, _Record) -> 
-    % imem_if_sys_conf:write(Table, Record);
-    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});
-write({_Schema,Table}, Record) ->
-    write(Table, Record);           %% ToDo: may depend on schema 
-write(Table, Record) ->
-    % log_to_db(debug,?MODULE,write,[{table,Table},{rec,Record}],"write"), 
-    PTN = physical_table_name(Table,element(?KeyIdx,Record)),
+write({ddSysConf,TableAlias}, _Record) -> 
+    % imem_if_sys_conf:write(TableAlias, Record);
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});
+write({_Schema,TableAlias}, Record) ->
+    write(TableAlias, Record);           %% ToDo: may depend on schema 
+write(TableAlias, Record) ->
+    % log_to_db(debug,?MODULE,write,[{table,TableAlias},{rec,Record}],"write"), 
+    PTN = physical_table_name(TableAlias,element(?KeyIdx,Record)),
     try
         imem_if:write(PTN, Record)
     catch
         throw:{'ClientError',{"Table does not exist",T}} ->
             % ToDo: instruct imem_meta gen_server to create the table
-            case is_time_partitioned_alias(Table) of
+            case is_time_partitioned_alias(TableAlias) of
                 true ->
-                    case create_partitioned_table_sync(PTN) of
+                    case create_partitioned_table_sync(TableAlias,PTN) of
                         ok ->   
                             imem_if:write(PTN, Record);
                         {error,recursive_call} ->
@@ -1741,21 +1741,21 @@ write(Table, Record) ->
             throw(Reason)
     end. 
 
-dirty_write({ddSysConf,Table}, _Record) -> 
-    % imem_if_sys_conf:dirty_write(Table, Record);
-    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});
-dirty_write({_Schema,Table}, Record) -> 
-    dirty_write(Table, Record);           %% ToDo: may depend on schema 
-dirty_write(Table, Record) -> 
-    % log_to_db(debug,?MODULE,dirty_write,[{table,Table},{rec,Record}],"dirty_write"), 
-    PTN = physical_table_name(Table,element(?KeyIdx,Record)),
+dirty_write({ddSysConf,TableAlias}, _Record) -> 
+    % imem_if_sys_conf:dirty_write(TableAlias, Record);
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});
+dirty_write({_Schema,TableAlias}, Record) -> 
+    dirty_write(TableAlias, Record);           %% ToDo: may depend on schema 
+dirty_write(TableAlias, Record) -> 
+    % log_to_db(debug,?MODULE,dirty_write,[{table,TableAlias},{rec,Record}],"dirty_write"), 
+    PTN = physical_table_name(TableAlias,element(?KeyIdx,Record)),
     try
         imem_if:dirty_write(PTN, Record)
     catch
         throw:{'ClientError',{"Table does not exist",T}} ->
-            case is_time_partitioned_alias(Table) of
+            case is_time_partitioned_alias(TableAlias) of
                 true ->
-                    case create_partitioned_table_sync(PTN) of
+                    case create_partitioned_table_sync(TableAlias,PTN) of
                         ok ->   
                             imem_if:dirty_write(PTN, Record);
                         {error,recursive_call} ->
@@ -1771,61 +1771,61 @@ dirty_write(Table, Record) ->
             throw(Reason)
     end. 
 
-insert(Table, Row) ->
-    insert(Table,Row,meta_field_value(user)).
+insert(TableAlias, Row) ->
+    insert(TableAlias,Row,meta_field_value(user)).
 
-insert({ddSysConf,Table}, _Row, _User) ->
-    % imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
-    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});
-insert({_Schema,Table}, Row, User) ->
-    insert(Table, Row, User);               %% ToDo: may depend on schema
-insert(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
-    {TableType, DefRec, Trigger} =  trigger_infos(Table),
-    modify(insert, TableType, Table, DefRec, Trigger, Row, User).
+insert({ddSysConf,TableAlias}, _Row, _User) ->
+    % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});
+insert({_Schema,TableAlias}, Row, User) ->
+    insert(TableAlias, Row, User);               %% ToDo: may depend on schema
+insert(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
+    modify(insert, TableType, TableAlias, DefRec, Trigger, Row, User).
 
-update(Table, Row) ->
-    update(Table, Row, meta_field_value(user)).
+update(TableAlias, Row) ->
+    update(TableAlias, Row, meta_field_value(user)).
 
-update({ddSysConf,Table}, _Row, _User) ->
-    % imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
-    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});    
-update({_Schema,Table}, Row, User) ->
-    update(Table, Row, User);               %% ToDo: may depend on schema
-update(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
-    {TableType, DefRec, Trigger} =  trigger_infos(Table),
-    modify(update, TableType, Table, DefRec, Trigger, Row, User).
+update({ddSysConf,TableAlias}, _Row, _User) ->
+    % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});    
+update({_Schema,TableAlias}, Row, User) ->
+    update(TableAlias, Row, User);               %% ToDo: may depend on schema
+update(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
+    modify(update, TableType, TableAlias, DefRec, Trigger, Row, User).
 
-merge(Table, Row) ->
-    merge(Table, Row, meta_field_value(user)).
+merge(TableAlias, Row) ->
+    merge(TableAlias, Row, meta_field_value(user)).
 
-merge({ddSysConf,Table}, _Row, _User) ->
-    % imem_if_sys_conf:write(Table, Row);     %% mapped to unconditional write
-    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",Table});    
-merge({_Schema,Table}, Row, User) ->
-    merge(Table, Row, User);                %% ToDo: may depend on schema
-merge(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
-    {TableType, DefRec, Trigger} =  trigger_infos(Table),
-    modify(merge, TableType, Table, DefRec, Trigger, Row, User).
+merge({ddSysConf,TableAlias}, _Row, _User) ->
+    % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
+    ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});    
+merge({_Schema,TableAlias}, Row, User) ->
+    merge(TableAlias, Row, User);                %% ToDo: may depend on schema
+merge(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
+    modify(merge, TableType, TableAlias, DefRec, Trigger, Row, User).
 
-remove(Table, Row) ->
-    remove(Table, Row, meta_field_value(user)).
+remove(TableAlias, Row) ->
+    remove(TableAlias, Row, meta_field_value(user)).
 
-remove({ddSysConf,Table}, _Row, _User) ->
-    % imem_if_sys_conf:delete(Table, Row);    %% mapped to unconditional delete
-    ?UnimplementedException({"Cannot delete from ddSysConf schema, use DDerl GUI instead",Table});
-remove({_Schema,Table}, Row, User) ->
-    remove(Table, Row, User);               %% ToDo: may depend on schema
-remove(Table, Row, User) when is_atom(Table), is_tuple(Row) ->
-    {TableType, DefRec, Trigger} =  trigger_infos(Table),
-    modify(remove, TableType, Table, DefRec, Trigger, Row, User).
+remove({ddSysConf,TableAlias}, _Row, _User) ->
+    % imem_if_sys_conf:delete(TableAlias, Row);    %% mapped to unconditional delete
+    ?UnimplementedException({"Cannot delete from ddSysConf schema, use DDerl GUI instead",TableAlias});
+remove({_Schema,TableAlias}, Row, User) ->
+    remove(TableAlias, Row, User);               %% ToDo: may depend on schema
+remove(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+    {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
+    modify(remove, TableType, TableAlias, DefRec, Trigger, Row, User).
 
-modify(Operation, TableType, Table, DefRec, Trigger, Row0, User) when is_atom(Table), is_tuple(Row0) ->
+modify(Operation, TableType, TableAlias, DefRec, Trigger, Row0, User) when is_atom(TableAlias), is_tuple(Row0) ->
     Row1=apply_defaults(DefRec, Row0),
-    Row2=apply_validators(DefRec, Row1, Table, User),
+    Row2=apply_validators(DefRec, Row1, TableAlias, User),
     Key = element(?KeyIdx,Row2),
-    case ((Table /= ddTable) and lists:member(?nav,tuple_to_list(Row2))) of
+    case ((TableAlias /= ddTable) and lists:member(?nav,tuple_to_list(Row2))) of
         false ->
-            PTN = physical_table_name(Table,Key),
+            PTN = physical_table_name(TableAlias,Key),
             Trans = fun() ->   
                 case {Operation, TableType, read(PTN,Key)} of     %% TODO: Wrap in single transaction
                     {insert,bag,Bag} -> case lists:member(Row2,Bag) of  
@@ -1835,20 +1835,20 @@ modify(Operation, TableType, Table, DefRec, Trigger, Row0, User) when is_atom(Ta
                                                         Row2
                                         end;
                     {insert,_,[]} ->    write(PTN, Row2),
-                                        Trigger({},Row2,Table,User),
+                                        Trigger({},Row2,TableAlias,User),
                                         Row2;
                     {insert,_,[R]} ->   ?ConcurrencyException({"Insert failed, key already exists in", {PTN,R}});
-                    {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", Table});
+                    {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", TableAlias});
                     {update,_,[]} ->    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
                     {update,_,[R]} ->   write(PTN, Row2),
-                                        Trigger(R,Row2,Table,User),
+                                        Trigger(R,Row2,TableAlias,User),
                                         Row2;
-                    {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", Table});
+                    {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", TableAlias});
                     {merge,_,[]} ->     write(PTN, Row2),
-                                        Trigger({},Row2,Table,User),
+                                        Trigger({},Row2,TableAlias,User),
                                         Row2;
                     {merge,_,[R]} ->    write(PTN, Row2),
-                                        Trigger(R,Row2,Table,User),
+                                        Trigger(R,Row2,TableAlias,User),
                                         Row2;
                     {remove,bag,[]} ->  ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row2}});
                     {remove,_,[]} ->    ?ConcurrencyException({"Remove failed, key does not exist", {PTN,Key}});
@@ -1858,26 +1858,26 @@ modify(Operation, TableType, Table, DefRec, Trigger, Row0, User) when is_atom(Ta
                                                         Trigger(Row2,{},PTN,User),
                                                         Row2
                                         end;
-                    {remove,_,[R]} ->   delete(Table, Key),
-                                        Trigger(R,{},Table,User),
+                    {remove,_,[R]} ->   delete(TableAlias, Key),
+                                        Trigger(R,{},TableAlias,User),
                                         R
                 end
             end,
             return_atomic(transaction(Trans));
         true ->     
-            ?ClientError({"Not null constraint violation", {Table,Row2}})
+            ?ClientError({"Not null constraint violation", {TableAlias,Row2}})
     end.
 
 
-delete({_Schema,Table}, Key) ->
-    delete(Table, Key);             %% ToDo: may depend on schema
-delete(Table, Key) ->
-    imem_if:delete(physical_table_name(Table,Key), Key).
+delete({_Schema,TableAlias}, Key) ->
+    delete(TableAlias, Key);             %% ToDo: may depend on schema
+delete(TableAlias, Key) ->
+    imem_if:delete(physical_table_name(TableAlias,Key), Key).
 
-delete_object({_Schema,Table}, Row) ->
-    delete_object(Table, Row);             %% ToDo: may depend on schema
-delete_object(Table, Row) ->
-    imem_if:delete_object(physical_table_name(Table,element(?KeyIdx,Row)), Row).
+delete_object({_Schema,TableAlias}, Row) ->
+    delete_object(TableAlias, Row);             %% ToDo: may depend on schema
+delete_object(TableAlias, Row) ->
+    imem_if:delete_object(physical_table_name(TableAlias,element(?KeyIdx,Row)), Row).
 
 subscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
@@ -1900,8 +1900,8 @@ unsubscribe(EventCategory) ->
 update_tables([[{Schema,_,_}|_]|_] = UpdatePlan, Lock) ->
     update_tables(Schema, UpdatePlan, Lock, []).
 
-update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax) ->
-    imem_if:update_bound_counter(physical_table_name(Table), Field, Key, Incr, LimitMin, LimitMax).
+update_bound_counter(TableAlias, Field, Key, Incr, LimitMin, LimitMax) ->
+    imem_if:update_bound_counter(physical_table_name(TableAlias), Field, Key, Incr, LimitMin, LimitMax).
 
 update_tables(ddSysConf, [], Lock, Acc) ->
     imem_if_sys_conf:update_tables(Acc, Lock);  
@@ -2146,7 +2146,7 @@ meta_operations(_) ->
         ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
         ?Info("success ~p~n", [get_config_hlk]),
 
-        ?assertEqual({error,{"Invalid table name",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name)),
+        ?assertEqual({error,{"Invalid table name",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name,dummy_table_name)),
         ?assertEqual([],physical_table_names(fakelog_1@)),
         ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
         ?assertEqual(1,length(physical_table_names(fakelog_1@))),
@@ -2159,7 +2159,7 @@ meta_operations(_) ->
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:now()})),
         ?assertEqual(2,length(physical_table_names(fakelog_1@))),
         timer:sleep(1100),
-        ?assertEqual(ok, create_partitioned_table_sync(physical_table_name(fakelog_1@))),
+        ?assertEqual(ok, create_partitioned_table_sync(fakelog_1@,physical_table_name(fakelog_1@))),
         ?assertEqual(3,length(physical_table_names(fakelog_1@))),
         ?Info("success ~p~n", [create_partitioned_table]),
 
