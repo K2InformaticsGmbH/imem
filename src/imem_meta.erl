@@ -247,7 +247,7 @@ create_partitioned_table(TableAlias, TableName) when is_atom(TableName) ->
                 case catch(check_table(TableName)) of
                     ok ->   ok;
                     {'ClientError',{"Table does not exist",TableName}} ->
-                        create_nonexisting_partitioned_table(TableName);
+                        create_nonexisting_partitioned_table(TableAlias,TableName);
                     Res ->
                         ?Info("Waiting for partitioned table ~p needed because of ~p", [TableName,Res]),
                         case mnesia:wait_for_tables([TableName], 30000) of
@@ -259,7 +259,7 @@ create_partitioned_table(TableAlias, TableName) when is_atom(TableName) ->
                 end;
             [] ->
                 % Table does not exist in ddTable, must create it similar to existing
-                create_nonexisting_partitioned_table(TableName)   
+                create_nonexisting_partitioned_table(TableAlias,TableName)   
         end
     catch
         _:Reason1 ->
@@ -267,33 +267,17 @@ create_partitioned_table(TableAlias, TableName) when is_atom(TableName) ->
             {error,Reason1}
     end.
 
-create_nonexisting_partitioned_table(TableName) ->
-    NS = node_shard(),
-    case parse_table_name(TableName) of
-        [_,_,_,"",_,_] ->
-            ?Error("Invalid table name ~p", [TableName]),   
-            {error, {"Invalid table name",TableName}};
-        ["","",BaseName,_,"@",NS] ->
-            % choose template table name (name pattern with highest timestamp)
-            Pred = fun(TN) -> is_local_time_partitioned_table(TN) end,
-            case lists:filter(Pred,tables_starting_with(BaseName)) of
-                [] ->   
-                    ?Error("No table template found starting/ending with  ~p / ~p", [BaseName,NS]), 
-                    {error, {"No table template found starting/ending with", {BaseName,NS}}}; 
-                Cand -> 
-                    Template = lists:last(lists:sort(Cand)),
-                    % find out ColumnsInfos, Opts, Owner from template table definition
-                    case imem_if:read(ddTable,{schema(), Template}) of
-                        [] ->
-                            ?Error("Table template not found ~p", [Template]),   
-                            {error, {"Table template not found", Template}}; 
-                        [#ddTable{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
-                            try
-                                create_table(TableName, ColumnInfos, Opts, Owner)
-                            catch
-                                _:Reason2 -> {error, Reason2}
-                            end
-                    end
+create_nonexisting_partitioned_table(TableAlias, TableName) ->
+    % find out ColumnsInfos, Opts, Owner from ddAlias
+    case imem_if:read(ddAlias,{schema(), TableAlias}) of
+        [] ->
+            ?Error("Table template not found in ddAlias~p", [TableAlias]),   
+            {error, {"Table template not found in ddAlias", TableAlias}}; 
+        [#ddAlias{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
+            try
+                create_table(TableName, ColumnInfos, Opts, Owner)
+            catch
+                _:Reason2 -> {error, Reason2}
             end
     end.
 
@@ -780,32 +764,32 @@ if_opts(Opts,[]) -> Opts;
 if_opts(Opts,[MO|Others]) ->
     if_opts(lists:keydelete(MO, 1, Opts),Others).
 
-truncate_table(Table) ->
-    truncate_table(Table,meta_field_value(user)).
+truncate_table(TableAlias) ->
+    truncate_table(TableAlias,meta_field_value(user)).
 
-truncate_table({Schema,Table,_Alias},User) ->
-    truncate_table({Schema,Table},User);    
-truncate_table({Schema,Table},User) ->
+truncate_table({Schema,TableAlias,_Alias},User) ->
+    truncate_table({Schema,TableAlias},User);    
+truncate_table({Schema,TableAlias},User) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> truncate_table(Table, User);
-        _ ->        ?UnimplementedException({"Truncate table in foreign schema",{Schema,Table}})
+        MySchema -> truncate_table(TableAlias, User);
+        _ ->        ?UnimplementedException({"Truncate table in foreign schema",{Schema,TableAlias}})
     end;
-truncate_table(Alias,User) when is_atom(Alias) ->
-    %% log_to_db(debug,?MODULE,truncate_table,[{table,Alias}],"truncate table"),
-    truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(Alias)),User);
-truncate_table(TableName, User) ->
-    truncate_table(qualified_table_name(TableName),User).
+truncate_table(TableAlias,User) when is_atom(TableAlias) ->
+    %% log_to_db(debug,?MODULE,truncate_table,[{table,TableAlias}],"truncate table"),
+    truncate_partitioned_tables(lists:sort(simple_or_local_node_sharded_tables(TableAlias)),User);
+truncate_table(TableAlias, User) ->
+    truncate_table(qualified_table_name(TableAlias),User).
 
 truncate_partitioned_tables([],_) -> ok;
-truncate_partitioned_tables([PhName|PhNames], User) ->
-    {_, _, Trigger} =  trigger_infos(PhName),
+truncate_partitioned_tables([TableName|TableNames], User) ->
+    {_, _, Trigger} =  trigger_infos(TableName),
     Trans = fun() ->
-        Trigger({},{},PhName,User),
-        imem_if:truncate_table(PhName)
+        Trigger({},{},TableName,User),
+        imem_if:truncate_table(TableName)
     end,
     return_atomic_ok(transaction(Trans)),
-    truncate_partitioned_tables(PhNames,User).
+    truncate_partitioned_tables(TableNames,User).
 
 snapshot_table({_Schema,Table,_Alias}) ->
     snapshot_table({_Schema,Table});    
@@ -828,9 +812,9 @@ snapshot_table(TableName) ->
     snapshot_table(qualified_table_name(TableName)).
 
 snapshot_partitioned_tables([]) -> ok;
-snapshot_partitioned_tables([PhName|PhNames]) ->
-    imem_snap:take(PhName),
-    snapshot_partitioned_tables(PhNames).
+snapshot_partitioned_tables([TableName|TableNames]) ->
+    imem_snap:take(TableName),
+    snapshot_partitioned_tables(TableNames).
 
 restore_table({_Schema,Table,_Alias}) ->
     restore_table({_Schema,Table});    
@@ -861,7 +845,7 @@ drop_table({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
 drop_table(TableAlias) when is_atom(TableAlias) ->
     case is_system_table(TableAlias) of
         true -> ?ClientError({"Cannot drop system table",TableAlias});
-        false-> drop_partitioned_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+        false-> drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
     end;
 drop_table(TableAlias) when is_binary(TableAlias) ->
     drop_table(qualified_table_name(TableAlias)).
@@ -869,16 +853,16 @@ drop_table(TableAlias) when is_binary(TableAlias) ->
 drop_system_table(TableAlias) when is_atom(TableAlias) ->
     case is_system_table(TableAlias) of
         false -> ?ClientError({"Not a system table",TableAlias});
-        true ->  drop_partitioned_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+        true ->  drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
     end.
 
-drop_partitioned_tables_and_infos(TableName,[TableName]) ->
+drop_tables_and_infos(TableName,[TableName]) ->
     drop_table_and_info(TableName);
-drop_partitioned_tables_and_infos(TableAlias, []) -> 
+drop_tables_and_infos(TableAlias, []) -> 
      imem_if:delete(ddAlias, {schema(),TableAlias});
-drop_partitioned_tables_and_infos(TableAlias,[TableName|TableNames]) ->
+drop_tables_and_infos(TableAlias,[TableName|TableNames]) ->
     drop_table_and_info(TableName),
-    drop_partitioned_tables_and_infos(TableAlias,TableNames).
+    drop_tables_and_infos(TableAlias,TableNames).
 
 drop_table_and_info(TableName) ->
     try
@@ -894,30 +878,30 @@ drop_table_and_info(TableName) ->
             throw({'ClientError',{"Table does not exist",Table}})
     end.       
 
-purge_table(Alias) ->
-    purge_table(Alias, []).
+purge_table(TableAlias) ->
+    purge_table(TableAlias, []).
 
-purge_table({Schema,Alias,_Alias}, Opts) -> 
-    purge_table({Schema,Alias}, Opts);
-purge_table({Schema,Alias}, Opts) ->
+purge_table({Schema,TableAlias,_Alias}, Opts) -> 
+    purge_table({Schema,TableAlias}, Opts);
+purge_table({Schema,TableAlias}, Opts) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> purge_table(Alias, Opts);
-        _ ->        ?UnimplementedException({"Purge table in foreign schema",{Schema,Alias}})
+        MySchema -> purge_table(TableAlias, Opts);
+        _ ->        ?UnimplementedException({"Purge table in foreign schema",{Schema,TableAlias}})
     end;
-purge_table(Alias, Opts) ->
-    case is_time_partitioned_alias(Alias) of
+purge_table(TableAlias, Opts) ->
+    case is_time_partitioned_alias(TableAlias) of
         false ->    
-            ?UnimplementedException({"Purge not supported on this table type",Alias});
+            ?UnimplementedException({"Purge not supported on this table type",TableAlias});
         true ->
-            purge_time_partitioned_table(Alias, Opts)
+            purge_time_partitioned_table(TableAlias, Opts)
     end.
 
 purge_time_partitioned_table(TableAlias, Opts) ->
     case lists:sort(simple_or_local_node_sharded_tables(TableAlias)) of
         [] ->
             ?ClientError({"Table to be purged does not exist",TableAlias});
-        [PhName|Rest] ->
+        [TableName|TableNames] ->
             KeepTime = case proplists:get_value(purge_delay, Opts) of
                 undefined ->    erlang:now();
                 Seconds ->      {Mega,Secs,Micro} = erlang:now(),
@@ -925,20 +909,12 @@ purge_time_partitioned_table(TableAlias, Opts) ->
             end,
             KeepName = partitioned_table_name(TableAlias,KeepTime),
             if  
-                PhName >= KeepName ->
-                    0; %% no memory could be freed       
+                TableName >= KeepName ->
+                    0;      %% no memory could be freed       
                 true ->
-                    ?Debug("Purge PhName KeepName ~p ~p~n",[PhName,KeepName]),
-                    case Rest of
-                        [] ->   DummyName = partitioned_table_name(TableAlias,erlang:now()),
-                                % ?Debug("Purge DummyName ~p~n",[DummyName]),
-                                create_partitioned_table(TableAlias,DummyName);
-                        _ ->    ok
-                    end,
-                    FreedMemory = table_memory(PhName),
-                    % Fields = [{table,PhName},{table_size,table_size(PhName)},{table_memory,FreedMemory}],   
-                    ?Info("Purge time partition ~p~n",[PhName]),
-                    drop_table_and_info(PhName),
+                    FreedMemory = table_memory(TableName),
+                    ?Info("Purge time partition ~p~n",[TableName]),
+                    drop_table_and_info(TableName),
                     FreedMemory
             end
     end.
@@ -997,16 +973,18 @@ is_local_time_partitioned_table(Name) when is_list(Name) ->
             is_time_partitioned_alias(lists:sublist(Name, length(Name)-length(node_shard())))
     end.
 
-parse_table_name(Table) when is_atom(Table) -> 
-    parse_table_name(atom_to_list(Table));
-parse_table_name(Table) when is_list(Table) -> 
-    case string:tokens(Table, ".") of
+parse_table_name(TableName) when is_atom(TableName) -> 
+    parse_table_name(atom_to_list(TableName));
+parse_table_name(TableName) when is_list(TableName) ->
+    %% TableName -> [Schema,".",Name,Period,"@",Node] all strings , all optional except Name
+    case string:tokens(TableName, ".") of
         [R2] ->         ["",""|parse_simple_name(R2)];
         [Schema|R1] ->  [Schema,"."|parse_simple_name(string:join(R1,"."))]
     end.
 
-parse_simple_name(Table) when is_list(Table) ->         
-    case string:tokens(Table, "@") of
+parse_simple_name(TableName) when is_list(TableName) ->
+    %% TableName -> [Name,Period,"@",Node] all strings , all optional except Name        
+    case string:tokens(TableName, "@") of
         [BaseName] ->    
             [BaseName,"","",""];
         [Name,Node] ->
@@ -1022,7 +1000,7 @@ parse_simple_name(Table) when is_list(Table) ->
                     end
             end;
         _ ->
-            [Table,"","",""]
+            [TableName,"","",""]
     end.
 
 time_to_partition_expiry(Table) when is_atom(Table) ->
@@ -2146,7 +2124,7 @@ meta_operations(_) ->
         ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
         ?Info("success ~p~n", [get_config_hlk]),
 
-        ?assertEqual({error,{"Invalid table name",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name,dummy_table_name)),
+        ?assertEqual( {error,{"Table template not found in ddAlias",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name,dummy_table_name)),
         ?assertEqual([],physical_table_names(fakelog_1@)),
         ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
         ?assertEqual(1,length(physical_table_names(fakelog_1@))),
