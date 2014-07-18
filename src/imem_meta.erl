@@ -901,7 +901,7 @@ purge_time_partitioned_table(TableAlias, Opts) ->
     case lists:sort(simple_or_local_node_sharded_tables(TableAlias)) of
         [] ->
             ?ClientError({"Table to be purged does not exist",TableAlias});
-        [TableName|TableNames] ->
+        [TableName|_] ->
             KeepTime = case proplists:get_value(purge_delay, Opts) of
                 undefined ->    erlang:now();
                 Seconds ->      {Mega,Secs,Micro} = erlang:now(),
