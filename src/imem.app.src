@@ -28,6 +28,7 @@
          {if_sys_conf_server, true},
          {meta_server, true},
          {monitor_server, true},
+         {proll_server, true},
          {purge_server, true},
          {seco_server, true},
          {snap_server, true},

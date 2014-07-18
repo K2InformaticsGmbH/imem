@@ -65,6 +65,7 @@
         , host_name/1
         , node_name/1
         , node_hash/1
+        , all_aliases/0
         , all_tables/0
         , tables_starting_with/1
         , tables_ending_with/1
@@ -1029,6 +1030,7 @@ time_of_partition_expiry(Table) when is_list(Table) ->
 physical_table_name({_S,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
+physical_table_name(all_aliases) -> ddAlias;
 physical_table_name(user_tables) -> ddTable;
 physical_table_name(TableAlias) when is_atom(TableAlias) ->
     case lists:member(TableAlias,?DataTypes) of
@@ -1045,6 +1047,7 @@ physical_table_name(TableAlias) when is_list(TableAlias) ->
 physical_table_name({_S,N},Key) -> physical_table_name(N,Key);
 physical_table_name(dba_tables,_) -> ddTable;
 physical_table_name(all_tables,_) -> ddTable;
+physical_table_name(all_aliases,_) -> ddAlias;
 physical_table_name(user_tables,_) -> ddTable;
 physical_table_name(TableAlias,Key) when is_atom(TableAlias) ->
     case lists:member(TableAlias,?DataTypes) of
@@ -1063,6 +1066,7 @@ physical_table_names({_S,N,_A}) -> physical_table_names(N);
 physical_table_names({_S,N}) -> physical_table_names(N);
 physical_table_names(dba_tables) -> [ddTable];
 physical_table_names(all_tables) -> [ddTable];
+physical_table_names(all_aliases) -> [ddAlias];
 physical_table_names(user_tables) -> [ddTable];
 physical_table_names(TableAlias) when is_atom(TableAlias) ->
     case lists:member(TableAlias,?DataTypes) of
@@ -1263,6 +1267,10 @@ data_nodes() ->
 
 all_tables() ->
     imem_if:all_tables().
+
+all_aliases() ->
+    MySchema = schema(),
+    [A || #ddAlias{qname={S,A}} <- imem_if:read(ddAlias),S==MySchema].
 
 is_readable_table({_Schema,Table}) ->
     is_readable_table(Table);   %% ToDo: may depend on schema

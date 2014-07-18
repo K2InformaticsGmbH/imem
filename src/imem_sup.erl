@@ -102,6 +102,12 @@ init(_StartArgs) ->
         _ -> []
     end
     ++
+    % imem_proll
+    case application:get_env(proll_server) of
+        {ok, true} -> [?CHILD(imem_proll, worker, [], ImemTimeout)];
+        _ -> []
+    end
+    ++
     % imem_purge
     case application:get_env(purge_server) of
         {ok, true} -> [?CHILD(imem_purge, worker, [], ImemTimeout)];
