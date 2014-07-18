@@ -9,26 +9,28 @@
         , code_change/3
         , terminate/2]).
 
--export([start/1]).
+-export([start/1, start/2]).
 
--record(state, {
-            ctrl_table
-          , output_table
-          , channel
-          , ltrc = #loadOutput{operation = channel}
-          , ltra = #loadOutput{operation = audit}
-          , reader_pid = undefined
-          , audit_reader_pid = undefined
-         }).
+-record(state, { ctrl_table
+               , output_table
+               , channel
+               , ltrc = #loadOutput{operation = channel}
+               , ltra = #loadOutput{operation = audit}
+               , reader_pid = undefined
+               , audit_reader_pid = undefined
+               }).
 
-start(Channel) when is_list(Channel) -> start(list_to_binary(Channel));
-start(Channel) when is_binary(Channel) ->
-    CtrlTable = list_to_atom(lists:flatten(io_lib:format("~p_~s_control", [?MODULE, Channel]))),
-    {ok, Pid} = gen_server:start_link({local, CtrlTable}, ?MODULE, [Channel], []),
+start(Channel) when is_list(Channel)    -> start(list_to_binary(Channel), 0);
+start(Channel) when is_binary(Channel)  -> start(Channel, 0).
+
+start(Channel, Id) when is_list(Channel) andalso is_integer(Id) -> start(list_to_binary(Channel), Id);
+start(Channel, Id) when is_binary(Channel) andalso is_integer(Id) ->
+    CtrlTable = list_to_atom(lists:flatten(io_lib:format("~p_~s_control_~p", [?MODULE, Channel, Id]))),
+    OutputTable = list_to_atom(lists:flatten(io_lib:format("~p_~s_output_~p", [?MODULE, Channel, Id]))),
+    {ok, Pid} = gen_server:start_link({local, CtrlTable}, ?MODULE, [Channel, CtrlTable, OutputTable], []),
     {?MODULE, Channel, Pid}.
 
-init([Channel]) ->
-    CtrlTable = list_to_atom(lists:flatten(io_lib:format("~p_~s_control", [?MODULE, Channel]))),
+init([Channel, CtrlTable, OutputTable]) ->
     catch imem_meta:drop_table(CtrlTable),
     ok = imem_meta:create_table(CtrlTable, {record_info(fields, loadControl),?loadControl,#loadControl{}}
                            , [{record_name,loadControl}], system),
@@ -36,7 +38,6 @@ init([Channel]) ->
     ok = imem_if:write(CtrlTable, #loadControl{ operation = audit
                                               , keyregex = <<"01.01.1970 00:00:00">>}),
     ok = imem_if:subscribe({table, CtrlTable, detailed}),
-    OutputTable = list_to_atom(lists:flatten(io_lib:format("~p_~s_output", [?MODULE, Channel]))),
     catch imem_meta:drop_table(OutputTable),
     ok = imem_meta:create_table(OutputTable, {record_info(fields, loadOutput),?loadOutput,#loadOutput{}}
                            , [{record_name,loadOutput}], system),
@@ -44,7 +45,7 @@ init([Channel]) ->
     ok = imem_if:write(OutputTable, #loadOutput{operation = audit}),
     Self = self(),
     F = fun(F) ->
-            ok = imem_if:subscribe({table, schema}),
+            catch imem_if:subscribe({table, schema}),
             receive
                 {mnesia_table_event,{delete,{schema,CtrlTable,_},_}} ->
                     Self ! {die,{table_dropped,CtrlTable}};
@@ -192,7 +193,7 @@ random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Co
     Now = erlang:now(),
     TDiffUs = timer:now_diff(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if (TDiffUs > 1000000) ->
-                                       Parent ! {read, Count+1, TDiffUs / 1000000, Key, Value},
+                                       Parent ! {read, Count+1, timer:now_diff(Now, StartTime) / 1000000, Key, Value},
                                        {Now, Count + 1};
                                  true ->
                                        {LastUpdate, Count + 1}
@@ -206,9 +207,8 @@ audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {StartTime, LastUpdat
     {ok, Values} = imem_dal_skvh:audit_readGT(system, Channel, <<"tkvuquadruple">>, Key, Limit),
     NewCount = Count + length(Values),
     Now = erlang:now(),
-    TDiffUs = timer:now_diff(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if length(Values) > 0->
-                                       Parent ! {read_audit, NewCount, TDiffUs / 1000000, lists:last(Values)},
+                                       Parent ! {read_audit, NewCount, timer:now_diff(Now,StartTime) / 1000000, lists:last(Values)},
                                        {Now, NewCount};
                                  true ->
                                        {LastUpdate, NewCount}
