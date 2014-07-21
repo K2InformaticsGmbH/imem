@@ -58,7 +58,7 @@ handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
     % ?Debug("Partition rolling collect start~n",[]), 
     case ?GET_PROLL_CYCLE_WAIT of
         PCW when (is_integer(PCW) andalso PCW > 1000) ->    
-            Pred = fun imem_meta:is_local_time_partitioned_table/1,
+            Pred = fun imem_meta:is_time_partitioned_alias/1,
             case lists:sort(lists:filter(Pred,imem_meta:all_aliases())) of
                 [] ->   
                     erlang:send_after(PCW, self(), roll_partitioned_tables),
