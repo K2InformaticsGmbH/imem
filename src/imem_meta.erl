@@ -11,19 +11,22 @@
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
 
--define(CONFIG_TABLE_OPTS, [{record_name,ddConfig}
-                           ,{type,ordered_set}
-                           ]).          
+-define(CONFIG_TABLE_OPTS,  [{record_name,ddConfig}
+                            ,{type,ordered_set}
+                            ]).          
 
--define(LOG_TABLE_OPTS,    [{record_name,ddLog}
-                           ,{type,ordered_set}
-                           ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
-                           ]).          
+-define(LOG_TABLE_OPTS,     [{record_name,ddLog}
+                            ,{type,ordered_set}
+                            ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
+                            ]).          
 
--define(ddTableTrigger,    <<"fun(__OR,__NR,__T,__U) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U) end.">> ).
--define(DD_ALIAS_OPTS,     [{trigger,?ddTableTrigger}]).          
--define(DD_TABLE_OPTS,     [{trigger,?ddTableTrigger}]).          
-
+-define(ddTableTrigger,     <<"fun(__OR,__NR,__T,__U) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U) end.">> ).
+-define(DD_ALIAS_OPTS,      [{trigger,?ddTableTrigger}]).          
+-define(DD_TABLE_OPTS,      [{trigger,?ddTableTrigger}]).
+-define(DD_CACHE_OPTS,      [{scope,local}
+                            ,{local_content,true}
+                            ,{record_name,ddCache}
+                            ]).          
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
@@ -196,49 +199,54 @@
 start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
 
+init_create_table(TableName,RecDef,Opts,Owner) ->
+    case (catch create_table(TableName, RecDef, Opts, Owner)) of
+        {'ClientError',{"Table already exists", _}} = R ->   
+            ?Info("Creating ~p results in ~p ", [TableName,"Table already exists"]),
+            R;
+        {'ClientError',Reason} ->   
+            ?Info("Creating ~p results in ~p ", [TableName,Reason]),
+            {'ClientError',Reason};
+        Result ->                   
+            ?Info("Creating ~p results in ~p ", [TableName,Result]),
+            Result
+    end.
+
+init_create_check_table(TableName,RecDef,Opts,Owner) ->
+    case (catch create_check_table(TableName, RecDef, Opts, Owner)) of
+        {'ClientError',{"Table already exists", _}} = R ->   
+            ?Info("Creating ~p results in ~p ", [TableName,"Table already exists"]),
+            R;
+        {'ClientError',Reason} ->   
+            ?Info("Creating ~p results in ~p ", [TableName,Reason]),
+            {'ClientError',Reason};
+        Result ->                   
+            ?Info("Creating ~p results in ~p ", [TableName,Result]),
+            Result
+    end.
+
 init(_Args) ->
     ?Info("~p starting...~n", [?MODULE]),
     Result = try
         application:set_env(imem, node_shard, node_shard()),
 
-        _ddAlias1 = catch create_table(ddAlias, {record_info(fields, ddAlias),?ddAlias, #ddAlias{}}, ?DD_ALIAS_OPTS, system), %% create ddAlias, may not be able to register in ddTable
-        ?Info("Creating table ~p results in ~p ", [ddAlias,_ddAlias1]),
-        _ddTable = catch create_table(ddTable, {record_info(fields, ddTable),?ddTable, #ddTable{}}, ?DD_TABLE_OPTS, system),
-        ?Info("Creating table ~p results in ~p ", [ddTable,_ddTable]),
-        _ddAlias2 = catch create_table(ddAlias, {record_info(fields, ddAlias),?ddAlias, #ddAlias{}}, ?DD_ALIAS_OPTS, system), %% register in ddTable if not done yet 
-        ?Info("Creating table ~p results in ~p ", [ddAlias,_ddAlias2]),
+        init_create_table(ddAlias, {record_info(fields, ddAlias),?ddAlias,#ddAlias{}}, ?DD_ALIAS_OPTS, system),         %% may not be able to register in ddTable
+        init_create_table(?CACHE_TABLE, {record_info(fields, ddCache), ?ddCache, #ddCache{}}, ?DD_CACHE_OPTS, system),  %% may not be able to register in ddTable
+        init_create_table(ddTable, {record_info(fields, ddTable),?ddTable,#ddTable{}}, ?DD_TABLE_OPTS, system),
+        init_create_table(?CACHE_TABLE, {record_info(fields, ddCache), ?ddCache, #ddCache{}}, ?DD_CACHE_OPTS, system),  %% register in ddTable if not done yet
+        init_create_table(ddAlias, {record_info(fields, ddAlias),?ddAlias,#ddAlias{}}, ?DD_ALIAS_OPTS, system),         %% register in ddTable if not done yet 
         catch check_table(ddTable),
         catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
-        CDef = {record_info(fields, ddCache), ?ddCache, #ddCache{}},
-        COpts = [{scope,local}, {local_content,true},{record_name,ddCache}],
-        _ddCache = catch create_check_table(?CACHE_TABLE, CDef, COpts, system),
-        ?Info("Creating table ~p results in ~p ", [?CACHE_TABLE,_ddCache]),
- 
         catch imem_meta:create_trigger(ddTable, ?ddTableTrigger),
-        _ddNode = catch create_check_table(ddNode, {record_info(fields, ddNode),?ddNode, #ddNode{}}, [], system),    
-        ?Info("Creating table ~p results in ~p ", [ddNode,_ddNode]),
-
-        _ddSchema = catch create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
-        ?Info("Creating table ~p results in ~p ", [ddSchema,_ddSchema]),
-
-        _ddSize = catch create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
-        ?Info("Creating table ~p results in ~p ", [ddSize,_ddSize]),
-            
-        _ddConfig = catch create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
-        ?Info("Creating table ~p results in ~p ", [?CONFIG_TABLE,_ddConfig]),
-
-        _ddLog = catch create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
-        ?Info("Creating table ~p results in ~p ", [?LOG_TABLE,_ddLog]),
-
-        case catch create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system) of
-            ok ->   
-                catch write(dual,#dual{}),
-                ?Info("Creating table ~p results in ~p ", [dual,ok]);
-            R ->    
-                ?Info("Creating table ~p results in ~p ", [dual,R])
-        end,
+        init_create_check_table(ddNode, {record_info(fields, ddNode),?ddNode,#ddNode{}}, [], system),    
+        init_create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
+        init_create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
+        init_create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
+        init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
+        init_create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system),
+        write(dual,#dual{}),
         ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -649,13 +657,16 @@ create_physical_table(TableAlias,ColInfos,Opts,Owner) ->
     DDTableRow = #ddTable{qname={schema(),TableName}, columns=ColInfos, opts=Opts, owner=Owner},
     DDAliasRow = #ddAlias{qname={schema(),TableAlias}, columns=ColInfos, opts=Opts, owner=Owner},
     case TableName of
-        ddAlias ->  
-            % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts)]),
-            case (catch imem_if:read(ddTable, {schema(),ddAlias})) of
-                [] ->   imem_if:write(ddTable, DDTableRow);     % ddTable meta data is missing
-                _ ->    ok                                      % entry exists or ddTable does not exists yet
+        TA when TA==ddAlias;TA==?CACHE_TABLE ->  
+            % ?Info("creating table with opts ~p ~p ~n", [TA,if_opts(Opts)]),
+            case (catch imem_if:read(ddTable, {schema(),TableName})) of
+                [] ->   
+                    imem_if:write(ddTable, DDTableRow),
+                    catch (imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]));    % ddTable meta data is missing
+                _ ->    
+                    imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}])                                      % entry exists or ddTable does not exists yet
             end,
-            imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+            
             imem_cache:clear({?MODULE, trigger, schema(), TableName});
         TableAlias ->
             try
