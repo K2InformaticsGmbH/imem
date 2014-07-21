@@ -117,7 +117,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 missing_partitions(AL, CandidateTimes) ->
     missing_partitions(AL, CandidateTimes, AL, []).
 
-missing_partitions(_, [],[],Acc) -> lists:reverse(Acc);
+missing_partitions(_, [], _, Acc) -> lists:reverse(Acc);
 missing_partitions(AL, [_|Times], [], Acc) ->
     missing_partitions(AL, Times, AL, Acc);
 missing_partitions(AL, [Next|Times], [TableAlias|Rest], Acc0) ->
