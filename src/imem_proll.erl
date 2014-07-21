@@ -34,6 +34,8 @@
         , terminate/2
         , code_change/3
         , format_status/2
+        , missing_partitions/2
+        , missing_partitions/4
         ]).
 
 start_link(Params) ->
