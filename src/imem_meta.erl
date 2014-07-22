@@ -231,12 +231,12 @@ init_create_check_table(TableName,RecDef,Opts,Owner) ->
 
 init_create_trigger(TableName,TriggerStr) ->
     case (catch create_trigger(TableName,TriggerStr)) of
-        {'ClientError',{"Trigger already exists", _}} = R ->   
-            ?Info("creating trigger for ~p results in ~p", [TableName,"Trigger already exists"]),
-            R;
-        {'ClientError',{"Trigger already exists",{Table,Trig}}} = Res ->   
+        {'ClientError',{"Trigger already exists",{Table,_}}} = Res ->   
             ?Info("creating trigger for ~p results in ~p", [Table,"Trigger exists in different version"]),
             Res;
+        {'ClientError',{"Trigger already exists", Table}} = R ->   
+            ?Info("creating trigger for ~p results in ~p", [Table,"Trigger already exists"]),
+            R;
         Result ->                   
             ?Info("creating trigger for ~p results in ~p", [TableName,Result]),
             Result
