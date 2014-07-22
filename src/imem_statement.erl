@@ -899,7 +899,6 @@ update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
     {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,Table}),
     User = if_call_mfa(IsSec, meta_field_value, [SKey, user]),
     TableInfo = {Schema,Table,TableType,list_to_tuple(DefRec),Trigger,User},
-    ?Info("update_prepare user ~p",[User]),
     %% transform a ChangeList   
         % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],               %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
