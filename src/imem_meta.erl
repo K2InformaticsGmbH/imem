@@ -120,7 +120,11 @@
         , put_config_hlk/6
         ]).
 
--export([ create_table/3
+-export([ init_create_table/4
+        , init_create_check_table/4
+        , init_create_trigger/2
+        , init_create_or_replace_trigger/2
+        , create_table/3
         , create_table/4
         , create_trigger/2
         , create_or_replace_trigger/2
@@ -202,26 +206,46 @@ start_link(Params) ->
 init_create_table(TableName,RecDef,Opts,Owner) ->
     case (catch create_table(TableName, RecDef, Opts, Owner)) of
         {'ClientError',{"Table already exists", _}} = R ->   
-            ?Info("Creating ~p results in ~p ", [TableName,"Table already exists"]),
+            ?Info("creating ~p results in ~p", [TableName,"Table already exists"]),
             R;
-        {'ClientError',Reason} ->   
-            ?Info("Creating ~p results in ~p ", [TableName,Reason]),
-            {'ClientError',Reason};
+        {'ClientError',Reason}=Res ->   
+            ?Info("creating ~p results in ~p", [TableName,Reason]),
+            Res;
         Result ->                   
-            ?Info("Creating ~p results in ~p ", [TableName,Result]),
+            ?Info("creating ~p results in ~p", [TableName,Result]),
             Result
     end.
 
 init_create_check_table(TableName,RecDef,Opts,Owner) ->
     case (catch create_check_table(TableName, RecDef, Opts, Owner)) of
         {'ClientError',{"Table already exists", _}} = R ->   
-            ?Info("Creating ~p results in ~p ", [TableName,"Table already exists"]),
+            ?Info("creating ~p results in ~p", [TableName,"Table already exists"]),
             R;
-        {'ClientError',Reason} ->   
-            ?Info("Creating ~p results in ~p ", [TableName,Reason]),
-            {'ClientError',Reason};
+        {'ClientError',Reason}=Res ->   
+            ?Info("creating ~p results in ~p", [TableName,Reason]),
+            Res;
         Result ->                   
-            ?Info("Creating ~p results in ~p ", [TableName,Result]),
+            ?Info("creating ~p results in ~p", [TableName,Result]),
+            Result
+    end.
+
+init_create_trigger(TableName,TriggerStr) ->
+    case (catch create_trigger(TableName,TriggerStr)) of
+        {'ClientError',{"Trigger already exists", _}} = R ->   
+            ?Info("creating trigger for ~p results in ~p", [TableName,"Trigger already exists"]),
+            R;
+        {'ClientError',{"Trigger already exists",{Table,Trig}}} = Res ->   
+            ?Info("creating trigger for ~p results in ~p", [Table,"Trigger exists in different version"]),
+            Res;
+        Result ->                   
+            ?Info("creating trigger for ~p results in ~p", [TableName,Result]),
+            Result
+    end.
+
+init_create_or_replace_trigger(TableName,TriggerStr) ->
+    case (catch create_or_replace_trigger(TableName,TriggerStr)) of
+        Result ->                   
+            ?Info("creating trigger for ~p results in ~p", [TableName,Result]),
             Result
     end.
 
@@ -239,7 +263,6 @@ init(_Args) ->
         catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
-        catch imem_meta:create_trigger(ddTable, ?ddTableTrigger),
         init_create_check_table(ddNode, {record_info(fields, ddNode),?ddNode,#ddNode{}}, [], system),    
         init_create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
         init_create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
@@ -247,6 +270,9 @@ init(_Args) ->
         init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
         init_create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system),
         write(dual,#dual{}),
+
+        init_create_trigger(ddTable, ?ddTableTrigger),
+
         ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
@@ -719,8 +745,9 @@ create_trigger(Table,TFunStr) when is_atom(Table) ->
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
             case lists:keysearch(trigger, 1, D#ddTable.opts) of
-                false ->        create_or_replace_trigger(Table,TFunStr);
-                {value,Trig} -> ?ClientError({"Trigger already exists",{Table,Trig}})
+                false ->            create_or_replace_trigger(Table,TFunStr);
+                {value,TFunStr} ->  ?ClientError({"Trigger already exists",{Table}});
+                {value,Trig} ->     ?ClientError({"Trigger already exists",{Table,Trig}})
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
