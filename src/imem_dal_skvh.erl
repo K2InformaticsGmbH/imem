@@ -211,7 +211,7 @@ read(User, Channel, Item, KeyTable) when is_binary(Channel), is_binary(Item), is
 
 read(Cmd, _, Item, [], Acc)  -> project_result(Cmd, lists:reverse(Acc), Item);
 read(Cmd, {TN,AN}, Item, [Key|Keys], Acc)  ->
-	KVP = case imem_meta:read(TN,Key) of
+	KVP = case imem_meta:dirty_read(TN,Key) of
 		[] ->		#skvhTable{ckey=Key,cvalue=undefined,chash=undefined} ;
 		[Rec] ->	Rec
 	end,

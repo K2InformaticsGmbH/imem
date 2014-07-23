@@ -58,6 +58,7 @@
         , select_sort/3
         , read/1
         , read/2
+        , dirty_read/2
         , read_hlk/2            %% read using hierarchical list key
         , fetch_start/5
         , write/2
@@ -426,6 +427,15 @@ read(Table, Key) when is_atom(Table) ->
     case transaction(read,[Table, Key]) of
         {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Result ->                   return_atomic_list(Result)
+    end.
+
+dirty_read(Table, Key) when is_atom(Table) ->
+    try
+        return_atomic_list(mnesia_table_read_access(dirty_read, [Table, Key]))
+    catch
+        exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
+        exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
+        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_read failure",Reason})
     end.
 
 read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
@@ -910,6 +920,14 @@ mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
     case apply(mnesia, Fun, Args) of
         {atomic,ok} ->
             ?TOUCH_SNAP(hd(Args)),
+            {atomic,ok};
+        Error ->
+            Error   
+    end.
+
+mnesia_table_read_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
+    case apply(mnesia, Fun, Args) of
+        {atomic,ok} ->
             {atomic,ok};
         Error ->
             Error   

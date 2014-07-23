@@ -162,6 +162,7 @@
         , remove/3          %% delete row if key exists (if bag row exists), apply trigger
         , write/2           %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
+        , dirty_read/2
         , dirty_write/2
         , delete/2          %% delete row by key
         , delete_object/2   %% delete single row in bag table 
@@ -1624,6 +1625,14 @@ read(ddSize,Table) ->
     end;            
 read(Table, Key) -> 
     imem_if:read(physical_table_name(Table), Key).
+
+dirty_read({ddSysConf,Table}, Key) -> read({ddSysConf,Table}, Key);
+dirty_read({_Schema,Table}, Key) ->   dirty_read(Table, Key);
+dirty_read(ddNode,Node) ->  read(ddNode,Node); 
+dirty_read(ddSchema,Key) -> read(ddSchema,Key);
+dirty_read(ddSize,Table) -> read(ddSize,Table);
+dirty_read(Table, Key) ->   imem_if:dirty_read(physical_table_name(Table), Key).
+
 
 read_hlk({_Schema,Table}, HListKey) -> 
     read_hlk(Table, HListKey);
