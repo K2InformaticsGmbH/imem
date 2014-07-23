@@ -120,7 +120,9 @@
         , put_config_hlk/6
         ]).
 
--export([ init_create_table/4
+-export([ init_create_table/3
+        , init_create_table/4
+        , init_create_check_table/3
         , init_create_check_table/4
         , init_create_trigger/2
         , init_create_or_replace_trigger/2
@@ -203,6 +205,9 @@
 start_link(Params) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
 
+init_create_table(TableName,RecDef,Opts) ->
+    init_create_table(TableName,RecDef,Opts,#ddTable{}#ddTable.owner).
+
 init_create_table(TableName,RecDef,Opts,Owner) ->
     case (catch create_table(TableName, RecDef, Opts, Owner)) of
         {'ClientError',{"Table already exists", _}} = R ->   
@@ -215,6 +220,9 @@ init_create_table(TableName,RecDef,Opts,Owner) ->
             ?Info("creating ~p results in ~p", [TableName,Result]),
             Result
     end.
+
+init_create_check_table(TableName,RecDef,Opts) ->
+    init_create_check_table(TableName,RecDef,Opts,#ddTable{}#ddTable.owner).
 
 init_create_check_table(TableName,RecDef,Opts,Owner) ->
     case (catch create_check_table(TableName, RecDef, Opts, Owner)) of
