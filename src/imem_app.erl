@@ -65,22 +65,26 @@ start(_Type, StartArgs) ->
             pang -> ?Info("node ~p down!~n", [CMNode])
             end || CMNode <- CMNodes]
     end,
-    AppRet = case imem_sup:start_link(StartArgs) of
-    	{ok, Pid} -> {ok, Pid};
+    case imem_sup:start_link(StartArgs) of
+    	{ok, Pid} ->
+            % imem_server ranch listner
+            % supervised by ranch so not added to supervison
+            % tree started after imem_sup successful start start
+            % to ensure imem complete booting before listening
+            % for unside connections
+            apps_start([asn1, crypto, public_key, ssl, ranch]),
+            case application:get_env(tcp_server) of
+                {ok, true} ->
+                    {ok, TcpIf} = application:get_env(tcp_ip),
+                    {ok, TcpPort} = application:get_env(tcp_port),
+                    {ok, SSL} = application:get_env(ssl),
+                    Pwd = case code:lib_dir(imem) of {error, _} -> "."; Path -> Path end,
+                    imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}, {pwd, Pwd}, {ssl, SSL}]);
+                _ -> ?Info("imem TCP is not configured to start!~n")
+            end,
+            {ok, Pid};
     	Error -> Error
-    end,
-    % imem_server ranch listner (started unsupervised)
-    apps_start([asn1, crypto, public_key, ssl, ranch]),
-    case application:get_env(tcp_server) of
-        {ok, true} ->
-            {ok, TcpIf} = application:get_env(tcp_ip),
-            {ok, TcpPort} = application:get_env(tcp_port),
-            {ok, SSL} = application:get_env(ssl),
-            Pwd = case code:lib_dir(imem) of {error, _} -> "."; Path -> Path end,
-            imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}, {pwd, Pwd}, {ssl, SSL}]);
-        _ -> ?Info("imem TCP is not configured to start!~n")
-    end,
-    AppRet.
+    end.
 
 %% --------------------------------------------------------------------
 %% Func: stop/1
