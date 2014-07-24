@@ -65,6 +65,10 @@ start(_Type, StartArgs) ->
             pang -> ?Info("node ~p down!~n", [CMNode])
             end || CMNode <- CMNodes]
     end,
+    AppRet = case imem_sup:start_link(StartArgs) of
+    	{ok, Pid} -> {ok, Pid};
+    	Error -> Error
+    end,
     % imem_server ranch listner (started unsupervised)
     apps_start([asn1, crypto, public_key, ssl, ranch]),
     case application:get_env(tcp_server) of
@@ -76,12 +80,7 @@ start(_Type, StartArgs) ->
             imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}, {pwd, Pwd}, {ssl, SSL}]);
         _ -> ?Info("imem TCP is not configured to start!~n")
     end,
-    case imem_sup:start_link(StartArgs) of
-    	{ok, Pid} ->
-    		{ok, Pid};
-    	Error ->
-    		Error
-    end.
+    AppRet.
 
 %% --------------------------------------------------------------------
 %% Func: stop/1
