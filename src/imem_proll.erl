@@ -57,15 +57,16 @@ handle_cast(_Request, State) ->
 
 handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
     % restart proll cycle by collecting list of partition name candidates
-    % ?Debug("Partition rolling collect start~n",[]), 
     case ?GET_PROLL_CYCLE_WAIT of
         PCW when (is_integer(PCW) andalso PCW > 1000) ->    
             Pred = fun imem_meta:is_time_partitioned_alias/1,
-            case lists:sort(lists:filter(Pred,imem_meta:all_aliases())) of
+            case lists:usort(lists:filter(Pred,imem_meta:all_aliases())) of
                 [] ->   
+                    % ?Info("Partition rolling collect result~n",[]), 
                     erlang:send_after(PCW, self(), roll_partitioned_tables),
                     {noreply, State};
                 AL ->   
+                    % ?Info("Partition rolling collect result ~p",[AL]), 
                     PL = try
                         %% collect list of missing partitions
                         {Mega,Sec,Micro} = erlang:now(),
@@ -75,34 +76,36 @@ handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
                     catch
                         _:Reason -> ?Error("Partition rolling collect failed with reason ~p~n",[Reason])
                     end,
+                    % ?Info("Partition rolling about to create missing partitions ~p",[PL]), 
                     handle_info({roll_partitioned_tables, PCW, ?GET_PROLL_ITEM_WAIT}, State#state{prollList=PL})   
             end;
-        _ ->  
+        Other ->  
+            ?Error("Partition rolling bad cycle period ~p",[Other]), 
             erlang:send_after(10000, self(), roll_partitioned_tables),
             {noreply, State}
     end;
 handle_info({roll_partitioned_tables,ProllCycleWait,ProllItemWait}, State=#state{prollList=[{TableAlias,TableName}|Rest]}) ->
     % process one proll candidate
-    % ?Debug("Partition rolling try table ~p ~p~n",[TableAlias,TableName]), 
     case imem_if:read(ddAlias,{imem_meta:schema(), TableAlias}) of
         [] ->   
-            ?Info("TableAlias ~p deleted before ~p could be rolled",[TableAlias,TableName]); 
+            ?Info("TableAlias ~p deleted before partition ~p could be rolled",[TableAlias,TableName]); 
         [#ddAlias{}] ->
             try
+                % ?Info("Trying to roll partition ~p",[TableName]), 
                 imem_meta:create_partitioned_table(TableAlias, TableName),
-                ?Info("Rolling time partition suceeded~p~n",[TableName])
+                ?Info("Rolling time partition ~p suceeded",[TableName])
             catch
                  _:{'ClientError',{"Table already exists",TableName}} ->
-                    ?Info("Time partition ~p already exists, rolling is skipped~n",[TableName]);   
-                _:Reason -> ?Error("Rolling time partition ~p failed with reason ~p ~n",[TableName, Reason])
+                    ?Info("Time partition ~p already exists, rolling is skipped",[TableName]);   
+                _:Reason -> ?Error("Rolling time partition ~p failed with reason ~p",[TableName, Reason])
             end
     end,  
-    case Rest of
-        [] ->   erlang:send_after(ProllCycleWait, self(), roll_partitioned_tables),
-                {noreply, State#state{prollList=[]}};
-        Rest -> erlang:send_after(ProllItemWait, self(), {roll_partitioned_tables,ProllCycleWait,ProllItemWait}),
-                {noreply, State#state{prollList=Rest}}
-    end;
+    erlang:send_after(ProllItemWait, self(), {roll_partitioned_tables,ProllCycleWait,ProllItemWait}),
+    {noreply, State#state{prollList=Rest}};
+handle_info({roll_partitioned_tables,ProllCycleWait,_}, State=#state{prollList=[]}) ->
+    % ?Info("Partition rolling completed",[]), 
+    erlang:send_after(ProllCycleWait, self(), roll_partitioned_tables),
+    {noreply, State#state{prollList=[]}};
 handle_info(_Info, State) ->
     {noreply, State}.
 
