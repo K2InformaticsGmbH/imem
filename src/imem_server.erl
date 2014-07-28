@@ -64,8 +64,8 @@ init(ListenerPid, Socket, Transport, Opts) ->
     Str = lists:flatten(io_lib:format("~p received connection from ~s:~p"
                                       , [self(), inet_parse:ntoa(Address)
                                          , Port])),
-    ?Info(Str++"~n", []),
-    imem_meta:log_to_db(info,?MODULE,init
+    ?Debug(Str++"~n", []),
+    imem_meta:log_to_db(debug,?MODULE,init
                         ,[ListenerPid, Socket, Transport, Opts], Str),
     ok = ranch:accept_ack(ListenerPid),
     loop(Socket, Transport, <<>>, 0).

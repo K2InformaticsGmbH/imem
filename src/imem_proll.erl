@@ -58,7 +58,7 @@ handle_cast(_Request, State) ->
 handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
     % restart proll cycle by collecting list of partition name candidates
     case ?GET_PROLL_CYCLE_WAIT of
-        PCW when (is_integer(PCW) andalso PCW > 1000) ->    
+        PCW when (is_integer(PCW) andalso PCW >= 1000) ->    
             Pred = fun imem_meta:is_time_partitioned_alias/1,
             case lists:usort(lists:filter(Pred,imem_meta:all_aliases())) of
                 [] ->   
