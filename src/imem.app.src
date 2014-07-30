@@ -35,8 +35,8 @@
          {tcp_server, true},
          {tcp_ip, "0.0.0.0"},
          {tcp_port, 8124},
-         {ssl, [{certfile,  "cert/imem.crt"},
-                {keyfile,   "cert/imem.key"},
+         {ssl, [{certfile,  "priv/cert/imem.crt"},
+                {keyfile,   "priv/cert/imem.key"},
                 {password,  "mpro"}]}
         ]}
  ]}.

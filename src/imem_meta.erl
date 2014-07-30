@@ -668,6 +668,11 @@ create_physical_table(TableAlias,ColInfos,Opts,Owner) ->
         false ->    ok;
         true ->     ?ClientError({"Reserved table name",TableAlias})
     end,
+    case length(ColInfos) of
+        0 ->    ?ClientError({"No columns given in create table",TableAlias});
+        1 ->    ?ClientError({"No value column given in create table, add dummy value column",TableAlias});
+        _ ->    ok
+    end,
     CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(false, 1, CharsCheck) of
         false ->    ok;
@@ -2070,11 +2075,16 @@ meta_operations(_) ->
                     , #ddColumn{name=b2, type=float, len=8, prec=3}   %% value
                     ],
 
-        BadTypes1 = [ #ddColumn{name='a:b', type=integer, len=10}  
+        BadTypes0 = [ #ddColumn{name='a', type=integer, len=10}  
                     ],
-        BadTypes2 = [ #ddColumn{name=current, type=integer, len=10}
+        BadTypes1 = [ #ddColumn{name='a', type=integer, len=10}
+                    , #ddColumn{name='a:b', type=integer, len=10}  
                     ],
-        BadTypes3 = [ #ddColumn{name=a, type=iinteger, len=10}
+        BadTypes2 = [ #ddColumn{name='a', type=integer, len=10}
+                    , #ddColumn{name=current, type=integer, len=10}
+                    ],
+        BadTypes3 = [ #ddColumn{name='a', type=integer, len=10}
+                    , #ddColumn{name=a, type=iinteger, len=10}
                     ],
 
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
@@ -2084,6 +2094,9 @@ meta_operations(_) ->
         ?Info("success ~p~n", [create_table_not_null]),
         Trig = <<"fun(O,N,T,U) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U}],\"trigger\") end.">>,
         ?assertEqual(ok, create_or_replace_trigger(meta_table_3, Trig)),
+
+        ?assertException(throw, {ClEr,{"No columns given in create table",bad_table_0}}, create_table('bad_table_0', [], [])),
+        ?assertException(throw, {ClEr,{"No value column given in create table, add dummy value column",bad_table_0}}, create_table('bad_table_0', BadTypes0, [])),
 
         ?assertException(throw, {ClEr,{"Invalid character(s) in table name", 'bad_?table_1'}}, create_table('bad_?table_1', BadTypes1, [])),
         ?assertException(throw, {ClEr,{"Reserved table name", select}}, create_table(select, BadTypes2, [])),
@@ -2212,10 +2225,10 @@ meta_operations(_) ->
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)),
         timer:sleep(1000),
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:now()})),
-        ?assertEqual(2,length(physical_table_names(fakelog_1@))),
+        ?assert(length(physical_table_names(fakelog_1@)) >= 3),
         timer:sleep(1100),
-        ?assertEqual(ok, create_partitioned_table_sync(fakelog_1@,physical_table_name(fakelog_1@))),
-        ?assertEqual(3,length(physical_table_names(fakelog_1@))),
+        % ?assertEqual(ok, create_partitioned_table_sync(fakelog_1@,physical_table_name(fakelog_1@))),
+        ?assert(length(physical_table_names(fakelog_1@)) >= 4),
         ?Info("success ~p~n", [create_partitioned_table]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
