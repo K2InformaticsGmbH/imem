@@ -42,9 +42,10 @@
 %% Configuration
 %% ===================================================================
 
+%-define(ALLOW_MAPS,true). % Allow maps module to be used (requires Erlang >= 17.0)
+
 -define(DEFAULT_TYPE, json). % proplist | map | json
 
--define(JSON_TO_MAPS,true). % parse raw binary json to maps
 
 -define(TEST,true). % testing, to be removed and managed by rebar
 
@@ -52,7 +53,7 @@
 
 -define(NOT_SUPPORTED,throw(not_yet_supported)).
 
--ifdef(JSON_TO_MAPS).
+-ifdef(ALLOW_MAPS).
 %%                  {Module, Decode, Encode}
 -define(JSON_LIBS, [{jsx, 
                      fun(<<"{}">>) -> #{};
@@ -70,13 +71,13 @@
 -define(JSON_LIBS, [{jsx, 
                      fun(<<"{}">>) -> [];
                         (__JS) -> jsx:decode(__JS) end,
-                     fun(__JS) when is_list(__JS) -> jsx:encode(__JS);
-                        (__JS) when is_map(__JS) -> jsx:encode(maps:to_list(__JS)) end},
+                     fun(__JS) when is_list(__JS) -> jsx:encode(__JS) end},
+                        %(__JS) when is_map(__JS) -> jsx:encode(maps:to_list(__JS)) end},
                     {jiffy,
                      fun(<<"{}">>) -> [];
                         (__JS) -> {O} = jiffy:decode(__JS), O end,
-                     fun(__JS) when is_list(__JS) -> jiffy:encode({__JS});
-                        (__JS) when is_map(__JS) -> jiffy:encode(__JS) end}
+                     fun(__JS) when is_list(__JS) -> jiffy:encode({__JS})}
+                        %(__JS) when is_map(__JS) -> jiffy:encode(__JS) end}
                    ]).
 -endif.
 
@@ -88,15 +89,21 @@
 
 %% Type definitions
 %% ===================================================================
+-ifdef(ALLOW_MAPS).
 -type data_object() :: list() | map() | binary().
 -type diff_object() :: list() | map() | binary().
+-else.
+-type data_object() :: list() | binary().
+-type diff_object() :: list() | binary().
+-endif.
+
 -type value() :: term().
 -type key() :: binary().
 
 %% ===================================================================
 %% Exported functions
 %% ===================================================================
-
+-ifdef(ALLOW_MAPS).
 %% @doc Find function, returns {ok,Value} or error
 -spec find(key(),data_object()) -> {ok, value()} | error.
 find(Key,DataObject) when is_list(DataObject) ->
@@ -152,12 +159,12 @@ has_key(Key,DataObject) ->
     has_key(Key,?FROM_JSON(DataObject)).
 
 
-%% @doc Unordered list of keys used by data object
+%% @doc Erlang term ordered list of keys used by data object
 -spec keys(data_object()) -> list().
 keys(DataObject) when is_list(DataObject) -> 
-    proplists:get_keys(DataObject);
+    lists:sort(proplists:get_keys(DataObject));
 keys(DataObject) when is_map(DataObject) -> 
-    maps:keys(DataObject);
+    lists:sort(maps:keys(DataObject));
 keys(DataObject) -> 
     keys(?FROM_JSON(DataObject)).
 
@@ -506,8 +513,8 @@ clean_null_values(DataObject) ->
 %% ===================================================================
 %% TESTS
 %% ===================================================================
--ifdef(TEST).
 
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
 -define(TEST_JSON, <<"{\"surname\":\"Doe\",\"name\":\"John\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"empty\":null}">>).
@@ -551,11 +558,30 @@ has_key_test_() ->
      {"map_fail",?_assert(not has_key(<<"sname">>,?TEST_MAP))},
      {"json_fail",?_assert(not has_key(<<"sname">>,?TEST_JSON))}].
 
-keys_test_() -> [].
+keys_test_() -> 
+    Keys = lists:sort([<<"surname">>,<<"name">>,<<"foo">>,<<"earthling">>,<<"age">>,<<"empty">>]),
+    [{"proplist",?_assertEqual(Keys,keys(?TEST_PROP))},
+     {"map",?_assertEqual(Keys,keys(?TEST_MAP))},
+     {"json",?_assertEqual(Keys,keys(?TEST_JSON))}].
 
-map_test_() -> [].
+map_test_() -> 
+    Job = fun(<<"age">>,_) -> 8000;
+             (_,true) -> false;
+             (_,V) -> V end,
+    PropOut = map(Job,?TEST_PROP),
+    MapOut = map(Job,?TEST_MAP),
+    JsonOut = map(Job,?TEST_JSON),
+    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))},
+     {"proplist",?_assertEqual(false, proplists:get_value(<<"earthling">>,PropOut))},
+     {"map",?_assertEqual(8000, maps:get(<<"age">>,MapOut))},
+     {"map",?_assertEqual(false,maps:get(<<"earthling">>,MapOut))},
+     {"json",?_assertEqual(8000, ?MODULE:get(<<"age">>,JsonOut))},
+     {"json",?_assertEqual(false,?MODULE:get(<<"earthling">>,JsonOut))}].
 
-new_test_() -> [].
+new_test_() -> 
+    [{"proplist",?_assertEqual([],new(proplist))},
+     {"map",?_assertEqual(#{},new(map))},
+     {"json",?_assertEqual(<<"{}">>,new(json))}].
 
 put_test_() -> 
     [{"prop_empty",?_assertEqual([{test,1}],?MODULE:put(test,1,[]))},
@@ -565,13 +591,32 @@ put_test_() ->
      {"json_empty",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{}">>))},
      {"json_replace",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{\"test\":2}">>))}].
 
-remove_test_() -> [].
+remove_test_() ->
+    PropOut = remove(<<"age">>,?TEST_PROP),
+    MapOut =  remove(<<"age">>,?TEST_MAP),
+    JsonOut = remove(<<"age">>,?TEST_JSON),
+    [{"proplist",?_assertEqual(undefined, proplists:get_value(<<"age">>,PropOut,undefined))},
+     {"map",?_assertEqual(undefined, ?MODULE:get(<<"age">>,MapOut))},
+     {"json",?_assertEqual(undefined,?MODULE:get(<<"age">>,JsonOut))}].
 
-size_test_() -> [].
+size_test_() -> 
+    [{"proplist",?_assertEqual(5,?MODULE:size(?TEST_PROP))},
+     {"map",?_assertEqual(5,?MODULE:size(?TEST_MAP))},
+     {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))}].
 
-update_test_() -> [].
+update_test_() ->
+    PropOut = update(<<"age">>,8000,?TEST_PROP),
+    MapOut =  update(<<"age">>,8000,?TEST_MAP),
+    JsonOut = update(<<"age">>,8000,?TEST_JSON),
+    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))},
+     {"map",?_assertEqual(8000, maps:get(<<"age">>,MapOut))},
+     {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))}].
 
-values_test_() -> [].
+values_test_() ->
+    Values = lists:sort([<<"Doe">>,<<"John">>,<<"bar">>,true,981,null]),
+    [{"proplist",?_assertEqual(Values,lists:sort(values(?TEST_PROP)))},
+     {"map",?_assertEqual(Values,lists:sort(values(?TEST_MAP)))},
+     {"json",?_assertEqual(Values,lists:sort(values(?TEST_JSON)))}].
 
 to_proplist_test_() ->
     [{"proplist",?_assert(is_list(to_proplist(?TEST_PROP)))},
@@ -639,5 +684,34 @@ is_disjoint_test_() ->
      {"map_fail",?_assert(not is_disjoint(Sub_Nook_Map ,?TEST_MAP))},
      {"proplist_fail",?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))},
      {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}].
+-endif.
+
+-else.
+
+find(_,_) -> ?NOT_SUPPORTED.
+fold(_,_,_) -> ?NOT_SUPPORTED.
+get(_,_) -> ?NOT_SUPPORTED. 
+get(_,_,_) -> ?NOT_SUPPORTED.
+has_key(_,_) -> ?NOT_SUPPORTED.
+keys(_) -> ?NOT_SUPPORTED. 
+map(_,_) -> ?NOT_SUPPORTED. 
+new() -> ?NOT_SUPPORTED. 
+new(_) -> ?NOT_SUPPORTED.
+put(_,_,_) -> ?NOT_SUPPORTED.
+remove(_,_) -> ?NOT_SUPPORTED.
+size(_) -> ?NOT_SUPPORTED.
+update(_,_,_) -> ?NOT_SUPPORTED.
+values(_) -> ?NOT_SUPPORTED.
+to_proplist(_) -> ?NOT_SUPPORTED.
+to_map(_) -> ?NOT_SUPPORTED.
+to_binary(_) -> ?NOT_SUPPORTED.
+filter(_,_) -> ?NOT_SUPPORTED.      
+include(_,_) -> ?NOT_SUPPORTED.     
+exclude(_,_) -> ?NOT_SUPPORTED.     
+merge(_,_) -> ?NOT_SUPPORTED.       
+diff(_,_) -> ?NOT_SUPPORTED.        
+equal(_,_) -> ?NOT_SUPPORTED.       
+is_subset(_,_) -> ?NOT_SUPPORTED.   
+is_disjoint(_,_) -> ?NOT_SUPPORTED.  
 
 -endif.
