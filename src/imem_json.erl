@@ -39,21 +39,28 @@
          ]).
 
 
-%% Configuration
+%% Basic Configuration
 %% ===================================================================
 
 %-define(ALLOW_MAPS,true). % Allow maps module to be used (requires Erlang >= 17.0)
+ 
+%-define(DECODE_TO_MAPS,true). % Decode raw json to a map
 
--define(DEFAULT_TYPE, json). % proplist | map | json
+-define(DEFAULT_TYPE, proplist). % proplist | map | json
 
-
+% Testing available when maps are enabled.
 -define(TEST,true). % testing, to be removed and managed by rebar
 
 -define(NO_JSON_LIB,throw(no_json_library_found)).
 
 -define(NOT_SUPPORTED,throw(not_yet_supported)).
 
--ifdef(ALLOW_MAPS).
+-define(BAD_VERSION,throw(json_imem_disabled)).
+
+
+%% Json Decoding & Encoding Library Configuration
+%% ===================================================================
+-ifdef(DECODE_TO_MAPS).
 %%                  {Module, Decode, Encode}
 -define(JSON_LIBS, [{jsx, 
                      fun(<<"{}">>) -> #{};
@@ -71,13 +78,15 @@
 -define(JSON_LIBS, [{jsx, 
                      fun(<<"{}">>) -> [];
                         (__JS) -> jsx:decode(__JS) end,
-                     fun(__JS) when is_list(__JS) -> jsx:encode(__JS) end},
-                        %(__JS) when is_map(__JS) -> jsx:encode(maps:to_list(__JS)) end},
+                     fun(__JS) when is_list(__JS) -> jsx:encode(__JS);
+                        (__JS) when is_binary(__JS) -> __JS;
+                        (__JS) -> jsx:encode(__JS) end},
                     {jiffy,
                      fun(<<"{}">>) -> [];
                         (__JS) -> {O} = jiffy:decode(__JS), O end,
-                     fun(__JS) when is_list(__JS) -> jiffy:encode({__JS})}
-                        %(__JS) when is_map(__JS) -> jiffy:encode(__JS) end}
+                     fun(__JS) when is_list(__JS) -> jiffy:encode({__JS});
+                        (__JS) when is_binary(__JS) -> __JS;
+                        (__JS) -> jiffy:encode(__JS) end}
                    ]).
 -endif.
 
@@ -103,9 +112,9 @@
 %% ===================================================================
 %% Exported functions
 %% ===================================================================
--ifdef(ALLOW_MAPS).
 %% @doc Find function, returns {ok,Value} or error
 -spec find(key(),data_object()) -> {ok, value()} | error.
+-ifdef(ALLOW_MAPS).
 find(Key,DataObject) when is_list(DataObject) ->
     case proplists:get_value(Key,DataObject,undefined) of
         undefined -> error;
@@ -115,11 +124,21 @@ find(Key,DataObject) when is_map(DataObject) ->
     maps:find(Key,DataObject);
 find(Key,DataObject) ->
     find(Key,?FROM_JSON(DataObject)).
+-else.
+find(Key,DataObject) when is_list(DataObject) ->
+    case proplists:get_value(Key,DataObject,undefined) of
+        undefined -> error;
+        Value -> {ok,Value}
+    end;
+find(Key,DataObject) ->
+    find(Key,?FROM_JSON(DataObject)).
+-endif.
 
 
 %% @doc Standard fold function, returns accumulator. null values are ignored.
 %% Fun = fun((K, V, AccIn) -> AccOut)
 -spec fold(fun(), Init, data_object()) -> Acc when Init :: term(), Acc :: term().
+-ifdef(ALLOW_MAPS).
 fold(Fun,Init,DataObject) when is_list(DataObject) -> 
     lists:foldl(fun({K,V},Acc) -> Fun(K,V,Acc) end,
                 Init,
@@ -128,6 +147,14 @@ fold(Fun,Init,DataObject) when is_map(DataObject) ->
     maps:fold(Fun,Init,?CL(DataObject));
 fold(Fun,Init,DataObject) -> 
     fold(Fun,Init,?FROM_JSON(DataObject)).
+-else.
+fold(Fun,Init,DataObject) when is_list(DataObject) -> 
+    lists:foldl(fun({K,V},Acc) -> Fun(K,V,Acc) end,
+                Init,
+                proplists:unfold(?CL(DataObject)));
+fold(Fun,Init,DataObject) -> 
+    fold(Fun,Init,?FROM_JSON(DataObject)).
+-endif.
 
 
 %% @doc Get function, same as get(Key,DataObject,undefined)
@@ -138,6 +165,7 @@ get(Key,DataObject) ->
 
 %% @doc Return value corresponding to key. If key not present, returns Default.
 -spec get(key(),data_object(),Default) -> value() | Default when Default :: term().
+-ifdef(ALLOW_MAPS).
 get(Key,DataObject,Default) when is_list(DataObject) ->
     proplists:get_value(Key,DataObject,Default);
 get(Key,DataObject,Default) when is_map(DataObject) ->
@@ -147,26 +175,46 @@ get(Key,DataObject,Default) when is_map(DataObject) ->
     end;
 get(Key,DataObject,Default) ->
     get(Key,?FROM_JSON(DataObject), Default).
+-else.
+get(Key,DataObject,Default) when is_list(DataObject) ->
+    proplists:get_value(Key,DataObject,Default);
+get(Key,DataObject,Default) ->
+    get(Key,?FROM_JSON(DataObject), Default).
+-endif.
 
 
 %% @doc Check if data object has key
 -spec has_key(key(), data_object()) -> boolean().
+-ifdef(ALLOW_MAPS).
 has_key(Key,DataObject) when is_list(DataObject) ->
     proplists:is_defined(Key,DataObject);
 has_key(Key,DataObject) when is_map(DataObject) ->
     maps:is_key(Key,DataObject);
 has_key(Key,DataObject) -> 
     has_key(Key,?FROM_JSON(DataObject)).
-
+-else.
+has_key(Key,DataObject) when is_list(DataObject) ->
+    proplists:is_defined(Key,DataObject);
+has_key(Key,DataObject) -> 
+    has_key(Key,?FROM_JSON(DataObject)).
+-endif.
 
 %% @doc Erlang term ordered list of keys used by data object
 -spec keys(data_object()) -> list().
+-ifdef(ALLOW_MAPS).
 keys(DataObject) when is_list(DataObject) -> 
     lists:sort(proplists:get_keys(DataObject));
 keys(DataObject) when is_map(DataObject) -> 
     lists:sort(maps:keys(DataObject));
 keys(DataObject) -> 
     keys(?FROM_JSON(DataObject)).
+-else.
+keys(DataObject) when is_list(DataObject) -> 
+    lists:sort(proplists:get_keys(DataObject));
+keys(DataObject) -> 
+    keys(?FROM_JSON(DataObject)).
+-endif.
+
 
 %% @doc Produces a new data object by calling the function fun F(K, V1) 
 %% for every K to value V1 association in data object in arbitrary order. 
@@ -174,6 +222,7 @@ keys(DataObject) ->
 %% for the new data object. 
 %% null values are ignored and not carried over to new data object.
 -spec map(fun(), data_object()) -> data_object().
+-ifdef(ALLOW_MAPS).
 map(Fun,DataObject) when is_list(DataObject) ->
     lists:map(fun({K,V}) -> {K,Fun(K,V)} end,
               proplists:unfold(DataObject));
@@ -181,6 +230,14 @@ map(Fun,DataObject) when is_map(DataObject) ->
     maps:map(Fun,?CL(DataObject));
 map(Fun,DataObject) ->
     ?TO_JSON(map(Fun,?FROM_JSON(DataObject))).
+-else.
+map(Fun,DataObject) when is_list(DataObject) ->
+    lists:map(fun({K,V}) -> {K,Fun(K,V)} end,
+              proplists:unfold(DataObject));
+map(Fun,DataObject) ->
+    ?TO_JSON(map(Fun,?FROM_JSON(DataObject))).
+-endif.
+
 
 %% @doc Create new imen json data object using default type
 -spec new() -> data_object().
@@ -188,24 +245,39 @@ new() -> new(?DEFAULT_TYPE).
 
 %% @doc Create new imen json data object
 -spec new(Type) -> data_object() when Type :: json | proplist | map.
+-ifdef(ALLOW_MAPS).
 new(proplist) -> [];
 new(map) -> #{};
 new(json) -> <<"{}">>.
+-else.
+new(proplist) -> [];
+new(json) -> <<"{}">>.
+-endif.
+
 
 
 %% @doc Add a value to a IMEM Json data object
 %% Should Key already exist, old value will be replaced
 -spec put(key(), value(), data_object()) -> data_object().
+-ifdef(ALLOW_MAPS).
 put(Key,Value,DataObject) when is_list(DataObject) ->
     [{Key,Value}| proplists:delete(Key,DataObject)];
 put(Key,Value,DataObject) when is_map(DataObject) ->
     maps:put(Key,Value,DataObject);
 put(Key,Value,DataObject) ->
     ?TO_JSON(?MODULE:put(Key,Value,?FROM_JSON(DataObject))).
+-else.
+put(Key,Value,DataObject) when is_list(DataObject) ->
+    [{Key,Value}| proplists:delete(Key,DataObject)];
+put(Key,Value,DataObject) ->
+    ?TO_JSON(?MODULE:put(Key,Value,?FROM_JSON(DataObject))).
+-endif.
+
 
 
 %% @doc Remove a key from a data object
 -spec remove(key(), data_object()) -> data_object().
+-ifdef(ALLOW_MAPS).
 remove(Key,DataObject) when is_list(DataObject) ->
     proplists:delete(Key,DataObject);
 remove(Key,DataObject) when is_map(DataObject) ->
@@ -213,20 +285,37 @@ remove(Key,DataObject) when is_map(DataObject) ->
 remove(Key,DataObject) ->
     ?TO_JSON(remove(Key,?FROM_JSON(DataObject))).
     
+-else.
+remove(Key,DataObject) when is_list(DataObject) ->
+    proplists:delete(Key,DataObject);
+remove(Key,DataObject) ->
+    ?TO_JSON(remove(Key,?FROM_JSON(DataObject))).
+    
+-endif.
+
 
 %% @doc Size of a data object, ignoring null values
 -spec size(data_object()) -> integer().
+-ifdef(ALLOW_MAPS).
 size(DataObject) when is_list(DataObject) -> 
     length(?CL(DataObject));
 size(DataObject) when is_map(DataObject) -> 
     maps:size(?CL(DataObject));
 size(DataObject) -> 
  ?MODULE:size(?FROM_JSON(DataObject)).
+-else.
+size(DataObject) when is_list(DataObject) -> 
+    length(?CL(DataObject));
+size(DataObject) -> 
+ ?MODULE:size(?FROM_JSON(DataObject)).
+-endif.
+
 
 
 %% @doc Update a key with a new value. If key is not present, 
 %% error:badarg exception is raised.
 -spec update(key(),value(),data_object()) -> data_object().
+-ifdef(ALLOW_MAPS).
 update(Key,Value,DataObject) when is_list(DataObject) ->
     case proplists:is_defined(Key,DataObject) of
         true -> [{Key,Value} | proplists:delete(Key,DataObject)];
@@ -238,29 +327,56 @@ update(Key,Value,DataObject) when is_map(DataObject) ->
     maps:update(Key,Value,DataObject);
 update(Key,Value,DataObject) ->
     ?TO_JSON(update(Key,Value,?FROM_JSON(DataObject))).
+-else.
+update(Key,Value,DataObject) when is_list(DataObject) ->
+    case proplists:is_defined(Key,DataObject) of
+        true -> [{Key,Value} | proplists:delete(Key,DataObject)];
+        false -> erlang:error(badarg)
+    end;
+update(Key,Value,DataObject) ->
+    ?TO_JSON(update(Key,Value,?FROM_JSON(DataObject))).
+-endif.
+
 
 
 %% @doc Returns a complete list of values, in arbitrary order, from data object
 -spec values(data_object()) -> list().
+-ifdef(ALLOW_MAPS).
 values(DataObject) when is_list(DataObject) ->
     [V || {_,V} <- DataObject];
 values(DataObject) when is_map(DataObject) ->
     maps:values(DataObject);
 values(DataObject) -> 
     values(?FROM_JSON(DataObject)).
+-else.
+values(DataObject) when is_list(DataObject) ->
+    [V || {_,V} <- DataObject];
+values(DataObject) -> 
+    values(?FROM_JSON(DataObject)).
+-endif.
+
 
 
 %% @doc Convert any format of DataObject to proplist
 -spec to_proplist(data_object()) -> list().
+-ifdef(ALLOW_MAPS).
 to_proplist(DataObject) when is_list(DataObject) ->
     DataObject;
 to_proplist(DataObject) when is_map(DataObject) ->
     maps:to_list(DataObject);
 to_proplist(DataObject) ->
     to_proplist(?FROM_JSON(DataObject)).
+-else.
+to_proplist(DataObject) when is_list(DataObject) ->
+    DataObject;
+to_proplist(DataObject) ->
+    to_proplist(?FROM_JSON(DataObject)).
+-endif.
+
 
 
 %% @doc Convert any format of DataObject to map
+-ifdef(ALLOW_MAPS).
 -spec to_map(data_object()) -> map().
 to_map(DataObject) when is_list(DataObject) ->
     maps:from_list(DataObject);
@@ -268,20 +384,23 @@ to_map(DataObject) when is_map(DataObject) ->
     DataObject;
 to_map(DataObject) ->
     to_map(?FROM_JSON(DataObject)).
+-else.
+to_map(_) -> ?NOT_SUPPORTED.
+-endif.
+
 
 
 %% @doc Convert any format of DataObject to binary JSON
 -spec to_binary(data_object()) -> binary().
-to_binary(DataObject) when is_list(DataObject); is_map(DataObject) ->
-    ?TO_JSON(DataObject);
+to_binary(DataObject) when is_binary(DataObject)-> DataObject;
+to_binary(DataObject) -> ?TO_JSON(DataObject).
 
-to_binary(DataObject) ->
-    DataObject.
 
 %% @doc Builds a new data object with key/value pairs from provided data
 %% object according if boolean filter function (fun(K,V) -> true | false) 
 %% return true.
 -spec filter(fun(),data_object()) -> data_object().
+-ifdef(ALLOW_MAPS).
 filter(Fun,DataObject) when is_list(DataObject) ->
     lists:foldl(fun({K,V},In) ->
                     case Fun(K,V) of
@@ -302,10 +421,26 @@ filter(Fun,DataObject) ->
     ?TO_JSON(filter(Fun,?FROM_JSON(DataObject))).
     
     
+-else.
+filter(Fun,DataObject) when is_list(DataObject) ->
+    lists:foldl(fun({K,V},In) ->
+                    case Fun(K,V) of
+                        true -> [{K,V}|In];
+                        false -> In
+                    end end,
+                [],
+                DataObject);
+filter(Fun,DataObject) ->
+    ?TO_JSON(filter(Fun,?FROM_JSON(DataObject))).
+    
+    
+-endif.
+
 
 %% @doc Build data object with provided keys and associated values from
 %% provided data object
 -spec include(Keys,data_object()) -> data_object() when Keys :: [key() | Keys].
+-ifdef(ALLOW_MAPS).
 include(Keys,DataObject) when is_list(DataObject) -> 
     [{K,proplists:get_value(K,DataObject)} || K <- Keys];
 include(Keys,DataObject) when is_map(DataObject) -> 
@@ -315,10 +450,18 @@ include(Keys,DataObject) when is_map(DataObject) ->
                 Keys);
 include(Keys,DataObject) ->
     ?TO_JSON(include(Keys,?FROM_JSON(DataObject))).
+-else.
+include(Keys,DataObject) when is_list(DataObject) -> 
+    [{K,proplists:get_value(K,DataObject)} || K <- Keys];
+include(Keys,DataObject) ->
+    ?TO_JSON(include(Keys,?FROM_JSON(DataObject))).
+-endif.
+
 
 %% @doc Build data object with data from provided data object, excluding
 %% the elements associated with provided keys
 -spec exclude(Keys,data_object()) -> data_object() when Keys :: [key() | Keys].
+-ifdef(ALLOW_MAPS).
 exclude(Keys,DataObject) when is_list(DataObject) -> 
     [{K,V} || {K,V} <- DataObject, lists:member(K,Keys) =:= false];
 exclude(Keys,DataObject) when is_map(DataObject) -> 
@@ -331,12 +474,20 @@ exclude(Keys,DataObject) when is_map(DataObject) ->
              DataObject);
 exclude(Keys,DataObject) ->
     ?TO_JSON(exclude(Keys,?FROM_JSON(DataObject))).
+-else.
+exclude(Keys,DataObject) when is_list(DataObject) -> 
+    [{K,V} || {K,V} <- DataObject, lists:member(K,Keys) =:= false];
+exclude(Keys,DataObject) ->
+    ?TO_JSON(exclude(Keys,?FROM_JSON(DataObject))).
+-endif.
+
 
 %% @doc Merges two data objects into a data object. 
 %% If two keys exists in both data objects  the value in the first data object
 %% will be superseded by the value in the second data object, unless the value 
 %% of the second data object is null.
 -spec merge(data_object(),data_object()) -> data_object().
+-ifdef(ALLOW_MAPS).
 merge(DataObject1,DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
     CleanObject2 = ?CL(DataObject2),
     Object2Keys = proplists:get_keys(CleanObject2),
@@ -345,6 +496,15 @@ merge(DataObject1,DataObject2) when is_map(DataObject1), is_map(DataObject2) ->
     maps:merge(DataObject1,?CL(DataObject2));
 merge(DataObject1,DataObject2) ->
     ?TO_JSON(merge(?FROM_JSON(DataObject1),?FROM_JSON(DataObject2))).
+-else.
+merge(DataObject1,DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
+    CleanObject2 = ?CL(DataObject2),
+    Object2Keys = proplists:get_keys(CleanObject2),
+    CleanObject2 ++ [{K,V} || {K,V} <- DataObject1, lists:member(K,Object2Keys) =:= false];
+merge(DataObject1,DataObject2) ->
+    ?TO_JSON(merge(?FROM_JSON(DataObject1),?FROM_JSON(DataObject2))).
+-endif.
+
 
 %% @doc creates a diff data object between the first (old) and second (new) provided data
 %% objects. null values are ignored. Resulting data object will have 5 root keys, each containg
@@ -357,6 +517,7 @@ merge(DataObject1,DataObject2) ->
 %% replaced : containts key/value pairs who are not indentical between data object 1 and 2,
 %%            with the values from data object 1
 -spec diff(data_object(), data_object()) -> diff_object().
+-ifdef(ALLOW_MAPS).
 diff(RawDataObject1, RawDataObject2) when is_list(RawDataObject1), is_list(RawDataObject2) ->
     DataObject1 = ?CL(RawDataObject1),
     DataObject2 = ?CL(RawDataObject2),
@@ -429,15 +590,41 @@ diff(RawDataObject1, RawDataObject2) when is_map(RawDataObject1), is_map(RawData
       changes =>  maps:size(Added) + maps:size(Removed) + maps:size(Updated)};
 diff(DataObject1, DataObject2) ->
     ?TO_JSON(diff(?FROM_JSON(DataObject1),?FROM_JSON(DataObject2))).
+-else.
+diff(RawDataObject1, RawDataObject2) when is_list(RawDataObject1), is_list(RawDataObject2) ->
+    DataObject1 = ?CL(RawDataObject1),
+    DataObject2 = ?CL(RawDataObject2),
+    Object1Keys = proplists:keys(DataObject1),
+    Object2Keys = proplists:keys(DataObject2),
+    CommonKeys = lists:filter(fun(K) -> lists:member(K,Object1Keys) end, Object2Keys),
 
-% Added: keys in 2 who are not in 1
-% Removed: keys in 1 who are not in 2
-% Update: keys in 2 who are in 1 but with different values
-% Replaced: keys in 1 who are in 2 but with different values
-% Changes: count added + count removed + count replaced
+    UpdatedJob = fun(K,Acc) -> 
+                    case {proplists:get_value(K,DataObject1),
+                          proplists:get_value(K,DataObject2)} of
+                          {__Same,__Same} -> Acc;
+                          {__Old,__New}   -> [{K,__Old,__New} | Acc]
+                    end end,
+    UpdatedTuples = lists:foldl(UpdatedJob,
+                                [],
+                                CommonKeys),
+
+    Added = lists:filter(fun({K,_}) -> lists:member(K,Object1Keys) =:= false end, DataObject2),
+    Removed = lists:filter(fun({K,_}) -> lists:member(K,Object2Keys) =:= false end, DataObject1),
+    Updated = [{K,V} || {K,_,V} <- UpdatedTuples],
+    Replaced = [{K,V} || {K,V,_} <- UpdatedTuples],
+
+    [{added,Added},
+     {removed,Removed},
+     {updated,Updated},
+     {replaced,Replaced},
+     {changes, length(Added) + length(Removed) + length(Updated)}];
+diff(DataObject1, DataObject2) ->
+    ?TO_JSON(diff(?FROM_JSON(DataObject1),?FROM_JSON(DataObject2))).
+-endif.
 
 %% @doc Compare data objects for equality (null values are ignored)
 -spec equal(data_object(), data_object()) -> boolean.
+-ifdef(ALLOW_MAPS).
 equal(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) -> 
     lists:sort(?CL(DataObject1)) =:= lists:sort(?CL(DataObject2));
 equal(DataObject1, DataObject2) when is_map(DataObject1), is_map(DataObject2) ->
@@ -445,9 +632,18 @@ equal(DataObject1, DataObject2) when is_map(DataObject1), is_map(DataObject2) ->
 equal(DataObject1, DataObject2) ->
     equal(?FROM_JSON(DataObject1),?FROM_JSON(DataObject2)).
     
+-else.
+equal(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) -> 
+    lists:sort(?CL(DataObject1)) =:= lists:sort(?CL(DataObject2));
+equal(DataObject1, DataObject2) ->
+    equal(?FROM_JSON(DataObject1),?FROM_JSON(DataObject2)).
+    
+-endif.
+
 
 %% @doc Returns true when every element of data_object1 is also a member of data_object2, otherwise false.
 -spec is_subset(data_object(), data_object()) -> boolean().
+-ifdef(ALLOW_MAPS).
 is_subset(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
     Is_Member = fun ({_,null}) -> true;
                     ({K1,V1}) -> V1 =:= proplists:get_value(K1,DataObject2) end,
@@ -461,9 +657,19 @@ is_subset(DataObject1, DataObject2) when is_map(DataObject1), is_map(DataObject2
 is_subset(DataObject1, DataObject2) ->
     is_subset(?FROM_JSON(DataObject1), ?FROM_JSON(DataObject2)).
     
+-else.
+is_subset(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
+    Is_Member = fun ({_,null}) -> true;
+                    ({K1,V1}) -> V1 =:= proplists:get_value(K1,DataObject2) end,
+    lists:all(Is_Member,DataObject1);
+is_subset(DataObject1, DataObject2) ->
+    is_subset(?FROM_JSON(DataObject1), ?FROM_JSON(DataObject2)).
+-endif.
+
 
 %% @doc Returns true when no element of data_object1 is a member of data_object2, otherwise false.
 -spec is_disjoint(data_object(), data_object()) -> boolean().
+-ifdef(ALLOW_MAPS).
 is_disjoint(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
     Is_Member = fun({K1,V1}) ->
                     V1 =:= proplists:get_value(K1,DataObject2)
@@ -476,6 +682,16 @@ is_disjoint(DataObject1, DataObject2) when is_map(DataObject1), is_map(DataObjec
     maps:fold(No_Common_Element,true,DataObject1);
 is_disjoint(DataObject1, DataObject2) ->
     is_disjoint(?FROM_JSON(DataObject1), ?FROM_JSON(DataObject2)).
+-else.
+is_disjoint(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
+    Is_Member = fun({K1,V1}) ->
+                    V1 =:= proplists:get_value(K1,DataObject2)
+                    end,
+    not lists:any(Is_Member,DataObject1);
+is_disjoint(DataObject1, DataObject2) ->
+    is_disjoint(?FROM_JSON(DataObject1), ?FROM_JSON(DataObject2)).
+-endif.
+
 
 %% ===================================================================
 %% Internal functions
@@ -500,6 +716,7 @@ json_binary_encode(Json) ->
     end.
 
 -spec clean_null_values(data_object()) -> data_object().
+-ifdef(ALLOW_MAPS).
 clean_null_values(DataObject) when is_list(DataObject) ->
     [{K,V} || {K,V} <- DataObject, V =/= null];
 clean_null_values(DataObject) when is_map(DataObject) ->
@@ -509,11 +726,18 @@ clean_null_values(DataObject) when is_map(DataObject) ->
               DataObject);
 clean_null_values(DataObject) ->
     ?TO_JSON(clean_null_values(?FROM_JSON(DataObject))).
+-else.
+clean_null_values(DataObject) when is_list(DataObject) ->
+    [{K,V} || {K,V} <- DataObject, V =/= null];
+clean_null_values(DataObject) ->
+    ?TO_JSON(clean_null_values(?FROM_JSON(DataObject))).
+-endif.
 
 %% ===================================================================
 %% TESTS
 %% ===================================================================
 
+-ifdef(ALLOW_MAPS).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -685,33 +909,5 @@ is_disjoint_test_() ->
      {"proplist_fail",?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))},
      {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}].
 -endif.
-
--else.
-
-find(_,_) -> ?NOT_SUPPORTED.
-fold(_,_,_) -> ?NOT_SUPPORTED.
-get(_,_) -> ?NOT_SUPPORTED. 
-get(_,_,_) -> ?NOT_SUPPORTED.
-has_key(_,_) -> ?NOT_SUPPORTED.
-keys(_) -> ?NOT_SUPPORTED. 
-map(_,_) -> ?NOT_SUPPORTED. 
-new() -> ?NOT_SUPPORTED. 
-new(_) -> ?NOT_SUPPORTED.
-put(_,_,_) -> ?NOT_SUPPORTED.
-remove(_,_) -> ?NOT_SUPPORTED.
-size(_) -> ?NOT_SUPPORTED.
-update(_,_,_) -> ?NOT_SUPPORTED.
-values(_) -> ?NOT_SUPPORTED.
-to_proplist(_) -> ?NOT_SUPPORTED.
-to_map(_) -> ?NOT_SUPPORTED.
-to_binary(_) -> ?NOT_SUPPORTED.
-filter(_,_) -> ?NOT_SUPPORTED.      
-include(_,_) -> ?NOT_SUPPORTED.     
-exclude(_,_) -> ?NOT_SUPPORTED.     
-merge(_,_) -> ?NOT_SUPPORTED.       
-diff(_,_) -> ?NOT_SUPPORTED.        
-equal(_,_) -> ?NOT_SUPPORTED.       
-is_subset(_,_) -> ?NOT_SUPPORTED.   
-is_disjoint(_,_) -> ?NOT_SUPPORTED.  
 
 -endif.
