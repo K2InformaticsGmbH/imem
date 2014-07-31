@@ -35,27 +35,32 @@
          diff/2,        %% Diff between data objects
          equal/2,       %% Check if data objects are equal
          is_subset/2,   %% Check if first data object is a subset of the second
-         is_disjoint/2  %% Check if data objects have no keys in common
+         is_disjoint/2 %% Check if data objects have no keys in common
+         %match/2        %% Check if a data object matches a match object
          ]).
 
 
 %% Basic Configuration
 %% ===================================================================
+%
+-define(ALLOW_MAPS,true). % Allow maps module to be used (requires Erlang >= 17.0)
 
-%-define(ALLOW_MAPS,true). % Allow maps module to be used (requires Erlang >= 17.0)
- 
-%-define(DECODE_TO_MAPS,true). % Decode raw json to a map
+-define(DECODE_TO_MAPS,true). % Decode raw json to a map
 
 -define(DEFAULT_TYPE, proplist). % proplist | map | json
 
+-define(JSON_POWER_MODE,false). % Use binary parsing, when implemented, to handle raw binary data
+
 % Testing available when maps are enabled.
--define(TEST,true). % testing, to be removed and managed by rebar
+%-define(TEST,true). % testing, to be removed and managed by rebar
 
 -define(NO_JSON_LIB,throw(no_json_library_found)).
 
 -define(NOT_SUPPORTED,throw(not_yet_supported)).
 
 -define(BAD_VERSION,throw(json_imem_disabled)).
+
+%-define(TEMP_ALLOW_MATCH,true).
 
 
 %% Json Decoding & Encoding Library Configuration
@@ -109,6 +114,11 @@
 -type value() :: term().
 -type key() :: binary().
 
+-ifdef(TEMP_ALLOW_MATCH).
+-type match_object() :: list() | map() | binary().
+-type match_pos() :: str_start | bin_start | str_end | bin_end.
+-type match_expression() :: {match_pos(),match_pos(),binary()}.
+-endif.
 %% ===================================================================
 %% Exported functions
 %% ===================================================================
@@ -410,7 +420,7 @@ filter(Fun,DataObject) when is_list(DataObject) ->
                 [],
                 DataObject);
 filter(Fun,DataObject) when is_map(DataObject) ->
-    map:fold(fun(K,V,In) ->
+    maps:fold(fun(K,V,In) ->
                     case Fun(K,V) of
                         true -> maps:put(K,V,In);
                         false -> In
@@ -449,6 +459,7 @@ include(Keys,DataObject) when is_map(DataObject) ->
                 #{},
                 Keys);
 include(Keys,DataObject) ->
+    %binary_include(Keys,DataObject).
     ?TO_JSON(include(Keys,?FROM_JSON(DataObject))).
 -else.
 include(Keys,DataObject) when is_list(DataObject) -> 
@@ -692,6 +703,21 @@ is_disjoint(DataObject1, DataObject2) ->
     is_disjoint(?FROM_JSON(DataObject1), ?FROM_JSON(DataObject2)).
 -endif.
 
+-ifdef(TEMP_ALLOW_MATCH).
+%% @doc Returns true if a data object matches a match object.
+%% A match object is a key value pair, in the same format as the
+%% data object, who can have wildcards in the value fields in order
+%% to match values. Fields not present in match object are ignored.
+-spec match(match_object(), data_object()) -> boolean().
+match(MatchObject,DataObject) when is_list(DataObject) ->
+    DataObjectProj = include(keys(MatchObject),DataObject),
+    lists:all(fun({K,MatchV}) ->
+                binary_match(proplists:get_value(K,DataObjectProj),MatchV)
+                end,
+              MatchObject).
+%TODO: Implement for maps and binary json, and test it
+-endif.
+
 
 %% ===================================================================
 %% Internal functions
@@ -733,6 +759,106 @@ clean_null_values(DataObject) ->
     ?TO_JSON(clean_null_values(?FROM_JSON(DataObject))).
 -endif.
 
+
+-ifdef(TEMP_ALLOW_MATCH).
+%% @doc Returns true if provided binary matches binary match expression
+-spec binary_match(binary(),match_expression() | binary()) -> boolean().
+binary_match(Binary,{_,_,Binary}) -> true;
+binary_match(_,{bin_start,bin_start,<<"">>}) -> true;
+binary_match(<<"">>,{bin_start,bin_end,<<"">>}) -> true;
+binary_match(_,{bin_start,bin_end,<<"">>}) -> false;
+binary_match(Bin,{bin_start,str_end,Match}) ->
+    WalkFun = fun(M,_,M) -> true;
+                 (<<_,R/binary>>,F,M) -> F(R,F,M);
+                 (_,_,_) -> false end,
+    WalkFun(Bin,WalkFun,Match);
+binary_match(Bin,{str_start,bin_end,Match}) ->
+    Size = byte_size(Match),
+    case Bin of
+        <<Match:Size/bytes,_/binary>> -> true;
+       _ -> false
+    end;
+binary_match(Bin,{bin_start,bin_end,Match}) ->
+    Size = byte_size(Match),
+    WalkFun = fun (<<M:Size/bytes,_/binary>>,_,M) -> true;
+                 (<<_,R/binary>>,F,M) -> F(R,F,M);
+                 (_,_,_) -> false end,
+    WalkFun(Bin,WalkFun,Match);
+binary_match(_,{_,_,_}) -> false;
+binary_match(Binary,MatchBin) -> binary_match(Binary,parse_match(MatchBin)).
+
+
+%% @doc Parse a binary into a imem_json binary match expression
+-spec parse_match(binary()) -> match_expression().
+parse_match(Bin) -> parse_match(Bin,{undefined,undefined,undefined}).
+
+-spec parse_match(binary(),match_expression()) -> match_expression().
+parse_match(<<"">>,{undefined,undefined,undefined}) -> {bin_start,bin_end,<<"">>};
+parse_match(<<"*">>,{undefined,undefined,undefined}) -> {bin_start,bin_start,<<"">>};
+parse_match(<<"*",Rem/binary>>,{undefined,undefined,_}) ->
+    parse_match(Rem,{bin_start,undefined,<<"">>});
+parse_match(<<Rem/binary>>,{undefined,undefined,_}) ->
+    parse_match(Rem,{str_start,undefined,<<"">>});
+parse_match(<<>>,{Begin,undefined,Acc}) ->
+    {Begin,str_end,Acc};
+parse_match(<<"*">>,{Begin,undefined,Acc}) ->
+    {Begin,bin_end,Acc};
+parse_match(<<H,Rem/binary>>,{Begin,undefined,Acc}) ->
+    parse_match(Rem,{Begin,undefined,<<Acc/binary,H>>}).
+-endif.
+    
+
+%% ===================================================================
+%% JSON Binary Handling Power Functions
+%% ===================================================================
+%
+%binary_include(Keys,DataObject) ->
+%    binary_include_walking(walking,DataObject,Keys,<<"">>,{undefined,undefined}).
+%    
+%    binary_include_walking(walking,_,[],<<"">>,_) -> <<"">>;
+%    binary_include_walking(walking,_,[],GroupAcc,_) -> <<GroupAcc/binary,"}">>;
+%    binary_include_walking(walking,<<"">>,_,<<"">>,_) -> <<"">>;
+%    binary_include_walking(walking,<<"">>,_,GroupAcc,_) -> <<GroupAcc/binary,"}">>;
+%
+%    binary_include_walking(walking,<<"{\"",R/binary>>,Keys,<<"">>,_) ->
+%        binary_include_walking(reading_key,R,Keys,<<"">>,{<<"">>,<<"">>});
+%       
+%    binary_include_walking(walking,<<",\"",R/binary>>,Keys,GroupAcc,_) ->
+%        binary_include_walking(reading_key,R,Keys,GroupAcc,{<<"">>,<<"">>});
+%    binary_include_walking(walking,<<_,R/binary>>,Keys,GroupAcc,TAcc) ->
+%        binary_include_walking(walking,R,Keys,GroupAcc,TAcc);
+%
+%    binary_include_walking(reading_key,<<"\":",R/binary>>,Keys,GroupAcc,{KeyAcc,_}) ->
+%        case lists:member(KeyAcc,Keys) of
+%            true -> binary_include_walking(reading_value,R,lists:delete(KeyAcc,Keys),GroupAcc,{KeyAcc,<<"">>});
+%            false -> binary_include_walking(walking,R,Keys,GroupAcc,{undefined,undefined}) end;
+%
+%    binary_include_walking(reading_key,<<H,R/binary>>,Keys,GroupAcc,{KeyAcc,_}) ->
+%        binary_include_walking(reading_key,R,Keys,GroupAcc,{<<KeyAcc/binary,H>>,undefined});
+%
+%    binary_include_walking(reading_value,<<"\"",R/binary>>,Keys,GroupAcc,{KeyAcc,<<"">>}) ->
+%        binary_include_walking(reading_value,R,Keys,GroupAcc,{KeyAcc,<<"">>});
+%    binary_include_walking(reading_value,<<"\"",R/binary>>,Keys,<<"">>,{KeyAcc,ValueAcc}) ->
+%        binary_include_walking(walking,R,Keys,<<"{\"",KeyAcc/binary,"\":\"",ValueAcc/binary,"\"">>,{undefined,undefined});
+%    binary_include_walking(reading_value,<<"\"",R/binary>>,Keys,GroupAcc,{KeyAcc,ValueAcc}) ->
+%        binary_include_walking(walking,R,Keys,<<GroupAcc/binary,",\"",KeyAcc/binary,"\":\"",ValueAcc/binary,"\"">>,{undefined,undefined});
+%    binary_include_walking(reading_value,<<"[",R/binary>>,Keys,<<"">>,{KeyAcc,<<"">>}) ->
+%        {NewR,ValueAcc} = binary_include_walking_catch_list(R,<<"[">>,1),
+%        binary_include_walking(walking,NewR,Keys,<<"{\"",KeyAcc/binary,"\":\"",ValueAcc/binary,"\"">>,{undefined,undefined});
+%    binary_include_walking(reading_value,<<"[",R/binary>>,Keys,GroupAcc,{KeyAcc,<<"">>}) ->
+%        {NewR,ValueAcc} = binary_include_walking_catch_list(R,<<"[">>,1),
+%        binary_include_walking(walking,NewR,Keys,<<GroupAcc/binary,",\"",KeyAcc/binary,"\":\"",ValueAcc/binary,"\"">>,{undefined,undefined});
+%    binary_include_walking(reading_value,<<H,R/binary>>,Keys,GroupAcc,{KeyAcc,ValueAcc}) ->
+%        binary_include_walking(reading_value,R,Keys,GroupAcc,{KeyAcc,<<ValueAcc/binary,H>>}).
+%
+%    binary_include_walking_catch_list(<<"]",R/binary>>,Acc,0) -> {R,<<Acc/binary,"]">>};
+%    binary_include_walking_catch_list(<<"]",R/binary>>,Acc,Level) ->
+%        binary_include_walking_catch_list(R,<<Acc/binary,"]">>,Level-1);
+%    binary_include_walking_catch_list(<<"[",R/binary>>,Acc,Level) ->
+%        binary_include_walking_catch_list(R,<<Acc/binary,"[">>,Level+1);
+%    binary_include_walking_catch_list(<<H,R/binary>>,Acc,Level) ->
+%        binary_include_walking_catch_list(R,<<Acc/binary,H>>,Level).
+%
 %% ===================================================================
 %% TESTS
 %% ===================================================================
@@ -857,9 +983,27 @@ to_binary_test_() ->
      {"map",?_assert(is_binary(to_binary(?TEST_MAP)))},
      {"json",?_assert(is_binary(to_binary(?TEST_JSON)))}].
 
-filter_test_() -> [].
+filter_test_() -> 
+    FilterFun = fun(<<"age">>,_) -> true;
+                   (_,true) -> true;
+                   (_,_) -> false end,
+    PropOut = filter(FilterFun,?TEST_PROP),
+    MapOut =  filter(FilterFun,?TEST_MAP),
+    JsonOut = filter(FilterFun,?TEST_JSON),
+    [{"proplist",?_assertEqual(981, proplists:get_value(<<"age">>,PropOut))},
+     {"proplist",?_assertEqual(true, proplists:get_value(<<"earthling">>,PropOut))},
+     {"map",?_assertEqual(981, maps:get(<<"age">>,MapOut))},
+     {"map",?_assertEqual(true,maps:get(<<"earthling">>,MapOut))},
+     {"json",?_assertEqual(981, ?MODULE:get(<<"age">>,JsonOut))},
+     {"json",?_assertEqual(true,?MODULE:get(<<"earthling">>,JsonOut))}].
 
-include_test_() -> [].
+include_test_() ->
+    Json_Ok = <<"{\"name\":\"John\"}">>,
+    Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}],
+    Map_Ok = #{<<"earthling">> => true, <<"age">> => 981},
+    [{"proplist",?_assertEqual(Prop_Ok, include([<<"surname">>,<<"foo">>],?TEST_PROP))},
+     {"map",?_assertEqual(Map_Ok, include([<<"earthling">>,<<"age">>],?TEST_MAP))},
+     {"json",?_assertEqual(Json_Ok, include([<<"name">>],?TEST_JSON))}].
 
 exclude_test_() -> [].
 
@@ -908,6 +1052,52 @@ is_disjoint_test_() ->
      {"map_fail",?_assert(not is_disjoint(Sub_Nook_Map ,?TEST_MAP))},
      {"proplist_fail",?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))},
      {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}].
+
+-ifdef(TEMP_ALLOW_MATCH).
+match_test_() ->
+    PropMatch = [{<<"name">>,<<"Jo*">>},{<<"foo">>,<<"*r">>}],
+    PropNotMatch = [{<<"name">>,<<"*Jo">>},{<<"foo">>,<<"*r">>}],
+    [{"prop_success",?_assert(match(PropMatch,?TEST_PROP))},
+     {"prop_failure",?_assert(not match(PropNotMatch,?TEST_PROP))}
+    ].
+
+parse_match_test_() ->
+    [?_assertEqual({bin_start,bin_end,<<"bou">>},parse_match(<<"*bou*">>)),
+     ?_assertEqual({str_start,str_end,<<"bou">>},parse_match(<<"bou">>)),
+     ?_assertEqual({str_start,bin_end,<<"bou">>},parse_match(<<"bou*">>)),
+     ?_assertEqual({bin_start,str_end,<<"bou">>},parse_match(<<"*bou">>)),
+     ?_assertEqual({bin_start,bin_end,<<"">>},parse_match(<<"">>)),
+     ?_assertEqual({bin_start,bin_start,<<"">>},parse_match(<<"*">>))].
+
+binary_match_test_() ->
+     % "bou"
+    [?_assert(binary_match(<<"bou">>,{str_start,str_end,<<"bou">>})),
+     ?_assert(not binary_match(<<"boue">>,{str_start,str_end,<<"bou">>})),
+     ?_assert(not binary_match(<<"zbou">>,{str_start,str_end,<<"bou">>})),
+     % "*bou"
+     ?_assert(binary_match(<<"bou">>,{bin_start,str_end,<<"bou">>})),
+     ?_assert(binary_match(<<"zeoubou">>,{bin_start,str_end,<<"bou">>})),
+     ?_assert(not binary_match(<<"zeouboue">>,{bin_start,str_end,<<"bou">>})),
+     ?_assert(not binary_match(<<"boueziu">>,{bin_start,str_end,<<"bou">>})),
+     % "bou*"
+     ?_assert(binary_match(<<"bou">>,{str_start,bin_end,<<"bou">>})),
+     ?_assert(binary_match(<<"bouzoub">>,{str_start,bin_end,<<"bou">>})),
+     ?_assert(not binary_match(<<"zbouezoub">>,{str_start,bin_end,<<"bou">>})),
+     ?_assert(not binary_match(<<"zbou">>,{str_start,bin_end,<<"bou">>})),
+     % "*bou*"
+     ?_assert(binary_match(<<"bou">>,{bin_start,bin_end,<<"bou">>})),
+     ?_assert(binary_match(<<"zoubou">>,{bin_start,bin_end,<<"bou">>})),
+     ?_assert(binary_match(<<"bouzou">>,{bin_start,bin_end,<<"bou">>})),
+     ?_assert(binary_match(<<"zoubouzou">>,{bin_start,bin_end,<<"bou">>})),
+     % "*"
+     ?_assert(binary_match(<<"">>,{bin_start,bin_start,<<"">>})),
+     ?_assert(binary_match(<<"zoubou">>,{bin_start,bin_start,<<"">>})),
+     % ""
+     ?_assert(binary_match(<<"">>,{bin_start,bin_end,<<"">>})),
+     ?_assert(not binary_match(<<"zoubou">>,{bin_start,bin_end,<<"">>}))
+     ].
+-endif.
+
 -endif.
 
 -endif.
