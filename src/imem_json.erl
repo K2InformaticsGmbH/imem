@@ -43,9 +43,9 @@
 %% Basic Configuration
 %% ===================================================================
 %
--define(ALLOW_MAPS,true). % Allow maps module to be used (requires Erlang >= 17.0)
-
--define(DECODE_TO_MAPS,true). % Decode raw json to a map
+%-define(ALLOW_MAPS,true). % Allow maps module to be used (requires Erlang >= 17.0)
+%
+%-define(DECODE_TO_MAPS,true). % Decode raw json to a map
 
 -define(DEFAULT_TYPE, proplist). % proplist | map | json
 
