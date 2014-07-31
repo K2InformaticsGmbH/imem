@@ -39,6 +39,12 @@
 
 -export([ offset_datetime/3
         , offset_timestamp/3
+        , musec_diff/1              %% UTC time difference in microseconds towards erlang:now() 
+        , musec_diff/2              %% UTC time difference in microseconds
+        , msec_diff/1               %% UTC time difference in milliseconds towards erlang:now() 
+        , msec_diff/2               %% UTC time difference in milliseconds 
+        , sec_diff/1                %% UTC time difference in milliseconds towards erlang:now() 
+        , sec_diff/2                %% UTC time difference in milliseconds 
         ]).
 
 %   datatypes
@@ -1159,6 +1165,21 @@ offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
     {NewMega, Se, Mi};    
 offset_timestamp(OP, TS, Offset) ->
     ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
+
+musec_diff(TS1) -> musec_diff(TS1,erlang:now()).
+
+musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
+    Micro2 - Micro1 + 1000000 *(Sec2 - Sec1) + 1000000000000 * (Mega2 - Mega1).   
+
+msec_diff(TS1) -> msec_diff(TS1,erlang:now()).
+
+msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
+    Micro2 div 1000 - Micro1 div 1000 + 1000 *(Sec2 - Sec1) + 1000000000 * (Mega2 - Mega1).   
+
+sec_diff(TS1) -> sec_diff(TS1,erlang:now()).
+
+sec_diff({Mega1,Sec1,_},{Mega2,Sec2,_}) ->
+    Sec2 - Sec1 + 1000000 * (Mega2 - Mega1).   
 
 ipaddr_to_io(IpAddr) -> 
     list_to_binary(inet_parse:ntoa(IpAddr)).

@@ -115,6 +115,7 @@
         , log_to_db/5
         , log_to_db/6
         , log_to_db/7
+        , log_slow_process/6
         , failing_function/1
         , get_config_hlk/5
         , put_config_hlk/6
@@ -1325,6 +1326,14 @@ when is_atom(Level)
                     },
     dirty_write(?LOG_TABLE, LogRec).
 
+
+log_slow_process(Module,Function,STT,LimitWarning,LimitError,Fields) ->
+    DurationMs = imem_datatype:msec_diff(STT),
+    if 
+        DurationMs < LimitWarning ->    ok;
+        DurationMs < LimitError ->      log_to_db(warning,Module,Function,Fields,"slow_process",[]);
+        true ->                         log_to_db(error,Module,Function,Fields,"slow_process",[])
+    end.
 
 %% imem_if but security context added --- META INFORMATION ------
 
