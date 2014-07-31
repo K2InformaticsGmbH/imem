@@ -962,6 +962,30 @@ test_with_or_without_sec(IsSec) ->
             [{<<"6">>}]
         ),
 
+        exec_fetch_sort_equal(SKey, query5x0, 100, IsSec, "
+            select col1 
+            from member_test 
+            where is_list(col2) and nth(1,col2) = 1"
+            ,
+            [{<<"2">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5x1, 100, IsSec, "
+            select col1 
+            from member_test 
+            where safe(nth(1,col2)) = 1"
+            ,
+            [{<<"2">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query5x1, 100, IsSec, "
+            select col1 
+            from member_test 
+            where safe(nth(17,col2)) = 1"
+            ,
+            []
+        ),
+
         ?assertEqual(ok, imem_sql:exec(SKey,"
             create table ddCmdTest (
                 id integer,

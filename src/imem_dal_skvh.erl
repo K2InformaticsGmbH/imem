@@ -58,7 +58,8 @@
 -define(E117(__Term),{117,"Too many values, Limit exceeded",__Term}).
 
 
--export([ write/3 			%% (User, Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
+-export([ create_check_channel/1
+		, write/3 			%% (User, Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
 		, read/4			%% (User, Channel, KeyTable)   			return empty Arraylist if none of these resources exists
 		, readGELT/6		%% (User, Channel, Item, CKey1, CKey2, L)	start with first key after CKey1, end with last key before CKey2, fails if more than L rows
 		, readGT/5			%% (User, Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less

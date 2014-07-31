@@ -70,7 +70,7 @@ bind_scan(Ti,X,ScanSpec0) ->
             % ?LogDebug("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
             % ?LogDebug("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
             SSpec1 = [{SHead, [to_guard(STree2)], [Result]}],
-            FilterFun1 = imem_sql_funs:expr_fun(FTree),
+            FilterFun1 = imem_sql_funs:filter_fun(FTree),
             case Ti of
                 ?MainIdx -> {SSpec1,ets:match_spec_compile(SSpec1),FilterFun1};
                 _ ->        {SSpec1,TailSpec0,FilterFun1}
@@ -105,7 +105,7 @@ bind_virtual(Ti,X,ScanSpec0) ->
             %% For now, we assume that we only have generator conditions which define
             %% the raw virtual rows (e.g. is_member() or item >=1 and item <=10) 
             SSpec1 = [{SHead, [to_guard(STree1)], [Result]}],
-            FilterFun1 = imem_sql_funs:expr_fun(STree1),
+            FilterFun1 = imem_sql_funs:filter_fun(STree1),
             {SSpec1,TailSpec0,FilterFun1}
     end.
 
@@ -426,7 +426,7 @@ scan_spec(Ti,STree0,FullMap) ->
             % ?LogDebug("FTree after split (~p)~n~p~n", [Ti,to_guard(FTree)]),
             SSpec = [{MatchHead, [to_guard(STree1)], ['$_']}],
             TailSpec = if Ti==?MainIdx -> ets:match_spec_compile(SSpec); true -> true end,
-            FilterFun = imem_sql_funs:expr_fun(FTree),  %% TODO: Use bind tree and implicit binding
+            FilterFun = imem_sql_funs:filter_fun(FTree),  %% TODO: Use bind tree and implicit binding
             #scanSpec{sspec=SSpec,stree=true,tailSpec=TailSpec,ftree=true,filterFun=FilterFun,limit=Limit}; 
         {true,true} ->     
             %% we may  need a filter function, depending on meta binds at fetch time

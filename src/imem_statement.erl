@@ -543,6 +543,10 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
         {1,true,undefined} ->
             take_remaining(Rem0, lists:map(Wrap, Rows1));
         {1,_,undefined} ->
+            ?LogDebug("Rem0 ~p",[Rem0]),
+            ?LogDebug("FilterFun ~p",[FilterFun]),
+            ?LogDebug("Wrap ~p",[Wrap]),
+            ?LogDebug("Rows1 ~p",[Rows1]),
             take_remaining(Rem0, lists:filter(FilterFun,lists:map(Wrap, Rows1)));
         {_,true,undefined} ->
             join_rows(lists:map(Wrap, Rows1), FetchCtx0, Stmt);

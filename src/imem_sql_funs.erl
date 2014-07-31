@@ -16,6 +16,7 @@
 
 -export([ filter_funs/0
         , expr_fun/1
+        , filter_fun/1
         ]).
 
 -export([ unary_fun_bind_type/1
@@ -193,6 +194,22 @@ re_match(RE, S) ->
     case re:run(io_lib:format("~p", [S]), RE) of
         nomatch ->  false;
         _ ->        true
+    end.
+
+filter_fun(FTree) ->
+    fun(X) -> 
+        case expr_fun(FTree) of
+            true ->     true;
+            false ->    false;
+            ?nav ->     false;
+            F when is_function(F,1) ->
+                case F(X) of
+                    true ->     true;
+                    false ->    false;
+                    ?nav ->     false
+                    %% Other ->    ?ClientError({"Filter function evaluating to non-boolean term",Other})
+                end
+        end
     end.
 
 %% Constant tuple expressions
