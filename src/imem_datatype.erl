@@ -66,6 +66,7 @@
 %   ref
 %   string      
 %   term
+%   binterm
 %   timestamp
 %   tuple
 %   userid
@@ -85,6 +86,7 @@
         , io_to_list/2
         , io_to_string/1
         , io_to_term/1
+        , io_to_binterm/1
         , io_to_timestamp/1
         , io_to_timestamp/2
         , io_to_tuple/2
@@ -108,6 +110,7 @@
         , timestamp_to_io/3
         , userid_to_io/1
         , term_to_io/1
+        , binterm_to_io/1
         ]).
 
 -export([ field_value/6
@@ -221,7 +224,7 @@ type_check(V,binary,Len,_,_) when is_binary(V) -> length_check(binary,Len,byte_s
 type_check(V,binstr,Len,_,_) when is_binary(V) -> length_check(binstr,Len,byte_size(V)); 
 type_check(V,Type,_,_,Def) -> type_check(V,Type,Def). 
 
-type_check(V,atom,_) when is_atom(V) -> ok;
+type_check(V,atom,_) when is_atom(V),V/=?nav -> ok;
 type_check(V,boolean,_) when is_boolean(V) -> ok;
 type_check({{Y,M,D},{Hh,Mm,Ss}},datetime,_) when 
             is_integer(Y), is_integer(M), is_integer(D), 
@@ -242,6 +245,15 @@ type_check(V,pid,_) when is_pid(V) -> ok;
 type_check(V,ref,_) when is_reference(V) -> ok;
 type_check(V,string,_) when is_list(V) -> ok;
 type_check(V,term,_) when V/=?nav -> ok;
+type_check(V,binterm,Def) when is_binary(V) ->
+    try 
+        case binary_to_term(V) of  
+            ?nav -> {error,{"Wrong data type for value, expecting type or default",{V,binterm,Def}}}; 
+            _ ->    ok
+        end
+    catch 
+        _:_ -> {error,{"Wrong data type for value, expecting type or default",{V,binterm,Def}}}
+    end;
 type_check({D,T,M},timestamp,_) when 
             is_integer(D), is_integer(T), is_integer(M) -> ok;
 type_check(V,tuple,_) when is_tuple(V) -> ok;
@@ -334,6 +346,7 @@ imem_type(Type) -> Type.
 
 raw_type(userid) -> integer;
 raw_type(binstr) -> binary;
+raw_type(binterm) -> binary;
 raw_type(string) -> ?rawTypeIo;
 raw_type(decimal) -> integer;
 raw_type(datetime) -> tuple;
@@ -374,6 +387,7 @@ io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_binary(Val);is_list(Val) 
             (Type == ref) ->            Old;    %% cannot convert back
             (Type == string) ->         io_to_string(Val,Len);
             (Type == term) ->           io_to_term(Val);
+            (Type == binterm) ->        io_to_binterm(Val);
             (Type == timestamp) ->      io_to_timestamp(Val,Prec); 
             (Type == tuple) ->          io_to_tuple(Val,Len);
             (Type == userid) ->         io_to_userid(Val);
@@ -992,6 +1006,13 @@ io_to_term(Val) ->
         _:_ -> ?ClientError({})
     end.
 
+io_to_binterm(Val) ->
+    try
+        term_to_binary(erl_value(Val))
+    catch
+        _:_ -> ?ClientError({})
+    end.
+
 io_to_fun(Val,Len) ->
     Fun = erl_value(Val), 
     if
@@ -1031,6 +1052,7 @@ db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
             (Type == timestamp) andalso is_tuple(Val) ->    timestamp_to_io(Val,Prec,DateFmt);
             (Type == userid) andalso is_atom(Val) ->        atom_to_io(Val);
             (Type == userid) ->                             userid_to_io(Val);
+            (Type == binterm) andalso is_binary(Val) ->     binterm_to_io(Val);
             true -> term_to_io(Val)   
         end
     catch
@@ -1207,6 +1229,10 @@ t2s(T) when is_list(T) ->
     end;
 t2s(T) -> io_lib:format("~p", [T]).
 
+binterm_to_io(T) when is_binary(T) ->
+    list_to_binary(t2s(binary_to_term(T))).
+
+
 % escape_io(Str) when is_list(Str) ->
 %     re:replace(Str, "(\")", "(\\\\\")", [global, {return, list}]);   
 % escape_io(Bin) when is_binary(Bin) ->
@@ -1257,6 +1283,7 @@ field_value_type(Tag,Type,Len,Prec,Def,Val) when is_binary(Val) ->
             A when is_atom(A) ->                        {A,A,atom,0};
             B when is_binary(B),(Type==binstr) ->       {B,B,binstr,0};
             B when is_binary(B),(Type==binary) ->       {B,B,binary,0};
+            B when is_binary(B),(Type==binterm) ->      {B,B,binary,0};
             T when is_tuple(T),(Type==datetime) ->      {T,{const,T},datetime,0};
             T when is_tuple(T),(Type==timestamp) ->     {T,{const,T},timestamp,0};
             T when is_tuple(T),(Type==ipaddr) ->        {T,{const,T},ipaddr,0};
@@ -1286,6 +1313,15 @@ item(I,L) when is_list(L) ->
             term_to_io(lists:nth(I,L));
         true ->
             ?emptyIo        %% ?ClientError({"List too short",{L,I}})
+    end;
+item(I,B) when is_binary(B) ->
+    try 
+        case term_to_binary(B) of
+            T when is_tuple(T) ->   item(I,T);
+            L when is_list(L) ->    item(I,L);
+            _ ->                    ?emptyIo
+        end
+    catch _:_ -> ?emptyIo
     end;
 item(_,_) -> ?emptyIo.      %% ?ClientError({"Tuple or list expected",T}).
 
@@ -1642,7 +1678,7 @@ data_types(_) ->
 
         OldTerm = {-1.2,[a,b,c]},
         ?assertEqual(OldTerm, io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"{-1.2,[a,b,c]}">>)),
-        ?assertEqual(default, io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"default">>)),
+        ?assertEqual(Def, io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"default">>)),
         ?assertEqual("default", io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"\"default\"">>)),
         ?assertEqual("'default'", io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"\"'default'\"">>)),
         ?assertEqual('default', io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"'default'">>)),
@@ -1662,11 +1698,34 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{term,<<"[a|]">>}}}}, io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"[a|]">>)),
         ?Info("io_to_db success 9~n", []),
 
+        OldBinTerm = term_to_binary({-1.2,[a,b,c]}),
+        ?assertEqual(OldBinTerm, io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"{-1.2,[a,b,c]}">>)),
+        ?assertEqual(Def, io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"default">>)),
+        ?assertEqual(term_to_binary("default"), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"\"default\"">>)),
+        ?assertEqual(term_to_binary("'default'"), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"\"'default'\"">>)),
+        ?assertEqual(term_to_binary('default'), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"'default'">>)),
+        ?assertEqual(term_to_binary([a,b]), io_to_db(Item,OldBinTerm,binterm,undefined,undefined,Def,RW,<<"[a,b]">>)),
+        ?assertEqual(term_to_binary([a,b]), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"[a,b]">>)),
+        ?assertEqual(term_to_binary(-1.1234567), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"-1.1234567">>)),
+        ?assertEqual(term_to_binary("'-1.1234567'"), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"\"'-1.1234567'\"">>)),
+        ?assertEqual(term_to_binary('-1.1234567'), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"'-1.1234567'">>)),
+        ?assertEqual(term_to_binary("-1.1234567"), io_to_db(Item,OldBinTerm,binterm,Len,Prec,Def,RW,<<"\"-1.1234567\"">>)),
+        ?assertEqual(term_to_binary({[1,2,3]}), io_to_db(Item,OldBinTerm,binterm,undefined,Prec,Def,RW,<<"{[1,2,3]}">>)),
+        ?assertEqual(term_to_binary("{[1,2,3]}"), io_to_db(Item,OldBinTerm,binterm,Len,undefined,Def,RW,<<"\"{[1,2,3]}\"">>)),
+        ?assertEqual(term_to_binary({1,2,3}), io_to_db(Item,?nav,binterm,0,0,?nav,false,<<"{1,2,3}">>)),
+        ?assertEqual(term_to_binary("{1,2,3}"), io_to_db(Item,?nav,binterm,0,0,?nav,false,<<"\"{1,2,3}\"">>)),
+        ?assertEqual(term_to_binary([1,2,3]), io_to_db(Item,?nav,binterm,0,0,?nav,false,<<"[1,2,3]">>)),
+        ?assertEqual(term_to_binary("[1,2,3]"), io_to_db(Item,?nav,binterm,0,0,?nav,false,<<"\"[1,2,3]\"">>)),
+        ?assertEqual(term_to_binary('$_'), io_to_db(Item,?nav,binterm,0,0,?nav,false,<<"'$_'">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{term,<<"[a|]">>}}}}, io_to_db(Item,OldTerm,term,Len,Prec,Def,RW,<<"[a|]">>)),
+        ?Info("io_to_db success 9a~n", []),
+
         ?assertEqual(true, io_to_db(Item,OldTerm,boolean,undefined,Prec,Def,RW,<<"true">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{boolean,<<"\"false\"">>}}}}, io_to_db(Item,OldTerm,boolean,Len,undefined,Def,RW,<<"\"false\"">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{boolean,<<"something">>}}}}, io_to_db(Item,OldTerm,boolean,Len,Prec,Def,RW,<<"something">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{boolean,<<"TRUE">>}}}}, io_to_db(Item,OldTerm,boolean,Len,Prec,Def,RW,<<"TRUE">>)),
         ?Info("io_to_db success 10~n", []),
+
 
         ?assertEqual({1,2,3}, io_to_db(Item,OldTerm,tuple,Len,Prec,Def,RW,<<"{1,2,3}">>)),
         ?assertEqual({}, io_to_db(Item,OldTerm,tuple,0,Prec,Def,RW,<<"{}">>)),

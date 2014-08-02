@@ -165,6 +165,7 @@
                   , ref
                   , string
                   , term
+                  , binterm
                   , timestamp
                   , tuple
                   , userid

@@ -20,21 +20,21 @@
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
                     { time                    :: ddTimestamp()	%% erlang:now()
-                    , ckey                    :: term()|undefined
+                    , ckey                    :: binary()|undefined
                     , cvalue               	  :: binary()|undefined
-                    , cuser=unknown			  :: ddEntityId()|unknown
+                    , cuser=unknown 		  :: ddEntityId()|unknown
                     }
        ).
--define(skvhAudit,  [timestamp,term,binstr,userid]).
+-define(skvhAudit,  [timestamp,binterm,binstr,userid]).
 
 -record(skvhTable,                            %% sorted key value hash table    
-                    { ckey                    :: term()
+                    { ckey                    :: binary()
                     , cvalue  				  :: binary()      
                     , chash	= <<"fun(_,__Rec) -> list_to_binary(io_lib:format(\"~.36B\",[erlang:phash2({element(2,__Rec),element(3,__Rec)})])) end.">>
                     						  :: binary()
                     }
        ).
--define(skvhTable,  [term,binstr,binstr]).
+-define(skvhTable,  [binterm,binstr,binstr]).
 -define(skvhTableTrigger, <<"fun(__OR,__NR,__T,__U) -> imem_dal_skvh:write_audit(__OR,__NR,__T,__U) end.">>
 	   ).
 
@@ -137,7 +137,7 @@ io_clean_table(Bin) ->
 	end.
 
 io_key_to_term(Key) when is_binary(Key) ->
-	imem_datatype:io_to_term(Key).
+	imem_datatype:io_to_binterm(Key).
 
 io_to_integer(I) when is_integer(I) -> 		I;
 io_to_integer(Key) when is_binary(Key) ->	imem_datatype:io_to_integer(Key,0,0).
@@ -162,7 +162,7 @@ io_kv_table_to_tuple_list(KVTable) ->
 
 %% Converters for output (results)
 
-term_key_to_io(Key) ->	imem_datatype:term_to_io(Key).
+term_key_to_io(Key) ->	imem_datatype:binterm_to_io(Key).
 
 term_time_to_io(T) ->	imem_datatype:timestamp_to_io(T).
 
@@ -309,6 +309,8 @@ deleteGELT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binar
 	deleteGELT(User, Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
 deleteGELT(User, Cmd, {TN,AN}, Key1, Key2, Limit) ->
+	?LogDebug("Delete GE ~p~n~p",[match_val(Key1), binary_to_term(match_val(Key1))]),
+	?LogDebug("Delete LT ~p~n~p",[match_val(Key2), binary_to_term(match_val(Key2))]),
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
 	delete_with_limit(User, Cmd, {TN,AN}, MatchFunction, Limit).
 
@@ -322,6 +324,7 @@ deleteGTLT(User, Cmd, {TN,AN}, Key1, Key2, Limit) ->
 
 delete_with_limit(User, Cmd, {TN,AN}, MatchFunction, Limit) ->
 	{L,_} = imem_meta:select(TN, [MatchFunction], Limit+1),
+	?LogDebug("Delete Candidates ~p~n~p",[L,[ binary_to_term(I)|| I <- L]]),
 	if  
 		length(L) > Limit ->	?ClientError(?E117(Limit));
 		true ->					delete(User, Cmd, {TN,AN}, L, [])
@@ -417,13 +420,13 @@ skvh_operations(_) ->
         ?assertEqual(ok, imem_meta:check_table(skvhTEST)),        
         ?assertEqual(ok, imem_meta:check_table(skvhAuditTEST_86400@)),
 
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
         ?assertEqual({ok,[KVa]}, read(system, Channel, <<"kvpair">>, <<"[1,a]">>)),
         ?assertEqual({ok,[KVc]}, read(system, Channel, <<"kvpair">>, <<"[1,c]">>)),
         ?assertEqual({ok,[KVb]}, read(system, Channel, <<"kvpair">>, <<"[1,b]">>)),
-        ?assertEqual({ok,[<<"[1,c]",9,"1XSGZJ">>]}, read(system, Channel, <<"khpair">>, <<"[1,c]">>)),
-        ?assertEqual({ok,[<<"22AR0N">>]}, read(system, Channel, <<"hash">>, <<"[1,b]">>)),
+        ?assertEqual({ok,[<<"[1,c]",9,"1KJ3J5">>]}, read(system, Channel, <<"khpair">>, <<"[1,c]">>)),
+        ?assertEqual({ok,[<<"BXZE5">>]}, read(system, Channel, <<"hash">>, <<"[1,b]">>)),
 
         ?assertEqual({ok,[KVc,KVb,KVa]}, read(system, Channel, <<"kvpair">>, <<"[1,c]",13,10,"[1,b]",10,"[1,a]">>)),
         ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
@@ -432,7 +435,7 @@ skvh_operations(_) ->
         ?Info("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
         Aud = imem_meta:read(skvhAuditTEST_86400@),
         ?Info("audit trail~n~p~n", [Aud]),
@@ -455,16 +458,16 @@ skvh_operations(_) ->
         ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,b]">>)),
         ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,c]">>)),
 
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
 		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[]">>, <<"[]">>, <<"2">>)),
 		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[]">>, <<"[1,a]">>, <<"2">>)),
 
-		?assertEqual({ok,[<<"RSHW">>]},deleteGELT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
+		?assertEqual({ok,[<<"QXS7B">>]},deleteGELT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
 		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
 
 		?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}},deleteGELT(system, Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"1">>)),		
-		?assertEqual({ok,[<<"22AR0N">>,<<"1XSGZJ">>]},deleteGELT(system, Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),		
+		?assertEqual({ok,[<<"BXZE5">>,<<"1KJ3J5">>]},deleteGELT(system, Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),		
 		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
 
         ?assertEqual({ok,[<<"undefined">>,<<"undefined">>,<<"undefined">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
@@ -480,42 +483,42 @@ skvh_operations(_) ->
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTEST)),
 
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
 		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[]">>, <<"[]">>, <<"1">>)),
 		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[]">>, <<"[1,a]">>, <<"1">>)),
 
-		?assertEqual({ok,[<<"RSHW">>]},deleteGTLT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
+		?assertEqual({ok,[<<"QXS7B">>]},deleteGTLT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
 		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
 
-		?assertEqual({ok,[<<"1XSGZJ">>]},deleteGTLT(system, Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),		
+		?assertEqual({ok,[<<"1KJ3J5">>]},deleteGTLT(system, Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),		
 		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),
 
-		?assertEqual({ok,[<<"22AR0N">>]},deleteGTLT(system, Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
+		?assertEqual({ok,[<<"BXZE5">>]},deleteGTLT(system, Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
 		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
 
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
         ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(system, Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"1">>)),
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, readGELT(system, Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"3">>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, readGELT(system, Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"3">>)),
 
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, readGELT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"[1,d]">>, <<"5">>)),
-    	?assertEqual({ok,[<<"22AR0N">>,<<"1XSGZJ">>]}, readGELT(system, Channel, <<"hash">>, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, readGELT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"[1,d]">>, <<"5">>)),
+    	?assertEqual({ok,[<<"BXZE5">>,<<"1KJ3J5">>]}, readGELT(system, Channel, <<"hash">>, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
     	?assertEqual({ok,[<<"[1,b]">>]}, readGELT(system, Channel, <<"key">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
     	?assertEqual({ok,[<<"234567">>]}, readGELT(system, Channel, <<"value">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
     	?assertEqual({ok,[<<"[1,b]",9,"234567">>]}, readGELT(system, Channel, <<"kvpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"22AR0N">>]}, readGELT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"22AR0N">>]}, readGELT(system, Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"BXZE5">>]}, readGELT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BXZE5">>]}, readGELT(system, Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
     	?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),
 
-        ?assertEqual({ok,[<<"RSHW">>,<<"22AR0N">>,<<"1XSGZJ">>]}, readGT(system, Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
-        ?assertEqual({ok,[<<"22AR0N">>,<<"1XSGZJ">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
-    	?assertEqual({ok,[<<"22AR0N">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
+        ?assertEqual({ok,[<<"QXS7B">>,<<"BXZE5">>,<<"1KJ3J5">>]}, readGT(system, Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
+        ?assertEqual({ok,[<<"BXZE5">>,<<"1KJ3J5">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
+    	?assertEqual({ok,[<<"BXZE5">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
     	?assertEqual({ok,[<<"[1,b]">>,<<"[1,c]">>]}, readGT(system, Channel, <<"key">>, <<"[1,a]">>, <<"2">>)),
     	?assertEqual({ok,[<<"234567">>,<<"345678">>]}, readGT(system, Channel, <<"value">>, <<"[1,ab]">>, <<"2">>)),
     	?assertEqual({ok,[<<"[1,b]",9,"234567">>,<<"[1,c]",9,"345678">>]}, readGT(system, Channel, <<"kvpair">>, <<"[1,ab]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"22AR0N">>,<<"[1,c]",9,"1XSGZJ">>]}, readGT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"BXZE5">>,<<"[1,c]",9,"1KJ3J5">>]}, readGT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"2">>)),
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTEST)),
     	KVtab = <<"{<<\"52015\">>,<<>>,<<\"AaaEnabled\">>}	false
