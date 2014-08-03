@@ -20,7 +20,7 @@
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
                     { time                    :: ddTimestamp()	%% erlang:now()
-                    , ckey                    :: binary()|undefined
+                    , ckey = ?nav             :: binary()|?nav
                     , cvalue               	  :: binary()|undefined
                     , cuser=unknown 		  :: ddEntityId()|unknown
                     }
@@ -28,7 +28,7 @@
 -define(skvhAudit,  [timestamp,binterm,binstr,userid]).
 
 -record(skvhTable,                            %% sorted key value hash table    
-                    { ckey = ?nav             :: binary()
+                    { ckey = ?nav             :: binary()|?nav
                     , cvalue  				  :: binary()      
                     , chash	= <<"fun(_,__Rec) -> list_to_binary(io_lib:format(\"~.36B\",[erlang:phash2({element(2,__Rec),element(3,__Rec)})])) end.">>
                     						  :: binary()
