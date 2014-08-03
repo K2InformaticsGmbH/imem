@@ -371,11 +371,11 @@ dictionary_trigger(OldRec,NewRec,T,_User) when T==ddTable; T==ddAlias ->
         {{},{}} ->  %% truncate ddTable/ddAlias should never happen, allow for recovery operations
             ok;          
         {{},_}  ->  %% write new rec (maybe fixing something)
-            {S,T} = element(2,NewRec),
-            imem_cache:clear({?MODULE, trigger, S, T});
+            {S,TN} = element(2,NewRec),
+            imem_cache:clear({?MODULE, trigger, S, TN});
         {_,_}  ->  %% update old rec (maybe fixing something)
-            {S,T} = element(2,OldRec),
-            imem_cache:clear({?MODULE, trigger, S, T})
+            {S,TO} = element(2,OldRec),
+            imem_cache:clear({?MODULE, trigger, S, TO})
     end.
 
 %% ------ META implementation -------------------------------------------------------
