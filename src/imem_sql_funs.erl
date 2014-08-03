@@ -8,7 +8,7 @@
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
-            , to_tuple, to_list, to_term
+            , to_tuple, to_list, to_term, to_binterm, from_binterm
             , to_decimal, from_decimal
             , byte_size, bit_size, nth, sort, usort, reverse, last
             , remap
@@ -51,6 +51,7 @@
         , to_tuple/1
         , to_list/1
         , to_term/1
+        , to_binterm/1
         , to_name/1
         , to_text/1
         ]).
@@ -62,6 +63,7 @@
         , diff_ts/2
         , to_decimal/2
         , from_decimal/2
+        , from_binterm/1
         , is_member/2
         , remap/3
         ]).
@@ -93,6 +95,7 @@ unary_fun_bind_type("size") ->                  #bind{type=tuple,default=undefin
 unary_fun_bind_type("tuple_size") ->            #bind{type=tuple,default=undefined};
 unary_fun_bind_type("byte_size") ->             #bind{type=binary,default= <<>>};
 unary_fun_bind_type("bit_size") ->              #bind{type=binary,default= <<>>};
+unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
@@ -109,9 +112,11 @@ unary_fun_result_type("tuple_size") ->          #bind{type=integer,default=?nav}
 unary_fun_result_type("byte_size") ->           #bind{type=integer,default=?nav};
 unary_fun_result_type("bit_size") ->            #bind{type=integer,default=?nav};
 unary_fun_result_type("from_decimal") ->        #bind{type=float,default=?nav};
+unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
+        {match,["binterm"]}->                   #bind{type=binterm,default=?nav};
         {match,["boolean"]}->                   #bind{type=boolean,default=?nav};
         {match,["decimal"]}->                   #bind{type=decimal,default=?nav};
         {match,["float"]}->                     #bind{type=float,default=?nav};
@@ -300,7 +305,7 @@ expr_fun({'or', A, B}) ->
 %% Unary custom filters
 expr_fun({'safe', A}) ->
     safe_fun(A);
-expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_integer';Op=='to_float';Op=='to_number'->
+expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='from_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term';Op=='to_name';Op=='to_text';Op=='is_nav' ->
     unary_fun({Op, A});
@@ -568,6 +573,11 @@ to_binstr(I) when is_integer(I) -> list_to_binary(integer_to_list(I));
 to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
 to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
+
+to_binterm(B) when is_binary(B) ->   imem_datatype:io_to_binterm(B);
+to_binterm(T) ->                     imem_datatype:term_to_binterm(T).
+
+from_binterm(B)  ->                  imem_datatype:binterm_to_term(B).
 
 binary_fun({Op, {const,A}, {const,B}}) when is_tuple(A), is_tuple(B) ->
     binary_fun_final({Op, A, B});

@@ -709,14 +709,22 @@ column_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
         (Name == undefined) ->         
             Bind = hd(Bmatch),
             Bind#bind{type=tuple,cind=0};       %% bind to whole table record
-        true ->         
-            hd(Bmatch)
+        true ->    
+            Bind = hd(Bmatch),     
+            case Bind of
+                #bind{type=binterm} ->  
+                    %% db field encoded as binary, must decode to term
+                    #bind{type=term,btree={from_binterm,Bind}};
+                _ ->    
+                    %% db field is not stored in encoded form
+                    Bind
+            end
     end.
 
 %% 
 %% @doc Convert a parse tree item (hierarchical tree of binstr names, atom operators and erlang values)
 %% to an expression tree with embedded bind structures. Similar to ETS matchspec guards but using #bind{}
-%% instead of simple atomic variable names like '$1'or '$123'. Constant tuple values are wrapped with {const,Tup}   
+%% instead of simple atomic v#bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}ariable names like '$1'or '$123'. Constant tuple values are wrapped with {const,Tup}   
 %% PTree:   ParseTree, binary text or tuple correcponding to a field name, a constant field value or an expression which can
 %%          depend on other constants or field variables      
 %% FullMap: List of #bind{}, one per declared field for involved tables
@@ -1222,6 +1230,14 @@ sort_fun_impl(atom,F,<<"desc">>) ->
         end
     end;
 sort_fun_impl(binstr,F,<<"desc">>) -> 
+    fun(X) -> 
+        case F(X) of 
+            B when is_binary(B) ->
+                [ -Item || Item <- binary_to_list(B)] ++ [?MaxChar];
+            V -> V
+        end
+    end;
+sort_fun_impl(binterm,F,<<"desc">>) -> 
     fun(X) -> 
         case F(X) of 
             B when is_binary(B) ->
