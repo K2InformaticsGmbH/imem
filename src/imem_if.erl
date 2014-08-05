@@ -81,6 +81,7 @@
         , get_os_memory/0
         , get_vm_memory/0
         , spawn_sync_mfa/3
+        , foldl/3
         ]).
 
 
@@ -790,6 +791,9 @@ unsubscribe({table,schema})         -> mnesia:unsubscribe({table, schema});
 unsubscribe(system)                 -> mnesia:unsubscribe(system);
 unsubscribe(EventCategory) ->
     ?ClientErrorNoLogging({"Unsupported event category unsubscription", EventCategory}).
+
+foldl(FoldFun, InputAcc, Table) ->  
+    mnesia:foldl(FoldFun, InputAcc, Table).
 
 
 %% ----- gen_server -------------------------------------------

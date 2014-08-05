@@ -199,6 +199,7 @@
         , return_atomic_list/1
         , return_atomic_ok/1
         , return_atomic/1
+        , foldl/3
         ]).
 
 -export([ simple_or_local_node_sharded_tables/1]).
@@ -2003,6 +2004,10 @@ return_atomic_ok(Result) ->
 
 return_atomic(Result) -> 
     imem_if:return_atomic(Result).
+
+foldl(FoldFun, InputAcc, Table) ->  
+    imem_if:foldl(FoldFun, InputAcc, Table).
+
 
 %% ----- DATA TYPES ---------------------------------------------
 
