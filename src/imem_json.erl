@@ -35,15 +35,11 @@
          diff/2,        %% Diff between data objects
          equal/2,       %% Check if data objects are equal
          is_subset/2,   %% Check if first data object is a subset of the second
-         is_disjoint/2 %% Check if data objects have no keys in common
+         is_disjoint/2, %% Check if data objects have no keys in common
+         project/2      %% Create a projection of a json document based on paths
          %match/2        %% Check if a data object matches a match object
          ]).
 
-%TODO: projection:
-%       - get the value (or key/value) corresponding to a json
-%         path
-%       - path can contain wildcards ('*') and/or special commands ('$keys$')
-%
 %TODO: custom output format:
 %       provide way to specify desired output format by:
 %           - adding a parameter to each function (much work)
@@ -55,7 +51,7 @@
 %% ===================================================================
 
 %  VERY IMPORTANT SETTING: make sure it is commented on every push !!!
-%  ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯  ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯  
+%  ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯  
 %▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
 %░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
 %-define(ALLOW_MAPS,true). % Allow maps module to be used (Erlang >= 17.0)
@@ -69,6 +65,8 @@
 
 -define(DEFAULT_TYPE, proplist). % proplist | map | json
 
+-define(JSON_PATH_SEPARATOR,":").
+
 -define(JSON_POWER_MODE,false). % Use binary parsing, when implemented, to handle raw binary data
 
 -define(NO_JSON_LIB,throw(no_json_library_found)).
@@ -78,7 +76,6 @@
 -define(BAD_VERSION,throw(json_imem_disabled)).
 
 %-define(TEMP_ALLOW_MATCH,true).
-
 
 %% Json Decoding & Encoding Library Configuration
 %% ===================================================================
@@ -747,6 +744,72 @@ is_disjoint(DataObject1, DataObject2) ->
     is_disjoint(?FROM_JSON(DataObject1), ?FROM_JSON(DataObject2)).
 -endif.
 
+%% @doc Projection of a path, or of multiple paths, from a Json nested object.
+%% returns nomatch if path is not found, or if one of the paths is not found.
+%%
+%% Because projection used imem_json primitives, function is format-neutral.
+-spec project(Path,data_object()) -> value() | ListOfValues | nomatch 
+           when Path :: list() | binary(),
+                ListOfValues :: [value() | ListOfValues].
+project([T|_] = Paths,DataObject) when is_list(T) ->
+    All = [walk_path(parse_path(Path),DataObject) || Path <- Paths],
+    case lists:any(fun(nomatch) -> true; (_) -> false end,All) of
+        true -> nomatch;
+        false -> All
+    end;
+project(Path,DataObject) ->
+    walk_path(parse_path(Path),DataObject).
+
+%% @doc Tokenizes a path in a series of tokens
+-spec parse_path(Path) -> list()
+            when Path :: list() | binary().
+parse_path(Path)  ->
+    parse_path(Path,?JSON_PATH_SEPARATOR).
+
+-spec parse_path(Path,list()) -> list()
+            when Path :: list() | binary().
+parse_path(Path,Separator) when is_list(Path) ->
+    string:tokens(Path,Separator);
+parse_path(Path,Separator) when is_binary(Path) ->
+    parse_path(binary_to_list(Path),Separator).
+
+%% @doc Walks a tokenized path to extract the corresponding values
+-spec walk_path(list(),data_object()) -> value() | ListOfValues | nomatch
+            when ListOfValues :: [value() | ListOfValues].
+walk_path([],LastLevel) -> LastLevel;
+walk_path(["$keys$"],CurrentLevel) ->
+    keys(CurrentLevel);
+walk_path([Filter|Tail],CurrentLevel) ->
+    {ok,Mask} = re:compile("^(.*)\\[([^\\]]+)\\]$"),
+    case re:run(Filter,Mask,[{capture,[2],list}]) of
+        nomatch -> NextLevel = ?MODULE:get(list_to_binary(Filter),CurrentLevel),
+                   case ?MODULE:get(list_to_binary(Filter),CurrentLevel) of
+                    undefined -> nomatch;
+                    NextLevel -> walk_path(Tail,NextLevel)
+                   end;
+        {match,["*"]} -> {match,[Field]} = re:run(Filter,Mask,[{capture,[1],binary}]),
+                         case ?MODULE:get(Field,CurrentLevel) of
+                            undefined -> nomatch;
+                            [] -> nomatch;
+                            NextLevels -> lists:flatten([walk_path(Tail,NextLevel) || 
+                                            NextLevel <- NextLevels])
+                         end;
+        {match,[_lstIndex]} -> {match,[Field]} = re:run(Filter,Mask,[{capture,[1],binary}]),
+                               Index = list_to_integer(_lstIndex),
+                               case ?MODULE:get(Field,CurrentLevel) of
+                                undefined -> nomatch;
+                                [] -> nomatch;
+                                List -> Length = length(List),
+                                        if Index > Length -> nomatch;
+                                           true -> NextLevel = lists:nth(Index,List),
+                                                   walk_path(Tail,NextLevel)
+                                        end
+                               end
+    end.
+                                
+    
+    
+
 -ifdef(TEMP_ALLOW_MATCH).
 %% @doc Returns true if a data object matches a match object.
 %% A match object is a key value pair, in the same format as the
@@ -769,18 +832,22 @@ match(MatchObject,DataObject) when is_list(DataObject) ->
 
 -spec json_binary_decode(Json) -> data_object() when Json :: binary().
 json_binary_decode(Json) ->
+    json_binary_decode(Json,?JSON_LIBS).
+json_binary_decode(Json,Libs) ->
     %% Json Lib detection should probably be replaced by an environment variable
     Apps = [App || {App,_,_} <- application:loaded_applications()],
-    case [_Fun || {_Lib,_Fun,_} <- ?JSON_LIBS, lists:member(_Lib,Apps)] of
+    case [_Fun || {_Lib,_Fun,_} <- Libs, lists:member(_Lib,Apps)] of
         [Decode|_] -> Decode(Json);
         []     -> ?NO_JSON_LIB 
     end.
 
 -spec json_binary_encode(data_object()) -> Json when Json :: binary().
 json_binary_encode(Json) ->
+    json_binary_encode(Json,?JSON_LIBS).
+json_binary_encode(Json,Libs) ->
     %% Json Lib detection should probably be replaced by an environment variable
     Apps = [App || {App,_,_} <- application:loaded_applications()],
-    case [_Fun || {_Lib,_,_Fun} <- ?JSON_LIBS, lists:member(_Lib,Apps)] of
+    case [_Fun || {_Lib,_,_Fun} <- Libs, lists:member(_Lib,Apps)] of
         [Encode|_] -> Encode(Json);
         []     -> ?NO_JSON_LIB 
     end.
@@ -912,8 +979,8 @@ parse_match(<<H,Rem/binary>>,{Begin,undefined,Acc}) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-%% Latest code coverage check: 97%
 %% Testing available when maps are enabled, testing code not duplicated
+%% Latest code coverage check: 100%
 
 setup() ->
     application:start(jsx).
@@ -992,11 +1059,14 @@ map_test_() ->
      {"json",?_assertEqual(false,?MODULE:get(<<"earthling">>,JsonOut))}]}.
 
 new_test_() -> 
+    %% Depends on default type setting
+    Test = [],
     {setup,
      fun setup/0,
     [{"proplist",?_assertEqual([],new(proplist))},
      {"map",?_assertEqual(#{},new(map))},
-     {"json",?_assertEqual(<<"{}">>,new(json))}]}.
+     {"json",?_assertEqual(<<"{}">>,new(json))},
+     {"default",?_assertEqual(Test,new())}]}.
 
 put_test_() -> 
     {setup,
@@ -1033,7 +1103,11 @@ update_test_() ->
      fun setup/0,
     [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))},
      {"map",?_assertEqual(8000, maps:get(<<"age">>,MapOut))},
-     {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))}]}.
+     {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))},
+     {"error_prop",?_assertError(badarg,update(<<"not_there">>,true,?TEST_PROP))},
+     {"error_map",?_assertError(badarg,update(<<"not_there">>,true,?TEST_MAP))}
+     ]}.
+
 
 values_test_() ->
     Values = lists:sort([<<"Doe">>,<<"John">>,<<"bar">>,true,981,null]),
@@ -1050,12 +1124,22 @@ to_proplist_test_() ->
      {"map",?_assert(is_list(to_proplist(?TEST_MAP)))},
      {"json",?_assert(is_list(to_proplist(?TEST_JSON)))}]}.
 
+to_proplist_deep_test_() ->
+    TestProp = [{<<"first">>,[{<<"second">>,true}]}],
+    TestMap = #{<<"first">> => #{<<"second">> => true}},
+    TestJson = <<"{\"first\":{\"second\":true}}">>,
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(TestProp,to_proplist(TestProp,deep))},
+     {"map",?_assertEqual(TestProp,to_proplist(TestMap,deep))},
+     {"json",?_assertEqual(TestProp,to_proplist(TestJson,deep))}]}.
+
 to_map_test_() ->
     {setup,
      fun setup/0,
     [{"proplist",?_assert(is_map(to_map(?TEST_PROP)))},
      {"map",?_assert(is_map(to_map(?TEST_MAP)))},
-     {"json",?_assert(is_map(to_map(?TEST_JSON)))}]}.
+     {"json",?_assert(is_map(to_map(?CL(?TEST_JSON))))}]}.
 
 to_binary_test_() ->
     {setup,
@@ -1118,6 +1202,57 @@ merge_test_() ->
      {"json",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,JsonOut))},
      {"json",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,JsonOut))}]}.
 
+
+project_test_() ->
+    Data1 = <<"{\"name\":{\"first\":false,\"list\":[{\"any\":1}]}, \"test\":true}">>,
+    Data2 = <<"{\"list\":[{\"any\":{\"sub\":true}},{\"any\":{\"sub\":false}}],\"empty\":[]}">>,
+    [?_assertEqual([1],project("name:list[*]:any",Data1)),
+     ?_assertEqual(true,project("test",Data1)),
+     ?_assertEqual(false,project("name:first",Data1)),
+     ?_assertEqual([[1],true],project(["name:list[*]:any","test"],Data1)),
+     ?_assertEqual([true,false],project("list[*]:any:sub",Data2)),
+     ?_assertEqual(true,project("list[1]:any:sub",Data2)),
+     ?_assertEqual([<<"first">>,<<"list">>],project("name:$keys$",Data1)),
+     ?_assertEqual([[<<"first">>,<<"list">>],[1],false], project(["name:$keys$",
+                                                                  "name:list[*]:any",
+                                                                  "name:first"
+                                                                 ],Data1)),
+     ?_assertEqual(nomatch, project(["name:$keys$",
+                                     "name:list[*]:any",
+                                     "name:not_there"
+                                    ],Data1)),
+     ?_assertEqual(nomatch,project("list[10]:any:sub",Data2)),
+     ?_assertEqual(nomatch,project("unlist[1]:any:sub",Data2)),
+     ?_assertEqual(nomatch,project("empty[1]",Data2)),
+     ?_assertEqual(nomatch,project("empty[*]",Data2)),
+     ?_assertEqual(nomatch,project("unexistant",Data2)),
+     ?_assertEqual(nomatch,project("unexistant[*]",Data2))
+    ].
+
+parse_path_test_() ->
+    Path1 = "name.list[*].any",
+    Path2 = <<"name.list[*].any">>,
+    Path3 = lists:concat(["name",?JSON_PATH_SEPARATOR,"list[*]",?JSON_PATH_SEPARATOR,"any"]),
+    Res1  = ["name","list[*]","any"],
+    [?_assertEqual(Res1,parse_path(Path1,".")),
+     ?_assertEqual(Res1,parse_path(Path2,".")),
+     ?_assertEqual(Res1,parse_path(Path3))
+    ].
+
+walk_path_test_() ->
+    Path1 = ["name","list[*]","any"],
+    Object1 = [{<<"name">>, [{<<"list">>, [[{<<"any">>,1}],[{<<"any">>,2}]]}]}],
+    Result1 = [1,2],
+    [?_assertEqual(Result1,walk_path(Path1,Object1))
+    ].
+    
+
+json_lib_throw_test_() ->
+    [?_assertException(throw,no_json_library_found,json_binary_decode(<<"{\"test\":true}">>,[])),
+     ?_assertException(throw,no_json_library_found,json_binary_encode([{<<"test">>,true}],[]))].
+
+
+
 -ifdef(DECODE_TO_MAPS).
 %% Some 'adaptation' because JSON conversion changes order between formats
 -define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"changes\":4,\"removed\":{\"age\":981},\"replaced\":{\"surname\":\"Doe\"},\"updated\":{\"surname\":\"DoeDoe\"}}">>).
@@ -1126,16 +1261,16 @@ merge_test_() ->
 -endif.
 
 diff_test_() ->
-    PropBefore = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"empty">>,null}],
-    PropAfter  = [{<<"surname">>,<<"DoeDoe">>}, {<<"ega">>,981},{<<"newval">>,<<"one">>}, {<<"empty">>,null}],
+    PropBefore = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"empty">>,null},{<<"unmod">>,true}],
+    PropAfter  = [{<<"surname">>,<<"DoeDoe">>}, {<<"ega">>,981},{<<"newval">>,<<"one">>}, {<<"empty">>,null},{<<"unmod">>,true}],
     PropDiffOut = [{added,[{<<"ega">>,981},{<<"newval">>,<<"one">>}]},
                    {removed,[{<<"age">>,981}]},
                    {updated,[{<<"surname">>,<<"DoeDoe">>}]},
                    {replaced,[{<<"surname">>,<<"Doe">>}]},
                    {changes,4}],
 
-    MapsBefore = #{<<"age">> => 981,<<"empty">> => null,<<"surname">> => <<"Doe">>},
-    MapsAfter = #{<<"ega">> => 981, <<"empty">> => null, <<"newval">> => <<"one">>, <<"surname">> => <<"DoeDoe">>},
+    MapsBefore = #{<<"age">> => 981,<<"empty">> => null,<<"surname">> => <<"Doe">>,<<"unmod">> => true},
+    MapsAfter = #{<<"ega">> => 981, <<"empty">> => null, <<"newval">> => <<"one">>, <<"surname">> => <<"DoeDoe">>, <<"unmod">> => true},
     MapsDiffOut = #{added => #{<<"ega">> => 981,<<"newval">> => <<"one">>},
                    removed => #{<<"age">> => 981},
                    replaced => #{<<"surname">> => <<"Doe">>},
