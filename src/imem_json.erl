@@ -71,8 +71,6 @@
 
 -define(JSON_POWER_MODE,false). % Use binary parsing, when implemented, to handle raw binary data
 
--define(TEST,true).
-
 -define(NO_JSON_LIB,throw(no_json_library_found)).
 
 -define(NOT_SUPPORTED,throw(not_yet_supported)).
