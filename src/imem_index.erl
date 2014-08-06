@@ -3,9 +3,49 @@
 %% @doc == imem INDEX operations ==
 
 % Record field names are terse because of variable meaning according to index type.
--record(ddindex,{sk,  % Search key
-                 rk   % Reference key: empty, single reference or list of references
-                }).
+
+-record(ddIndex,  %% record definition for index tables (one per indexed master data table)              
+                  { stu  		:: tuple()	%% search tuple, cannot be empty
+                  , lnk = 0     :: term()   %% Link to key of master data
+                  							%% 0=unused when key is part of search tuple, used in ivk
+                  							%% 0..n  hashed value for the hashmap index (iv_h)
+                  							%% single key of any data type for unique index (iv_k)
+                  							%% list of keys for almost unique index (iv_kl)
+                  }     
+       ). 
+
+
+-record(ddIdxDef, %% record definition for index definition              
+                  { id  		:: integer()		%% index id within the table
+                  , name 		:: binary()			%% name of the index
+                  , pos     	:: integer()		%% record field to be indexed 1 = key (used maybe on set tables)
+                  , type  		:: ivk|iv_k|iv_kl|iv_h|ivvk|ivvvk	%% Type of index
+                  , pl 			:: list(binary())	%% list of JSON path expressions as binstr (to be compiled)
+                  , vnf = <<"imem_index:binstr_to_lcase_ascii/1">> :: binary() 		
+                  				%% value_normalising_fun(Value)  
+                  				%% applied to each value result of all path scans for given JSON document
+                  				%% return ?nav = '$not_a_value' if indexing is not wanted, otherwise let iff() decide
+                  , iff = <<"fun(_,_) -> true end">> :: binary() 		
+                  				%% boolean index_filter_fun(Key,Value) for the inclusion/exclusion of indexes
+                  				%% applied to each result of all path scans for given JSON document
+                  }     
+       ).
+
+
+-export([ binstr_to_lcase_ascii/1
+		]).
+
+binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
+binstr_to_lcase_ascii(B) when is_binary(B) -> 
+    unicode_string_to_ascii(string:to_lower(unicode:characters_to_list(B, utf8)));
+binstr_to_lcase_ascii(Val) -> 
+	unicode_string_to_ascii(io_lib:format("~p",[Val])).
+
+unicode_string_to_ascii(U) -> 
+	Ascii = U, 		%% ToDo: really do the accent folding here 
+					%% and map all remaining codepoints > 254 to 254 (tilda)
+	unicode:characters_to_binary(Ascii).
+
 
 %% Glossary:
 %% ¯¯¯¯¯¯¯¯¯
@@ -24,36 +64,39 @@
 %%
 %% Index Types:
 %% ¯¯¯¯¯¯¯¯¯¯¯¯
-%% IVK: default index type
-%%          sk = {IndexId,<<"Value">>,Reference}
-%%          rk = undefined
+%% ivk: default index type
+%%          stu =  {IndexId,<<"Value">>,Reference}
+%%          lnk =  0
 %%
-%% IV_K: unique key index
-%%          sk = {IndexId,<<"UniqueValue">>}
-%%          rk = Reference
+%% iv_k: unique key index
+%%          stu =  {IndexId,<<"UniqueValue">>}
+%%          lnk =  Reference
 %%       observation: should crash/throw/error on duplicate value insertion
 %%
-%% IV_KL: high selectivity index (aka "almost unique")
-%%          sk = {IndexId,<<"AlmostUniqueValue"}
-%%          rk = [Reference | ListOfReferences]
+%% iv_kl: high selectivity index (aka "almost unique")
+%%          stu =  {IndexId,<<"AlmostUniqueValue"}
+%%          lnk =  [Reference | ListOfReferences]
 %%
-%% IV_B: low selectivity index (aka "bitmap", although a true bitmap index)
+%% iv_h: low selectivity hash map index 
 %%          For the values:
-%%              sk = {IndexId,<<"CommonValue">>}
-%%              rk = FastLookupNumber
+%%              stu =  {IndexId,<<"CommonValue">>}
+%%              lnk =  FastLookupNumber
 %%          For the links to the references:
-%%              sk = {IndexId, {FastLookupNumber, Reference}}
-%%              rk = undefined
+%%              stu =  {IndexId, {FastLookupNumber, Reference}}
+%%              lnk =  0
 %%
-%% IVVK: combined index
-%%          sk = {IndexId,<<"ValueA">>,<<"ValueB">>,Reference}
-%%          rk = undefined
+%% ivvk: combined index of 2 fields
+%%          stu =  {IndexId,<<"ValueA">>,<<"ValueB">>,Reference}
+%%          lnk =  0
 %%
+%% ivvvk: combined index of 3 fields
+%%          stu =  {IndexId,<<"ValueA">>,<<"ValueB">>,<<"ValueB">>,Reference}
+%%          lnk =  0
 %%
 %% How it should be used:
 %% ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-%% Basically, it's an mnesia-managed ETS table, where one uses regexp or binary_match
-%% operations to iterate on and find matching values, and their link back to the objects
+%% Basically, it's an mnesia-managed orderes set ETS table, where one uses regexp or binary_match
+%% operations to iterate on and find matching values and their link back to the objects
 %% stored in the master table.
 %%
 %% It avoids the need to decode raw binary json documents stored in the master table, for
@@ -86,14 +129,20 @@
 %% ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 %% case insensitive search: 
 %%    - provide IndexId, input string, Limit
-%%    - output format: [{headmatch, HeadMatchString, HeadMatchResults},
-%%                    {anymatch, AnyMatchString, AnyMatchResults},
-%%                    {regexpmatch, RegexpMatchString, RegexpMatchResults}]
+%%    - output format:	[ {headmatch, HeadMatchString, HeadMatchResults}
+%%						, {anymatch, AnyMatchString, AnyMatchResults}
+%%						, {regexpmatch, RegexpMatchString, RegexpMatchResults}
+%%						]
 %%
-%%      How it should work:
-%%       Should first execute headmatch. If enough results, other result "sets" will be empty.
-%%       If not enough results, do anymatch (basic binary_match)
-%%       If input string contains wildcards or regexp-like characters (?), convert to regexp pattern, and match. 
-%%          Other result "sets" will be empty.
+%% How it should work:
+%%    If input string contains wildcards or regexp-like characters (*?%_)
+%%		-> convert to regexp pattern, and perform only a regexp-match. Other result "sets" will be empty.
+%% 	  Else
+%%    	Should first execute headmatch.
+%%		If enough results
+%%		  ->	other result "sets" will be empty
+%%		Else (not enough results)
+%%        -> do anymatch (basic binary_match inside string)
+
 
 
