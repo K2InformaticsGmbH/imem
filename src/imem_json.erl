@@ -8,6 +8,13 @@
 %% and returns in the same format as the provided data object
 %% (except for conversion functions)
 
+
+%▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒    DELETE !!!   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+%-define(TEST,true).
+%-compile(export_all).
+%▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+
+
 -export([%% Standard data type operations, inspired by maps operations
          find/2,
          fold/3,
@@ -36,7 +43,8 @@
          equal/2,       %% Check if data objects are equal
          is_subset/2,   %% Check if first data object is a subset of the second
          is_disjoint/2, %% Check if data objects have no keys in common
-         project/2      %% Create a projection of a json document based on paths
+         project/2,     %% Create a projection of a json document based on paths
+         jpp_match/2    %% Match a jpparse syntax tree to a json document and extract the values
          %match/2        %% Check if a data object matches a match object
          ]).
 
@@ -77,6 +85,8 @@
 
 %-define(TEMP_ALLOW_MATCH,true).
 
+
+
 %% Json Decoding & Encoding Library Configuration
 %% ===================================================================
 %% Format:  [{Module, DecodeFun, EncodeFun} | _ ]
@@ -84,7 +94,9 @@
 -ifdef(DECODE_TO_MAPS).
 -define(JSON_LIBS, [{jsx, 
                      fun(<<"{}">>) -> #{};
-                        (__JS) -> maps:from_list(jsx:decode(__JS)) end,
+                        (__JS) -> case jsx:decode(__JS) of
+                                    [{_,_}|_]=__O -> maps:from_list(__O);
+                                    __L when is_list(__L) -> __L end end,
                      fun(__JS) when is_list(__JS) -> jsx:encode(__JS);
                         (__JS) when is_map(__JS) -> jsx:encode(to_proplist(__JS,deep)) end},
                     {jiffy,
@@ -808,6 +820,96 @@ walk_path([Filter|Tail],CurrentLevel) ->
     end.
                                 
     
+%% @doc Projects a parsed Json Path (from jpparse) on a json object
+%% and extracts matched values. nomatch is return if no match is found.
+%% This function uses imem_json primitives, and as such is format neutral.
+-spec jpp_match(JPPTree,data_object()) -> value() | ListOfValues | nomatch
+    when JPPTree :: tuple(),
+         ListOfValues :: [value() | ListOfValues].
+
+-define(OO(_X), {'{}',_X}).
+-define(LL(_X), {'[]',_X}).
+-define(FF(_X), {'$',_X}).
+-define(JV, jpp_value).
+
+jpp_match(Tree,DataObject) when is_binary(DataObject) ->
+    jpp_match(Tree,?FROM_JSON(DataObject));
+jpp_match(Tree,DataObject) ->
+    jpp_walk(Tree,DataObject).
+
+    %% Higher level parsing
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    jpp_walk({':',Elements},CLevel) ->
+        jpp_walk(Elements,CLevel);
+
+    jpp_walk([],CLevel) -> CLevel;
+
+    %% Object Walking
+    jpp_walk([Field|Tail],CLevel) when is_binary(Field) ->
+        jpp_walk([?OO(Field)| Tail], CLevel);
+
+    jpp_walk([?OO([])|Tail],CLevel) ->
+        jpp_walk([?FF(<<"values">>)|Tail], CLevel);
+
+    jpp_walk([?OO(ManyFields)|Tail],CLevel) when is_list(ManyFields) ->
+        [jpp_walk([?OO(Field) | Tail],CLevel) || Field <- ManyFields];
+
+    jpp_walk([?OO('_')|Tail],CLevel) ->
+        jpp_walk([Tail], CLevel);
+
+    jpp_walk([?OO(?FF(Any))|Tail],CLevel) ->
+        jpp_walk([?FF(Any)|Tail], CLevel);
+
+    jpp_walk([{'{}',Origin,Field}|Tail],CLevel) ->
+        jpp_walk([?OO(Origin),?OO(Field) | Tail],CLevel);
+
+    %% Object "Function-as-a-property"
+    jpp_walk([?FF(<<"values">>)|Tail],CLevel) ->
+        [jpp_walk(Tail,NLevel) || NLevel <- ?MODULE:values(CLevel)];
+
+    jpp_walk([?FF(<<"firstChild">>)|Tail],CLevel) ->
+        [NLevel|_] = ?MODULE:values(CLevel),
+        jpp_walk(Tail,NLevel);
+
+    %% List Walking
+    jpp_walk([{'[]','_',Index}|Tail],CLevel) ->
+        jpp_walk([?LL(Index)|Tail],CLevel);
+
+    jpp_walk([{'[]',Field,Index}|Tail],CLevel) when is_binary(Field) ->
+        jpp_walk([?OO(Field), ?LL(Index)| Tail], CLevel);
+
+    jpp_walk([?LL([])|Tail],CLevel) ->
+        jpp_walk([?LL({'-', 1, ?MODULE:size(CLevel)})| Tail], CLevel);
+
+    jpp_walk([?LL({'-',Start,End})|Tail],CLevel) ->
+        Seq = lists:seq(?JV(Start), ?JV(End)),
+        jpp_walk([?LL(Seq)| Tail], CLevel);
+
+
+    jpp_walk([?LL(List)|Tail], CLevel) when is_list(List) ->
+        [jpp_walk([?LL(Index)| Tail], CLevel) || Index <- List];
+        
+
+    %% Lower level matching (and actually doing something)
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    jpp_walk([?LL(RawIndex)|Tail],CLevel) ->
+        Index = ?JV(RawIndex),
+        Length = ?MODULE:size(CLevel),
+        if Index > Length -> nomatch;
+           true -> NLevel =  lists:nth(Index,CLevel),
+                   jpp_walk(Tail,NLevel)
+        end;
+    jpp_walk([?OO(RawField)|Tail],CLevel)->
+        Field = ?JV(RawField),
+        case ?MODULE:get(Field,CLevel) of
+            undefined -> nomatch;
+            NLevel -> jpp_walk(Tail,NLevel)
+        end.
+
+    jpp_value(Value) when is_binary(Value) -> Value;
+    jpp_value(Value) when is_integer(Value) -> Value.
+         
+        
     
 
 -ifdef(TEMP_ALLOW_MATCH).
@@ -854,8 +956,10 @@ json_binary_encode(Json,Libs) ->
 
 -spec clean_null_values(data_object()) -> data_object().
 -ifdef(ALLOW_MAPS).
-clean_null_values(DataObject) when is_list(DataObject) ->
+clean_null_values([{_,_}|_] = DataObject) ->
     [{K,V} || {K,V} <- DataObject, V =/= null];
+clean_null_values(DataObject) when is_list(DataObject) ->
+    DataObject;
 clean_null_values(DataObject) when is_map(DataObject) ->
     maps:fold(fun(_,null,OutMap) -> OutMap;
                  (K,V,OutMap) -> maps:put(K,V,OutMap) end,
@@ -988,6 +1092,7 @@ setup() ->
 -define(TEST_JSON, <<"{\"surname\":\"Doe\",\"name\":\"John\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"empty\":null}">>).
 -define(TEST_PROP, [{<<"surname">>,<<"Doe">>}, {<<"name">>,<<"John">>}, {<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"age">>,981},{<<"empty">>,null}]).
 -define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true, <<"foo">> => <<"bar">>, <<"name">> => <<"John">>, <<"surname">> => <<"Doe">>,<<"empty">> => null}).
+-define(TEST_JSON_LIST, <<"[{\"surname\":\"Doe\"},{\"surname\":\"Jane\"},{\"surname\":\"DoeDoe\"}]">>).
 
 %% JSON is tested for each function as well even if, basically, it only tests the 
 %% JSON to map/proplist conversion each time. This could at least be used as regression
@@ -1093,7 +1198,8 @@ size_test_() ->
      fun setup/0,
     [{"proplist",?_assertEqual(5,?MODULE:size(?TEST_PROP))},
      {"map",?_assertEqual(5,?MODULE:size(?TEST_MAP))},
-     {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))}]}.
+     {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))},
+     {"json_list",?_assertEqual(3,?MODULE:size(?TEST_JSON_LIST))}]}.
 
 update_test_() ->
     PropOut = update(<<"age">>,8000,?TEST_PROP),
@@ -1383,6 +1489,44 @@ binary_match_test_() ->
      ?_assert(not binary_match(<<"zoubou">>,{bin_start,bin_end,<<"">>}))
      ].
 -endif.
+
+jpp_match_test_() ->
+    Object1 = <<"{\"a\":{\"b\":[{\"c\":1},{\"c\":2},{\"c\":3}]}}">>,
+    Tst1_1 = {':', [<<"a">>, {'[]', <<"b">>, [1]}, <<"c">>]}, % a:b[1]:c 
+    Out1_1 = [1],
+    Tst1_2 = {':', [<<"a">>, {'[]', <<"b">>, {'-', 1, 2}}, <<"c">>]}, % a:b[1-2]
+    Out1_2 = [1,2],
+    Tst1_3 = {':', [<<"a">>, {'[]', <<"b">>, [1,2,3]}]}, % a:b[1,2,3]
+    Tst1_3b = {':', [<<"a">>, <<"b">>]}, % a:b[1,2,3]
+    Out1_3 = [[{<<"c">>,1}],[{<<"c">>,2}],[{<<"c">>,3}]],
+    Tst1_4 = {':', [<<"a">>, {'[]', <<"b">>, []}, <<"c">>]}, % a:b[]:c
+    Out1_4 = [1,2,3],
+
+    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":2}}}}">>,
+    Tst2_1 = {':', [<<"a">>, {'{}', <<"b">>, []}, <<"c">>]}, % a:b{}:c
+    Out2_1 = [1,4],
+    Tst2_2 = {':', [<<"a">>, {'{}', <<"b">> ,[<<"c">>]}]}, %a:b{c}
+    Out2_2 = [[{<<"c">>,4},{<<"d">>,2}]],
+    Tst2_3 = {':', [<<"a">>, <<"b">>, {'$',<<"values">>}, <<"c">>]}, % a:b:$values$:c
+    Out2_3 = [1,4],
+
+    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}}},{\"c\":{\"b\":{\"d\":2}}}]">>,
+    Tst3_1 = {':', [{'[]', '_', []}, {'{}', <<"c">>, {'$',<<"firstChild">>}}, <<"d">>]}, % []:c{$firstChild$}:d
+    Out3_1 = [3,2],
+
+    {setup,
+     fun setup/0,
+    [{"form a:b[1]:c",?_assertEqual(Out1_1,jpp_match(Tst1_1,Object1))},
+     {"form a:b[1-2]",?_assertEqual(Out1_2,jpp_match(Tst1_2,Object1))},
+     {"form a:b[1,2,3]",?_assertEqual(Out1_3,jpp_match(Tst1_3,Object1))},
+     {"form a:b",?_assertEqual(Out1_3,jpp_match(Tst1_3b,Object1))},
+     {"form a:b[]:c",?_assertEqual(Out1_4,jpp_match(Tst1_4,Object1))},
+     {"form a:b{}:c",?_assertEqual(Out2_1,jpp_match(Tst2_1,Object2))},
+     {"form a:b{c}",?_assertEqual(Out2_2,lists:sort(jpp_match(Tst2_2,Object2)))},
+     {"form a:b:$values$:c}",?_assertEqual(Out2_3,lists:sort(jpp_match(Tst2_3,Object2)))},
+     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,jpp_match(Tst3_1,Object3))}
+     ]}.
+    
 
 -endif.
 
