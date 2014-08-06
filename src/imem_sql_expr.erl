@@ -687,7 +687,13 @@ column_map_columns(Columns, FullMap, Acc) ->
     ?Warn("column_map_columns error Acc ~p~n", [Acc]),
     ?ClientError({"Column map invalid columns",Columns}).
 
-column_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
+column_map_lookup(QN3,FullMap) ->
+    case field_map_lookup(QN3,FullMap) of
+        #bind{type=term,btree={from_binterm,Bind}} ->   Bind;   %% represent as binterm to the rowfuns
+        Other ->                                        Other   
+    end.                                
+
+field_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
     % ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,Name]),
     Pred = fun(__FM) ->
         ((Name == undefined) orelse (Name == __FM#bind.name)) 
@@ -701,7 +707,7 @@ column_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
     if 
         (Tcount==0) andalso (Schema == undefined) andalso (Name /= undefined) ->
             %% Maybe we got a table name {undefined,Schema,Table}  
-            column_map_lookup({Table,Name,undefined},FullMap);
+            field_map_lookup({Table,Name,undefined},FullMap);
         (Tcount==0) ->  
             ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
         (Tcount > 1) ->
@@ -713,10 +719,11 @@ column_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
             Bind = hd(Bmatch),     
             case Bind of
                 #bind{type=binterm} ->  
-                    %% db field encoded as binary, must decode to term
+                    %% db field encoded as binary, must decode to term in where tree
+                    %% this conversion is removed for simple column expressions in column_map_lookup
                     #bind{type=term,btree={from_binterm,Bind}};
                 _ ->    
-                    %% db field is not stored in encoded form
+                    %% db field is not stored in encoded form, no transformation needed
                     Bind
             end
     end.
@@ -745,7 +752,7 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
                     {S,T,N} = binstr_to_qname3(PTree),
                     case N of
                         ?Star ->    #bind{schema=S,table=T,name=?Star};
-                        _ ->        column_map_lookup({S,T,N},FullMap)  %% N could be a table name here
+                        _ ->        field_map_lookup({S,T,N},FullMap)  %% N could be a table name here
                     end
             end;
         {B,Tbind} when Tbind==#bind{} ->    %% assume binstr, use to_<datatype>() to override
@@ -757,12 +764,12 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
             #bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}
     end;
 expr({param,Name}, FullMap, _) when is_binary(Name) -> 
-    column_map_lookup({undefined,?ParamTab,Name},FullMap);
+    field_map_lookup({undefined,?ParamTab,Name},FullMap);
 expr({'fun',Fname,[A]}=PTree, FullMap, _) -> 
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = binstr_to_qname3(A),
-            CMapA = column_map_lookup({S,T,N},FullMap),
+            CMapA = field_map_lookup({S,T,N},FullMap),
             CMapA#bind{func=binary_to_existing_atom(Fname,utf8), ptree=PTree};
         false ->
             case imem_sql_funs:unary_fun_bind_type(Fname) of
