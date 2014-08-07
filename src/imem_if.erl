@@ -82,6 +82,7 @@
         , get_vm_memory/0
         , spawn_sync_mfa/3
         , foldl/3
+        , lock/2
         ]).
 
 
@@ -795,6 +796,7 @@ unsubscribe(EventCategory) ->
 foldl(FoldFun, InputAcc, Table) ->  
     mnesia:foldl(FoldFun, InputAcc, Table).
 
+lock(LockItem, LockKind) -> mnesia:lock(LockItem, LockKind).
 
 %% ----- gen_server -------------------------------------------
 

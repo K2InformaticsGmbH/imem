@@ -127,14 +127,18 @@
         , init_create_check_table/4
         , init_create_trigger/2
         , init_create_or_replace_trigger/2
+        , init_create_index/2
+        , init_create_or_replace_index/2
         , create_table/3
         , create_table/4
-        , create_trigger/2
-        , create_or_replace_trigger/2
         , create_partitioned_table/2
         , create_partitioned_table_sync/2
         , create_check_table/3
         , create_check_table/4
+        , create_trigger/2
+        , create_or_replace_trigger/2
+        , create_index/2
+        , create_or_replace_index/2
         , create_sys_conf/1
         , drop_table/1
         , drop_trigger/1
@@ -200,6 +204,7 @@
         , return_atomic_ok/1
         , return_atomic/1
         , foldl/3
+        , lock/2
         ]).
 
 -export([ simple_or_local_node_sharded_tables/1]).
@@ -257,6 +262,26 @@ init_create_or_replace_trigger(TableName,TriggerStr) ->
     case (catch create_or_replace_trigger(TableName,TriggerStr)) of
         Result ->                   
             ?Info("creating trigger for ~p results in ~p", [TableName,Result]),
+            Result
+    end.
+
+init_create_index(TableName,IndexDefinition) when is_list(IndexDefinition) ->
+    case (catch create_index(TableName,IndexDefinition)) of
+        {'ClientError',{"Index already exists",{Table,_}}} = Res ->   
+            ?Info("creating index for ~p results in ~p", [Table,"Index exists in different version"]),
+            Res;
+        {'ClientError',{"Index already exists", Table}} = R ->   
+            ?Info("creating index for ~p results in ~p", [Table,"Index already exists"]),
+            R;
+        Result ->                   
+            ?Info("creating index for ~p results in ~p", [TableName,Result]),
+            Result
+    end.
+
+init_create_or_replace_index(TableName,IndexDefinition) when is_list(IndexDefinition) ->
+    case (catch create_or_replace_index(TableName,IndexDefinition)) of
+        Result ->                   
+            ?Info("creating index for ~p results in ~p", [TableName,Result]),
             Result
     end.
 
@@ -791,6 +816,60 @@ create_or_replace_trigger(Table,TFunStr) when is_atom(Table) ->
     end;   
 create_or_replace_trigger(Table,_) when is_atom(Table) ->
     ?ClientError({"Bad fun for create_or_replace_trigger, expecting arity 4", Table}).
+
+create_index({Schema,Table},IndexDefinition) when is_list(IndexDefinition) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> create_index(Table,IndexDefinition);
+        _ ->        ?UnimplementedException({"Create Index in foreign schema",{Schema,Table}})
+    end;
+create_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] -> 
+            case lists:keysearch(index, 1, D#ddTable.opts) of
+                false ->                    create_or_replace_index(Table,IndexDefinition);
+                {value,IndexDefinition} ->  ?ClientError({"Index already exists",{Table}});
+                {value,IDL} ->              ?ClientError({"Index already exists",{Table,IDL}})
+            end;
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end.
+
+create_or_replace_index({Schema,Table},IndexDefinition) when is_list(IndexDefinition) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> create_or_replace_index(Table,IndexDefinition);
+        _ ->        ?UnimplementedException({"Create Index in foreign schema",{Schema,Table}})
+    end;
+create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
+    % ?LogDebug("Create index ~p~n~p",[Table,IndexDefinition]),
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] -> 
+            Opts = lists:keydelete(index, 1, D#ddTable.opts) ++ [{index,IndexDefinition}],
+            IndexTable = imem_index:index_table_name(Table),
+            case catch(check_table(IndexTable)) of
+                ok ->   
+                    Trans = fun() ->
+                        lock({table, Table}, write),
+                        write(ddTable, D#ddTable{opts=Opts}),                       
+                        imem_cache:clear({?MODULE, trigger, schema(), Table}),
+                        imem_if:truncate_table(IndexTable)
+                        %% ToDo: fold through Table and insert index rows
+                    end,
+                    return_atomic_ok(transaction(Trans));
+                _ ->
+                    imem_index:create_index_table(IndexTable,D#ddTable.opts),
+                    Trans = fun() ->
+                        lock({table, Table}, write),
+                        write(ddTable, D#ddTable{opts=Opts}),                       
+                        imem_cache:clear({?MODULE, trigger, schema(), Table})
+                        %% ToDo: fold through Table and insert index rows
+                    end,
+                    return_atomic_ok(transaction(Trans))
+            end;
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end.
 
 drop_trigger({Schema,Table}) ->
     MySchema = schema(),
@@ -2007,6 +2086,9 @@ return_atomic(Result) ->
 
 foldl(FoldFun, InputAcc, Table) ->  
     imem_if:foldl(FoldFun, InputAcc, Table).
+
+lock(LockItem, LockKind) -> 
+    imem_if:lock(LockItem, LockKind).
 
 
 %% ----- DATA TYPES ---------------------------------------------

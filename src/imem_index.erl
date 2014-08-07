@@ -2,6 +2,11 @@
 
 %% @doc == imem INDEX operations ==
 
+-define(DD_INDEX_OPTS,  [{record_name,ddIndex}
+                        ,{type,ordered_set}
+                        %% ,{purge_delay,430000}  %% inherit from parent table
+                        ]).          
+
 % Record field names are terse because of variable meaning according to index type.
 
 -record(ddIndex,  %% record definition for index tables (one per indexed master data table)              
@@ -13,6 +18,7 @@
                   							%% list of keys for almost unique index (iv_kl)
                   }     
        ). 
+-define(ddIndex, [tuple,term]).
 
 
 -record(ddIdxDef, %% record definition for index definition              
@@ -33,7 +39,21 @@
 
 
 -export([ binstr_to_lcase_ascii/1
+        , index_table_name/1        %% (TableName)                      derive index table name from data table name
+        , create_index_table/3      %% (IndexTable,ParentOpts,Owner)    create index table, possibly inheriting some options from parent table
 		]).
+
+
+index_table_name(Table) when is_atom(Table) -> list_to_atom("idx_" ++ atom_to_list(Table)).
+
+
+create_index_table(IndexTable,ParentOpts,Owner) ->
+    IndexOpts = case lists:keysearch(purge_delay, 1, ParentOpts) of
+                false ->        ?DD_INDEX_OPTS;
+                {value,PD} ->   ?DD_INDEX_OPTS ++ [{purge_delay,PD}]
+    end,
+    imem_meta:init_create_table(IndexTable, {record_info(fields, ddIndex), ?ddIndex, #ddIndex{}}, IndexOpts, Owner). 
+
 
 binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
 binstr_to_lcase_ascii(B) when is_binary(B) -> 
