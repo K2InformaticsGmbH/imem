@@ -9,12 +9,6 @@
 %% (except for conversion functions)
 
 
-%▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒    DELETE !!!   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-%-define(TEST,true).
-%-compile(export_all).
-%▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-
-
 -export([%% Standard data type operations, inspired by maps operations
          find/2,
          fold/3,
@@ -835,7 +829,27 @@ walk_path([Filter|Tail],CurrentLevel) ->
 jpp_match(Tree,DataObject) when is_binary(DataObject) ->
     jpp_match(Tree,?FROM_JSON(DataObject));
 jpp_match(Tree,DataObject) ->
-    jpp_walk(Tree,DataObject).
+    Out = jpp_walk(Tree,DataObject),
+    if is_list(Out) -> Flat = lists:flatten(Out),
+                       case lists:any(fun(nomatch) -> true;
+                                     (_) -> false end,Flat) of
+                           true -> nomatch;
+                           false -> Flat
+                       end;
+       true -> Out
+    end.
+
+    %% jpp_walk transposes jpparse constructs to simple unary primitives {'{}',Field} and {'[]',Index}.
+    %% Whenever a list of fields or indexes is encountered, it just does a mapping, and each field/index
+    %% generates it's own match, witch are then grouped together. Code repetition is avoided, and kept terse.
+    %%
+    %% Here is an example of the jpparse and its ultimate "primitivized" form:
+    %%
+    %% form {}[]{b}: [{'{}',{'[]',{'{}','_',[]},[]},[<<"b">>]}]
+    %%  -> [{'{}',{'[]',{'{}','_',[]},[]}}, {'{}',[<<"b">>}]]
+    %%  -> [{'{}',{'{}','_',[]}}, {'[]',[]} | {'{}',[<<"b">>]}]
+    %%  -> [{'{}','_'}, {'{}',[]'} | {'[]',[]}, {'{}',[<<"b">>]}]
+    %%  -> [{'$',<<"values">>}, {'[]',[]}, {'{}', [<<"b">>]}]
 
     %% Higher level parsing
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -845,50 +859,52 @@ jpp_match(Tree,DataObject) ->
     jpp_walk([],CLevel) -> CLevel;
 
     %% Object Walking
-    jpp_walk([Field|Tail],CLevel) when is_binary(Field) ->
+    jpp_walk([Field|Tail],CLevel) when is_binary(Field) -> % <<"field">> => {'{}',<<"field">>}
         jpp_walk([?OO(Field)| Tail], CLevel);
-
-    jpp_walk([?OO([])|Tail],CLevel) ->
-        jpp_walk([?FF(<<"values">>)|Tail], CLevel);
-
-    jpp_walk([?OO(ManyFields)|Tail],CLevel) when is_list(ManyFields) ->
-        [jpp_walk([?OO(Field) | Tail],CLevel) || Field <- ManyFields];
-
-    jpp_walk([?OO('_')|Tail],CLevel) ->
-        jpp_walk([Tail], CLevel);
-
-    jpp_walk([?OO(?FF(Any))|Tail],CLevel) ->
-        jpp_walk([?FF(Any)|Tail], CLevel);
-
-    jpp_walk([{'{}',Origin,Field}|Tail],CLevel) ->
+    jpp_walk([{'{}','_',Fields}|Tail],CLevel) when is_list(Fields) -> % {'{}','_',Fields}
+        jpp_walk([?OO(Fields)|Tail],CLevel);
+    jpp_walk([{'{}',Origin,Field}|Tail],CLevel) -> % {'{}',O,F} => [{'{}',O}, {'{}',F}]
         jpp_walk([?OO(Origin),?OO(Field) | Tail],CLevel);
+    jpp_walk([?OO([])|Tail],CLevel) -> % {'{}',[]} => {'$',<<"values">>}
+        jpp_walk([?FF(<<"values">>)|Tail], CLevel);
+    jpp_walk([?OO(Fields)|Tail],CLevel) when is_list(Fields) -> % {'{}',Fields}
+        [jpp_walk([?OO(Field) | Tail],CLevel) || Field <- Fields];
+    jpp_walk([?OO('_')|Tail],CLevel) -> % {'{}','_'}
+        jpp_walk(Tail, CLevel);
+    jpp_walk([?OO(?FF(Any))|Tail],CLevel) ->  % {'{}',{'$',any}} => {'$',any}
+        jpp_walk([?FF(Any)|Tail], CLevel);
+    jpp_walk([?OO({'-',Start,End})|Tail],CLevel) -> % {'{}',{'-',S,E}}
+        Keys = lists:foldl(fun(K,Acc) ->
+                            if K >= Start, K =<  End -> [K|Acc];
+                            true -> Acc end end,
+                           [], ?MODULE:keys(CLevel)),
+        jpp_walk([?OO(lists:reverse(Keys))| Tail], CLevel);
+    jpp_walk([?OO({'[]',F,I})|Tail],CLevel) -> %{'{}',{'[]',F,I}}
+        jpp_walk([?OO(F),?LL(I)|Tail],CLevel);
+    jpp_walk([?OO({'{}',O,F})|Tail],CLevel) -> %{'{}',{'{}',F,I}}
+        jpp_walk([?OO(O),?OO(F)|Tail], CLevel);
 
     %% Object "Function-as-a-property"
     jpp_walk([?FF(<<"values">>)|Tail],CLevel) ->
         [jpp_walk(Tail,NLevel) || NLevel <- ?MODULE:values(CLevel)];
-
     jpp_walk([?FF(<<"firstChild">>)|Tail],CLevel) ->
         [NLevel|_] = ?MODULE:values(CLevel),
         jpp_walk(Tail,NLevel);
+    jpp_walk([?FF(<<"keys">>)|Tail],CLevel) ->
+        jpp_walk(Tail,?MODULE:keys(CLevel));
 
     %% List Walking
-    jpp_walk([{'[]','_',Index}|Tail],CLevel) ->
-        jpp_walk([?LL(Index)|Tail],CLevel);
-
-    jpp_walk([{'[]',Field,Index}|Tail],CLevel) when is_binary(Field) ->
+    jpp_walk([{'[]','_',Index}|Tail],CLevel) -> % {'[]','_',I} => {'[]',I}
+        jpp_walk([?LL([Index])|Tail],CLevel);
+    jpp_walk([{'[]',Field,Index}|Tail],CLevel) -> % {'[]',F,I} => [{'{}',F}, {'[]',I}]
         jpp_walk([?OO(Field), ?LL(Index)| Tail], CLevel);
-
-    jpp_walk([?LL([])|Tail],CLevel) ->
+    jpp_walk([?LL([])|Tail],CLevel) -> % {'[]',[]} => {'-',1,Max}
         jpp_walk([?LL({'-', 1, ?MODULE:size(CLevel)})| Tail], CLevel);
-
-    jpp_walk([?LL({'-',Start,End})|Tail],CLevel) ->
+    jpp_walk([?LL({'-',Start,End})|Tail],CLevel) -> % {'[]',{'-',S,E}}
         Seq = lists:seq(?JV(Start), ?JV(End)),
         jpp_walk([?LL(Seq)| Tail], CLevel);
-
-
-    jpp_walk([?LL(List)|Tail], CLevel) when is_list(List) ->
+    jpp_walk([?LL(List)|Tail], CLevel) when is_list(List) -> % {'[]',[Fields]}
         [jpp_walk([?LL(Index)| Tail], CLevel) || Index <- List];
-        
 
     %% Lower level matching (and actually doing something)
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -906,6 +922,8 @@ jpp_match(Tree,DataObject) ->
             NLevel -> jpp_walk(Tail,NLevel)
         end.
 
+    %% Any function-generated value should be dealt with here
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     jpp_value(Value) when is_binary(Value) -> Value;
     jpp_value(Value) when is_integer(Value) -> Value.
          
@@ -1498,21 +1516,56 @@ jpp_match_test_() ->
     Out1_2 = [1,2],
     Tst1_3 = {':', [<<"a">>, {'[]', <<"b">>, [1,2,3]}]}, % a:b[1,2,3]
     Tst1_3b = {':', [<<"a">>, <<"b">>]}, % a:b[1,2,3]
-    Out1_3 = [[{<<"c">>,1}],[{<<"c">>,2}],[{<<"c">>,3}]],
+    Out1_3 = [{<<"c">>,1},{<<"c">>,2},{<<"c">>,3}],
     Tst1_4 = {':', [<<"a">>, {'[]', <<"b">>, []}, <<"c">>]}, % a:b[]:c
     Out1_4 = [1,2,3],
+    Tst1_5 = {':', [<<"a">>, {'[]', <<"b">>, [{'-',1,2},3]}, <<"c">>]}, % a:b[1-2,3]:c
+    Out1_5 = [1,2,3],
 
-    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":2}}}}">>,
+    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":5}}}}">>,
     Tst2_1 = {':', [<<"a">>, {'{}', <<"b">>, []}, <<"c">>]}, % a:b{}:c
     Out2_1 = [1,4],
     Tst2_2 = {':', [<<"a">>, {'{}', <<"b">> ,[<<"c">>]}]}, %a:b{c}
-    Out2_2 = [[{<<"c">>,4},{<<"d">>,2}]],
+    Out2_2 = [{<<"c">>,4},{<<"d">>,5}],
     Tst2_3 = {':', [<<"a">>, <<"b">>, {'$',<<"values">>}, <<"c">>]}, % a:b:$values$:c
     Out2_3 = [1,4],
+    Tst2_4 = {':', [<<"a">>, {'{}',<<"b">>,[<<"any">>,<<"c">>]},<<"d">>]}, % a:b{any,c}:d
+    Out2_4 = [2,5],
+    Tst2_5 = {':',[<<"a">>,<<"b">>,<<"any">>,<<"c">>]},%a:b:any:c
+    Out2_5 = 1,
 
-    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}}},{\"c\":{\"b\":{\"d\":2}}}]">>,
+    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}},\"d\":true},{\"c\":{\"b\":{\"d\":2}}}]">>,
     Tst3_1 = {':', [{'[]', '_', []}, {'{}', <<"c">>, {'$',<<"firstChild">>}}, <<"d">>]}, % []:c{$firstChild$}:d
     Out3_1 = [3,2],
+    Tst3_2 = {':', [{'[]', '_', [1]}, <<"d">>]}, % [1]:d
+    Out3_2 = [true],
+    Tst3_3 = {':', [{'[]', '_', []},  <<"c">>, {'$',<<"firstChild">>}, <<"d">>]}, % []:c:$firstChild$::d
+    Out3_3 = [3,2],
+
+    Object4 = <<"{\"a\":{\"e\":8},\"c\":{\"e\":1},\"d\":{\"e\":2}}">>,
+    Tst4_1 = {':', [{'{}', '_', [<<"c">>, <<"d">>]},<<"e">>]}, % {c,d}:e
+    Out4_1 = [1,2],
+    Tst4_2 = {':', [{'{}', '_', [{'-',<<"a">>, <<"c">>}]},<<"e">>]}, % {a-c}:e
+    Out4_2 = [8,1],
+    Tst4_3 = {':',[<<"a">>,{'$',<<"keys">>}]}, % a:$keys$
+    Out4_3 = [<<"e">>],
+    Tst4_4 = {':',[{'{}',<<"a">>,[{'$',<<"keys">>}]}]}, % a{$keys$}
+    Out4_4 = [<<"e">>],
+    Tst4_5 = {':',[{'$',<<"keys">>}]}, % $keys$
+    Out4_5 = [<<"a">>,<<"c">>,<<"d">>],
+    Tst4_6 = {':',[{'[]',{'$',<<"keys">>},[1]}]}, % $keys$[1]
+    Out4_6 = [<<"a">>],
+
+    Object5 = <<"{\"a\": {\"b\":[{\"a\":{\"c\":4},\"b\":{\"c\":1}},{\"a\":{\"c\":8},\"b\":{\"c\":2}}]}}">>,
+    Tst5_1 = {':', [<<"a">>, {'{}', {'[]', <<"b">>, [{'-', 1, 2}]},[]},<<"c">>]}, % a:b[1-2]{}:c 	
+    Out5_1 = [4,1,8,2],
+    Tst5_2 = {':', [<<"a">>, {'{}', {'[]', <<"b">>, [{'-', 1, 3}]},[]},<<"c">>]}, % a:b[1-3]{}:c 	
+    Tst5_3 = {':', [<<"a">>,<<"z">>]}, % a:z
+
+    Object6 = <<"{\"a\":[{\"b\":1,\"d\":2},{\"b\":3,\"d\":4}],\"b\":[{\"b\":5,\"d\":6},{\"b\":7,\"d\":8}]}">>,
+    Tst6_1 = {':',[{'{}',{'[]',{'{}','_',[]},[]},[<<"b">>]}]}, % {}[]{b} 
+    Out6_1 = [1,3,5,7],
+
 
     {setup,
      fun setup/0,
@@ -1521,10 +1574,25 @@ jpp_match_test_() ->
      {"form a:b[1,2,3]",?_assertEqual(Out1_3,jpp_match(Tst1_3,Object1))},
      {"form a:b",?_assertEqual(Out1_3,jpp_match(Tst1_3b,Object1))},
      {"form a:b[]:c",?_assertEqual(Out1_4,jpp_match(Tst1_4,Object1))},
+     {"form a:b[1-2,3]",?_assertEqual(Out1_5,jpp_match(Tst1_5,Object1))},
      {"form a:b{}:c",?_assertEqual(Out2_1,jpp_match(Tst2_1,Object2))},
      {"form a:b{c}",?_assertEqual(Out2_2,lists:sort(jpp_match(Tst2_2,Object2)))},
      {"form a:b:$values$:c}",?_assertEqual(Out2_3,lists:sort(jpp_match(Tst2_3,Object2)))},
-     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,jpp_match(Tst3_1,Object3))}
+     {"form a:b{any,c}:d",?_assertEqual(Out2_4,lists:sort(jpp_match(Tst2_4,Object2)))},
+     {"form a:b:any:c", ?_assertEqual(Out2_5, jpp_match(Tst2_5,Object2))},
+     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,jpp_match(Tst3_1,Object3))},
+     {"form [1]:d",?_assertEqual(Out3_2,jpp_match(Tst3_2,Object3))},
+     {"form []:c:$firstChild$:d",?_assertEqual(Out3_3,jpp_match(Tst3_3,Object3))},
+     {"form {c,d}:e",?_assertEqual(Out4_1,jpp_match(Tst4_1,Object4))},
+     {"form {a-c}:e",?_assertEqual(Out4_2,jpp_match(Tst4_2,Object4))},
+     {"form a:$keys$",?_assertEqual(Out4_3,jpp_match(Tst4_3,Object4))},
+     {"form a{$keys$}",?_assertEqual(Out4_4,jpp_match(Tst4_4,Object4))},
+     {"form $keys$",?_assertEqual(Out4_5,jpp_match(Tst4_5,Object4))},
+     {"form $keys$[1]",?_assertEqual(Out4_6,jpp_match(Tst4_6,Object4))},
+     {"form a:b[1-2]{}:c",?_assertEqual(Out5_1,jpp_match(Tst5_1,Object5))},
+     {"nomatch a:b[1-3]{}:c",?_assertEqual(nomatch,jpp_match(Tst5_2,Object5))},
+     {"nomatch a:z",?_assertEqual(nomatch,jpp_match(Tst5_3,Object5))},
+     {"form {}[]{b}",?_assertEqual(Out6_1,jpp_match(Tst6_1,Object6))}
      ]}.
     
 
