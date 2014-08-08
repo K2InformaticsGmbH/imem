@@ -13,19 +13,16 @@
 
          binstr_match_anywhere/2,
          binstr_match_sub/4,
-         binstr_precompile/1
+         binstr_match_precompile/1
 		]).
 
 binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
 binstr_to_lcase_ascii(B) when is_binary(B) -> 
-    unicode_string_to_ascii(string:to_lower(unicode:characters_to_list(B, utf8)));
+    %% unicode_string_to_ascii(string:to_lower(unicode:characters_to_list(B, utf8)));
+    binstr_accentfold(binstr_to_lower(B));
 binstr_to_lcase_ascii(Val) -> 
-	unicode_string_to_ascii(io_lib:format("~p",[Val])).
-
-unicode_string_to_ascii(U) -> 
-	Ascii = U, 		%% ToDo: really do the accent folding here 
-					%% and map all remaining codepoints > 254 to 254 (tilda)
-	unicode:characters_to_binary(Ascii).
+	% unicode_string_to_ascii(io_lib:format("~p",[Val])).
+    binstr_accentfold(binstr_to_lower(unicode:characters_to_binary(io_lib:format("~p",[Val])))).
 
 
 %% Glossary:
@@ -216,22 +213,22 @@ binstr_to_higher(Str) when is_binary(Str) ->
     b_higher(<<H,R/binary>>,A) -> 
         b_higher(R,<<A/binary,H>>).
 
-binstr_match_anywhere(Token,Target) when is_binary(Token); is_tuple(Token) ->
-    case binary:match(Target,Token) of
+binstr_match_anywhere(Subject,Pattern) when is_binary(Pattern); is_tuple(Pattern) ->
+    case binary:match(Subject,Pattern) of
         nomatch -> false;
         {_,_}   -> true
     end;
-binstr_match_anywhere(Token,Target) when is_list(Token) ->
-    binstr_match_anywhere(list_to_binary(Token),Target).
+binstr_match_anywhere(Subject,Pattern) when is_list(Pattern) ->
+    binstr_match_anywhere(Subject,list_to_binary(Pattern)).
 
-binstr_match_sub(Token,Start,Length,Target) when is_binary(Token); is_tuple(Token) ->
-    case binary:match(Target,Token,[{scope, {Start,Length}}]) of
+binstr_match_sub(Subject,Start,Length,Pattern) when is_binary(Pattern); is_tuple(Pattern) ->
+    case binary:match(Subject,Pattern,[{scope, {Start,Length}}]) of
         nomatch -> false;
         {_,_}   -> true
     end;
-binstr_match_sub(Token,Start,Length,Target) when is_list(Token) ->
-    binstr_match_sub(list_to_binary(Token),Start,Length,Target).
+binstr_match_sub(Subject,Start,Length,Pattern) when is_list(Pattern) ->
+    binstr_match_sub(Subject,Start,Length,list_to_binary(Pattern)).
 
-binstr_precompile(Token) ->
-    binary:compile_pattern(Token).
+binstr_match_precompile(Pattern) ->
+    binary:compile_pattern(Pattern).
 

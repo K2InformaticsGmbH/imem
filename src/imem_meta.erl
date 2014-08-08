@@ -188,8 +188,8 @@
         , update_cursor_prepare/2   %% take change list and generate update plan (stored in state)
         , update_cursor_execute/2   %% take update plan from state and execute it (fetch aborted first)
         , apply_defaults/2          %% apply arity/0 funs of default record to ?nav values of current record
-        , apply_validators/3          %% apply any arity funs of default record to current record
-        , apply_validators/4          %% apply any arity funs of default record to current record
+        , apply_validators/3        %% apply any arity funs of default record to current record
+        , apply_validators/4        %% apply any arity funs of default record to current record
         , fetch_recs/3
         , fetch_recs_sort/3 
         , fetch_recs_async/2        
@@ -202,7 +202,8 @@
         ]).
 
 -export([ fetch_start/5
-        , update_tables/2  
+        , update_tables/2
+        , update_index/5            %% (Old,New,Tab,User,IdxDef)   
         , update_bound_counter/6
         , subscribe/1
         , unsubscribe/1
@@ -1548,9 +1549,16 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
                         {_,Name} -> Name
                     end,
                     DefRec = [RecordName|column_info_items(ColumnInfos, default_fun)],
-                    Trigger = case lists:keyfind(trigger,1,Opts) of
-                        false ->    fun(_Old,_New,_Tab,_User) -> ok end;
-                        {_,TFun} -> imem_datatype:io_to_fun(TFun,undefined)
+                    IdxDef = case lists:keyfind(index,1,Opts) of
+                        false ->    [];
+                        {_,Def} ->  Def
+                    end,
+                    Trigger = case {IdxDef,lists:keyfind(trigger,1,Opts)} of
+                        {[],false} ->   fun(_Old,_New,_Tab,_User) -> ok end;
+                        {_,false} ->    fun(Old,New,Tab,User) -> imem_meta:update_index(Old,New,Tab,User,IdxDef) end;
+                        {_,{_,TFun}} -> 
+                            TriggerWithIndexing = trigger_with_indexing(TFun,<<"imem_meta:update_index">>,<<"IdxDef">>),
+                            imem_datatype:io_to_fun(TriggerWithIndexing,undefined,[{'IdxDef',IdxDef}])
                     end,
                     Result = {TableType, DefRec, Trigger},
                     imem_cache:write(Key,Result),
@@ -1559,6 +1567,15 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
             end;
         [{TT, DR, TR}] ->
             {TT, DR, TR}
+    end.
+
+trigger_with_indexing(TFun,MF,Var) ->
+    case re:run(TFun, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], binary}]) of
+        {match,[[Params,Body0]]} ->
+            case binary:match(Body0,MF) of
+                nomatch ->    <<"fun(",Params/binary,") ->",Body0/binary,", ",MF/binary,"(",Params/binary,",",Var/binary,") end." >>;
+                {_,_} ->     TFun
+            end
     end.
 
 table_type({ddSysConf,Table}) ->
@@ -2106,6 +2123,17 @@ update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New, Trig, User]) ->
         false ->    [{physical_table_name(Tab),Type}, Item, Old, New, Trig, User];
         true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
     end.
+
+update_index(_,_,_,_,[]) -> ok;
+update_index(Old,New,Table,User,IdxDef) -> 
+    update_index(Old,New,Table,User,IdxDef,[],[]). 
+
+update_index(_Old,_New,_Table,_User,[],_Removes,_Inserts) ->
+    %% ToDo: implement execution of Removes and Inserts
+    ?LogDebug("update index table/rem/ins ~p~n~p~n~p",[_Table,_Removes,_Inserts]);
+update_index(Old,New,Table,User,[_IdxDef|Defs],Removes,Inserts) ->
+    %% ToDo: implement calculation of Removes and Inserts
+    update_index(Old,New,Table,User,Defs,Removes,Inserts).
 
 transaction(Function) ->
     imem_if:transaction(Function).
