@@ -4,6 +4,7 @@
 
 -include("imem_meta.hrl").
 
+
 -export([binstr_to_lcase_ascii/1,
 
          binstr_accentfold/1,
@@ -297,15 +298,15 @@ binstr_casemod_test_()->
     [?_assertEqual(UpperCaseRaw,binstr_to_upper(LowerCaseRaw)),
      ?_assertEqual(LowerCaseRaw,binstr_to_lower(UpperCaseRaw))].
 
+-define(TL,unicode:characters_to_list).
 binstr_to_lcase_ascii_test_() ->
     [{"empty",?_assertEqual(<<>>,binstr_to_lcase_ascii(<<"">>))},
-     {"from binary",?_assertEqual(<<"aaaeee">>,binstr_to_lcase_ascii(<<"AÀäëéÈ"/utf8>>))},
-     {"from list",?_assertEqual(<<"aaaeee">>,binstr_to_lcase_ascii("AÀäëéÈ"))},
-     {"from atom",?_assertEqual(<<"atom">>,binstr_to_lcase_ascii(aTom))},
-     {"from tuple",?_assertEqual(<<"{\"aaaeee\"}">>,binstr_to_lcase_ascii({"AÀäëéÈ"}))},
-     {"from integer",?_assertEqual(<<"12798">>,binstr_to_lcase_ascii(12798))},
-     {"from random",?_assertEqual(<<"12798">>,binstr_to_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248,
-  26,54,196,114>>))}
+     {"from binary",?_assertEqual("aaaeee",?TL(binstr_to_lcase_ascii(<<"AÀäëéÈ"/utf8>>)))},
+     {"from list",?_assertEqual("aaaeee",?TL(binstr_to_lcase_ascii("AÀäëéÈ")))},
+     {"from atom",?_assertEqual("atom",?TL(binstr_to_lcase_ascii(aTom)))},
+     {"from tuple",?_assertEqual("{\"aaaeee\"}",?TL(binstr_to_lcase_ascii({"AÀäëéÈ"})))},
+     {"from integer",?_assertEqual("12798",?TL(binstr_to_lcase_ascii(12798)))},
+     {"from random",?_assertEqual("12798",?TL(binstr_to_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>)))}
      ].
 
 -endif.
