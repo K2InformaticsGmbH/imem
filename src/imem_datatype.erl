@@ -84,7 +84,7 @@
         , io_to_datetime/1
         , io_to_decimal/3
         , io_to_float/2
-        , io_to_fun/2
+        , io_to_fun/2, io_to_fun/3
         , io_to_integer/3
         , io_to_ipaddr/1        
         , io_to_ipaddr/2
@@ -92,8 +92,7 @@
         , io_to_string/1
         , io_to_term/1
         , io_to_binterm/1
-        , io_to_timestamp/1
-        , io_to_timestamp/2
+        , io_to_timestamp/1, io_to_timestamp/2
         , io_to_tuple/2
         , io_to_userid/1
         ]).
@@ -103,16 +102,13 @@
         , binary_to_io/1
         , binstr_to_io/1
         , boolean_to_io/1
-        , datetime_to_io/1
-        , datetime_to_io/2
+        , datetime_to_io/1, datetime_to_io/2
         , decimal_to_io/2
         , float_to_io/3
         , integer_to_io/1
         , ipaddr_to_io/1
         , string_to_io/1
-        , timestamp_to_io/1
-        , timestamp_to_io/2
-        , timestamp_to_io/3
+        , timestamp_to_io/1, timestamp_to_io/2, timestamp_to_io/3
         , userid_to_io/1
         , term_to_io/1
         , binterm_to_io/1
@@ -1047,17 +1043,30 @@ io_to_fun(Val,Len) ->
             ?ClientError({"Data conversion format error",{'fun',Len,Val}})
     end.
 
-erl_value(String) when is_binary(String) ->
-    erl_value(binary_to_list(String));  
-erl_value(String) when is_list(String) -> 
+io_to_fun(Str,Len,Bindings) ->
+    Fun = erl_value(Str,Bindings), 
+    if
+        Len == undefined ->     Fun; 
+        is_function(Fun,Len) -> Fun;
+        true ->                 
+            ?ClientError({"Data conversion format error",{'fun',Len,Str}})
+    end.
+
+erl_value(String) when is_binary(String) -> erl_value(binary_to_list(String),[]);  
+erl_value(String) when is_list(String) -> erl_value(String,[]).
+
+erl_value(String,Bindings) when is_binary(String), is_list(Bindings) ->
+    erl_value(binary_to_list(String),Bindings);  
+erl_value(String,Bindings) when is_list(String), is_list(Bindings) -> 
     Code = case [lists:last(string:strip(String))] of
         "." -> String;
         _ -> String ++ "."
     end,
     {ok,ErlTokens,_}=erl_scan:string(Code),    
     {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
-    {value,Value,_}=erl_eval:exprs(ErlAbsForm,[]),    
+    {value,Value,_}=erl_eval:exprs(ErlAbsForm,Bindings),    
     Value.
+
 
 %% ----- CAST Data from DB to string ------------------
 
