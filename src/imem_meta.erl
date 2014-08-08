@@ -1,5 +1,12 @@
 -module(imem_meta).
 
+%% @doc == imem metadata and table management ==
+%% Naming conventions for sharded/partitioned tables
+%% Table creation / Index table creation
+%% Triggers and validator funs
+%% Virtual tables  
+
+
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
@@ -26,6 +33,9 @@
 -define(DD_CACHE_OPTS,      [{scope,local}
                             ,{local_content,true}
                             ,{record_name,ddCache}
+                            ]).          
+-define(DD_INDEX_OPTS,      [{record_name,ddIndex}
+                            ,{type,ordered_set}         %% ,{purge_delay,430000}  %% inherit from parent table
                             ]).          
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
@@ -142,6 +152,7 @@
         , create_sys_conf/1
         , drop_table/1
         , drop_trigger/1
+        , drop_index/1
         , purge_table/1
         , purge_table/2
         , truncate_table/1
@@ -257,6 +268,7 @@ init_create_trigger(TableName,TriggerStr) ->
             ?Info("creating trigger for ~p results in ~p", [TableName,Result]),
             Result
     end.
+
 
 init_create_or_replace_trigger(TableName,TriggerStr) ->
     case (catch create_or_replace_trigger(TableName,TriggerStr)) of
@@ -817,6 +829,14 @@ create_or_replace_trigger(Table,TFunStr) when is_atom(Table) ->
 create_or_replace_trigger(Table,_) when is_atom(Table) ->
     ?ClientError({"Bad fun for create_or_replace_trigger, expecting arity 4", Table}).
 
+
+create_index_table(IndexTable,ParentOpts,Owner) ->
+    IndexOpts = case lists:keysearch(purge_delay, 1, ParentOpts) of
+                false ->        ?DD_INDEX_OPTS;
+                {value,PD} ->   ?DD_INDEX_OPTS ++ [{purge_delay,PD}]
+    end,
+    init_create_table(IndexTable, {record_info(fields, ddIndex), ?ddIndex, #ddIndex{}}, IndexOpts, Owner). 
+
 create_index({Schema,Table},IndexDefinition) when is_list(IndexDefinition) ->
     MySchema = schema(),
     case Schema of
@@ -846,8 +866,8 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
             Opts = lists:keydelete(index, 1, D#ddTable.opts) ++ [{index,IndexDefinition}],
-            IndexTable = imem_index:index_table_name(Table),
-            case catch(check_table(IndexTable)) of
+            IndexTable = ?INDEX_TABLE(Table),
+            case (catch check_table(IndexTable)) of
                 ok ->   
                     Trans = fun() ->
                         lock({table, Table}, write),
@@ -858,7 +878,7 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
                     end,
                     return_atomic_ok(transaction(Trans));
                 _ ->
-                    imem_index:create_index_table(IndexTable,D#ddTable.opts),
+                    create_index_table(IndexTable,D#ddTable.opts,D#ddTable.owner),
                     Trans = fun() ->
                         lock({table, Table}, write),
                         write(ddTable, D#ddTable{opts=Opts}),                       
@@ -870,6 +890,27 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end.
+
+drop_index({Schema,Table}) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> drop_index(Table);
+        _ ->        ?UnimplementedException({"Drop Index in foreign schema",{Schema,Table}})
+    end;
+drop_index(Table) when is_atom(Table) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] -> 
+            Opts = lists:keydelete(index, 1, D#ddTable.opts),
+            Trans = fun() ->
+                write(ddTable, D#ddTable{opts=Opts}),                       
+                imem_cache:clear({?MODULE, trigger, schema(), Table})
+            end,
+            ok = return_atomic_ok(transaction(Trans)),
+            catch drop_table(?INDEX_TABLE(Table));
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end.
+
 
 drop_trigger({Schema,Table}) ->
     MySchema = schema(),
@@ -2184,6 +2225,20 @@ meta_operations(_) ->
                     ],
 
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
+        Idx1Def = #ddIdxDef{id=1,name= <<"string index on b1">>,pos=3,type=ivk,pl=[<<"">>]},
+        ?assertEqual(ok, create_index(meta_table_1, [Idx1Def])),
+        ?assertEqual(ok, check_table(idx_meta_table_1)),
+        ?Info("ddTable  for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
+        ?assertEqual(ok, drop_index(meta_table_1)),
+        ?assertException(throw, {'ClientError',{"Table does not exist",idx_meta_table_1}}, check_table(idx_meta_table_1)),
+        ?assertEqual(ok, create_index(meta_table_1, [])),
+        ?assertException(throw, {'ClientError',{"Index already exists",{meta_table_1,{index,[]}}}}, create_index(meta_table_1, [])),
+        ?assertEqual([], read(idx_meta_table_1)),
+        ?assertEqual(ok, write(idx_meta_table_1, #ddIndex{stu={1,2,3}})),
+        ?assertEqual([#ddIndex{stu={1,2,3}}], read(idx_meta_table_1)),
+        ?assertEqual(ok, create_or_replace_index(meta_table_1, [])),
+        ?assertEqual([], read(idx_meta_table_1)),
+
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),

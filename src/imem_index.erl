@@ -2,58 +2,11 @@
 
 %% @doc == imem INDEX operations ==
 
--define(DD_INDEX_OPTS,  [{record_name,ddIndex}
-                        ,{type,ordered_set}
-                        %% ,{purge_delay,430000}  %% inherit from parent table
-                        ]).          
 
-% Record field names are terse because of variable meaning according to index type.
-
--record(ddIndex,  %% record definition for index tables (one per indexed master data table)              
-                  { stu  		:: tuple()	%% search tuple, cannot be empty
-                  , lnk = 0     :: term()   %% Link to key of master data
-                  							%% 0=unused when key is part of search tuple, used in ivk
-                  							%% 0..n  hashed value for the hashmap index (iv_h)
-                  							%% single key of any data type for unique index (iv_k)
-                  							%% list of keys for almost unique index (iv_kl)
-                  }     
-       ). 
--define(ddIndex, [tuple,term]).
-
-
--record(ddIdxDef, %% record definition for index definition              
-                  { id  		:: integer()		%% index id within the table
-                  , name 		:: binary()			%% name of the index
-                  , pos     	:: integer()		%% record field to be indexed 1 = key (used maybe on set tables)
-                  , type  		:: ivk|iv_k|iv_kl|iv_h|ivvk|ivvvk	%% Type of index
-                  , pl 			:: list(binary())	%% list of JSON path expressions as binstr (to be compiled)
-                  , vnf = <<"imem_index:binstr_to_lcase_ascii/1">> :: binary() 		
-                  				%% value_normalising_fun(Value)  
-                  				%% applied to each value result of all path scans for given JSON document
-                  				%% return ?nav = '$not_a_value' if indexing is not wanted, otherwise let iff() decide
-                  , iff = <<"fun(_,_) -> true end">> :: binary() 		
-                  				%% boolean index_filter_fun(Key,Value) for the inclusion/exclusion of indexes
-                  				%% applied to each result of all path scans for given JSON document
-                  }     
-       ).
-
+-include("imem_meta.hrl").
 
 -export([ binstr_to_lcase_ascii/1
-        , index_table_name/1        %% (TableName)                      derive index table name from data table name
-        , create_index_table/3      %% (IndexTable,ParentOpts,Owner)    create index table, possibly inheriting some options from parent table
 		]).
-
-
-index_table_name(Table) when is_atom(Table) -> list_to_atom("idx_" ++ atom_to_list(Table)).
-
-
-create_index_table(IndexTable,ParentOpts,Owner) ->
-    IndexOpts = case lists:keysearch(purge_delay, 1, ParentOpts) of
-                false ->        ?DD_INDEX_OPTS;
-                {value,PD} ->   ?DD_INDEX_OPTS ++ [{purge_delay,PD}]
-    end,
-    imem_meta:init_create_table(IndexTable, {record_info(fields, ddIndex), ?ddIndex, #ddIndex{}}, IndexOpts, Owner). 
-
 
 binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
 binstr_to_lcase_ascii(B) when is_binary(B) -> 

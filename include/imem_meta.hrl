@@ -10,12 +10,41 @@
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
 -define(CACHE_TABLE,ddCache@).
 
+-define(INDEX_TABLE(__MasterTableName), list_to_atom("idx_" ++ atom_to_list(__MasterTableName))).
+
 -define(GET_IMEM_CONFIG(__PName,__Context,__Default),
         imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
        ).
 
 -type ddEntityId() :: 	reference() | integer() | atom().
 -type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
+
+-record(ddIdxDef, %% record definition for index definition              
+                  { id      :: integer()    %% index id within the table
+                  , name    :: binary()     %% name of the index
+                  , pos       :: integer()    %% record field to be indexed 1 = key (used maybe on set tables)
+                  , type      :: ivk|iv_k|iv_kl|iv_h|ivvk|ivvvk %% Type of index
+                  , pl      :: list(binary()) %% list of JSON path expressions as binstr (to be compiled)
+                  , vnf = <<"imem_index:binstr_to_lcase_ascii/1">> :: binary()    
+                          %% value_normalising_fun(Value)  
+                          %% applied to each value result of all path scans for given JSON document
+                          %% return ?nav = '$not_a_value' if indexing is not wanted, otherwise let iff() decide
+                  , iff = <<"fun(_,_) -> true end">> :: binary()    
+                          %% boolean index_filter_fun(Key,Value) for the inclusion/exclusion of indexes
+                          %% applied to each result of all path scans for given JSON document
+                  }     
+       ).
+
+-record(ddIndex,  %% record definition for index tables (one per indexed master data table)              
+                  { stu     :: tuple()  %% search tuple, cannot be empty
+                  , lnk = 0     :: term()   %% Link to key of master data
+                                %% 0=unused when key is part of search tuple, used in ivk
+                                %% 0..n  hashed value for the hashmap index (iv_h)
+                                %% single key of any data type for unique index (iv_k)
+                                %% list of keys for almost unique index (iv_kl)
+                  }     
+       ). 
+-define(ddIndex, [tuple,term]).
 
 
 -record(ddCache,                            %% local kv cache, created empty              
