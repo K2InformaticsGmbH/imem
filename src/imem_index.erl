@@ -2,8 +2,6 @@
 
 %% @doc == imem INDEX operations ==
 
--define(TEST,t).
-
 -include("imem_meta.hrl").
 
 -export([binstr_to_lcase_ascii/1,
