@@ -1,3 +1,4 @@
+%% -*- coding: utf-8 -*-
 -module(imem_index).
 
 %% @doc == imem INDEX operations ==
