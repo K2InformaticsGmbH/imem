@@ -8,7 +8,6 @@
 %% and returns in the same format as the provided data object
 %% (except for conversion functions)
 
-
 -export([%% Standard data type operations, inspired by maps operations
          find/2,
          fold/3,
@@ -24,7 +23,7 @@
          values/1,
 
          %% Conversions
-         to_proplist/1,
+         to_proplist/1, to_proplist/2,
          to_map/1,
          to_binary/1,
 
@@ -38,8 +37,8 @@
          is_subset/2,   %% Check if first data object is a subset of the second
          is_disjoint/2, %% Check if data objects have no keys in common
          project/2,     %% Create a projection of a json document based on paths
+         match/2,       %% Check if a data object matches a json path (using jpparse)
          jpp_match/2    %% Match a jpparse syntax tree to a json document and extract the values
-         %match/2        %% Check if a data object matches a match object
          ]).
 
 %TODO: custom output format:
@@ -76,8 +75,6 @@
 -define(NOT_SUPPORTED,throw(not_yet_supported)).
 
 -define(BAD_VERSION,throw(json_imem_disabled)).
-
-%-define(TEMP_ALLOW_MATCH,true).
 
 
 
@@ -147,11 +144,6 @@
 -type value() :: term().
 -type key() :: binary().
 
--ifdef(TEMP_ALLOW_MATCH).
--type match_object() :: list() | map() | binary().
--type match_pos() :: str_start | bin_start | str_end | bin_end.
--type match_expression() :: {match_pos(),match_pos(),binary()}.
--endif.
 %% ===================================================================
 %% Exported functions
 %% ===================================================================
@@ -425,6 +417,10 @@ to_proplist(DataObject,deep) when is_binary(DataObject) ->
 to_proplist(DataObject) when is_list(DataObject) ->
     DataObject;
 to_proplist(DataObject) ->
+    to_proplist(?FROM_JSON(DataObject)).
+
+to_proplist(DataObject,deep) when is_list(DataObject)-> DataObject;
+to_proplist(DataObject,deep) when is_binary(DataObject) ->
     to_proplist(?FROM_JSON(DataObject)).
 -endif.
 
@@ -812,7 +808,13 @@ walk_path([Filter|Tail],CurrentLevel) ->
                                         end
                                end
     end.
-                                
+               
+%% @doc Projects a binary string json path (as understood by jpparse) on a json object
+-spec match(binary(),data_object()) -> value() | ListOfValues | nomatch
+    when ListOfValues :: [value() | ListOfValues].
+match(JsonPath,DataObject) ->
+    {ok,{ParseTree,_}} = jpparse:parsetree(JsonPath),
+    jpp_match(ParseTree,DataObject).
     
 %% @doc Projects a parsed Json Path (from jpparse) on a json object
 %% and extracts matched values. nomatch is return if no match is found.
@@ -930,22 +932,6 @@ jpp_match(Tree,DataObject) ->
         
     
 
--ifdef(TEMP_ALLOW_MATCH).
-%% @doc Returns true if a data object matches a match object.
-%% A match object is a key value pair, in the same format as the
-%% data object, who can have wildcards in the value fields in order
-%% to match values. Fields not present in match object are ignored.
--spec match(match_object(), data_object()) -> boolean().
-match(MatchObject,DataObject) when is_list(DataObject) ->
-    DataObjectProj = include(keys(MatchObject),DataObject),
-    lists:all(fun({K,MatchV}) ->
-                binary_match(proplists:get_value(K,DataObjectProj),MatchV)
-                end,
-              MatchObject).
-%TODO: Implement for maps and binary json, and test it
--endif.
-
-
 %% ===================================================================
 %% Internal functions
 %% ===================================================================
@@ -986,60 +972,14 @@ clean_null_values(DataObject) when is_map(DataObject) ->
 clean_null_values(DataObject) ->
     ?TO_JSON(clean_null_values(?FROM_JSON(DataObject))).
 -else.
-clean_null_values(DataObject) when is_list(DataObject) ->
+clean_null_values([{_,_}|_] = DataObject) ->
     [{K,V} || {K,V} <- DataObject, V =/= null];
+clean_null_values(DataObject) when is_list(DataObject) ->
+    DataObject;
 clean_null_values(DataObject) ->
     ?TO_JSON(clean_null_values(?FROM_JSON(DataObject))).
 -endif.
 
-
--ifdef(TEMP_ALLOW_MATCH).
-%% @doc Returns true if provided binary matches binary match expression
--spec binary_match(binary(),match_expression() | binary()) -> boolean().
-binary_match(Binary,{_,_,Binary}) -> true;
-binary_match(_,{bin_start,bin_start,<<"">>}) -> true;
-binary_match(<<"">>,{bin_start,bin_end,<<"">>}) -> true;
-binary_match(_,{bin_start,bin_end,<<"">>}) -> false;
-binary_match(Bin,{bin_start,str_end,Match}) ->
-    WalkFun = fun(M,_,M) -> true;
-                 (<<_,R/binary>>,F,M) -> F(R,F,M);
-                 (_,_,_) -> false end,
-    WalkFun(Bin,WalkFun,Match);
-binary_match(Bin,{str_start,bin_end,Match}) ->
-    Size = byte_size(Match),
-    case Bin of
-        <<Match:Size/bytes,_/binary>> -> true;
-       _ -> false
-    end;
-binary_match(Bin,{bin_start,bin_end,Match}) ->
-    Size = byte_size(Match),
-    WalkFun = fun (<<M:Size/bytes,_/binary>>,_,M) -> true;
-                 (<<_,R/binary>>,F,M) -> F(R,F,M);
-                 (_,_,_) -> false end,
-    WalkFun(Bin,WalkFun,Match);
-binary_match(_,{_,_,_}) -> false;
-binary_match(Binary,MatchBin) -> binary_match(Binary,parse_match(MatchBin)).
-
-
-%% @doc Parse a binary into a imem_json binary match expression
--spec parse_match(binary()) -> match_expression().
-parse_match(Bin) -> parse_match(Bin,{undefined,undefined,undefined}).
-
--spec parse_match(binary(),match_expression()) -> match_expression().
-parse_match(<<"">>,{undefined,undefined,undefined}) -> {bin_start,bin_end,<<"">>};
-parse_match(<<"*">>,{undefined,undefined,undefined}) -> {bin_start,bin_start,<<"">>};
-parse_match(<<"*",Rem/binary>>,{undefined,undefined,_}) ->
-    parse_match(Rem,{bin_start,undefined,<<"">>});
-parse_match(<<Rem/binary>>,{undefined,undefined,_}) ->
-    parse_match(Rem,{str_start,undefined,<<"">>});
-parse_match(<<>>,{Begin,undefined,Acc}) ->
-    {Begin,str_end,Acc};
-parse_match(<<"*">>,{Begin,undefined,Acc}) ->
-    {Begin,bin_end,Acc};
-parse_match(<<H,Rem/binary>>,{Begin,undefined,Acc}) ->
-    parse_match(Rem,{Begin,undefined,<<Acc/binary,H>>}).
--endif.
-    
 
 %% ===================================================================
 %% JSON Binary Handling Power Functions
@@ -1097,20 +1037,23 @@ parse_match(<<H,Rem/binary>>,{Begin,undefined,Acc}) ->
 %% TESTS (ONLY IF MAPS ARE ENABLED)
 %% ===================================================================
 
--ifdef(ALLOW_MAPS).
 -ifdef(TEST).
+
 -include_lib("eunit/include/eunit.hrl").
 
 %% Testing available when maps are enabled, testing code not duplicated
 %% Latest code coverage check: 100%
 
 setup() ->
+    application:start(jpparse),
     application:start(jsx).
 
 -define(TEST_JSON, <<"{\"surname\":\"Doe\",\"name\":\"John\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"empty\":null}">>).
 -define(TEST_PROP, [{<<"surname">>,<<"Doe">>}, {<<"name">>,<<"John">>}, {<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"age">>,981},{<<"empty">>,null}]).
--define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true, <<"foo">> => <<"bar">>, <<"name">> => <<"John">>, <<"surname">> => <<"Doe">>,<<"empty">> => null}).
 -define(TEST_JSON_LIST, <<"[{\"surname\":\"Doe\"},{\"surname\":\"Jane\"},{\"surname\":\"DoeDoe\"}]">>).
+
+-ifdef(ALLOW_MAPS).
+-define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true, <<"foo">> => <<"bar">>, <<"name">> => <<"John">>, <<"surname">> => <<"Doe">>,<<"empty">> => null}).
 
 %% JSON is tested for each function as well even if, basically, it only tests the 
 %% JSON to map/proplist conversion each time. This could at least be used as regression
@@ -1461,51 +1404,59 @@ is_disjoint_test_() ->
      {"proplist_fail",?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))},
      {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}]}.
 
--ifdef(TEMP_ALLOW_MATCH).
-match_test_() ->
-    PropMatch = [{<<"name">>,<<"Jo*">>},{<<"foo">>,<<"*r">>}],
-    PropNotMatch = [{<<"name">>,<<"*Jo">>},{<<"foo">>,<<"*r">>}],
+-else.
+%%%%% MAP-LESS TEST STUFF GOES HERE 
+
+size_test_() -> 
     {setup,
      fun setup/0,
-    [{"prop_success",?_assert(match(PropMatch,?TEST_PROP))},
-     {"prop_failure",?_assert(not match(PropNotMatch,?TEST_PROP))}
-    ]}.
+    [{"proplist",?_assertEqual(5,?MODULE:size(?TEST_PROP))},
+     {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))},
+     {"json_list",?_assertEqual(3,?MODULE:size(?TEST_JSON_LIST))}]}.
 
-parse_match_test_() ->
-    [?_assertEqual({bin_start,bin_end,<<"bou">>},parse_match(<<"*bou*">>)),
-     ?_assertEqual({str_start,str_end,<<"bou">>},parse_match(<<"bou">>)),
-     ?_assertEqual({str_start,bin_end,<<"bou">>},parse_match(<<"bou*">>)),
-     ?_assertEqual({bin_start,str_end,<<"bou">>},parse_match(<<"*bou">>)),
-     ?_assertEqual({bin_start,bin_end,<<"">>},parse_match(<<"">>)),
-     ?_assertEqual({bin_start,bin_start,<<"">>},parse_match(<<"*">>))].
+values_test_() ->
+    Values = lists:sort([<<"Doe">>,<<"John">>,<<"bar">>,true,981,null]),
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(Values,lists:sort(values(?TEST_PROP)))},
+     {"json",?_assertEqual(Values,lists:sort(values(?TEST_JSON)))}]}.
 
-binary_match_test_() ->
-     % "bou"
-    [?_assert(binary_match(<<"bou">>,{str_start,str_end,<<"bou">>})),
-     ?_assert(not binary_match(<<"boue">>,{str_start,str_end,<<"bou">>})),
-     ?_assert(not binary_match(<<"zbou">>,{str_start,str_end,<<"bou">>})),
-     % "*bou"
-     ?_assert(binary_match(<<"bou">>,{bin_start,str_end,<<"bou">>})),
-     ?_assert(binary_match(<<"zeoubou">>,{bin_start,str_end,<<"bou">>})),
-     ?_assert(not binary_match(<<"zeouboue">>,{bin_start,str_end,<<"bou">>})),
-     ?_assert(not binary_match(<<"boueziu">>,{bin_start,str_end,<<"bou">>})),
-     % "bou*"
-     ?_assert(binary_match(<<"bou">>,{str_start,bin_end,<<"bou">>})),
-     ?_assert(binary_match(<<"bouzoub">>,{str_start,bin_end,<<"bou">>})),
-     ?_assert(not binary_match(<<"zbouezoub">>,{str_start,bin_end,<<"bou">>})),
-     ?_assert(not binary_match(<<"zbou">>,{str_start,bin_end,<<"bou">>})),
-     % "*bou*"
-     ?_assert(binary_match(<<"bou">>,{bin_start,bin_end,<<"bou">>})),
-     ?_assert(binary_match(<<"zoubou">>,{bin_start,bin_end,<<"bou">>})),
-     ?_assert(binary_match(<<"bouzou">>,{bin_start,bin_end,<<"bou">>})),
-     ?_assert(binary_match(<<"zoubouzou">>,{bin_start,bin_end,<<"bou">>})),
-     % "*"
-     ?_assert(binary_match(<<"">>,{bin_start,bin_start,<<"">>})),
-     ?_assert(binary_match(<<"zoubou">>,{bin_start,bin_start,<<"">>})),
-     % ""
-     ?_assert(binary_match(<<"">>,{bin_start,bin_end,<<"">>})),
-     ?_assert(not binary_match(<<"zoubou">>,{bin_start,bin_end,<<"">>}))
-     ].
+has_key_test_() ->
+    {setup,
+     fun setup/0,
+    [{"proplist_success",?_assert(has_key(<<"surname">>,?TEST_PROP))},
+     {"json_success",?_assert(has_key(<<"surname">>,?TEST_JSON))},
+     {"proplist_fail",?_assert(not has_key(<<"sname">>,?TEST_PROP))},
+     {"json_fail",?_assert(not has_key(<<"sname">>,?TEST_JSON))}]}.
+
+keys_test_() -> 
+    Keys = lists:sort([<<"surname">>,<<"name">>,<<"foo">>,<<"earthling">>,<<"age">>,<<"empty">>]),
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(Keys,keys(?TEST_PROP))},
+     {"json",?_assertEqual(Keys,keys(?TEST_JSON))}]}.
+
+to_proplist_test_() ->
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assert(is_list(to_proplist(?TEST_PROP)))},
+     {"json",?_assert(is_list(to_proplist(?TEST_JSON)))}]}.
+
+to_proplist_deep_test_() ->
+    TestProp = [{<<"first">>,[{<<"second">>,true}]}],
+    TestJson = <<"{\"first\":{\"second\":true}}">>,
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(TestProp,to_proplist(TestProp,deep))},
+     {"json",?_assertEqual(TestProp,to_proplist(TestJson,deep))}]}.
+
+to_binary_test_() ->
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assert(is_binary(to_binary(?TEST_PROP)))},
+     {"json",?_assert(is_binary(to_binary(?TEST_JSON)))}]}.
+
+
 -endif.
 
 jpp_match_test_() ->
@@ -1539,7 +1490,7 @@ jpp_match_test_() ->
     Out3_1 = [3,2],
     Tst3_2 = {':', [{'[]', '_', [1]}, <<"d">>]}, % [1]:d
     Out3_2 = [true],
-    Tst3_3 = {':', [{'[]', '_', []},  <<"c">>, {'$',<<"firstChild">>}, <<"d">>]}, % []:c:$firstChild$::d
+    Tst3_3 = {':', [{'[]', '_', []},  <<"c">>, {'$',<<"firstChild">>}, <<"d">>]}, % []:c:$firstChild$:d
     Out3_3 = [3,2],
 
     Object4 = <<"{\"a\":{\"e\":8},\"c\":{\"e\":1},\"d\":{\"e\":2}}">>,
@@ -1594,8 +1545,91 @@ jpp_match_test_() ->
      {"nomatch a:z",?_assertEqual(nomatch,jpp_match(Tst5_3,Object5))},
      {"form {}[]{b}",?_assertEqual(Out6_1,jpp_match(Tst6_1,Object6))}
      ]}.
-    
+
+match_test_() ->
+    Object1 = <<"{\"a\":{\"b\":[{\"c\":1},{\"c\":2},{\"c\":3}]}}">>,
+    Tst1_1 = <<"a:b[1]:c">>,
+    Out1_1 = [1],
+    Tst1_2 = <<"a:b[1-2]">>,
+    Out1_2 = [{<<"c">>,1},{<<"c">>,2}],
+    Tst1_3 = <<"a:b[1,2,3]">>,
+    Tst1_3b = <<"a:b[1,2,3]">>,
+    Out1_3 = [{<<"c">>,1},{<<"c">>,2},{<<"c">>,3}],
+    Tst1_4 = <<"a:b[]:c">>,
+    Out1_4 = [1,2,3],
+    Tst1_5 = <<"a:b[1-2,3]:c">>,
+    Out1_5 = [1,2,3],
+
+    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":5}}}}">>,
+    Tst2_1 = <<"a:b{}:c">>,
+    Out2_1 = [1,4],
+    Tst2_2 = <<"a:b{c}">>,
+    Out2_2 = [{<<"c">>,4},{<<"d">>,5}],
+    Tst2_3 = <<"a:b:$values$:c">>,
+    Out2_3 = [1,4],
+    Tst2_4 = <<"a:b{any,c}:d">>,
+    Out2_4 = [2,5],
+    Tst2_5 = <<"a:b:any:c">>,
+    Out2_5 = 1,
+
+    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}},\"d\":true},{\"c\":{\"b\":{\"d\":2}}}]">>,
+    Tst3_1 = <<"[]:c{$firstChild$}:d">>,
+    Out3_1 = [3,2],
+    Tst3_2 = <<"[1]:d">>,
+    Out3_2 = [true],
+    Tst3_3 = <<"[]:c:$firstChild$:d">>,
+    Out3_3 = [3,2],
+
+    Object4 = <<"{\"a\":{\"e\":8},\"c\":{\"e\":1},\"d\":{\"e\":2}}">>,
+    Tst4_1 = <<"{c,d}:e">>,
+    Out4_1 = [1,2],
+    Tst4_2 = <<"{a-c}:e">>,
+    Out4_2 = [8,1],
+    Tst4_3 = <<"a:$keys$">>,
+    Out4_3 = [<<"e">>],
+    Tst4_4 = <<"a{$keys$}">>,
+    Out4_4 = [<<"e">>],
+    Tst4_5 = <<"$keys$">>,
+    Out4_5 = [<<"a">>,<<"c">>,<<"d">>],
+    Tst4_6 = <<"$keys$[1]">>,
+    Out4_6 = [<<"a">>],
+
+    Object5 = <<"{\"a\": {\"b\":[{\"a\":{\"c\":4},\"b\":{\"c\":1}},{\"a\":{\"c\":8},\"b\":{\"c\":2}}]}}">>,
+    Tst5_1 = <<"a:b[1-2]{}:c">>,
+    Out5_1 = [4,1,8,2],
+    Tst5_2 = <<"a:b[1-3]{}:c">>,
+    Tst5_3 = <<"a:z">>,
+
+    Object6 = <<"{\"a\":[{\"b\":1,\"d\":2},{\"b\":3,\"d\":4}],\"b\":[{\"b\":5,\"d\":6},{\"b\":7,\"d\":8}]}">>,
+    Tst6_1 = <<"{}[]{b}">>,
+    Out6_1 = [1,3,5,7],
+
+    {setup,
+     fun setup/0,
+    [{"form a:b[1]:c",?_assertEqual(Out1_1,match(Tst1_1,Object1))},
+     {"form a:b[1-2]",?_assertEqual(Out1_2,match(Tst1_2,Object1))},
+     {"form a:b[1,2,3]",?_assertEqual(Out1_3,match(Tst1_3,Object1))},
+     {"form a:b",?_assertEqual(Out1_3,match(Tst1_3b,Object1))},
+     {"form a:b[]:c",?_assertEqual(Out1_4,match(Tst1_4,Object1))},
+     {"form a:b[1-2,3]",?_assertEqual(Out1_5,match(Tst1_5,Object1))},
+     {"form a:b{}:c",?_assertEqual(Out2_1,match(Tst2_1,Object2))},
+     {"form a:b{c}",?_assertEqual(Out2_2,lists:sort(match(Tst2_2,Object2)))},
+     {"form a:b:$values$:c}",?_assertEqual(Out2_3,lists:sort(match(Tst2_3,Object2)))},
+     {"form a:b{any,c}:d",?_assertEqual(Out2_4,lists:sort(match(Tst2_4,Object2)))},
+     {"form a:b:any:c", ?_assertEqual(Out2_5, match(Tst2_5,Object2))},
+     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,match(Tst3_1,Object3))},
+     {"form [1]:d",?_assertEqual(Out3_2,match(Tst3_2,Object3))},
+     {"form []:c:$firstChild$:d",?_assertEqual(Out3_3,match(Tst3_3,Object3))},
+     {"form {c,d}:e",?_assertEqual(Out4_1,match(Tst4_1,Object4))},
+     {"form {a-c}:e",?_assertEqual(Out4_2,match(Tst4_2,Object4))},
+     {"form a:$keys$",?_assertEqual(Out4_3,match(Tst4_3,Object4))},
+     {"form a{$keys$}",?_assertEqual(Out4_4,match(Tst4_4,Object4))},
+     {"form $keys$",?_assertEqual(Out4_5,match(Tst4_5,Object4))},
+     {"form $keys$[1]",?_assertEqual(Out4_6,match(Tst4_6,Object4))},
+     {"form a:b[1-2]{}:c",?_assertEqual(Out5_1,match(Tst5_1,Object5))},
+     {"nomatch a:b[1-3]{}:c",?_assertEqual(nomatch,match(Tst5_2,Object5))},
+     {"nomatch a:z",?_assertEqual(nomatch,match(Tst5_3,Object5))},
+     {"form {}[]{b}",?_assertEqual(Out6_1,match(Tst6_1,Object6))}]}.
 
 -endif.
 
--endif.
