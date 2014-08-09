@@ -648,8 +648,8 @@ diff(DataObject1, DataObject2) ->
 diff(RawDataObject1, RawDataObject2) when is_list(RawDataObject1), is_list(RawDataObject2) ->
     DataObject1 = ?CL(RawDataObject1),
     DataObject2 = ?CL(RawDataObject2),
-    Object1Keys = proplists:keys(DataObject1),
-    Object2Keys = proplists:keys(DataObject2),
+    Object1Keys = proplists:get_keys(DataObject1),
+    Object2Keys = proplists:get_keys(DataObject2),
     CommonKeys = lists:filter(fun(K) -> lists:member(K,Object1Keys) end, Object2Keys),
 
     UpdatedJob = fun(K,Acc) -> 
@@ -1407,6 +1407,21 @@ is_disjoint_test_() ->
 -else.
 %%%%% MAP-LESS TEST STUFF GOES HERE 
 
+to_map_test() ->
+    ?assertException(throw,not_yet_supported,to_map(?TEST_JSON)).
+
+map_test_() -> 
+    Job = fun(<<"age">>,_) -> 8000;
+             (_,true) -> false;
+             (_,V) -> V end,
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,map(Job,?TEST_PROP)))},
+     {"proplist",?_assertEqual(false, proplists:get_value(<<"earthling">>,map(Job,?TEST_PROP)))},
+     {"json",?_assertEqual(8000, ?MODULE:get(<<"age">>,map(Job,?TEST_JSON)))},
+     {"json",?_assertEqual(false,?MODULE:get(<<"earthling">>,map(Job,?TEST_JSON)))}]}.
+
+
 size_test_() -> 
     {setup,
      fun setup/0,
@@ -1455,6 +1470,221 @@ to_binary_test_() ->
      fun setup/0,
     [{"proplist",?_assert(is_binary(to_binary(?TEST_PROP)))},
      {"json",?_assert(is_binary(to_binary(?TEST_JSON)))}]}.
+
+
+ 
+find_test_() ->
+    {setup,
+     fun setup/0,
+    [{"proplist_success",?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_PROP))},
+     {"json_success",?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_JSON))},
+     {"proplist_fail",?_assertEqual(error, find(<<"sme">>,?TEST_PROP))},
+     {"json_fail",?_assertEqual(error, find(<<"sme">>,?TEST_JSON))}]}.
+
+fold_test_() ->
+    TestFun = fun(_,_,Acc) -> Acc+1 end,
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(5, fold(TestFun,0,?TEST_PROP))},
+     {"json",?_assertEqual(5, fold(TestFun,0,?TEST_JSON))}]}.
+
+get_test_() ->
+    {setup,
+     fun setup/0,
+    [{"proplist_success",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_PROP))},
+     {"json_success",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_JSON))},
+     {"proplist_fail",?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_PROP))},
+     {"json_fail",?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_JSON))}, 
+     {"proplist_custom_default",?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_PROP,test))},
+     {"json_custom_default",?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}]}.
+
+new_test_() -> 
+    %% Depends on default type setting
+    Test = [],
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual([],new(proplist))},
+     {"json",?_assertEqual(<<"{}">>,new(json))},
+     {"default",?_assertEqual(Test,new())}]}.
+
+put_test_() -> 
+    {setup,
+     fun setup/0,
+    [{"prop_empty",?_assertEqual([{test,1}],?MODULE:put(test,1,[]))},
+     {"prop_replace",?_assertEqual([{test,1}],?MODULE:put(test,1,[{test,2}]))},
+     {"json_empty",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{}">>))},
+     {"json_replace",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{\"test\":2}">>))}]}.
+
+remove_test_() ->
+    PropOut = remove(<<"age">>,?TEST_PROP),
+    JsonOut = remove(<<"age">>,?TEST_JSON),
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(undefined, proplists:get_value(<<"age">>,PropOut,undefined))},
+     {"json",?_assertEqual(undefined,?MODULE:get(<<"age">>,JsonOut))}]}.
+
+update_test_() ->
+    PropOut = update(<<"age">>,8000,?TEST_PROP),
+    JsonOut = update(<<"age">>,8000,?TEST_JSON),
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))},
+     {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))},
+     {"error_prop",?_assertError(badarg,update(<<"not_there">>,true,?TEST_PROP))}
+     ]}.
+
+filter_test_() -> 
+    FilterFun = fun(<<"age">>,_) -> true;
+                   (_,true) -> true;
+                   (_,_) -> false end,
+    PropOut = filter(FilterFun,?TEST_PROP),
+    JsonOut = filter(FilterFun,?TEST_JSON),
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(981, proplists:get_value(<<"age">>,PropOut))},
+     {"proplist",?_assertEqual(true, proplists:get_value(<<"earthling">>,PropOut))},
+     {"json",?_assertEqual(981, ?MODULE:get(<<"age">>,JsonOut))},
+     {"json",?_assertEqual(true,?MODULE:get(<<"earthling">>,JsonOut))}]}.
+
+include_test_() ->
+    Json_Ok = <<"{\"name\":\"John\"}">>,
+    Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}],
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(Prop_Ok, include([<<"surname">>,<<"foo">>],?TEST_PROP))},
+     {"json",?_assertEqual(Json_Ok, include([<<"name">>],?TEST_JSON))}]}.
+
+exclude_test_() ->
+    Json_Ok = <<"{\"name\":\"John\"}">>,
+    Prop_Ok = [{<<"name">>,<<"John">>}],
+    ExcFields = [<<"surname">>,<<"foo">>,<<"earthling">>,<<"age">>,<<"empty">>],
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(Prop_Ok, exclude(ExcFields,?TEST_PROP))},
+     {"json",?_assertEqual(Json_Ok, exclude(ExcFields,?TEST_JSON))}]}.
+
+merge_test_() ->
+    Json_1 = <<"{\"test\":\"true\"}">>,
+    Prop_1 = [{<<"test">>,<<"true">>}],
+    JsonOut = merge(Json_1,?TEST_JSON),
+    PropOut = merge(Prop_1,?TEST_PROP),
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,PropOut))},
+     {"proplist",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,PropOut))},
+     {"json",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,JsonOut))},
+     {"json",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,JsonOut))}]}.
+
+project_test_() ->
+    Data1 = <<"{\"name\":{\"first\":false,\"list\":[{\"any\":1}]}, \"test\":true}">>,
+    Data2 = <<"{\"list\":[{\"any\":{\"sub\":true}},{\"any\":{\"sub\":false}}],\"empty\":[]}">>,
+    [?_assertEqual([1],project("name:list[*]:any",Data1)),
+     ?_assertEqual(true,project("test",Data1)),
+     ?_assertEqual(false,project("name:first",Data1)),
+     ?_assertEqual([[1],true],project(["name:list[*]:any","test"],Data1)),
+     ?_assertEqual([true,false],project("list[*]:any:sub",Data2)),
+     ?_assertEqual(true,project("list[1]:any:sub",Data2)),
+     ?_assertEqual([<<"first">>,<<"list">>],project("name:$keys$",Data1)),
+     ?_assertEqual([[<<"first">>,<<"list">>],[1],false], project(["name:$keys$",
+                                                                  "name:list[*]:any",
+                                                                  "name:first"
+                                                                 ],Data1)),
+     ?_assertEqual(nomatch, project(["name:$keys$",
+                                     "name:list[*]:any",
+                                     "name:not_there"
+                                    ],Data1)),
+     ?_assertEqual(nomatch,project("list[10]:any:sub",Data2)),
+     ?_assertEqual(nomatch,project("unlist[1]:any:sub",Data2)),
+     ?_assertEqual(nomatch,project("empty[1]",Data2)),
+     ?_assertEqual(nomatch,project("empty[*]",Data2)),
+     ?_assertEqual(nomatch,project("unexistant",Data2)),
+     ?_assertEqual(nomatch,project("unexistant[*]",Data2))
+    ].
+
+parse_path_test_() ->
+    Path1 = "name.list[*].any",
+    Path2 = <<"name.list[*].any">>,
+    Path3 = lists:concat(["name",?JSON_PATH_SEPARATOR,"list[*]",?JSON_PATH_SEPARATOR,"any"]),
+    Res1  = ["name","list[*]","any"],
+    [?_assertEqual(Res1,parse_path(Path1,".")),
+     ?_assertEqual(Res1,parse_path(Path2,".")),
+     ?_assertEqual(Res1,parse_path(Path3))
+    ].
+
+walk_path_test_() ->
+    Path1 = ["name","list[*]","any"],
+    Object1 = [{<<"name">>, [{<<"list">>, [[{<<"any">>,1}],[{<<"any">>,2}]]}]}],
+    Result1 = [1,2],
+    [?_assertEqual(Result1,walk_path(Path1,Object1))
+    ].
+    
+json_lib_throw_test_() ->
+    [?_assertException(throw,no_json_library_found,json_binary_decode(<<"{\"test\":true}">>,[])),
+     ?_assertException(throw,no_json_library_found,json_binary_encode([{<<"test">>,true}],[]))].
+
+
+-ifdef(DECODE_TO_MAPS).
+%% Some 'adaptation' because JSON conversion changes order between formats
+-define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"changes\":4,\"removed\":{\"age\":981},\"replaced\":{\"surname\":\"Doe\"},\"updated\":{\"surname\":\"DoeDoe\"}}">>).
+-else.
+-define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"removed\":{\"age\":981},\"updated\":{\"surname\":\"DoeDoe\"},\"replaced\":{\"surname\":\"Doe\"},\"changes\":4}">>).
+-endif.
+
+diff_test_() ->
+    PropBefore = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"empty">>,null},{<<"unmod">>,true}],
+    PropAfter  = [{<<"surname">>,<<"DoeDoe">>}, {<<"ega">>,981},{<<"newval">>,<<"one">>}, {<<"empty">>,null},{<<"unmod">>,true}],
+    PropDiffOut = [{added,[{<<"ega">>,981},{<<"newval">>,<<"one">>}]},
+                   {removed,[{<<"age">>,981}]},
+                   {updated,[{<<"surname">>,<<"DoeDoe">>}]},
+                   {replaced,[{<<"surname">>,<<"Doe">>}]},
+                   {changes,4}],
+
+    JsonBefore = <<"{\"surname\":\"Doe\",\"age\":981,\"empty\":null}">>,
+    JsonAfter = <<"{\"surname\":\"DoeDoe\",\"ega\":981,\"newval\":\"one\",\"empty\":null}">>,
+    JsonDiffOut = ?TEST_JSONOUTDIFF,
+
+
+    {setup,
+     fun setup/0,
+    [{"proplist",?_assertEqual(PropDiffOut, diff(PropBefore,PropAfter))},
+     {"json",?_assertEqual(JsonDiffOut, diff(JsonBefore,JsonAfter))}
+    ]}.
+
+equal_test_() -> 
+    Json_Ok = <<"{\"name\":\"John\",\"surname\":\"Doe\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"other\":null}">>,
+    Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"name">>,<<"John">>}, {<<"age">>,981}],
+    Json_Nook = <<"{\"name\":\"John\",\"surname\":null,\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"other\":null}">>,
+    Prop_Nook = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"barbara">>}, {<<"earthling">>,true}, {<<"name">>,<<"John">>}, {<<"age">>,981}],
+    {setup,
+     fun setup/0,
+    [ {"prop_success",?_assert(equal(Prop_Ok,?TEST_PROP))},
+     {"json_success",?_assert(equal(Json_Ok,?TEST_JSON))},
+     {"prop_fail",?_assert(not equal(Prop_Nook,?TEST_PROP))},
+     {"json_fail",?_assert(not equal(Json_Nook,?TEST_JSON))} ]}.
+
+is_subset_test_() -> 
+    Sub_Ok_Json =  <<"{\"surname\":\"Doe\",\"age\":981,\"nothing\":null}">>,
+    Sub_Ok_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"nothing">>,null}],
+    Sub_Nook_Json =  <<"{\"suame\":\"Doe\",\"age\":981}">>,
+    Sub_Nook_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,91}],
+    {setup,
+     fun setup/0,
+    [ {"proplist_success",?_assert(is_subset(Sub_Ok_Prop,?TEST_PROP))},
+     {"json_success",?_assert(is_subset(Sub_Ok_Json,?CL(?TEST_JSON)))},
+     {"proplist_fail",?_assert(not is_subset(Sub_Nook_Prop,?TEST_PROP))},
+     {"json_fail",?_assert(not is_subset(Sub_Nook_Json,?TEST_JSON))}]}.
+
+is_disjoint_test_() -> 
+    Sub_Ok_Json =  <<"{\"suame\":\"Doe\",\"age\":91}">>,
+    Sub_Ok_Prop = [{<<"surname">>,<<"De">>}, {<<"ae">>,981}],
+    Sub_Nook_Json =  <<"{\"suame\":\"Doe\",\"age\":981}">>,
+    Sub_Nook_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}],
+    {setup,
+     fun setup/0,
+    [ {"proplist_success",?_assert(is_disjoint(Sub_Ok_Prop,?TEST_PROP))},
+     {"json_success",?_assert(is_disjoint(Sub_Ok_Json,?TEST_JSON))},
+     {"proplist_fail",?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))},
+     {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}]}.
 
 
 -endif.
