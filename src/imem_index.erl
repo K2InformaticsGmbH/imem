@@ -11,21 +11,36 @@
          binstr_accentfold/1,
          binstr_to_lower/1,
          binstr_to_upper/1,
+         binstr_only_ascii/1, binstr_only_ascii/2,
+         binstr_only_valid/1, binstr_only_valid/2,
+         binstr_only_latin1/1, binstr_only_latin1/2,
 
          binstr_match_anywhere/2,
          binstr_match_sub/4,
          binstr_match_precompile/1
 		]).
 
+-define(BIN_APP,binstr_append_placeholder).
+
 binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
 binstr_to_lcase_ascii(B) when is_binary(B) -> 
-    %% unicode_string_to_ascii(string:to_lower(unicode:characters_to_list(B, utf8)));
-    binstr_accentfold(binstr_to_lower(B));
+    %% unicode_string_only_ascii(string:to_lower(unicode:characters_to_list(B, utf8)));
+    binstr_only_ascii(
+        binstr_accentfold(
+            binstr_to_lower(B)
+            )
+        );
 binstr_to_lcase_ascii(Val) -> 
-	% unicode_string_to_ascii(io_lib:format("~p",[Val])).
+	% unicode_string_only_ascii(io_lib:format("~p",[Val])).
     BinStr = try io_lib:format("~s",[Val])
              catch error:badarg -> io_lib:format("~p",[Val]) end,
-    binstr_accentfold(binstr_to_lower(unicode:characters_to_binary(BinStr))).
+    binstr_only_ascii(
+        binstr_accentfold(
+            binstr_to_lower(
+                unicode:characters_to_binary(BinStr)
+                )
+            )
+        ).
 
 
 %% Glossary:
@@ -243,6 +258,112 @@ binstr_to_upper(Str) when is_binary(Str) ->
     b_upper(<<H,R/binary>>,A) -> 
         b_upper(R,<<A/binary,H>>).
 
+
+%% @doc Walks binary string, keeps only valid ascii characters
+-spec binstr_only_ascii(binary()) -> binary().
+binstr_only_ascii(BinStr) when is_binary(BinStr) ->
+    binstr_only_ascii(BinStr,"");
+binstr_only_ascii(BinStr) when is_list(BinStr) ->
+    binstr_only_ascii(list_to_binary(BinStr),"").
+binstr_only_ascii(BinStr,PlaceHolder) ->
+    b_afilter(BinStr,PlaceHolder,<<>>).
+
+    b_afilter(<<>>,_,A) -> A;
+    % Unprintable characters:0 - 9, 11, 12, 14 - 31, 127
+    b_afilter(<<C,R/binary>>,PH,A) when C >= 0, C =<  9;
+                                       C =:= 11; C =:= 12;
+                                       C >= 14, C =< 31;
+                                       C >= 127 ->
+
+        b_vfilter(R,PH,?BIN_APP(A,PH));
+    b_afilter(<<C,R/binary>>,PH,A) ->
+        b_afilter(R,PH,<<A/binary,C>>).
+
+%% @doc Walks binary string, keeps only valid and displayable) utf8 characters
+-spec binstr_only_valid(binary()) -> binary().
+binstr_only_valid(Binstr) ->
+    binstr_only_valid(Binstr,"").
+binstr_only_valid(BinStr, PH) when is_binary(BinStr) ->
+    b_vfilter(BinStr,PH,<<>>).
+
+    b_vfilter(<<>>,_,A) -> A;
+    % Displayable One-byte UTF8 (== ASCII)
+    b_vfilter(<<C,R/binary>>,PH,A) when C =:= 10; % \n
+                                       C =:= 13;  % \r
+                                       C >= 32, C =<  126 % character range
+                                       ->
+        b_vfilter(R,PH,<<A/binary,C>>);
+    % Two-byte UTF8 192-223, 128-191
+    b_vfilter(<<M,C,R/binary>>,PH,A) when M >= 195, M =< 223, C >= 128, C =<  191;
+                                          M >= 194, C >= 160, C =< 191 ->
+        b_vfilter(R,PH,<<A/binary,M,C>>);
+
+    % Three-byte UTF8 224-239, 128-191, 128-191
+    b_vfilter(<<M,C1,C2,R/binary>>,PH,A) when M >= 224, M =< 239,
+                                              C1 >= 128, C1 =<  191,
+                                              C2 >= 128, C2 =<  191 ->
+        b_vfilter(R,PH,<<A/binary,M,C1,C2>>);
+   
+    % Four-byte UTF8 240-247, 128-191, 128-191, 128-191
+    b_vfilter(<<M,C1,C2,C3,R/binary>>,PH,A) when M >= 240, M =< 247,
+                                              C1 >= 128, C1 =<  191,
+                                              C2 >= 128, C2 =<  191,
+                                              C3 >= 128, C3 =<  191 ->
+        b_vfilter(R,PH,<<A/binary,M,C1,C2,C3>>);
+    % Five-byte UTF8 248-251, 128-191, 128-191, 128-191, 128-191
+    b_vfilter(<<M,C1,C2,C3,C4,R/binary>>,PH,A) when M >= 248, M =< 251,
+                                              C1 >= 128, C1 =<  191,
+                                              C2 >= 128, C2 =<  191,
+                                              C3 >= 128, C3 =<  191,
+                                              C4 >= 128, C4 =<  191 ->
+        b_vfilter(R,PH,<<A/binary,M,C1,C2,C3,C4>>);
+    % Six-byte UTF8 252-253, 128-191, 128-191, 128-191, 128-191, 128-191, 
+    b_vfilter(<<M,C1,C2,C3,C4,C5,R/binary>>,PH,A) when M >= 252, M =< 253,
+                                              C1 >= 128, C1 =<  191,
+                                              C2 >= 128, C2 =<  191,
+                                              C3 >= 128, C3 =<  191,
+                                              C4 >= 128, C4 =<  191,
+                                              C5 >= 128, C5 =<  191 ->
+        b_vfilter(R,PH,<<A/binary,M,C1,C2,C3,C4,C5>>);
+        
+    % Everything else (garbage)
+    b_vfilter(<<_,R/binary>>,PH,A) ->
+        b_vfilter(R,PH,?BIN_APP(A,PH)).
+
+%% @doc Walks binary string, keeps only valid and displayable) utf8 characters
+%% also present in the latin1 characterset
+-spec binstr_only_latin1(binary()) -> binary().
+binstr_only_latin1(Binstr) ->
+    binstr_only_latin1(Binstr,"").
+
+binstr_only_latin1(BinStr, PH) when is_binary(BinStr) ->
+    b_lfilter(BinStr,PH,<<>>).
+
+    b_lfilter(<<>>,_,A) -> A;
+    % Displayable One-byte UTF8 (== ASCII)
+    b_lfilter(<<C,R/binary>>,PH,A) when C =:= 10; % \n
+                                       C =:= 13;  % \r
+                                       C >= 32, C =<  126 % character range
+                                       ->
+        b_lfilter(R,PH,<<A/binary,C>>);
+    % Two-byte UTF8 194-197, 128-191, basic latin1 extension
+    b_lfilter(<<M,C,R/binary>>,PH,A) when M >= 195, M =< 197, C >= 128, C =<  191;
+                                          M >= 194, C >= 160, C =< 191 ->
+        b_lfilter(R,PH,<<A/binary,M,C>>);
+       
+    % Everything else (garbage)
+    b_lfilter(<<_,R/binary>>,PH,A) ->
+        b_lfilter(R,PH,?BIN_APP(A,PH)).
+
+binstr_append_placeholder(Binstr,PH) ->
+        case PH of
+            "" -> <<Binstr/binary>>;
+            <<>> -> <<Binstr/binary>>;
+            _ -> <<Binstr/binary,PH/binary>>
+        end.
+        
+    
+
 binstr_match_anywhere(Subject,Pattern) when is_binary(Pattern); is_tuple(Pattern) ->
     case binary:match(Subject,Pattern) of
         nomatch -> false;
@@ -276,9 +397,7 @@ binstr_accentfold_test_() ->
                      195,142,32,195,143,32,195,144,32,195,145,32,195,146,32,195,147,32,195,148,32,
                      195,149,32,195,150,32,195,152,32,195,153,32,195,154,32,195,155,32,195,156,32,
                      195,157,32,195,158,32,197,184,32,197,146,32,197,160,32,197,189>>,
-
     UpperCaseUnn = <<"A A A A A A AE C E E E E I I I I D N O O O O O O U U U U Y TH Y OE S Z">>,
-
     %LowerCaseAcc = <<"à á â ã ä å æ ç è é ê ë ì í î ï ð ñ ò ó ô õ ö ø ù ú û ü ý þ ÿ œ š ß ž"/utf8>>,
     LowerCaseRaw = <<195,160,32,195,161,32,195,162,32,195,163,32,195,164,32,195,165,32,195,166,32,
                      195,167,32,195,168,32,195,169,32,195,170,32,195,171,32,195,172,32,195,173,32,
@@ -307,7 +426,34 @@ binstr_to_lcase_ascii_test_() ->
      {"from atom",?_assertEqual("atom",?TL(binstr_to_lcase_ascii(aTom)))},
      {"from tuple",?_assertEqual("{\"aaaeee\"}",?TL(binstr_to_lcase_ascii({"AÀäëéÈ"})))},
      {"from integer",?_assertEqual("12798",?TL(binstr_to_lcase_ascii(12798)))},
-     {"from random",?_assertEqual("12798",?TL(binstr_to_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>)))}
+     {"from random",?_assertEqual("g:xr*a\\6r",?TL(binstr_to_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>)))}
      ].
 
+binstr_only_ascii_test_() ->
+    [{"form àç90{}",?_assertEqual(<<" 90{}">>,binstr_only_ascii(<<"àç 90{}">>))},
+     {"random",?_assertEqual(<<"G:XR*A\\6r">>,binstr_only_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>))}
+    ].
+
+binstr_only_valid_test_() ->
+    Random = <<74,94,160,102,193,249,94,21,66,87,242,109,13,107,163,36,165,68,215,
+               193,133,58,191,65,41,23,172,79,127,88,215,14,244,33,223,179,217,17,
+               86,174,55,29,132,221,124,112,34,14,192,37,153,199,176,212,35,207,115,
+               22,41,104,150,48,92,245>>,
+    [{"form àç90{}",?_assertEqual(<<"àç 90{}"/utf8>>,binstr_only_valid(<<"àç 90{}"/utf8,138,255>>))},
+     {"random",?_assertEqual(<<"J^f^BWm\rk$D:A)OX!ß³V7|p\"%Ç°#s)h0\\">>
+                            ,binstr_only_valid(Random))}
+
+    ].
+
+binstr_only_latin1_test_() ->
+    Random = <<74,94,160,102,193,249,94,21,66,87,242,109,13,107,163,36,165,68,215,
+               193,133,58,191,65,41,23,172,79,127,88,215,14,244,33,223,179,217,17,
+               86,174,55,29,132,221,124,112,34,14,192,37,153,199,176,212,35,207,115,
+               22,41,104,150,48,92,245>>,
+    [{"form àç90{}",?_assertEqual(<<"àç 90{}"/utf8>>,binstr_only_latin1(<<"àç 90{}"/utf8,138,255>>))},
+     {"random",?_assertEqual(<<"J^f^BWm\rk$D:A)OX!ß³V7|p\"%Ç°#s)h0\\">>
+                            ,binstr_only_latin1(Random))}
+
+    ].
+    
 -endif.
