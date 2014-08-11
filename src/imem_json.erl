@@ -832,13 +832,15 @@ jpp_match(Tree,DataObject) when is_binary(DataObject) ->
     jpp_match(Tree,?FROM_JSON(DataObject));
 jpp_match(Tree,DataObject) ->
     Out = jpp_walk(Tree,DataObject),
-    if is_list(Out) -> Flat = lists:flatten(Out),
-                       case lists:any(fun(nomatch) -> true;
-                                     (_) -> false end,Flat) of
-                           true -> nomatch;
-                           false -> Flat
-                       end;
-       true -> Out
+    if
+        is_list(Out) -> 
+            Flat = lists:flatten(Out),
+            case lists:any(fun(nomatch) -> true; (_) -> false end,Flat) of
+                true -> nomatch;
+                false -> Flat
+            end;
+        true -> 
+            Out
     end.
 
     %% jpp_walk transposes jpparse constructs to simple unary primitives {'{}',Field} and {'[]',Index}.

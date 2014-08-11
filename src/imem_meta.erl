@@ -1,3 +1,4 @@
+%% -*- coding: utf-8 -*-
 -module(imem_meta).
 
 %% @doc == imem metadata and table management ==
@@ -40,10 +41,12 @@
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
-% -define(RecIdx, 1).                                       %% Record name position in records
-% -define(FirstIdx, 2).                                     %% First field position in records
--define(KeyIdx, 2).                                       %% Key position in records
+% -define(RecIdx, 1).       %% Record name position in records
+% -define(FirstIdx, 2).     %% First field position in records
+-define(KeyIdx, 2).         %% Key position in records
 
+-define(EmptyJPStr, <<>>).  %% placeholder for JSON path pointing to the whole document (record position)    
+-define(EmptyJP, {}).       %% placeholder for compiled JSON path pointing to the whole document (record position)    
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
@@ -167,7 +170,7 @@
         , select/3          %% select with limit
         , select_sort/2
         , select_sort/3
-        , modify/7          %% parameterized insert/update/merge/remove
+        , modify/8          %% parameterized insert/update/merge/remove
         , insert/2          %% apply defaults, write row if key does not exist, apply trigger
         , insert/3          %% apply defaults, write row if key does not exist, apply trigger
         , update/2          %% apply defaults, write row if key exists, apply trigger (bags not supported)
@@ -414,6 +417,8 @@ dictionary_trigger(OldRec,NewRec,T,_User) when T==ddTable; T==ddAlias ->
             imem_cache:clear({?MODULE, trigger, S, TN});
         {_,_}  ->  %% update old rec (maybe fixing something)
             {S,TO} = element(2,OldRec),
+            %% ToDo: check for changed index definition
+            %% ToDo: rebuild index table if index definition changed
             imem_cache:clear({?MODULE, trigger, S, TO})
     end.
 
@@ -1570,10 +1575,21 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
     end.
 
 compiled_index_def(Def) ->
-    [D#ddIdxDef{vnf=imem_datatype:io_to_fun(Vnf,1)
-              ,iff=imem_datatype:io_to_fun(Iff,1)
-              %% ToDo: parse path list  [binary()] -> [tuple()]
-              } || #ddIdxDef{vnf=Vnf,iff=Iff}=D <- Def].
+    [D#ddIdxDef{ pl=compile_path_list(PL) 
+               , vnf=imem_datatype:io_to_fun(Vnf,1)
+               , iff=imem_datatype:io_to_fun(Iff,1)
+               } || #ddIdxDef{pl=PL,vnf=Vnf,iff=Iff}=D <- Def].
+
+compile_path_list([?EmptyJPStr]) -> [?EmptyJP];     %% shortcut 
+compile_path_list(PL) ->
+    [ compile_json_path(JsonPath) || JsonPath <- PL].     
+
+compile_json_path(?EmptyJPStr) -> ?EmptyJP;
+compile_json_path(JsonPath) -> 
+    case jpparse:parsetree(JsonPath) of
+        {ok,{ParseTree,_}} ->       ParseTree; 
+        [{parse_error,Reason}] ->   ?ClientError({"Cannot parse JSON path",Reason})
+    end.
 
 trigger_with_indexing(TFun,MF,Var) ->
     case re:run(TFun, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], binary}]) of
@@ -1994,7 +2010,7 @@ insert({_Schema,TableAlias}, Row, User) ->
     insert(TableAlias, Row, User);               %% ToDo: may depend on schema
 insert(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(insert, TableType, TableAlias, DefRec, Trigger, Row, User).
+    modify(insert, TableType, TableAlias, DefRec, Trigger, {}, Row, User).
 
 update(TableAlias, Row) ->
     update(TableAlias, Row, meta_field_value(user)).
@@ -2004,9 +2020,9 @@ update({ddSysConf,TableAlias}, _Row, _User) ->
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});    
 update({_Schema,TableAlias}, Row, User) ->
     update(TableAlias, Row, User);               %% ToDo: may depend on schema
-update(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+update(TableAlias, {ORow,NRow}, User) when is_atom(TableAlias), is_tuple(ORow), is_tuple(NRow) ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(update, TableType, TableAlias, DefRec, Trigger, Row, User).
+    modify(update, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User).
 
 merge(TableAlias, Row) ->
     merge(TableAlias, Row, meta_field_value(user)).
@@ -2018,7 +2034,7 @@ merge({_Schema,TableAlias}, Row, User) ->
     merge(TableAlias, Row, User);                %% ToDo: may depend on schema
 merge(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(merge, TableType, TableAlias, DefRec, Trigger, Row, User).
+    modify(merge, TableType, TableAlias, DefRec, Trigger, {}, Row, User).
 
 remove(TableAlias, Row) ->
     remove(TableAlias, Row, meta_field_value(user)).
@@ -2030,46 +2046,57 @@ remove({_Schema,TableAlias}, Row, User) ->
     remove(TableAlias, Row, User);               %% ToDo: may depend on schema
 remove(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(remove, TableType, TableAlias, DefRec, Trigger, Row, User).
+    modify(remove, TableType, TableAlias, DefRec, Trigger, Row, {}, User).
 
-modify(Operation, TableType, TableAlias, DefRec, Trigger, Row0, User) when is_atom(TableAlias), is_tuple(Row0) ->
-    Row1=apply_defaults(DefRec, Row0),
-    Row2=apply_validators(DefRec, Row1, TableAlias, User),
-    Key = element(?KeyIdx,Row2),
-    case ((TableAlias /= ddTable) and lists:member(?nav,tuple_to_list(Row2))) of
+modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when is_atom(TableAlias), is_tuple(ORow), is_tuple(NRow) ->
+    {Key,Row} = case {ORow,NRow} of  %% Old Key / New Row Value if in doubt
+        {{},{}} ->  ?ClientError({"Bad modify arguments, old and new rows are empty",Operation});
+        {_,{}} ->   {element(?KeyIdx,ORow),ORow};
+        {{},_} ->   DefaultedRow = apply_defaults(DefRec, NRow),
+                    {element(?KeyIdx,NRow),apply_validators(DefRec, DefaultedRow, TableAlias, User)};
+        {_,_} ->    DefaultedRow = apply_defaults(DefRec, NRow),
+                    {element(?KeyIdx,ORow),apply_validators(DefRec, DefaultedRow, TableAlias, User)}
+    end,
+    case ((TableAlias /= ddTable) and lists:member(?nav,tuple_to_list(Row))) of
         false ->
-            PTN = physical_table_name(TableAlias,Key),
+            PTN = physical_table_name(TableAlias,Key),  %% may refer to a partition (of the old key)
             Trans = fun() ->   
                 case {Operation, TableType, read(PTN,Key)} of     %% TODO: Wrap in single transaction
-                    {insert,bag,Bag} -> case lists:member(Row2,Bag) of  
-                                            true ->     ?ConcurrencyException({"Insert failed, object already exists", {PTN,Row2}});
-                                            false ->    write(PTN, Row2),
-                                                        Trigger({},Row2,PTN,User),
-                                                        Row2
+                    {insert,bag,Bag} -> case lists:member(Row,Bag) of  
+                                            true ->     ?ConcurrencyException({"Insert failed, object already exists", {PTN,Row}});
+                                            false ->    write(PTN, Row),
+                                                        Trigger({},Row,PTN,User),
+                                                        Row
                                         end;
-                    {insert,_,[]} ->    write(PTN, Row2),
-                                        Trigger({},Row2,TableAlias,User),
-                                        Row2;
+                    {insert,_,[]} ->    write(PTN, Row),
+                                        Trigger({},Row,TableAlias,User),
+                                        Row;
                     {insert,_,[R]} ->   ?ConcurrencyException({"Insert failed, key already exists in", {PTN,R}});
                     {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", TableAlias});
                     {update,_,[]} ->    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
-                    {update,_,[R]} ->   write(PTN, Row2),
-                                        Trigger(R,Row2,TableAlias,User),
-                                        Row2;
+                    {update,_,[R]} ->   case element(?KeyIdx,NRow) of
+                                            Key ->  write(PTN, Row);
+                                            OK ->   %% key has changed
+                                                    %% must evaluate new partition and delete old key
+                                                    write(physical_table_name(TableAlias,element(?KeyIdx,Row)), Row),
+                                                    delete(PTN,OK)
+                                        end,
+                                        Trigger(R,Row,TableAlias,User),
+                                        Row;
                     {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", TableAlias});
-                    {merge,_,[]} ->     write(PTN, Row2),
-                                        Trigger({},Row2,TableAlias,User),
-                                        Row2;
-                    {merge,_,[R]} ->    write(PTN, Row2),
-                                        Trigger(R,Row2,TableAlias,User),
-                                        Row2;
-                    {remove,bag,[]} ->  ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row2}});
+                    {merge,_,[]} ->     write(PTN, Row),
+                                        Trigger({},Row,TableAlias,User),
+                                        Row;
+                    {merge,_,[R]} ->    write(PTN, Row),
+                                        Trigger(R,Row,TableAlias,User),
+                                        Row;
+                    {remove,bag,[]} ->  ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row}});
                     {remove,_,[]} ->    ?ConcurrencyException({"Remove failed, key does not exist", {PTN,Key}});
-                    {remove,bag,Bag} -> case lists:member(Row2,Bag) of  
-                                            false ->    ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row2}});
-                                            true ->     delete_object(PTN, Row2),
-                                                        Trigger(Row2,{},PTN,User),
-                                                        Row2
+                    {remove,bag,Bag} -> case lists:member(Row,Bag) of  
+                                            false ->    ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row}});
+                                            true ->     delete_object(PTN, Row),
+                                                        Trigger(Row,{},PTN,User),
+                                                        Row
                                         end;
                     {remove,_,[R]} ->   delete(TableAlias, Key),
                                         Trigger(R,{},TableAlias,User),
@@ -2078,7 +2105,7 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, Row0, User) when is_at
             end,
             return_atomic(transaction(Trans));
         true ->     
-            ?ClientError({"Not null constraint violation", {TableAlias,Row2}})
+            ?ClientError({"Not null constraint violation", {TableAlias,Row}})
     end.
 
 
@@ -2130,38 +2157,63 @@ update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New, Trig, User]) ->
         true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
     end.
 
+decode_json(_, {}) -> {};
+decode_json([], Rec) -> Rec;
+decode_json([Pos|Rest], Rec) ->
+    Val = element(Pos,Rec),
+    Decoded = try imem_json:json_binary_decode(Val) catch _:_ -> ?nav end,
+    decode_json(Rest, setelement(Pos,Rec,Decoded)).
+
 update_index(_,_,_,_,[]) -> ok;
-update_index(Old,New,Table,User,IdxDef) -> 
-    ?LogDebug("update IdxDef~n~p",[IdxDef]),
-    update_index(Old,New,Table,User,IdxDef,[],[]). 
+update_index(Old,New,Table,User,IdxDef) ->
+    update_index(Old,New,Table,?INDEX_TABLE(Table),User,IdxDef).
 
-update_index(_Old,_New,_Table,_User,[],_Removes,_Inserts) ->
-    %% ToDo: implement execution of Removes and Inserts
-    ?LogDebug("update index table/rem/ins ~p~n~p~n~p",[_Table,_Removes,_Inserts]);
-update_index(Old,New,Table,User,[#ddIdxDef{type=Type,pos=Pos,pl=PL,vnf=Vnf,iff=Iff}|Defs],Removes,Inserts) ->
-    %% ToDo: implement calculation of Removes and Inserts
-    R = index_items(Old,Table,User,Type,Pos,PL,Vnf,Iff,[]),
-    I = index_items(New,Table,User,Type,Pos,PL,Vnf,Iff,[]),
-    %% ToDo: cancel Inserts against identical Removes
-    update_index(Old,New,Table,User,Defs,[R|Removes],[I|Inserts]).
-
-index_items({},_,_,_,_,_,_,_,[]) -> [];
-index_items(_,_,_,_,_,[],_,_,Changes) -> Changes;
-index_items(Rec,Table,User,Type,Pos,[P|PL],Vnf,Iff,Changes) ->
-    Key = element(?KeyIdx,Rec),
-    KVPs = case {P,element(Pos,Rec)} of
-        {<<>>,?nav} ->  
-            [];
-        {<<>>, RV} ->    
-            case Vnf(RV) of
-                ?nav -> [];
-                NVal -> [{Key,NVal}]
-            end;
-        _ ->  
-            ?UnimplementedException({"Json projection not supported yet",P})
+update_index(Old,New,Table,IndexTable,User,IdxDef) -> 
+    %% ?LogDebug("update IdxDef~n~p",[IdxDef]),
+    {OldJ,NewJ} = case lists:usort([ Pos || #ddIdxDef{pos=Pos,pl=PL} <- IdxDef, PL /= [?EmptyJP] ]) of
+        [] ->   {{},{}};                      %% json decoding is not needed
+        P ->    {decode_json(P,Old),decode_json(P,New)}     %% decode needed json fields
     end,
-    Ch = [{Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
-    index_items(Rec,Table,User,Type,Pos,PL,Vnf,Iff,[Ch|Changes]).
+    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,IdxDef,[],[]). 
+
+update_index(_Old,_New,_OldJ,_NewJ,_Table,IndexTable,_User,[],Removes,Inserts) ->
+    % ?LogDebug("update index table/Old/New ~p~n~p~n~p",[_Table,_Old,_New]),
+    % ?LogDebug("update index table/rem/ins ~p~n~p~n~p",[IndexTable,Removes,Inserts]),
+    imem_index:remove(IndexTable,Removes),
+    imem_index:insert(IndexTable,Inserts);
+update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,[#ddIdxDef{id=ID,type=Type,pos=Pos,pl=PL,vnf=Vnf,iff=Iff}|Defs],Removes0,Inserts0) ->
+    %% ToDo: implement calculation of Removes and Inserts
+    Rem = lists:usort(index_items(Old,OldJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,[])), 
+    Ins = lists:usort(index_items(New,NewJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,[])),
+    %% ToDo: cancel Inserts against identical Removes
+    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,Defs,Removes0++Rem,Inserts0++Ins).
+
+index_items({},_,_,_,_,_,_,_,_,_,[]) -> [];
+index_items(_,_,_,_,_,_,_,[],_,_,Changes) -> Changes;
+index_items(Rec,RecJ,Table,User,ID,Type,Pos,[?EmptyJP|PL],Vnf,Iff,Changes0) ->
+    Key = element(?KeyIdx,Rec),         %% index a field as a whole, no json path search
+    KVPs = case element(Pos,Rec) of
+        ?nav -> [];
+        RV ->   case Vnf(RV) of         %% apply value normalising function
+                    ?nav -> [];
+                    NVal -> [{Key,NVal}]
+                end
+    end,
+    Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)], %% apply index filter function
+    index_items(Rec,RecJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,Changes0 ++ Ch);
+index_items(Rec,{},Table,User,ID,Type,Pos,[_|PL],Vnf,Iff,Changes) ->
+    index_items(Rec,{},Table,User,ID,Type,Pos,PL,Vnf,Iff,Changes);
+index_items(Rec,RecJ,Table,User,ID,Type,Pos,[P|PL],Vnf,Iff,Changes0) ->
+    Key = element(?KeyIdx,RecJ),
+    KVPs = case element(Pos,RecJ) of
+        ?nav -> [];
+        RV ->   case imem_json:jpp_match(P,RV) of
+                    [] ->   [];
+                    ML ->   [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav]                 
+                end
+    end,
+    Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
+    index_items(Rec,RecJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,Changes0++Ch).
 
 transaction(Function) ->
     imem_if:transaction(Function).
@@ -2261,7 +2313,7 @@ meta_operations(_) ->
 
         ?Info("~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
-                    , #ddColumn{name=b1, type=string, len=20}    %% value 1
+                    , #ddColumn{name=b1, type=binstr, len=20}    %% value 1
                     , #ddColumn{name=c1, type=string, len=30}    %% value 2
                     ],
         Types2 =    [ #ddColumn{name=a, type=integer, len=10}    %% key
@@ -2294,7 +2346,18 @@ meta_operations(_) ->
         ?assertEqual([#ddIndex{stu={1,2,3}}], read(idx_meta_table_1)),
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx1Def])),
         ?assertEqual([], read(idx_meta_table_1)),
-        ?assertEqual({meta_table_1,"meta","table","1"}, insert(meta_table_1, {meta_table_1,"meta","table","1"})),
+        ?assertEqual(<<"table">>, imem_index:binstr_to_lcase_ascii(<<"täble"/utf8>>)),
+        ?assertEqual({meta_table_1,"meta",<<"täble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta",<<"täble"/utf8>>,"1"})),
+        ?assertEqual([{meta_table_1,"meta",<<"täble"/utf8>>,"1"}], read(meta_table_1)),
+        ?assertEqual([#ddIndex{stu={1,"meta",<<"table">>}}], read(idx_meta_table_1)),
+        ?Info("tuble ~p",[imem_index:binstr_to_lcase_ascii(<<"tüble"/utf8>>)]),
+        ?assertEqual(<<"tuble">>, imem_index:binstr_to_lcase_ascii(<<"tüble"/utf8>>)),
+        ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, update(meta_table_1, {{meta_table_1,"meta",<<"täble"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
+        ?assertEqual([{meta_table_1,"meta",<<"tüble"/utf8>>,"1"}], read(meta_table_1)),
+        ?assertEqual([#ddIndex{stu={1,"meta",<<"tuble">>}}], read(idx_meta_table_1)),
+        ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, remove(meta_table_1, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"})),
+        ?assertEqual([], read(meta_table_1)),
+        ?assertEqual([], read(idx_meta_table_1)),
 
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
@@ -2320,21 +2383,24 @@ meta_operations(_) ->
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
         ?assertEqual(LogCount3+2, table_size(?LOG_TABLE)),  %% error inserted one line
         ?Info("success ~p~n", [not_null_constraint]),
-        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, update(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav})),
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, update(meta_table_3, {{meta_table_3,{{2000,1,1},{12,45,55}},undefined},{meta_table_3,{{2000,01,01},{12,45,55}},?nav}})),
         ?assertEqual(1, table_size(meta_table_3)),
         ?assertEqual(LogCount3+3, table_size(?LOG_TABLE)),  %% trigger inserted one line 
         ?assertEqual({meta_table_3,{{2000,1,1},{12,45,56}},undefined}, merge(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
         ?assertEqual(2, table_size(meta_table_3)),
         ?assertEqual(LogCount3+4, table_size(?LOG_TABLE)),  %% trigger inserted one line 
-        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,56}},undefined}, remove(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},?nav})),
+        ?assertEqual({meta_table_3,{{2000,1,1},{12,45,56}},undefined}, remove(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,56}},undefined})),
         ?assertEqual(1, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% trigger inserted one line 
         ?assertEqual(ok, drop_trigger(meta_table_3)),
+        ?Info("meta_table_3 before update~n~p",[read(meta_table_3)]),
         Trans3 = fun() ->
-            update(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,55}},?nav}),
-            insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,57}},?nav})
+            %% key update
+            update(meta_table_3, {{meta_table_3,{{2000,01,01},{12,45,55}},undefined},{meta_table_3,{{2000,01,01},{12,45,56}},"alternative"}}),
+            insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,57}},?nav})         %% return last result only
         end,
         ?assertEqual({meta_table_3,{{2000,1,1},{12,45,57}},undefined}, return_atomic(transaction(Trans3))),
+        ?Info("meta_table_3 after update~n~p",[read(meta_table_3)]),
         ?assertEqual(2, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% no trigger, no more log  
 

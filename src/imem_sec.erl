@@ -1008,9 +1008,9 @@ test(_) ->
         ?Info("success ~p~n", [insert_own_table]),
         ?assertEqual({user_table_123,"AA","BB","CC"}, merge(SeCoUser, user_table_123, {user_table_123,"AA","BB","CC"})),
         ?assertEqual(2, table_size(SeCoUser, user_table_123)),
-        ?assertEqual({user_table_123,"AA","B0","CC"}, update(SeCoUser, user_table_123, {user_table_123,"AA","B0","CC"})),
+        ?assertEqual({user_table_123,"AA","B0","CC"}, update(SeCoUser, user_table_123, {{user_table_123,"AA","BB","CC"},{user_table_123,"AA","B0","CC"}})),
         ?assertEqual(2, table_size(SeCoUser, user_table_123)),
-        ?assertException(throw, {CoEx,{"Update failed, key does not exist",_ }}, update(SeCoUser, user_table_123, {user_table_123,"A0","B0","CC"})),    
+        ?assertException(throw, {CoEx,{"Update failed, key does not exist",{user_table_123,"A0"}}}, update(SeCoUser, user_table_123, {{user_table_123,"A0","B0","C0"},{user_table_123,"A0","B0","CC"}})),    
 
         ?assertEqual(2, table_size(SeCoUser, user_table_123)),
         ?Info("success ~p~n", [insert_own_table]),

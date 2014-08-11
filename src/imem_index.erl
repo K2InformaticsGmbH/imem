@@ -3,6 +3,7 @@
 
 %% @doc == imem INDEX operations ==
 
+-include("imem.hrl").
 -include("imem_meta.hrl").
 
 
@@ -20,10 +21,24 @@
          binstr_match_precompile/1
 		]).
 
--export([iff_true/2
+-export([remove/2       %% (IndexTable,Removes)
+        ,insert/2       %% (IndexTable,Inserts)
+        ]).
+
+-export([iff_true/1
         ]).
 
 -define(BIN_APP,binstr_append_placeholder).
+
+remove(_IndexTable,[]) -> ok;
+remove(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
+    imem_if:delete(IndexTable,{ID,Key,Value}),
+    remove(IndexTable,Items).
+
+insert(_IndexTable,[]) -> ok;
+insert(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
+    imem_if:write(IndexTable,#ddIndex{stu={ID,Key,Value}}),
+    insert(IndexTable,Items).
 
 binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
 binstr_to_lcase_ascii(B) when is_binary(B) -> 
@@ -387,7 +402,7 @@ binstr_match_precompile(Pattern) ->
     binary:compile_pattern(Pattern).
 
 
-iff_true(_,_) -> true.
+iff_true({_Key,_Value}) -> true.
 
     
 %% ===================================================================
@@ -395,6 +410,24 @@ iff_true(_,_) -> true.
 %% ===================================================================
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+setup() -> ok.
+
+teardown(_) -> ok.
+
+string_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+              fun string_operations/1
+        ]}}.    
+
+string_operations(_) ->
+    ?Info("---TEST---~p:string_operations~n", [?MODULE]),
+    ?assertEqual(<<"table">>, binstr_to_lcase_ascii(<<"täble"/utf8>>)),
+    ?assertEqual(<<"tuble">>, binstr_to_lcase_ascii(<<"tüble"/utf8>>)).
 
 binstr_accentfold_test_() ->
     %UpperCaseAcc = <<"À Á Â Ã Ä Å Æ Ç È É Ê Ë Ì Í Î Ï Ð Ñ Ò Ó Ô Õ Ö Ø Ù Ú Û Ü Ý Þ Ÿ Œ Š Ž"/utf8>>,
@@ -427,7 +460,9 @@ binstr_casemod_test_()->
 -define(TL,unicode:characters_to_list).
 binstr_to_lcase_ascii_test_() ->
     [{"empty",?_assertEqual(<<>>,binstr_to_lcase_ascii(<<"">>))},
-     {"from binary",?_assertEqual("aaaeee",?TL(binstr_to_lcase_ascii(<<"AÀäëéÈ"/utf8>>)))},
+     {"from binary0",?_assertEqual(<<"table">>,binstr_to_lcase_ascii(<<"täble"/utf8>>))},
+     {"from binary1",?_assertEqual(<<"tuble">>,binstr_to_lcase_ascii(<<"tüble"/utf8>>))},
+     {"from binary2",?_assertEqual("aaaeeeuu",?TL(binstr_to_lcase_ascii(<<"AÀäëéÈüÜ"/utf8>>)))},
      {"from list",?_assertEqual("aaaeee",?TL(binstr_to_lcase_ascii("AÀäëéÈ")))},
      {"from atom",?_assertEqual("atom",?TL(binstr_to_lcase_ascii(aTom)))},
      {"from tuple",?_assertEqual("{\"aaaeee\"}",?TL(binstr_to_lcase_ascii({"AÀäëéÈ"})))},
