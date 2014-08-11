@@ -25,12 +25,12 @@
                   , pos       :: integer()    %% record field to be indexed 1 = key (used maybe on set tables)
                   , type      :: ivk|iv_k|iv_kl|iv_h|ivvk|ivvvk %% Type of index
                   , pl      :: list(binary()) %% list of JSON path expressions as binstr (to be compiled)
-                  , vnf = <<"imem_index:binstr_to_lcase_ascii/1">> :: binary()    
+                  , vnf = <<"fun imem_index:binstr_to_lcase_ascii/1">> :: binary()    
                           %% value_normalising_fun(Value)  
                           %% applied to each value result of all path scans for given JSON document
                           %% return ?nav = '$not_a_value' if indexing is not wanted, otherwise let iff() decide
-                  , iff = <<"fun(_,_) -> true end">> :: binary()    
-                          %% boolean index_filter_fun(Key,Value) for the inclusion/exclusion of indexes
+                  , iff = <<"fun imem_index:iff_true/1">> :: binary()    
+                          %% boolean index_filter_fun({Key,Value}) for the inclusion/exclusion of indexes
                           %% applied to each result of all path scans for given JSON document
                   }     
        ).

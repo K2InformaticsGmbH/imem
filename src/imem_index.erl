@@ -20,6 +20,9 @@
          binstr_match_precompile/1
 		]).
 
+-export([iff_true/2
+        ]).
+
 -define(BIN_APP,binstr_append_placeholder).
 
 binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
@@ -382,6 +385,9 @@ binstr_match_sub(Subject,Start,Length,Pattern) when is_list(Pattern) ->
 
 binstr_match_precompile(Pattern) ->
     binary:compile_pattern(Pattern).
+
+
+iff_true(_,_) -> true.
 
     
 %% ===================================================================

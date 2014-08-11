@@ -1551,7 +1551,7 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
                     DefRec = [RecordName|column_info_items(ColumnInfos, default_fun)],
                     IdxDef = case lists:keyfind(index,1,Opts) of
                         false ->    [];
-                        {_,Def} ->  Def
+                        {_,Def} ->  compiled_index_def(Def)
                     end,
                     Trigger = case {IdxDef,lists:keyfind(trigger,1,Opts)} of
                         {[],false} ->   fun(_Old,_New,_Tab,_User) -> ok end;
@@ -1568,6 +1568,12 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
         [{TT, DR, TR}] ->
             {TT, DR, TR}
     end.
+
+compiled_index_def(Def) ->
+    [D#ddIdxDef{vnf=imem_datatype:io_to_fun(Vnf,1)
+              ,iff=imem_datatype:io_to_fun(Iff,1)
+              %% ToDo: parse path list  [binary()] -> [tuple()]
+              } || #ddIdxDef{vnf=Vnf,iff=Iff}=D <- Def].
 
 trigger_with_indexing(TFun,MF,Var) ->
     case re:run(TFun, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], binary}]) of
@@ -2126,14 +2132,36 @@ update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New, Trig, User]) ->
 
 update_index(_,_,_,_,[]) -> ok;
 update_index(Old,New,Table,User,IdxDef) -> 
+    ?LogDebug("update IdxDef~n~p",[IdxDef]),
     update_index(Old,New,Table,User,IdxDef,[],[]). 
 
 update_index(_Old,_New,_Table,_User,[],_Removes,_Inserts) ->
     %% ToDo: implement execution of Removes and Inserts
     ?LogDebug("update index table/rem/ins ~p~n~p~n~p",[_Table,_Removes,_Inserts]);
-update_index(Old,New,Table,User,[_IdxDef|Defs],Removes,Inserts) ->
+update_index(Old,New,Table,User,[#ddIdxDef{type=Type,pos=Pos,pl=PL,vnf=Vnf,iff=Iff}|Defs],Removes,Inserts) ->
     %% ToDo: implement calculation of Removes and Inserts
-    update_index(Old,New,Table,User,Defs,Removes,Inserts).
+    R = index_items(Old,Table,User,Type,Pos,PL,Vnf,Iff,[]),
+    I = index_items(New,Table,User,Type,Pos,PL,Vnf,Iff,[]),
+    %% ToDo: cancel Inserts against identical Removes
+    update_index(Old,New,Table,User,Defs,[R|Removes],[I|Inserts]).
+
+index_items({},_,_,_,_,_,_,_,[]) -> [];
+index_items(_,_,_,_,_,[],_,_,Changes) -> Changes;
+index_items(Rec,Table,User,Type,Pos,[P|PL],Vnf,Iff,Changes) ->
+    Key = element(?KeyIdx,Rec),
+    KVPs = case {P,element(Pos,Rec)} of
+        {<<>>,?nav} ->  
+            [];
+        {<<>>, RV} ->    
+            case Vnf(RV) of
+                ?nav -> [];
+                NVal -> [{Key,NVal}]
+            end;
+        _ ->  
+            ?UnimplementedException({"Json projection not supported yet",P})
+    end,
+    Ch = [{Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
+    index_items(Rec,Table,User,Type,Pos,PL,Vnf,Iff,[Ch|Changes]).
 
 transaction(Function) ->
     imem_if:transaction(Function).
@@ -2252,9 +2280,9 @@ meta_operations(_) ->
                     , #ddColumn{name=a, type=iinteger, len=10}
                     ],
 
-        ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         Idx1Def = #ddIdxDef{id=1,name= <<"string index on b1">>,pos=3,type=ivk,pl=[<<"">>]},
-        ?assertEqual(ok, create_index(meta_table_1, [Idx1Def])),
+        ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
+        ?assertEqual(ok, create_index(meta_table_1, [])),
         ?assertEqual(ok, check_table(idx_meta_table_1)),
         ?Info("ddTable  for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
         ?assertEqual(ok, drop_index(meta_table_1)),
@@ -2264,8 +2292,9 @@ meta_operations(_) ->
         ?assertEqual([], read(idx_meta_table_1)),
         ?assertEqual(ok, write(idx_meta_table_1, #ddIndex{stu={1,2,3}})),
         ?assertEqual([#ddIndex{stu={1,2,3}}], read(idx_meta_table_1)),
-        ?assertEqual(ok, create_or_replace_index(meta_table_1, [])),
+        ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx1Def])),
         ?assertEqual([], read(idx_meta_table_1)),
+        ?assertEqual({meta_table_1,"meta","table","1"}, insert(meta_table_1, {meta_table_1,"meta","table","1"})),
 
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
