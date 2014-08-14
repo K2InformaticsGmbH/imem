@@ -22,9 +22,8 @@
 -record(ddIdxDef, %% record definition for index definition              
                   { id      :: integer()    %% index id within the table
                   , name    :: binary()     %% name of the index
-                  , pos       :: integer()    %% record field to be indexed 1 = key (used maybe on set tables)
-                  , type      :: ivk|iv_k|iv_kl|iv_h|ivvk|ivvvk %% Type of index
-                  , pl      :: list(binary()) %% list of JSON path expressions as binstr (to be compiled)
+                  , type    :: ivk|iv_k|iv_kl|iv_h|ivvk|ivvvk %% Type of index
+                  , pl=[]   :: list()       %% list of JSON path expressions as binstr/compiled to term
                   , vnf = <<"fun imem_index:binstr_to_lcase_ascii/1">> :: binary()    
                           %% value_normalising_fun(Value)  
                           %% applied to each value result of all path scans for given JSON document
@@ -32,6 +31,12 @@
                   , iff = <<"fun imem_index:iff_true/1">> :: binary()    
                           %% boolean index_filter_fun({Key,Value}) for the inclusion/exclusion of indexes
                           %% applied to each result of all path scans for given JSON document
+                  }     
+       ).
+
+-record(ddIdxPlan, %% record definition plan, combining all index definitions for a table              
+                  { def=[]    :: list(#ddIdxDef{})  %% index definitions
+                  , jpos=[]   :: list(integer())    %% record positions needing JSON decoding
                   }     
        ).
 

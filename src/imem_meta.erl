@@ -42,7 +42,7 @@
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
 % -define(RecIdx, 1).       %% Record name position in records
-% -define(FirstIdx, 2).     %% First field position in records
+-define(FirstIdx, 2).       %% First field position in records (matching to hd(ColumnInfos))
 -define(KeyIdx, 2).         %% Key position in records
 
 -define(EmptyJPStr, <<>>).  %% placeholder for JSON path pointing to the whole document (record position)    
@@ -1554,16 +1554,19 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
                         {_,Name} -> Name
                     end,
                     DefRec = [RecordName|column_info_items(ColumnInfos, default_fun)],
-                    IdxDef = case lists:keyfind(index,1,Opts) of
-                        false ->    [];
-                        {_,Def} ->  compiled_index_def(Def)
+                    IdxPlan = case lists:keyfind(index,1,Opts) of
+                        false ->    #ddIdxPlan{};
+                        {_,Def} ->  compiled_index_plan(Def,ColumnInfos)
                     end,
-                    Trigger = case {IdxDef,lists:keyfind(trigger,1,Opts)} of
-                        {[],false} ->   fun(_Old,_New,_Tab,_User) -> ok end;
-                        {_,false} ->    fun(Old,New,Tab,User) -> imem_meta:update_index(Old,New,Tab,User,IdxDef) end;
-                        {_,{_,TFun}} -> 
-                            TriggerWithIndexing = trigger_with_indexing(TFun,<<"imem_meta:update_index">>,<<"IdxDef">>),
-                            imem_datatype:io_to_fun(TriggerWithIndexing,undefined,[{'IdxDef',IdxDef}])
+                    ?Info("IdxPlan ~n~p",[IdxPlan]),
+                    Trigger = case {IdxPlan,lists:keyfind(trigger,1,Opts)} of
+                        {#ddIdxPlan{},false} ->     %% no trigger actions needed
+                            fun(_Old,_New,_Tab,_User) -> ok end;
+                        {_,false} ->                %% only index maintenance trigger needed
+                            fun(Old,New,Tab,User) -> imem_meta:update_index(Old,New,Tab,User,IdxPlan) end;
+                        {_,{_,TFun}} ->             %% custom trigger and index maintenance needed
+                            TriggerWithIndexing = trigger_with_indexing(TFun,<<"imem_meta:update_index">>,<<"IdxPlan">>),
+                            imem_datatype:io_to_fun(TriggerWithIndexing,undefined,[{'IdxPlan',IdxPlan}])
                     end,
                     Result = {TableType, DefRec, Trigger},
                     imem_cache:write(Key,Result),
@@ -1574,21 +1577,43 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
             {TT, DR, TR}
     end.
 
-compiled_index_def(Def) ->
-    [D#ddIdxDef{ pl=compile_path_list(PL) 
-               , vnf=imem_datatype:io_to_fun(Vnf,1)
-               , iff=imem_datatype:io_to_fun(Iff,1)
-               } || #ddIdxDef{pl=PL,vnf=Vnf,iff=Iff}=D <- Def].
+compiled_index_plan(IdxDef,ColumnInfos) ->
+    FieldMap = [ {list_to_binary(atom_to_list(Name)),Pos+?FirstIdx-1} 
+                 || {#ddColumn{name=Name},Pos} <- lists:zip(ColumnInfos,lists:seq(1,length(ColumnInfos)))
+               ],
+    ?Info("FieldMap ~n~p",[FieldMap]),
+    Def = [D#ddIdxDef{ pl=compile_path_list(PL,FieldMap) 
+                     , vnf=imem_datatype:io_to_fun(Vnf,1)
+                     , iff=imem_datatype:io_to_fun(Iff,1)
+                     } 
+           || #ddIdxDef{pl=PL,vnf=Vnf,iff=Iff}=D <- IdxDef
+          ],
+    JPos = lists:usort(lists:flatten([json_pos_list(PL) || #ddIdxDef{pl=PL} <- Def])),
+    #ddIdxPlan{def=Def,jpos=JPos}.
 
-compile_path_list([?EmptyJPStr]) -> [?EmptyJP];     %% shortcut 
-compile_path_list(PL) ->
-    [ compile_json_path(JsonPath) || JsonPath <- PL].     
+json_pos_list(PathList) -> 
+    json_pos_list(PathList,[]).
 
-compile_json_path(?EmptyJPStr) -> ?EmptyJP;
-compile_json_path(JsonPath) -> 
+json_pos_list([],Acc) -> Acc;
+json_pos_list([{':',[Pos|_]}|Rest],Acc) -> json_pos_list(Rest,[Pos|Acc]);
+json_pos_list([_|Rest],Acc) ->  json_pos_list(Rest,Acc).
+
+compile_path_list(PL,FieldMap) ->
+    [ compile_json_path(JsonPath,FieldMap) || JsonPath <- PL].     
+
+compile_json_path(JsonPath,FieldMap) -> 
     case jpparse:parsetree(JsonPath) of
-        {ok,{ParseTree,_}} ->       ParseTree; 
-        [{parse_error,Reason}] ->   ?ClientError({"Cannot parse JSON path",Reason})
+        {ok,{ParseTreeBinary,_}} when is_binary(ParseTreeBinary) ->       
+            case lists:keyfind(ParseTreeBinary,1,FieldMap) of
+                false ->    ?ClientError({"Unknown column name",ParseTreeBinary});
+                {_,Pos} ->  Pos             %% represent field as record index (integer)
+            end;     
+        {ok,{{':',[H|R]},_}} when is_binary(H) ->
+            case lists:keyfind(H,1,FieldMap) of
+                false ->    ?ClientError({"Unknown JSON document name",H});
+                {_,Pos} ->  {':',[Pos|R]}   %% replace JSON document name with integer position in record
+            end;     
+        [{parse_error,Reason}] ->   ?ClientError({"Cannot parse JSON path",{JsonPath,Reason}})
     end.
 
 trigger_with_indexing(TFun,MF,Var) ->
@@ -2164,33 +2189,29 @@ decode_json([Pos|Rest], Rec) ->
     Decoded = try imem_json:json_binary_decode(Val) catch _:_ -> ?nav end,
     decode_json(Rest, setelement(Pos,Rec,Decoded)).
 
-update_index(_,_,_,_,[]) -> ok;
-update_index(Old,New,Table,User,IdxDef) ->
-    update_index(Old,New,Table,?INDEX_TABLE(Table),User,IdxDef).
+update_index(_,_,_,_,#ddIdxPlan{}) -> ok;   %% no index on this table
+update_index(Old,New,Table,User,IdxPlan) ->
+    update_index(Old,New,Table,?INDEX_TABLE(Table),User,IdxPlan).
 
-update_index(Old,New,Table,IndexTable,User,IdxDef) -> 
-    %% ?LogDebug("update IdxDef~n~p",[IdxDef]),
-    {OldJ,NewJ} = case lists:usort([ Pos || #ddIdxDef{pos=Pos,pl=PL} <- IdxDef, PL /= [?EmptyJP] ]) of
-        [] ->   {{},{}};                      %% json decoding is not needed
-        P ->    {decode_json(P,Old),decode_json(P,New)}     %% decode needed json fields
-    end,
-    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,IdxDef,[],[]). 
+update_index(Old,New,Table,IndexTable,User,IdxPlan) -> 
+    OldJ = decode_json(IdxPlan#ddIdxPlan.jpos,Old),
+    NewJ = decode_json(IdxPlan#ddIdxPlan.jpos,New),
+    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,IdxPlan#ddIdxPlan.def,[],[]). 
 
 update_index(_Old,_New,_OldJ,_NewJ,_Table,IndexTable,_User,[],Removes,Inserts) ->
     % ?LogDebug("update index table/Old/New ~p~n~p~n~p",[_Table,_Old,_New]),
     % ?LogDebug("update index table/rem/ins ~p~n~p~n~p",[IndexTable,Removes,Inserts]),
     imem_index:remove(IndexTable,Removes),
     imem_index:insert(IndexTable,Inserts);
-update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,[#ddIdxDef{id=ID,type=Type,pos=Pos,pl=PL,vnf=Vnf,iff=Iff}|Defs],Removes0,Inserts0) ->
-    %% ToDo: implement calculation of Removes and Inserts
-    Rem = lists:usort(index_items(Old,OldJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,[])), 
-    Ins = lists:usort(index_items(New,NewJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,[])),
+update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,[#ddIdxDef{id=ID,type=Type,pl=PL,vnf=Vnf,iff=Iff}|Defs],Removes0,Inserts0) ->
+    Rem = lists:usort(index_items(Old,OldJ,Table,User,ID,Type,PL,Vnf,Iff,[])), 
+    Ins = lists:usort(index_items(New,NewJ,Table,User,ID,Type,PL,Vnf,Iff,[])),
     %% ToDo: cancel Inserts against identical Removes
     update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,Defs,Removes0++Rem,Inserts0++Ins).
 
-index_items({},_,_,_,_,_,_,_,_,_,[]) -> [];
-index_items(_,_,_,_,_,_,_,[],_,_,Changes) -> Changes;
-index_items(Rec,RecJ,Table,User,ID,Type,Pos,[?EmptyJP|PL],Vnf,Iff,Changes0) ->
+index_items({},_,_,_,_,_,_,_,_,[]) -> [];
+index_items(_,_,_,_,_,_,[],_,_,Changes) -> Changes;
+index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integer(Pos) ->
     Key = element(?KeyIdx,Rec),         %% index a field as a whole, no json path search
     KVPs = case element(Pos,Rec) of
         ?nav -> [];
@@ -2200,20 +2221,20 @@ index_items(Rec,RecJ,Table,User,ID,Type,Pos,[?EmptyJP|PL],Vnf,Iff,Changes0) ->
                 end
     end,
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)], %% apply index filter function
-    index_items(Rec,RecJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,Changes0 ++ Ch);
-index_items(Rec,{},Table,User,ID,Type,Pos,[_|PL],Vnf,Iff,Changes) ->
-    index_items(Rec,{},Table,User,ID,Type,Pos,PL,Vnf,Iff,Changes);
-index_items(Rec,RecJ,Table,User,ID,Type,Pos,[P|PL],Vnf,Iff,Changes0) ->
+    index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0 ++ Ch);
+index_items(Rec,{},Table,User,ID,Type,[_|PL],Vnf,Iff,Changes) ->
+    index_items(Rec,{},Table,User,ID,Type,PL,Vnf,Iff,Changes);
+index_items(Rec,RecJ,Table,User,ID,Type,[{':',[Pos|P]}|PL],Vnf,Iff,Changes0) ->
     Key = element(?KeyIdx,RecJ),
     KVPs = case element(Pos,RecJ) of
         ?nav -> [];
-        RV ->   case imem_json:jpp_match(P,RV) of
+        RV ->   case imem_json:jpp_match({':',P},RV) of
                     [] ->   [];
                     ML ->   [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav]                 
                 end
     end,
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
-    index_items(Rec,RecJ,Table,User,ID,Type,Pos,PL,Vnf,Iff,Changes0++Ch).
+    index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch).
 
 transaction(Function) ->
     imem_if:transaction(Function).
@@ -2332,7 +2353,7 @@ meta_operations(_) ->
                     , #ddColumn{name=a, type=iinteger, len=10}
                     ],
 
-        Idx1Def = #ddIdxDef{id=1,name= <<"string index on b1">>,pos=3,type=ivk,pl=[<<"">>]},
+        Idx1Def = #ddIdxDef{id=1,name= <<"string index on b1">>,type=ivk,pl=[<<"b1">>]},
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_index(meta_table_1, [])),
         ?assertEqual(ok, check_table(idx_meta_table_1)),
