@@ -32,12 +32,23 @@
 
 remove(_IndexTable,[]) -> ok;
 remove(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
-    imem_if:delete(IndexTable,{ID,Key,Value}),
+    imem_if:delete(IndexTable,{ID,Value,Key}),
+    remove(IndexTable,Items);
+    %ToDo: implement iv_kl, iv_h, ...
+remove(IndexTable,[{ID,iv_k,_,Value}|Items]) ->
+    imem_if:delete(IndexTable,{ID,Value}),
     remove(IndexTable,Items).
 
 insert(_IndexTable,[]) -> ok;
 insert(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
-    imem_if:write(IndexTable,#ddIndex{stu={ID,Key,Value}}),
+    imem_if:write(IndexTable,#ddIndex{stu={ID,Value,Key}}),
+    insert(IndexTable,Items);
+    %ToDo: implement iv_kl, iv_h, ...
+insert(IndexTable,[{ID,iv_k,Key,Value}|Items]) ->
+    case imem_if:read(IndexTable,{ID,Value}) of
+        [] ->                   imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=Key});
+        [#ddIndex{lnk=K0}] ->   ?ClientError({"Unique index violation",{IndexTable,ID,Value,K0}})
+    end,
     insert(IndexTable,Items).
 
 binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 

@@ -39,6 +39,7 @@
          project/2,     %% Create a projection of a json document based on paths
          match/2,       %% Check if a data object matches a json path (using jpparse)
          jpp_match/2    %% Match a jpparse syntax tree to a json document and extract the values
+         ,json_binary_decode/1
          ]).
 
 %TODO: custom output format:

@@ -207,6 +207,7 @@
 -export([ fetch_start/5
         , update_tables/2
         , update_index/5            %% (Old,New,Tab,User,IdxDef)   
+        , fill_index/2              %% (Table,IndexDefinition)
         , update_bound_counter/6
         , subscribe/1
         , unsubscribe/1
@@ -869,7 +870,8 @@ create_or_replace_index({Schema,Table},IndexDefinition) when is_list(IndexDefini
     end;
 create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
     % ?LogDebug("Create index ~p~n~p",[Table,IndexDefinition]),
-    case read(ddTable,{schema(), Table}) of
+    Schema = schema(),
+    case read(ddTable,{Schema, Table}) of
         [#ddTable{}=D] -> 
             Opts = lists:keydelete(index, 1, D#ddTable.opts) ++ [{index,IndexDefinition}],
             IndexTable = ?INDEX_TABLE(Table),
@@ -878,9 +880,9 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
                     Trans = fun() ->
                         lock({table, Table}, write),
                         write(ddTable, D#ddTable{opts=Opts}),                       
-                        imem_cache:clear({?MODULE, trigger, schema(), Table}),
-                        imem_if:truncate_table(IndexTable)
-                        %% ToDo: fold through Table and insert index rows
+                        imem_cache:clear({?MODULE, trigger, Schema, Table}),
+                        imem_if:truncate_table(IndexTable),
+                        fill_index(Table,IndexDefinition)
                     end,
                     return_atomic_ok(transaction(Trans));
                 _ ->
@@ -888,13 +890,24 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
                     Trans = fun() ->
                         lock({table, Table}, write),
                         write(ddTable, D#ddTable{opts=Opts}),                       
-                        imem_cache:clear({?MODULE, trigger, schema(), Table})
-                        %% ToDo: fold through Table and insert index rows
+                        imem_cache:clear({?MODULE, trigger, Schema, Table}),
+                        fill_index(Table,IndexDefinition)
                     end,
                     return_atomic_ok(transaction(Trans))
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
+    end.
+
+fill_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
+    Schema = schema(),
+    case imem_if:read(ddTable,{Schema, Table}) of
+        [] ->
+            ?ClientError({"Table does not exist",{Schema, Table}}); 
+        [#ddTable{columns=ColumnInfos}] ->
+            IdxPlan = compiled_index_plan(IndexDefinition,ColumnInfos),
+            FoldFun = fun(Row,_) -> imem_meta:update_index({},Row,Table,system,IdxPlan),ok end,
+            foldl(FoldFun, ok, Table)
     end.
 
 drop_index({Schema,Table}) ->
@@ -1558,9 +1571,8 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
                         false ->    #ddIdxPlan{};
                         {_,Def} ->  compiled_index_plan(Def,ColumnInfos)
                     end,
-                    ?Info("IdxPlan ~n~p",[IdxPlan]),
                     Trigger = case {IdxPlan,lists:keyfind(trigger,1,Opts)} of
-                        {#ddIdxPlan{},false} ->     %% no trigger actions needed
+                        {#ddIdxPlan{def=[]},false} ->     %% no trigger actions needed
                             fun(_Old,_New,_Tab,_User) -> ok end;
                         {_,false} ->                %% only index maintenance trigger needed
                             fun(Old,New,Tab,User) -> imem_meta:update_index(Old,New,Tab,User,IdxPlan) end;
@@ -1581,7 +1593,7 @@ compiled_index_plan(IdxDef,ColumnInfos) ->
     FieldMap = [ {list_to_binary(atom_to_list(Name)),Pos+?FirstIdx-1} 
                  || {#ddColumn{name=Name},Pos} <- lists:zip(ColumnInfos,lists:seq(1,length(ColumnInfos)))
                ],
-    ?Info("FieldMap ~n~p",[FieldMap]),
+    % ?Info("FieldMap ~n~p",[FieldMap]),
     Def = [D#ddIdxDef{ pl=compile_path_list(PL,FieldMap) 
                      , vnf=imem_datatype:io_to_fun(Vnf,1)
                      , iff=imem_datatype:io_to_fun(Iff,1)
@@ -1601,11 +1613,16 @@ json_pos_list([_|Rest],Acc) ->  json_pos_list(Rest,Acc).
 compile_path_list(PL,FieldMap) ->
     [ compile_json_path(JsonPath,FieldMap) || JsonPath <- PL].     
 
-compile_json_path(JsonPath,FieldMap) -> 
+compile_json_path(JsonPath,FieldMap) ->
     case jpparse:parsetree(JsonPath) of
         {ok,{ParseTreeBinary,_}} when is_binary(ParseTreeBinary) ->       
             case lists:keyfind(ParseTreeBinary,1,FieldMap) of
                 false ->    ?ClientError({"Unknown column name",ParseTreeBinary});
+                {_,Pos} ->  Pos             %% represent field as record index (integer)
+            end;     
+        {ok,{{':',[H]},_}} when is_binary(H) ->
+            case lists:keyfind(H,1,FieldMap) of
+                false ->    ?ClientError({"Unknown JSON document name",H});
                 {_,Pos} ->  Pos             %% represent field as record index (integer)
             end;     
         {ok,{{':',[H|R]},_}} when is_binary(H) ->
@@ -2186,11 +2203,16 @@ decode_json(_, {}) -> {};
 decode_json([], Rec) -> Rec;
 decode_json([Pos|Rest], Rec) ->
     Val = element(Pos,Rec),
+    % ?Info("decode_json Val ~p",[Val]),
     Decoded = try imem_json:json_binary_decode(Val) catch _:_ -> ?nav end,
+    % ?Info("decode_json Decoded ~p",[Decoded]),
     decode_json(Rest, setelement(Pos,Rec,Decoded)).
 
-update_index(_,_,_,_,#ddIdxPlan{}) -> ok;   %% no index on this table
+update_index(_,_,_,_,#ddIdxPlan{def=[]}) -> 
+    % ?LogDebug("update_index IdxPlan ~p",[#ddIdxPlan{def=[]}]),
+    ok;   %% no index on this table
 update_index(Old,New,Table,User,IdxPlan) ->
+    % ?LogDebug("IdxPlan ~p",[IdxPlan]),
     update_index(Old,New,Table,?INDEX_TABLE(Table),User,IdxPlan).
 
 update_index(Old,New,Table,IndexTable,User,IdxPlan) -> 
@@ -2225,14 +2247,22 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
 index_items(Rec,{},Table,User,ID,Type,[_|PL],Vnf,Iff,Changes) ->
     index_items(Rec,{},Table,User,ID,Type,PL,Vnf,Iff,Changes);
 index_items(Rec,RecJ,Table,User,ID,Type,[{':',[Pos|P]}|PL],Vnf,Iff,Changes0) ->
+    % ?Info("index_items RecJ ~p",[RecJ]),
+    % ?Info("index_items3 ~p",[{':',[Pos|P]}]),
     Key = element(?KeyIdx,RecJ),
     KVPs = case element(Pos,RecJ) of
         ?nav -> [];
-        RV ->   case imem_json:jpp_match({':',P},RV) of
-                    [] ->   [];
-                    ML ->   [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav]                 
+        RV ->   % ?Info("index_items json RV ~p",[RV]),
+                Match = imem_json:jpp_match({':',P},RV),
+                % ?Info("index_items json Match ~p",[Match]),
+                case Match of
+                    nomatch ->                  [];
+                    [] ->                       [];
+                    MV when is_binary(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];
+                    ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav]                 
                 end
     end,
+    ?Info("index_items KVPs ~p",[KVPs]),
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
     index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch).
 
@@ -2357,7 +2387,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_index(meta_table_1, [])),
         ?assertEqual(ok, check_table(idx_meta_table_1)),
-        ?Info("ddTable  for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
+        ?Info("ddTable for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
         ?assertEqual(ok, drop_index(meta_table_1)),
         ?assertException(throw, {'ClientError',{"Table does not exist",idx_meta_table_1}}, check_table(idx_meta_table_1)),
         ?assertEqual(ok, create_index(meta_table_1, [])),
@@ -2370,15 +2400,54 @@ meta_operations(_) ->
         ?assertEqual(<<"table">>, imem_index:binstr_to_lcase_ascii(<<"täble"/utf8>>)),
         ?assertEqual({meta_table_1,"meta",<<"täble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta",<<"täble"/utf8>>,"1"})),
         ?assertEqual([{meta_table_1,"meta",<<"täble"/utf8>>,"1"}], read(meta_table_1)),
-        ?assertEqual([#ddIndex{stu={1,"meta",<<"table">>}}], read(idx_meta_table_1)),
-        ?Info("tuble ~p",[imem_index:binstr_to_lcase_ascii(<<"tüble"/utf8>>)]),
+        ?assertEqual([#ddIndex{stu={1,<<"table">>,"meta"}}], read(idx_meta_table_1)),
         ?assertEqual(<<"tuble">>, imem_index:binstr_to_lcase_ascii(<<"tüble"/utf8>>)),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, update(meta_table_1, {{meta_table_1,"meta",<<"täble"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
         ?assertEqual([{meta_table_1,"meta",<<"tüble"/utf8>>,"1"}], read(meta_table_1)),
-        ?assertEqual([#ddIndex{stu={1,"meta",<<"tuble">>}}], read(idx_meta_table_1)),
+        ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
+        ?assertEqual(ok, drop_index(meta_table_1)),
+        ?assertEqual(ok, create_index(meta_table_1, [Idx1Def])),
+        ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, remove(meta_table_1, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"})),
         ?assertEqual([], read(meta_table_1)),
         ?assertEqual([], read(idx_meta_table_1)),
+        Idx2Def = #ddIdxDef{id=2,name= <<"unique string index on b1">>,type=iv_k,pl=[<<"b1">>]},
+        ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx2Def])),
+        ?assertEqual({meta_table_1,"meta",<<"täble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta",<<"täble"/utf8>>,"1"})),
+        ?assertEqual(1, length(read(meta_table_1))),
+        ?assertEqual(1, length(read(idx_meta_table_1))),
+        ?assertEqual({meta_table_1,"meta1",<<"tüble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta1",<<"tüble"/utf8>>,"1"})),
+        ?assertEqual(2, length(read(meta_table_1))),
+        ?assertEqual(2, length(read(idx_meta_table_1))),
+        ?assertException(throw,{'ClientError',{"Unique index violation",{idx_meta_table_1,2,<<"table">>,"meta"}}}, insert(meta_table_1, {meta_table_1,"meta2",<<"table"/utf8>>,"1"})),
+        ?assertEqual(2, length(read(meta_table_1))),
+        ?assertEqual(2, length(read(idx_meta_table_1))),
+        Idx3Def = #ddIdxDef{id=1,name= <<"json index on b1:b">>,type=ivk,pl=[<<"b1:b">>,<<"b1:c:a">>]},
+        ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx3Def])),
+        ?assertEqual(2, length(read(meta_table_1))),
+        ?assertEqual(0, length(read(idx_meta_table_1))),
+        JSON1 =  <<"{\"a\":\"Value-a\",\"b\":\"Value-b\",\"c\":{\"a\":\"Value-ca\",\"b\":\"Value-cb\"}}">>,
+        % {
+        %     "a": "Value-a",
+        %     "b": "Value-b",
+        %     "c": {
+        %         "a": "Value-ca",
+        %         "b": "Value-cb"
+        %     }
+        % }
+        PROP1 = [{<<"a">>,<<"Value-a">>}
+                ,{<<"b">>,<<"Value-b">>}
+                ,{<<"c">>, [
+                            {<<"a">>,<<"Value-ca">>}
+                           ,{<<"b">>,<<"Value-cb">>}
+                           ]
+                 }
+                ],
+        ?assertEqual(PROP1,imem_json:json_binary_decode(JSON1)),        
+        ?assertEqual({meta_table_1,"json1",JSON1,"1"}, insert(meta_table_1, {meta_table_1,"json1",JSON1,"1"})),
+        ?assertEqual([#ddIndex{stu={1, <<"value-b">>,"json1"}}
+                     ,#ddIndex{stu={1, <<"value-ca">>,"json1"}}
+                     ], read(idx_meta_table_1)),
 
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 

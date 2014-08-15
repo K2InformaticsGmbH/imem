@@ -30,6 +30,7 @@ start() ->
     application:start(asn1),
     application:start(public_key),
     application:start(ssl),
+    application:start(jsx),
     config_if_lager(),
     application:start(?MODULE).
 
