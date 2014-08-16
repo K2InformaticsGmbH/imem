@@ -219,8 +219,14 @@
         , return_atomic_list/1
         , return_atomic_ok/1
         , return_atomic/1
-        , foldl/3
         , lock/2
+        ]).
+
+-export([ first/1
+        , next/2
+        , last/1
+        , prev/2
+        , foldl/3
         ]).
 
 -export([ simple_or_local_node_sharded_tables/1]).
@@ -2283,6 +2289,14 @@ return_atomic_ok(Result) ->
 
 return_atomic(Result) -> 
     imem_if:return_atomic(Result).
+
+first(Table) ->     imem_if:first(Table).
+
+next(Table,Key) ->  imem_if:next(Table,Key).
+
+last(Table) ->      imem_if:last(Table).
+
+prev(Table,Key) ->  imem_if:prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->  
     imem_if:foldl(FoldFun, InputAcc, Table).

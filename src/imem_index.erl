@@ -6,35 +6,55 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
-
--export([binstr_to_lcase_ascii/1,
-
-         binstr_accentfold/1,
-         binstr_to_lower/1,
-         binstr_to_upper/1,
-         binstr_only_ascii/1, binstr_only_ascii/2,
-         binstr_only_valid/1, binstr_only_valid/2,
-         binstr_only_latin1/1, binstr_only_latin1/2,
-
-         binstr_match_anywhere/2,
-         binstr_match_sub/4,
-         binstr_match_precompile/1
-		]).
-
 -export([remove/2       %% (IndexTable,Removes)
         ,insert/2       %% (IndexTable,Inserts)
+        ]).
+
+-export([vnf_identity/1
+        ,vnf_lcase_ascii/1
         ]).
 
 -export([iff_true/1
         ]).
 
+-export([binstr_accentfold/1
+        ,binstr_to_lower/1
+        ,binstr_to_upper/1
+        ,binstr_only_ascii/1, binstr_only_ascii/2
+        ,binstr_only_valid/1, binstr_only_valid/2
+        ,binstr_only_latin1/1, binstr_only_latin1/2
+        ,binstr_match_anywhere/2
+        ,binstr_match_sub/4
+        ,binstr_match_precompile/1
+        ]).
+
 -define(BIN_APP,binstr_append_placeholder).
+-define(HASH_RANGES,[16#FF,16#7FFFFFFF,16#FFFFFFFF]). %% giving 8(3)/27(6)/32(8) bit/(byte) hashes
+-define(SMALLEST_TERM,-1.0e100).
 
 remove(_IndexTable,[]) -> ok;
 remove(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
     imem_if:delete(IndexTable,{ID,Value,Key}),
     remove(IndexTable,Items);
-    %ToDo: implement iv_kl, iv_h, ...
+remove(IndexTable,[{ID,iv_h,Key,Value}|Items]) ->
+    case imem_if:read(IndexTable,{ID,Value}) of
+        [] ->   
+            ?SystemException({"Missing hashmap for",{IndexTable,ID,Value}});
+        [#ddIndex{lnk=Hash}] ->     
+            imem_if:delete(IndexTable,{ID,Hash,Key})
+    end,
+    remove(IndexTable,Items);
+remove(IndexTable,[{ID,iv_kl,Key,Value}|Items]) ->
+    case imem_if:read(IndexTable,{ID,Value}) of
+        [] ->   
+            ?SystemException({"Missing keylist for",{IndexTable,ID,Value}});
+        [#ddIndex{lnk=KL}] ->
+            case lists:delete(Key,KL) of
+                [] ->   imem_if:delete(IndexTable,{ID,Value});
+                NKL ->  imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=NKL})
+            end
+    end,
+    remove(IndexTable,Items);
 remove(IndexTable,[{ID,iv_k,_,Value}|Items]) ->
     imem_if:delete(IndexTable,{ID,Value}),
     remove(IndexTable,Items).
@@ -43,7 +63,24 @@ insert(_IndexTable,[]) -> ok;
 insert(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
     imem_if:write(IndexTable,#ddIndex{stu={ID,Value,Key}}),
     insert(IndexTable,Items);
-    %ToDo: implement iv_kl, iv_h, ...
+insert(IndexTable,[{ID,iv_h,Key,Value}|Items]) ->
+    Hash = case imem_if:read(IndexTable,{ID,Value}) of
+        [] ->                   
+            NewHash = new_hash(Value,IndexTable,ID),
+            imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=NewHash});
+        [#ddIndex{lnk=H}] ->    
+            H
+    end,
+    imem_if:write(IndexTable,#ddIndex{stu={ID,Hash,Key}}),
+    insert(IndexTable,Items);
+insert(IndexTable,[{ID,iv_kl,Key,Value}|Items]) ->
+    case imem_if:read(IndexTable,{ID,Value}) of
+        [] ->   
+            imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=[Key]});
+        [#ddIndex{lnk=KL}] ->
+            imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=lists:usort([Key|KL])})
+    end,
+    insert(IndexTable,Items);
 insert(IndexTable,[{ID,iv_k,Key,Value}|Items]) ->
     case imem_if:read(IndexTable,{ID,Value}) of
         [] ->                   imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=Key});
@@ -51,15 +88,35 @@ insert(IndexTable,[{ID,iv_k,Key,Value}|Items]) ->
     end,
     insert(IndexTable,Items).
 
-binstr_to_lcase_ascii(<<"\"\"">>) -> <<>>; 
-binstr_to_lcase_ascii(B) when is_binary(B) -> 
+new_hash(Value,IndexTable,ID) ->
+    new_hash(Value,IndexTable,ID,?HASH_RANGES).
+
+new_hash(Value,IndexTable,ID,[]) -> 
+    ?SystemException({"Cannot create hash",{IndexTable,ID,Value}});
+new_hash(Value,IndexTable,ID,[R|Ranges]) -> 
+    Hash = erlang:phash2(Value,R),
+    case imem_if:next(IndexTable, {ID,Hash,?SMALLEST_TERM}) of
+        '$end_of_table' ->  Hash;
+        {ID,Hash,_} ->      new_hash(Value,IndexTable,ID,Ranges);
+        _ ->                Hash
+    end.
+
+
+%% ===================================================================
+%% Value normalisîng funs
+%% ===================================================================
+
+vnf_identity(X) -> X.
+
+vnf_lcase_ascii(<<"\"\"">>) -> <<>>; 
+vnf_lcase_ascii(B) when is_binary(B) -> 
     %% unicode_string_only_ascii(string:to_lower(unicode:characters_to_list(B, utf8)));
     binstr_only_ascii(
         binstr_accentfold(
             binstr_to_lower(B)
             )
         );
-binstr_to_lcase_ascii(Val) -> 
+vnf_lcase_ascii(Val) -> 
 	% unicode_string_only_ascii(io_lib:format("~p",[Val])).
     BinStr = try io_lib:format("~s",[Val])
              catch error:badarg -> io_lib:format("~p",[Val]) end,
@@ -71,9 +128,17 @@ binstr_to_lcase_ascii(Val) ->
             )
         ).
 
+%% ===================================================================
+%% Index filter funs
+%% ===================================================================
 
+iff_true({_Key,_Value}) -> true.
+
+
+%% ===================================================================
 %% Glossary:
-%% ¯¯¯¯¯¯¯¯¯
+%% ===================================================================
+
 %% IndexId: 
 %%      ID of the index. (indexes share the same table, ID is used to
 %%      differentiate indexes on different fields).
@@ -105,9 +170,9 @@ binstr_to_lcase_ascii(Val) ->
 %% iv_h: low selectivity hash map index 
 %%          For the values:
 %%              stu =  {IndexId,<<"CommonValue">>}
-%%              lnk =  FastLookupNumber
+%%              lnk =  Hash
 %%          For the links to the references:
-%%              stu =  {IndexId, {FastLookupNumber, Reference}}
+%%              stu =  {IndexId, Hash, Reference}
 %%              lnk =  0
 %%
 %% ivvk: combined index of 2 fields
@@ -413,8 +478,6 @@ binstr_match_precompile(Pattern) ->
     binary:compile_pattern(Pattern).
 
 
-iff_true({_Key,_Value}) -> true.
-
     
 %% ===================================================================
 %% TESTS 
@@ -437,8 +500,8 @@ string_test_() ->
 
 string_operations(_) ->
     ?Info("---TEST---~p:string_operations~n", [?MODULE]),
-    ?assertEqual(<<"table">>, binstr_to_lcase_ascii(<<"täble"/utf8>>)),
-    ?assertEqual(<<"tuble">>, binstr_to_lcase_ascii(<<"tüble"/utf8>>)).
+    ?assertEqual(<<"table">>, vnf_lcase_ascii(<<"täble"/utf8>>)),
+    ?assertEqual(<<"tuble">>, vnf_lcase_ascii(<<"tüble"/utf8>>)).
 
 binstr_accentfold_test_() ->
     %UpperCaseAcc = <<"À Á Â Ã Ä Å Æ Ç È É Ê Ë Ì Í Î Ï Ð Ñ Ò Ó Ô Õ Ö Ø Ù Ú Û Ü Ý Þ Ÿ Œ Š Ž"/utf8>>,
@@ -469,16 +532,16 @@ binstr_casemod_test_()->
      ?_assertEqual(LowerCaseRaw,binstr_to_lower(UpperCaseRaw))].
 
 -define(TL,unicode:characters_to_list).
-binstr_to_lcase_ascii_test_() ->
-    [{"empty",?_assertEqual(<<>>,binstr_to_lcase_ascii(<<"">>))},
-     {"from binary0",?_assertEqual(<<"table">>,binstr_to_lcase_ascii(<<"täble"/utf8>>))},
-     {"from binary1",?_assertEqual(<<"tuble">>,binstr_to_lcase_ascii(<<"tüble"/utf8>>))},
-     {"from binary2",?_assertEqual("aaaeeeuu",?TL(binstr_to_lcase_ascii(<<"AÀäëéÈüÜ"/utf8>>)))},
-     {"from list",?_assertEqual("aaaeee",?TL(binstr_to_lcase_ascii("AÀäëéÈ")))},
-     {"from atom",?_assertEqual("atom",?TL(binstr_to_lcase_ascii(aTom)))},
-     {"from tuple",?_assertEqual("{\"aaaeee\"}",?TL(binstr_to_lcase_ascii({"AÀäëéÈ"})))},
-     {"from integer",?_assertEqual("12798",?TL(binstr_to_lcase_ascii(12798)))},
-     {"from random",?_assertEqual("g:xr*a\\6r",?TL(binstr_to_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>)))}
+vnf_lcase_ascii_test_() ->
+    [{"empty",?_assertEqual(<<>>,vnf_lcase_ascii(<<"">>))},
+     {"from binary0",?_assertEqual(<<"table">>,vnf_lcase_ascii(<<"täble"/utf8>>))},
+     {"from binary1",?_assertEqual(<<"tuble">>,vnf_lcase_ascii(<<"tüble"/utf8>>))},
+     {"from binary2",?_assertEqual("aaaeeeuu",?TL(vnf_lcase_ascii(<<"AÀäëéÈüÜ"/utf8>>)))},
+     {"from list",?_assertEqual("aaaeee",?TL(vnf_lcase_ascii("AÀäëéÈ")))},
+     {"from atom",?_assertEqual("atom",?TL(vnf_lcase_ascii(aTom)))},
+     {"from tuple",?_assertEqual("{\"aaaeee\"}",?TL(vnf_lcase_ascii({"AÀäëéÈ"})))},
+     {"from integer",?_assertEqual("12798",?TL(vnf_lcase_ascii(12798)))},
+     {"from random",?_assertEqual("g:xr*a\\6r",?TL(vnf_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>)))}
      ].
 
 binstr_only_ascii_test_() ->

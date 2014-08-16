@@ -81,10 +81,15 @@
         , get_os_memory/0
         , get_vm_memory/0
         , spawn_sync_mfa/3
-        , foldl/3
         , lock/2
         ]).
 
+-export([ first/1
+        , next/2
+        , last/1
+        , prev/2
+        , foldl/3
+        ]).
 
 -export([ field_pick/2
         ]).
@@ -792,6 +797,14 @@ unsubscribe({table,schema})         -> mnesia:unsubscribe({table, schema});
 unsubscribe(system)                 -> mnesia:unsubscribe(system);
 unsubscribe(EventCategory) ->
     ?ClientErrorNoLogging({"Unsupported event category unsubscription", EventCategory}).
+
+first(Table) ->     mnesia:first(Table).
+
+next(Table,Key) ->  mnesia:next(Table,Key).
+
+last(Table) ->      mnesia:last(Table).
+
+prev(Table,Key) ->  mnesia:prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->  
     mnesia:foldl(FoldFun, InputAcc, Table).
