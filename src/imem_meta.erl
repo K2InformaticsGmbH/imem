@@ -2268,7 +2268,7 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{':',[Pos|P]}|PL],Vnf,Iff,Changes0) ->
                     ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav]                 
                 end
     end,
-    ?Info("index_items KVPs ~p",[KVPs]),
+    %% ?Info("index_items KVPs ~p",[KVPs]),
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
     index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch).
 

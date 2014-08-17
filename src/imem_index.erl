@@ -12,6 +12,7 @@
 
 -export([vnf_identity/1
         ,vnf_lcase_ascii/1
+        ,vnf_lcase_ascii_ne/1
         ]).
 
 -export([iff_true/1
@@ -127,6 +128,10 @@ vnf_lcase_ascii(Val) ->
                 )
             )
         ).
+
+vnf_lcase_ascii_ne(<<"\"\"">>) -> ?nav; 
+vnf_lcase_ascii_ne(<<>>) -> ?nav;
+vnf_lcase_ascii_ne(Text) -> vnf_lcase_ascii(Text).
 
 %% ===================================================================
 %% Index filter funs

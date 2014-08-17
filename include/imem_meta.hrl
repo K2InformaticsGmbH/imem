@@ -24,7 +24,7 @@
 				  , name    :: binary()     %% name of the index
 				  , type    :: ivk|iv_k|iv_kl|iv_h|ivvk|ivvvk %% Type of index
 				  , pl=[]   :: list()       %% list of JSON path expressions as binstr/compiled to term
-				  , vnf = <<"fun imem_index:vnf_lcase_ascii/1">> :: binary()    
+				  , vnf = <<"fun imem_index:vnf_lcase_ascii_ne/1">> :: binary()    
 						  %% value_normalising_fun(Value)  
 						  %% applied to each value result of all path scans for given JSON document
 						  %% return ?nav = '$not_a_value' if indexing is not wanted, otherwise let iff() decide
