@@ -293,7 +293,7 @@ type_check(V,pid,_) when is_pid(V) -> ok;
 type_check(V,ref,_) when is_reference(V) -> ok;
 type_check(V,string,_) when is_list(V) -> ok;
 type_check(V,term,_) when V/=?nav -> ok;
-type_check(V,binterm,Def) when is_binary(V) ->
+type_check(V,binterm,Def) when is_binary(V);is_list(V);is_tuple(V) ->
     try 
         case binterm_to_term(V) of  
             ?nav -> {error,{"Wrong data type for value, expecting type or default",{V,binterm,Def}}}; 
@@ -328,7 +328,12 @@ is_binterm(_) -> false.
 
 term_to_binterm(T) -> sext:encode(T).
 
-binterm_to_term(B) -> sext:decode(B). 
+binterm_to_term(B) when is_binary(B) -> 
+    sext:decode(B);
+binterm_to_term(L) when is_list(L) -> 
+    [binterm_to_term(I) || I <- L];
+binterm_to_term(T) when is_tuple(T) -> 
+    list_to_tuple([binterm_to_term(I) || I <- tuple_to_list(T)]). 
 
 is_unicode_binary(B) when is_binary(B) ->
     case unicode:characters_to_binary(B,utf8,utf8) of
