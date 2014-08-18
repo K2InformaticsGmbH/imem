@@ -18,6 +18,10 @@
 -export([iff_true/1
         ]).
 
+-export([preview/7      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) -> [{Strategy,Key,Value,Stu}]
+        ,preview/8      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Cont) -> [{Strategy,Key,Value,Stu}]
+        ]).
+
 -export([binstr_accentfold/1
         ,binstr_to_lower/1
         ,binstr_to_upper/1
@@ -33,6 +37,13 @@
 -define(HASH_RANGES,[16#FF,16#7FFFFFFF,16#FFFFFFFF]). %% giving 8(3)/27(6)/32(8) bit/(byte) hashes
 -define(SMALLEST_TERM,-1.0e100).
 
+
+%% ===================================================================
+%% Index table maintenance (insert/remove index rows)
+%% ===================================================================
+
+%% @doc Remove index entry, called in trigger function upon row remove/update
+-spec remove(atom(),list()) -> ok.
 remove(_IndexTable,[]) -> ok;
 remove(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
     imem_if:delete(IndexTable,{ID,Value,Key}),
@@ -60,6 +71,8 @@ remove(IndexTable,[{ID,iv_k,_,Value}|Items]) ->
     imem_if:delete(IndexTable,{ID,Value}),
     remove(IndexTable,Items).
 
+%% @doc Insert index entry, called in trigger function upon row insert/update
+-spec insert(atom(),list()) -> ok.
 insert(_IndexTable,[]) -> ok;
 insert(IndexTable,[{ID,ivk,Key,Value}|Items]) ->
     imem_if:write(IndexTable,#ddIndex{stu={ID,Value,Key}}),
@@ -68,9 +81,10 @@ insert(IndexTable,[{ID,iv_h,Key,Value}|Items]) ->
     Hash = case imem_if:read(IndexTable,{ID,Value}) of
         [] ->                   
             NewHash = new_hash(Value,IndexTable,ID),
-            imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=NewHash});
-        [#ddIndex{lnk=H}] ->    
-            H
+            imem_if:write(IndexTable,#ddIndex{stu={ID,Value},lnk=NewHash}),
+            NewHash;
+        [#ddIndex{lnk=OldHash}] ->    
+            OldHash
     end,
     imem_if:write(IndexTable,#ddIndex{stu={ID,Hash,Key}}),
     insert(IndexTable,Items);
@@ -89,6 +103,8 @@ insert(IndexTable,[{ID,iv_k,Key,Value}|Items]) ->
     end,
     insert(IndexTable,Items).
 
+%% @doc Find unused new hash for a new value in a hashmap, start with small hash range and escalate to bigger ones upon hash collisions
+-spec new_hash(term(),atom(),integer()) -> integer().
 new_hash(Value,IndexTable,ID) ->
     new_hash(Value,IndexTable,ID,?HASH_RANGES).
 
@@ -101,7 +117,6 @@ new_hash(Value,IndexTable,ID,[R|Ranges]) ->
         {ID,Hash,_} ->      new_hash(Value,IndexTable,ID,Ranges);
         _ ->                Hash
     end.
-
 
 %% ===================================================================
 %% Value normalisîng funs
@@ -134,11 +149,37 @@ vnf_lcase_ascii_ne(<<>>) -> ?nav;
 vnf_lcase_ascii_ne(Text) -> vnf_lcase_ascii(Text).
 
 %% ===================================================================
-%% Index filter funs
+%% Index filter funs (decide if an index row candidate should be put)
 %% ===================================================================
 
 iff_true({_Key,_Value}) -> true.
 
+
+%% ===================================================================
+%% Index preview (fast range/full match scan in single index)
+%% ===================================================================
+
+%% @doc Preview match scan into an index for finding first "best" matches
+-spec preview(atom(),integer(),atom(),list(),term(),integer(),function()) -> list().
+preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) -> 
+    [].     %% ToDo: implement
+    % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
+    % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
+    % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
+    % ,{split_match,<<"Key3">>,<<"Value3">>,{ID,<<"Value3">>,<<"Key3">>}}
+    % ,{re_match,<<"RE_Pattern">>,<<"Value4">>,{ID,<<"Value4">>,<<"Key4">>}}
+    % ].
+
+%% @doc Preview match scan into an index for finding first "best" matches
+-spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),tuple()) -> list().
+preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Cont) ->
+    [].     %% ToDo: implement
+    % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
+    % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
+    % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
+    % ,{split_match,<<"Key3">>,<<"Value3">>,{ID,<<"Value3">>,<<"Key3">>}}
+    % ,{re_match,<<"RE_Pattern">>,<<"Value4">>,{ID,<<"Value4">>,<<"Key4">>}}
+    % ].
 
 %% ===================================================================
 %% Glossary:
@@ -160,24 +201,24 @@ iff_true({_Key,_Value}) -> true.
 %% Index Types:
 %% ¯¯¯¯¯¯¯¯¯¯¯¯
 %% ivk: default index type
-%%          stu =  {IndexId,<<"Value">>,Reference}
+%%          stu =  {IndexId,<<"Value">>,<<"Key">>}
 %%          lnk =  0
 %%
 %% iv_k: unique key index
 %%          stu =  {IndexId,<<"UniqueValue">>}
-%%          lnk =  Reference
+%%          lnk =  <<"Key">>
 %%       observation: should crash/throw/error on duplicate value insertion
 %%
 %% iv_kl: high selectivity index (aka "almost unique")
 %%          stu =  {IndexId,<<"AlmostUniqueValue"}
-%%          lnk =  [Reference | ListOfReferences]
+%%          lnk =  [<<"Key1">>,..<<"Keyn">>]            %% usorted list of keys
 %%
 %% iv_h: low selectivity hash map index 
 %%          For the values:
 %%              stu =  {IndexId,<<"CommonValue">>}
 %%              lnk =  Hash
 %%          For the links to the references:
-%%              stu =  {IndexId, Hash, Reference}
+%%              stu =  {IndexId, Hash, <<"Key">>}
 %%              lnk =  0
 %%
 %% ivvk: combined index of 2 fields
