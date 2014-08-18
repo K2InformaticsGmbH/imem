@@ -191,21 +191,19 @@ zip({files, SnapFiles}) ->
         true ->
             {{Y,M,D}, {H,Mn,S}} = calendar:local_time(),
             Sec = S + element(3, erlang:now()) / 1000000,
-            ZipFileName = filename:join([SnapDir
-                                        , lists:flatten(["snapshot_"
-                                                        , io_lib:format("~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Y,M,D,H,Mn,Sec])
-                                                        , ".zip"
-                                                        ])
-                                        ]),
+            ZipFileName = re:replace(lists:flatten(["snapshot_"
+                                         , io_lib:format("~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Y,M,D,H,Mn,Sec])
+                                         , ".zip"
+                                        ]), "[<>:\"\\\\|?*]", "", [global, {return, list}]),
             % to make the file name valid for windows
-            GoodZipFileName = re:replace(ZipFileName, "[<>:\"\\\\|?*]", "", [global, {return, list}]),
-            case zip:zip(GoodZipFileName, ZipCandidates) of
+            ZipFileFullPath = filename:join(SnapDir, ZipFileName),
+            case zip:zip(ZipFileFullPath, ZipCandidates) of
                 {error, Reason} ->
                     lists:flatten(io_lib:format("old snapshot backup to ~p failed reason : ~p"
-                                                , [GoodZipFileName, Reason]));
+                                                , [ZipFileFullPath, Reason]));
                 _ ->
                     lists:flatten(io_lib:format("old snapshots are backed up to ~p"
-                                                , [GoodZipFileName]))
+                                                , [ZipFileFullPath]))
             end
     end.
 

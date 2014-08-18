@@ -823,9 +823,17 @@ init(_) ->
     {ok, NodeType} = application:get_env(mnesia_node_type),
     ?Info("mnesia node type is '~p'~n", [NodeType]),
     SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
-    {ok, Cwd} = file:get_cwd(),
-    LastFolder = lists:last(filename:split(Cwd)),
-    SchemaDir = if LastFolder =:= ".eunit" -> filename:join([Cwd, "..", SDir]); true ->  filename:join([Cwd, SDir]) end,
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    [_|Rest] = lists:reverse(filename:split(SnapDir)),
+    ImemRoot = filename:join(lists:reverse(Rest)),
+    SchemaDir = case filelib:is_dir(ImemRoot) of
+                    true -> ImemRoot;
+                    false ->
+                        ?Info("Not a directory ~p~n", [ImemRoot]),
+                        {ok, Cwd} = file:get_cwd(),
+                        LastFolder = lists:last(filename:split(Cwd)),
+                        if LastFolder =:= ".eunit" -> filename:join([Cwd, "..", SDir]); true ->  filename:join([Cwd, SDir]) end
+                end,
     ?Info("SchemaDir ~p~n", [SchemaDir]),
     random:seed(now()),
     SleepTime = random:uniform(1000),
