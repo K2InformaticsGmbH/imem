@@ -825,14 +825,17 @@ init(_) ->
     SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     [_|Rest] = lists:reverse(filename:split(SnapDir)),
-    ImemRoot = filename:join(lists:reverse(Rest)),
-    SchemaDir = case filelib:is_dir(ImemRoot) of
-                    true -> ImemRoot;
+    RootParts = lists:reverse(Rest),
+    SchemaDir = case ((length(RootParts) > 0) andalso
+                      filelib:is_dir(filename:join(RootParts))) of
+                    true -> filename:join(RootParts);
                     false ->
-                        ?Info("Not a directory ~p~n", [ImemRoot]),
                         {ok, Cwd} = file:get_cwd(),
                         LastFolder = lists:last(filename:split(Cwd)),
-                        if LastFolder =:= ".eunit" -> filename:join([Cwd, "..", SDir]); true ->  filename:join([Cwd, SDir]) end
+                        if LastFolder =:= ".eunit" ->
+                               filename:join([Cwd, "..", SDir]);
+                           true ->  filename:join([Cwd, SDir])
+                        end
                 end,
     ?Info("SchemaDir ~p~n", [SchemaDir]),
     random:seed(now()),
