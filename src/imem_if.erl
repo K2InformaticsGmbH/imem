@@ -828,7 +828,7 @@ init(_) ->
     RootParts = lists:reverse(Rest),
     SchemaDir = case ((length(RootParts) > 0) andalso
                       filelib:is_dir(filename:join(RootParts))) of
-                    true -> filename:join(RootParts);
+                    true -> filename:join(RootParts ++ [SDir]);
                     false ->
                         {ok, Cwd} = file:get_cwd(),
                         LastFolder = lists:last(filename:split(Cwd)),
