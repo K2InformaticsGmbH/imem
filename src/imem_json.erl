@@ -13,40 +13,46 @@
 -include("imem_json.hrl").
 
 % Binary(string) to Json En/Decode interface APIs
--export([encode/1, decode/1]).
+-export([ encode/1
+        , decode/1
+        ]).
 
--export([%% Standard data type operations, inspired by maps operations
-         find/2,
-         fold/3,
-         get/2, get/3,
-         has_key/2,
-         keys/1, 
-         map/2, 
-         new/0, new/1, 
-         put/3,
-         remove/2,
-         size/1,
-         update/3,
-         values/1,
+%% Standard data type operations, inspired by maps operations
+-export([ find/2
+        , fold/3
+        , get/2
+        , get/3
+        , has_key/2
+        , keys/1
+        , map/2
+        , new/0
+        , new/1
+        , put/3
+        , remove/2
+        , size/1
+        , update/3
+        , values/1
+        ]).
 
-         %% Conversions
-         to_proplist/1, to_proplist/2,
-         to_map/1,
-         to_binary/1,
+%% Conversions
+-export([ to_proplist/1
+        , to_proplist/2
+        , to_map/1
+        , to_binary/1
+        ]).
 
-         %% Other Functionality
-         filter/2,      %% Only keep key/value pairs based on boolean filter
-         include/2,     %% Only include specified keys
-         exclude/2,     %% Exclude specified keys
-         merge/2,       %% Merge data objects together (join)
-         diff/2,        %% Diff between data objects
-         equal/2,       %% Check if data objects are equal
-         is_subset/2,   %% Check if first data object is a subset of the second
-         is_disjoint/2, %% Check if data objects have no keys in common
-         project/2,     %% Create a projection of a json document based on paths
-         match/2,       %% Check if a data object matches a json path (using jpparse)
-         jpp_match/2    %% Match a jpparse syntax tree to a json document and extract the values
-         ]).
+%% Other Functionality
+-export([ filter/2      %% Only keep key/value pairs based on boolean filter
+        , include/2     %% Only include specified keys
+        , exclude/2     %% Exclude specified keys
+        , merge/2       %% Merge data objects together (join)
+        , diff/2        %% Diff between data objects
+        , equal/2       %% Check if data objects are equal
+        , is_subset/2   %% Check if first data object is a subset of the second
+        , is_disjoint/2 %% Check if data objects have no keys in common
+        , project/2     %% Create a projection of a json document based on paths
+        , match/2       %% Check if a data object matches a json path (using jpparse)
+        ]).
  
 %% @doc ==============================================================
 %% Basic En/Decode interface
@@ -811,131 +817,149 @@ walk_path([Filter|Tail],CurrentLevel) ->
                                end
     end.
                
-%% @doc Projects a binary string json path (as understood by jpparse) on a json object
--spec match(binary(),data_object()) -> value() | ListOfValues | nomatch
-    when ListOfValues :: [value() | ListOfValues].
-match(JsonPath,DataObject) ->
-    {ok,{ParseTree,_}} = jpparse:parsetree(JsonPath),
-    jpp_match(ParseTree,DataObject).
-    
+
 %% @doc Projects a parsed Json Path (from jpparse) on a json object
 %% and extracts matched values. nomatch is return if no match is found.
 %% This function uses imem_json primitives, and as such is format neutral.
--spec jpp_match(JPPTree,data_object()) -> value() | ListOfValues | nomatch
-    when JPPTree :: tuple(),
-         ListOfValues :: [value() | ListOfValues].
-
--define(OO(_X), {'{}',_X}).
--define(LL(_X), {'[]',_X}).
--define(FF(_X), {'$',_X}).
--define(JV, jpp_value).
-
-jpp_match(Tree,DataObject) when is_binary(DataObject) ->
-    jpp_match(Tree,?FROM_JSON(DataObject));
-jpp_match(Tree,DataObject) ->
-    Out = jpp_walk(Tree,DataObject),
-    if
-        is_list(Out) -> 
-            Flat = lists:flatten(Out),
-            case lists:any(fun(nomatch) -> true; (_) -> false end,Flat) of
-                true -> nomatch;
-                false -> Flat
-            end;
-        true -> 
-            Out
+-spec match(JPPTree :: list() | binary() | tuple()
+            , [{binary(),data_object()}]) ->
+    [] | list(value()).
+match(JsonPath,Binds)
+  when is_binary(JsonPath) orelse is_list(JsonPath) ->
+    {ok,{Tree,_}} = jpparse:parsetree(JsonPath),
+    match(Tree,Binds);
+match(Tree,[{Name,Object}|_] = Binds)
+  when is_binary(Name), is_binary(Object) ->
+    case match(Tree
+               , [{N, ?FROM_JSON(O)}
+                  || {N,O} <- Binds]) of
+        {error, Reason} -> {error, Reason};
+        [] -> <<>>;
+        MatchedObject -> ?TO_JSON(MatchedObject)
+    end;
+match(Tree,Binds) ->    
+    case jpparse:foldbu(fun jpp_walk/3
+                        , {[],Binds}
+                        , Tree) of
+        {error, Error} -> {error, Error};
+        {MatchObjects,_} -> MatchObjects
     end.
 
-    %% jpp_walk transposes jpparse constructs to simple unary primitives {'{}',Field} and {'[]',Index}.
-    %% Whenever a list of fields or indexes is encountered, it just does a mapping, and each field/index
-    %% generates it's own match, witch are then grouped together. Code repetition is avoided, and kept terse.
-    %%
-    %% Here is an example of the jpparse and its ultimate "primitivized" form:
-    %%
-    %% form {}[]{b}: [{'{}',{'[]',{'{}','_',[]},[]},[<<"b">>]}]
-    %%  -> [{'{}',{'[]',{'{}','_',[]},[]}}, {'{}',[<<"b">>}]]
-    %%  -> [{'{}',{'{}','_',[]}}, {'[]',[]} | {'{}',[<<"b">>]}]
-    %%  -> [{'{}','_'}, {'{}',[]'} | {'[]',[]}, {'{}',[<<"b">>]}]
-    %%  -> [{'$',<<"values">>}, {'[]',[]}, {'{}', [<<"b">>]}]
-
-    %% Higher level parsing
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    jpp_walk({':',Elements},CLevel) ->
-        jpp_walk(Elements,CLevel);
-
-    jpp_walk([],CLevel) -> CLevel;
-
-    %% Object Walking
-    jpp_walk([Field|Tail],CLevel) when is_binary(Field) -> % <<"field">> => {'{}',<<"field">>}
-        jpp_walk([?OO(Field)| Tail], CLevel);
-    jpp_walk([{'{}','_',Fields}|Tail],CLevel) when is_list(Fields) -> % {'{}','_',Fields}
-        jpp_walk([?OO(Fields)|Tail],CLevel);
-    jpp_walk([{'{}',Origin,Field}|Tail],CLevel) -> % {'{}',O,F} => [{'{}',O}, {'{}',F}]
-        jpp_walk([?OO(Origin),?OO(Field) | Tail],CLevel);
-    jpp_walk([?OO([])|Tail],CLevel) -> % {'{}',[]} => {'$',<<"values">>}
-        jpp_walk([?FF(<<"values">>)|Tail], CLevel);
-    jpp_walk([?OO(Fields)|Tail],CLevel) when is_list(Fields) -> % {'{}',Fields}
-        [jpp_walk([?OO(Field) | Tail],CLevel) || Field <- Fields];
-    jpp_walk([?OO('_')|Tail],CLevel) -> % {'{}','_'}
-        jpp_walk(Tail, CLevel);
-    jpp_walk([?OO(?FF(Any))|Tail],CLevel) ->  % {'{}',{'$',any}} => {'$',any}
-        jpp_walk([?FF(Any)|Tail], CLevel);
-    jpp_walk([?OO({'-',Start,End})|Tail],CLevel) -> % {'{}',{'-',S,E}}
-        Keys = lists:foldl(fun(K,Acc) ->
-                            if K >= Start, K =<  End -> [K|Acc];
-                            true -> Acc end end,
-                           [], ?MODULE:keys(CLevel)),
-        jpp_walk([?OO(lists:reverse(Keys))| Tail], CLevel);
-    jpp_walk([?OO({'[]',F,I})|Tail],CLevel) -> %{'{}',{'[]',F,I}}
-        jpp_walk([?OO(F),?LL(I)|Tail],CLevel);
-    jpp_walk([?OO({'{}',O,F})|Tail],CLevel) -> %{'{}',{'{}',F,I}}
-        jpp_walk([?OO(O),?OO(F)|Tail], CLevel);
-
-    %% Object "Function-as-a-property"
-    jpp_walk([?FF(<<"values">>)|Tail],CLevel) ->
-        [jpp_walk(Tail,NLevel) || NLevel <- ?MODULE:values(CLevel)];
-    jpp_walk([?FF(<<"firstChild">>)|Tail],CLevel) ->
-        [NLevel|_] = ?MODULE:values(CLevel),
-        jpp_walk(Tail,NLevel);
-    jpp_walk([?FF(<<"keys">>)|Tail],CLevel) ->
-        jpp_walk(Tail,?MODULE:keys(CLevel));
-
-    %% List Walking
-    jpp_walk([{'[]','_',Index}|Tail],CLevel) -> % {'[]','_',I} => {'[]',I}
-        jpp_walk([?LL([Index])|Tail],CLevel);
-    jpp_walk([{'[]',Field,Index}|Tail],CLevel) -> % {'[]',F,I} => [{'{}',F}, {'[]',I}]
-        jpp_walk([?OO(Field), ?LL(Index)| Tail], CLevel);
-    jpp_walk([?LL([])|Tail],CLevel) -> % {'[]',[]} => {'-',1,Max}
-        jpp_walk([?LL({'-', 1, ?MODULE:size(CLevel)})| Tail], CLevel);
-    jpp_walk([?LL({'-',Start,End})|Tail],CLevel) -> % {'[]',{'-',S,E}}
-        Seq = lists:seq(?JV(Start), ?JV(End)),
-        jpp_walk([?LL(Seq)| Tail], CLevel);
-    jpp_walk([?LL(List)|Tail], CLevel) when is_list(List) -> % {'[]',[Fields]}
-        [jpp_walk([?LL(Index)| Tail], CLevel) || Index <- List];
-
-    %% Lower level matching (and actually doing something)
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    jpp_walk([?LL(RawIndex)|Tail],CLevel) ->
-        Index = ?JV(RawIndex),
-        Length = ?MODULE:size(CLevel),
-        if Index > Length -> nomatch;
-           true -> NLevel =  lists:nth(Index,CLevel),
-                   jpp_walk(Tail,NLevel)
-        end;
-    jpp_walk([?OO(RawField)|Tail],CLevel)->
-        Field = ?JV(RawField),
-        case ?MODULE:get(Field,CLevel) of
-            undefined -> nomatch;
-            NLevel -> jpp_walk(Tail,NLevel)
-        end.
-
-    %% Any function-generated value should be dealt with here
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    jpp_value(Value) when is_binary(Value) -> Value;
-    jpp_value(Value) when is_integer(Value) -> Value.
-         
-        
-    
-
+-define(TRACE, ok).
+-ifndef(TRACE).
+-define(TRACE,
+        io:format(user, "[~p] ~p~n PT   ~p~n BIND ~p~n"
+                  , [?LINE, _Depth, _Pt, _Acc])
+       ).
+-endif.
+jpp_walk(_Depth, {'$',_} = _Pt, _Acc) ->
+    ?TRACE,
+    exit({unimplimented, '$'}),
+    _Acc;
+jpp_walk(_Depth, {'fun',_,_Args} = _Pt, _Acc) ->
+    ?TRACE,
+    exit({unimplimented, 'fun'}),
+    _Acc;
+jpp_walk(_Depth, {'[]',L,Idxs} = _Pt, {_Result,Binds} = _Acc) ->
+    ?TRACE,
+    case proplists:get_value(L,Binds) of
+        undefined -> exit({unbound, L});
+        % TODO: To be rewritten for maps
+        List ->
+            % Idxs list is processed in reversed order
+            % to append to head of building list
+            {RList, NewBindings} = lists:foldl(
+             fun
+                 (I, _)
+                   when is_integer(I) andalso
+                        ((I =< 0) orelse (I > length(List))) ->
+                     exit({index_out_of_bound, I, List});
+                 (I, {Lst, BindAcc}) when is_integer(I) ->
+                     {[lists:nth(I,List) | Lst], BindAcc};
+                 % When Index is a not an integer
+                 % It is assumed that it represents a
+                 % JSON path in parsed from. Hence
+                 % its processed independently with
+                 % existing binds to reduce it to an integer
+                 (I, {Lst, BindAcc}) ->
+                     case match(I, BindAcc) of
+                         {M, BindAcc1}
+                           when is_integer(M) andalso
+                                (M > 0) andalso
+                                (M =< length(List)) ->
+                             {[lists:nth(M,List) | Lst]
+                              , BindAcc1};
+                         _ ->
+                            exit({path_fot_found, I, BindAcc})
+                     end
+             end
+             , {[], Binds}
+             , lists:reverse(Idxs)),
+            {RList, [{_Pt, RList} | NewBindings]}
+    end;
+jpp_walk(_Depth, {'{}',L,Props} = _Pt, {_Result,Binds} = _Acc) ->
+    ?TRACE,
+    case proplists:get_value(L, Binds) of
+        undefined -> exit({unbound, L});
+        % TODO: To be rewritten for maps
+        Obj ->
+            % Props list is processed in reversed order
+            % to append to head of building list
+            {RList, NewBindings} = lists:foldl(
+             fun
+                 (P, {NObj, BindAcc}) when is_binary(P) ->
+                     case ?MODULE:get(P,Obj) of
+                         undefined ->
+                             exit({property_not_found, P, Obj});
+                         V ->
+io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
+                             {[{P, V} | NObj]
+                              , [{_Pt, V} | BindAcc]}
+                     end;
+                 % When Index is a not an binary
+                 % it is assumed that it represents a
+                 % JSON path in parsed from. Hence
+                 % its processed independently with
+                 % existing binds to reduce it to binary
+                 (P, {NObj, BindAcc}) ->
+                     case match(P, BindAcc) of
+                         {M, BindAcc1} when is_binary(M) ->
+                            case ?MODULE:get(M,Obj) of
+                                undefined ->
+                                    exit({property_not_found
+                                          , M, Obj});
+                                V ->
+io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
+                                    {[{M, V} | NObj]
+                                     , [{P, V} | BindAcc1]}
+                            end;
+                         _ ->
+                             exit({path_not_found, P, BindAcc})
+                     end
+             end
+             , {[], Binds}
+             , lists:reverse(Props)),
+            {RList, NewBindings}
+    end;
+jpp_walk(_Depth, {':',R,L} = _Pt, {_Result,Binds} = _Acc)
+  when is_binary(R) ->
+    ?TRACE,
+    case proplists:get_value(L,Binds) of
+        undefined -> exit({unbound, L});
+        Obj ->            
+            V = ?MODULE:get(R,Obj),
+            if V =:= undefined ->
+io:format(user,"~p not_found ~p ~p~n", [?LINE, R, Obj]),
+                   exit({not_found, R, Obj});
+               true ->
+%io:format("~p got ~p ~p~n", [?LINE, R, V]),
+                   {V, [{_Pt, V} | Binds]}
+            end
+    end;
+jpp_walk(_Depth, _Pt, _Acc)
+  when is_binary(_Pt); is_integer(_Pt) ->
+    ?TRACE,
+    _Acc.
 
 -spec clean_null_values(data_object()) -> data_object().
 -ifdef(MAPS).
@@ -1662,177 +1686,43 @@ is_disjoint_test_() ->
 
 -endif.
 
-jpp_match_test_() ->
-    Object1 = <<"{\"a\":{\"b\":[{\"c\":1},{\"c\":2},{\"c\":3}]}}">>,
-    Tst1_1 = {':', [<<"a">>, {'[]', <<"b">>, [1]}, <<"c">>]}, % a:b[1]:c 
-    Out1_1 = [1],
-    Tst1_2 = {':', [<<"a">>, {'[]', <<"b">>, {'-', 1, 2}}, <<"c">>]}, % a:b[1-2]
-    Out1_2 = [1,2],
-    Tst1_3 = {':', [<<"a">>, {'[]', <<"b">>, [1,2,3]}]}, % a:b[1,2,3]
-    Tst1_3b = {':', [<<"a">>, <<"b">>]}, % a:b[1,2,3]
-    Out1_3 = [{<<"c">>,1},{<<"c">>,2},{<<"c">>,3}],
-    Tst1_4 = {':', [<<"a">>, {'[]', <<"b">>, []}, <<"c">>]}, % a:b[]:c
-    Out1_4 = [1,2,3],
-    Tst1_5 = {':', [<<"a">>, {'[]', <<"b">>, [{'-',1,2},3]}, <<"c">>]}, % a:b[1-2,3]:c
-    Out1_5 = [1,2,3],
-
-    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":5}}}}">>,
-    Tst2_1 = {':', [<<"a">>, {'{}', <<"b">>, []}, <<"c">>]}, % a:b{}:c
-    Out2_1 = [1,4],
-    Tst2_2 = {':', [<<"a">>, {'{}', <<"b">> ,[<<"c">>]}]}, %a:b{c}
-    Out2_2 = [{<<"c">>,4},{<<"d">>,5}],
-    Tst2_3 = {':', [<<"a">>, <<"b">>, {'$',<<"values">>}, <<"c">>]}, % a:b:$values$:c
-    Out2_3 = [1,4],
-    Tst2_4 = {':', [<<"a">>, {'{}',<<"b">>,[<<"any">>,<<"c">>]},<<"d">>]}, % a:b{any,c}:d
-    Out2_4 = [2,5],
-    Tst2_5 = {':',[<<"a">>,<<"b">>,<<"any">>,<<"c">>]},%a:b:any:c
-    Out2_5 = 1,
-
-    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}},\"d\":true},{\"c\":{\"b\":{\"d\":2}}}]">>,
-    Tst3_1 = {':', [{'[]', '_', []}, {'{}', <<"c">>, {'$',<<"firstChild">>}}, <<"d">>]}, % []:c{$firstChild$}:d
-    Out3_1 = [3,2],
-    Tst3_2 = {':', [{'[]', '_', [1]}, <<"d">>]}, % [1]:d
-    Out3_2 = [true],
-    Tst3_3 = {':', [{'[]', '_', []},  <<"c">>, {'$',<<"firstChild">>}, <<"d">>]}, % []:c:$firstChild$:d
-    Out3_3 = [3,2],
-
-    Object4 = <<"{\"a\":{\"e\":8},\"c\":{\"e\":1},\"d\":{\"e\":2}}">>,
-    Tst4_1 = {':', [{'{}', '_', [<<"c">>, <<"d">>]},<<"e">>]}, % {c,d}:e
-    Out4_1 = [1,2],
-    Tst4_2 = {':', [{'{}', '_', [{'-',<<"a">>, <<"c">>}]},<<"e">>]}, % {a-c}:e
-    Out4_2 = [8,1],
-    Tst4_3 = {':',[<<"a">>,{'$',<<"keys">>}]}, % a:$keys$
-    Out4_3 = [<<"e">>],
-    Tst4_4 = {':',[{'{}',<<"a">>,[{'$',<<"keys">>}]}]}, % a{$keys$}
-    Out4_4 = [<<"e">>],
-    Tst4_5 = {':',[{'$',<<"keys">>}]}, % $keys$
-    Out4_5 = [<<"a">>,<<"c">>,<<"d">>],
-    Tst4_6 = {':',[{'[]',{'$',<<"keys">>},[1]}]}, % $keys$[1]
-    Out4_6 = [<<"a">>],
-
-    Object5 = <<"{\"a\": {\"b\":[{\"a\":{\"c\":4},\"b\":{\"c\":1}},{\"a\":{\"c\":8},\"b\":{\"c\":2}}]}}">>,
-    Tst5_1 = {':', [<<"a">>, {'{}', {'[]', <<"b">>, [{'-', 1, 2}]},[]},<<"c">>]}, % a:b[1-2]{}:c 	
-    Out5_1 = [4,1,8,2],
-    Tst5_2 = {':', [<<"a">>, {'{}', {'[]', <<"b">>, [{'-', 1, 3}]},[]},<<"c">>]}, % a:b[1-3]{}:c 	
-    Tst5_3 = {':', [<<"a">>,<<"z">>]}, % a:z
-
-    Object6 = <<"{\"a\":[{\"b\":1,\"d\":2},{\"b\":3,\"d\":4}],\"b\":[{\"b\":5,\"d\":6},{\"b\":7,\"d\":8}]}">>,
-    Tst6_1 = {':',[{'{}',{'[]',{'{}','_',[]},[]},[<<"b">>]}]}, % {}[]{b} 
-    Out6_1 = [1,3,5,7],
-
-
-    {setup,
-     fun setup/0,
-    [{"form a:b[1]:c",?_assertEqual(Out1_1,jpp_match(Tst1_1,Object1))},
-     {"form a:b[1-2]",?_assertEqual(Out1_2,jpp_match(Tst1_2,Object1))},
-     {"form a:b[1,2,3]",?_assertEqual(Out1_3,jpp_match(Tst1_3,Object1))},
-     {"form a:b",?_assertEqual(Out1_3,jpp_match(Tst1_3b,Object1))},
-     {"form a:b[]:c",?_assertEqual(Out1_4,jpp_match(Tst1_4,Object1))},
-     {"form a:b[1-2,3]",?_assertEqual(Out1_5,jpp_match(Tst1_5,Object1))},
-     {"form a:b{}:c",?_assertEqual(Out2_1,jpp_match(Tst2_1,Object2))},
-     {"form a:b{c}",?_assertEqual(Out2_2,lists:sort(jpp_match(Tst2_2,Object2)))},
-     {"form a:b:$values$:c}",?_assertEqual(Out2_3,lists:sort(jpp_match(Tst2_3,Object2)))},
-     {"form a:b{any,c}:d",?_assertEqual(Out2_4,lists:sort(jpp_match(Tst2_4,Object2)))},
-     {"form a:b:any:c", ?_assertEqual(Out2_5, jpp_match(Tst2_5,Object2))},
-     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,jpp_match(Tst3_1,Object3))},
-     {"form [1]:d",?_assertEqual(Out3_2,jpp_match(Tst3_2,Object3))},
-     {"form []:c:$firstChild$:d",?_assertEqual(Out3_3,jpp_match(Tst3_3,Object3))},
-     {"form {c,d}:e",?_assertEqual(Out4_1,jpp_match(Tst4_1,Object4))},
-     {"form {a-c}:e",?_assertEqual(Out4_2,jpp_match(Tst4_2,Object4))},
-     {"form a:$keys$",?_assertEqual(Out4_3,jpp_match(Tst4_3,Object4))},
-     {"form a{$keys$}",?_assertEqual(Out4_4,jpp_match(Tst4_4,Object4))},
-     {"form $keys$",?_assertEqual(Out4_5,jpp_match(Tst4_5,Object4))},
-     {"form $keys$[1]",?_assertEqual(Out4_6,jpp_match(Tst4_6,Object4))},
-     {"form a:b[1-2]{}:c",?_assertEqual(Out5_1,jpp_match(Tst5_1,Object5))},
-     {"nomatch a:b[1-3]{}:c",?_assertEqual(nomatch,jpp_match(Tst5_2,Object5))},
-     {"nomatch a:z",?_assertEqual(nomatch,jpp_match(Tst5_3,Object5))},
-     {"form {}[]{b}",?_assertEqual(Out6_1,jpp_match(Tst6_1,Object6))}
-     ]}.
-
 match_test_() ->
-    Object1 = <<"{\"a\":{\"b\":[{\"c\":1},{\"c\":2},{\"c\":3}]}}">>,
-    Tst1_1 = <<"a:b[1]:c">>,
-    Out1_1 = [1],
-    Tst1_2 = <<"a:b[1-2]">>,
-    Out1_2 = [{<<"c">>,1},{<<"c">>,2}],
-    Tst1_3 = <<"a:b[1,2,3]">>,
-    Tst1_3b = <<"a:b[1,2,3]">>,
-    Out1_3 = [{<<"c">>,1},{<<"c">>,2},{<<"c">>,3}],
-    Tst1_4 = <<"a:b[]:c">>,
-    Out1_4 = [1,2,3],
-    Tst1_5 = <<"a:b[1-2,3]:c">>,
-    Out1_5 = [1,2,3],
+    Object = <<"
+        { \"a1\": 123
+        , \"a2\": \"abcd\"
+        , \"a3\": [1,2,3]
+        , \"a4\": {\"b1\":456}
+        , \"a5\": {\"b1\":\"string\"}
+        , \"a6\": [ {\"b1\":1}
+                  , {\"b1\":2}
+                  , {\"b1\":3}]
+        }
+    ">>,
+    Bind = [{<<"root">>, Object}],
+    [{P,?_assertEqual(O,match(P,Bind))}
+     || {P,O} <-
+        [ % basic hirarchical walk
+          {"root:a1",       <<"123">>}
+        , {"root:a2",       <<"\"abcd\"">>}
+        , {"root:a3",       <<"[1,2,3]">>}
+        , {"root:a4",       <<"{\"b1\":456}">>}
+        , {"root:a4:b1",    <<"456">>}
+        , {"root:a5",       <<"{\"b1\":\"string\"}">>}
+        , {"root:a5:b1",    <<"\"string\"">>}
 
-    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":5}}}}">>,
-    Tst2_1 = <<"a:b{}:c">>,
-    Out2_1 = [1,4],
-    Tst2_2 = <<"a:b{c}">>,
-    Out2_2 = [{<<"c">>,4},{<<"d">>,5}],
-    Tst2_3 = <<"a:b:$values$:c">>,
-    Out2_3 = [1,4],
-    Tst2_4 = <<"a:b{any,c}:d">>,
-    Out2_4 = [2,5],
-    Tst2_5 = <<"a:b:any:c">>,
-    Out2_5 = 1,
-
-    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}},\"d\":true},{\"c\":{\"b\":{\"d\":2}}}]">>,
-    Tst3_1 = <<"[]:c{$firstChild$}:d">>,
-    Out3_1 = [3,2],
-    Tst3_2 = <<"[1]:d">>,
-    Out3_2 = [true],
-    Tst3_3 = <<"[]:c:$firstChild$:d">>,
-    Out3_3 = [3,2],
-
-    Object4 = <<"{\"a\":{\"e\":8},\"c\":{\"e\":1},\"d\":{\"e\":2}}">>,
-    Tst4_1 = <<"{c,d}:e">>,
-    Out4_1 = [1,2],
-    Tst4_2 = <<"{a-c}:e">>,
-    Out4_2 = [8,1],
-    Tst4_3 = <<"a:$keys$">>,
-    Out4_3 = [<<"e">>],
-    Tst4_4 = <<"a{$keys$}">>,
-    Out4_4 = [<<"e">>],
-    Tst4_5 = <<"$keys$">>,
-    Out4_5 = [<<"a">>,<<"c">>,<<"d">>],
-    Tst4_6 = <<"$keys$[1]">>,
-    Out4_6 = [<<"a">>],
-
-    Object5 = <<"{\"a\": {\"b\":[{\"a\":{\"c\":4},\"b\":{\"c\":1}},{\"a\":{\"c\":8},\"b\":{\"c\":2}}]}}">>,
-    Tst5_1 = <<"a:b[1-2]{}:c">>,
-    Out5_1 = [4,1,8,2],
-    Tst5_2 = <<"a:b[1-3]{}:c">>,
-    Tst5_3 = <<"a:z">>,
-
-    Object6 = <<"{\"a\":[{\"b\":1,\"d\":2},{\"b\":3,\"d\":4}],\"b\":[{\"b\":5,\"d\":6},{\"b\":7,\"d\":8}]}">>,
-    Tst6_1 = <<"{}[]{b}">>,
-    Out6_1 = [1,3,5,7],
-
-    {setup,
-     fun setup/0,
-    [{"form a:b[1]:c",?_assertEqual(Out1_1,match(Tst1_1,Object1))},
-     %{"form a:b[1-2]",?_assertEqual(Out1_2,match(Tst1_2,Object1))},
-     {"form a:b[1,2,3]",?_assertEqual(Out1_3,match(Tst1_3,Object1))},
-     {"form a:b",?_assertEqual(Out1_3,match(Tst1_3b,Object1))},
-     {"form a:b[]:c",?_assertEqual(Out1_4,match(Tst1_4,Object1))},
-     %{"form a:b[1-2,3]",?_assertEqual(Out1_5,match(Tst1_5,Object1))},
-     {"form a:b{}:c",?_assertEqual(Out2_1,match(Tst2_1,Object2))},
-     {"form a:b{c}",?_assertEqual(Out2_2,lists:sort(match(Tst2_2,Object2)))},
-     %{"form a:b:$values$:c}",?_assertEqual(Out2_3,lists:sort(match(Tst2_3,Object2)))},
-     {"form a:b{any,c}:d",?_assertEqual(Out2_4,lists:sort(match(Tst2_4,Object2)))},
-     {"form a:b:any:c", ?_assertEqual(Out2_5, match(Tst2_5,Object2))},
-     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,match(Tst3_1,Object3))},
-     {"form [1]:d",?_assertEqual(Out3_2,match(Tst3_2,Object3))},
-     %{"form []:c:$firstChild$:d",?_assertEqual(Out3_3,match(Tst3_3,Object3))},
-     {"form {c,d}:e",?_assertEqual(Out4_1,match(Tst4_1,Object4))},
-     %{"form {a-c}:e",?_assertEqual(Out4_2,match(Tst4_2,Object4))},
-     %{"form a:$keys$",?_assertEqual(Out4_3,match(Tst4_3,Object4))},
-     {"form a{$keys$}",?_assertEqual(Out4_4,match(Tst4_4,Object4))},
-     {"form $keys$",?_assertEqual(Out4_5,match(Tst4_5,Object4))},
-     {"form $keys$[1]",?_assertEqual(Out4_6,match(Tst4_6,Object4))},
-     %{"form a:b[1-2]{}:c",?_assertEqual(Out5_1,match(Tst5_1,Object5))},
-     %{"nomatch a:b[1-3]{}:c",?_assertEqual(nomatch,match(Tst5_2,Object5))},
-     {"nomatch a:z",?_assertEqual(nomatch,match(Tst5_3,Object5))},
-     {"form {}[]{b}",?_assertEqual(Out6_1,match(Tst6_1,Object6))}]}.
+        , {"root:a6",       <<"[{\"b1\":1},{\"b1\":2},{\"b1\":3}]">>}
+        , {"root:a6[1]",    <<"[{\"b1\":1}]">>}
+        , {"root:a6[2]",    <<"[{\"b1\":2}]">>}
+        , {"root:a6[3]",    <<"[{\"b1\":3}]">>}
+        , {"root:a6[1,3]",  <<"[{\"b1\":1},{\"b1\":3}]">>}
+        , {"root:a6[2,3]",  <<"[{\"b1\":2},{\"b1\":3}]">>}
+        , {"root:a6[2,2]",  <<"[{\"b1\":2},{\"b1\":2}]">>}
+        , {"root{a1}",      <<"{\"a1\":123}">>}
+        , {"root{a1,a4}",   <<"{\"a1\":123,\"a4\":{\"b1\":456}}">>}
+        , {"root{a4}:b1",   <<"456">>}
+        , {"root{a5}:b1",   <<"\"string\"">>}
+        , {"root{a4,a5}:b1", undecided}
+        ]
+    ].
 
 -endif.
-

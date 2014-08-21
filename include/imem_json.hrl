@@ -1,7 +1,11 @@
 %% -*- coding: utf-8 -*-
 
+-ifdef(MAPS).
+
 % Decode raw json to a map (when supported)
 -define(DECODE_TO_MAPS,true).
+
+-endif. % MAPS
 
 %% Basic Configuration
 %% ===================================================================
