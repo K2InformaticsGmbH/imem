@@ -30,4 +30,4 @@ JPPath | JSON | Proplist
 `"root{a4}:a4"`<br>(`"root:a4"`) | `{b1:456, b2:789}` | `[{<<"b1">>,456},{<<"b2">>,789}]`
 `"root{a4}:b1"` | `nomatch` | `nomatch`
 `"root{a4}:a4:b1"` | `456` | `456`
-`"root{a4,a5}::b1"` | `{"[\"root\",\"a4\",\"b1\"]":456,`<br>` "[\"root\",\"a5\",\"b1\"]":"string"}` | `[{<<"[\"root\",\"a4\",\"b1\"]">>,456},`<br>` {<<"[\"root\",\"a5\",\"b1\"]">>,<<"string">>}]`
+`"root{a4,a5}::b1"` | `[{"#path": ["root","a4","b1"],"#value": 456},`<br>`{"#path": ["root","a5","b1"],"#value":"string"}]` | `[{<<"[\"root\",\"a5\",\"b1\"]">>,"string"},`<br>` {<<"[\"root\",\"a5\",\"b1\"]">>,<<"string">>}]`
