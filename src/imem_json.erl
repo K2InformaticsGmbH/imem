@@ -1,3 +1,4 @@
+%% -*- coding: utf-8 -*-
 -module(imem_json).
 
 %% @doc == JSON operations ==
@@ -8,149 +9,158 @@
 %% and returns in the same format as the provided data object
 %% (except for conversion functions)
 
--export([%% Standard data type operations, inspired by maps operations
-         find/2,
-         fold/3,
-         get/2, get/3,
-         has_key/2,
-         keys/1, 
-         map/2, 
-         new/0, new/1, 
-         put/3,
-         remove/2,
-         size/1,
-         update/3,
-         values/1,
+-include("imem.hrl").
+-include("imem_json.hrl").
 
-         %% Conversions
-         to_proplist/1, to_proplist/2,
-         to_map/1,
-         to_binary/1,
+% Binary(string) to Json En/Decode interface APIs
+-export([ encode/1
+        , decode/1
+        ]).
 
-         %% Other Functionality
-         filter/2,      %% Only keep key/value pairs based on boolean filter
-         include/2,     %% Only include specified keys
-         exclude/2,     %% Exclude specified keys
-         merge/2,       %% Merge data objects together (join)
-         diff/2,        %% Diff between data objects
-         equal/2,       %% Check if data objects are equal
-         is_subset/2,   %% Check if first data object is a subset of the second
-         is_disjoint/2, %% Check if data objects have no keys in common
-         project/2,     %% Create a projection of a json document based on paths
-         match/2,       %% Check if a data object matches a json path (using jpparse)
-         jpp_match/2    %% Match a jpparse syntax tree to a json document and extract the values
-         ,json_binary_decode/1
-         ]).
+%% Standard data type operations, inspired by maps operations
+-export([ find/2
+        , fold/3
+        , get/2
+        , get/3
+        , has_key/2
+        , keys/1
+        , map/2
+        , new/0
+        , new/1
+        , put/3
+        , remove/2
+        , size/1
+        , update/3
+        , values/1
+        ]).
 
-%TODO: custom output format:
-%       provide way to specify desired output format by:
-%           - adding a parameter to each function (much work)
-%           - or by adding a single function wich calls
-%             the function and converts to desired output (not much work)
+%% Conversions
+-export([ to_proplist/1
+        , to_proplist/2
+        , to_map/1
+        , to_binary/1
+        ]).
 
-
-%% Basic Configuration
+%% Other Functionality
+-export([ filter/2      %% Only keep key/value pairs based on boolean filter
+        , include/2     %% Only include specified keys
+        , exclude/2     %% Exclude specified keys
+        , merge/2       %% Merge data objects together (join)
+        , diff/2        %% Diff between data objects
+        , equal/2       %% Check if data objects are equal
+        , is_subset/2   %% Check if first data object is a subset of the second
+        , is_disjoint/2 %% Check if data objects have no keys in common
+        , project/2     %% Create a projection of a json document based on paths
+        , match/2       %% Check if a data object matches a json path (using jpparse)
+        ]).
+ 
+%% @doc ==============================================================
+%% Basic En/Decode interface
+%% supports all valid combinations of
+%%  libraries: jsx  -- pure erlang proplist
+%%             jsxn -- wrapper on jsx with map support
+%%             jiffy -- NIF based proplists/map
+%%  erlang release: <  R17 (without maps)
+%%                  >= R17 (with maps)
+%% +-------+------+-----------+--------------------+
+%% |       | <R17 | >= R17 (map disabled) | >= R17 |
+%% +-------+------+-----------------------+--------+
+%% | jiffy |  Y   |          Y            |    Y   |
+%% +-------+------+-----------------------+--------+
+%% | jsx   |  Y   |          Y            |    N   |
+%% +-------+------+-----------------------+--------+
+%% | jsxn  |  N   |          N            |    Y   |
+%% +-------+------+-----------------------+--------+
+%% Optional support control:
+%% in rebar.config the following properties can
+%%  {json_nif, false|true}  ->  en/disable jiffy
+%%  {json_maps, false|true} ->  en/disable maps
+%%                               irrespective erlang support
+%%
+%% In addition DECODE_TO_MAPS macro should be (un)defined to
+%% dis/enable decoding maps (in maps supported erlang). If
+%% DECODE_TO_MAPS is not defined, encode/1 can still receive
+%% maps but decode/1 will return proplists
 %% ===================================================================
 
-%░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-%▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-%  
-%  VERY IMPORTANT SETTING: make sure it is commented on every push !!!
-%¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯  
-%-define(ALLOW_MAPS,true). % Allow maps module to be used (Erlang >= 17.0)
-%
-%▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-%░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-%  (dramatization can be removed once every environment is 17.0 or above
+-spec encode(data_object()) -> Json :: binary().
+-spec decode(Json :: binary()) -> data_object().
 
-%-define(DECODE_TO_MAPS,true). % Decode raw json to a map
+-ifdef  ( MAPS ).
+    -ifdef  ( DECODE_TO_MAPS ).
+        -ifdef  ( JSONNIF ).
 
--define(DEFAULT_TYPE, proplist). % proplist | map | json
+%% Encode/Decode to MAPs using jiffy
+decode(<<"{}">>)    -> #{};
+decode(Json)        -> jiffy:decode(Json,[return_maps]).
 
--define(JSON_PATH_SEPARATOR,":").
+encode(Json) when is_list(Json) -> jiffy:encode({Json});
+encode(Json) when is_map(Json)  -> jiffy:encode(Json).
+%% --
 
--define(JSON_POWER_MODE,false). % Use binary parsing, when implemented, to handle raw binary data
+        -else.  % NOT JSONNIF
 
--define(NO_JSON_LIB,throw(no_json_library_found)).
+%% Encode/Decode MAPs with jsnx
+decode(<<"{}">>)    -> #{};
+decode(Json)        -> jsxn:decode(Json).
 
--define(NOT_SUPPORTED,throw(not_yet_supported)).
+encode(Json)        -> jsxn:encode(Json).
+%% --
 
--define(BAD_VERSION,throw(json_imem_disabled)).
+        -endif. % JSONNIF
+    -else.  % NOT DECODE_TO_MAPS
+        -ifdef  ( JSONNIF ).
 
+%% Encode/Decode Proplists with jiffy
+decode(<<"{}">>)    -> [];
+decode(Json)        -> element(1, jiffy:decode(Json)).
 
+encode(Json) when is_list(Json) -> jiffy:encode({Json});
+encode(Json) when is_map(Json)  -> jiffy:encode(Json).
+%% --
 
-%% Json Decoding & Encoding Library Configuration
-%% ===================================================================
-%% Format:  [{Module, DecodeFun, EncodeFun} | _ ]
--ifdef(ALLOW_MAPS).
--ifdef(DECODE_TO_MAPS).
--define(JSON_LIBS, [{jsx, 
-                     fun(<<"{}">>) -> #{};
-                        (__JS) -> case jsx:decode(__JS) of
-                                    [{_,_}|_]=__O -> maps:from_list(__O);
-                                    __L when is_list(__L) -> __L end end,
-                     fun(__JS) when is_list(__JS) -> jsx:encode(__JS);
-                        (__JS) when is_map(__JS) -> jsx:encode(to_proplist(__JS,deep)) end},
-                    {jiffy,
-                     fun(<<"{}">>) -> #{};
-                        (__JS) -> jiffy:decode(__JS,[return_maps]) end,
-                     fun(__JS) when is_list(__JS) -> jiffy:encode({__JS});
-                        (__JS) when is_map(__JS) -> jiffy:encode(__JS) end}
-                   ]).
--else.
--define(JSON_LIBS, [{jsx, 
-                     fun(<<"{}">>) -> [];
-                        (__JS) -> jsx:decode(__JS) end,
-                     fun(__JS) when is_list(__JS) -> jsx:encode(__JS);
-                        (__JS) when is_binary(__JS) -> __JS;
-                        (__JS) when is_map(__JS) -> jsx:encode(to_proplist(__JS,deep)) end},
-                    {jiffy,
-                     fun(<<"{}">>) -> [];
-                        (__JS) -> {O} = jiffy:decode(__JS), O end,
-                     fun(__JS) when is_list(__JS) -> jiffy:encode({__JS});
-                        (__JS) when is_binary(__JS) -> __JS;
-                        (__JS) when is_map(__JS) -> jiffy:encode(__JS) end}
-                   ]).
--endif.
--else.
--define(JSON_LIBS, [{jsx, 
-                     fun(<<"{}">>) -> [];
-                        (__JS) -> jsx:decode(__JS) end,
-                     fun(__JS) when is_binary(__JS) -> __JS;
-                        (__JS) -> jsx:encode(__JS) end},
-                    {jiffy,
-                     fun(<<"{}">>) -> [];
-                        (__JS) -> {O} = jiffy:decode(__JS), O end,
-                     fun(__JS) when is_binary(__JS) -> __JS;
-                        (__JS) -> jiffy:encode(__JS) end}
-                   ]).
--endif.
+        -else.  % NOT JSONNIF
 
-%% Technical macros
-%% ===================================================================
--define(TO_JSON,json_binary_encode).
--define(FROM_JSON,json_binary_decode).
--define(CL,clean_null_values).
+%% Encode/Decode Proplists with jsx/jsxn
+decode(<<"{}">>)    -> [];
+decode(Json)        -> jsx:decode(Json).
 
-%% Type definitions
-%% ===================================================================
--ifdef(ALLOW_MAPS).
--type data_object() :: list() | map() | binary().
--type diff_object() :: list() | map() | binary().
--else.
--type data_object() :: list() | binary().
--type diff_object() :: list() | binary().
--endif.
+encode(Json) when is_list(Json) -> jsx:encode(Json);
+encode(Json) when is_map(Json)  -> jsxn:encode(Json).
+%% --
 
--type value() :: term().
--type key() :: binary().
+        -endif. % JSONNIF
+    -endif. % DECODE_TO_MAPS
+-else.  % NOT MAPS
+    -ifdef  ( JSONNIF ).
+
+%% Encode/Decode Proplists with jiffy
+decode(<<"{}">>)    -> [];
+decode(Json)        -> element(1, jiffy:decode(Json)).
+
+encode(Json) -> jiffy:encode({Json}).
+%% --
+
+    -else.  % NOT JSONNIF
+
+%% Encode/Decode Proplists with jsx
+decode(<<"{}">>)    -> [];
+decode(Json)        -> jsx:decode(Json).
+
+encode(Json) -> jsx:encode(Json).
+%% --
+
+    -endif. % JSONNIF
+-endif. % MAPS
 
 %% ===================================================================
-%% Exported functions
+
+%% ===================================================================
+%% Other Exported functions
 %% ===================================================================
 %% @doc Find function, returns {ok,Value} or error
 -spec find(key(),data_object()) -> {ok, value()} | error.
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 find(Key,DataObject) when is_list(DataObject) ->
     case proplists:get_value(Key,DataObject,undefined) of
         undefined -> error;
@@ -174,7 +184,7 @@ find(Key,DataObject) ->
 %% @doc Standard fold function, returns accumulator. null values are ignored.
 %% Fun = fun((K, V, AccIn) -> AccOut)
 -spec fold(fun(), Init, data_object()) -> Acc when Init :: term(), Acc :: term().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 fold(Fun,Init,DataObject) when is_list(DataObject) -> 
     lists:foldl(fun({K,V},Acc) -> Fun(K,V,Acc) end,
                 Init,
@@ -193,35 +203,9 @@ fold(Fun,Init,DataObject) ->
 -endif.
 
 
-%% @doc Get function, same as get(Key,DataObject,undefined)
--spec get(key(),data_object()) -> value() | undefined.
-get(Key,DataObject) ->
-    get(Key,DataObject,undefined).
-
-
-%% @doc Return value corresponding to key. If key not present, returns Default.
--spec get(key(),data_object(),Default) -> value() | Default when Default :: term().
--ifdef(ALLOW_MAPS).
-get(Key,DataObject,Default) when is_list(DataObject) ->
-    proplists:get_value(Key,DataObject,Default);
-get(Key,DataObject,Default) when is_map(DataObject) ->
-    case maps:find(Key,DataObject) of
-        {ok,Value} -> Value;
-        error -> Default
-    end;
-get(Key,DataObject,Default) ->
-    get(Key,?FROM_JSON(DataObject), Default).
--else.
-get(Key,DataObject,Default) when is_list(DataObject) ->
-    proplists:get_value(Key,DataObject,Default);
-get(Key,DataObject,Default) ->
-    get(Key,?FROM_JSON(DataObject), Default).
--endif.
-
-
 %% @doc Check if data object has key
 -spec has_key(key(), data_object()) -> boolean().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 has_key(Key,DataObject) when is_list(DataObject) ->
     proplists:is_defined(Key,DataObject);
 has_key(Key,DataObject) when is_map(DataObject) ->
@@ -237,7 +221,7 @@ has_key(Key,DataObject) ->
 
 %% @doc Erlang term ordered list of keys used by data object
 -spec keys(data_object()) -> list().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 keys(DataObject) when is_list(DataObject) -> 
     lists:sort(proplists:get_keys(DataObject));
 keys(DataObject) when is_map(DataObject) -> 
@@ -258,7 +242,7 @@ keys(DataObject) ->
 %% for the new data object. 
 %% null values are ignored and not carried over to new data object.
 -spec map(fun(), data_object()) -> data_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 map(Fun,DataObject) when is_list(DataObject) ->
     lists:map(fun({K,V}) -> {K,Fun(K,V)} end,
               proplists:unfold(DataObject));
@@ -275,13 +259,13 @@ map(Fun,DataObject) ->
 -endif.
 
 
-%% @doc Create new imen json data object using default type
+%% @doc Create new imem json data object using default type
 -spec new() -> data_object().
 new() -> new(?DEFAULT_TYPE).
 
 %% @doc Create new imen json data object
 -spec new(Type) -> data_object() when Type :: json | proplist | map.
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 new(proplist) -> [];
 new(map) -> #{};
 new(json) -> <<"{}">>.
@@ -291,11 +275,35 @@ new(json) -> <<"{}">>.
 -endif.
 
 
+%% @doc Get function, same as get(Key,DataObject,undefined)
+-spec get(key(),data_object()) -> value() | undefined.
+get(Key,DataObject) ->
+    get(Key,DataObject,undefined).
+
+%% @doc Return value corresponding to key. If key not present, returns Default.
+-spec get(key(),data_object(),Default) -> value() | Default when Default :: term().
+-ifdef(MAPS).
+get(Key,DataObject,Default) when is_list(DataObject) ->
+    proplists:get_value(Key,DataObject,Default);
+get(Key,DataObject,Default) when is_map(DataObject) ->
+    case maps:find(Key,DataObject) of
+        {ok,Value} -> Value;
+        error -> Default
+    end;
+get(Key,DataObject,Default) ->
+    get(Key,?FROM_JSON(DataObject), Default).
+-else.
+get(Key,DataObject,Default) when is_list(DataObject) ->
+    proplists:get_value(Key,DataObject,Default);
+get(Key,DataObject,Default) ->
+    get(Key,?FROM_JSON(DataObject), Default).
+-endif.
+
 
 %% @doc Add a value to a IMEM Json data object
 %% Should Key already exist, old value will be replaced
 -spec put(key(), value(), data_object()) -> data_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 put(Key,Value,DataObject) when is_list(DataObject) ->
     [{Key,Value}| proplists:delete(Key,DataObject)];
 put(Key,Value,DataObject) when is_map(DataObject) ->
@@ -310,10 +318,9 @@ put(Key,Value,DataObject) ->
 -endif.
 
 
-
 %% @doc Remove a key from a data object
 -spec remove(key(), data_object()) -> data_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 remove(Key,DataObject) when is_list(DataObject) ->
     proplists:delete(Key,DataObject);
 remove(Key,DataObject) when is_map(DataObject) ->
@@ -332,7 +339,7 @@ remove(Key,DataObject) ->
 
 %% @doc Size of a data object, ignoring null values
 -spec size(data_object()) -> integer().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 size(DataObject) when is_list(DataObject) -> 
     length(?CL(DataObject));
 size(DataObject) when is_map(DataObject) -> 
@@ -351,7 +358,7 @@ size(DataObject) ->
 %% @doc Update a key with a new value. If key is not present, 
 %% error:badarg exception is raised.
 -spec update(key(),value(),data_object()) -> data_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 update(Key,Value,DataObject) when is_list(DataObject) ->
     case proplists:is_defined(Key,DataObject) of
         true -> [{Key,Value} | proplists:delete(Key,DataObject)];
@@ -377,7 +384,7 @@ update(Key,Value,DataObject) ->
 
 %% @doc Returns a complete list of values, in arbitrary order, from data object
 -spec values(data_object()) -> list().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 values(DataObject) when is_list(DataObject) ->
     [V || {_,V} <- DataObject];
 values(DataObject) when is_map(DataObject) ->
@@ -395,7 +402,7 @@ values(DataObject) ->
 
 %% @doc Convert any format of DataObject to proplist
 -spec to_proplist(data_object()) -> list().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 to_proplist(DataObject) when is_list(DataObject) ->
     DataObject;
 to_proplist(DataObject) when is_map(DataObject) ->
@@ -428,7 +435,7 @@ to_proplist(DataObject,deep) when is_binary(DataObject) ->
 
 
 %% @doc Convert any format of DataObject to map
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 -spec to_map(data_object()) -> map().
 to_map(DataObject) when is_list(DataObject) ->
     maps:from_list(DataObject);
@@ -452,7 +459,7 @@ to_binary(DataObject) -> ?TO_JSON(DataObject).
 %% object according if boolean filter function (fun(K,V) -> true | false) 
 %% return true.
 -spec filter(fun(),data_object()) -> data_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 filter(Fun,DataObject) when is_list(DataObject) ->
     lists:foldl(fun({K,V},In) ->
                     case Fun(K,V) of
@@ -492,7 +499,7 @@ filter(Fun,DataObject) ->
 %% @doc Build data object with provided keys and associated values from
 %% provided data object
 -spec include(Keys,data_object()) -> data_object() when Keys :: [key() | Keys].
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 include(Keys,DataObject) when is_list(DataObject) -> 
     [{K,proplists:get_value(K,DataObject)} || K <- Keys];
 include(Keys,DataObject) when is_map(DataObject) -> 
@@ -514,7 +521,7 @@ include(Keys,DataObject) ->
 %% @doc Build data object with data from provided data object, excluding
 %% the elements associated with provided keys
 -spec exclude(Keys,data_object()) -> data_object() when Keys :: [key() | Keys].
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 exclude(Keys,DataObject) when is_list(DataObject) -> 
     [{K,V} || {K,V} <- DataObject, lists:member(K,Keys) =:= false];
 exclude(Keys,DataObject) when is_map(DataObject) -> 
@@ -540,7 +547,7 @@ exclude(Keys,DataObject) ->
 %% will be superseded by the value in the second data object, unless the value 
 %% of the second data object is null.
 -spec merge(data_object(),data_object()) -> data_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 merge(DataObject1,DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
     CleanObject2 = ?CL(DataObject2),
     Object2Keys = proplists:get_keys(CleanObject2),
@@ -570,7 +577,7 @@ merge(DataObject1,DataObject2) ->
 %% replaced : containts key/value pairs who are not indentical between data object 1 and 2,
 %%            with the values from data object 1
 -spec diff(data_object(), data_object()) -> diff_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 diff(RawDataObject1, RawDataObject2) when is_list(RawDataObject1), is_list(RawDataObject2) ->
     DataObject1 = ?CL(RawDataObject1),
     DataObject2 = ?CL(RawDataObject2),
@@ -679,7 +686,7 @@ diff(DataObject1, DataObject2) ->
 
 %% @doc Compare data objects for equality (null values are ignored)
 -spec equal(data_object(), data_object()) -> boolean().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 equal(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) -> 
     lists:sort(?CL(DataObject1)) =:= lists:sort(?CL(DataObject2));
 equal(DataObject1, DataObject2) when is_map(DataObject1), is_map(DataObject2) ->
@@ -698,7 +705,7 @@ equal(DataObject1, DataObject2) ->
 
 %% @doc Returns true when every element of data_object1 is also a member of data_object2, otherwise false.
 -spec is_subset(data_object(), data_object()) -> boolean().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 is_subset(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
     Is_Member = fun ({_,null}) -> true;
                     ({K1,V1}) -> V1 =:= proplists:get_value(K1,DataObject2) end,
@@ -724,7 +731,7 @@ is_subset(DataObject1, DataObject2) ->
 
 %% @doc Returns true when no element of data_object1 is a member of data_object2, otherwise false.
 -spec is_disjoint(data_object(), data_object()) -> boolean().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 is_disjoint(DataObject1, DataObject2) when is_list(DataObject1), is_list(DataObject2) ->
     Is_Member = fun({K1,V1}) ->
                     V1 =:= proplists:get_value(K1,DataObject2)
@@ -810,159 +817,152 @@ walk_path([Filter|Tail],CurrentLevel) ->
                                end
     end.
                
-%% @doc Projects a binary string json path (as understood by jpparse) on a json object
--spec match(binary(),data_object()) -> value() | ListOfValues | nomatch
-    when ListOfValues :: [value() | ListOfValues].
-match(JsonPath,DataObject) ->
-    {ok,{ParseTree,_}} = jpparse:parsetree(JsonPath),
-    jpp_match(ParseTree,DataObject).
-    
+
 %% @doc Projects a parsed Json Path (from jpparse) on a json object
 %% and extracts matched values. nomatch is return if no match is found.
 %% This function uses imem_json primitives, and as such is format neutral.
--spec jpp_match(JPPTree,data_object()) -> value() | ListOfValues | nomatch
-    when JPPTree :: tuple(),
-         ListOfValues :: [value() | ListOfValues].
-
--define(OO(_X), {'{}',_X}).
--define(LL(_X), {'[]',_X}).
--define(FF(_X), {'$',_X}).
--define(JV, jpp_value).
-
-jpp_match(Tree,DataObject) when is_binary(DataObject) ->
-    jpp_match(Tree,?FROM_JSON(DataObject));
-jpp_match(Tree,DataObject) ->
-    Out = jpp_walk(Tree,DataObject),
-    if
-        is_list(Out) -> 
-            Flat = lists:flatten(Out),
-            case lists:any(fun(nomatch) -> true; (_) -> false end,Flat) of
-                true -> nomatch;
-                false -> Flat
-            end;
-        true -> 
-            Out
+-spec match(JPPTree :: list() | binary() | tuple()
+            , [{binary(),data_object()}]) ->
+    [] | list(value()).
+match(JsonPath,Binds)
+  when is_binary(JsonPath) orelse is_list(JsonPath) ->
+    {ok,{Tree,_}} = jpparse:parsetree(JsonPath),
+    match(Tree,Binds);
+match(Tree,[{Name,Object}|_] = Binds)
+  when is_binary(Name), is_binary(Object) ->
+    case match(Tree
+               , [{N, ?FROM_JSON(O)}
+                  || {N,O} <- Binds]) of
+        {error, Reason} -> {error, Reason};
+        [] -> <<>>;
+        MatchedObject -> ?TO_JSON(MatchedObject)
+    end;
+match(Tree,Binds) ->    
+    case jpparse:foldbu(fun jpp_walk/3
+                        , {[],Binds}
+                        , Tree) of
+        {error, Error} -> {error, Error};
+        {MatchObjects,_} -> MatchObjects
     end.
 
-    %% jpp_walk transposes jpparse constructs to simple unary primitives {'{}',Field} and {'[]',Index}.
-    %% Whenever a list of fields or indexes is encountered, it just does a mapping, and each field/index
-    %% generates it's own match, witch are then grouped together. Code repetition is avoided, and kept terse.
-    %%
-    %% Here is an example of the jpparse and its ultimate "primitivized" form:
-    %%
-    %% form {}[]{b}: [{'{}',{'[]',{'{}','_',[]},[]},[<<"b">>]}]
-    %%  -> [{'{}',{'[]',{'{}','_',[]},[]}}, {'{}',[<<"b">>}]]
-    %%  -> [{'{}',{'{}','_',[]}}, {'[]',[]} | {'{}',[<<"b">>]}]
-    %%  -> [{'{}','_'}, {'{}',[]'} | {'[]',[]}, {'{}',[<<"b">>]}]
-    %%  -> [{'$',<<"values">>}, {'[]',[]}, {'{}', [<<"b">>]}]
-
-    %% Higher level parsing
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    jpp_walk({':',Elements},CLevel) ->
-        jpp_walk(Elements,CLevel);
-
-    jpp_walk([],CLevel) -> CLevel;
-
-    %% Object Walking
-    jpp_walk([Field|Tail],CLevel) when is_binary(Field) -> % <<"field">> => {'{}',<<"field">>}
-        jpp_walk([?OO(Field)| Tail], CLevel);
-    jpp_walk([{'{}','_',Fields}|Tail],CLevel) when is_list(Fields) -> % {'{}','_',Fields}
-        jpp_walk([?OO(Fields)|Tail],CLevel);
-    jpp_walk([{'{}',Origin,Field}|Tail],CLevel) -> % {'{}',O,F} => [{'{}',O}, {'{}',F}]
-        jpp_walk([?OO(Origin),?OO(Field) | Tail],CLevel);
-    jpp_walk([?OO([])|Tail],CLevel) -> % {'{}',[]} => {'$',<<"values">>}
-        jpp_walk([?FF(<<"values">>)|Tail], CLevel);
-    jpp_walk([?OO(Fields)|Tail],CLevel) when is_list(Fields) -> % {'{}',Fields}
-        [jpp_walk([?OO(Field) | Tail],CLevel) || Field <- Fields];
-    jpp_walk([?OO('_')|Tail],CLevel) -> % {'{}','_'}
-        jpp_walk(Tail, CLevel);
-    jpp_walk([?OO(?FF(Any))|Tail],CLevel) ->  % {'{}',{'$',any}} => {'$',any}
-        jpp_walk([?FF(Any)|Tail], CLevel);
-    jpp_walk([?OO({'-',Start,End})|Tail],CLevel) -> % {'{}',{'-',S,E}}
-        Keys = lists:foldl(fun(K,Acc) ->
-                            if K >= Start, K =<  End -> [K|Acc];
-                            true -> Acc end end,
-                           [], ?MODULE:keys(CLevel)),
-        jpp_walk([?OO(lists:reverse(Keys))| Tail], CLevel);
-    jpp_walk([?OO({'[]',F,I})|Tail],CLevel) -> %{'{}',{'[]',F,I}}
-        jpp_walk([?OO(F),?LL(I)|Tail],CLevel);
-    jpp_walk([?OO({'{}',O,F})|Tail],CLevel) -> %{'{}',{'{}',F,I}}
-        jpp_walk([?OO(O),?OO(F)|Tail], CLevel);
-
-    %% Object "Function-as-a-property"
-    jpp_walk([?FF(<<"values">>)|Tail],CLevel) ->
-        [jpp_walk(Tail,NLevel) || NLevel <- ?MODULE:values(CLevel)];
-    jpp_walk([?FF(<<"firstChild">>)|Tail],CLevel) ->
-        [NLevel|_] = ?MODULE:values(CLevel),
-        jpp_walk(Tail,NLevel);
-    jpp_walk([?FF(<<"keys">>)|Tail],CLevel) ->
-        jpp_walk(Tail,?MODULE:keys(CLevel));
-
-    %% List Walking
-    jpp_walk([{'[]','_',Index}|Tail],CLevel) -> % {'[]','_',I} => {'[]',I}
-        jpp_walk([?LL([Index])|Tail],CLevel);
-    jpp_walk([{'[]',Field,Index}|Tail],CLevel) -> % {'[]',F,I} => [{'{}',F}, {'[]',I}]
-        jpp_walk([?OO(Field), ?LL(Index)| Tail], CLevel);
-    jpp_walk([?LL([])|Tail],CLevel) -> % {'[]',[]} => {'-',1,Max}
-        jpp_walk([?LL({'-', 1, ?MODULE:size(CLevel)})| Tail], CLevel);
-    jpp_walk([?LL({'-',Start,End})|Tail],CLevel) -> % {'[]',{'-',S,E}}
-        Seq = lists:seq(?JV(Start), ?JV(End)),
-        jpp_walk([?LL(Seq)| Tail], CLevel);
-    jpp_walk([?LL(List)|Tail], CLevel) when is_list(List) -> % {'[]',[Fields]}
-        [jpp_walk([?LL(Index)| Tail], CLevel) || Index <- List];
-
-    %% Lower level matching (and actually doing something)
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    jpp_walk([?LL(RawIndex)|Tail],CLevel) ->
-        Index = ?JV(RawIndex),
-        Length = ?MODULE:size(CLevel),
-        if Index > Length -> nomatch;
-           true -> NLevel =  lists:nth(Index,CLevel),
-                   jpp_walk(Tail,NLevel)
-        end;
-    jpp_walk([?OO(RawField)|Tail],CLevel)->
-        Field = ?JV(RawField),
-        case ?MODULE:get(Field,CLevel) of
-            undefined -> nomatch;
-            NLevel -> jpp_walk(Tail,NLevel)
-        end.
-
-    %% Any function-generated value should be dealt with here
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    jpp_value(Value) when is_binary(Value) -> Value;
-    jpp_value(Value) when is_integer(Value) -> Value.
-         
-        
-    
-
-%% ===================================================================
-%% Internal functions
-%% ===================================================================
-
--spec json_binary_decode(Json) -> data_object() when Json :: binary().
-json_binary_decode(Json) ->
-    json_binary_decode(Json,?JSON_LIBS).
-json_binary_decode(Json,Libs) ->
-    %% Json Lib detection should probably be replaced by an environment variable
-    Apps = [App || {App,_,_} <- application:loaded_applications()],
-    case [_Fun || {_Lib,_Fun,_} <- Libs, lists:member(_Lib,Apps)] of
-        [Decode|_] -> Decode(Json);
-        []     -> ?NO_JSON_LIB 
-    end.
-
--spec json_binary_encode(data_object()) -> Json when Json :: binary().
-json_binary_encode(Json) ->
-    json_binary_encode(Json,?JSON_LIBS).
-json_binary_encode(Json,Libs) ->
-    %% Json Lib detection should probably be replaced by an environment variable
-    Apps = [App || {App,_,_} <- application:loaded_applications()],
-    case [_Fun || {_Lib,_,_Fun} <- Libs, lists:member(_Lib,Apps)] of
-        [Encode|_] -> Encode(Json);
-        []     -> ?NO_JSON_LIB 
-    end.
+-define(TRACE, ok).
+-ifndef(TRACE).
+-define(TRACE,
+        io:format(user, "[~p] ~p~n PT   ~p~n BIND ~p~n"
+                  , [?LINE, _Depth, _Pt, _Acc])
+       ).
+-endif.
+jpp_walk(_Depth, {'$',_} = _Pt, _Acc) ->
+    ?TRACE,
+    exit({unimplimented, '$'}),
+    _Acc;
+jpp_walk(_Depth, {'fun',_,_Args} = _Pt, _Acc) ->
+    ?TRACE,
+    exit({unimplimented, 'fun'}),
+    _Acc;
+jpp_walk(_Depth, {'[]',L,Idxs} = _Pt, {_Result,Binds} = _Acc) ->
+    ?TRACE,
+    case proplists:get_value(L,Binds) of
+        undefined -> exit({unbound, L});
+        % TODO: To be rewritten for maps
+        List ->
+            % Idxs list is processed in reversed order
+            % to append to head of building list
+            {RList, NewBindings} = lists:foldl(
+             fun
+                 (I, _)
+                   when is_integer(I) andalso
+                        ((I =< 0) orelse (I > length(List))) ->
+                     exit({index_out_of_bound, I, List});
+                 (I, {Lst, BindAcc}) when is_integer(I) ->
+                     {[lists:nth(I,List) | Lst], BindAcc};
+                 % When Index is a not an integer
+                 % It is assumed that it represents a
+                 % JSON path in parsed from. Hence
+                 % its processed independently with
+                 % existing binds to reduce it to an integer
+                 (I, {Lst, BindAcc}) ->
+                     case match(I, BindAcc) of
+                         {M, BindAcc1}
+                           when is_integer(M) andalso
+                                (M > 0) andalso
+                                (M =< length(List)) ->
+                             {[lists:nth(M,List) | Lst]
+                              , BindAcc1};
+                         _ ->
+                            exit({path_fot_found, I, BindAcc})
+                     end
+             end
+             , {[], Binds}
+             , lists:reverse(Idxs)),
+            {RList, [{_Pt, RList} | NewBindings]}
+    end;
+jpp_walk(_Depth, {'{}',L,Props} = _Pt, {_Result,Binds} = _Acc) ->
+    ?TRACE,
+    case proplists:get_value(L, Binds) of
+        undefined -> exit({unbound, L});
+        % TODO: To be rewritten for maps
+        Obj ->
+            % Props list is processed in reversed order
+            % to append to head of building list
+            {RList, NewBindings} = lists:foldl(
+             fun
+                 (P, {NObj, BindAcc}) when is_binary(P) ->
+                     case ?MODULE:get(P,Obj) of
+                         undefined ->
+                             exit({property_not_found, P, Obj});
+                         V ->
+io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
+                             {[{P, V} | NObj]
+                              , [{_Pt, V} | BindAcc]}
+                     end;
+                 % When Index is a not an binary
+                 % it is assumed that it represents a
+                 % JSON path in parsed from. Hence
+                 % its processed independently with
+                 % existing binds to reduce it to binary
+                 (P, {NObj, BindAcc}) ->
+                     case match(P, BindAcc) of
+                         {M, BindAcc1} when is_binary(M) ->
+                            case ?MODULE:get(M,Obj) of
+                                undefined ->
+                                    exit({property_not_found
+                                          , M, Obj});
+                                V ->
+io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
+                                    {[{M, V} | NObj]
+                                     , [{P, V} | BindAcc1]}
+                            end;
+                         _ ->
+                             exit({path_not_found, P, BindAcc})
+                     end
+             end
+             , {[], Binds}
+             , lists:reverse(Props)),
+            {RList, NewBindings}
+    end;
+jpp_walk(_Depth, {':',R,L} = _Pt, {_Result,Binds} = _Acc)
+  when is_binary(R) ->
+    ?TRACE,
+    case proplists:get_value(L,Binds) of
+        undefined -> exit({unbound, L});
+        Obj ->            
+            V = ?MODULE:get(R,Obj),
+            if V =:= undefined ->
+io:format(user,"~p not_found ~p ~p~n", [?LINE, R, Obj]),
+                   exit({not_found, R, Obj});
+               true ->
+%io:format("~p got ~p ~p~n", [?LINE, R, V]),
+                   {V, [{_Pt, V} | Binds]}
+            end
+    end;
+jpp_walk(_Depth, _Pt, _Acc)
+  when is_binary(_Pt); is_integer(_Pt) ->
+    ?TRACE,
+    _Acc.
 
 -spec clean_null_values(data_object()) -> data_object().
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 clean_null_values([{_,_}|_] = DataObject) ->
     [{K,V} || {K,V} <- DataObject, V =/= null];
 clean_null_values(DataObject) when is_list(DataObject) ->
@@ -1047,15 +1047,13 @@ clean_null_values(DataObject) ->
 %% Testing available when maps are enabled, testing code not duplicated
 %% Latest code coverage check: 100%
 
-setup() ->
-    application:start(jpparse),
-    application:start(jsx).
+setup() -> ok.
 
 -define(TEST_JSON, <<"{\"surname\":\"Doe\",\"name\":\"John\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"empty\":null}">>).
 -define(TEST_PROP, [{<<"surname">>,<<"Doe">>}, {<<"name">>,<<"John">>}, {<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"age">>,981},{<<"empty">>,null}]).
 -define(TEST_JSON_LIST, <<"[{\"surname\":\"Doe\"},{\"surname\":\"Jane\"},{\"surname\":\"DoeDoe\"}]">>).
 
--ifdef(ALLOW_MAPS).
+-ifdef(MAPS).
 -define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true, <<"foo">> => <<"bar">>, <<"name">> => <<"John">>, <<"surname">> => <<"Doe">>,<<"empty">> => null}).
 
 %% JSON is tested for each function as well even if, basically, it only tests the 
@@ -1318,8 +1316,8 @@ walk_path_test_() ->
     
 
 json_lib_throw_test_() ->
-    [?_assertException(throw,no_json_library_found,json_binary_decode(<<"{\"test\":true}">>,[])),
-     ?_assertException(throw,no_json_library_found,json_binary_encode([{<<"test">>,true}],[]))].
+    [?_assertException(throw,no_json_library_found,decode(<<"{\"test\":true}">>,[])),
+     ?_assertException(throw,no_json_library_found,encode([{<<"test">>,true}],[]))].
 
 
 
@@ -1620,10 +1618,6 @@ walk_path_test_() ->
     Result1 = [1,2],
     [?_assertEqual(Result1,walk_path(Path1,Object1))
     ].
-    
-json_lib_throw_test_() ->
-    [?_assertException(throw,no_json_library_found,json_binary_decode(<<"{\"test\":true}">>,[])),
-     ?_assertException(throw,no_json_library_found,json_binary_encode([{<<"test">>,true}],[]))].
 
 
 -ifdef(DECODE_TO_MAPS).
@@ -1692,177 +1686,43 @@ is_disjoint_test_() ->
 
 -endif.
 
-jpp_match_test_() ->
-    Object1 = <<"{\"a\":{\"b\":[{\"c\":1},{\"c\":2},{\"c\":3}]}}">>,
-    Tst1_1 = {':', [<<"a">>, {'[]', <<"b">>, [1]}, <<"c">>]}, % a:b[1]:c 
-    Out1_1 = [1],
-    Tst1_2 = {':', [<<"a">>, {'[]', <<"b">>, {'-', 1, 2}}, <<"c">>]}, % a:b[1-2]
-    Out1_2 = [1,2],
-    Tst1_3 = {':', [<<"a">>, {'[]', <<"b">>, [1,2,3]}]}, % a:b[1,2,3]
-    Tst1_3b = {':', [<<"a">>, <<"b">>]}, % a:b[1,2,3]
-    Out1_3 = [{<<"c">>,1},{<<"c">>,2},{<<"c">>,3}],
-    Tst1_4 = {':', [<<"a">>, {'[]', <<"b">>, []}, <<"c">>]}, % a:b[]:c
-    Out1_4 = [1,2,3],
-    Tst1_5 = {':', [<<"a">>, {'[]', <<"b">>, [{'-',1,2},3]}, <<"c">>]}, % a:b[1-2,3]:c
-    Out1_5 = [1,2,3],
-
-    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":5}}}}">>,
-    Tst2_1 = {':', [<<"a">>, {'{}', <<"b">>, []}, <<"c">>]}, % a:b{}:c
-    Out2_1 = [1,4],
-    Tst2_2 = {':', [<<"a">>, {'{}', <<"b">> ,[<<"c">>]}]}, %a:b{c}
-    Out2_2 = [{<<"c">>,4},{<<"d">>,5}],
-    Tst2_3 = {':', [<<"a">>, <<"b">>, {'$',<<"values">>}, <<"c">>]}, % a:b:$values$:c
-    Out2_3 = [1,4],
-    Tst2_4 = {':', [<<"a">>, {'{}',<<"b">>,[<<"any">>,<<"c">>]},<<"d">>]}, % a:b{any,c}:d
-    Out2_4 = [2,5],
-    Tst2_5 = {':',[<<"a">>,<<"b">>,<<"any">>,<<"c">>]},%a:b:any:c
-    Out2_5 = 1,
-
-    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}},\"d\":true},{\"c\":{\"b\":{\"d\":2}}}]">>,
-    Tst3_1 = {':', [{'[]', '_', []}, {'{}', <<"c">>, {'$',<<"firstChild">>}}, <<"d">>]}, % []:c{$firstChild$}:d
-    Out3_1 = [3,2],
-    Tst3_2 = {':', [{'[]', '_', [1]}, <<"d">>]}, % [1]:d
-    Out3_2 = [true],
-    Tst3_3 = {':', [{'[]', '_', []},  <<"c">>, {'$',<<"firstChild">>}, <<"d">>]}, % []:c:$firstChild$:d
-    Out3_3 = [3,2],
-
-    Object4 = <<"{\"a\":{\"e\":8},\"c\":{\"e\":1},\"d\":{\"e\":2}}">>,
-    Tst4_1 = {':', [{'{}', '_', [<<"c">>, <<"d">>]},<<"e">>]}, % {c,d}:e
-    Out4_1 = [1,2],
-    Tst4_2 = {':', [{'{}', '_', [{'-',<<"a">>, <<"c">>}]},<<"e">>]}, % {a-c}:e
-    Out4_2 = [8,1],
-    Tst4_3 = {':',[<<"a">>,{'$',<<"keys">>}]}, % a:$keys$
-    Out4_3 = [<<"e">>],
-    Tst4_4 = {':',[{'{}',<<"a">>,[{'$',<<"keys">>}]}]}, % a{$keys$}
-    Out4_4 = [<<"e">>],
-    Tst4_5 = {':',[{'$',<<"keys">>}]}, % $keys$
-    Out4_5 = [<<"a">>,<<"c">>,<<"d">>],
-    Tst4_6 = {':',[{'[]',{'$',<<"keys">>},[1]}]}, % $keys$[1]
-    Out4_6 = [<<"a">>],
-
-    Object5 = <<"{\"a\": {\"b\":[{\"a\":{\"c\":4},\"b\":{\"c\":1}},{\"a\":{\"c\":8},\"b\":{\"c\":2}}]}}">>,
-    Tst5_1 = {':', [<<"a">>, {'{}', {'[]', <<"b">>, [{'-', 1, 2}]},[]},<<"c">>]}, % a:b[1-2]{}:c 	
-    Out5_1 = [4,1,8,2],
-    Tst5_2 = {':', [<<"a">>, {'{}', {'[]', <<"b">>, [{'-', 1, 3}]},[]},<<"c">>]}, % a:b[1-3]{}:c 	
-    Tst5_3 = {':', [<<"a">>,<<"z">>]}, % a:z
-
-    Object6 = <<"{\"a\":[{\"b\":1,\"d\":2},{\"b\":3,\"d\":4}],\"b\":[{\"b\":5,\"d\":6},{\"b\":7,\"d\":8}]}">>,
-    Tst6_1 = {':',[{'{}',{'[]',{'{}','_',[]},[]},[<<"b">>]}]}, % {}[]{b} 
-    Out6_1 = [1,3,5,7],
-
-
-    {setup,
-     fun setup/0,
-    [{"form a:b[1]:c",?_assertEqual(Out1_1,jpp_match(Tst1_1,Object1))},
-     {"form a:b[1-2]",?_assertEqual(Out1_2,jpp_match(Tst1_2,Object1))},
-     {"form a:b[1,2,3]",?_assertEqual(Out1_3,jpp_match(Tst1_3,Object1))},
-     {"form a:b",?_assertEqual(Out1_3,jpp_match(Tst1_3b,Object1))},
-     {"form a:b[]:c",?_assertEqual(Out1_4,jpp_match(Tst1_4,Object1))},
-     {"form a:b[1-2,3]",?_assertEqual(Out1_5,jpp_match(Tst1_5,Object1))},
-     {"form a:b{}:c",?_assertEqual(Out2_1,jpp_match(Tst2_1,Object2))},
-     {"form a:b{c}",?_assertEqual(Out2_2,lists:sort(jpp_match(Tst2_2,Object2)))},
-     {"form a:b:$values$:c}",?_assertEqual(Out2_3,lists:sort(jpp_match(Tst2_3,Object2)))},
-     {"form a:b{any,c}:d",?_assertEqual(Out2_4,lists:sort(jpp_match(Tst2_4,Object2)))},
-     {"form a:b:any:c", ?_assertEqual(Out2_5, jpp_match(Tst2_5,Object2))},
-     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,jpp_match(Tst3_1,Object3))},
-     {"form [1]:d",?_assertEqual(Out3_2,jpp_match(Tst3_2,Object3))},
-     {"form []:c:$firstChild$:d",?_assertEqual(Out3_3,jpp_match(Tst3_3,Object3))},
-     {"form {c,d}:e",?_assertEqual(Out4_1,jpp_match(Tst4_1,Object4))},
-     {"form {a-c}:e",?_assertEqual(Out4_2,jpp_match(Tst4_2,Object4))},
-     {"form a:$keys$",?_assertEqual(Out4_3,jpp_match(Tst4_3,Object4))},
-     {"form a{$keys$}",?_assertEqual(Out4_4,jpp_match(Tst4_4,Object4))},
-     {"form $keys$",?_assertEqual(Out4_5,jpp_match(Tst4_5,Object4))},
-     {"form $keys$[1]",?_assertEqual(Out4_6,jpp_match(Tst4_6,Object4))},
-     {"form a:b[1-2]{}:c",?_assertEqual(Out5_1,jpp_match(Tst5_1,Object5))},
-     {"nomatch a:b[1-3]{}:c",?_assertEqual(nomatch,jpp_match(Tst5_2,Object5))},
-     {"nomatch a:z",?_assertEqual(nomatch,jpp_match(Tst5_3,Object5))},
-     {"form {}[]{b}",?_assertEqual(Out6_1,jpp_match(Tst6_1,Object6))}
-     ]}.
-
 match_test_() ->
-    Object1 = <<"{\"a\":{\"b\":[{\"c\":1},{\"c\":2},{\"c\":3}]}}">>,
-    Tst1_1 = <<"a:b[1]:c">>,
-    Out1_1 = [1],
-    Tst1_2 = <<"a:b[1-2]">>,
-    Out1_2 = [{<<"c">>,1},{<<"c">>,2}],
-    Tst1_3 = <<"a:b[1,2,3]">>,
-    Tst1_3b = <<"a:b[1,2,3]">>,
-    Out1_3 = [{<<"c">>,1},{<<"c">>,2},{<<"c">>,3}],
-    Tst1_4 = <<"a:b[]:c">>,
-    Out1_4 = [1,2,3],
-    Tst1_5 = <<"a:b[1-2,3]:c">>,
-    Out1_5 = [1,2,3],
+    Object = <<"
+        { \"a1\": 123
+        , \"a2\": \"abcd\"
+        , \"a3\": [1,2,3]
+        , \"a4\": {\"b1\":456}
+        , \"a5\": {\"b1\":\"string\"}
+        , \"a6\": [ {\"b1\":1}
+                  , {\"b1\":2}
+                  , {\"b1\":3}]
+        }
+    ">>,
+    Bind = [{<<"root">>, Object}],
+    [{P,?_assertEqual(O,match(P,Bind))}
+     || {P,O} <-
+        [ % basic hirarchical walk
+          {"root:a1",       <<"123">>}
+        , {"root:a2",       <<"\"abcd\"">>}
+        , {"root:a3",       <<"[1,2,3]">>}
+        , {"root:a4",       <<"{\"b1\":456}">>}
+        , {"root:a4:b1",    <<"456">>}
+        , {"root:a5",       <<"{\"b1\":\"string\"}">>}
+        , {"root:a5:b1",    <<"\"string\"">>}
 
-    Object2 = <<"{\"a\" : {\"b\" :{\"any\":{\"c\":1,\"d\":2},\"c\":{\"c\":4,\"d\":5}}}}">>,
-    Tst2_1 = <<"a:b{}:c">>,
-    Out2_1 = [1,4],
-    Tst2_2 = <<"a:b{c}">>,
-    Out2_2 = [{<<"c">>,4},{<<"d">>,5}],
-    Tst2_3 = <<"a:b:$values$:c">>,
-    Out2_3 = [1,4],
-    Tst2_4 = <<"a:b{any,c}:d">>,
-    Out2_4 = [2,5],
-    Tst2_5 = <<"a:b:any:c">>,
-    Out2_5 = 1,
-
-    Object3 = <<"[{\"c\":{\"a\":{\"d\":3}},\"d\":true},{\"c\":{\"b\":{\"d\":2}}}]">>,
-    Tst3_1 = <<"[]:c{$firstChild$}:d">>,
-    Out3_1 = [3,2],
-    Tst3_2 = <<"[1]:d">>,
-    Out3_2 = [true],
-    Tst3_3 = <<"[]:c:$firstChild$:d">>,
-    Out3_3 = [3,2],
-
-    Object4 = <<"{\"a\":{\"e\":8},\"c\":{\"e\":1},\"d\":{\"e\":2}}">>,
-    Tst4_1 = <<"{c,d}:e">>,
-    Out4_1 = [1,2],
-    Tst4_2 = <<"{a-c}:e">>,
-    Out4_2 = [8,1],
-    Tst4_3 = <<"a:$keys$">>,
-    Out4_3 = [<<"e">>],
-    Tst4_4 = <<"a{$keys$}">>,
-    Out4_4 = [<<"e">>],
-    Tst4_5 = <<"$keys$">>,
-    Out4_5 = [<<"a">>,<<"c">>,<<"d">>],
-    Tst4_6 = <<"$keys$[1]">>,
-    Out4_6 = [<<"a">>],
-
-    Object5 = <<"{\"a\": {\"b\":[{\"a\":{\"c\":4},\"b\":{\"c\":1}},{\"a\":{\"c\":8},\"b\":{\"c\":2}}]}}">>,
-    Tst5_1 = <<"a:b[1-2]{}:c">>,
-    Out5_1 = [4,1,8,2],
-    Tst5_2 = <<"a:b[1-3]{}:c">>,
-    Tst5_3 = <<"a:z">>,
-
-    Object6 = <<"{\"a\":[{\"b\":1,\"d\":2},{\"b\":3,\"d\":4}],\"b\":[{\"b\":5,\"d\":6},{\"b\":7,\"d\":8}]}">>,
-    Tst6_1 = <<"{}[]{b}">>,
-    Out6_1 = [1,3,5,7],
-
-    {setup,
-     fun setup/0,
-    [{"form a:b[1]:c",?_assertEqual(Out1_1,match(Tst1_1,Object1))},
-     {"form a:b[1-2]",?_assertEqual(Out1_2,match(Tst1_2,Object1))},
-     {"form a:b[1,2,3]",?_assertEqual(Out1_3,match(Tst1_3,Object1))},
-     {"form a:b",?_assertEqual(Out1_3,match(Tst1_3b,Object1))},
-     {"form a:b[]:c",?_assertEqual(Out1_4,match(Tst1_4,Object1))},
-     {"form a:b[1-2,3]",?_assertEqual(Out1_5,match(Tst1_5,Object1))},
-     {"form a:b{}:c",?_assertEqual(Out2_1,match(Tst2_1,Object2))},
-     {"form a:b{c}",?_assertEqual(Out2_2,lists:sort(match(Tst2_2,Object2)))},
-     {"form a:b:$values$:c}",?_assertEqual(Out2_3,lists:sort(match(Tst2_3,Object2)))},
-     {"form a:b{any,c}:d",?_assertEqual(Out2_4,lists:sort(match(Tst2_4,Object2)))},
-     {"form a:b:any:c", ?_assertEqual(Out2_5, match(Tst2_5,Object2))},
-     {"form []:c{$firstChild$}:d",?_assertEqual(Out3_1,match(Tst3_1,Object3))},
-     {"form [1]:d",?_assertEqual(Out3_2,match(Tst3_2,Object3))},
-     {"form []:c:$firstChild$:d",?_assertEqual(Out3_3,match(Tst3_3,Object3))},
-     {"form {c,d}:e",?_assertEqual(Out4_1,match(Tst4_1,Object4))},
-     {"form {a-c}:e",?_assertEqual(Out4_2,match(Tst4_2,Object4))},
-     {"form a:$keys$",?_assertEqual(Out4_3,match(Tst4_3,Object4))},
-     {"form a{$keys$}",?_assertEqual(Out4_4,match(Tst4_4,Object4))},
-     {"form $keys$",?_assertEqual(Out4_5,match(Tst4_5,Object4))},
-     {"form $keys$[1]",?_assertEqual(Out4_6,match(Tst4_6,Object4))},
-     {"form a:b[1-2]{}:c",?_assertEqual(Out5_1,match(Tst5_1,Object5))},
-     {"nomatch a:b[1-3]{}:c",?_assertEqual(nomatch,match(Tst5_2,Object5))},
-     {"nomatch a:z",?_assertEqual(nomatch,match(Tst5_3,Object5))},
-     {"form {}[]{b}",?_assertEqual(Out6_1,match(Tst6_1,Object6))}]}.
+        , {"root:a6",       <<"[{\"b1\":1},{\"b1\":2},{\"b1\":3}]">>}
+        , {"root:a6[1]",    <<"[{\"b1\":1}]">>}
+        , {"root:a6[2]",    <<"[{\"b1\":2}]">>}
+        , {"root:a6[3]",    <<"[{\"b1\":3}]">>}
+        , {"root:a6[1,3]",  <<"[{\"b1\":1},{\"b1\":3}]">>}
+        , {"root:a6[2,3]",  <<"[{\"b1\":2},{\"b1\":3}]">>}
+        , {"root:a6[2,2]",  <<"[{\"b1\":2},{\"b1\":2}]">>}
+        , {"root{a1}",      <<"{\"a1\":123}">>}
+        , {"root{a1,a4}",   <<"{\"a1\":123,\"a4\":{\"b1\":456}}">>}
+        , {"root{a4}:b1",   <<"456">>}
+        , {"root{a5}:b1",   <<"\"string\"">>}
+        , {"root{a4,a5}:b1", undecided}
+        ]
+    ].
 
 -endif.
-
