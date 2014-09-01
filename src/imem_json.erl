@@ -51,7 +51,7 @@
         , is_subset/2   %% Check if first data object is a subset of the second
         , is_disjoint/2 %% Check if data objects have no keys in common
         , project/2     %% Create a projection of a json document based on paths
-        , match/2       %% Check if a data object matches a json path (using jpparse)
+        , eval/2        %% Constructs a data object prescribed by json path (using jpparse)
         ]).
  
 %% @doc ==============================================================
@@ -821,127 +821,91 @@ walk_path([Filter|Tail],CurrentLevel) ->
 %% @doc Projects a parsed Json Path (from jpparse) on a json object
 %% and extracts matched values. nomatch is return if no match is found.
 %% This function uses imem_json primitives, and as such is format neutral.
--spec match(JPPTree :: list() | binary() | tuple()
+-spec eval(JPPTree :: list() | binary() | tuple()
             , [{binary(),data_object()}]) ->
     [] | list(value()).
-match(JsonPath,Binds)
+eval(JsonPath,Binds)
   when is_binary(JsonPath) orelse is_list(JsonPath) ->
     {ok,{Tree,_}} = jpparse:parsetree(JsonPath),
-    match(Tree,Binds);
-match(Tree,[{Name,Object}|_] = Binds)
+    eval(Tree,Binds);
+eval(Tree,[{Name,Object}|_] = Binds)
   when is_binary(Name), is_binary(Object) ->
-    case match(Tree
+    case eval(Tree
                , [{N, ?FROM_JSON(O)}
                   || {N,O} <- Binds]) of
         {error, Reason} -> {error, Reason};
-        [] -> <<>>;
         MatchedObject -> ?TO_JSON(MatchedObject)
     end;
-match(Tree,Binds) ->    
+eval(Tree,Binds) ->    
     case jpparse:foldbu(fun jpp_walk/3
-                        , {[],Binds}
+                        , Binds
                         , Tree) of
         {error, Error} -> {error, Error};
-        {MatchObjects,_} -> MatchObjects
+        [{Tree, Object}|_] -> Object;
+        Malformed -> exit({malformed, Malformed})
     end.
 
--define(TRACE, ok).
+-define(TRACE, Pt = Pt, Binds = Binds).
 -ifndef(TRACE).
 -define(TRACE,
         io:format(user, "[~p] ~p~n PT   ~p~n BIND ~p~n"
-                  , [?LINE, _Depth, _Pt, _Acc])
+                  , [?LINE, _Depth, Pt, Binds])
        ).
 -endif.
-jpp_walk(_Depth, {'$',_} = _Pt, _Acc) ->
+
+jpp_walk(_Depth, {'#',Op,Arg} = Pt, Binds) ->
     ?TRACE,
-    exit({unimplimented, '$'}),
-    _Acc;
-jpp_walk(_Depth, {'fun',_,_Args} = _Pt, _Acc) ->
+    case proplists:get_value(Arg,Binds) of
+        undefined -> exit({unbound, Arg});
+        Obj ->
+            case Op of
+                <<"keys">>      -> [{Pt, ?MODULE:keys(Obj)} | Binds];
+                <<"values">>    -> [{Pt, ?MODULE:values(Obj)} | Binds];
+                Op -> exit({nomatch
+                            , {operation_not_supported
+                               , list_to_binary(["#",Op])}})
+            end
+    end;
+jpp_walk(_Depth, {'fun',_,_Args} = Pt, Binds) ->
     ?TRACE,
-    exit({unimplimented, 'fun'}),
-    _Acc;
-jpp_walk(_Depth, {'[]',L,Idxs} = _Pt, {_Result,Binds} = _Acc) ->
+    exit({nomatch, {unimplimented, 'fun'}});
+jpp_walk(_Depth, {'[]',L,Idxs} = Pt, Binds) ->
     ?TRACE,
     case proplists:get_value(L,Binds) of
         undefined -> exit({unbound, L});
-        % TODO: To be rewritten for maps
         List ->
             % Idxs list is processed in reversed order
             % to append to head of building list
-            {RList, NewBindings} = lists:foldl(
-             fun
-                 (I, _)
-                   when is_integer(I) andalso
-                        ((I =< 0) orelse (I > length(List))) ->
-                     exit({index_out_of_bound, I, List});
-                 (I, {Lst, BindAcc}) when is_integer(I) ->
-                     {[lists:nth(I,List) | Lst], BindAcc};
-                 % When Index is a not an integer
-                 % It is assumed that it represents a
-                 % JSON path in parsed from. Hence
-                 % its processed independently with
-                 % existing binds to reduce it to an integer
-                 (I, {Lst, BindAcc}) ->
-                     case match(I, BindAcc) of
-                         {M, BindAcc1}
-                           when is_integer(M) andalso
-                                (M > 0) andalso
-                                (M =< length(List)) ->
-                             {[lists:nth(M,List) | Lst]
-                              , BindAcc1};
-                         _ ->
-                            exit({path_fot_found, I, BindAcc})
-                     end
-             end
-             , {[], Binds}
-             , lists:reverse(Idxs)),
-            {RList, [{_Pt, RList} | NewBindings]}
+            NewBinds = jpp_walk_list(List, lists:reverse(Idxs)
+                                     , Pt, Binds),
+            % TODO: To be rewritten for maps
+            case {NewBinds, Idxs, List} of
+                {Binds, [], []}         -> [{Pt, []} | Binds];
+                {Binds, [], [[_|_]|_]}  -> [{Pt, []} | Binds];
+                {Binds, [], _}          -> exit({nomatch
+                                                 , {path_not_found
+                                                    , Pt, List}});
+                {NewBinds, _, _} -> NewBinds
+            end
     end;
-jpp_walk(_Depth, {'{}',L,Props} = _Pt, {_Result,Binds} = _Acc) ->
+jpp_walk(_Depth, {'{}',L,Props} = Pt, Binds) ->
     ?TRACE,
     case proplists:get_value(L, Binds) of
-        undefined -> exit({unbound, L});
-        % TODO: To be rewritten for maps
+        undefined -> exit({nomatch, {unbound, L}});
         Obj ->
             % Props list is processed in reversed order
             % to append to head of building list
-            {RList, NewBindings} = lists:foldl(
-             fun
-                 (P, {NObj, BindAcc}) when is_binary(P) ->
-                     case ?MODULE:get(P,Obj) of
-                         undefined ->
-                             exit({property_not_found, P, Obj});
-                         V ->
-io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
-                             {[{P, V} | NObj]
-                              , [{_Pt, V} | BindAcc]}
-                     end;
-                 % When Index is a not an binary
-                 % it is assumed that it represents a
-                 % JSON path in parsed from. Hence
-                 % its processed independently with
-                 % existing binds to reduce it to binary
-                 (P, {NObj, BindAcc}) ->
-                     case match(P, BindAcc) of
-                         {M, BindAcc1} when is_binary(M) ->
-                            case ?MODULE:get(M,Obj) of
-                                undefined ->
-                                    exit({property_not_found
-                                          , M, Obj});
-                                V ->
-io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
-                                    {[{M, V} | NObj]
-                                     , [{P, V} | BindAcc1]}
-                            end;
-                         _ ->
-                             exit({path_not_found, P, BindAcc})
-                     end
-             end
-             , {[], Binds}
-             , lists:reverse(Props)),
-            {RList, NewBindings}
+            NewBinds = jpp_walk_sub_obj(Obj, lists:reverse(Props)
+                                        , Pt, Binds),
+            % TODO: To be rewritten for maps
+            case {NewBinds, Props, Obj} of
+                {Binds, [], [{_,_}|_]} -> [{Pt, [{}]} | Binds];
+                {Binds, [], _} -> exit({nomatch
+                                        , {path_not_found, Pt, Obj}});
+                {NewBinds, _, _} -> NewBinds
+            end
     end;
-jpp_walk(_Depth, {':',R,L} = _Pt, {_Result,Binds} = _Acc)
+jpp_walk(_Depth, {':',R,L} = Pt, Binds)
   when is_binary(R) ->
     ?TRACE,
     case proplists:get_value(L,Binds) of
@@ -949,17 +913,112 @@ jpp_walk(_Depth, {':',R,L} = _Pt, {_Result,Binds} = _Acc)
         Obj ->            
             V = ?MODULE:get(R,Obj),
             if V =:= undefined ->
-io:format(user,"~p not_found ~p ~p~n", [?LINE, R, Obj]),
-                   exit({not_found, R, Obj});
+%io:format(user,"~p not_found ~p ~p~n", [?LINE, R, Obj]),
+                   exit({nomatch, {property_not_found, R, Obj}});
                true ->
 %io:format("~p got ~p ~p~n", [?LINE, R, V]),
-                   {V, [{_Pt, V} | Binds]}
+                   [{Pt, V} | Binds]
             end
     end;
-jpp_walk(_Depth, _Pt, _Acc)
-  when is_binary(_Pt); is_integer(_Pt) ->
+jpp_walk(_Depth, Pt, Binds)
+  when is_binary(Pt); is_integer(Pt) ->
     ?TRACE,
-    _Acc.
+    Binds.
+
+% TODO: To be rewritten for maps
+jpp_walk_list(List, Idxs, Pt, Binds) ->
+    ?TRACE,
+    lists:foldl(
+      fun
+          (I, _)
+            when is_integer(I) andalso
+                 ((I =< 0) orelse (I > length(List))) ->
+              exit({nomatch, {index_out_of_bound, I, List}});
+          (I, BindAcc) when is_integer(I) ->
+              case BindAcc of
+                  [{Pt, Lst} | RestBindAcc] ->
+                      [{Pt, [lists:nth(I,List) | Lst]}
+                       | RestBindAcc];
+                  _ -> [{Pt, [lists:nth(I,List)]} | BindAcc]
+              end;
+          % When Index is a not an integer
+          % It is assumed that it represents a
+          % JSON path in parsed from. Hence
+          % its processed independently with
+          % existing binds to reduce it to an integer
+          (I, BindAcc) ->
+              case eval(I, BindAcc) of
+                  {M, BindAcc1}
+                    when is_integer(M) andalso
+                         (M > 0) andalso
+                         (M =< length(List)) ->
+                      case BindAcc1 of
+                          [{I, Lst} | RestBindAcc1] ->
+                              [{I, [lists:nth(M,List) | Lst]}
+                               | RestBindAcc1];
+                          _ -> [{I, [lists:nth(M,List)]}
+                                | BindAcc1]
+                      end;
+                  _ ->
+                      exit({nomatch
+                            , {path_not_found, I, BindAcc}})
+              end
+      end
+      , Binds
+      , Idxs).
+
+% TODO: To be rewritten for maps
+jpp_walk_sub_obj(Obj, Props, Pt, Binds) ->
+    ?TRACE,
+    lists:foldl(
+      fun
+          (P, BindAcc) when is_binary(P) ->
+              case ?MODULE:get(P,Obj) of
+                  undefined ->
+                      exit({nomatch
+                            , {property_not_found, P, Obj}});
+                  V ->
+%io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
+                      case BindAcc of
+                          [{Pt, OldBind} | RestBindAcc] ->
+                              [{Pt, [{P, V}|OldBind]}
+                               | RestBindAcc];
+                          _ ->
+                              [{Pt, [{P, V}]} | BindAcc]
+                      end
+              end;
+          % When Index is a not a binary
+          % it is assumed that it represents a
+          % JSON path in parsed from. Hence
+          % its processed independently with
+          % existing binds to reduce it to binary
+          (P, BindAcc) ->
+              case eval(P, BindAcc) of
+                  {M, BindAcc1} when is_binary(M) ->
+                      case ?MODULE:get(M,Obj) of
+                          undefined ->
+                              exit({nomatch
+                                    , {property_not_found
+                                       , M, Obj}});
+                          V ->
+io:format(user,"~p got ~p ~p~n", [?LINE, P, V]),
+                              case BindAcc1 of
+                                  [{P, OldBind1}
+                                   | RestBindAcc1] ->
+                                      [{P, [{M, V}|OldBind1]}
+                                       | RestBindAcc1];
+                                  _ ->
+                                      [{P, [{M, V}]}
+                                       | BindAcc1]
+                              end
+                      end;
+                  _ ->
+                      exit({nomatch
+                            , {path_not_found, P, BindAcc}})
+              end
+      end
+      , Binds
+      , Props).
 
 -spec clean_null_values(data_object()) -> data_object().
 -ifdef(MAPS).
@@ -1047,8 +1106,6 @@ clean_null_values(DataObject) ->
 %% Testing available when maps are enabled, testing code not duplicated
 %% Latest code coverage check: 100%
 
-setup() -> ok.
-
 -define(TEST_JSON, <<"{\"surname\":\"Doe\",\"name\":\"John\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"empty\":null}">>).
 -define(TEST_PROP, [{<<"surname">>,<<"Doe">>}, {<<"name">>,<<"John">>}, {<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"age">>,981},{<<"empty">>,null}]).
 -define(TEST_JSON_LIST, <<"[{\"surname\":\"Doe\"},{\"surname\":\"Jane\"},{\"surname\":\"DoeDoe\"}]">>).
@@ -1061,53 +1118,64 @@ setup() -> ok.
 %% testing should JSON data be handled differently.
     
 find_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist_success",?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_PROP))},
-     {"map_success",?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_MAP))},
-     {"json_success",?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_JSON))},
-     {"proplist_fail",?_assertEqual(error, find(<<"sme">>,?TEST_PROP))},
-     {"map_fail",?_assertEqual(error, find(<<"sme">>,?TEST_MAP))},
-     {"json_fail",?_assertEqual(error, find(<<"sme">>,?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist_success"
+         , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_PROP))}
+        , {"map_success"
+           , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_MAP))}
+        , {"json_success"
+           , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_JSON))}
+        , {"proplist_fail"
+           , ?_assertEqual(error, find(<<"sme">>,?TEST_PROP))}
+        , {"map_fail"
+           , ?_assertEqual(error, find(<<"sme">>,?TEST_MAP))}
+        , {"json_fail"
+           , ?_assertEqual(error, find(<<"sme">>,?TEST_JSON))}]}.
 
 fold_test_() ->
     TestFun = fun(_,_,Acc) -> Acc+1 end,
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(5, fold(TestFun,0,?TEST_PROP))},
-     {"map",?_assertEqual(5, fold(TestFun,0,?TEST_MAP))},
-     {"json",?_assertEqual(5, fold(TestFun,0,?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist", ?_assertEqual(5, fold(TestFun,0,?TEST_PROP))}
+        , {"map", ?_assertEqual(5, fold(TestFun,0,?TEST_MAP))}
+        , {"json", ?_assertEqual(5, fold(TestFun,0,?TEST_JSON))}]}.
 
 get_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist_success",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_PROP))},
-     {"map_success",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_MAP))},
-     {"json_success",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_JSON))},
-     {"proplist_fail",?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_PROP))},
-     {"map_fail",?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_MAP))},
-     {"json_fail",?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_JSON))}, 
-     {"proplist_custom_default",?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_PROP,test))},
-     {"map_custom_default",?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_MAP,test))},
-     {"json_custom_default",?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}]}.
+    {inparallel
+     , [{"proplist_success"
+         , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_PROP))}
+        , {"map_success"
+           , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_MAP))}
+        , {"json_success"
+           , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_JSON))}
+        , {"proplist_fail"
+           , ?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_PROP))}
+        , {"map_fail"
+           , ?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_MAP))}
+        , {"json_fail"
+           , ?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_JSON))}
+        , {"proplist_custom_default"
+           , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_PROP,test))}
+        , {"map_custom_default"
+           , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_MAP,test))}
+        , {"json_custom_default"
+           , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}]}.
 
 has_key_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist_success",?_assert(has_key(<<"surname">>,?TEST_PROP))},
-     {"map_success",?_assert(has_key(<<"surname">>,?TEST_MAP))},
-     {"json_success",?_assert(has_key(<<"surname">>,?TEST_JSON))},
-     {"proplist_fail",?_assert(not has_key(<<"sname">>,?TEST_PROP))},
-     {"map_fail",?_assert(not has_key(<<"sname">>,?TEST_MAP))},
-     {"json_fail",?_assert(not has_key(<<"sname">>,?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist_success", ?_assert(has_key(<<"surname">>,?TEST_PROP))}
+        , {"map_success",?_assert(has_key(<<"surname">>,?TEST_MAP))}
+        , {"json_success",?_assert(has_key(<<"surname">>,?TEST_JSON))}
+        , {"proplist_fail",?_assert(not has_key(<<"sname">>,?TEST_PROP))}
+        , {"map_fail",?_assert(not has_key(<<"sname">>,?TEST_MAP))}
+        , {"json_fail",?_assert(not has_key(<<"sname">>,?TEST_JSON))}]}.
 
-keys_test_() -> 
-    Keys = lists:sort([<<"surname">>,<<"name">>,<<"foo">>,<<"earthling">>,<<"age">>,<<"empty">>]),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Keys,keys(?TEST_PROP))},
-     {"map",?_assertEqual(Keys,keys(?TEST_MAP))},
-     {"json",?_assertEqual(Keys,keys(?TEST_JSON))}]}.
+keys_test_() ->
+    Keys = lists:sort([<<"surname">>,<<"name">>,<<"foo">>
+                       ,<<"earthling">>,<<"age">>,<<"empty">>]),
+    {inparallel
+     , [{"proplist", ?_assertEqual(Keys,keys(?TEST_PROP))}
+        , {"map", ?_assertEqual(Keys,keys(?TEST_MAP))}
+        , {"json", ?_assertEqual(Keys,keys(?TEST_JSON))}]}.
 
 map_test_() -> 
     Job = fun(<<"age">>,_) -> 8000;
@@ -1116,105 +1184,109 @@ map_test_() ->
     PropOut = map(Job,?TEST_PROP),
     MapOut = map(Job,?TEST_MAP),
     JsonOut = map(Job,?TEST_JSON),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))},
-     {"proplist",?_assertEqual(false, proplists:get_value(<<"earthling">>,PropOut))},
-     {"map",?_assertEqual(8000, maps:get(<<"age">>,MapOut))},
-     {"map",?_assertEqual(false,maps:get(<<"earthling">>,MapOut))},
-     {"json",?_assertEqual(8000, ?MODULE:get(<<"age">>,JsonOut))},
-     {"json",?_assertEqual(false,?MODULE:get(<<"earthling">>,JsonOut))}]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))}
+        , {"proplist"
+           , ?_assertEqual(false
+                           , proplists:get_value(<<"earthling">>,PropOut))}
+        , {"map",?_assertEqual(8000, maps:get(<<"age">>,MapOut))}
+        , {"map",?_assertEqual(false,maps:get(<<"earthling">>,MapOut))}
+        , {"json",?_assertEqual(8000, ?MODULE:get(<<"age">>,JsonOut))}
+        , {"json",?_assertEqual(false,?MODULE:get(<<"earthling">>,JsonOut))}
+       ]}.
 
 new_test_() -> 
     %% Depends on default type setting
     Test = [],
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual([],new(proplist))},
-     {"map",?_assertEqual(#{},new(map))},
-     {"json",?_assertEqual(<<"{}">>,new(json))},
-     {"default",?_assertEqual(Test,new())}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual([],new(proplist))}
+        , {"map",?_assertEqual(#{},new(map))}
+        , {"json",?_assertEqual(<<"{}">>,new(json))}
+        , {"default",?_assertEqual(Test,new())}]}.
 
 put_test_() -> 
-    {setup,
-     fun setup/0,
-    [{"prop_empty",?_assertEqual([{test,1}],?MODULE:put(test,1,[]))},
-     {"prop_replace",?_assertEqual([{test,1}],?MODULE:put(test,1,[{test,2}]))},
-     {"map_empty",?_assertEqual(#{test => 1},?MODULE:put(test,1,#{}))},
-     {"map_replace",?_assertEqual(#{test => 1},?MODULE:put(test,1,#{test => 2}))},
-     {"json_empty",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{}">>))},
-     {"json_replace",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{\"test\":2}">>))}]}.
+    {inparallel
+     , [{"prop_empty",?_assertEqual([{test,1}],?MODULE:put(test,1,[]))}
+        , {"prop_replace"
+           ,?_assertEqual([{test,1}],?MODULE:put(test,1,[{test,2}]))}
+        , {"map_empty",?_assertEqual(#{test => 1},?MODULE:put(test,1,#{}))}
+        , {"map_replace"
+           ,?_assertEqual(#{test => 1},?MODULE:put(test,1,#{test => 2}))}
+        , {"json_empty"
+           ,?_assertEqual(<<"{\"test\":1}">>
+                          ,?MODULE:put(<<"test">>,1,<<"{}">>))}
+        , {"json_replace"
+           ,?_assertEqual(<<"{\"test\":1}">>
+                          ,?MODULE:put(<<"test">>,1,<<"{\"test\":2}">>))}
+       ]}.
 
 remove_test_() ->
     PropOut = remove(<<"age">>,?TEST_PROP),
     MapOut =  remove(<<"age">>,?TEST_MAP),
     JsonOut = remove(<<"age">>,?TEST_JSON),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(undefined, proplists:get_value(<<"age">>,PropOut,undefined))},
-     {"map",?_assertEqual(undefined, ?MODULE:get(<<"age">>,MapOut))},
-     {"json",?_assertEqual(undefined,?MODULE:get(<<"age">>,JsonOut))}]}.
+    {inparallel
+     , [{"proplist"
+         ,?_assertEqual(undefined
+                        , proplists:get_value(<<"age">>,PropOut,undefined))}
+        , {"map",?_assertEqual(undefined, ?MODULE:get(<<"age">>,MapOut))}
+        , {"json",?_assertEqual(undefined,?MODULE:get(<<"age">>,JsonOut))}
+       ]}.
 
 size_test_() -> 
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(5,?MODULE:size(?TEST_PROP))},
-     {"map",?_assertEqual(5,?MODULE:size(?TEST_MAP))},
-     {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))},
-     {"json_list",?_assertEqual(3,?MODULE:size(?TEST_JSON_LIST))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(5,?MODULE:size(?TEST_PROP))}
+        , {"map",?_assertEqual(5,?MODULE:size(?TEST_MAP))}
+        , {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))}
+        , {"json_list",?_assertEqual(3,?MODULE:size(?TEST_JSON_LIST))}]}.
 
 update_test_() ->
     PropOut = update(<<"age">>,8000,?TEST_PROP),
     MapOut =  update(<<"age">>,8000,?TEST_MAP),
     JsonOut = update(<<"age">>,8000,?TEST_JSON),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))},
-     {"map",?_assertEqual(8000, maps:get(<<"age">>,MapOut))},
-     {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))},
-     {"error_prop",?_assertError(badarg,update(<<"not_there">>,true,?TEST_PROP))},
-     {"error_map",?_assertError(badarg,update(<<"not_there">>,true,?TEST_MAP))}
-     ]}.
-
+    {inparallel
+     , [{"proplist"
+         ,?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))}
+        , {"map",?_assertEqual(8000, maps:get(<<"age">>,MapOut))}
+        , {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))}
+        , {"error_prop"
+           ,?_assertError(badarg,update(<<"not_there">>,true,?TEST_PROP))}
+        , {"error_map"
+           ,?_assertError(badarg,update(<<"not_there">>,true,?TEST_MAP))}]}.
 
 values_test_() ->
     Values = lists:sort([<<"Doe">>,<<"John">>,<<"bar">>,true,981,null]),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Values,lists:sort(values(?TEST_PROP)))},
-     {"map",?_assertEqual(Values,lists:sort(values(?TEST_MAP)))},
-     {"json",?_assertEqual(Values,lists:sort(values(?TEST_JSON)))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(Values,lists:sort(values(?TEST_PROP)))}
+        , {"map",?_assertEqual(Values,lists:sort(values(?TEST_MAP)))}
+        , {"json",?_assertEqual(Values,lists:sort(values(?TEST_JSON)))}]}.
 
 to_proplist_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assert(is_list(to_proplist(?TEST_PROP)))},
-     {"map",?_assert(is_list(to_proplist(?TEST_MAP)))},
-     {"json",?_assert(is_list(to_proplist(?TEST_JSON)))}]}.
+    {inparallel
+     , [{"proplist",?_assert(is_list(to_proplist(?TEST_PROP)))}
+        , {"map",?_assert(is_list(to_proplist(?TEST_MAP)))}
+        , {"json",?_assert(is_list(to_proplist(?TEST_JSON)))}]}.
 
 to_proplist_deep_test_() ->
     TestProp = [{<<"first">>,[{<<"second">>,true}]}],
     TestMap = #{<<"first">> => #{<<"second">> => true}},
     TestJson = <<"{\"first\":{\"second\":true}}">>,
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(TestProp,to_proplist(TestProp,deep))},
-     {"map",?_assertEqual(TestProp,to_proplist(TestMap,deep))},
-     {"json",?_assertEqual(TestProp,to_proplist(TestJson,deep))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(TestProp,to_proplist(TestProp,deep))}
+        , {"map",?_assertEqual(TestProp,to_proplist(TestMap,deep))}
+        , {"json",?_assertEqual(TestProp,to_proplist(TestJson,deep))}]}.
 
 to_map_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assert(is_map(to_map(?TEST_PROP)))},
-     {"map",?_assert(is_map(to_map(?TEST_MAP)))},
-     {"json",?_assert(is_map(to_map(?CL(?TEST_JSON))))}]}.
+    {inparallel
+     , [{"proplist",?_assert(is_map(to_map(?TEST_PROP)))}
+        , {"map",?_assert(is_map(to_map(?TEST_MAP)))}
+        , {"json",?_assert(is_map(to_map(?CL(?TEST_JSON))))}]}.
 
 to_binary_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assert(is_binary(to_binary(?TEST_PROP)))},
-     {"map",?_assert(is_binary(to_binary(?TEST_MAP)))},
-     {"json",?_assert(is_binary(to_binary(?TEST_JSON)))}]}.
+    {inparallel
+     , [{"proplist",?_assert(is_binary(to_binary(?TEST_PROP)))}
+        , {"map",?_assert(is_binary(to_binary(?TEST_MAP)))}
+        , {"json",?_assert(is_binary(to_binary(?TEST_JSON)))}]}.
 
 filter_test_() -> 
     FilterFun = fun(<<"age">>,_) -> true;
@@ -1223,36 +1295,41 @@ filter_test_() ->
     PropOut = filter(FilterFun,?TEST_PROP),
     MapOut =  filter(FilterFun,?TEST_MAP),
     JsonOut = filter(FilterFun,?TEST_JSON),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(981, proplists:get_value(<<"age">>,PropOut))},
-     {"proplist",?_assertEqual(true, proplists:get_value(<<"earthling">>,PropOut))},
-     {"map",?_assertEqual(981, maps:get(<<"age">>,MapOut))},
-     {"map",?_assertEqual(true,maps:get(<<"earthling">>,MapOut))},
-     {"json",?_assertEqual(981, ?MODULE:get(<<"age">>,JsonOut))},
-     {"json",?_assertEqual(true,?MODULE:get(<<"earthling">>,JsonOut))}]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(981, proplists:get_value(<<"age">>,PropOut))}
+        , {"proplist"
+           , ?_assertEqual(true
+                           , proplists:get_value(<<"earthling">>,PropOut))}
+        , {"map",?_assertEqual(981, maps:get(<<"age">>,MapOut))}
+        , {"map",?_assertEqual(true,maps:get(<<"earthling">>,MapOut))}
+        , {"json",?_assertEqual(981, ?MODULE:get(<<"age">>,JsonOut))}
+        , {"json",?_assertEqual(true,?MODULE:get(<<"earthling">>,JsonOut))}
+       ]}.
 
 include_test_() ->
     Json_Ok = <<"{\"name\":\"John\"}">>,
     Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}],
     Map_Ok = #{<<"earthling">> => true, <<"age">> => 981},
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Prop_Ok, include([<<"surname">>,<<"foo">>],?TEST_PROP))},
-     {"map",?_assertEqual(Map_Ok, include([<<"earthling">>,<<"age">>],?TEST_MAP))},
-     {"json",?_assertEqual(Json_Ok, include([<<"name">>],?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(Prop_Ok
+                        , include([<<"surname">>,<<"foo">>],?TEST_PROP))}
+        , {"map"
+           , ?_assertEqual(Map_Ok
+                           , include([<<"earthling">>,<<"age">>],?TEST_MAP))}
+        , {"json", ?_assertEqual(Json_Ok, include([<<"name">>],?TEST_JSON))}
+       ]}.
 
 exclude_test_() ->
     Json_Ok = <<"{\"name\":\"John\"}">>,
     Prop_Ok = [{<<"name">>,<<"John">>}],
     Map_Ok = #{<<"name">> => <<"John">>},
     ExcFields = [<<"surname">>,<<"foo">>,<<"earthling">>,<<"age">>,<<"empty">>],
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Prop_Ok, exclude(ExcFields,?TEST_PROP))},
-     {"map",?_assertEqual(Map_Ok, exclude(ExcFields,?TEST_MAP))},
-     {"json",?_assertEqual(Json_Ok, exclude(ExcFields,?TEST_JSON))}]}.
-
+    {inparallel
+     , [{"proplist",?_assertEqual(Prop_Ok, exclude(ExcFields,?TEST_PROP))}
+        , {"map",?_assertEqual(Map_Ok, exclude(ExcFields,?TEST_MAP))}
+        , {"json",?_assertEqual(Json_Ok, exclude(ExcFields,?TEST_JSON))}]}.
 
 merge_test_() ->
     Json_1 = <<"{\"test\":\"true\"}">>,
@@ -1261,65 +1338,74 @@ merge_test_() ->
     JsonOut = merge(Json_1,?TEST_JSON),
     PropOut = merge(Prop_1,?TEST_PROP),
     MapOut = merge(Map_1,?TEST_MAP),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,PropOut))},
-     {"proplist",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,PropOut))},
-     {"map",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,MapOut))},
-     {"map",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,MapOut))},
-     {"json",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,JsonOut))},
-     {"json",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,JsonOut))}]}.
-
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,PropOut))}
+        , {"proplist"
+           , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,PropOut))}
+        , {"map"
+           , ?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,MapOut))}
+        , {"map"
+           , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,MapOut))}
+        , {"json"
+           , ?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,JsonOut))}
+        , {"json"
+           , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,JsonOut))}
+       ]}.
 
 project_test_() ->
     Data1 = <<"{\"name\":{\"first\":false,\"list\":[{\"any\":1}]}, \"test\":true}">>,
     Data2 = <<"{\"list\":[{\"any\":{\"sub\":true}},{\"any\":{\"sub\":false}}],\"empty\":[]}">>,
-    [?_assertEqual([1],project("name:list[*]:any",Data1)),
-     ?_assertEqual(true,project("test",Data1)),
-     ?_assertEqual(false,project("name:first",Data1)),
-     ?_assertEqual([[1],true],project(["name:list[*]:any","test"],Data1)),
-     ?_assertEqual([true,false],project("list[*]:any:sub",Data2)),
-     ?_assertEqual(true,project("list[1]:any:sub",Data2)),
-     ?_assertEqual([<<"first">>,<<"list">>],project("name:$keys$",Data1)),
-     ?_assertEqual([[<<"first">>,<<"list">>],[1],false], project(["name:$keys$",
-                                                                  "name:list[*]:any",
-                                                                  "name:first"
-                                                                 ],Data1)),
-     ?_assertEqual(nomatch, project(["name:$keys$",
-                                     "name:list[*]:any",
-                                     "name:not_there"
-                                    ],Data1)),
-     ?_assertEqual(nomatch,project("list[10]:any:sub",Data2)),
-     ?_assertEqual(nomatch,project("unlist[1]:any:sub",Data2)),
-     ?_assertEqual(nomatch,project("empty[1]",Data2)),
-     ?_assertEqual(nomatch,project("empty[*]",Data2)),
-     ?_assertEqual(nomatch,project("unexistant",Data2)),
-     ?_assertEqual(nomatch,project("unexistant[*]",Data2))
-    ].
+    {inparallel
+     , [?_assertEqual([1],project("name:list[*]:any",Data1))
+        , ?_assertEqual(true,project("test",Data1))
+        , ?_assertEqual(false,project("name:first",Data1))
+        , ?_assertEqual([[1],true]
+                        , project(["name:list[*]:any","test"],Data1))
+        , ?_assertEqual([true,false],project("list[*]:any:sub",Data2))
+        , ?_assertEqual(true,project("list[1]:any:sub",Data2))
+        , ?_assertEqual([<<"first">>,<<"list">>]
+                        , project("name:$keys$",Data1))
+        , ?_assertEqual([[<<"first">>,<<"list">>],[1],false]
+                        , project(["name:$keys$", "name:list[*]:any"
+                                   , "name:first"],Data1))
+        , ?_assertEqual(nomatch, project(["name:$keys$", "name:list[*]:any"
+                                          , "name:not_there"],Data1))
+        , ?_assertEqual(nomatch,project("list[10]:any:sub",Data2))
+        , ?_assertEqual(nomatch,project("unlist[1]:any:sub",Data2))
+        , ?_assertEqual(nomatch,project("empty[1]",Data2))
+        , ?_assertEqual(nomatch,project("empty[*]",Data2))
+        , ?_assertEqual(nomatch,project("unexistant",Data2))
+        , ?_assertEqual(nomatch,project("unexistant[*]",Data2))
+    ]}.
 
 parse_path_test_() ->
     Path1 = "name.list[*].any",
     Path2 = <<"name.list[*].any">>,
     Path3 = lists:concat(["name",?JSON_PATH_SEPARATOR,"list[*]",?JSON_PATH_SEPARATOR,"any"]),
     Res1  = ["name","list[*]","any"],
-    [?_assertEqual(Res1,parse_path(Path1,".")),
-     ?_assertEqual(Res1,parse_path(Path2,".")),
-     ?_assertEqual(Res1,parse_path(Path3))
-    ].
+    {inparallel
+     , [?_assertEqual(Res1,parse_path(Path1,"."))
+        , ?_assertEqual(Res1,parse_path(Path2,"."))
+        , ?_assertEqual(Res1,parse_path(Path3))
+       ]}.
 
 walk_path_test_() ->
     Path1 = ["name","list[*]","any"],
-    Object1 = [{<<"name">>, [{<<"list">>, [[{<<"any">>,1}],[{<<"any">>,2}]]}]}],
+    Object1 = [{<<"name">>, [{<<"list">>
+                              , [[{<<"any">>,1}]
+                                 , [{<<"any">>,2}]]}]}],
     Result1 = [1,2],
     [?_assertEqual(Result1,walk_path(Path1,Object1))
     ].
     
 
 json_lib_throw_test_() ->
-    [?_assertException(throw,no_json_library_found,decode(<<"{\"test\":true}">>,[])),
-     ?_assertException(throw,no_json_library_found,encode([{<<"test">>,true}],[]))].
-
-
+    {inparallel
+     , [?_assertException(throw,no_json_library_found
+                          , decode(<<"{\"test\":true}">>,[]))
+        , ?_assertException(throw,no_json_library_found
+                            , encode([{<<"test">>,true}],[]))].
 
 -ifdef(DECODE_TO_MAPS).
 %% Some 'adaptation' because JSON conversion changes order between formats
@@ -1329,16 +1415,22 @@ json_lib_throw_test_() ->
 -endif.
 
 diff_test_() ->
-    PropBefore = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"empty">>,null},{<<"unmod">>,true}],
-    PropAfter  = [{<<"surname">>,<<"DoeDoe">>}, {<<"ega">>,981},{<<"newval">>,<<"one">>}, {<<"empty">>,null},{<<"unmod">>,true}],
+    PropBefore = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}
+                  , {<<"empty">>,null},{<<"unmod">>,true}],
+    PropAfter  = [{<<"surname">>,<<"DoeDoe">>}, {<<"ega">>,981}
+                  , {<<"newval">>,<<"one">>}, {<<"empty">>,null}
+                  , {<<"unmod">>,true}],
     PropDiffOut = [{added,[{<<"ega">>,981},{<<"newval">>,<<"one">>}]},
                    {removed,[{<<"age">>,981}]},
                    {updated,[{<<"surname">>,<<"DoeDoe">>}]},
                    {replaced,[{<<"surname">>,<<"Doe">>}]},
                    {changes,4}],
 
-    MapsBefore = #{<<"age">> => 981,<<"empty">> => null,<<"surname">> => <<"Doe">>,<<"unmod">> => true},
-    MapsAfter = #{<<"ega">> => 981, <<"empty">> => null, <<"newval">> => <<"one">>, <<"surname">> => <<"DoeDoe">>, <<"unmod">> => true},
+    MapsBefore = #{<<"age">> => 981, <<"empty">> => null
+                   , <<"surname">> => <<"Doe">>,<<"unmod">> => true},
+    MapsAfter = #{<<"ega">> => 981, <<"empty">> => null
+                  , <<"newval">> => <<"one">>
+                  , <<"surname">> => <<"DoeDoe">>, <<"unmod">> => true},
     MapsDiffOut = #{added => #{<<"ega">> => 981,<<"newval">> => <<"one">>},
                    removed => #{<<"age">> => 981},
                    replaced => #{<<"surname">> => <<"Doe">>},
@@ -1346,48 +1438,57 @@ diff_test_() ->
                    changes => 4},
 
     JsonBefore = <<"{\"surname\":\"Doe\",\"age\":981,\"empty\":null}">>,
-    JsonAfter = <<"{\"surname\":\"DoeDoe\",\"ega\":981,\"newval\":\"one\",\"empty\":null}">>,
+    JsonAfter = <<"{\"surname\":\"DoeDoe\",\"ega\":981,\"newval\":\"one\","
+                  "\"empty\":null}">>,
     JsonDiffOut = ?TEST_JSONOUTDIFF,
 
-
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(PropDiffOut, diff(PropBefore,PropAfter))},
-     {"map",?_assertEqual(MapsDiffOut, diff(MapsBefore,MapsAfter))},
-     {"json",?_assertEqual(JsonDiffOut, diff(JsonBefore,JsonAfter))}
-    ]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(PropDiffOut, diff(PropBefore,PropAfter))}
+        , {"map",?_assertEqual(MapsDiffOut, diff(MapsBefore,MapsAfter))}
+        , {"json",?_assertEqual(JsonDiffOut, diff(JsonBefore,JsonAfter))}]}.
 
 equal_test_() -> 
-    Json_Ok = <<"{\"name\":\"John\",\"surname\":\"Doe\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"other\":null}">>,
-    Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"name">>,<<"John">>}, {<<"age">>,981}],
-    Map_Ok = #{<<"earthling">> => true, <<"age">> => 981, <<"name">> => <<"John">>,  <<"foo">> => <<"bar">>,<<"surname">> => <<"Doe">>,<<"empty">> => null},
-    Json_Nook = <<"{\"name\":\"John\",\"surname\":null,\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"other\":null}">>,
-    Prop_Nook = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"barbara">>}, {<<"earthling">>,true}, {<<"name">>,<<"John">>}, {<<"age">>,981}],
-    Map_Nook = #{<<"earthling">> => true, <<"age">> => 981, <<"name">> => <<"John">>,  <<"foo">> => <<"bar">>, <<"empty">> => null},
-    {setup,
-     fun setup/0,
-    [{"map_success",?_assert(equal(Map_Ok,?TEST_MAP))},
-     {"prop_success",?_assert(equal(Prop_Ok,?TEST_PROP))},
-     {"json_success",?_assert(equal(Json_Ok,?TEST_JSON))},
-     {"map_fail",?_assert(not equal(Map_Nook,?TEST_MAP))},
-     {"prop_fail",?_assert(not equal(Prop_Nook,?TEST_PROP))},
-     {"json_fail",?_assert(not equal(Json_Nook,?TEST_JSON))} ]}.
+    Json_Ok = <<"{\"name\":\"John\",\"surname\":\"Doe\",\"foo\":\"bar\","
+                "\"earthling\":true,\"age\":981,\"other\":null}">>,
+    Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}
+               , {<<"earthling">>,true}, {<<"name">>,<<"John">>}
+               , {<<"age">>,981}],
+    Map_Ok = #{<<"earthling">> => true, <<"age">> => 981
+               , <<"name">> => <<"John">>, <<"foo">> => <<"bar">>
+               , <<"surname">> => <<"Doe">>, <<"empty">> => null},
+    Json_Nook = <<"{\"name\":\"John\",\"surname\":null,\"foo\":\"bar\","
+                  "\"earthling\":true,\"age\":981,\"other\":null}">>,
+    Prop_Nook = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"barbara">>}
+                 , {<<"earthling">>,true}, {<<"name">>,<<"John">>}
+                 , {<<"age">>,981}],
+    Map_Nook = #{<<"earthling">> => true, <<"age">> => 981
+                 , <<"name">> => <<"John">>,  <<"foo">> => <<"bar">>
+                 , <<"empty">> => null},
+    {inparallel
+     , [{"map_success",?_assert(equal(Map_Ok,?TEST_MAP))}
+        , {"prop_success",?_assert(equal(Prop_Ok,?TEST_PROP))}
+        , {"json_success",?_assert(equal(Json_Ok,?TEST_JSON))}
+        , {"map_fail",?_assert(not equal(Map_Nook,?TEST_MAP))}
+        , {"prop_fail",?_assert(not equal(Prop_Nook,?TEST_PROP))}
+        , {"json_fail",?_assert(not equal(Json_Nook,?TEST_JSON))}]}.
 
 is_subset_test_() -> 
     Sub_Ok_Json =  <<"{\"surname\":\"Doe\",\"age\":981,\"nothing\":null}">>,
-    Sub_Ok_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"nothing">>,null}],
-    Sub_Ok_Map  = #{<<"age">> => 981, <<"surname">> => <<"Doe">>, <<"nothing">> => null},
+    Sub_Ok_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}
+                   , {<<"nothing">>,null}],
+    Sub_Ok_Map  = #{<<"age">> => 981, <<"surname">> => <<"Doe">>
+                    , <<"nothing">> => null},
     Sub_Nook_Json =  <<"{\"suame\":\"Doe\",\"age\":981}">>,
     Sub_Nook_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,91}],
     Sub_Nook_Map  = #{<<"age">> => 981, <<"surname">> => <<"De">>},
-    {setup,
-     fun setup/0,
-    [{"map_success",?_assert(is_subset(Sub_Ok_Map ,?TEST_MAP))},
-     {"proplist_success",?_assert(is_subset(Sub_Ok_Prop,?TEST_PROP))},
-     {"json_success",?_assert(is_subset(Sub_Ok_Json,?TEST_JSON))},
-     {"map_fail",?_assert(not is_subset(Sub_Nook_Map ,?TEST_MAP))},
-     {"proplist_fail",?_assert(not is_subset(Sub_Nook_Prop,?TEST_PROP))},
-     {"json_fail",?_assert(not is_subset(Sub_Nook_Json,?TEST_JSON))}]}.
+    {inparallel
+     , [{"map_success",?_assert(is_subset(Sub_Ok_Map ,?TEST_MAP))}
+        , {"proplist_success",?_assert(is_subset(Sub_Ok_Prop,?TEST_PROP))}
+        , {"json_success",?_assert(is_subset(Sub_Ok_Json,?TEST_JSON))}
+        , {"map_fail",?_assert(not is_subset(Sub_Nook_Map ,?TEST_MAP))}
+        , {"proplist_fail"
+           ,?_assert(not is_subset(Sub_Nook_Prop,?TEST_PROP))}
+        , {"json_fail",?_assert(not is_subset(Sub_Nook_Json,?TEST_JSON))}]}.
 
 is_disjoint_test_() -> 
     Sub_Ok_Json =  <<"{\"suame\":\"Doe\",\"age\":91}">>,
@@ -1396,14 +1497,15 @@ is_disjoint_test_() ->
     Sub_Nook_Json =  <<"{\"suame\":\"Doe\",\"age\":981}">>,
     Sub_Nook_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}],
     Sub_Nook_Map  = #{<<"age">> => 981, <<"surname">> => <<"De">>},
-    {setup,
-     fun setup/0,
-    [{"map_success",?_assert(is_disjoint(Sub_Ok_Map ,?TEST_MAP))},
-     {"proplist_success",?_assert(is_disjoint(Sub_Ok_Prop,?TEST_PROP))},
-     {"json_success",?_assert(is_disjoint(Sub_Ok_Json,?TEST_JSON))},
-     {"map_fail",?_assert(not is_disjoint(Sub_Nook_Map ,?TEST_MAP))},
-     {"proplist_fail",?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))},
-     {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}]}.
+    {inparallel
+     , [{"map_success",?_assert(is_disjoint(Sub_Ok_Map ,?TEST_MAP))}
+        , {"proplist_success",?_assert(is_disjoint(Sub_Ok_Prop,?TEST_PROP))}
+        , {"json_success",?_assert(is_disjoint(Sub_Ok_Json,?TEST_JSON))}
+        , {"map_fail",?_assert(not is_disjoint(Sub_Nook_Map ,?TEST_MAP))}
+        , {"proplist_fail"
+           ,?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))}
+        , {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}
+       ]}.
 
 -else.
 %%%%% MAP-LESS TEST STUFF GOES HERE 
@@ -1415,124 +1517,141 @@ map_test_() ->
     Job = fun(<<"age">>,_) -> 8000;
              (_,true) -> false;
              (_,V) -> V end,
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,map(Job,?TEST_PROP)))},
-     {"proplist",?_assertEqual(false, proplists:get_value(<<"earthling">>,map(Job,?TEST_PROP)))},
-     {"json",?_assertEqual(8000, ?MODULE:get(<<"age">>,map(Job,?TEST_JSON)))},
-     {"json",?_assertEqual(false,?MODULE:get(<<"earthling">>,map(Job,?TEST_JSON)))}]}.
-
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(8000
+                         , proplists:get_value(<<"age">>
+                                               , map(Job,?TEST_PROP)))}
+        , {"proplist"
+           , ?_assertEqual(false
+                           , proplists:get_value(<<"earthling">>
+                                                 ,map(Job,?TEST_PROP)))}
+        , {"json"
+           , ?_assertEqual(8000, ?MODULE:get(<<"age">>
+                                             , map(Job,?TEST_JSON)))}
+        , {"json"
+           , ?_assertEqual(false, ?MODULE:get(<<"earthling">>
+                                              , map(Job,?TEST_JSON)))}]}.
 
 size_test_() -> 
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(5,?MODULE:size(?TEST_PROP))},
-     {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))},
-     {"json_list",?_assertEqual(3,?MODULE:size(?TEST_JSON_LIST))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(5,?MODULE:size(?TEST_PROP))}
+        , {"json",?_assertEqual(5,?MODULE:size(?TEST_JSON))}
+        , {"json_list",?_assertEqual(3,?MODULE:size(?TEST_JSON_LIST))}]}.
 
 values_test_() ->
     Values = lists:sort([<<"Doe">>,<<"John">>,<<"bar">>,true,981,null]),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Values,lists:sort(values(?TEST_PROP)))},
-     {"json",?_assertEqual(Values,lists:sort(values(?TEST_JSON)))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(Values,lists:sort(values(?TEST_PROP)))}
+        , {"json",?_assertEqual(Values,lists:sort(values(?TEST_JSON)))}]}.
 
 has_key_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist_success",?_assert(has_key(<<"surname">>,?TEST_PROP))},
-     {"json_success",?_assert(has_key(<<"surname">>,?TEST_JSON))},
-     {"proplist_fail",?_assert(not has_key(<<"sname">>,?TEST_PROP))},
-     {"json_fail",?_assert(not has_key(<<"sname">>,?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist_success",?_assert(has_key(<<"surname">>,?TEST_PROP))}
+        , {"json_success",?_assert(has_key(<<"surname">>,?TEST_JSON))}
+        , {"proplist_fail",?_assert(not has_key(<<"sname">>,?TEST_PROP))}
+        , {"json_fail",?_assert(not has_key(<<"sname">>,?TEST_JSON))}]}.
 
 keys_test_() -> 
-    Keys = lists:sort([<<"surname">>,<<"name">>,<<"foo">>,<<"earthling">>,<<"age">>,<<"empty">>]),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Keys,keys(?TEST_PROP))},
-     {"json",?_assertEqual(Keys,keys(?TEST_JSON))}]}.
+    Keys = lists:sort([<<"surname">>,<<"name">>,<<"foo">>,<<"earthling">>
+                       ,<<"age">>,<<"empty">>]),
+    {inparallel
+     , [{"proplist",?_assertEqual(Keys,keys(?TEST_PROP))}
+        , {"json",?_assertEqual(Keys,keys(?TEST_JSON))}]}.
 
 to_proplist_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assert(is_list(to_proplist(?TEST_PROP)))},
-     {"json",?_assert(is_list(to_proplist(?TEST_JSON)))}]}.
+    {inparallel
+     , [{"proplist",?_assert(is_list(to_proplist(?TEST_PROP)))}
+        , {"json",?_assert(is_list(to_proplist(?TEST_JSON)))}]}.
 
 to_proplist_deep_test_() ->
     TestProp = [{<<"first">>,[{<<"second">>,true}]}],
     TestJson = <<"{\"first\":{\"second\":true}}">>,
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(TestProp,to_proplist(TestProp,deep))},
-     {"json",?_assertEqual(TestProp,to_proplist(TestJson,deep))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(TestProp,to_proplist(TestProp,deep))}
+        , {"json",?_assertEqual(TestProp,to_proplist(TestJson,deep))}]}.
 
 to_binary_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assert(is_binary(to_binary(?TEST_PROP)))},
-     {"json",?_assert(is_binary(to_binary(?TEST_JSON)))}]}.
+    {inparallel
+     , [{"proplist",?_assert(is_binary(to_binary(?TEST_PROP)))}
+        , {"json",?_assert(is_binary(to_binary(?TEST_JSON)))}]}.
 
 
  
 find_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist_success",?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_PROP))},
-     {"json_success",?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_JSON))},
-     {"proplist_fail",?_assertEqual(error, find(<<"sme">>,?TEST_PROP))},
-     {"json_fail",?_assertEqual(error, find(<<"sme">>,?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist_success"
+         , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_PROP))}
+        , {"json_success"
+           , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_JSON))}
+        , {"proplist_fail",?_assertEqual(error, find(<<"sme">>,?TEST_PROP))}
+        , {"json_fail",?_assertEqual(error, find(<<"sme">>,?TEST_JSON))}]}.
 
 fold_test_() ->
     TestFun = fun(_,_,Acc) -> Acc+1 end,
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(5, fold(TestFun,0,?TEST_PROP))},
-     {"json",?_assertEqual(5, fold(TestFun,0,?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(5, fold(TestFun,0,?TEST_PROP))}
+        , {"json",?_assertEqual(5, fold(TestFun,0,?TEST_JSON))}]}.
 
 get_test_() ->
-    {setup,
-     fun setup/0,
-    [{"proplist_success",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_PROP))},
-     {"json_success",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_JSON))},
-     {"proplist_fail",?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_PROP))},
-     {"json_fail",?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_JSON))}, 
-     {"proplist_custom_default",?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_PROP,test))},
-     {"json_custom_default",?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}]}.
+    {inparallel
+     , [{"proplist_success"
+         , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,?TEST_PROP))}
+        , {"json_success"
+           , ?_assertEqual(<<"Doe">>
+                           , ?MODULE:get(<<"surname">>,?TEST_JSON))}
+        , {"proplist_fail"
+           , ?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_PROP))}
+        , {"json_fail"
+           , ?_assertEqual(undefined, ?MODULE:get(<<"sme">>,?TEST_JSON))}
+        , {"proplist_custom_default"
+           , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_PROP,test))}
+        , {"json_custom_default"
+           , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}
+       ]}.
 
 new_test_() -> 
     %% Depends on default type setting
     Test = [],
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual([],new(proplist))},
-     {"json",?_assertEqual(<<"{}">>,new(json))},
-     {"default",?_assertEqual(Test,new())}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual([],new(proplist))}
+        , {"json",?_assertEqual(<<"{}">>,new(json))}
+        , {"default",?_assertEqual(Test,new())}]}.
 
 put_test_() -> 
-    {setup,
-     fun setup/0,
-    [{"prop_empty",?_assertEqual([{test,1}],?MODULE:put(test,1,[]))},
-     {"prop_replace",?_assertEqual([{test,1}],?MODULE:put(test,1,[{test,2}]))},
-     {"json_empty",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{}">>))},
-     {"json_replace",?_assertEqual(<<"{\"test\":1}">>,?MODULE:put(<<"test">>,1,<<"{\"test\":2}">>))}]}.
+    {inparallel
+     , [{"prop_empty",?_assertEqual([{test,1}],?MODULE:put(test,1,[]))}
+        , {"prop_replace"
+           , ?_assertEqual([{test,1}],?MODULE:put(test,1,[{test,2}]))}
+        , {"json_empty"
+           , ?_assertEqual(<<"{\"test\":1}">>
+                           , ?MODULE:put(<<"test">>,1,<<"{}">>))}
+        , {"json_replace"
+           , ?_assertEqual(<<"{\"test\":1}">>
+                           , ?MODULE:put(<<"test">>,1,<<"{\"test\":2}">>))}
+       ]}.
 
 remove_test_() ->
     PropOut = remove(<<"age">>,?TEST_PROP),
     JsonOut = remove(<<"age">>,?TEST_JSON),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(undefined, proplists:get_value(<<"age">>,PropOut,undefined))},
-     {"json",?_assertEqual(undefined,?MODULE:get(<<"age">>,JsonOut))}]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(undefined
+                         , proplists:get_value(<<"age">>,PropOut
+                                               ,undefined))}
+        , {"json", ?_assertEqual(undefined,?MODULE:get(<<"age">>,JsonOut))}
+       ]}.
 
 update_test_() ->
     PropOut = update(<<"age">>,8000,?TEST_PROP),
     JsonOut = update(<<"age">>,8000,?TEST_JSON),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))},
-     {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))},
-     {"error_prop",?_assertError(badarg,update(<<"not_there">>,true,?TEST_PROP))}
-     ]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(8000, proplists:get_value(<<"age">>,PropOut))}
+        , {"json",?_assertEqual(8000,?MODULE:get(<<"age">>,JsonOut))}
+        , {"error_prop"
+           , ?_assertError(badarg,update(<<"not_there">>,true,?TEST_PROP))}
+       ]}.
 
 filter_test_() -> 
     FilterFun = fun(<<"age">>,_) -> true;
@@ -1540,96 +1659,115 @@ filter_test_() ->
                    (_,_) -> false end,
     PropOut = filter(FilterFun,?TEST_PROP),
     JsonOut = filter(FilterFun,?TEST_JSON),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(981, proplists:get_value(<<"age">>,PropOut))},
-     {"proplist",?_assertEqual(true, proplists:get_value(<<"earthling">>,PropOut))},
-     {"json",?_assertEqual(981, ?MODULE:get(<<"age">>,JsonOut))},
-     {"json",?_assertEqual(true,?MODULE:get(<<"earthling">>,JsonOut))}]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(981, proplists:get_value(<<"age">>,PropOut))}
+        , {"proplist"
+           , ?_assertEqual(true
+                           , proplists:get_value(<<"earthling">>,PropOut))}
+        , {"json",?_assertEqual(981, ?MODULE:get(<<"age">>,JsonOut))}
+        , {"json",?_assertEqual(true,?MODULE:get(<<"earthling">>,JsonOut))}
+       ]}.
 
 include_test_() ->
     Json_Ok = <<"{\"name\":\"John\"}">>,
     Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}],
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Prop_Ok, include([<<"surname">>,<<"foo">>],?TEST_PROP))},
-     {"json",?_assertEqual(Json_Ok, include([<<"name">>],?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(Prop_Ok, include([<<"surname">>,<<"foo">>]
+                                          , ?TEST_PROP))}
+        , {"json"
+           , ?_assertEqual(Json_Ok, include([<<"name">>],?TEST_JSON))}]}.
 
 exclude_test_() ->
     Json_Ok = <<"{\"name\":\"John\"}">>,
     Prop_Ok = [{<<"name">>,<<"John">>}],
     ExcFields = [<<"surname">>,<<"foo">>,<<"earthling">>,<<"age">>,<<"empty">>],
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(Prop_Ok, exclude(ExcFields,?TEST_PROP))},
-     {"json",?_assertEqual(Json_Ok, exclude(ExcFields,?TEST_JSON))}]}.
+    {inparallel
+     , [{"proplist",?_assertEqual(Prop_Ok, exclude(ExcFields,?TEST_PROP))}
+        , {"json",?_assertEqual(Json_Ok, exclude(ExcFields,?TEST_JSON))}]}.
 
 merge_test_() ->
     Json_1 = <<"{\"test\":\"true\"}">>,
     Prop_1 = [{<<"test">>,<<"true">>}],
     JsonOut = merge(Json_1,?TEST_JSON),
     PropOut = merge(Prop_1,?TEST_PROP),
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,PropOut))},
-     {"proplist",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,PropOut))},
-     {"json",?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,JsonOut))},
-     {"json",?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,JsonOut))}]}.
+    {inparallel
+     , [{"proplist"
+         , ?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,PropOut))}
+        , {"proplist"
+           , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,PropOut))}
+        , {"json"
+           , ?_assertEqual(<<"true">>, ?MODULE:get(<<"test">>,JsonOut))}
+        , {"json"
+           , ?_assertEqual(<<"Doe">>, ?MODULE:get(<<"surname">>,JsonOut))}
+       ]}.
 
 project_test_() ->
-    Data1 = <<"{\"name\":{\"first\":false,\"list\":[{\"any\":1}]}, \"test\":true}">>,
-    Data2 = <<"{\"list\":[{\"any\":{\"sub\":true}},{\"any\":{\"sub\":false}}],\"empty\":[]}">>,
-    [?_assertEqual([1],project("name:list[*]:any",Data1)),
-     ?_assertEqual(true,project("test",Data1)),
-     ?_assertEqual(false,project("name:first",Data1)),
-     ?_assertEqual([[1],true],project(["name:list[*]:any","test"],Data1)),
-     ?_assertEqual([true,false],project("list[*]:any:sub",Data2)),
-     ?_assertEqual(true,project("list[1]:any:sub",Data2)),
-     ?_assertEqual([<<"first">>,<<"list">>],project("name:$keys$",Data1)),
-     ?_assertEqual([[<<"first">>,<<"list">>],[1],false], project(["name:$keys$",
-                                                                  "name:list[*]:any",
-                                                                  "name:first"
-                                                                 ],Data1)),
-     ?_assertEqual(nomatch, project(["name:$keys$",
-                                     "name:list[*]:any",
-                                     "name:not_there"
-                                    ],Data1)),
-     ?_assertEqual(nomatch,project("list[10]:any:sub",Data2)),
-     ?_assertEqual(nomatch,project("unlist[1]:any:sub",Data2)),
-     ?_assertEqual(nomatch,project("empty[1]",Data2)),
-     ?_assertEqual(nomatch,project("empty[*]",Data2)),
-     ?_assertEqual(nomatch,project("unexistant",Data2)),
-     ?_assertEqual(nomatch,project("unexistant[*]",Data2))
-    ].
+    Data1 = <<"{\"name\":{\"first\":false,\"list\":[{\"any\":1}]},"
+              " \"test\":true}">>,
+    Data2 = <<"{\"list\":[{\"any\":{\"sub\":true}},"
+              "{\"any\":{\"sub\":false}}],\"empty\":[]}">>,
+    {inparallel
+     , [?_assertEqual([1],project("name:list[*]:any",Data1))
+        , ?_assertEqual(true,project("test",Data1))
+        , ?_assertEqual(false,project("name:first",Data1))
+        , ?_assertEqual([[1],true]
+                        , project(["name:list[*]:any","test"],Data1))
+        , ?_assertEqual([true,false],project("list[*]:any:sub",Data2))
+        , ?_assertEqual(true,project("list[1]:any:sub",Data2))
+        , ?_assertEqual([<<"first">>,<<"list">>]
+                        , project("name:$keys$",Data1))
+        , ?_assertEqual([[<<"first">>,<<"list">>],[1],false]
+                        , project(["name:$keys$", "name:list[*]:any"
+                                   , "name:first"],Data1))
+        , ?_assertEqual(nomatch, project(["name:$keys$", "name:list[*]:any"
+                                          , "name:not_there"],Data1))
+        , ?_assertEqual(nomatch,project("list[10]:any:sub",Data2))
+        , ?_assertEqual(nomatch,project("unlist[1]:any:sub",Data2))
+        , ?_assertEqual(nomatch,project("empty[1]",Data2))
+        , ?_assertEqual(nomatch,project("empty[*]",Data2))
+        , ?_assertEqual(nomatch,project("unexistant",Data2))
+        , ?_assertEqual(nomatch,project("unexistant[*]",Data2))]}.
 
 parse_path_test_() ->
     Path1 = "name.list[*].any",
     Path2 = <<"name.list[*].any">>,
-    Path3 = lists:concat(["name",?JSON_PATH_SEPARATOR,"list[*]",?JSON_PATH_SEPARATOR,"any"]),
+    Path3 = lists:concat(["name",?JSON_PATH_SEPARATOR
+                          ,"list[*]",?JSON_PATH_SEPARATOR,"any"]),
     Res1  = ["name","list[*]","any"],
-    [?_assertEqual(Res1,parse_path(Path1,".")),
-     ?_assertEqual(Res1,parse_path(Path2,".")),
-     ?_assertEqual(Res1,parse_path(Path3))
-    ].
+    {inparallel
+     , [?_assertEqual(Res1,parse_path(Path1,"."))
+        , ?_assertEqual(Res1,parse_path(Path2,"."))
+        , ?_assertEqual(Res1,parse_path(Path3))]}.
 
 walk_path_test_() ->
     Path1 = ["name","list[*]","any"],
-    Object1 = [{<<"name">>, [{<<"list">>, [[{<<"any">>,1}],[{<<"any">>,2}]]}]}],
+    Object1 = [{<<"name">>, [{<<"list">>
+                              , [[{<<"any">>,1}],[{<<"any">>,2}]]}]}],
     Result1 = [1,2],
-    [?_assertEqual(Result1,walk_path(Path1,Object1))
-    ].
-
+    [?_assertEqual(Result1,walk_path(Path1,Object1))].
 
 -ifdef(DECODE_TO_MAPS).
 %% Some 'adaptation' because JSON conversion changes order between formats
--define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"changes\":4,\"removed\":{\"age\":981},\"replaced\":{\"surname\":\"Doe\"},\"updated\":{\"surname\":\"DoeDoe\"}}">>).
+-define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},"
+                           "\"changes\":4,\"removed\":{\"age\":981},"
+                           "\"replaced\":{\"surname\":\"Doe\"},"
+                           "\"updated\":{\"surname\":\"DoeDoe\"}}">>).
 -else.
--define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"removed\":{\"age\":981},\"updated\":{\"surname\":\"DoeDoe\"},\"replaced\":{\"surname\":\"Doe\"},\"changes\":4}">>).
+-define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},"
+                           "\"removed\":{\"age\":981},\"updated\":"
+                           "{\"surname\":\"DoeDoe\"},\"replaced\":"
+                           "{\"surname\":\"Doe\"},\"changes\":4}">>).
 -endif.
 
 diff_test_() ->
-    PropBefore = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"empty">>,null},{<<"unmod">>,true}],
-    PropAfter  = [{<<"surname">>,<<"DoeDoe">>}, {<<"ega">>,981},{<<"newval">>,<<"one">>}, {<<"empty">>,null},{<<"unmod">>,true}],
+    PropBefore = [{<<"surname">>,<<"Doe">>}
+                  , {<<"age">>,981}, {<<"empty">>,null}
+                  , {<<"unmod">>,true}],
+    PropAfter  = [{<<"surname">>,<<"DoeDoe">>}, {<<"ega">>,981}
+                  ,{<<"newval">>,<<"one">>}, {<<"empty">>,null}
+                  ,{<<"unmod">>,true}],
     PropDiffOut = [{added,[{<<"ega">>,981},{<<"newval">>,<<"one">>}]},
                    {removed,[{<<"age">>,981}]},
                    {updated,[{<<"surname">>,<<"DoeDoe">>}]},
@@ -1637,56 +1775,63 @@ diff_test_() ->
                    {changes,4}],
 
     JsonBefore = <<"{\"surname\":\"Doe\",\"age\":981,\"empty\":null}">>,
-    JsonAfter = <<"{\"surname\":\"DoeDoe\",\"ega\":981,\"newval\":\"one\",\"empty\":null}">>,
+    JsonAfter = <<"{\"surname\":\"DoeDoe\",\"ega\":981,\"newval\":\"one\","
+                  "\"empty\":null}">>,
     JsonDiffOut = ?TEST_JSONOUTDIFF,
 
 
-    {setup,
-     fun setup/0,
-    [{"proplist",?_assertEqual(PropDiffOut, diff(PropBefore,PropAfter))},
-     {"json",?_assertEqual(JsonDiffOut, diff(JsonBefore,JsonAfter))}
+    {inparallel
+     , [{"proplist",?_assertEqual(PropDiffOut, diff(PropBefore,PropAfter))}
+        , {"json",?_assertEqual(JsonDiffOut, diff(JsonBefore,JsonAfter))}
     ]}.
 
 equal_test_() -> 
-    Json_Ok = <<"{\"name\":\"John\",\"surname\":\"Doe\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"other\":null}">>,
-    Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"name">>,<<"John">>}, {<<"age">>,981}],
-    Json_Nook = <<"{\"name\":\"John\",\"surname\":null,\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"other\":null}">>,
-    Prop_Nook = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"barbara">>}, {<<"earthling">>,true}, {<<"name">>,<<"John">>}, {<<"age">>,981}],
-    {setup,
-     fun setup/0,
-    [ {"prop_success",?_assert(equal(Prop_Ok,?TEST_PROP))},
-     {"json_success",?_assert(equal(Json_Ok,?TEST_JSON))},
-     {"prop_fail",?_assert(not equal(Prop_Nook,?TEST_PROP))},
-     {"json_fail",?_assert(not equal(Json_Nook,?TEST_JSON))} ]}.
+    Json_Ok = <<"{\"name\":\"John\",\"surname\":\"Doe\",\"foo\":\"bar\","
+                "\"earthling\":true,\"age\":981,\"other\":null}">>,
+    Prop_Ok = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"bar">>}
+               , {<<"earthling">>,true}, {<<"name">>,<<"John">>}
+               , {<<"age">>,981}],
+    Json_Nook = <<"{\"name\":\"John\",\"surname\":null,\"foo\":\"bar\","
+                  "\"earthling\":true,\"age\":981,\"other\":null}">>,
+    Prop_Nook = [{<<"surname">>,<<"Doe">>},{<<"foo">>,<<"barbara">>}
+                 , {<<"earthling">>,true}, {<<"name">>,<<"John">>}
+                 , {<<"age">>,981}],
+    {inparallel
+     , [ {"prop_success",?_assert(equal(Prop_Ok,?TEST_PROP))}
+         , {"json_success",?_assert(equal(Json_Ok,?TEST_JSON))}
+         , {"prop_fail",?_assert(not equal(Prop_Nook,?TEST_PROP))}
+         , {"json_fail",?_assert(not equal(Json_Nook,?TEST_JSON))}]}.
 
 is_subset_test_() -> 
     Sub_Ok_Json =  <<"{\"surname\":\"Doe\",\"age\":981,\"nothing\":null}">>,
-    Sub_Ok_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}, {<<"nothing">>,null}],
+    Sub_Ok_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}
+                   , {<<"nothing">>,null}],
     Sub_Nook_Json =  <<"{\"suame\":\"Doe\",\"age\":981}">>,
     Sub_Nook_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,91}],
-    {setup,
-     fun setup/0,
-    [ {"proplist_success",?_assert(is_subset(Sub_Ok_Prop,?TEST_PROP))},
-     {"json_success",?_assert(is_subset(Sub_Ok_Json,?CL(?TEST_JSON)))},
-     {"proplist_fail",?_assert(not is_subset(Sub_Nook_Prop,?TEST_PROP))},
-     {"json_fail",?_assert(not is_subset(Sub_Nook_Json,?TEST_JSON))}]}.
+    {inparallel
+     , [ {"proplist_success",?_assert(is_subset(Sub_Ok_Prop,?TEST_PROP))}
+         , {"json_success",?_assert(is_subset(Sub_Ok_Json,?CL(?TEST_JSON)))}
+         , {"proplist_fail"
+            , ?_assert(not is_subset(Sub_Nook_Prop,?TEST_PROP))}
+         , {"json_fail"
+            , ?_assert(not is_subset(Sub_Nook_Json,?TEST_JSON))}]}.
 
 is_disjoint_test_() -> 
     Sub_Ok_Json =  <<"{\"suame\":\"Doe\",\"age\":91}">>,
     Sub_Ok_Prop = [{<<"surname">>,<<"De">>}, {<<"ae">>,981}],
     Sub_Nook_Json =  <<"{\"suame\":\"Doe\",\"age\":981}">>,
     Sub_Nook_Prop = [{<<"surname">>,<<"Doe">>}, {<<"age">>,981}],
-    {setup,
-     fun setup/0,
-    [ {"proplist_success",?_assert(is_disjoint(Sub_Ok_Prop,?TEST_PROP))},
-     {"json_success",?_assert(is_disjoint(Sub_Ok_Json,?TEST_JSON))},
-     {"proplist_fail",?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))},
-     {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}]}.
-
+    {inparallel
+     , [{"proplist_success",?_assert(is_disjoint(Sub_Ok_Prop,?TEST_PROP))}
+        , {"json_success",?_assert(is_disjoint(Sub_Ok_Json,?TEST_JSON))}
+        , {"proplist_fail"
+           , ?_assert(not is_disjoint(Sub_Nook_Prop,?TEST_PROP))}
+        , {"json_fail",?_assert(not is_disjoint(Sub_Nook_Json,?TEST_JSON))}
+       ]}.
 
 -endif.
 
-match_test_() ->
+eval_test_() ->
     Object = <<"
         { \"a1\": 123
         , \"a2\": \"abcd\"
@@ -1699,30 +1844,52 @@ match_test_() ->
         }
     ">>,
     Bind = [{<<"root">>, Object}],
-    [{P,?_assertEqual(O,match(P,Bind))}
-     || {P,O} <-
-        [ % basic hirarchical walk
-          {"root:a1",       <<"123">>}
-        , {"root:a2",       <<"\"abcd\"">>}
-        , {"root:a3",       <<"[1,2,3]">>}
-        , {"root:a4",       <<"{\"b1\":456}">>}
-        , {"root:a4:b1",    <<"456">>}
-        , {"root:a5",       <<"{\"b1\":\"string\"}">>}
-        , {"root:a5:b1",    <<"\"string\"">>}
+    {inparallel
+     , [{P,?_assertEqual(O,err_to_atom(eval(P,Bind)))}
+        || {P,O} <-
+           [ % basic hirarchical walk
+             {"root{}",             <<"{}">>}
+           , {"root[]",             nomatch}
+           , {"root#keys",          <<"[\"a1\",\"a2\",\"a3\",\"a4\","
+                                      "\"a5\",\"a6\"]">>}
+           , {"root{a6}#keys",      <<"[\"a6\"]">>}
+           , {"root{a2,a6}#keys",   <<"[\"a2\",\"a6\"]">>}
+           , {"root#values",        <<"[123,\"abcd\",[1,2,3],"
+                                      "{\"b1\":456},{\"b1\":\"string\"}"
+                                      ",[{\"b1\":1},{\"b1\":2},"
+                                      "{\"b1\":3}]]">>}
+           , {"root:a6[]",          <<"[]">>}
+           , {"root:a6{}",          nomatch}
+           , {"root:a1",            <<"123">>}
+           , {"root:a2",            <<"\"abcd\"">>}
+           , {"root:a3",            <<"[1,2,3]">>}
+           , {"root:a4",            <<"{\"b1\":456}">>}
+           , {"root:a4:b1",         <<"456">>}
+           , {"root:a5",            <<"{\"b1\":\"string\"}">>}
+           , {"root:a5:b1",         <<"\"string\"">>}
 
-        , {"root:a6",       <<"[{\"b1\":1},{\"b1\":2},{\"b1\":3}]">>}
-        , {"root:a6[1]",    <<"[{\"b1\":1}]">>}
-        , {"root:a6[2]",    <<"[{\"b1\":2}]">>}
-        , {"root:a6[3]",    <<"[{\"b1\":3}]">>}
-        , {"root:a6[1,3]",  <<"[{\"b1\":1},{\"b1\":3}]">>}
-        , {"root:a6[2,3]",  <<"[{\"b1\":2},{\"b1\":3}]">>}
-        , {"root:a6[2,2]",  <<"[{\"b1\":2},{\"b1\":2}]">>}
-        , {"root{a1}",      <<"{\"a1\":123}">>}
-        , {"root{a1,a4}",   <<"{\"a1\":123,\"a4\":{\"b1\":456}}">>}
-        , {"root{a4}:b1",   <<"456">>}
-        , {"root{a5}:b1",   <<"\"string\"">>}
-        , {"root{a4,a5}:b1", undecided}
-        ]
-    ].
+           , {"root:a6",            <<"[{\"b1\":1},{\"b1\":2},"
+                                      "{\"b1\":3}]">>}
+           , {"root:a6[1]",         <<"[{\"b1\":1}]">>}
+           , {"root:a6[2]",         <<"[{\"b1\":2}]">>}
+           , {"root:a6[3]",         <<"[{\"b1\":3}]">>}
+           , {"root:a6[1,3]",       <<"[{\"b1\":1},{\"b1\":3}]">>}
+           , {"root:a6[2,3]",       <<"[{\"b1\":2},{\"b1\":3}]">>}
+           , {"root:a6[2,2]",       <<"[{\"b1\":2},{\"b1\":2}]">>}
+           , {"root{a1}",           <<"{\"a1\":123}">>}
+           , {"root{a1,a4}",        <<"{\"a1\":123,\"a4\":"
+                                      "{\"b1\":456}}">>}
+           , {"root{a4}:a4:b1",     <<"456">>}
+           , {"root{a4}:b1",        nomatch}
+           , {"root{a5}:a5:b1",     <<"\"string\"">>}
+           , {"root{a4,a5}:b1",     nomatch}
+           ]
+       ]
+    }.
+
+err_to_atom({error, {Error, _}}) -> Error;
+err_to_atom(Else) -> Else.
+
+% Write -ve tests seperately
 
 -endif.
