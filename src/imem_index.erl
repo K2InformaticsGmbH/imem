@@ -10,11 +10,18 @@
         ,insert/2       %% (IndexTable,Inserts)
         ]).
 
--export([vnf_identity/1
-        ,vnf_lcase_ascii/1
-        ,vnf_lcase_ascii_ne/1
+
+%% ==================================================================
+%% value normalising funs
+%% ==================================================================
+-export([vnf_identity/1             %% identity transformation, no change of value
+        ,vnf_lcase_ascii/1          %% lower case ascci, allow empty strings
+        ,vnf_lcase_ascii_ne/1       %% lower case ascci non-empty
         ]).
 
+%% ==================================================================
+%% index filter funs
+%% ==================================================================
 -export([iff_true/1
         ]).
 

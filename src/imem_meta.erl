@@ -1613,7 +1613,7 @@ json_pos_list(PathList) ->
     json_pos_list(PathList,[]).
 
 json_pos_list([],Acc) -> Acc;
-json_pos_list([{':',[Pos|_]}|Rest],Acc) -> json_pos_list(Rest,[Pos|Acc]);
+json_pos_list([{_ParseTreeTuple,FM}|Rest],Acc) -> json_pos_list(Rest,Acc ++ [Pos || {_Name,Pos} <- FM]);
 json_pos_list([_|Rest],Acc) ->  json_pos_list(Rest,Acc).
 
 compile_path_list(PL,FieldMap) ->
@@ -1621,20 +1621,29 @@ compile_path_list(PL,FieldMap) ->
 
 compile_json_path(JsonPath,FieldMap) ->
     case jpparse:parsetree(JsonPath) of
-        {ok,{ParseTreeBinary,_}} when is_binary(ParseTreeBinary) ->       
+        {ok,{ParseTreeBinary,_}} when is_binary(ParseTreeBinary) ->
+            %% this is a simple record field name, not a parse tree, return index position
             case lists:keyfind(ParseTreeBinary,1,FieldMap) of
                 false ->    ?ClientError({"Unknown column name",ParseTreeBinary});
                 {_,Pos} ->  Pos             %% represent field as record index (integer)
-            end;     
-        {ok,{{':',[H]},_}} when is_binary(H) ->
-            case lists:keyfind(H,1,FieldMap) of
-                false ->    ?ClientError({"Unknown JSON document name",H});
-                {_,Pos} ->  Pos             %% represent field as record index (integer)
-            end;     
-        {ok,{{':',[H|R]},_}} when is_binary(H) ->
-            case lists:keyfind(H,1,FieldMap) of
-                false ->    ?ClientError({"Unknown JSON document name",H});
-                {_,Pos} ->  {':',[Pos|R]}   %% replace JSON document name with integer position in record
+            end;
+        {ok,{ParseTreeTuple,_Tokens}} when is_tuple(ParseTreeTuple) ->
+            %% this is a json path, return {ParseTreeTuple,UsedFieldMap}
+            Roots = fun(_D,_SPT,_A) ->  
+                case _SPT of
+                    {':',_,B} when is_binary(B) -> [B|_A];
+                    {'::',_,B} when is_binary(B) -> [B|_A];
+                    {'#',_,B} when is_binary(B) -> [B|_A];
+                    {'[]',B,_} when is_binary(B) -> [B|_A];
+                    {'{}',B,_} when is_binary(B) -> [B|_A];
+                     _ -> _A
+                end
+            end,
+            FieldList = lists:usort(jpparse:foldbu(Roots, [], ParseTreeTuple)),
+            Pred = fun({Name,_Pos}) -> lists:member(Name,FieldList) end,
+            case lists:filter(Pred, FieldMap) of
+                [] ->       ?ClientError({"Unknown JSON document name in ",JsonPath});
+                FM ->       {ParseTreeTuple,FM}
             end;     
         [{parse_error,Reason}] ->   ?ClientError({"Cannot parse JSON path",{JsonPath,Reason}})
     end.
@@ -2210,7 +2219,7 @@ decode_json([], Rec) -> Rec;
 decode_json([Pos|Rest], Rec) ->
     Val = element(Pos,Rec),
     % ?Info("decode_json Val ~p",[Val]),
-    Decoded = try imem_json:json_binary_decode(Val) catch _:_ -> ?nav end,
+    Decoded = try imem_json:decode(Val) catch _:_ -> ?nav end,
     % ?Info("decode_json Decoded ~p",[Decoded]),
     decode_json(Rest, setelement(Pos,Rec,Decoded)).
 
@@ -2252,21 +2261,28 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
     index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0 ++ Ch);
 index_items(Rec,{},Table,User,ID,Type,[_|PL],Vnf,Iff,Changes) ->
     index_items(Rec,{},Table,User,ID,Type,PL,Vnf,Iff,Changes);
-index_items(Rec,RecJ,Table,User,ID,Type,[{':',[Pos|P]}|PL],Vnf,Iff,Changes0) ->
+index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
     % ?Info("index_items RecJ ~p",[RecJ]),
-    % ?Info("index_items3 ~p",[{':',[Pos|P]}]),
+    % ?Info("index_items ParseTree ~p",[PT]),
+    % ?Info("index_items FieldList ~p",[FL]),
     Key = element(?KeyIdx,RecJ),
-    KVPs = case element(Pos,RecJ) of
-        ?nav -> [];
-        RV ->   % ?Info("index_items json RV ~p",[RV]),
-                Match = imem_json:jpp_match({':',P},RV),
-                % ?Info("index_items json Match ~p",[Match]),
-                case Match of
-                    nomatch ->                  [];
-                    [] ->                       [];
-                    MV when is_binary(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];
-                    ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav]                 
-                end
+    Binds = [{Name,element(Pos,RecJ)} || {Name,Pos} <- FL],
+    KVPs = case lists:keyfind(?nav, 2, Binds) of
+        false ->   
+            Match = imem_json:eval(PT,Binds),
+            case Match of
+                MV when is_binary(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];                 
+                ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav];                 
+                {error, {nomatch, {path_not_found, _}}} ->          [];
+                {error, {nomatch, {property_not_found, _, _}}} ->   [];
+                {error, {nomatch, {index_out_of_bound, _, _}}} ->   [];
+                {error, {nomatch, {operation_not_supported, E1}}} ->    ?ClientError({"Index error", {operation_not_supported, E1}});
+                {error, {nomatch, {unimplimented, E2}}} ->          ?UnimplementedException({"Index error", {unimplimented, E2}}) ;
+                {error, {nomatch, {unbound, E3}}} ->          ?SystemException({"Index error", {unbound, E3}});
+                {error, {malformed, E4}}->            ?SystemException({"Index error", {malformed, E4}})
+            end;
+        _ ->    
+            []  %% one or more bind variables are not values. Don't try to evaluate the json path.
     end,
     %% ?Info("index_items KVPs ~p",[KVPs]),
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
@@ -2411,11 +2427,11 @@ meta_operations(_) ->
         ?assertEqual([#ddIndex{stu={1,2,3}}], read(idx_meta_table_1)),
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx1Def])),
         ?assertEqual([], read(idx_meta_table_1)),
-        ?assertEqual(<<"table">>, imem_index:binstr_to_lcase_ascii(<<"täble"/utf8>>)),
+        ?assertEqual(<<"table">>, imem_index:vnf_lcase_ascii_ne(<<"täble"/utf8>>)),
         ?assertEqual({meta_table_1,"meta",<<"täble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta",<<"täble"/utf8>>,"1"})),
         ?assertEqual([{meta_table_1,"meta",<<"täble"/utf8>>,"1"}], read(meta_table_1)),
         ?assertEqual([#ddIndex{stu={1,<<"table">>,"meta"}}], read(idx_meta_table_1)),
-        ?assertEqual(<<"tuble">>, imem_index:binstr_to_lcase_ascii(<<"tüble"/utf8>>)),
+        ?assertEqual(<<"tuble">>, imem_index:vnf_lcase_ascii_ne(<<"tüble"/utf8>>)),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, update(meta_table_1, {{meta_table_1,"meta",<<"täble"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
         ?assertEqual([{meta_table_1,"meta",<<"tüble"/utf8>>,"1"}], read(meta_table_1)),
         ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
@@ -2457,7 +2473,7 @@ meta_operations(_) ->
                            ]
                  }
                 ],
-        ?assertEqual(PROP1,imem_json:json_binary_decode(JSON1)),        
+        ?assertEqual(PROP1,imem_json:decode(JSON1)),        
         ?assertEqual({meta_table_1,"json1",JSON1,"1"}, insert(meta_table_1, {meta_table_1,"json1",JSON1,"1"})),
         ?assertEqual([#ddIndex{stu={1, <<"value-b">>,"json1"}}
                      ,#ddIndex{stu={1, <<"value-ca">>,"json1"}}
@@ -2601,7 +2617,7 @@ meta_operations(_) ->
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)),
-        timer:sleep(1000),
+        timer:sleep(1100),
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:now()})),
         ?assert(length(physical_table_names(fakelog_1@)) >= 3),
         timer:sleep(1100),

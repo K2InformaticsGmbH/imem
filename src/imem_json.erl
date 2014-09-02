@@ -837,7 +837,7 @@ walk_path([Filter|Tail],CurrentLevel) ->
     % spec for Details in {error, {nomatch, Details}}
       when
       Details :: {operation_not_supported, any()}
-               | {unimplimented, any()}
+               | {unimplemented, any()}
                | {path_not_found, any(), any()}
                | {unbound, any()}
                | {property_not_found, any(), any()} % While walking sub-objects
@@ -887,7 +887,7 @@ jpp_walk(_Depth, {'#',Op,Arg} = Pt, Binds) ->
     end;
 jpp_walk(_Depth, {'fun',_,_Args} = Pt, Binds) ->
     ?TRACE,
-    exit({nomatch, {unimplimented, 'fun'}});
+    exit({nomatch, {unimplemented, 'fun'}});
 jpp_walk(_Depth, {'[]',L,Idxs} = Pt, Binds) ->
     ?TRACE,
     case proplists:get_value(L,Binds) of
