@@ -822,8 +822,27 @@ walk_path([Filter|Tail],CurrentLevel) ->
 %% and extracts matched values. nomatch is return if no match is found.
 %% This function uses imem_json primitives, and as such is format neutral.
 -spec eval(JPPTree :: list() | binary() | tuple()
-            , [{binary(),data_object()}]) ->
-    [] | list(value()).
+            , [{binary(),data_object()}]) ->    
+    {error, {nomatch, Details}} % See below for spec of Details
+
+    % Either parsetree or bind list is malformed
+    %  this is only for debugging fold
+    %  function, which shouldn't happen
+    %  otherwise
+    | {error, {malformed, any()}}
+
+    % Happy path return
+    | list(value())
+
+    % spec for Details in {error, {nomatch, Details}}
+      when
+      Details :: {operation_not_supported, any()}
+               | {unimplimented, any()}
+               | {path_not_found, any(), any()}
+               | {unbound, any()}
+               | {property_not_found, any(), any()} % While walking sub-objects
+               | {index_out_of_bound, any(), any()} % While walking sub-lists
+               .
 eval(JsonPath,Binds)
   when is_binary(JsonPath) orelse is_list(JsonPath) ->
     {ok,{Tree,_}} = jpparse:parsetree(JsonPath),
@@ -842,7 +861,7 @@ eval(Tree,Binds) ->
                         , Tree) of
         {error, Error} -> {error, Error};
         [{Tree, Object}|_] -> Object;
-        Malformed -> exit({malformed, Malformed})
+        Malformed -> {error, {malformed, Malformed}}
     end.
 
 -define(TRACE, Pt = Pt, Binds = Binds).
