@@ -1621,25 +1621,15 @@ compile_path_list(PL,FieldMap) ->
 
 compile_json_path(JsonPath,FieldMap) ->
     case jpparse:parsetree(JsonPath) of
-        {ok,{ParseTreeBinary,_}} when is_binary(ParseTreeBinary) ->
+        {ok,ParseTreeBinary} when is_binary(ParseTreeBinary) ->
             %% this is a simple record field name, not a parse tree, return index position
             case lists:keyfind(ParseTreeBinary,1,FieldMap) of
                 false ->    ?ClientError({"Unknown column name",ParseTreeBinary});
                 {_,Pos} ->  Pos             %% represent field as record index (integer)
             end;
-        {ok,{ParseTreeTuple,_Tokens}} when is_tuple(ParseTreeTuple) ->
+        {ok,ParseTreeTuple} when is_tuple(ParseTreeTuple) ->
             %% this is a json path, return {ParseTreeTuple,UsedFieldMap}
-            Roots = fun(_D,_SPT,_A) ->  
-                case _SPT of
-                    {':',_,B} when is_binary(B) -> [B|_A];
-                    {'::',_,B} when is_binary(B) -> [B|_A];
-                    {'#',_,B} when is_binary(B) -> [B|_A];
-                    {'[]',B,_} when is_binary(B) -> [B|_A];
-                    {'{}',B,_} when is_binary(B) -> [B|_A];
-                     _ -> _A
-                end
-            end,
-            FieldList = lists:usort(jpparse:foldbu(Roots, [], ParseTreeTuple)),
+            {ok, FieldList} = jpparse:roots(ParseTreeTuple),
             Pred = fun({Name,_Pos}) -> lists:member(Name,FieldList) end,
             case lists:filter(Pred, FieldMap) of
                 [] ->       ?ClientError({"Unknown JSON document name in ",JsonPath});

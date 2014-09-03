@@ -845,7 +845,7 @@ walk_path([Filter|Tail],CurrentLevel) ->
                .
 eval(JsonPath,Binds)
   when is_binary(JsonPath) orelse is_list(JsonPath) ->
-    {ok,{Tree,_}} = jpparse:parsetree(JsonPath),
+    {ok, Tree} = jpparse:parsetree(JsonPath),
     eval(Tree,Binds);
 eval(Tree,[{Name,Object}|_] = Binds)
   when is_binary(Name), is_binary(Object) ->
