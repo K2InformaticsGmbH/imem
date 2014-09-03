@@ -823,13 +823,11 @@ walk_path([Filter|Tail],CurrentLevel) ->
 %% This function uses imem_json primitives, and as such is format neutral.
 -spec eval(JPPTree :: list() | binary() | tuple()
             , [{binary(),data_object()}]) ->    
-    {error, {nomatch, Details}} % See below for spec of Details
+    {nomatch, NoMatches} % See below for spec of Details
 
-    % Either parsetree or bind list is malformed
-    %  this is only for debugging fold
-    %  function, which shouldn't happen
-    %  otherwise
-    | {error, {malformed, any()}}
+    % Either parsetree/bind list is malformed
+    %  or given jppath can not be folded    
+    | {error, Details}
 
     % Happy path return
     | list(value())
@@ -838,10 +836,13 @@ walk_path([Filter|Tail],CurrentLevel) ->
       when
       Details :: {operation_not_supported, any()}
                | {unimplemented, any()}
-               | {path_not_found, any(), any()}
                | {unbound, any()}
-               | {property_not_found, any(), any()} % While walking sub-objects
-               | {index_out_of_bound, any(), any()} % While walking sub-lists
+               | {malformed, any()} % this is only for debugging fold function,
+                                    % which shouldn't happen otherwise
+               ,
+      NoMatches :: {path_not_found, any(), any()}
+                 | {property_not_found, any(), any()} % While walking sub-objects
+                 | {index_out_of_bounds, any(), any()} % While walking sub-lists
                .
 eval(JsonPath,Binds)
   when is_binary(JsonPath) orelse is_list(JsonPath) ->
@@ -852,6 +853,7 @@ eval(Tree,[{Name,Object}|_] = Binds)
     case eval(Tree
                , [{N, ?FROM_JSON(O)}
                   || {N,O} <- Binds]) of
+        {error, {nomatch, Reason}} -> {nomatch, Reason};
         {error, Reason} -> {error, Reason};
         MatchedObject -> ?TO_JSON(MatchedObject)
     end;
@@ -880,14 +882,16 @@ jpp_walk(_Depth, {'#',Op,Arg} = Pt, Binds) ->
             case Op of
                 <<"keys">>      -> [{Pt, ?MODULE:keys(Obj)} | Binds];
                 <<"values">>    -> [{Pt, ?MODULE:values(Obj)} | Binds];
-                Op -> exit({nomatch
-                            , {operation_not_supported
-                               , list_to_binary(["#",Op])}})
+                Op -> exit({operation_not_supported
+                            , list_to_binary(["#",Op])})
             end
     end;
+jpp_walk(_Depth, {'::',_,_Args} = Pt, Binds) ->
+    ?TRACE,
+    exit({unimplemented, '::'});
 jpp_walk(_Depth, {'fun',_,_Args} = Pt, Binds) ->
     ?TRACE,
-    exit({nomatch, {unimplemented, 'fun'}});
+    exit({unimplemented, 'fun'});
 jpp_walk(_Depth, {'[]',L,Idxs} = Pt, Binds) ->
     ?TRACE,
     case proplists:get_value(L,Binds) of
@@ -910,7 +914,7 @@ jpp_walk(_Depth, {'[]',L,Idxs} = Pt, Binds) ->
 jpp_walk(_Depth, {'{}',L,Props} = Pt, Binds) ->
     ?TRACE,
     case proplists:get_value(L, Binds) of
-        undefined -> exit({nomatch, {unbound, L}});
+        undefined -> exit({unbound, L});
         Obj ->
             % Props list is processed in reversed order
             % to append to head of building list
@@ -1125,12 +1129,15 @@ clean_null_values(DataObject) ->
 %% Testing available when maps are enabled, testing code not duplicated
 %% Latest code coverage check: 100%
 
--define(TEST_JSON, <<"{\"surname\":\"Doe\",\"name\":\"John\",\"foo\":\"bar\",\"earthling\":true,\"age\":981,\"empty\":null}">>).
--define(TEST_PROP, [{<<"surname">>,<<"Doe">>}, {<<"name">>,<<"John">>}, {<<"foo">>,<<"bar">>}, {<<"earthling">>,true}, {<<"age">>,981},{<<"empty">>,null}]).
+-define(TEST_JSON, <<"{\"surname\":\"Doe\",\"name\":\"John\",\"foo\":\"bar\",\"earthling\":true,"
+                     "\"age\":981,\"empty\":null}">>).
+-define(TEST_PROP, [{<<"surname">>,<<"Doe">>}, {<<"name">>,<<"John">>}, {<<"foo">>,<<"bar">>}
+                    , {<<"earthling">>,true}, {<<"age">>,981},{<<"empty">>,null}]).
 -define(TEST_JSON_LIST, <<"[{\"surname\":\"Doe\"},{\"surname\":\"Jane\"},{\"surname\":\"DoeDoe\"}]">>).
 
 -ifdef(MAPS).
--define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true, <<"foo">> => <<"bar">>, <<"name">> => <<"John">>, <<"surname">> => <<"Doe">>,<<"empty">> => null}).
+-define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true, <<"foo">> => <<"bar">>
+                   , <<"name">> => <<"John">>, <<"surname">> => <<"Doe">>,<<"empty">> => null}).
 
 %% JSON is tested for each function as well even if, basically, it only tests the 
 %% JSON to map/proplist conversion each time. This could at least be used as regression
@@ -1428,9 +1435,13 @@ json_lib_throw_test_() ->
 
 -ifdef(DECODE_TO_MAPS).
 %% Some 'adaptation' because JSON conversion changes order between formats
--define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"changes\":4,\"removed\":{\"age\":981},\"replaced\":{\"surname\":\"Doe\"},\"updated\":{\"surname\":\"DoeDoe\"}}">>).
+-define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"changes\":4,\"removed\":"
+                           "{\"age\":981},\"replaced\":{\"surname\":\"Doe\"},\"updated\":"
+                           "{\"surname\":\"DoeDoe\"}}">>).
 -else.
--define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"removed\":{\"age\":981},\"updated\":{\"surname\":\"DoeDoe\"},\"replaced\":{\"surname\":\"Doe\"},\"changes\":4}">>).
+-define(TEST_JSONOUTDIFF,<<"{\"added\":{\"ega\":981,\"newval\":\"one\"},\"removed\":{\"age\":981},"
+                           "\"updated\":{\"surname\":\"DoeDoe\"},\"replaced\":{\"surname\":\"Doe\"},"
+                           "\"changes\":4}">>).
 -endif.
 
 diff_test_() ->
@@ -1868,7 +1879,7 @@ eval_test_() ->
         || {P,O} <-
            [ % basic hirarchical walk
              {"root{}",             <<"{}">>}
-           , {"root[]",             nomatch}
+           , {"root[]",             path_not_found}
            , {"root#keys",          <<"[\"a1\",\"a2\",\"a3\",\"a4\","
                                       "\"a5\",\"a6\"]">>}
            , {"root{a6}#keys",      <<"[\"a6\"]">>}
@@ -1878,7 +1889,7 @@ eval_test_() ->
                                       ",[{\"b1\":1},{\"b1\":2},"
                                       "{\"b1\":3}]]">>}
            , {"root:a6[]",          <<"[]">>}
-           , {"root:a6{}",          nomatch}
+           , {"root:a6{}",          path_not_found}
            , {"root:a1",            <<"123">>}
            , {"root:a2",            <<"\"abcd\"">>}
            , {"root:a3",            <<"[1,2,3]">>}
@@ -1899,13 +1910,15 @@ eval_test_() ->
            , {"root{a1,a4}",        <<"{\"a1\":123,\"a4\":"
                                       "{\"b1\":456}}">>}
            , {"root{a4}:a4:b1",     <<"456">>}
-           , {"root{a4}:b1",        nomatch}
+           , {"root{a4}:b1",        property_not_found}
            , {"root{a5}:a5:b1",     <<"\"string\"">>}
-           , {"root{a4,a5}:b1",     nomatch}
+           , {"root{a4,a5}:b1",     property_not_found}
            ]
        ]
     }.
 
+err_to_atom({nomatch, {Error, _}}) -> Error;
+err_to_atom({nomatch, {Error, _, _}}) -> Error;
 err_to_atom({error, {Error, _}}) -> Error;
 err_to_atom(Else) -> Else.
 

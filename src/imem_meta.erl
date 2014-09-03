@@ -2261,17 +2261,21 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
         false ->   
             Match = imem_json:eval(PT,Binds),
             case Match of
-                MV when is_binary(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];                 
-                ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav];                 
-                {error, {nomatch, {path_not_found, _}}} ->          [];
-                {error, {nomatch, {property_not_found, _, _}}} ->   [];
-                {error, {nomatch, {index_out_of_bound, _, _}}} ->   [];
-                {error, {nomatch, {operation_not_supported, E1}}} ->    ?ClientError({"Index error", {operation_not_supported, E1}});
-                {error, {nomatch, {unimplimented, E2}}} ->          ?UnimplementedException({"Index error", {unimplimented, E2}}) ;
-                {error, {nomatch, {unbound, E3}}} ->          ?SystemException({"Index error", {unbound, E3}});
-                {error, {malformed, E4}}->            ?SystemException({"Index error", {malformed, E4}})
+                MV when is_binary(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];
+                ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav];
+                {nomatch, {path_not_found, _}} ->          [];
+                {nomatch, {property_not_found, _, _}} ->   [];
+                {nomatch, {index_out_of_bound, _, _}} ->   [];
+                {error, {operation_not_supported, E1}} ->
+                    ?ClientError({"Index error", {operation_not_supported, E1}});
+                {error, {unimplimented, E2}} ->
+                    ?UnimplementedException({"Index error", {unimplimented, E2}});
+                {error, {unbound, E3}} ->
+                    ?SystemException({"Index error", {unbound, E3}});
+                {error, {malformed, E4}} ->
+                    ?SystemException({"Index error", {malformed, E4}})
             end;
-        _ ->    
+        _ ->
             []  %% one or more bind variables are not values. Don't try to evaluate the json path.
     end,
     %% ?Info("index_items KVPs ~p",[KVPs]),
