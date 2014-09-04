@@ -135,52 +135,29 @@ test_with_or_without_sec(IsSec) ->
 
         SKey=?imem_test_admin_login(),
 
-        Sql0 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [/] end.);",
-        ?assertException(throw, {ClEr,{"Bad default fun",_}}, imem_sql:exec(SKey, Sql0, 0, imem, IsSec)),
-
-        Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [] end.);",
-        Expected = 
-                [   {ddColumn,col1,binstr,10,undefined,?nav,[]},
-                    {ddColumn,col2,integer,undefined,undefined,12,[]},
-                    {ddColumn,col3,list,undefined,undefined,[],[]}
-                ],
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
-        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
+        % Creating and loading some data into index_test table
+        catch imem_sql:exec(SKey, "drop table index_test;", 0, imem, IsSec),
+        ?assertEqual(ok
+                     , imem_sql:exec(SKey
+                                     , "create table index_test (col1 integer, col2 binstr not null);"
+                                     , 0, imem, IsSec)),
+        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         ?Info("Meta table~n~p~n", [Meta]),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
-        ?assertEqual(Expected,element(3,Meta)),    
+        ?assertEqual(0, if_call_mfa(IsSec, table_size, [SKey, index_test])),
+        TableData =
+        [
+         <<"">>
+         , <<"">>
+         , <<"">>
+         , <<"">>
+         , <<"">>
+        ],
+        [if_call_mfa(IsSec, write,[SKey, index_test, {index_test, Id, Data}])
+         || {Id, Data} <- lists:zip(lists:seq(1,length(TableData)), TableData)],
 
-        ?assertEqual(ok, imem_sql:exec(SKey, 
-            "create table truncate_test (col1 integer, col2 string);", 0, imem, IsSec)),
-        if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,1,""}]),
-        if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,2,"abc"}]),
-        if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,3,"123"}]),
-        if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,4,undefined}]),
-        if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,5,[]}]),
-        ?assertEqual(5,  if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
-        ?assertEqual(ok, imem_sql:exec(SKey, 
-            "truncate table truncate_test;", 0, imem, IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, imem, IsSec)),
+        ?assertEqual(length(TableData), if_call_mfa(IsSec, table_size, [SKey, index_test])),
 
-        Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
-        ?Info("Sql30: ~p~n", [Sql30]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
-        TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
-        ?Info("TableDef: ~p~n", [TableDef]),
-
-
-
-
-        Sql97 = "drop table key_test;",
-        ?Info("Sql97: ~p~n", [Sql97]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, imem, IsSec)),
-
-
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
-        ?assertException(throw, {ClEr,{"Table does not exist",def}},  if_call_mfa(IsSec, table_size, [SKey, def])),
-        ?assertException(throw, {ClEr,{"Table does not exist",def}},  imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec))
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table index_test;", 0, imem, IsSec))
     catch
         Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
