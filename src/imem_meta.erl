@@ -1666,23 +1666,26 @@ json_pos_list([_|Rest],Acc) ->  json_pos_list(Rest,Acc).
 compile_path_list(PL,FieldMap) ->
     [ compile_json_path(JsonPath,FieldMap) || JsonPath <- PL].     
 
-compile_json_path(JsonPath,FieldMap) ->
-    case jpparse:parsetree(JsonPath) of
-        {ok,ParseTreeBinary} when is_binary(ParseTreeBinary) ->
-            %% this is a simple record field name, not a parse tree, return index position
-            case lists:keyfind(ParseTreeBinary,1,FieldMap) of
-                false ->    ?ClientError({"Unknown column name",ParseTreeBinary});
-                {_,Pos} ->  Pos             %% represent field as record index (integer)
-            end;
-        {ok,ParseTreeTuple} when is_tuple(ParseTreeTuple) ->
-            %% this is a json path, return {ParseTreeTuple,UsedFieldMap}
-            {ok, FieldList} = jpparse:roots(ParseTreeTuple),
-            Pred = fun({Name,_Pos}) -> lists:member(Name,FieldList) end,
-            case lists:filter(Pred, FieldMap) of
-                [] ->       ?ClientError({"Unknown JSON document name in ",JsonPath});
-                FM ->       {ParseTreeTuple,FM}
-            end;     
+compile_json_path(JsonPath,FieldMap) when is_binary(JsonPath) ->
+    JPath = case jpparse:parsetree(JsonPath) of
+        {ok,ParseTreeBinary} when is_binary(ParseTreeBinary) -> {jp, ParseTreeBinary};
+        {ok,ParseTreeTuple} when is_tuple(ParseTreeTuple) -> {jp, ParseTreeTuple, JsonPath};
         [{parse_error,Reason}] ->   ?ClientError({"Cannot parse JSON path",{JsonPath,Reason}})
+    end,
+    compile_json_path(JPath, FieldMap);
+compile_json_path({jp, ParseTreeBinary}, FieldMap) when is_binary(ParseTreeBinary) ->
+    %% this is a simple record field name, not a parse tree, return index position
+    case lists:keyfind(ParseTreeBinary,1,FieldMap) of
+        false ->    ?ClientError({"Unknown column name",ParseTreeBinary});
+        {_,Pos} ->  Pos             %% represent field as record index (integer)
+    end;
+compile_json_path({jp, ParseTreeTuple, JsonPath}, FieldMap) when is_tuple(ParseTreeTuple) ->
+    %% this is a json path, return {ParseTreeTuple,UsedFieldMap}
+    {ok, FieldList} = jpparse:roots(ParseTreeTuple),
+    Pred = fun({Name,_Pos}) -> lists:member(Name,FieldList) end,
+    case lists:filter(Pred, FieldMap) of
+        [] ->       ?ClientError({"Unknown JSON document name in ", JsonPath});
+        FM ->       {ParseTreeTuple,FM}
     end.
 
 trigger_with_indexing(TFun,MF,Var) ->

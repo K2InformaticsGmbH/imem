@@ -89,6 +89,11 @@ exec(SKey, 'drop table', ParseTree, Stmt, Opts, IsSec) ->
 exec(SKey, 'truncate table', ParseTree, Stmt, Opts, IsSec) ->
     imem_sql_table:exec(SKey, ParseTree, Stmt, Opts, IsSec);
 
+exec(SKey, 'create index', ParseTree, Stmt, Opts, IsSec) ->
+    imem_sql_index:exec(SKey, ParseTree, Stmt, Opts, IsSec);
+exec(SKey, 'drop index', ParseTree, Stmt, Opts, IsSec) ->
+    imem_sql_index:exec(SKey, ParseTree, Stmt, Opts, IsSec);
+
 exec(SKey, Command, ParseTree, _Stmt, _Opts, _IsSec) ->
     ?UnimplementedException({"SQL command unimplemented", {SKey, Command, ParseTree}}).
 
