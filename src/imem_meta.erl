@@ -156,6 +156,7 @@
         , drop_table/1
         , drop_trigger/1
         , drop_index/1
+        , drop_index/2
         , purge_table/1
         , purge_table/2
         , truncate_table/1
@@ -914,6 +915,52 @@ fill_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) -
             IdxPlan = compiled_index_plan(IndexDefinition,ColumnInfos),
             FoldFun = fun(Row,_) -> imem_meta:update_index({},Row,Table,system,IdxPlan),ok end,
             foldl(FoldFun, ok, Table)
+    end.
+
+drop_index({Schema,Table}, Index) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> drop_index(Table, Index);
+        _ ->        ?UnimplementedException({"Drop Index in foreign schema",{Schema,Table}})
+    end;
+drop_index(Table, Index) when is_atom(Table) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] ->
+            case lists:keyfind(index, 1, D#ddTable.opts) of
+                {index, Indices} ->
+                    {IndexToDrop, RestIndices} =
+                    lists:foldl(
+                      fun(I, {Drop, Rest}) ->
+                              case Index of
+                                  Index
+                                    when is_binary(Index)
+                                         andalso I#ddIdxDef.name =:= Index ->
+                                      {I, Rest};
+                                  Index
+                                    when is_integer(Index)
+                                         andalso I#ddIdxDef.id =:= Index ->
+                                      {I, Rest};
+                                  _ ->
+                                      {Drop, [I|Rest]}
+                              end
+                      end
+                      , {undefined, []}
+                      , lists:reverse(Indices)),
+                    case IndexToDrop of
+                        undefined ->
+                            ?ClientError({"Index does not exist for",Table,Index});
+                        _ ->
+                            if RestIndices =:= [] ->
+                                   drop_index(Table);
+                               true ->
+                                   create_or_replace_index(Table, RestIndices)
+                            end
+                    end;
+                false ->
+                    drop_index(Table)
+            end;
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
     end.
 
 drop_index({Schema,Table}) ->
@@ -2446,11 +2493,20 @@ meta_operations(_) ->
         ?assertException(throw,{'ClientError',{"Unique index violation",{idx_meta_table_1,2,<<"table">>,"meta"}}}, insert(meta_table_1, {meta_table_1,"meta2",<<"table"/utf8>>,"1"})),
         ?assertEqual(2, length(read(meta_table_1))),
         ?assertEqual(2, length(read(idx_meta_table_1))),
-        Idx3Def = #ddIdxDef{id=1,name= <<"json index on b1:b">>,type=ivk,pl=[<<"b1:b">>,<<"b1:c:a">>]},
+        Idx3Def = #ddIdxDef{id=3,name= <<"json index on b1:b">>,type=ivk,pl=[<<"b1:b">>,<<"b1:c:a">>]},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx3Def])),
         ?assertEqual(2, length(read(meta_table_1))),
         ?assertEqual(0, length(read(idx_meta_table_1))),
-        JSON1 =  <<"{\"a\":\"Value-a\",\"b\":\"Value-b\",\"c\":{\"a\":\"Value-ca\",\"b\":\"Value-cb\"}}">>,
+        JSON1 = <<
+            "{"
+                "\"a\":\"Value-a\","
+                "\"b\":\"Value-b\","
+                "\"c\":{"
+                    "\"a\":\"Value-ca\","
+                    "\"b\":\"Value-cb\""
+                "}"
+            "}"
+                >>,
         % {
         %     "a": "Value-a",
         %     "b": "Value-b",
@@ -2469,9 +2525,26 @@ meta_operations(_) ->
                 ],
         ?assertEqual(PROP1,imem_json:decode(JSON1)),        
         ?assertEqual({meta_table_1,"json1",JSON1,"1"}, insert(meta_table_1, {meta_table_1,"json1",JSON1,"1"})),
-        ?assertEqual([#ddIndex{stu={1, <<"value-b">>,"json1"}}
-                     ,#ddIndex{stu={1, <<"value-ca">>,"json1"}}
+        ?assertEqual([#ddIndex{stu={3, <<"value-b">>,"json1"}}
+                     ,#ddIndex{stu={3, <<"value-ca">>,"json1"}}
                      ], read(idx_meta_table_1)),
+
+        % Drop individual indices
+        ?assertEqual(ok, drop_index(meta_table_1)),
+        ?assertEqual(ok, create_index(meta_table_1, [Idx1Def, Idx2Def, Idx3Def])),
+        ?assertEqual(ok, drop_index(meta_table_1, <<"json index on b1:b">>)),
+        ?assertException(throw, {'ClientError', {"Index does not exist for"
+                                                 , meta_table_1
+                                                 , <<"non existent index">>}}
+                         , drop_index(meta_table_1, <<"non existent index">>)),
+        ?assertException(throw, {'ClientError', {"Index does not exist for"
+                                                 , meta_table_1
+                                                 , 7}}
+                         , drop_index(meta_table_1, 7)),
+        ?assertEqual(ok, drop_index(meta_table_1, 2)),
+        ?assertEqual(ok, drop_index(meta_table_1, 1)),
+        ?assertEqual({'ClientError',{"Table does not exist",idx_meta_table_1}}
+                         , drop_index(meta_table_1)),
 
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
