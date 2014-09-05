@@ -53,6 +53,8 @@
         , create_sys_conf/2
         , create_or_replace_index/3
 		, drop_table/2
+        , drop_index/2
+        , drop_index/3
         , purge_table/2
         , purge_table/3
         , truncate_table/2
@@ -428,6 +430,20 @@ drop_table(SKey, Table) ->
         false -> drop_user_table(SKey, Table, AccountId)
     end.
 
+drop_index(SKey, Table) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    case if_is_system_table(SKey, Table) of
+        true  -> drop_system_table_index(SKey, Table, AccountId);
+        false -> drop_user_table_index(SKey, Table, AccountId)
+    end.
+
+drop_index(SKey, Table, Index) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    case if_is_system_table(SKey, Table) of
+        true  -> drop_system_table_index(SKey, Table, Index, AccountId);
+        false -> drop_user_table_index(SKey, Table, Index, AccountId)
+    end.
+
 purge_table(SKey, Table) ->
     purge_table(SKey, Table, []).
 
@@ -450,6 +466,37 @@ drop_user_table(SKey, Table, _AccountId) ->
                     case have_table_ownership(SKey, Table) of
                         true ->     imem_meta:drop_table(Table);
                         false ->    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
+                    end
+            end
+    end.
+
+drop_user_table_index(SKey, Table, Index, _AccountId) ->
+    case imem_seco:have_permission(SKey, manage_user_tables) of
+        true ->             
+            imem_meta:drop_index(Table, Index);
+        false ->
+            case have_table_permission(SKey, Table, drop) of
+                true ->
+                    imem_meta:drop_index(Table, Index);
+                false ->
+                    case have_table_ownership(SKey, Table) of
+                        true ->     imem_meta:drop_index(Table, Index);
+                        false ->    ?SecurityException({"Drop index unauthorized", {Table,Index,SKey}})
+                    end
+            end
+    end.
+drop_user_table_index(SKey, Table, _AccountId) ->
+    case imem_seco:have_permission(SKey, manage_user_tables) of
+        true ->             
+            imem_meta:drop_index(Table);
+        false ->
+            case have_table_permission(SKey, Table, drop) of
+                true ->
+                    imem_meta:drop_index(Table);
+                false ->
+                    case have_table_ownership(SKey, Table) of
+                        true ->     imem_meta:drop_index(Table);
+                        false ->    ?SecurityException({"Drop index unauthorized", {Table,SKey}})
                     end
             end
     end.
@@ -477,6 +524,21 @@ drop_system_table(SKey, Table, _AccountId) ->
         false ->
             ?SecurityException({"Drop system table unauthorized", {Table,SKey}})
     end. 
+
+drop_system_table_index(SKey, Table, Index, _AccountId) ->
+    case imem_seco:have_permission(SKey, manage_system_tables) of
+        true ->
+            imem_meta:drop_index(Table, Index);
+        false ->
+            ?SecurityException({"Drop system table index unauthorized", {Table,Index,SKey}})
+    end.
+drop_system_table_index(SKey, Table, _AccountId) ->
+    case imem_seco:have_permission(SKey, manage_system_tables) of
+        true ->
+            imem_meta:drop_index(Table);
+        false ->
+            ?SecurityException({"Drop system table index unauthorized", {Table,SKey}})
+    end.
 
 purge_system_table(SKey, Table, Opts, _AccountId) ->
     case imem_seco:have_permission(SKey, manage_system_tables) of

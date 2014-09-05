@@ -853,7 +853,7 @@ eval(Tree,[{Name,Object}|_] = Binds)
     case eval(Tree
                , [{N, ?FROM_JSON(O)}
                   || {N,O} <- Binds]) of
-        {error, {nomatch, Reason}} -> {nomatch, Reason};
+        {nomatch, Reason} -> {nomatch, Reason};
         {error, Reason} -> {error, Reason};
         MatchedObject -> ?TO_JSON(MatchedObject)
     end;
@@ -900,7 +900,7 @@ jpp_walk(_Depth, {'[]',L,Idxs} = Pt, Binds) ->
         List ->
             % Idxs list is processed in reversed order
             % to append to head of building list
-            NewBinds = jpp_walk_list(List, lists:reverse(Idxs)
+            NewBinds = jpp_walk_list(_Depth, List, lists:reverse(Idxs)
                                      , Pt, Binds),
             % TODO: To be rewritten for maps
             case {NewBinds, Idxs, List} of
@@ -919,7 +919,7 @@ jpp_walk(_Depth, {'{}',L,Props} = Pt, Binds) ->
         Obj ->
             % Props list is processed in reversed order
             % to append to head of building list
-            NewBinds = jpp_walk_sub_obj(Obj, lists:reverse(Props)
+            NewBinds = jpp_walk_sub_obj(_Depth, Obj, lists:reverse(Props)
                                         , Pt, Binds),
             % TODO: To be rewritten for maps
             case {NewBinds, Props, Obj} of
@@ -950,7 +950,7 @@ jpp_walk(_Depth, Pt, Binds)
     Binds.
 
 % TODO: To be rewritten for maps
-jpp_walk_list(List, Idxs, Pt, Binds) ->
+jpp_walk_list(_Depth, List, Idxs, Pt, Binds) ->
     ?TRACE,
     lists:foldl(
       fun
@@ -992,7 +992,7 @@ jpp_walk_list(List, Idxs, Pt, Binds) ->
       , Idxs).
 
 % TODO: To be rewritten for maps
-jpp_walk_sub_obj(Obj, Props, Pt, Binds) ->
+jpp_walk_sub_obj(_Depth, Obj, Props, Pt, Binds) ->
     ?TRACE,
     lists:foldl(
       fun
@@ -1876,7 +1876,8 @@ eval_test_() ->
     ">>,
     Bind = [{<<"root">>, Object}],
     {inparallel
-     , [{P,?_assertEqual(O,err_to_atom(eval(P,Bind)))}
+     , [{P,?_assertEqual(
+              O, err_to_atom(eval(P,Bind)))}
         || {P,O} <-
            [ % basic hirarchical walk
              {"root{}",             <<"{}">>}
@@ -1918,10 +1919,10 @@ eval_test_() ->
        ]
     }.
 
-err_to_atom({nomatch, {Error, _}}) -> Error;
-err_to_atom({nomatch, {Error, _, _}}) -> Error;
-err_to_atom({error, {Error, _}}) -> Error;
-err_to_atom(Else) -> Else.
+err_to_atom({nomatch, {Error, _}})      -> Error;
+err_to_atom({nomatch, {Error, _, _}})   -> Error;
+err_to_atom({error, {Error, _}})        -> Error;
+err_to_atom(Else)                       -> Else.
 
 % Write -ve tests seperately
 

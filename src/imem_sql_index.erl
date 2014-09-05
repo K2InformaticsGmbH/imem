@@ -5,25 +5,42 @@
 -export([ exec/5
         ]).
 
-exec(SKey, {'drop index', {tables, [TableName|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Opts, IsSec) ->
-    % ?LogDebug("Drop Table ParseTree~n~p~n", [_ParseTree]),
-    QName = imem_meta:qualified_table_name(TableName), 
-    % ?LogDebug("Drop Table QName~n~p~n", [QName]),
-    if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
-    exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Opts, IsSec);
-
-exec(SKey, {'create index', IndexType, IndexName, TableName
-            , IndexDefn, NormWithFun, FilterWithFun} = _ParseTree
-     , _Stmt, _Opts, IsSec) ->
-    % ?Info("Parse Tree ~p~n", [_ParseTree]),
-    {IndexSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
-    {TableSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
+exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec) ->
+    % ?LogDebug("Drop Index Parse Tree~n~p~n", [_ParseTree]),
+    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
+    {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
     if not (IndexSchema =:= TableSchema) ->
            ?ClientError({"Index and table are in different schema"
                          , {IndexSchema, TableSchema}});
        true -> ok
     end,
-    Table = {imem_meta:schema(), list_to_existing_atom(binary_to_list(Tbl))},
+    Table = if TableSchema =:= undefined ->
+                   {imem_meta:schema()
+                    , list_to_existing_atom(binary_to_list(Tbl))};
+               true ->
+                   {list_to_existing_atom(binary_to_list(TableSchema))
+                    , list_to_existing_atom(binary_to_list(Tbl))}
+            end,
+    if_call_mfa(IsSec, 'drop_index', [SKey,Table,Index]);
+
+exec(SKey, {'create index', IndexType, IndexName, TableName
+            , IndexDefn, NormWithFun, FilterWithFun} = _ParseTree
+     , _Stmt, _Opts, IsSec) ->
+    % ?Info("Create Index Parse Tree~n~p~n", [_ParseTree]),
+    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
+    {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
+    if not (IndexSchema =:= TableSchema) ->
+           ?ClientError({"Index and table are in different schema"
+                         , {IndexSchema, TableSchema}});
+       true -> ok
+    end,
+    Table = if TableSchema =:= undefined ->
+                   {imem_meta:schema()
+                    , list_to_existing_atom(binary_to_list(Tbl))};
+               true ->
+                   {list_to_existing_atom(binary_to_list(TableSchema))
+                    , list_to_existing_atom(binary_to_list(Tbl))}
+            end,
     IndexDefs = case imem_meta:read(ddTable, Table) of
         [#ddTable{}=D] -> 
             case lists:keysearch(index, 1, D#ddTable.opts) of
@@ -170,7 +187,8 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2 on index_test (col2);"
+                         , "create index i_col2 on index_test (col2)"
+                           " norm_with fun(X) -> imem_index:vnf_lcase_ascii_ne(X) end.;"
                          , 0, imem, IsSec)),
         [Meta2] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         {value, {index, [DdIdx1, DdIdx]}} = lists:keysearch(index, 1, Meta2#ddTable.opts),
@@ -193,7 +211,8 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2_surname on index_test (col2:SURNAME);"
+                         , "create index i_col2_surname on index_test (col2:SURNAME)"
+                           " filter_with fun(X) -> imem_index:iff_true(X) end.;"
                          , 0, imem, IsSec)),
         [Meta4] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         {value, {index, [DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
@@ -217,7 +236,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2_name_age on index_test (col2:NAME|col2:AGE);"
+                         , "create index i_col2_name_age on index_test (col2:NAME|col2:AGE)"
+                           " norm_with fun(X) -> imem_index:vnf_lcase_ascii_ne(X) end."
+                           " filter_with fun(X) -> imem_index:iff_true(X) end."
+                           ";"
                          , 0, imem, IsSec)),
         [Meta6] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         {value, {index, [DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
@@ -263,6 +285,114 @@ test_with_or_without_sec(IsSec) ->
                              , "create index i_col2_age on index_test (col2:AGE);"
                              , 0, imem, IsSec)),
 
+        %
+        % Dropping indexes in random order
+        %
+
+        % Drop index i_col2_name_age
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_col2_name_age from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta9] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual({value, {index, [DdIdx7, DdIdx6, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}}
+                     , lists:keysearch(index, 1, Meta9#ddTable.opts)),
+
+        % Dropping non-exixtant index (negative test)
+        ?assertException(throw
+                         , {'ClientError'
+                            , {"Index does not exist for"
+                               , index_test, <<"i_not_exists">>}
+                           }
+                         , imem_sql:exec(
+                             SKey
+                             , "drop index i_not_exists from index_test;"
+                             , 0, imem, IsSec)),
+
+        % Drop index i_col1
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_col1 from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta10] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual({value, {index, [DdIdx7, DdIdx6, DdIdx4, DdIdx3, DdIdx2, DdIdx1]}}
+                     , lists:keysearch(index, 1, Meta10#ddTable.opts)),
+
+        % Drop index i_col2_surname
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_col2_surname from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta11] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual({value, {index, [DdIdx7, DdIdx6, DdIdx4, DdIdx2, DdIdx1]}}
+                     , lists:keysearch(index, 1, Meta11#ddTable.opts)),
+
+        print_indices(IsSec, SKey, imem, index_test),
+
+        % Drop index i_col2_surname_col1
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_col2_surname_col1 from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta12] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual({value, {index, [DdIdx7, DdIdx4, DdIdx2, DdIdx1]}}
+                     , lists:keysearch(index, 1, Meta12#ddTable.opts)),
+
+        % Drop index i_col2_name
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_col2_name from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta13] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual({value, {index, [DdIdx7, DdIdx4, DdIdx1]}}
+                     , lists:keysearch(index, 1, Meta13#ddTable.opts)),
+
+        % Drop index i_all
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_all from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta14] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual({value, {index, [DdIdx4, DdIdx1]}}
+                     , lists:keysearch(index, 1, Meta14#ddTable.opts)),
+
+        % Dropping previously dropped i_col2_name index (negative test)
+        ?assertException(throw
+                         , {'ClientError',
+                            {"Index does not exist for"
+                             , index_test, <<"i_col2_name">>}
+                           }
+                         , imem_sql:exec(
+                             SKey
+                             , "drop index i_col2_name from index_test;"
+                             , 0, imem, IsSec)),
+
+        print_indices(IsSec, SKey, imem, index_test),
+
+        % Drop index i_col2_age
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_col2_age from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta15] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual({value, {index, [DdIdx1]}}
+                     , lists:keysearch(index, 1, Meta15#ddTable.opts)),
+
+        % Drop index i_col2 (last index)
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "drop index i_col2 from index_test;"
+                         , 0, imem, IsSec)),
+        [Meta16] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        ?assertEqual(false, lists:keysearch(index, 1, Meta16#ddTable.opts)),
         ok
     catch
         Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),

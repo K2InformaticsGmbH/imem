@@ -1670,7 +1670,7 @@ compile_path_list([JsonPath|PL],FieldMap) ->
 compile_json_path(JsonPath,FieldMap) when is_binary(JsonPath) ->
     JPath = case jpparse:parsetree(JsonPath) of
         {ok,ParseTreeBinary} when is_binary(ParseTreeBinary) -> {jp, ParseTreeBinary};
-        {ok,ParseTreeTuple} when is_tuple(ParseTreeTuple) -> {jp, ParseTreeTuple, JsonPath};
+        {ok,ParseTreeTuple} when is_tuple(ParseTreeTuple) -> {jp, ParseTreeTuple};
         [{parse_error,Reason}] ->   ?ClientError({"Cannot parse JSON path",{JsonPath,Reason}})
     end,
     compile_json_path(JPath, FieldMap);
