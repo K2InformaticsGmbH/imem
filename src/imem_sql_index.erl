@@ -28,17 +28,19 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
         [#ddTable{}=D] -> 
             case lists:keysearch(index, 1, D#ddTable.opts) of
                 {value,{index, ExistingIndexDefs}} -> ExistingIndexDefs;
-                false -> 0
+                false -> []
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end,
-    case length([IDf||IDf <- IndexDefs, IDf#ddIdxDef.name =:= Index]) of
+    case length([IDf || IDf <- IndexDefs, IDf#ddIdxDef.name =:= Index]) of
         MatchedIndexes when MatchedIndexes > 0 ->
             ?ClientError({"Index already exists in table", IndexName, TableName});
         _ -> ok
     end,
-    MaxIdx = lists:max([IdxDef#ddIdxDef.id || IdxDef <- IndexDefs]),
+    MaxIdx = if length(IndexDefs) =:= 0 -> 0;
+                true -> lists:max([IdxDef#ddIdxDef.id || IdxDef <- IndexDefs])
+             end,
     NewIdx = #ddIdxDef{id = MaxIdx+1
                        , name = Index
                        , pl = IndexDefn},
@@ -60,15 +62,15 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
 create_index(SKey, IndexType, TableName, [#ddIdxDef{}|_] = IndexDefinitions, IsSec)
   when IndexType =:= {}; IndexType =:= bitmap;
        IndexType =:= keylist; IndexType =:= hashmap ->
-    io:format(user,
-    %?LogDebug(
-              "Create Index ~n"
-              "  Type ~p ~n"
-              "  Tabl ~p ~n"
-              "  Defn ~p ~n"
-              , [IndexType
-                 , TableName
-                 , IndexDefinitions]),
+    %io:format(user,
+    %%?LogDebug(
+    %          "Create Index ~n"
+    %          "  Type ~p ~n"
+    %          "  Tabl ~p ~n"
+    %          "  Defn ~p ~n"
+    %          , [IndexType
+    %             , TableName
+    %             , IndexDefinitions]),
     if_call_mfa(IsSec, create_or_replace_index
                 , [SKey, TableName, IndexDefinitions]);
 create_index(_SKey, IndexType, TableName, IndexDefinitions, _IsSec) ->
@@ -100,9 +102,8 @@ setup() ->
     ?imem_test_setup().
 
 teardown(_) -> 
-    catch imem_meta:drop_table(key_test),
-    catch imem_meta:drop_table(truncate_test),
-    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(idx_index_test),
+    catch imem_meta:drop_table(index_test),
     ?imem_test_teardown().
 
 db_test_() ->
@@ -124,8 +125,6 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
         ?Info("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
         ?Info("schema ~p~n", [imem_meta:schema()]),
@@ -136,32 +135,155 @@ test_with_or_without_sec(IsSec) ->
         SKey=?imem_test_admin_login(),
 
         % Creating and loading some data into index_test table
-        catch imem_sql:exec(SKey, "drop table index_test;", 0, imem, IsSec),
+        catch imem_meta:drop_table(idx_index_test),
+        catch imem_meta:drop_table(index_test),
         ?assertEqual(ok
-                     , imem_sql:exec(SKey
-                                     , "create table index_test (col1 integer, col2 binstr not null);"
-                                     , 0, imem, IsSec)),
+                     , imem_sql:exec(
+                         SKey
+                         , "create table index_test (col1 integer, col2 binstr not null);"
+                         , 0, imem, IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
-        ?Info("Meta table~n~p~n", [Meta]),
         ?assertEqual(0, if_call_mfa(IsSec, table_size, [SKey, index_test])),
         TableData =
-        [
-         <<"">>
-         , <<"">>
-         , <<"">>
-         , <<"">>
-         , <<"">>
+        [ <<"{\"NAME\":\"john0\", \"SURNAME\":\"doe0\", \"AGE\":24}">>
+        , <<"{\"NAME\":\"john1\", \"SURNAME\":\"doe1\", \"AGE\":25}">>
+        , <<"{\"NAME\":\"john2\", \"SURNAME\":\"doe2\", \"AGE\":26}">>
+        , <<"{\"NAME\":\"john3\", \"SURNAME\":\"doe3\", \"AGE\":27}">>
+        , <<"{\"NAME\":\"john4\", \"SURNAME\":\"doe4\", \"AGE\":28}">>
         ],
         [if_call_mfa(IsSec, write,[SKey, index_test, {index_test, Id, Data}])
          || {Id, Data} <- lists:zip(lists:seq(1,length(TableData)), TableData)],
-
         ?assertEqual(length(TableData), if_call_mfa(IsSec, table_size, [SKey, index_test])),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table index_test;", 0, imem, IsSec))
+        % Creating index on col1
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_col1 on index_test (col1);"
+                         , 0, imem, IsSec)),
+        [Meta1] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx]}} = lists:keysearch(index, 1, Meta1#ddTable.opts),
+        ?assertEqual(1, DdIdx#ddIdxDef.id),
+        ?assertEqual(<<"i_col1">>, DdIdx#ddIdxDef.name),
+
+        % Creating index on col2
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_col2 on index_test (col2);"
+                         , 0, imem, IsSec)),
+        [Meta2] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx1, DdIdx]}} = lists:keysearch(index, 1, Meta2#ddTable.opts),
+        ?assertEqual(2, DdIdx1#ddIdxDef.id),
+        ?assertEqual(<<"i_col2">>, DdIdx1#ddIdxDef.name),
+
+        % Creating index on col2:NAME
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_col2_name on index_test (col2:NAME);"
+                         , 0, imem, IsSec)),
+        [Meta3] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx2, DdIdx1, DdIdx]}} =
+            lists:keysearch(index, 1, Meta3#ddTable.opts),
+        ?assertEqual(3, DdIdx2#ddIdxDef.id),
+        ?assertEqual(<<"i_col2_name">>, DdIdx2#ddIdxDef.name),
+
+        % Creating index on col2:SURNAME
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_col2_surname on index_test (col2:SURNAME);"
+                         , 0, imem, IsSec)),
+        [Meta4] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
+            lists:keysearch(index, 1, Meta4#ddTable.opts),
+        ?assertEqual(4, DdIdx3#ddIdxDef.id),
+        ?assertEqual(<<"i_col2_surname">>, DdIdx3#ddIdxDef.name),
+
+        % Creating index on col2:AGE
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_col2_age on index_test (col2:AGE);"
+                         , 0, imem, IsSec)),
+        [Meta5] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
+            lists:keysearch(index, 1, Meta5#ddTable.opts),
+        ?assertEqual(5, DdIdx4#ddIdxDef.id),
+        ?assertEqual(<<"i_col2_age">>, DdIdx4#ddIdxDef.name),
+
+        % Creating index on col2:NAME and col2:AGE
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_col2_name_age on index_test (col2:NAME|col2:AGE);"
+                         , 0, imem, IsSec)),
+        [Meta6] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
+            lists:keysearch(index, 1, Meta6#ddTable.opts),
+        ?assertEqual(6, DdIdx5#ddIdxDef.id),
+        ?assertEqual(<<"i_col2_name_age">>, DdIdx5#ddIdxDef.name),
+
+        % Creating index on col2:SURNAME and col1
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_col2_surname_col1 on index_test (col2:SURNAME|col1);"
+                         , 0, imem, IsSec)),
+        [Meta7] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx6, DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
+            lists:keysearch(index, 1, Meta7#ddTable.opts),
+        ?assertEqual(7, DdIdx6#ddIdxDef.id),
+        ?assertEqual(<<"i_col2_surname_col1">>, DdIdx6#ddIdxDef.name),
+
+        % Creating index on all fields
+        ?assertEqual(ok
+                     , imem_sql:exec(
+                         SKey
+                         , "create index i_all on index_test"
+                           " (col1 | col2 | col2:NAME | col2:SURNAME | col2:AGE);"
+                         , 0, imem, IsSec)),
+        [Meta8] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        {value, {index, [DdIdx7, DdIdx6, DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
+            lists:keysearch(index, 1, Meta8#ddTable.opts),
+        ?assertEqual(8, DdIdx7#ddIdxDef.id),
+        ?assertEqual(<<"i_all">>, DdIdx7#ddIdxDef.name),
+
+        print_indices(IsSec, SKey, imem, index_test),
+
+        % Creating a duplicate index (negative test)
+        ?assertException(throw
+                         , {'ClientError'
+                            , {"Index already exists in table"
+                               , <<"i_col2_age">>, <<"index_test">>}
+                           }
+                         , imem_sql:exec(
+                             SKey
+                             , "create index i_col2_age on index_test (col2:AGE);"
+                             , 0, imem, IsSec)),
+
+        ok
     catch
         Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
+
+print_indices(IsSec, SKey, Schema, Table) ->
+    [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {Schema,Table}]),
+    {value, {index, Indices}} =
+        lists:keysearch(index, 1, Meta#ddTable.opts),
+    ?Info("~nIndices :~n"
+          "~s", [lists:flatten(
+                   [[" ", binary_to_list(I#ddIdxDef.name), " -> "
+                     , string:join(
+                         [binary_to_list(element(2, jpparse:string(Pl)))
+                          || Pl <- I#ddIdxDef.pl]
+                         , " | ")
+                     , "\n"]
+                    || I <- Indices]
+                  )]
+         ).
 
 -endif.

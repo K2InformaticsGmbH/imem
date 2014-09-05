@@ -51,6 +51,7 @@
 -export([ create_table/4
         , create_check_table/4
         , create_sys_conf/2
+        , create_or_replace_index/3
 		, drop_table/2
         , purge_table/2
         , purge_table/3
@@ -397,6 +398,27 @@ create_sys_conf(SKey, Path) ->
             ?SecurityException({"Create sys conf schema unauthorized", {Path,SKey}});
         Owner ->        
             imem_meta:create_sys_conf(Path)
+    end.
+
+create_or_replace_index(SKey,Table,IndexDefinition) ->
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    Owner = case if_is_system_table(SKey, Table) of
+        true ->     
+            system;
+        false ->    
+            case imem_seco:have_permission(SKey,[manage_user_tables, create_table]) of
+                true ->     AccountId;
+                false ->    false
+            end
+    end,
+    case Owner of
+        false ->
+            ?SecurityException({"Create index unauthorized", {Table,SKey}});
+        Owner ->
+            case have_table_permission(SKey, Table, select) of
+                true ->     imem_meta:create_or_replace_index(Table, IndexDefinition);
+                false ->    ?SecurityException({"Create index on table unauthorized", {Table,SKey}})
+            end
     end.
 
 drop_table(SKey, Table) ->

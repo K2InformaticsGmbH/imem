@@ -876,7 +876,7 @@ create_or_replace_index({Schema,Table},IndexDefinition) when is_list(IndexDefini
         _ ->        ?UnimplementedException({"Create Index in foreign schema",{Schema,Table}})
     end;
 create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
-    % ?LogDebug("Create index ~p~n~p",[Table,IndexDefinition]),
+    %?LogDebug("Create index ~p~n~p",[Table,IndexDefinition]),
     Schema = schema(),
     case read(ddTable,{Schema, Table}) of
         [#ddTable{}=D] -> 
@@ -1663,8 +1663,9 @@ json_pos_list([],Acc) -> Acc;
 json_pos_list([{_ParseTreeTuple,FM}|Rest],Acc) -> json_pos_list(Rest,Acc ++ [Pos || {_Name,Pos} <- FM]);
 json_pos_list([_|Rest],Acc) ->  json_pos_list(Rest,Acc).
 
-compile_path_list(PL,FieldMap) ->
-    [ compile_json_path(JsonPath,FieldMap) || JsonPath <- PL].     
+compile_path_list([],_FieldMap) -> [];
+compile_path_list([JsonPath|PL],FieldMap) ->
+    [compile_json_path(JsonPath,FieldMap) | compile_path_list(PL,FieldMap)].
 
 compile_json_path(JsonPath,FieldMap) when is_binary(JsonPath) ->
     JPath = case jpparse:parsetree(JsonPath) of
@@ -1679,14 +1680,19 @@ compile_json_path({jp, ParseTreeBinary}, FieldMap) when is_binary(ParseTreeBinar
         false ->    ?ClientError({"Unknown column name",ParseTreeBinary});
         {_,Pos} ->  Pos             %% represent field as record index (integer)
     end;
-compile_json_path({jp, ParseTreeTuple, JsonPath}, FieldMap) when is_tuple(ParseTreeTuple) ->
+compile_json_path({jp, ParseTreeTuple}, FieldMap) when is_tuple(ParseTreeTuple) ->
     %% this is a json path, return {ParseTreeTuple,UsedFieldMap}
     {ok, FieldList} = jpparse:roots(ParseTreeTuple),
     Pred = fun({Name,_Pos}) -> lists:member(Name,FieldList) end,
     case lists:filter(Pred, FieldMap) of
-        [] ->       ?ClientError({"Unknown JSON document name in ", JsonPath});
-        FM ->       {ParseTreeTuple,FM}
-    end.
+        [] ->
+            {ok, JsonPath} = jpparse:string(ParseTreeTuple),
+            ?ClientError({"Unknown JSON document name in ", JsonPath});
+        FM ->
+            {ParseTreeTuple,FM}
+    end;
+compile_json_path(JsonPath,FieldMap) when is_tuple(JsonPath) ->
+    compile_json_path({jp, JsonPath}, FieldMap).
 
 trigger_with_indexing(TFun,MF,Var) ->
     case re:run(TFun, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], binary}]) of
@@ -2302,16 +2308,17 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
 index_items(Rec,{},Table,User,ID,Type,[_|PL],Vnf,Iff,Changes) ->
     index_items(Rec,{},Table,User,ID,Type,PL,Vnf,Iff,Changes);
 index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
-    % ?Info("index_items RecJ ~p",[RecJ]),
-    % ?Info("index_items ParseTree ~p",[PT]),
-    % ?Info("index_items FieldList ~p",[FL]),
+    %?Info("index_items RecJ ~p",[RecJ]),
+    %?Info("index_items ParseTree ~p",[PT]),
+    %?Info("index_items FieldList ~p",[FL]),
     Key = element(?KeyIdx,RecJ),
     Binds = [{Name,element(Pos,RecJ)} || {Name,Pos} <- FL],
     KVPs = case lists:keyfind(?nav, 2, Binds) of
         false ->   
             Match = imem_json:eval(PT,Binds),
             case Match of
-                MV when is_binary(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];
+                MV when is_binary(MV);
+                        is_number(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];
                 ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav];
                 {nomatch, {path_not_found, _}} ->          [];
                 {nomatch, {property_not_found, _, _}} ->   [];
