@@ -19,7 +19,7 @@
 
 parse(Sql) ->
     case sqlparse:parsetree(Sql) of
-        {ok, {[{ParseTree,_}|_], _Tokens}}  ->  ParseTree;
+        {ok, [{ParseTree,_}|_]}  ->  ParseTree;
         {lex_error, Error}              -> ?ClientError({"SQL lexer error", Error});
         {parse_error, Error}            -> ?ClientError({"SQL parser error", Error})
     end.
@@ -49,7 +49,7 @@ params_from_opts(Opts,ParseTree) when is_list(Opts) ->
 
 exec(SKey, Sql, BlockSize, Opts, IsSec) ->
     case sqlparse:parsetree(Sql) of
-        {ok, {[{ParseTree,_}|_], _Tokens}} -> 
+        {ok, [{ParseTree,_}|_]} ->
             exec(SKey, element(1,ParseTree), ParseTree, 
                 #statement{stmtStr=Sql, stmtParse=ParseTree, blockSize=BlockSize}, 
                 Opts, IsSec);
