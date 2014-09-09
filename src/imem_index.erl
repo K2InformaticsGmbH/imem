@@ -174,7 +174,8 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) ->
         true ->
             preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff);
         false ->
-            preview_execute(IndexTable, ID, Type, SearchStrategies, SearchTerm, Limit, Iff, undefined)
+            FilteredStrategies = [Strategy || Strategy <- SearchStrategies, Strategy =/= re_match],
+            preview_execute(IndexTable, ID, Type, FilteredStrategies, SearchTerm, Limit, Iff, undefined)
     end.
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
@@ -196,14 +197,109 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Cont) ->
 
 %% @doc check if the search term should be interpreted as a regular expression.
 -spec is_regexp_search(list(), binary()) -> boolean().
-is_regexp_search(SearchStrategies, SearchTerm) -> false. %% TODO: Implement check.
+is_regexp_search(SearchStrategies, SearchTerm) ->
+    case  binary:match(SearchTerm, [<<"*">>, <<"?">>,<<"_">>,<<"%">>]) of
+        nomatch -> false;
+        _ ->
+            case lists:member(re_match, SearchStrategies) of
+                true -> true;
+                false -> false %% TODO: Change this for a clienterror
+            end
+    end.
 
-%% TODO: Remove or complete this function
-preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff) -> [].
+preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff) ->
+    StartingStu = create_starting_stu(Type, ID, re_match, SearchTerm),
+    ReplacedStar = binary:replace(SearchTerm, [<<"*">>], <<"%">>, [global]),
+    ReplacedMark = binary:replace(ReplacedStar, [<<"?">>], <<"_">>, [global]),
+    Pattern = imem_sql_funs:like_compile(ReplacedMark),
+    {atomic, ResultRegexp} =
+        imem_if:transaction(fun() -> preview_regexp(IndexTable, ID, Type, Pattern, StartingStu, Limit, Iff) end),
+    ResultRegexp.
+
+preview_regexp(_IndexTable, _ID, ivk, _Pattern, _Stu, 0, _Iff) -> [];
+preview_regexp(IndexTable, ID, ivk, Pattern, PrevStu, Limit, Iff) ->
+    case imem_if:next(IndexTable, PrevStu) of
+        '$end_of_table' -> [];
+        {ID, Value, Key} = Stu ->
+            case imem_sql_funs:re_match(Pattern, Value) andalso Iff({Key, Value}) of
+                true ->
+                    [build_result_entry(Stu, re_match, Key, Value) |
+                     preview_regexp(IndexTable, ID, ivk, Pattern, Stu, Limit-1, Iff)];
+                false ->
+                    preview_regexp(IndexTable, ID, ivk, Pattern, Stu, Limit, Iff)
+            end;
+        _ -> []
+    end;
+preview_regexp(IndexTable, ID, iv_k, Pattern, {ID, Value} = Stu, Limit, Iff) ->
+    case imem_if:read(IndexTable, Stu) of
+        [#ddIndex{stu = {ID, Value}, lnk = Key} = Entry] ->
+            case imem_sql_funs:re_match(Pattern, Value) andalso Iff({Key, Value}) of
+                true ->
+                    Partial = [build_result_entry(Entry#ddIndex.stu, re_match, Key, Value)];
+                false -> Partial = []
+            end;
+        _ -> Partial = []
+    end,
+    if
+        length(Partial) < Limit ->
+            case imem_if:next(IndexTable, Stu) of
+                '$end_of_table' -> Partial;
+                {ID, _NextValue} = NextStu ->
+                    Partial ++ preview_regexp(IndexTable, ID, iv_k, Pattern, NextStu, Limit - length(Partial), Iff);
+                _ -> Partial
+            end;
+        true ->
+            Partial
+    end;
+preview_regexp(IndexTable, ID, iv_kl, Pattern, {ID, Value} = Stu, Limit, Iff) ->
+    case imem_if:read(IndexTable, Stu) of
+        [#ddIndex{stu = {ID, Value}, lnk = KeyList} = Entry] ->
+            case imem_sql_funs:re_match(Pattern, Value) of
+                true ->
+                    Partial = preview_expand_kl(re_match, Entry#ddIndex.stu, KeyList, Value, Limit, Iff);
+                false -> Partial = []
+            end;
+        _ ->
+            Partial = []
+    end,
+    if
+        length(Partial) < Limit ->
+            case imem_if:next(IndexTable, Stu) of
+                '$end_of_table' -> Partial;
+                {ID, _NextValue} = NextStu ->
+                    Partial ++ preview_regexp(IndexTable, ID, iv_kl, Pattern, NextStu, Limit - length(Partial), Iff);
+                _ -> Partial
+            end;
+        true ->
+            Partial
+    end;
+preview_regexp(IndexTable, ID, iv_h, Pattern, {ID, Value} = Stu, Limit, Iff) ->
+    case imem_if:read(IndexTable, Stu) of
+        [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
+            case imem_sql_funs:re_match(Pattern, Value) of
+                true ->
+                    Partial = preview_expand_hash(re_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
+                false -> Partial = []
+            end;
+        _ ->
+            Partial = []
+    end,
+    if
+        length(Partial) < Limit ->
+            case imem_if:next(IndexTable, Stu) of
+                '$end_of_table' -> Partial;
+                {ID, _NextValue} = NextStu ->
+                    Partial ++ preview_regexp(IndexTable, ID, iv_h, Pattern, NextStu, Limit - length(Partial), Iff);
+                _ -> Partial
+            end;
+        true ->
+            Partial
+    end.
+
 
 %% @doc Execute preview in the order defined by the list of searchstrategies.
 -spec preview_execute(atom(), integer(), atom(), list(), binary(), integer(), function(), atom()) -> list().
-preview_execute(IndexTable, ID, Type, [], SearchTerm, Limit, Iff, _PrevStrategy) -> [];
+preview_execute(_IndexTable, _ID, _Type, [], _SearchTerm, _Limit, _Iff, _PrevStrategy) -> [];
 preview_execute(IndexTable, ID, Type, [exact_match | SearchStrategies], SearchTerm, Limit, Iff, undefined) ->
     {atomic, ResultExact} =
         imem_if:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff) end),
@@ -219,7 +315,7 @@ preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTer
         false ->
             ResultHead
     end;
-preview_execute(IndexTable, ID, Type, [body_match | SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy) ->
+preview_execute(IndexTable, ID, Type, [body_match | _SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy) ->
     StartingStu = create_starting_stu(Type, ID, body_match, SearchTerm),
     IffNotAdded = add_filter_duplicated(PrevStrategy, SearchTerm, Iff),
     {atomic, ResultBody} =
@@ -241,7 +337,7 @@ preview_exact(IndexTable, ID, ivk, SearchTerm, Key, Limit, Iff) ->
             end;
         _ -> []
     end;
-preview_exact(IndexTable, ID, iv_k, SearchTerm, _Key, Limit, Iff) ->
+preview_exact(IndexTable, ID, iv_k, SearchTerm, _Key, _Limit, Iff) ->
     case imem_if:read(IndexTable, {ID, SearchTerm}) of
         [#ddIndex{stu = {ID, SearchTerm}, lnk = Key} = Entry] ->
             case Iff({Key, SearchTerm}) of
@@ -259,7 +355,7 @@ preview_exact(IndexTable, ID, iv_kl, SearchTerm, _Key, Limit, Iff) ->
     end;
 preview_exact(IndexTable, ID, iv_h, SearchTerm, _Key, Limit, Iff) ->
     case imem_if:read(IndexTable, {ID, SearchTerm}) of
-        [#ddIndex{stu = {ID, SearchTerm}, lnk = Hash} = Entry] ->
+        [#ddIndex{stu = {ID, SearchTerm}, lnk = Hash}] ->
             preview_expand_hash(exact_match, IndexTable, ID, Hash, SearchTerm, ?SMALLEST_TERM, Limit, Iff);
         _ -> []
     end.
@@ -322,7 +418,7 @@ preview_head(IndexTable, ID, iv_kl, SearchTerm, {ID, Value} = Stu, Limit, Iff) -
     end;
 preview_head(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
     case imem_if:read(IndexTable, Stu) of
-        [#ddIndex{stu = {ID, Value}, lnk = Hash} = Entry] ->
+        [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
             Partial = preview_expand_hash(head_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
         _ ->
             Partial = []
@@ -369,7 +465,7 @@ preview_body(IndexTable, ID, iv_k, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
         length(Partial) < Limit ->
             case imem_if:next(IndexTable, Stu) of
                 '$end_of_table' -> Partial;
-                {ID, NextValue} = NextStu ->
+                {ID, _NextValue} = NextStu ->
                     Partial ++ preview_body(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - length(Partial), Iff);
                 _ -> Partial
             end;
@@ -391,7 +487,7 @@ preview_body(IndexTable, ID, iv_kl, SearchTerm, {ID, Value} = Stu, Limit, Iff) -
         length(Partial) < Limit ->
             case imem_if:next(IndexTable, Stu) of
                 '$end_of_table' -> Partial;
-                {ID, NextValue} = NextStu ->
+                {ID, _NextValue} = NextStu ->
                     Partial ++ preview_body(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - length(Partial), Iff);
                 _ -> Partial
             end;
@@ -400,7 +496,7 @@ preview_body(IndexTable, ID, iv_kl, SearchTerm, {ID, Value} = Stu, Limit, Iff) -
     end;
 preview_body(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
     case imem_if:read(IndexTable, Stu) of
-        [#ddIndex{stu = {ID, Value}, lnk = Hash} = Entry] ->
+        [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
             case binary:match(Value, SearchTerm) =/= nomatch of
                 true ->
                     Partial = preview_expand_hash(body_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
@@ -413,7 +509,7 @@ preview_body(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
         length(Partial) < Limit ->
             case imem_if:next(IndexTable, Stu) of
                 '$end_of_table' -> Partial;
-                {ID, NextValue} = NextStu ->
+                {ID, _NextValue} = NextStu ->
                     Partial ++ preview_body(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - length(Partial), Iff);
                 _ -> Partial
             end;
@@ -423,9 +519,9 @@ preview_body(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
 
 -spec create_starting_stu(atom(), integer(), atom(), binary()) -> tuple().
 create_starting_stu(ivk, ID, head_match, SearchTerm) -> {ID, SearchTerm, ?SMALLEST_TERM};
-create_starting_stu(ivk, ID, body_match, _SearchTerm) -> {ID, ?SMALLEST_TERM, ?SMALLEST_TERM};
+create_starting_stu(ivk, ID, _MatchType, _SearchTerm) -> {ID, ?SMALLEST_TERM, ?SMALLEST_TERM};
 create_starting_stu(_Type, ID, head_match, SearchTerm) -> {ID, SearchTerm};
-create_starting_stu(_Type, ID, body_match, SearchTerm) -> {ID, ?SMALLEST_TERM}.
+create_starting_stu(_Type, ID, _MatchType, _SearchTerm) -> {ID, ?SMALLEST_TERM}.
 
 -spec preview_expand_kl(atom(), tuple(), list(), list(), integer(), fun()) -> list().
 preview_expand_kl(_Type, _Stu, [], _SearchTerm, _Limit, _Iff) -> [];

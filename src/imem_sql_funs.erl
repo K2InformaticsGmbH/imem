@@ -180,7 +180,7 @@ transform_like(S, Esc) ->
         true ->             ""
     end,
     Escape = if E =:= "" -> ""; true -> "["++E++"]" end,
-    NotEscape = if E =:= "" -> ""; true -> "([^"++E++"])" end,
+    NotEscape = if E =:= "" -> ""; true -> "(^|[^"++E++"])" end,
     S0 = re:replace(S, "([\\\\^$.\\[\\]|()?*+\\-{}])", "\\\\\\1", [global, {return, binary}]),
     S1 = re:replace(S0, NotEscape++"%", "\\1.*", [global, {return, binary}]),
     S2 = re:replace(S1, NotEscape++"_", "\\1.", [global, {return, binary}]),
@@ -820,6 +820,8 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"^.A.*S\\^\\$\\.\\[\\]\\|\\(\\)\\?\\*\\+\\-\\{\\}m.th.*$">>, transform_like(<<"_A%S^$.[]|()?*+-{}m_th%">>, <<>>)),
         ?assertEqual(<<"^Sm_th.$">>, transform_like(<<"Sm@_th_">>, <<"@">>)),
         ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
+        ?assertEqual(<<"^.m_th.$">>, transform_like(<<"_m@_th_">>, <<"@">>)),
+        ?assertEqual(<<"^.*m%th.*$">>, transform_like(<<"%m@%th%">>, <<"@">>)),
         ?Info("success ~p~n", [transform_like]),
 
     %% Regular Expressions
