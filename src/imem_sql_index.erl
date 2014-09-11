@@ -71,9 +71,23 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
                     {filter, FilterF} ->    NewIdx#ddIdxDef{iff = FilterF};
                     FilterWithFun ->        ?ClientError({"Bad filter with function", FilterWithFun})
                 end,
-    %% TODO: IndexType is not used
-    %%       #ddIdxDef.type is hardcoded to ivk
-    NewIdx3 = NewIdx2#ddIdxDef{type = ivk},
+
+    IndexTypeAtom = case (catch list_to_existing_atom(
+                      lists:flatten(
+                        ["i", lists:duplicate(length(IndexDefn), "v")
+                         , case IndexType of
+                               bitmap ->    "_b";
+                               keylist ->   "_kl";
+                               hashmap ->   "_h";
+                               unique ->    "_k";
+                               _ ->         "k"
+                           end]))) of
+                        {'EXIT', _} ->
+                            ?ClientError({"Index type not supported", IndexType});
+                        IdxTypAtom -> IdxTypAtom
+                    end,
+
+    NewIdx3 = NewIdx2#ddIdxDef{type = IndexTypeAtom},
     create_index(SKey, IndexType, Table, [NewIdx3|IndexDefs], IsSec).
 
 create_index(SKey, IndexType, TableName, [#ddIdxDef{}|_] = IndexDefinitions, IsSec)
