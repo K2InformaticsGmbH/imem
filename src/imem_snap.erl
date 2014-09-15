@@ -595,8 +595,7 @@ setup() ->
     application:set_env(imem, mnesia_node_type, ram),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     imem:start(),
-    _ = ?EMPTY_DIR(SnapDir),
-    ?Info("after deleteing files ~p~n", [?FILENAMES("*.*", SnapDir)]).
+    _ = ?EMPTY_DIR(SnapDir).
 
 teardown(_) ->
     imem:stop().
@@ -613,7 +612,8 @@ db_test_() ->
 test_snapshot(_) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     _ = ?EMPTY_DIR(SnapDir),
-    ?Info("---TEST--- snapshots :~n~p", [take(ddTable)]),                     
+    ?Info("---TEST--- snapshots ~p~n", [SnapDir]),                     
+    ?Info("take snapshots :~n~p~n", [take(ddTable)]),                     
     ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
     _ = ?EMPTY_DIR(SnapDir),
     %% take([all]) times out

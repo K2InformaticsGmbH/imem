@@ -74,7 +74,7 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
 
     IndexTypeAtom = case (catch list_to_existing_atom(
                       lists:flatten(
-                        ["i", lists:duplicate(length(IndexDefn), "v")
+                        ["iv"
                          , case IndexType of
                                bitmap ->    "_b";
                                keylist ->   "_kl";
