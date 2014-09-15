@@ -17,12 +17,20 @@
 -export([vnf_identity/1             %% identity transformation, no change of value
         ,vnf_lcase_ascii/1          %% lower case ascci, allow empty strings
         ,vnf_lcase_ascii_ne/1       %% lower case ascci non-empty
+        ,vnf_integer/1              %% accept integers (convert if necessary) return ?nav on failure 
+        ,vnf_float/1                %% accept floats (convert if necessary) return ?nav on failure 
         ]).
 
 %% ==================================================================
 %% index filter funs
 %% ==================================================================
 -export([iff_true/1
+        ,iff_binterm_list/1         %% true for binstrings representing a list 
+        ,iff_binterm_list_1/1       %% true for binstrings representing a list with one element (root object type) 
+        ,iff_list_pattern/2         %% used in generated iff
+        ]).
+
+-export([gen_iff_binterm_list_pattern/1      %% used to generated iff fun from key pattern
         ]).
 
 -export([preview/7      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) -> [{Strategy,Key,Value,Stu}]
@@ -155,11 +163,65 @@ vnf_lcase_ascii_ne(<<"\"\"">>) -> ?nav;
 vnf_lcase_ascii_ne(<<>>) -> ?nav;
 vnf_lcase_ascii_ne(Text) -> vnf_lcase_ascii(Text).
 
+vnf_integer(I) when is_integer(I) -> I;
+vnf_integer(F) when is_float(F) -> round(F);
+vnf_integer(A) when is_atom(A) -> ?nav; 
+vnf_integer(B) when is_binary(B) -> 
+    case (catch imem_datatype:io_to_integer(B)) of
+        I when is_integer(I) -> I;
+        _ ->                    ?nav
+    end;
+vnf_integer(L) when is_list(L) -> 
+    case (catch imem_datatype:io_to_integer(L)) of
+        I when is_integer(I) -> I;
+        _ ->                    ?nav
+    end.
+
+
+vnf_float(I) when is_integer(I) -> 1.0 * I;
+vnf_float(F) when is_float(F) -> F;
+vnf_float(A) when is_atom(A) -> ?nav; 
+vnf_float(B) when is_binary(B) -> 
+    case (catch imem_datatype:io_to_float(B)) of
+        I when is_integer(I) -> I;
+        _ ->                    ?nav
+    end;
+vnf_float(L) when is_list(L) -> 
+    case (catch imem_datatype:io_to_float(L)) of
+        I when is_integer(I) -> I;
+        _ ->                    ?nav
+    end.
+
+
 %% ===================================================================
 %% Index filter funs (decide if an index row candidate should be put)
 %% ===================================================================
 
-iff_true({_Key,_Value}) -> true.
+iff_true({_Key,_Value}) -> true.    %% return true without looking at Key or Value
+
+iff_binterm_list({<<17:8,_/binary>>,_}) -> true;
+iff_binterm_list({_,_}) -> false.
+
+iff_binterm_list_1({Key = <<17:8,_/binary>>,_}) -> 
+    case (catch imem_datatype:binterm_to_term(Key)) of
+        [_] ->  true;
+        _ ->    false
+    end;
+iff_binterm_list_1({_,_}) -> false.
+
+
+iff_list_pattern(Key,Key) -> true;  %% includes [],[] 
+iff_list_pattern(_,['*']) -> true;  %% Key matches zero or more list elements
+iff_list_pattern([],_P) -> false;       
+iff_list_pattern(_,[]) -> false;       
+iff_list_pattern([H|R],[H|P]) ->  iff_list_pattern(R,P);
+iff_list_pattern([_|R],['_'|P]) -> iff_list_pattern(R,P);
+iff_list_pattern(_,_) -> false.
+
+gen_iff_binterm_list_pattern(Pattern) when is_list(Pattern) -> 
+    <<"fun({__Key,_}) -> imem_index:iff_list_pattern(imem_datatype:binterm_to_term(__Key),Pattern) end">>;
+gen_iff_binterm_list_pattern(Pattern) ->
+    ?ClientError({"Expecting a list pattern got",Pattern}).
 
 
 %% ===================================================================
@@ -932,7 +994,28 @@ string_test_() ->
         fun teardown/1,
         {with, [
               fun string_operations/1
+              , fun iff_functions/1
         ]}}.    
+
+iff_functions(_) ->
+    ?Info("---TEST---~p:iff_functions~n", [?MODULE]),
+    ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,3])),
+    ?assertEqual(true, iff_list_pattern([1,2,3],[1,'_',3])),
+    ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,'_'])),
+    ?assertEqual(true, iff_list_pattern([1,2,3],['_','_','_'])),
+    ?assertEqual(true, iff_list_pattern([1,2,3],[1,'*'])),
+    ?assertEqual(true, iff_list_pattern([1,2,3,4,5],[1,'*'])),
+    ?assertEqual(true, iff_list_pattern([1,2,3],['*'])),
+    ?assertEqual(true, iff_list_pattern([1,2],['*'])),
+    ?assertEqual(true, iff_list_pattern([1],['*'])),
+    ?assertEqual(true, iff_list_pattern([],['*'])),
+    ?assertEqual(true, iff_list_pattern([1,2,3],['_',2,3])),
+    ?assertEqual(true, iff_list_pattern([1,2,3],['_','_',3])),
+    ?assertEqual(false, iff_list_pattern([1,2,3],[1,'_'])),
+    ?assertEqual(false, iff_list_pattern([2,3],[1,'_'])),
+    ?assertEqual(false, iff_list_pattern([2,3],[2,'_','_'])),
+    ?assertEqual(false, iff_list_pattern([1,2],['_'])).
+
 
 string_operations(_) ->
     ?Info("---TEST---~p:string_operations~n", [?MODULE]),
