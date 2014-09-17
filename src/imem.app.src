@@ -14,7 +14,7 @@
                   ssl,
                   sqlparse
                  ]},
-  {mod, { imem_app, []}},
+  {mod, {imem, []}},
   {env, [
          {erl_cluster_mgrs, []},
          {mnesia_schema_name, imem},
