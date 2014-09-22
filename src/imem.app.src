@@ -8,10 +8,6 @@
                   stdlib,
                   sasl,
                   os_mon,
-                  crypto,
-                  asn1,
-                  public_key,
-                  ssl,
                   ranch,
                   sqlparse
                  ]},

@@ -31,13 +31,9 @@ start() ->
     application:set_env(sasl, sasl_error_logger, false),
     application:start(sasl),
     application:start(os_mon),
-    application:start(crypto),
-    application:start(asn1),
-    application:start(public_key),
-    application:start(ssl),
     application:start(ranch),
     application:start(jsx),
-    application:start(sqlparse),
+    sqlparse:start(),
     config_if_lager(),
     application:start(?MODULE).
 
