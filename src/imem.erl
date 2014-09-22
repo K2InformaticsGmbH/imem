@@ -35,7 +35,9 @@ start() ->
     application:start(asn1),
     application:start(public_key),
     application:start(ssl),
+    application:start(ranch),
     application:start(jsx),
+    application:start(sqlparse),
     config_if_lager(),
     application:start(?MODULE).
 
@@ -54,12 +56,11 @@ start(_Type, StartArgs) ->
     end,
     case imem_sup:start_link(StartArgs) of
     	{ok, Pid} ->
-            % imem_server ranch listner
-            % supervised by ranch so not added to supervison
-            % tree started after imem_sup successful start start
-            % to ensure imem complete booting before listening
-            % for unside connections
-            apps_start([asn1, crypto, public_key, ssl, ranch]),
+            % imem_server ranch listner is supervised by ranch so not
+            % added to supervison tree, started after imem_sup
+            % successful started to ensure booting complete of imem
+            % before listening for connections
+            %apps_start([asn1, crypto, public_key, ssl, ranch]),
             case application:get_env(tcp_server) of
                 {ok, true} ->
                     {ok, TcpIf} = application:get_env(tcp_ip),
@@ -71,17 +72,6 @@ start(_Type, StartArgs) ->
             end,
             {ok, Pid};
     	Error -> Error
-    end.
-
-apps_start([]) -> ok;
-apps_start([A|Rest]) when is_atom(A) ->
-    case (case application:start(A) of
-             ok -> ok;
-             {error, {already_started, A}} -> ok;
-             Err -> {error, Err}
-         end) of
-        {error, Error} -> ?Error("~p start failed ~p~n", [A, Error]);
-        ok -> apps_start(Rest)
     end.
 
 % LAGER Disabled in test
@@ -104,12 +94,13 @@ config_if_lager() ->
     application:start(lager),
     ?Info("IMEM starting with lager!").
 
--else. %LAGER disabled!
+-else. % TEST
 
+% Lager disabled
 config_if_lager() ->
     ?Info("IMEM starting without lager!").
 
--endif.
+-endif. % TEST
 
 stop()  ->
     stop_tcp(),

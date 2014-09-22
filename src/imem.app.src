@@ -12,6 +12,7 @@
                   asn1,
                   public_key,
                   ssl,
+                  ranch,
                   sqlparse
                  ]},
   {mod, {imem, []}},
