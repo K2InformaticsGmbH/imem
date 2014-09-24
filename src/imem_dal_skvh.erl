@@ -58,7 +58,9 @@
 -define(E117(__Term),{117,"Too many values, Limit exceeded",__Term}).
 
 
--export([ create_check_channel/1
+-export([ table_name/1 				%% (Channel)					return table name as binstr
+		, audit_alias/1 			%% (Channel) 					return audit alias as bisntr 
+		, create_check_channel/1 	%% (Channel)					create empty table and audit table if necessary
 		, write/3 			%% (User, Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
 		, read/4			%% (User, Channel, KeyTable)   			return empty Arraylist if none of these resources exists
 		, readGELT/6		%% (User, Channel, Item, CKey1, CKey2, L)	start with first key after CKey1, end with last key before CKey2, fails if more than L rows
@@ -70,6 +72,19 @@
 		, deleteGTLT/5		%% (User, Channel, CKey1, CKey2), L		delete range of keys > CKey1 and < CKey2, fails if more than L rows
 		, write_audit/4 	%% (OldRec,NewRec,Table,User)			default trigger for writing audit trail
 		]).
+
+
+%% @doc Returns table name from channel name (may or may not be a valid channel name)
+%% Channel: Binary string of channel name (preferrably upper case or camel case)
+%% returns:	main table name as binstr
+-spec table_name(binary()) -> binary().
+table_name(Channel) -> ?TABLE(Channel).
+
+%% @doc Returns aufit alias name from channel name (may or may not be a valid channel name)
+%% Channel: Binary string of channel name (preferrably upper case or camel case)
+%% returns:	audit table alias as binstr
+-spec audit_alias(binary()) -> binary().
+audit_alias(Channel) -> list_to_binary(?AUDIT(Channel)).
 
 %% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
 %% creates these tables if not already existing 

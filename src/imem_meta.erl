@@ -39,6 +39,8 @@
                             ,{type,ordered_set}         %% ,{purge_delay,430000}  %% inherit from parent table
                             ]).          
 
+-define(INDEX_TABLE(__MasterTableName), "idx_" ++ __MasterTableName).
+
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
 % -define(RecIdx, 1).       %% Record name position in records
@@ -94,6 +96,8 @@
         , partitioned_table_name_str/2
         , partitioned_table_name/2
         , parse_table_name/1
+        , index_table/1
+        , index_table_name/1
         , is_system_table/1
         , is_readable_table/1
         , is_virtual_table/1
@@ -881,7 +885,7 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
     case read(ddTable,{Schema, Table}) of
         [#ddTable{}=D] -> 
             Opts = lists:keydelete(index, 1, D#ddTable.opts) ++ [{index,IndexDefinition}],
-            IndexTable = ?INDEX_TABLE(Table),
+            IndexTable = index_table(Table),
             case (catch check_table(IndexTable)) of
                 ok ->   
                     Trans = fun() ->
@@ -978,7 +982,7 @@ drop_index(Table) when is_atom(Table) ->
                 imem_cache:clear({?MODULE, trigger, schema(), Table})
             end,
             ok = return_atomic_ok(transaction(Trans)),
-            catch drop_table(?INDEX_TABLE(Table));
+            catch drop_table(index_table(Table));
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end.
@@ -1263,6 +1267,17 @@ parse_simple_name(TableName) when is_list(TableName) ->
         _ ->
             [TableName,"","",""]
     end.
+
+
+-spec index_table_name(atom()|binary()|list()) -> binary().
+index_table_name(Table) when is_atom(Table) ->
+    index_table_name(atom_to_list(Table));
+index_table_name(Table) when is_binary(Table) ->
+    index_table_name(binary_to_list(Table));
+index_table_name(Table) when is_list(Table) ->  list_to_binary(?INDEX_TABLE(Table)).
+
+-spec index_table(atom()|binary()|list()) -> atom().
+index_table(Table) -> binary_to_existing_atom(index_table_name(Table),utf8).
 
 time_to_partition_expiry(Table) when is_atom(Table) ->
     time_to_partition_expiry(atom_to_list(Table));
@@ -2274,7 +2289,7 @@ update_index(_,_,_,_,#ddIdxPlan{def=[]}) ->
     ok;   %% no index on this table
 update_index(Old,New,Table,User,IdxPlan) ->
     % ?LogDebug("IdxPlan ~p",[IdxPlan]),
-    update_index(Old,New,Table,?INDEX_TABLE(Table),User,IdxPlan).
+    update_index(Old,New,Table,index_table(Table),User,IdxPlan).
 
 update_index(Old,New,Table,IndexTable,User,IdxPlan) -> 
     OldJ = decode_json(IdxPlan#ddIdxPlan.jpos,Old),

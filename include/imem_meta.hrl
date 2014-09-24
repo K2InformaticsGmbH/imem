@@ -10,8 +10,6 @@
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
 -define(CACHE_TABLE,ddCache@).
 
--define(INDEX_TABLE(__MasterTableName), list_to_atom("idx_" ++ atom_to_list(__MasterTableName))).
-
 -define(GET_IMEM_CONFIG(__PName,__Context,__Default)
 		, imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
 	   ).

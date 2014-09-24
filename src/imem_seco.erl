@@ -351,15 +351,25 @@ account_name(SKey) ->
     end.
 
 has_role(SKey, RootRoleId, RoleId) ->
-    case have_permission(SKey, manage_accounts) of
-        true ->     if_has_role(SKey, RootRoleId, RoleId); 
-        false ->    ?SecurityException({"Has role unauthorized",SKey})
+    case have_permission(SKey, read_accounts) of
+        true ->
+            if_has_role(SKey, RootRoleId, RoleId);
+        false ->     
+            case have_permission(SKey, manage_accounts) of
+                true ->     if_has_role(SKey, RootRoleId, RoleId); 
+                false ->    ?SecurityException({"Has role unauthorized",SKey})
+            end
     end.
 
 has_permission(SKey, RootRoleId, Permission) ->
-    case have_permission(SKey, manage_accounts) of
-        true ->     if_has_permission(SKey, RootRoleId, Permission); 
-        false ->    ?SecurityException({"Has permission unauthorized",SKey})
+    case have_permission(SKey, read_accounts) of
+        true ->     
+            if_has_permission(SKey, RootRoleId, Permission); 
+        false ->    
+            case have_permission(SKey, manage_accounts) of
+                true ->     if_has_permission(SKey, RootRoleId, Permission); 
+                false ->    ?SecurityException({"Has permission unauthorized",SKey})
+            end
     end.
 
 have_role(SKey, RoleId) ->
