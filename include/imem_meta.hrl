@@ -212,14 +212,14 @@
 -define(VirtualTables, [ddSize|?DataTypes]).
 
 -define(THROW_EXCEPTION(__Ex,__Reason),
-	(fun() ->
+	(fun(_Reason) ->
 		__Level = case __Ex of
 			'UnimplementedException' -> warning;
 			'ConcurrencyException' ->   warning;
 			'ClientError' ->            warning;
 			_ ->                        error
 		end,
-		_Rsn = __Reason,
+		_Rsn = _Reason,
 		{__Head,__Fields} = case _Rsn of
 			__Rsn when is_tuple(__Rsn) ->
 				[__H|__R] = tuple_to_list(__Rsn),
@@ -246,8 +246,8 @@
 		catch imem_meta:write_log(__LogRec),
 		?EXCP_LOG(__LogRec),
 		case __Ex of
-			'SecurityViolation' ->  exit({__Ex,__Reason});
-			_ ->                    throw({__Ex,__Reason})
+			'SecurityViolation' ->  exit({__Ex,_Reason});
+			_ ->                    throw({__Ex,_Reason})
 		end
-	end)()
+	end)(__Reason)
 ).
