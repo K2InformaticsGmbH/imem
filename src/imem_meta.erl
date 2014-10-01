@@ -1049,9 +1049,19 @@ truncate_table(TableAlias, User) ->
 truncate_partitioned_tables([],_) -> ok;
 truncate_partitioned_tables([TableName|TableNames], User) ->
     {_, _, Trigger} =  trigger_infos(TableName),
-    Trans = fun() ->
-        Trigger({},{},TableName,User),
-        imem_if:truncate_table(TableName)
+    IndexTable = index_table(TableName),
+    Trans = case imem_if:is_readable_table(IndexTable) of
+        true -> 
+            fun() ->
+                Trigger({},{},TableName,User),
+                imem_if:truncate_table(IndexTable),
+                imem_if:truncate_table(TableName)
+            end;
+        false ->
+            fun() ->
+                Trigger({},{},TableName,User),
+                imem_if:truncate_table(TableName)
+            end
     end,
     return_atomic_ok(transaction(Trans)),
     truncate_partitioned_tables(TableNames,User).
@@ -1616,6 +1626,7 @@ node_name(Node) when is_atom(Node) ->
 node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
 
+-spec trigger_infos(atom()|{atom(),atom()}) -> {TableType :: atom(), DefaultRecord :: tuple(), TriggerFun :: function()}.
 trigger_infos(Table) when is_atom(Table) ->
     trigger_infos({schema(),Table});
 trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
