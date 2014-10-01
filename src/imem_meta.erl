@@ -1277,7 +1277,7 @@ index_table_name(Table) when is_binary(Table) ->
 index_table_name(Table) when is_list(Table) ->  list_to_binary(?INDEX_TABLE(Table)).
 
 -spec index_table(atom()|binary()|list()) -> atom().
-index_table(Table) -> binary_to_existing_atom(index_table_name(Table),utf8).
+index_table(Table) -> binary_to_atom(index_table_name(Table),utf8).
 
 time_to_partition_expiry(Table) when is_atom(Table) ->
     time_to_partition_expiry(atom_to_list(Table));
