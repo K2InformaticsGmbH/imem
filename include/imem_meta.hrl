@@ -243,8 +243,11 @@
 							,module=__Module,function=__Function,line=__Line
 							,node=node(),fields=[{ex,__Ex}|__Fields]
 							,message= __Message,stacktrace = __ST},
-		catch imem_meta:write_log(__LogRec),
-		?EXCP_LOG(__LogRec),
+		__DbResult = {__Level, (catch imem_meta:write_log(__LogRec))},
+		case __DbResult of 
+			{warning, ok} ->	ok;
+			 _ ->				?EXCP_LOG(__LogRec)
+		end,
 		case __Ex of
 			'SecurityViolation' ->  exit({__Ex,_Reason});
 			_ ->                    throw({__Ex,_Reason})
