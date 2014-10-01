@@ -14,13 +14,9 @@
 -define(eot,'$end_of_table').		  %% defined in mnesia, signals end of fetch transaction here
 
 -ifdef(TEST).
--define(EXCP_LOG(__Warn),ok).
--else.
--ifdef(LAGER).
--define(EXCP_LOG(__Warn),lager:warning("~p",[__Warn])).
--else. % CONSOLE
--define(EXCP_LOG(__Warn),io:format(user,"~p~n",[__Warn])).
--endif. %LAGER or CONSOLE
+    -define(EXCP_LOG(__Warn),ok).
+-else. %!TEST
+    -define(EXCP_LOG(__Warn),lager:warning("~p",[__Warn])).
 -endif. %TEST
 
 -define(FP(__RecList, __Pattern), imem_if:field_pick(__RecList,__Pattern)).

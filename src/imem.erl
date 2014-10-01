@@ -26,7 +26,6 @@
 %% External functions
 %% ====================================================================
 start() ->
-    sqlparse:start(),
     application:load(sasl),
     application:set_env(sasl, sasl_error_logger, false),
     application:start(sasl),
@@ -93,7 +92,7 @@ config_if_lager() ->
                                                                 {date, "$D0"},
                                                                 {count, 5}]}]),
     application:set_env(lager, error_logger_redirect, false),
-    application:start(lager),
+    lager:start(),
     ?Info("IMEM starting with lager!").
 
 -else. % TEST
