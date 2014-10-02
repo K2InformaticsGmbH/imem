@@ -34,11 +34,17 @@
 %% ----- gen_server -------------------------------------------
 
 start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
+    ?Info("~p starting...~n", [?MODULE]),
+    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+        {ok, _} = Success ->
+            ?Info("~p started!~n", [?MODULE]),
+            Success;
+        Error ->
+            ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+            Error
+    end.
 
 init(_) ->
-    ?Info("~p starting...~n", [?MODULE]),
-    ?Info("~p started!~n", [?MODULE]),
     {ok,#state{}}.
 
 handle_call(path, _From, State) -> {reply, {ok, State#state.path}, State};

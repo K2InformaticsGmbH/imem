@@ -39,12 +39,18 @@
         ]).
 
 start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
+    ?Info("~p starting...~n", [?MODULE]),
+    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+        {ok, _} = Success ->
+            ?Info("~p started!~n", [?MODULE]),
+            Success;
+        Error ->
+            ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+            Error
+    end.
 
 init(_Args) ->
-    ?Info("~p starting...~n", [?MODULE]),
     erlang:send_after(?PROLL_FIRST_WAIT, self(), roll_partitioned_tables),
-    ?Info("~p started!~n", [?MODULE]),
     {ok,#state{}}.
 
 handle_call(_Request, _From, State) ->

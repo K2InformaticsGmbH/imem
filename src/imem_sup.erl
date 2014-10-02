@@ -6,38 +6,19 @@
 %%% -------------------------------------------------------------------
 
 -module(imem_sup).
-
 -behaviour(supervisor).
 
-%% --------------------------------------------------------------------
-%% Include files
-%% --------------------------------------------------------------------
 -include("imem.hrl").
 
-%% --------------------------------------------------------------------
-%% External exports
-%% --------------------------------------------------------------------
-
--export([]).
-
-%% --------------------------------------------------------------------
-%% Internal exports
-%% --------------------------------------------------------------------
-
--export([start/0
-        , start_in_shell/0
-        , start_link/1
-        , init/1]).
+% supervisor callbacks
+-export([start_link/1, init/1]).
 
 %% --------------------------------------------------------------------
 %% Macros
 %% --------------------------------------------------------------------
 
--define(SERVER, ?MODULE).
-
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I, Type, Args, Timeout), {I, {I, start_link, [Args]}, permanent, Timeout, Type, [I]}).
-
 
 %% --------------------------------------------------------------------
 %% Records
@@ -47,25 +28,30 @@
 %% External functions
 %% ====================================================================
 
-start() ->
-    spawn(fun() ->
-        {ok, _} = supervisor:start_link({local,?MODULE}, ?MODULE, _Arg = []),
-        [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)]
-    end).
-
-start_in_shell() ->
-    {ok, SupPid} = supervisor:start_link({local,?MODULE}, ?MODULE, _Arg = []),
-    [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)],
-    unlink(SupPid).
-
 start_link(Args) ->
-    case Result=supervisor:start_link({local,?MODULE}, ?MODULE, Args) of
-        {ok,_} ->
-            [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(?MODULE)],
-            ?Info("~p started ~p~n", [?MODULE, Result]);
-        Error ->    ?Info("~p startup failed with ~p~n", [?MODULE, Error])
-    end,
-    Result.
+    ?Info("~p starting...~n", [?MODULE]),
+    case supervisor:start_link({local,?MODULE}, ?MODULE, Args) of
+        {ok,_} = Success ->
+            ?Info("~p started!~n", [?MODULE]),
+            % imem_server ranch listner is supervised by ranch so not
+            % added to supervison tree, started after imem_sup
+            % successful started to ensure booting complete of imem
+            % before listening for connections
+            case application:get_env(tcp_server) of
+                {ok, true} ->
+                    {ok, TcpIf} = application:get_env(tcp_ip),
+                    {ok, TcpPort} = application:get_env(tcp_port),
+                    {ok, SSL} = application:get_env(ssl),
+                    Pwd = case code:lib_dir(imem) of {error, _} -> "."; Path -> Path end,
+                    imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}
+                                            ,{pwd, Pwd}, {ssl, SSL}]);
+                _ -> ?Info("imem TCP is not configured to start!~n")
+            end,
+            Success;
+        Error ->
+            ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+            Error
+    end.
 
 %% ====================================================================
 %% Server functions
@@ -87,43 +73,57 @@ init(_StartArgs) ->
     % imem_meta
     case application:get_env(meta_server) of
         {ok, true} -> [?CHILD(imem_meta, worker, [], ImemTimeout)];
-        _ -> []
+        _ ->
+            ?Info("~p meta_server disabled~n", [?MODULE]),
+            []
     end
     ++
     % imem_if_sys_conf
     case application:get_env(if_sys_conf_server) of
         {ok, true} -> [?CHILD(imem_if_sys_conf, worker, [], ImemTimeout)];
-        _ -> []
+        _ ->
+            ?Info("~p if_sys_conf_server disabled~n", [?MODULE]),
+            []
     end
     ++
     % imem_monitor
     case application:get_env(monitor_server) of
         {ok, true} -> [?CHILD(imem_monitor, worker, [], ImemTimeout)];
-        _ -> []
+        _ ->
+            ?Info("~p monitor_server disabled~n", [?MODULE]),
+            []
     end
     ++
     % imem_proll
     case application:get_env(proll_server) of
         {ok, true} -> [?CHILD(imem_proll, worker, [], ImemTimeout)];
-        _ -> []
+        _ ->
+            ?Info("~p proll_server disabled~n", [?MODULE]),
+            []
     end
     ++
     % imem_purge
     case application:get_env(purge_server) of
         {ok, true} -> [?CHILD(imem_purge, worker, [], ImemTimeout)];
-        _ -> []
+        _ ->
+            ?Info("~p purge_server disabled~n", [?MODULE]),
+            []
     end
     ++
     % imem_seco
     case application:get_env(seco_server) of
         {ok, true} -> [?CHILD(imem_seco, worker, [], ImemTimeout)];
-        _ -> []
+        _ ->
+            ?Info("~p seco_server disabled~n", [?MODULE]),
+            []
     end
     ++
     % imem_snap
     case application:get_env(snap_server) of
         {ok, true} -> [?CHILD(imem_snap, worker, [], ImemTimeout)];
-        _ -> []
+        _ ->
+            ?Info("~p snap_server disabled~n", [?MODULE]),
+            []
     end,
 
     {ok, {{one_for_one, 3, 10}, Children}}.

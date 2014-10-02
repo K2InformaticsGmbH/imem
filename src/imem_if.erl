@@ -814,11 +814,18 @@ lock(LockItem, LockKind) -> mnesia:lock(LockItem, LockKind).
 %% ----- gen_server -------------------------------------------
 
 start_link(Params) ->
+    ?Info("~p starting...~n", [?MODULE]),
     ets:new(?SNAP_ETS_TAB, [public, named_table, {keypos,2}]),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
+    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+        {ok, _} = Success ->
+            ?Info("~p started!~n", [?MODULE]),
+            Success;
+        Error ->
+            ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+            Error
+    end.
 
 init(_) ->
-    ?Info("~p starting...~n", [?MODULE]),
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
     {ok, NodeType} = application:get_env(mnesia_node_type),
     ?Info("mnesia node type is '~p'~n", [NodeType]),
@@ -837,17 +844,18 @@ init(_) ->
                            true ->  filename:join([Cwd, SDir])
                         end
                 end,
-    ?Info("SchemaDir ~p~n", [SchemaDir]),
+    ?Info("schema path ~s~n", [SchemaDir]),
     random:seed(now()),
     SleepTime = random:uniform(1000),
-    ?Info("~p sleeping for ~p ms...~n", [?MODULE, SleepTime]),
+    ?Info("sleeping for ~p ms...~n", [SleepTime]),
     timer:sleep(SleepTime),
     application:set_env(mnesia, dir, SchemaDir),
     ok = mnesia:start(),
     case disc_schema_nodes(SchemaName) of
-        [] -> ?Warn("~p no node found at ~p for schema ~p in erlang cluster ~p~n", [?MODULE, node(), SchemaName, erlang:get_cookie()]);
+        [] -> ?Warn("no node found at ~p for schema ~p in erlang cluster ~p~n",
+                    [node(), SchemaName, erlang:get_cookie()]);
         [DiscSchemaNode|_] ->
-            ?Info("~p adding ~p to schema ~p on ~p~n", [?MODULE, node(), SchemaName, DiscSchemaNode]),
+            ?Info("adding ~p to schema ~p on ~p~n", [node(), SchemaName, DiscSchemaNode]),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config, [extra_db_nodes, [node()]])
     end,
     case NodeType of
@@ -855,7 +863,6 @@ init(_) ->
         _ -> ok
     end,
     mnesia:subscribe(system),
-    ?Info("~p started!~n", [?MODULE]),
     {ok,#state{}}.
 
 handle_call(Request, From, State) ->

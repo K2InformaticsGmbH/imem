@@ -91,12 +91,20 @@ end.">>)).
 
 
 %% ----- SERVER INTERFACE ------------------------------------------------
+%% ?SERVER_START_LINK.
 start_link(Params) ->
+    ?Info("~p starting...~n", [?MODULE]),
     ets:new(?MODULE, [public, named_table, {keypos,2}]),
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
+    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+        {ok, _} = Success ->
+            ?Info("~p started!~n", [?MODULE]),
+            Success;
+        Error ->
+            ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+            Error
+    end.
 
 init(_) ->
-    ?Info("~p starting...~n", [?MODULE]),
     start_snap_loop(),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
@@ -111,12 +119,11 @@ init(_) ->
                             ?Warn("unable to create snapshot directory ~p : ~p~n", [SnapDir, Error])
                     end;
                 {error, Error} ->
-                    ?Warn("unable to create snaoshot directory ~p : ~p~n", [SnapDir, Error])
+                    ?Warn("unable to create snapshot directory ~p : ~p~n", [SnapDir, Error])
             end;
         _ -> ok
     end,
-    ?Info("SnapshotDir ~p~n", [SnapshotDir]),
-    ?Info("~p started!~n", [?MODULE]),
+    ?Info("snapshot directory ~s~n", [SnapshotDir]),
     {ok,#state{snapdir = SnapshotDir}}.
 
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
@@ -199,10 +206,10 @@ zip({files, SnapFiles}) ->
             ZipFileFullPath = filename:join(SnapDir, ZipFileName),
             case zip:zip(ZipFileFullPath, ZipCandidates) of
                 {error, Reason} ->
-                    lists:flatten(io_lib:format("old snapshot backup to ~p failed reason : ~p"
+                    lists:flatten(io_lib:format("old snapshot backup to ~s failed reason : ~p"
                                                 , [ZipFileFullPath, Reason]));
                 _ ->
-                    lists:flatten(io_lib:format("old snapshots are backed up to ~p"
+                    lists:flatten(io_lib:format("old snapshots are backed up to ~s"
                                                 , [ZipFileFullPath]))
             end
     end.

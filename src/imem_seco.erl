@@ -55,10 +55,17 @@
 monitor(Pid) when is_pid(Pid) -> gen_server:call(?MODULE, {monitor, Pid}).
 
 start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
+    ?Info("~p starting...~n", [?MODULE]),
+    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+        {ok, _} = Success ->
+            ?Info("~p started!~n", [?MODULE]),
+            Success;
+        Error ->
+            ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+            Error
+    end.
 
 init(_Args) ->
-    ?Info("~p starting...~n", [?MODULE]),
     Result = try %% try creating system tables, may fail if they exist, then check existence 
         if_check_table(none, ddTable),
 
@@ -93,7 +100,6 @@ init(_Args) ->
         if_truncate_table(none,ddSeCo@),
         if_truncate_table(none,ddPerm@),
         if_truncate_table(none,ddQuota@),
-        ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}    
     catch
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 

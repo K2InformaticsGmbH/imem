@@ -48,14 +48,20 @@
         ]).
 
 start_link(Params) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]).
+    ?Info("~p starting...~n", [?MODULE]),
+    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+        {ok, _} = Success ->
+            ?Info("~p started!~n", [?MODULE]),
+            Success;
+        Error ->
+            ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+            Error
+    end.
 
 init(_Args) ->
-    ?Info("~p starting...~n", [?MODULE]),
     try
         catch imem_meta:create_check_table(?MONITOR_TABLE, {record_info(fields, ddMonitor),?ddMonitor, #ddMonitor{}}, ?MONITOR_TABLE_OPTS, system),    
         erlang:send_after(2000, self(), imem_monitor_loop),
-        ?Info("~p started!~n", [?MODULE]),
         {ok,#state{}}
     catch
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 

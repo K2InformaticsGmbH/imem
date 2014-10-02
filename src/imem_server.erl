@@ -21,7 +21,7 @@ start_link(Params) ->
                        end,
     case inet:getaddr(Interface, inet) of
         {error, Reason} ->
-            ?Error("~p not started ~p~n", [self(), Reason]),
+            ?Error("~p failed to start ~p~n", [?MODULE, Reason]),
             {error, Reason};
         {ok, ListenIf} when is_integer(ListenPort) ->
             NewOpts = lists:foldl(
@@ -36,23 +36,28 @@ start_link(Params) ->
                         end
                         , []
                         , Opts),
-            ?Info("~p starting... pid ~p, "
-                  "listening on ~s:~p ~s, "
-                  "options~n~p~n", [?MODULE, self()
-                                        , inet_parse:ntoa(ListenIf), ListenPort
-                                        , if THandler =:= ranch_ssl -> "(ssl)";
-                                             true -> "" end, NewOpts]),
-            ranch:start_listener(
-              ?MODULE, 1, THandler
-              , [{ip, ListenIf}, {port, ListenPort} | NewOpts], ?MODULE
-              , if THandler =:= ranch_ssl -> [ssl]; true -> [] end);
+            ?Info("~p starting...~n", [?MODULE]),
+            case ranch:start_listener(
+                   ?MODULE, 1, THandler,
+                   [{ip, ListenIf}, {port, ListenPort} | NewOpts], ?MODULE,
+                   if THandler =:= ranch_ssl -> [ssl]; true -> [] end) of
+                {ok, _} = Success ->
+                ?Info("~p started, listening~s on ~s:~p~n",
+                      [?MODULE, if THandler =:= ranch_ssl -> "(ssl)"; true -> "" end,
+                       inet:ntoa(ListenIf), ListenPort]),
+                ?Info("options ~p~n", [NewOpts]),
+                    Success;
+                Error ->
+                    ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+                    Error
+            end;
         _ ->
             {stop, disabled}
     end.
 
 start_link(ListenerPid, Socket, Transport, Opts) ->
-    Pid = spawn_opt(?MODULE, init, [ListenerPid, Socket, Transport, Opts]
-                    , [link, {fullsweep_after, 0}]),
+    Pid = spawn_opt(?MODULE, init, [ListenerPid, Socket, Transport, Opts],
+                    [link, {fullsweep_after, 0}]),
     {ok, Pid}.
 
 stop() ->

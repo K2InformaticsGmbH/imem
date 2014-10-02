@@ -39,8 +39,8 @@ start() ->
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
     % it only helps to build up the cluster
-    ?Info("---------------------------------------------------~n", []),
-    ?Info(" STARTING IMEM~n", []),
+    ?Notice("---------------------------------------------------~n"),
+    ?Notice(" STARTING IMEM~n"),
     case application:get_env(erl_cluster_mgrs) of
         {ok, []} -> ?Info("cluster manager node(s) not defined!~n");
         {ok, CMNs} ->
@@ -51,46 +51,33 @@ start(_Type, StartArgs) ->
             pang -> ?Info("node ~p down!~n", [CMNode])
             end || CMNode <- CMNodes]
     end,
-    SupRes = case imem_sup:start_link(StartArgs) of
-                 {ok, Pid} ->
-                     % imem_server ranch listner is supervised by ranch so not
-                     % added to supervison tree, started after imem_sup
-                     % successful started to ensure booting complete of imem
-                     % before listening for connections
-                     %apps_start([asn1, crypto, public_key, ssl, ranch]),
-                     case application:get_env(tcp_server) of
-                         {ok, true} ->
-                             {ok, TcpIf} = application:get_env(tcp_ip),
-                             {ok, TcpPort} = application:get_env(tcp_port),
-                             {ok, SSL} = application:get_env(ssl),
-                             Pwd = case code:lib_dir(imem) of {error, _} -> "."; Path -> Path end,
-                             imem_server:start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort}
-                                                     ,{pwd, Pwd}, {ssl, SSL}]);
-                         _ -> ?Info("imem TCP is not configured to start!~n")
-                     end,
-                     {ok, Pid};
-             	Error -> Error
-             end,
-    ?Info(" IMEM STARTED~n", []),
-    ?Info("---------------------------------------------------~n", []),
-    SupRes.
+    case imem_sup:start_link(StartArgs) of
+        {ok, _} = Success ->
+            ?Notice(" IMEM STARTED~n"),
+            ?Notice("---------------------------------------------------~n"),
+            Success;
+        Error ->
+            ?Error(" IMEM FAILED TO START ~p~n", [Error]),
+            Error
+    end.
 
 % LAGER Disabled in test
 -ifndef(TEST).
 
 config_if_lager() ->
     application:load(lager),
-    application:set_env(lager, handlers, [{lager_console_backend, info},
-                                          {lager_file_backend, [{file, "log/error.log"},
-                                                                {level, error},
-                                                                {size, 10485760},
-                                                                {date, "$D0"},
-                                                                {count, 5}]},
-                                          {lager_file_backend, [{file, "log/console.log"},
-                                                                {level, info},
-                                                                {size, 10485760},
-                                                                {date, "$D0"},
-                                                                {count, 5}]}]),
+    application:set_env(lager, handlers,
+                        [{lager_console_backend, info},
+                         {lager_file_backend, [{file, "log/error.log"},
+                                               {level, error},
+                                               {size, 10485760},
+                                               {date, "$D0"},
+                                               {count, 5}]},
+                         {lager_file_backend, [{file, "log/console.log"},
+                                               {level, info},
+                                               {size, 10485760},
+                                               {date, "$D0"},
+                                               {count, 5}]}]),
     application:set_env(lager, error_logger_redirect, false),
     lager:start(),
     ?Info("IMEM starting with lager!").
@@ -108,7 +95,7 @@ stop()  ->
     application:stop(?MODULE).
 
 stop(_State) ->
-	?Info("SHUTDOWN IMEM~n", []),
+	?Notice("SHUTDOWN IMEM~n", []),
 	ok.
 
 % start stop query imem tcp server
