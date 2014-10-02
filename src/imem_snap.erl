@@ -57,9 +57,9 @@
                imem_meta:physical_table_name(mproConnectionProbe@)],
     [(fun() ->
         case imem_snap:get_snap_properties(T) of
-            {} ->               ok;           
-            {Prop, Wt, St} -> 
-                if 
+            {} ->               ok;
+            {Prop, Wt, St} ->
+                if
                     St < Wt ->
                         Res = imem_snap:take(T),
                         [case R of
@@ -70,7 +70,7 @@
                             {error, T, Reason}  -> imem_snap:snap_err(\"snapshot of ~p failed for ~p\", [T, Reason])
                         end || R <- Res],
                         true = imem_snap:set_snap_properties(Prop);
-                    true -> 
+                    true ->
                         ok % no backup needed
                 end
         end
@@ -145,8 +145,8 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
             ?Debug("again after ~p~n", [MCW]),
             SnapTimer = erlang:send_after(MCW, self(), imem_snap_loop),
             {noreply, State#state{snapFun=SnapFun,snapHash=SnapHash,snap_timer=SnapTimer}};
-        Other ->
-            ?Info("snapshot unknown timeout ~p~n", [Other]),
+        _Other ->
+            ?Info("snapshot unknown timeout ~p~n", [_Other]),
             SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
             {noreply, State#state{snap_timer = SnapTimer}}
     end;
@@ -159,16 +159,16 @@ handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
     end,
     {noreply, State#state{snap_timer = undefined}};
 
-handle_info(Info, State) ->
-    ?Info("Unknown info ~p!~n", [Info]),
+handle_info(_Info, State) ->
+    ?Info("Unknown info ~p!~n", [_Info]),
     {noreply, State}.
 
-handle_call(Request, From, State) ->
-    ?Info("Unknown request ~p from ~p!~n", [Request, From]),
+handle_call(_Request, _From, State) ->
+    ?Info("Unknown request ~p from ~p!~n", [_Request, _From]),
     {reply, ok, State}.
 
-handle_cast(Request, State) ->
-    ?Info("Unknown cast ~p!~n", [Request]),
+handle_cast(_Request, State) ->
+    ?Info("Unknown cast ~p!~n", [_Request]),
     {noreply, State}.
 
 terminate(_Reson, _State) -> ok.
@@ -404,7 +404,7 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
                 K = element(2, Row),
                 case imem_meta:read(Tab, K) of
                     [Row] ->    % found identical existing row
-                            {[Row|I], E, A}; 
+                            {[Row|I], E, A};
                     [RowN] ->   % existing row with different content,
                         case Strategy of
                             replace ->
@@ -448,7 +448,7 @@ close_file(Me, FHndl) ->
 write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin) ->
     PayloadSize = byte_size(RowsBin),
     case file:write(FHndl, << PayloadSize:32, RowsBin/binary >>) of
-        ok -> 
+        ok ->
             FetchFunPid ! next,
             take_fun(Me,Tab,FetchFunPid,NewRowCount,NewByteCount,FHndl);
         {error,_} = Error ->
@@ -458,7 +458,7 @@ write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin) ->
 write_close_file(Me, FHndl,RowsBin) ->
     PayloadSize = byte_size(RowsBin),
     Ret = case file:write(FHndl, << PayloadSize:32, RowsBin/binary >>) of
-        ok -> 
+        ok ->
             case file:close(FHndl) of
                 ok -> done;
                 {error,_} = Error -> Error
@@ -563,7 +563,7 @@ del_dirtree(Path) ->
     end.
 
 do_snapshot(SnapFun) ->
-    try  
+    try
         ok = case SnapFun of
             undefined -> ok;
             SnapFun when is_function(SnapFun) -> SnapFun()
@@ -574,7 +574,7 @@ do_snapshot(SnapFun) ->
             {error,{"cannot snap",Err}}
     end.
 
-get_snap_properties(Tab) -> 
+get_snap_properties(Tab) ->
     case ets:lookup(?SNAP_ETS_TAB, Tab) of
         [] ->       {};
         [Prop] ->   {Prop, Prop#snap_properties.last_write, Prop#snap_properties.last_snap}
@@ -616,12 +616,9 @@ db_test_() ->
         ]}}.
 
 test_snapshot(SnapDir) ->
-    ?LogDebug("---TEST--- snapshots ~p~n", [SnapDir]),                     
-    ?LogDebug("take snapshots :~n~p~n", [take(ddTable)]),                     
+    ?LogDebug("---TEST--- snapshots ~p~n", [SnapDir]),
+    ?LogDebug("take snapshots :~n~p~n", [take(ddTable)]),
     ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
-    _ = ?EMPTY_DIR(SnapDir),
-    %% take([all]) times out
-    %% ?assertEqual(?TABLES, ?FILENAMES("*"++?BKP_EXTN, SnapDir)),
     ?LogDebug("snapshot tests completed!~n", []).
 
 -endif.
