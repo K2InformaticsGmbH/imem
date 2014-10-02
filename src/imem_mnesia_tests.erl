@@ -38,7 +38,7 @@ imem_mnesia_test_() ->
     }.
 
 run_test_eunit(_) ->
-    ?Info("---TEST---~n", []),
+    ?LogDebug("---TEST---~n", []),
     run_test_core().
 
 run_test_core() ->
@@ -46,7 +46,7 @@ run_test_core() ->
     recv_async("_A_", ?THREAD_A_CHUNK, ?THREAD_A_DELAY),
     recv_async("_B_", ?THREAD_B_CHUNK, ?THREAD_B_DELAY),
     TotalDelay = round(?ROWCOUNT / ?THREAD_A_CHUNK * ?THREAD_A_DELAY + ?ROWCOUNT / ?THREAD_B_CHUNK * ?THREAD_B_DELAY),
-    ?Info("waiting... ~p~n", [TotalDelay]),
+    ?LogDebug("waiting... ~p~n", [TotalDelay]),
     timer:sleep(TotalDelay).
 
 async_insert() ->
@@ -54,7 +54,7 @@ async_insert() ->
             (_, 0) -> ok;
             (F, R) ->
                 mnesia:transaction(fun() ->
-                    ?Info("insert ~p~n", [R]),
+                    ?LogDebug("insert ~p~n", [R]),
                     mnesia:write({table, R, R+1, R+2})
                 end),
                 timer:sleep(?THREAD_B_DELAY div 20),
@@ -70,9 +70,9 @@ recv_async(Title, Limit, Delay) ->
             Pid ! next,
             receive
                 eot ->
-                    ?Info("[~p] finished~n", [Title]);
+                    ?LogDebug("[~p] finished~n", [Title]);
                 {row, Row} ->
-                    ?Info("[~p] got rows ~p~n", [Title, length(Row)]),
+                    ?LogDebug("[~p] got rows ~p~n", [Title, length(Row)]),
                     F(F)
             end
         end,
@@ -85,14 +85,14 @@ start_trans(Pid, Title, Limit) ->
     fun(F,Contd0) ->
         receive
             abort ->
-                ?Info("[~p] {T} Abort~n", [Title]);
+                ?LogDebug("[~p] {T} Abort~n", [Title]);
             next ->
                 case (case Contd0 of
                       undefined -> mnesia:select(table, [{'$1', [], ['$_']}], Limit, read);
                       Contd0 -> mnesia:select(Contd0)
                       end) of
                 {Rows, Contd1} ->
-                    ?Info("[~p] {T} -> ~p~n", [Title, length(Rows)]),
+                    ?LogDebug("[~p] {T} -> ~p~n", [Title, length(Rows)]),
                     Pid ! {row, Rows},
                     F(F,Contd1);
                 '$end_of_table' -> Pid ! eot

@@ -48,21 +48,21 @@ test_without_sec(_) ->
         _ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        ?Info("---TEST--- ~p ----Security ~p ~n", [?MODULE, false]),
+        ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, false]),
 
-        ?Info("schema ~p~n", [imem_meta:schema()]),
-        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?Info("~p:test_mnesia~n", [?MODULE]),
+        ?LogDebug("~p:test_mnesia~n", [?MODULE]),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?Info("success ~p~n", [schema]),
+        ?LogDebug("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        ?Info("success ~p~n", [data_nodes]),
+        ?LogDebug("success ~p~n", [data_nodes]),
 
-        ?Info("~p:cache_operations~n", [?MODULE]),
+        ?LogDebug("~p:cache_operations~n", [?MODULE]),
 
         ?assertEqual([], read(some_test_key)),
         ?assertEqual(ok, write(some_test_key,"Test Value")),
@@ -70,10 +70,10 @@ test_without_sec(_) ->
         ?assertEqual(ok, clear(some_test_key)),
         ?assertEqual([], read(some_test_key)),
 
-        ?Info("success ~p~n", [cache_operations])
+        ?LogDebug("success ~p~n", [cache_operations])
 
     catch
-        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

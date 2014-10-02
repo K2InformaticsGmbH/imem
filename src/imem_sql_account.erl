@@ -199,17 +199,17 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException',
         % SeEx = 'SecurityException',
-        ?Info("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        ?Info("schema ~p~n", [imem_meta:schema()]),
-        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
         ?assertEqual(ok, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
         UserId = imem_account:get_id_by_name(SKey,<<"test_user_1">>),
-        ?Info("UserId ~p~n", [UserId]),
+        ?LogDebug("UserId ~p~n", [UserId]),
         ?assertException(throw, {ClEr,{"Account already exists", <<"test_user_1">>}}, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
         ?assertException(throw, {UiEx,{"Unimplemented account delete option",[cascade]}}, imem_sql:exec(SKey, "DROP USER test_user_1 CASCADE;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),
@@ -217,7 +217,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, manage_system)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {module,imem_test,execute})),
         ?assertEqual(ok, imem_sql:exec(SKey, "GRANT EXECUTE ON imem_test TO test_user_1;", 0, [{schema,imem}], IsSec)),
-        % ?Info("ddRole ~p~n", [imem_meta:read(ddRole)]),
+        % ?LogDebug("ddRole ~p~n", [imem_meta:read(ddRole)]),
         ?assertEqual(true, imem_seco:has_permission(SKey, UserId, {module,imem_test,execute})),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, {table,ddTable,select})),
         ?assertEqual(ok, imem_sql:exec(SKey, "GRANT SELECT ON ddTable TO test_user_1;", 0, [{schema,imem}], IsSec)),
@@ -239,7 +239,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),
         ?assertEqual(ok, imem_sql:exec(SKey, "DROP USER test_user_1;", 0, [{schema,imem}], IsSec))
     catch
-        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

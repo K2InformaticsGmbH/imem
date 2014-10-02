@@ -111,12 +111,12 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
 
-        ?Info("----------------------------------~n"),
-        ?Info("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?Info("----------------------------------~n"),
+        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("----------------------------------~n"),
 
-        ?Info("schema ~p~n", [imem_meta:schema()]),
-        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -144,11 +144,11 @@ test_with_or_without_sec(IsSec) ->
             false -> 
                 ?assertEqual(0, length(R00));
             true ->
-                ?Info("Login time: ~p~n", [LoginTime]),
-                ?Info("Query start time: ~p~n", [QSTime]),
-                ?Info("Query end time: ~p~n", [QETime]),
+                ?LogDebug("Login time: ~p~n", [LoginTime]),
+                ?LogDebug("Query start time: ~p~n", [QSTime]),
+                ?LogDebug("Query end time: ~p~n", [QETime]),
                 Accounts = imem_meta:read(ddAccount),
-                ?Info("Accounts: ~p~n", [Accounts]),
+                ?LogDebug("Accounts: ~p~n", [Accounts]),
                 ?assertEqual(1, length(R00))
         end,
 
@@ -173,7 +173,7 @@ test_with_or_without_sec(IsSec) ->
             select * 
             from ddSysConf.\"imem.app.src\"" 
         ),
-        ?Info("Rows from ddSysConf.\"imem.app.src\": ~p~n", [R9b]),
+        ?LogDebug("Rows from ddSysConf.\"imem.app.src\": ~p~n", [R9b]),
         ?assertEqual(5, length(R9b)),
         
     %% test table def
@@ -190,7 +190,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
 
         {L0, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
-        ?Info("Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
+        ?LogDebug("Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
         ?assertEqual(20, length(L0)),
 
     %% test table member_test
@@ -220,25 +220,25 @@ test_with_or_without_sec(IsSec) ->
         ]),
 
         {L1, true} = if_call_mfa(IsSec,select,[SKey, member_test, ?MatchAllRecords, 1000]),
-        ?Info("Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1),hd(L1), '...', lists:last(L1)]),
+        ?LogDebug("Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1),hd(L1), '...', lists:last(L1)]),
         ?assertEqual(5, length(L1)),
 
     %% queries on meta table
 
         {L2, true} =  if_call_mfa(IsSec,select,[SKey, ddTable, ?MatchAllRecords, 1000]),
-        % ?Info("Table ddTable : ~p entries~n~p~n~p~n~p~n", [length(L2),hd(L2), '...', lists:last(L2)]),
+        % ?LogDebug("Table ddTable : ~p entries~n~p~n~p~n~p~n", [length(L2),hd(L2), '...', lists:last(L2)]),
         AllTableCount = length(L2),
 
         {L3, true} = if_call_mfa(IsSec,select,[SKey, dba_tables, ?MatchAllKeys]),
-        % ?Info("Table dba_tables : ~p entries~n~p~n~p~n~p~n", [length(L3),hd(L3), '...', lists:last(L3)]),
+        % ?LogDebug("Table dba_tables : ~p entries~n~p~n~p~n~p~n", [length(L3),hd(L3), '...', lists:last(L3)]),
         ?assertEqual(AllTableCount, length(L3)),
 
         {L4, true} = if_call_mfa(IsSec,select,[SKey, all_tables, ?MatchAllKeys]),
-        % ?Info("Table all_tables : ~p entries~n~p~n~p~n~p~n", [length(L4),hd(L4), '...', lists:last(L4)]),
+        % ?LogDebug("Table all_tables : ~p entries~n~p~n~p~n~p~n", [length(L4),hd(L4), '...', lists:last(L4)]),
         ?assertEqual(AllTableCount, length(L4)),
 
         {L5, true} = if_call_mfa(IsSec,select,[SKey, user_tables, ?MatchAllKeys]),
-        % ?Info("Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
+        % ?LogDebug("Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
         case IsSec of
             false ->    ?assertEqual(AllTableCount, length(L5));
             true ->     ?assertEqual(2, length(L5))
@@ -912,7 +912,7 @@ test_with_or_without_sec(IsSec) ->
             where name = element(2,qname)"
         ),
         ?assertEqual(length(R5s),length(R5r)),
-        ?Info("Full Result R5s: ~n~p~n", [R5s]),
+        ?LogDebug("Full Result R5s: ~n~p~n", [R5s]),
 
         R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, "
             select to_name(qname), tte 
@@ -920,7 +920,7 @@ test_with_or_without_sec(IsSec) ->
             where element(2,qname) = name 
             and tte <> to_atom('undefined')"
         ),
-        % ?Info("Result R5t DIFF: ~n~p~n", [R5s -- R5t]),
+        % ?LogDebug("Result R5t DIFF: ~n~p~n", [R5s -- R5t]),
         ?assert(length(R5t) > 0),
         ?assert(length(R5t) < length(R5s)),
 
@@ -930,7 +930,7 @@ test_with_or_without_sec(IsSec) ->
             where element(2,qname) = name 
             and tte = to_atom('undefined')"
         ),
-        % ?Info("Result R5u DIFF: ~n~p~n", [R5s -- R5u]),
+        % ?LogDebug("Result R5u DIFF: ~n~p~n", [R5s -- R5u]),
         ?assert(length(R5u) > 0),
         ?assert(length(R5u) < length(R5s)),
         ?assert(length(R5t) + length(R5u) == length(R5s)),
@@ -1601,7 +1601,7 @@ test_with_or_without_sec(IsSec) ->
     catch
         Class:Reason ->
             timer:sleep(1000),  
-            ?Info("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             ?assert( true == "all tests completed")
     end,
     ok.     
@@ -1614,8 +1614,8 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
 exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
-    ?Info("~n", []),
-    ?Info("~p : ~s~n", [Id,Sql]),
+    ?LogDebug("~n", []),
+    ?LogDebug("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -1623,13 +1623,13 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?Info("Result:~n~p~n", [RT]),
+    ?LogDebug("Result:~n~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
 exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
-    ?Info("~n", []),
-    ?Info("~p : ~s~n", [Id,Sql]),
+    ?LogDebug("~n", []),
+    ?LogDebug("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -1637,12 +1637,12 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?Info("Result:~n~p~n", [RT]),
+    ?LogDebug("Result:~n~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
 exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
-    ?Info("~p : ~s~n", [Id,Sql]),
+    ?LogDebug("~p : ~s~n", [Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -1652,15 +1652,15 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 3 ->
-            ?Info("Result:~n~p~n", [RT]);
+            ?LogDebug("Result:~n~p~n", [RT]);
         true ->
-            ?Info("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+            ?LogDebug("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
     end,            
     RT.
 
 % exec_fetch(SKey,Id, BS, IsSec, Sql) ->
-%     ?Info("~n", []),
-%     ?Info("~p : ~s~n", [Id,Sql]),
+%     ?LogDebug("~n", []),
+%     ?LogDebug("~p : ~s~n", [Id,Sql]),
 %     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
 %     ?assertEqual(ok, RetCode),
 %     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -1670,9 +1670,9 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
 %     RT = imem_statement:result_tuples(List,RowFun),
 %     if 
 %         length(RT) =< 10 ->
-%             ?Info("Result:~n~p~n", [RT]);
+%             ?LogDebug("Result:~n~p~n", [RT]);
 %         true ->
-%             ?Info("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+%             ?LogDebug("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
 %     end,            
 %     RT.
 

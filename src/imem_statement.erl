@@ -1172,7 +1172,7 @@ teardown(_SKey) ->
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(tuple_test),
     catch imem_meta:drop_table(fun_test),
-    ?Info("test teardown....~n",[]),
+    ?LogDebug("test teardown....~n",[]),
     ?imem_test_teardown().
 
 db_test_() ->
@@ -1199,12 +1199,12 @@ test_with_or_without_sec(IsSec) ->
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
 
-        ?Info("----------------------------------~n"),
-        ?Info("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?Info("----------------------------------~n"),
+        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("----------------------------------~n"),
 
-        ?Info("schema ~p~n", [imem_meta:schema()]),
-        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1225,11 +1225,11 @@ test_with_or_without_sec(IsSec) ->
             , 0, [{schema,imem}], IsSec)),
 
         Sql0a = "insert into fun_test (col0) values (12)",  
-        ?Info("Sql0a:~n~s~n", [Sql0a]),
+        ?LogDebug("Sql0a:~n~s~n", [Sql0a]),
         ?assertEqual([{fun_test,12,144}], imem_sql:exec(SKey, Sql0a, 0, [{schema,imem}], IsSec)),
 
         TT0aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, fun_test])),
-        ?Info("fun_test~n~p~n", [TT0aRows]),
+        ?LogDebug("fun_test~n~p~n", [TT0aRows]),
         [{fun_test,Col0a,Col1a}] = TT0aRows,
         ?assertEqual(Col0a*Col0a, Col1a),
 
@@ -1255,7 +1255,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, close(SKey, SR00)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table fun_test;", 0, [{schema,imem}], IsSec)),
-        ?Info("dropped table ~p~n", [fun_test]),
+        ?LogDebug("dropped table ~p~n", [fun_test]),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "
             create table tuple_test (
@@ -1275,7 +1275,7 @@ test_with_or_without_sec(IsSec) ->
                 ,'{key1,{key1a,key1b}}'
                 ,1 
             );",  
-        ?Info("Sql1a:~n~s~n", [Sql1a]),
+        ?LogDebug("Sql1a:~n~s~n", [Sql1a]),
         ?assertEqual( [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}]
                     , imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)
                     ),
@@ -1289,7 +1289,7 @@ test_with_or_without_sec(IsSec) ->
                 ,'{a,''B2''}'
                 ,2 
             );",  
-        ?Info("Sql1b:~n~s~n", [Sql1b]),
+        ?LogDebug("Sql1b:~n~s~n", [Sql1b]),
         ?assertEqual( [{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}]
                     , imem_sql:exec(SKey, Sql1b, 0, [{schema,imem}], IsSec)
                     ),
@@ -1303,13 +1303,13 @@ test_with_or_without_sec(IsSec) ->
                 ,'undefined'
                 ,3 
             );",  
-        ?Info("Sql1c:~n~s~n", [Sql1c]),
+        ?LogDebug("Sql1c:~n~s~n", [Sql1c]),
         ?assertEqual( [{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}]
                     , imem_sql:exec(SKey, Sql1c, 0, [{schema,imem}], IsSec)
                     ),
 
         TT1Rows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?Info("original table~n~p~n", [TT1Rows]),
+        ?LogDebug("original table~n~p~n", [TT1Rows]),
         TT1RowsExpected=
         [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}
         ,{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}
@@ -1349,7 +1349,7 @@ test_with_or_without_sec(IsSec) ->
         update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
         TT1aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?assertNotEqual(TT1Rows,TT1aRows),
-        ?Info("changed table~n~p~n", [TT1aRows]),
+        ?LogDebug("changed table~n~p~n", [TT1aRows]),
         ?assert(lists:member(O1X,TT1aRows)),
         ?assert(lists:member(O2X,TT1aRows)),
         ?assert(lists:member(O3,TT1aRows)),
@@ -1360,7 +1360,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)),
         update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
         TT1bRows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?Info("TT1bRows~n~p~n", [TT1bRows]),
+        ?LogDebug("TT1bRows~n~p~n", [TT1bRows]),
         ?assert(lists:member(O4X,TT1bRows)),
 
         TT2a = exec(SKey,tt2, 4, IsSec, "
@@ -1383,7 +1383,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, TT2a, IsSec, TT2aChange)),
         update_cursor_execute(SKey, TT2a, IsSec, optimistic),        
         TT2aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?Info("appended table~n~p~n", [TT2aRows1]),
+        ?LogDebug("appended table~n~p~n", [TT2aRows1]),
         ?assert(lists:member(O5X,TT2aRows1)),
         ?assert(lists:member(O6X,TT2aRows1)),
 
@@ -1391,7 +1391,7 @@ test_with_or_without_sec(IsSec) ->
         % ?assertEqual(ok, close(SKey, TT2a)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, [{schema,imem}], IsSec)),
-        ?Info("dropped table ~p~n", [tuple_test]),
+        ?LogDebug("dropped table ~p~n", [tuple_test]),
 
     %% test table def
 
@@ -1406,8 +1406,8 @@ test_with_or_without_sec(IsSec) ->
 
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
-        ?Info("Meta table~n~p~n", [Meta]),
-        ?Info("original table~n~p~n", [TableRows1]),
+        ?LogDebug("Meta table~n~p~n", [Meta]),
+        ?LogDebug("original table~n~p~n", [TableRows1]),
 
         SR0 = exec(SKey,query0, 15, IsSec, "select * from def;"),
         try
@@ -1451,14 +1451,14 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([], receive_raw()),
 
         %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
-        %% ?Info("change list~n~p~n", [ChangeList2]),
+        %% ?LogDebug("change list~n~p~n", [ChangeList2]),
         ChangeList2 = [
         [4,upd,{?EmptyMR,{def,<<"12">>,12}},<<"112">>,<<"12">>] 
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)),
         update_cursor_execute(SKey, SR1, IsSec, optimistic),        
         TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        ?Info("changed table~n~p~n", [TableRows2]),
+        ?LogDebug("changed table~n~p~n", [TableRows2]),
         ?assert(TableRows1 /= TableRows2),
         ?assertEqual(length(TableRows1), length(TableRows2)),
         ?assertEqual(true, lists:member({def,<<"112">>,12},TableRows2)),
@@ -1490,7 +1490,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
         ChangedKeys3 = update_cursor_execute(SKey, SR1, IsSec, optimistic),        
         TableRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        ?Info("changed table~n~p~n", [TableRows3]),
+        ?LogDebug("changed table~n~p~n", [TableRows3]),
         [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
         [?assertNot(lists:member(R,TableRows3)) || R <- RemovedRows3],
         ?assertEqual(ExpectedKeys3,lists:sort([ {I,setelement(?MetaIdx,C,?EmptyMR)} || {I,C} <- ChangedKeys3])),
@@ -1627,9 +1627,9 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
             List4a = receive_tuples(SR4,false),
             ?assertEqual(5, length(List4a)),
-            ?Info("trying to insert one row before fetch complete~n", []),
+            ?LogDebug("trying to insert one row before fetch complete~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
-            ?Info("completed insert one row before fetch complete~n", []),
+            ?LogDebug("completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),
             List4b = receive_tuples(SR4,true),
             ?assertEqual(5, length(List4b)),
@@ -1641,10 +1641,10 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(11,imem_meta:table_size(def)),
             List4d = receive_tuples(SR4,tail),
             ?assertEqual(12, length(List4d)),
-            ?Info("12 tail rows received in single packets~n", []),
+            ?LogDebug("12 tail rows received in single packets~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
             Result4e = receive_raw(),
-            ?Info("reject received ~p~n", [Result4e]),
+            ?LogDebug("reject received ~p~n", [Result4e]),
             [{StmtRef4, {error, {ClEr,Reason4e}}}] = Result4e, 
             ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason4e),
             ?assertEqual(StmtRef4,SR4#stmtResult.stmtRef),
@@ -1663,7 +1663,7 @@ test_with_or_without_sec(IsSec) ->
             List5a = receive_tuples(SR5,true),
             ?assert(lists:member({<<"imem.def">>},List5a)),
             ?assert(lists:member({<<"imem.ddTable">>},List5a)),
-            ?Info("first read success (async)~n", []),
+            ?LogDebug("first read success (async)~n", []),
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             [{StmtRef5, {error, Reason5a}}] = receive_raw(),
             ?assertEqual({'ClientError',
@@ -1677,7 +1677,7 @@ test_with_or_without_sec(IsSec) ->
             D21 = List5b--List5a,
             ?assert( (D12==[]) orelse (list:usort([imem_meta:is_local_time_partitioned_table(N) || {N} <- D12]) == [true]) ),
             ?assert( (D21==[]) orelse (list:usort([imem_meta:is_local_time_partitioned_table(N) || {N} <- D21]) == [true]) ),
-            ?Info("second read success (async)~n", []),
+            ?LogDebug("second read success (async)~n", []),
             ?assertException(throw,
                 {'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},
                 fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec)
@@ -1686,7 +1686,7 @@ test_with_or_without_sec(IsSec) ->
             List5c = fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec),
             ?assertEqual(length(List5b), length(List5c)),
             ?assertEqual(lists:sort(List5b), lists:sort(result_tuples(List5c,SR5#stmtResult.rowFun))),
-            ?Info("third read success (sync)~n", [])
+            ?LogDebug("third read success (sync)~n", [])
         after
             ?assertEqual(ok, close(SKey, SR4))
         end,
@@ -1764,15 +1764,15 @@ test_with_or_without_sec(IsSec) ->
             where col1 < '4' 
             order by col2 desc;"
         ), 
-        % ?Info("StmtCols8 ~p~n", [SR8#stmtResult.stmtCols]),
-        % ?Info("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
+        % ?LogDebug("StmtCols8 ~p~n", [SR8#stmtResult.stmtCols]),
+        % ?LogDebug("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
         ?assertEqual([{2,<<"desc">>}], SR8#stmtResult.sortSpec),
         try
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
             ?assertEqual([{<<"11">>,<<"11">>},{<<"10">>,<<"10">>},{<<"3">>,<<"3">>},{<<"2">>,<<"2">>},{<<"1">>,<<"1">>}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
             Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{2,2,<<"asc">>}], [], IsSec),
-            ?Info("Result8a ~p~n", [Result8a]),
+            ?LogDebug("Result8a ~p~n", [Result8a]),
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
@@ -1781,19 +1781,19 @@ test_with_or_without_sec(IsSec) ->
 
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
-            ?Info("Sql8c ~p~n", [Sql8c]),
+            ?LogDebug("Sql8c ~p~n", [Sql8c]),
             Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
             {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
-            ?Info("Sql8d ~p~n", [Sql8d]),
+            ?LogDebug("Sql8d ~p~n", [Sql8d]),
             Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(binary_to_list(Sql8d))),
 
             {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
-            ?Info("Sql8e ~p~n", [Sql8e]),
+            ?LogDebug("Sql8e ~p~n", [Sql8e]),
             Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8e, string:strip(binary_to_list(Sql8e))),
 
@@ -1805,11 +1805,11 @@ test_with_or_without_sec(IsSec) ->
         SR9 = exec(SKey,query9, 100, IsSec, "
             select * from ddTable;"
         ),
-        % ?Info("StmtCols9 ~p~n", [SR9#stmtResult.stmtCols]),
-        % ?Info("SortSpec9 ~p~n", [SR9#stmtResult.sortSpec]),
+        % ?LogDebug("StmtCols9 ~p~n", [SR9#stmtResult.stmtCols]),
+        % ?LogDebug("SortSpec9 ~p~n", [SR9#stmtResult.sortSpec]),
         try
             Result9 = filter_and_sort(SKey, SR9, {undefined,[]}, [], [1,3,2], IsSec),
-            ?Info("Result9 ~p~n", [Result9]),
+            ?LogDebug("Result9 ~p~n", [Result9]),
             {ok, Sql9, _SF9} = Result9,
             Expected9 = "select qname, opts, columns from ddTable",
             ?assertEqual(Expected9, string:strip(binary_to_list(Sql9))),
@@ -1824,19 +1824,19 @@ test_with_or_without_sec(IsSec) ->
             from def a, def b 
             where a.col1 = b.col1;"
         ),
-        ?Info("StmtCols9a ~p~n", [SR9a#stmtResult.stmtCols]),
+        ?LogDebug("StmtCols9a ~p~n", [SR9a#stmtResult.stmtCols]),
         try
             Result9a = filter_and_sort(SKey, SR9a, {undefined,[]}, [{1,<<"asc">>},{3,<<"desc">>}], [1,3,2], IsSec),
-            % ?Info("Result9a ~p~n", [Result9a]),
+            % ?LogDebug("Result9a ~p~n", [Result9a]),
             {ok, Sql9a, _SF9a} = Result9a,
-            % ?Info("Sql9a ~p~n", [Sql9a]),
+            % ?LogDebug("Sql9a ~p~n", [Sql9a]),
             Expected9a = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by 1 asc, 3 desc",
             ?assertEqual(Expected9a, string:strip(binary_to_list(Sql9a))),
 
             Result9b = filter_and_sort(SKey, SR9a, {undefined,[]}, [{3,2,<<"asc">>},{2,3,<<"desc">>}], [1,3,2], IsSec),
-            % ?Info("Result9b ~p~n", [Result9b]),
+            % ?LogDebug("Result9b ~p~n", [Result9b]),
             {ok, Sql9b, _SF9b} = Result9b,
-            % ?Info("Sql9b ~p~n", [Sql9b]),
+            % ?LogDebug("Sql9b ~p~n", [Sql9b]),
             Expected9b = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by b.col1 asc, a.col2 desc",
             ?assertEqual(Expected9b, string:strip(binary_to_list(Sql9b))),
 
@@ -1855,7 +1855,7 @@ test_with_or_without_sec(IsSec) ->
         ),
         ?assertEqual(ok, fetch_async(SKey,SR10,[],IsSec)),
         List10a = receive_tuples(SR10,true),
-        ?Info("Result10a ~p~n", [List10a]),
+        ?LogDebug("Result10a ~p~n", [List10a]),
         ?assertEqual(11, length(List10a)),
 
         ChangeList10 = [
@@ -1863,7 +1863,7 @@ test_with_or_without_sec(IsSec) ->
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR10, IsSec, ChangeList10)),
         Result10b = update_cursor_execute(SKey, SR10, IsSec, optimistic),        
-        ?Info("Result10b ~p~n", [Result10b]),
+        ?LogDebug("Result10b ~p~n", [Result10b]),
         ?assertMatch([{1,{_,{def,<<"X">>,5},{def,<<"X">>,5}}}],Result10b), 
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema,imem}], IsSec)),
@@ -1876,7 +1876,7 @@ test_with_or_without_sec(IsSec) ->
     catch
         Class:Reason ->  
             timer:sleep(1000),
-            ?Info("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             ?assert( true == "all tests completed")
     end,
     ok. 
@@ -1915,9 +1915,9 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                     RT = result_tuples(List,RowFun),
                     if 
                         length(RT) =< 10 ->
-                            ?Info("Received:~n~p~n", [RT]);
+                            ?LogDebug("Received:~n~p~n", [RT]);
                         true ->
-                            ?Info("Received: ~p items:~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                            ?LogDebug("Received: ~p items:~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
                     end,            
                     RT;
                 StmtRefs ->
@@ -1946,11 +1946,11 @@ exec(SKey,Id, BS, IsSec, Sql) ->
     exec(SKey,Id, BS, IsSec, [], Sql).
 
 exec(SKey,Id, BS, IsSec, Opts, Sql) ->
-    ?Info("~p : ~s~n", [Id,lists:flatten(Sql)]),
+    ?LogDebug("~p : ~s~n", [Id,lists:flatten(Sql)]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, Opts, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,
-    %?Info("Statement Cols:~n~p~n", [StmtCols]),
+    %?LogDebug("Statement Cols:~n~p~n", [StmtCols]),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     StmtResult.
 

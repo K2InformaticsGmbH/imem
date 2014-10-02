@@ -585,24 +585,23 @@ set_snap_properties(Prop) -> ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last
 snap_log(_P,_A) -> ?Info(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
 %%
 %%----- TESTS ------------------------------------------------
 %%
 
--ifdef(TEST).
-
--include_lib("eunit/include/eunit.hrl").
-
 -define(TABLES, lists:sort([atom_to_list(T) || T <- mnesia:system_info(tables) -- [schema]])).
--define(FILENAMES(__M, __Dir), lists:sort([filename:rootname(filename:basename(F)) || F <- filelib:wildcard(__M, __Dir)])).
--define(EMPTY_DIR(__Dir), [{F, file:delete(filename:absname(filename:join([__Dir,F])))} || F <- filelib:wildcard("*.*", __Dir)]).
+-define(FILENAMES(__M, __Dir), lists:sort([filename:rootname(filename:basename(F))
+                                           || F <- filelib:wildcard(__M, __Dir)])).
+-define(EMPTY_DIR(__Dir), [{F, file:delete(filename:absname(filename:join([__Dir,F])))}
+                           || F <- filelib:wildcard("*.*", __Dir)]).
 
 setup() ->
-    application:load(imem),
-    application:set_env(imem, mnesia_node_type, ram),
+    ?imem_test_setup(),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    imem:start(),
-    _ = ?EMPTY_DIR(SnapDir).
+    SnapDir.
 
 teardown(_) ->
     imem:stop().
@@ -616,15 +615,13 @@ db_test_() ->
             fun test_snapshot/1
         ]}}.
 
-test_snapshot(_) ->
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    _ = ?EMPTY_DIR(SnapDir),
-    ?Info("---TEST--- snapshots ~p~n", [SnapDir]),                     
-    ?Info("take snapshots :~n~p~n", [take(ddTable)]),                     
+test_snapshot(SnapDir) ->
+    ?LogDebug("---TEST--- snapshots ~p~n", [SnapDir]),                     
+    ?LogDebug("take snapshots :~n~p~n", [take(ddTable)]),                     
     ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
     _ = ?EMPTY_DIR(SnapDir),
     %% take([all]) times out
     %% ?assertEqual(?TABLES, ?FILENAMES("*"++?BKP_EXTN, SnapDir)),
-    ?Info("snapshot tests completed!~n", []).
+    ?LogDebug("snapshot tests completed!~n", []).
 
 -endif.

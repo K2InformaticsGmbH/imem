@@ -114,10 +114,10 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
-        ?Info("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        ?LogDebug("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
-        ?Info("schema ~p~n", [imem_meta:schema()]),
-        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -134,7 +134,7 @@ test_with_or_without_sec(IsSec) ->
                 ],
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
-        ?Info("Meta table~n~p~n", [Meta]),
+        ?LogDebug("Meta table~n~p~n", [Meta]),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertEqual(Expected,element(3,Meta)),    
 
@@ -152,17 +152,17 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, imem, IsSec)),
 
         Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
-        ?Info("Sql30: ~p~n", [Sql30]),
+        ?LogDebug("Sql30: ~p~n", [Sql30]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
         TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
-        ?Info("TableDef: ~p~n", [TableDef]),
+        ?LogDebug("TableDef: ~p~n", [TableDef]),
 
 
 
 
         Sql97 = "drop table key_test;",
-        ?Info("Sql97: ~p~n", [Sql97]),
+        ?LogDebug("Sql97: ~p~n", [Sql97]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, imem, IsSec)),
 
 
@@ -170,7 +170,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec))
     catch
-        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 

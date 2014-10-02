@@ -407,7 +407,7 @@ skvh_operations(_) ->
         ClEr = 'ClientError',
         Channel = <<"TEST">>,
 
-        ?Info("---TEST---~p:test_skvh~n", [?MODULE]),
+        ?LogDebug("---TEST---~p:test_skvh~n", [?MODULE]),
 
         ?assertEqual(<<"skvhTEST">>, ?TABLE(Channel)),
 
@@ -444,16 +444,16 @@ skvh_operations(_) ->
         ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
         Dat = imem_meta:read(skvhTEST),
-        ?Info("TEST data ~n~p~n", [Dat]),
+        ?LogDebug("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
         Aud = imem_meta:read(skvhAuditTEST_86400@),
-        ?Info("audit trail~n~p~n", [Aud]),
+        ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
         {ok,Aud1} = audit_readGT(system, Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
-        ?Info("audit trail~n~p~n", [Aud1]),
+        ?LogDebug("audit trail~n~p~n", [Aud1]),
         ?assertEqual(6, length(Aud1)),
         {ok,Aud2} = audit_readGT(system, Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
@@ -491,7 +491,7 @@ skvh_operations(_) ->
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTEST)),
 				
-        ?Info("audit trail~n~p~n", [imem_meta:read(skvhAuditTEST_86400@)]),
+        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhAuditTEST_86400@)]),
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTEST)),
 
@@ -544,11 +544,11 @@ skvh_operations(_) ->
         ?assertEqual(ok, imem_meta:drop_table(skvhTEST)),
         ?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),
 
-        ?Info("success ~p~n", [drop_tables])
+        ?LogDebug("success ~p~n", [drop_tables])
     catch
         Class:Reason ->     
             timer:sleep(1000),
-            ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
     ok.

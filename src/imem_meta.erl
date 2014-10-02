@@ -2438,10 +2438,10 @@ meta_operations(_) ->
         SyEx = 'SystemException', 
         UiEx = 'UnimplementedException', 
 
-        ?Info("---TEST---~p:test_mnesia~n", [?MODULE]),
+        ?LogDebug("---TEST---~p:test_mnesia~n", [?MODULE]),
 
-        ?Info("schema ~p~n", [imem_meta:schema()]),
-        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -2456,17 +2456,17 @@ meta_operations(_) ->
 
         Now = erlang:now(),
         LogCount1 = table_size(?LOG_TABLE),
-        ?Info("ddLog@ count ~p~n", [LogCount1]),
+        ?LogDebug("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec1 = #ddLog{logTime=Now,logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 1">>},
         ?assertEqual(ok, write(?LOG_TABLE, LogRec1)),
         LogCount2 = table_size(?LOG_TABLE),
-        ?Info("ddLog@ count ~p~n", [LogCount2]),
+        ?LogDebug("ddLog@ count ~p~n", [LogCount2]),
         ?assert(LogCount2 > LogCount1),
         Log1=read(?LOG_TABLE,Now),
-        ?Info("ddLog@ content ~p~n", [Log1]),
+        ?LogDebug("ddLog@ content ~p~n", [Log1]),
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
@@ -2474,7 +2474,7 @@ meta_operations(_) ->
         LogCount2a = table_size(?LOG_TABLE),
         ?assert(LogCount2a >= LogCount2+4),
 
-        ?Info("~p:test_database_operations~n", [?MODULE]),
+        ?LogDebug("~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
                     , #ddColumn{name=b1, type=binstr, len=20}    %% value 1
                     , #ddColumn{name=c1, type=string, len=30}    %% value 2
@@ -2499,7 +2499,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_index(meta_table_1, [])),
         ?assertEqual(ok, check_table(idx_meta_table_1)),
-        ?Info("ddTable for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
+        ?LogDebug("ddTable for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
         ?assertEqual(ok, drop_index(meta_table_1)),
         ?assertException(throw, {'ClientError',{"Table does not exist",idx_meta_table_1}}, check_table(idx_meta_table_1)),
         ?assertEqual(ok, create_index(meta_table_1, [])),
@@ -2590,7 +2590,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
-        ?Info("success ~p~n", [create_table_not_null]),
+        ?LogDebug("success ~p~n", [create_table_not_null]),
         Trig = <<"fun(O,N,T,U) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U}],\"trigger\") end.">>,
         ?assertEqual(ok, create_or_replace_trigger(meta_table_3, Trig)),
 
@@ -2610,7 +2610,7 @@ meta_operations(_) ->
         ?assertEqual(LogCount3+1, table_size(?LOG_TABLE)),  %% trigger inserted one line      
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
         ?assertEqual(LogCount3+2, table_size(?LOG_TABLE)),  %% error inserted one line
-        ?Info("success ~p~n", [not_null_constraint]),
+        ?LogDebug("success ~p~n", [not_null_constraint]),
         ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, update(meta_table_3, {{meta_table_3,{{2000,1,1},{12,45,55}},undefined},{meta_table_3,{{2000,01,01},{12,45,55}},?nav}})),
         ?assertEqual(1, table_size(meta_table_3)),
         ?assertEqual(LogCount3+3, table_size(?LOG_TABLE)),  %% trigger inserted one line 
@@ -2621,14 +2621,14 @@ meta_operations(_) ->
         ?assertEqual(1, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% trigger inserted one line 
         ?assertEqual(ok, drop_trigger(meta_table_3)),
-        ?Info("meta_table_3 before update~n~p",[read(meta_table_3)]),
+        ?LogDebug("meta_table_3 before update~n~p",[read(meta_table_3)]),
         Trans3 = fun() ->
             %% key update
             update(meta_table_3, {{meta_table_3,{{2000,01,01},{12,45,55}},undefined},{meta_table_3,{{2000,01,01},{12,45,56}},"alternative"}}),
             insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,57}},?nav})         %% return last result only
         end,
         ?assertEqual({meta_table_3,{{2000,1,1},{12,45,57}},undefined}, return_atomic(transaction(Trans3))),
-        ?Info("meta_table_3 after update~n~p",[read(meta_table_3)]),
+        ?LogDebug("meta_table_3 after update~n~p",[read(meta_table_3)]),
         ?assertEqual(2, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% no trigger, no more log  
 
@@ -2652,14 +2652,14 @@ meta_operations(_) ->
         ?assertException(throw, {UiEx,{"Purge not supported on this table type",ddTable}}, purge_table(ddTable)),
 
         TimePartTable0 = physical_table_name(tpTest_1000@),
-        ?Info("TimePartTable ~p~n", [TimePartTable0]),
+        ?LogDebug("TimePartTable ~p~n", [TimePartTable0]),
         ?assertEqual(TimePartTable0, physical_table_name(tpTest_1000@,erlang:now())),
         ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable0)),
         ?assertEqual(0, table_size(TimePartTable0)),
 
         Alias0 = read(ddAlias),
-        % ?Info("Alias0 ~p~n", [Alias0]),
+        % ?LogDebug("Alias0 ~p~n", [Alias0]),
         ?assert(lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias0])),
 
         ?assertEqual(ok, write(tpTest_1000@, LogRec1)),
@@ -2672,29 +2672,29 @@ meta_operations(_) ->
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message 2">>},
         ?assertEqual(ok, write(tpTest_1000@, LogRec2)),
-        ?Info("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
+        ?LogDebug("physical_table_names ~p~n", [physical_table_names(tpTest_1000@)]),
         ?assertEqual(0, purge_table(tpTest_1000@,[{purge_delay,10000}])),
         ?assertEqual(0, purge_table(tpTest_1000@)),
         PurgeResult = purge_table(tpTest_1000@,[{purge_delay,-3000}]),
-        ?Info("PurgeResult ~p~n", [PurgeResult]),
+        ?LogDebug("PurgeResult ~p~n", [PurgeResult]),
         ?assert(PurgeResult>0),
         ?assertEqual(0, purge_table(tpTest_1000@)),
         ?assertEqual(ok, drop_table(tpTest_1000@)),
         ?assertEqual([],physical_table_names(tpTest_1000@)),
         Alias1 = read(ddAlias),
-        % ?Info("Alias1 ~p~n", [Alias1]),
+        % ?LogDebug("Alias1 ~p~n", [Alias1]),
         ?assertEqual(false,lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias1])),
-        ?Info("success ~p~n", [tpTest_1000@]),
+        ?LogDebug("success ~p~n", [tpTest_1000@]),
 
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
 
         DdNode0 = read(ddNode),
-        ?Info("ddNode0 ~p~n", [DdNode0]),
+        ?LogDebug("ddNode0 ~p~n", [DdNode0]),
         DdNode1 = read(ddNode,node()),
-        ?Info("ddNode1 ~p~n", [DdNode1]),
+        ?LogDebug("ddNode1 ~p~n", [DdNode1]),
         DdNode2 = select(ddNode,?MatchAllRecords),
-        ?Info("ddNode2 ~p~n", [DdNode2]),
+        ?LogDebug("ddNode2 ~p~n", [DdNode2]),
 
         Schema0 = [{ddSchema,{schema(),node()},[]}],
         ?assertEqual(Schema0, read(ddSchema)),
@@ -2714,7 +2714,7 @@ meta_operations(_) ->
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
         ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
-        ?Info("success ~p~n", [get_config_hlk]),
+        ?LogDebug("success ~p~n", [get_config_hlk]),
 
         ?assertEqual( {error,{"Table template not found in ddAlias",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name,dummy_table_name)),
         ?assertEqual([],physical_table_names(fakelog_1@)),
@@ -2731,7 +2731,7 @@ meta_operations(_) ->
         timer:sleep(1100),
         % ?assertEqual(ok, create_partitioned_table_sync(fakelog_1@,physical_table_name(fakelog_1@))),
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
-        ?Info("success ~p~n", [create_partitioned_table]),
+        ?LogDebug("success ~p~n", [create_partitioned_table]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
@@ -2739,11 +2739,11 @@ meta_operations(_) ->
         ?assertEqual(ok, drop_table(test_config)),
         ?assertEqual(ok,drop_table(fakelog_1@)),
 
-        ?Info("success ~p~n", [drop_tables])
+        ?LogDebug("success ~p~n", [drop_tables])
     catch
         Class:Reason ->     
             timer:sleep(1000),
-            ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
     ok.

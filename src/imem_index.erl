@@ -998,7 +998,7 @@ string_test_() ->
         ]}}.    
 
 iff_functions(_) ->
-    ?Info("---TEST---~p:iff_functions~n", [?MODULE]),
+    ?LogDebug("---TEST---~p:iff_functions~n", [?MODULE]),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,3])),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,'_',3])),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,'_'])),
@@ -1018,7 +1018,7 @@ iff_functions(_) ->
 
 
 string_operations(_) ->
-    ?Info("---TEST---~p:string_operations~n", [?MODULE]),
+    ?LogDebug("---TEST---~p:string_operations~n", [?MODULE]),
     ?assertEqual(<<"table">>, vnf_lcase_ascii(<<"täble"/utf8>>)),
     ?assertEqual(<<"tuble">>, vnf_lcase_ascii(<<"tüble"/utf8>>)).
 

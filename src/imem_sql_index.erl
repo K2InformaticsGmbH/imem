@@ -156,10 +156,10 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        ?Info("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        ?LogDebug("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
-        ?Info("schema ~p~n", [imem_meta:schema()]),
-        ?Info("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -409,7 +409,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, lists:keysearch(index, 1, Meta16#ddTable.opts)),
         ok
     catch
-        Class:Reason ->  ?Info("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
@@ -418,7 +418,7 @@ print_indices(IsSec, SKey, Schema, Table) ->
     [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {Schema,Table}]),
     {value, {index, Indices}} =
         lists:keysearch(index, 1, Meta#ddTable.opts),
-    ?Info("~nIndices :~n"
+    ?LogDebug("~nIndices :~n"
           "~s", [lists:flatten(
                    [[" ", binary_to_list(I#ddIdxDef.name), " -> "
                      , string:join(

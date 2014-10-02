@@ -791,9 +791,9 @@ test_with_or_without_sec(IsSec) ->
         % ClEr = 'ClientError',
         % SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        ?Info("----------------------------------~n"),
-        ?Info("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?Info("----------------------------------~n"),
+        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("----------------------------------~n"),
 
         ?assertEqual(<<"Imem.ddTable">>, to_name({'Imem',ddTable})),
         ?assertEqual(<<"imem.ddTable">>, to_name({'imem',ddTable})),
@@ -801,7 +801,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"ddTable">>, to_name(<<"ddTable">>)),
         % ?assertEqual(<<"ddTable">>, to_name("ddTable")),
         ?assertEqual(<<"imem.ddäöü"/utf8>>, to_name({<<"imem">>,<<"ddäöü">>})),
-        ?Info("to_name success~n", []),
+        ?LogDebug("to_name success~n", []),
 
         ?assertEqual(<<"">>, to_text([])),
         ?assertEqual(<<"SomeText1234">>, to_text("SomeText1234")),
@@ -810,7 +810,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"ddäöü"/utf8>>, to_text(<<"ddäöü">>)),
         ?assertEqual(<<".ddäöü."/utf8>>, to_text(<<2,"ddäöü",3>>)),
         ?assertEqual(<<"{'Imem',ddTable}">>, to_text({'Imem',ddTable})),
-        ?Info("to_text success~n", []),
+        ?LogDebug("to_text success~n", []),
 
     %% Like strig to Regex string
         ?assertEqual(<<"^Sm.th$">>, transform_like(<<"Sm_th">>, <<>>)),
@@ -822,10 +822,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
         ?assertEqual(<<"^.m_th.$">>, transform_like(<<"_m@_th_">>, <<"@">>)),
         ?assertEqual(<<"^.*m%th.*$">>, transform_like(<<"%m@%th%">>, <<"@">>)),
-        ?Info("success ~p~n", [transform_like]),
+        ?LogDebug("success ~p~n", [transform_like]),
 
     %% Regular Expressions
-        ?Info("testing regular expressions: ~p~n", ["like_compile"]),
+        ?LogDebug("testing regular expressions: ~p~n", ["like_compile"]),
         RE1 = like_compile("abc_123%@@"),
         ?assertEqual(true,re_match(RE1,"abc_123%@@")),         
         ?assertEqual(true,re_match(RE1,<<"abc_123jhhsdhjhj@@">>)),         
@@ -868,7 +868,7 @@ test_with_or_without_sec(IsSec) ->
 
         %% ToDo: implement and test patterns involving regexp reserved characters
 
-        % ?Info("success ~p~n", [replace_match]),
+        % ?LogDebug("success ~p~n", [replace_match]),
         % L = {like,'$6',"%5%"},
         % NL = {not_like,'$7',"1%"},
         % ?assertEqual( true, replace_match(L,L)),
@@ -908,7 +908,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, expr_fun({'is_like', <<"12345">>, "%7__"})),
         ?assertEqual(33, expr_fun({'*',{'+',10,1},3})),
         ?assertEqual(10, expr_fun({'abs',{'-',10,20}})),
-        ?Info("success ~p~n", ["expr_fun constants"]),
+        ?LogDebug("success ~p~n", ["expr_fun constants"]),
 
         X1 = {{1,2,3},{2,2,2}},
         B1a = #bind{tag='$1',tind=1,cind=2},    % = 2
@@ -940,7 +940,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assert(true)
     catch
-        Class:Reason ->  ?Info("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+        Class:Reason ->  ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
     ok. 
