@@ -6,7 +6,8 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
--export([remove/2       %% (IndexTable,Removes)
+-export([index_type/1
+        ,remove/2       %% (IndexTable,Removes)
         ,insert/2       %% (IndexTable,Inserts)
         ]).
 
@@ -732,6 +733,16 @@ add_filter_duplicated(head_match, SearchTerm, Iff) ->
 %%		Else (not enough results)
 %%        -> do anymatch (basic binary_match inside string)
 
+-spec index_type(atom()|binary()|{}) -> atom().
+index_type({}) ->                   ivk;     %% parser's default type today, ToDo: remove when parser returns 'undefined'
+index_type(A) when is_atom(A) ->    index_type(list_to_binary(atom_to_list(A)));
+index_type(<<"undefined">>) ->      ivk;     %% ToDo: default type 'undefined' should come from the parser
+index_type(<<"unique">>) ->         iv_k;
+index_type(<<"keylist">>) ->        iv_kl;
+index_type(<<"hashmap">>) ->        iv_h;
+index_type(<<"bintree">>) ->        ivk;     %% might come from the parser in the future
+index_type(<<"bitmap">>) ->         iv_b;
+index_type(IndexType) ->            ?ClientError({"Index type not supported", IndexType}).  
 
 %% @doc Supports accent folding for all alphabetical characters supported by ISO 8859-15
 %% ISO 8859-15 supports the following languages: Albanian, Basque, Breton,

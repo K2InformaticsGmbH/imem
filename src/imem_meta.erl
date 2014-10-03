@@ -721,7 +721,11 @@ create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner) ->
         ddSysConf -> create_table_sys_conf(TableAlias, ColumnInfos, Opts, Owner);
         _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,TableAlias}})
     end;
-create_physical_table(TableAlias,ColInfos,Opts,Owner) ->
+create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
+    Opts = case lists:keyfind(record_name, 1, Opts0) of
+        false ->    Opts0 ++ [{record_name,list_to_atom(element(1,parse_table_name(TableAlias)))}];
+        _ ->        Opts0
+    end,
     case is_valid_table_name(TableAlias) of
         true ->     ok;
         false ->    ?ClientError({"Invalid character(s) in table name",TableAlias})
@@ -1253,6 +1257,8 @@ is_local_time_partitioned_table(Name) when is_list(Name) ->
             is_time_partitioned_alias(lists:sublist(Name, length(Name)-length(node_shard())))
     end.
 
+
+-spec parse_table_name(atom()|list()|binary()) -> {BaseName :: list(), Period :: list() , Sep :: list() , Node :: list()}.
 parse_table_name(TableName) when is_atom(TableName) -> 
     parse_table_name(atom_to_list(TableName));
 parse_table_name(TableName) when is_list(TableName) ->

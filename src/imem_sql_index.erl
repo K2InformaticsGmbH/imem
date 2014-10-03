@@ -9,18 +9,18 @@ exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec)
     % ?LogDebug("Drop Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
-    if not (IndexSchema =:= TableSchema) ->
-           ?ClientError({"Index and table are in different schema"
-                         , {IndexSchema, TableSchema}});
-       true -> ok
+    if 
+        not (IndexSchema =:= TableSchema) ->
+            ?ClientError({"Index and table are in different schema",{IndexSchema,TableSchema}});
+        true -> 
+            ok
     end,
-    Table = if TableSchema =:= undefined ->
-                   {imem_meta:schema()
-                    , list_to_existing_atom(binary_to_list(Tbl))};
-               true ->
-                   {list_to_existing_atom(binary_to_list(TableSchema))
-                    , list_to_existing_atom(binary_to_list(Tbl))}
-            end,
+    Table = if 
+        TableSchema =:= undefined ->
+            {imem_meta:schema(),list_to_existing_atom(binary_to_list(Tbl))};
+        true ->
+            {list_to_existing_atom(binary_to_list(TableSchema)),list_to_existing_atom(binary_to_list(Tbl))}
+    end,
     if_call_mfa(IsSec, 'drop_index', [SKey,Table,Index]);
 
 exec(SKey, {'create index', IndexType, IndexName, TableName
@@ -29,23 +29,23 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
     % ?Info("Create Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
-    if not (IndexSchema =:= TableSchema) ->
-           ?ClientError({"Index and table are in different schema"
-                         , {IndexSchema, TableSchema}});
-       true -> ok
+    if 
+        not (IndexSchema =:= TableSchema) ->
+            ?ClientError({"Index and table are in different schema", {IndexSchema, TableSchema}});
+       true -> 
+            ok
     end,
-    Table = if TableSchema =:= undefined ->
-                   {imem_meta:schema()
-                    , list_to_existing_atom(binary_to_list(Tbl))};
-               true ->
-                   {list_to_existing_atom(binary_to_list(TableSchema))
-                    , list_to_existing_atom(binary_to_list(Tbl))}
-            end,
+    Table = if 
+        TableSchema =:= undefined ->
+            {imem_meta:schema(), list_to_existing_atom(binary_to_list(Tbl))};
+        true ->
+            {list_to_existing_atom(binary_to_list(TableSchema)), list_to_existing_atom(binary_to_list(Tbl))}
+    end,
     IndexDefs = case imem_meta:read(ddTable, Table) of
         [#ddTable{}=D] -> 
             case lists:keysearch(index, 1, D#ddTable.opts) of
-                {value,{index, ExistingIndexDefs}} -> ExistingIndexDefs;
-                false -> []
+                {value,{index, ExistingIndexDefs}} ->   ExistingIndexDefs;
+                false ->                                []
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
@@ -53,68 +53,31 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
     case length([IDf || IDf <- IndexDefs, IDf#ddIdxDef.name =:= Index]) of
         MatchedIndexes when MatchedIndexes > 0 ->
             ?ClientError({"Index already exists in table", IndexName, TableName});
-        _ -> ok
+        _ -> 
+            ok
     end,
-    MaxIdx = if length(IndexDefs) =:= 0 -> 0;
-                true -> lists:max([IdxDef#ddIdxDef.id || IdxDef <- IndexDefs])
-             end,
-    NewIdx = #ddIdxDef{id = MaxIdx+1
-                       , name = Index
-                       , pl = IndexDefn},
+    MaxIdx = if 
+        length(IndexDefs) =:= 0 ->  0;
+        true ->                     lists:max([IdxDef#ddIdxDef.id || IdxDef <- IndexDefs])
+    end,
+    NewIdx = #ddIdxDef{id = MaxIdx+1, name = Index, pl = IndexDefn},
     NewIdx1 = case NormWithFun of
-                  {} ->             NewIdx;
-                  {norm, NormF} ->  NewIdx#ddIdxDef{vnf = NormF};
-                  NormWithFun ->    ?ClientError({"Bad norm with function", NormWithFun})
-              end,
+        {} ->             NewIdx;
+        {norm, NormF} ->  NewIdx#ddIdxDef{vnf = NormF};
+        NormWithFun ->    ?ClientError({"Bad norm with function", NormWithFun})
+    end,
     NewIdx2 = case FilterWithFun of
-                    {} ->                   NewIdx1;
-                    {filter, FilterF} ->    NewIdx#ddIdxDef{iff = FilterF};
-                    FilterWithFun ->        ?ClientError({"Bad filter with function", FilterWithFun})
-                end,
-
-    IndexTypeAtom = case (catch list_to_existing_atom(
-                      lists:flatten(
-                        ["iv"
-                         , case IndexType of
-                               bitmap ->    "_b";
-                               keylist ->   "_kl";
-                               hashmap ->   "_h";
-                               unique ->    "_k";
-                               _ ->         "k"
-                           end]))) of
-                        {'EXIT', _} ->
-                            ?ClientError({"Index type not supported", IndexType});
-                        IdxTypAtom -> IdxTypAtom
-                    end,
-
-    NewIdx3 = NewIdx2#ddIdxDef{type = IndexTypeAtom},
+        {} ->                   NewIdx1;
+        {filter, FilterF} ->    NewIdx#ddIdxDef{iff = FilterF};
+        FilterWithFun ->        ?ClientError({"Bad filter with function", FilterWithFun})
+    end,
+    NewIdx3 = NewIdx2#ddIdxDef{type = imem_index:index_type(IndexType)},
     create_index(SKey, IndexType, Table, [NewIdx3|IndexDefs], IsSec).
 
-create_index(SKey, IndexType, TableName, [#ddIdxDef{}|_] = IndexDefinitions, IsSec)
-  when IndexType =:= {}; IndexType =:= bitmap;
-       IndexType =:= keylist; IndexType =:= hashmap ->
-    %io:format(user,
-    %%?LogDebug(
-    %          "Create Index ~n"
-    %          "  Type ~p ~n"
-    %          "  Tabl ~p ~n"
-    %          "  Defn ~p ~n"
-    %          , [IndexType
-    %             , TableName
-    %             , IndexDefinitions]),
-    if_call_mfa(IsSec, create_or_replace_index
-                , [SKey, TableName, IndexDefinitions]);
+create_index(SKey, IndexType, TableName, [#ddIdxDef{}|_] = IndexDefinitions, IsSec) ->
+    if_call_mfa(IsSec, create_or_replace_index, [SKey, TableName, IndexDefinitions]);
 create_index(_SKey, IndexType, TableName, IndexDefinitions, _IsSec) ->
-    if not ((IndexType =:= {}) orelse (IndexType =:= bitmap) orelse
-            (IndexType =:= keylist) orelse (IndexType =:= hashmap)) ->
-           ?ClientError({"Bad index type",IndexType});
-       true -> ok
-    end,
-    if not is_list(IndexDefinitions) ->
-           ?ClientError({"Bad index definition",IndexDefinitions});
-       true -> ok
-    end,
-    ?ClientError({"Unknown index definition error", {IndexType, TableName, IndexDefinitions}}).
+    ?ClientError({"Index definition error", {IndexType, TableName, IndexDefinitions}}).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
