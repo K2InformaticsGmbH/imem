@@ -9,7 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) ->
     try 
@@ -20,7 +20,7 @@ teardown(_) ->
         catch imem_role:delete(SKey, test_role),
         catch imem_seco:logout(SKey),
         catch imem_meta:drop_table(user_table_123),
-        ?imem_test_teardown()
+        ?imem_test_teardown
     catch _:_ -> ok
     end.
 

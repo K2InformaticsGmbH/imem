@@ -384,14 +384,14 @@ debug(Cmd, Resp) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
-    ?imem_test_setup(),
+    ?imem_test_setup,
     catch imem_meta:drop_table(skvhTEST),
     catch imem_meta:drop_table(skvhAuditTEST_86400@).
 
 teardown(_) ->
     catch imem_meta:drop_table(skvhTEST),
     catch imem_meta:drop_table(skvhAuditTEST_86400@),
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

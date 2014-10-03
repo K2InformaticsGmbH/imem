@@ -174,12 +174,12 @@ if_call_mfa(IsSec,Fun,Args) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) -> 
     SKey=?imem_test_admin_login(),
     catch imem_account:delete(SKey, <<"test_user_1">>, []), 
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

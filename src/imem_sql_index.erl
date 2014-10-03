@@ -93,12 +93,12 @@ if_call_mfa(IsSec,Fun,Args) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) -> 
     catch imem_meta:drop_table(idx_index_test),
     catch imem_meta:drop_table(index_test),
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

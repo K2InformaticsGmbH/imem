@@ -256,8 +256,8 @@ init_create_table(TableName,RecDef,Opts,Owner) ->
         {'ClientError',{"Table already exists", _}} = R ->   
             ?Info("creating ~p results in ~p", [TableName,"Table already exists"]),
             R;
-        {'ClientError',Reason}=Res ->   
-            ?Info("creating ~p results in ~p", [TableName,Reason]),
+        {'ClientError',_Reason}=Res ->   
+            ?Info("creating ~p results in ~p", [TableName,_Reason]),
             Res;
         Result ->                   
             ?Info("creating ~p results in ~p", [TableName,Result]),
@@ -723,7 +723,7 @@ create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner) ->
     end;
 create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
     Opts = case lists:keyfind(record_name, 1, Opts0) of
-        false ->    Opts0 ++ [{record_name,list_to_atom(element(1,parse_table_name(TableAlias)))}];
+        false ->    Opts0 ++ [{record_name,list_to_atom(lists:nth(3,parse_table_name(TableAlias)))}];
         _ ->        Opts0
     end,
     case is_valid_table_name(TableAlias) of
@@ -1258,11 +1258,11 @@ is_local_time_partitioned_table(Name) when is_list(Name) ->
     end.
 
 
--spec parse_table_name(atom()|list()|binary()) -> {BaseName :: list(), Period :: list() , Sep :: list() , Node :: list()}.
+-spec parse_table_name(atom()|list()|binary()) -> list(list()).
+    %% TableName -> [Schema,".",Name,Period,"@",Node] all strings , all optional ("") except Name
 parse_table_name(TableName) when is_atom(TableName) -> 
     parse_table_name(atom_to_list(TableName));
 parse_table_name(TableName) when is_list(TableName) ->
-    %% TableName -> [Schema,".",Name,Period,"@",Node] all strings , all optional except Name
     case string:tokens(TableName, ".") of
         [R2] ->         ["",""|parse_simple_name(R2)];
         [Schema|R1] ->  [Schema,"."|parse_simple_name(string:join(R1,"."))]
@@ -2418,7 +2418,7 @@ lock(LockItem, LockKind) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) ->
     catch drop_table(meta_table_3),
@@ -2427,7 +2427,7 @@ teardown(_) ->
     catch drop_table(tpTest_1000@),
     catch drop_table(test_config),
     catch drop_table(fakelog_1@),
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

@@ -1163,7 +1163,7 @@ if_call_mfa(IsSec,Fun,Args) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
-    ?imem_test_setup(),
+    ?imem_test_setup,
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(tuple_test),
     catch imem_meta:drop_table(fun_test).
@@ -1173,7 +1173,7 @@ teardown(_SKey) ->
     catch imem_meta:drop_table(tuple_test),
     catch imem_meta:drop_table(fun_test),
     ?LogDebug("test teardown....~n",[]),
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {timeout, 20000, 

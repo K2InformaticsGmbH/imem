@@ -976,12 +976,12 @@ mnesia_table_read_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) ->
     catch drop_table(imem_table_bag),
     catch drop_table(imem_table_123),
-    imem:stop().
+    ?imem_test_teardown.
 
 db_test_() ->
     {
@@ -999,10 +999,10 @@ table_operations(_) ->
         SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
 
-        ?LogDebug("---TEST---~p:test_mnesia~n", [?MODULE]),
+        ?LogDebug("---TEST---~p:test_mnesia", [?MODULE]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 

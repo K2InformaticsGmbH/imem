@@ -1439,10 +1439,10 @@ hex(X) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() ->
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) ->
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

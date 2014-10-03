@@ -79,14 +79,14 @@ if_call_mfa(IsSec,Fun,Args) ->
     end.
 
 setup() -> 
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_SKey) -> 
     catch imem_meta:drop_table(member_test),
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

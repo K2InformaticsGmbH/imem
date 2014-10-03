@@ -599,12 +599,12 @@ snap_err(P,A) -> ?Error(P,A).
                            || F <- filelib:wildcard("*.*", __Dir)]).
 
 setup() ->
-    ?imem_test_setup(),
+    ?imem_test_setup,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapDir.
 
 teardown(_) ->
-    imem:stop().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

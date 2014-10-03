@@ -232,7 +232,6 @@ gen_iff_binterm_list_pattern(Pattern) ->
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function()) -> list().
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) ->
-    %% TODO: Should raise an error if the regexp strategy is not present but a pattern is found.
     case is_regexp_search(SearchStrategies, SearchTerm) of
         true ->
             preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff);
@@ -249,8 +248,8 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) ->
 
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),tuple()) -> list().
-preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Cont) ->
-    [].     %% ToDo: implement
+preview(_IndexTable,_ID,_Type,_SearchStrategies,_SearchTerm,_Limit,_Iff,_Cont) ->
+    [].     %% ToDo: implement continuation search
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
     % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
@@ -266,7 +265,7 @@ is_regexp_search(SearchStrategies, SearchTerm) ->
         _ ->
             case lists:member(re_match, SearchStrategies) of
                 true -> true;
-                false -> false %% TODO: Change this for a clienterror
+                false -> ?ClientError({"Wildcard search is not enabled",SearchTerm})
             end
     end.
 

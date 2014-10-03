@@ -930,7 +930,7 @@ get_permission_cache(SKey, Permission) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) -> 
     SKey=?imem_test_admin_login(),
@@ -939,7 +939,7 @@ teardown(_) ->
     catch imem_role:delete(SKey, test_role),
     catch imem_seco:logout(SKey),
     catch imem_meta:drop_table(user_table_123),
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

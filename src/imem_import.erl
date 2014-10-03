@@ -46,13 +46,13 @@ import_data(_HS) ->
 -include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) ->
     % catch imem_meta:drop_table(import_test_3), 
     % catch imem_meta:drop_table(import_test_2), 
     % catch imem_meta:drop_table(import_test_1), 
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

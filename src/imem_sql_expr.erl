@@ -1372,13 +1372,13 @@ sort_fun_impl(_,F,_) ->                  F.
 -include_lib("eunit/include/eunit.hrl").
 
 setup() -> 
-    ?imem_test_setup().
+    ?imem_test_setup.
 
 teardown(_) ->
     catch imem_meta:drop_table(meta_table_3), 
     catch imem_meta:drop_table(meta_table_2), 
     catch imem_meta:drop_table(meta_table_1), 
-    ?imem_test_teardown().
+    ?imem_test_teardown.
 
 db_test_() ->
     {

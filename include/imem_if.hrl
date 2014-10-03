@@ -39,14 +39,12 @@
         end
     ).
 
--define(imem_test_setup, fun() ->
+
+-define(imem_test_setup, 
       application:load(imem),
       application:set_env(imem, mnesia_node_type, disc),
       imem:start()
-    end
     ).
 
--define(imem_test_teardown, fun() ->
-      imem:stop()
-    end
-    ).
+-define(imem_test_teardown, imem:stop() ).
+
