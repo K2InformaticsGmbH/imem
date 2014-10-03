@@ -72,12 +72,12 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
         FilterWithFun ->        ?ClientError({"Bad filter with function", FilterWithFun})
     end,
     NewIdx3 = NewIdx2#ddIdxDef{type = imem_index:index_type(IndexType)},
-    create_index(SKey, IndexType, Table, [NewIdx3|IndexDefs], IsSec).
+    create_sql_index(SKey, Table, [NewIdx3|IndexDefs], IsSec).
 
-create_index(SKey, IndexType, TableName, [#ddIdxDef{}|_] = IndexDefinitions, IsSec) ->
+create_sql_index(SKey, TableName, [#ddIdxDef{}|_] = IndexDefinitions, IsSec) ->
     if_call_mfa(IsSec, create_or_replace_index, [SKey, TableName, IndexDefinitions]);
-create_index(_SKey, IndexType, TableName, IndexDefinitions, _IsSec) ->
-    ?ClientError({"Index definition error", {IndexType, TableName, IndexDefinitions}}).
+create_sql_index(_SKey, TableName, IndexDefinitions, _IsSec) ->
+    ?ClientError({"Index definition error", {TableName, IndexDefinitions}}).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
