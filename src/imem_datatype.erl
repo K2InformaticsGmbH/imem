@@ -85,6 +85,8 @@
         , io_to_decimal/3
         , io_to_float/2
         , io_to_fun/2, io_to_fun/3
+        , io_to_integer/1
+        , io_to_integer/2
         , io_to_integer/3
         , io_to_ipaddr/1        
         , io_to_ipaddr/2
@@ -513,6 +515,12 @@ io_to_pid(Val) when is_binary(Val) ->
     list_to_pid(binary_to_list(Val));
 io_to_pid(Val) when is_list(Val) ->
     list_to_pid(Val).
+
+io_to_integer(Val) ->
+    io_to_integer(Val,undefined,0).
+
+io_to_integer(Val,Len) ->
+    io_to_integer(Val,Len,0).
 
 io_to_integer(Val,0,Prec) ->
     io_to_integer(Val,undefined,Prec);

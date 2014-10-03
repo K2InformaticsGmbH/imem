@@ -172,7 +172,7 @@ vnf_integer(B) when is_binary(B) ->
         I when is_integer(I) -> I;
         _ ->                    ?nav
     end;
-vnf_integer(L) when is_list(L) -> 
+vnf_integer(L) when is_list(L) ->
     case (catch imem_datatype:io_to_integer(L)) of
         I when is_integer(I) -> I;
         _ ->                    ?nav
