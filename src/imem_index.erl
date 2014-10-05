@@ -138,59 +138,61 @@ new_hash(Value,IndexTable,ID,[R|Ranges]) ->
 %% Value normalisîng funs
 %% ===================================================================
 
-vnf_identity(X) -> X.
+vnf_identity(X) -> [X].
 
-vnf_lcase_ascii(<<"\"\"">>) -> <<>>; 
+vnf_lcase_ascii(<<"\"\"">>) -> [<<>>]; 
 vnf_lcase_ascii(B) when is_binary(B) -> 
     %% unicode_string_only_ascii(string:to_lower(unicode:characters_to_list(B, utf8)));
-    binstr_only_ascii(
+    [binstr_only_ascii(
         binstr_accentfold(
             binstr_to_lower(B)
             )
-        );
+        )
+    ];
 vnf_lcase_ascii(Val) -> 
 	% unicode_string_only_ascii(io_lib:format("~p",[Val])).
     BinStr = try io_lib:format("~s",[Val])
              catch error:badarg -> io_lib:format("~p",[Val]) end,
-    binstr_only_ascii(
+    [binstr_only_ascii(
         binstr_accentfold(
             binstr_to_lower(
                 unicode:characters_to_binary(BinStr)
                 )
             )
-        ).
+        )
+    ].
 
-vnf_lcase_ascii_ne(<<"\"\"">>) -> ?nav; 
-vnf_lcase_ascii_ne(<<>>) -> ?nav;
+vnf_lcase_ascii_ne(<<"\"\"">>) -> [?nav]; 
+vnf_lcase_ascii_ne(<<>>) -> [?nav];
 vnf_lcase_ascii_ne(Text) -> vnf_lcase_ascii(Text).
 
-vnf_integer(I) when is_integer(I) -> I;
-vnf_integer(F) when is_float(F) -> round(F);
-vnf_integer(A) when is_atom(A) -> ?nav; 
+vnf_integer(I) when is_integer(I) -> [I];
+vnf_integer(F) when is_float(F) -> [round(F)];
+vnf_integer(A) when is_atom(A) -> [?nav]; 
 vnf_integer(B) when is_binary(B) -> 
     case (catch imem_datatype:io_to_integer(B)) of
-        I when is_integer(I) -> I;
-        _ ->                    ?nav
+        I when is_integer(I) -> [I];
+        _ ->                    [?nav]
     end;
 vnf_integer(L) when is_list(L) ->
     case (catch imem_datatype:io_to_integer(L)) of
-        I when is_integer(I) -> I;
-        _ ->                    ?nav
+        I when is_integer(I) -> [I];
+        _ ->                    [?nav]
     end.
 
 
-vnf_float(I) when is_integer(I) -> 1.0 * I;
-vnf_float(F) when is_float(F) -> F;
-vnf_float(A) when is_atom(A) -> ?nav; 
+vnf_float(I) when is_integer(I) -> [1.0 * I];
+vnf_float(F) when is_float(F) -> [F];
+vnf_float(A) when is_atom(A) -> [?nav]; 
 vnf_float(B) when is_binary(B) -> 
     case (catch imem_datatype:io_to_float(B)) of
-        I when is_integer(I) -> I;
-        _ ->                    ?nav
+        F when is_float(F) ->   [F];
+        _ ->                    [?nav]
     end;
 vnf_float(L) when is_list(L) -> 
     case (catch imem_datatype:io_to_float(L)) of
-        I when is_integer(I) -> I;
-        _ ->                    ?nav
+        F when is_float(F) ->   [F];
+        _ ->                    [?nav]
     end.
 
 
@@ -1029,8 +1031,8 @@ iff_functions(_) ->
 
 string_operations(_) ->
     ?LogDebug("---TEST---~p:string_operations~n", [?MODULE]),
-    ?assertEqual(<<"table">>, vnf_lcase_ascii(<<"täble"/utf8>>)),
-    ?assertEqual(<<"tuble">>, vnf_lcase_ascii(<<"tüble"/utf8>>)).
+    ?assertEqual([<<"table">>], vnf_lcase_ascii(<<"täble"/utf8>>)),
+    ?assertEqual([<<"tuble">>], vnf_lcase_ascii(<<"tüble"/utf8>>)).
 
 binstr_accentfold_test_() ->
     %UpperCaseAcc = <<"À Á Â Ã Ä Å Æ Ç È É Ê Ë Ì Í Î Ï Ð Ñ Ò Ó Ô Õ Ö Ø Ù Ú Û Ü Ý Þ Ÿ Œ Š Ž"/utf8>>,
@@ -1062,15 +1064,15 @@ binstr_casemod_test_()->
 
 -define(TL,unicode:characters_to_list).
 vnf_lcase_ascii_test_() ->
-    [{"empty",?_assertEqual(<<>>,vnf_lcase_ascii(<<"">>))},
-     {"from binary0",?_assertEqual(<<"table">>,vnf_lcase_ascii(<<"täble"/utf8>>))},
-     {"from binary1",?_assertEqual(<<"tuble">>,vnf_lcase_ascii(<<"tüble"/utf8>>))},
-     {"from binary2",?_assertEqual("aaaeeeuu",?TL(vnf_lcase_ascii(<<"AÀäëéÈüÜ"/utf8>>)))},
-     {"from list",?_assertEqual("aaaeee",?TL(vnf_lcase_ascii("AÀäëéÈ")))},
-     {"from atom",?_assertEqual("atom",?TL(vnf_lcase_ascii(aTom)))},
-     {"from tuple",?_assertEqual("{\"aaaeee\"}",?TL(vnf_lcase_ascii({"AÀäëéÈ"})))},
-     {"from integer",?_assertEqual("12798",?TL(vnf_lcase_ascii(12798)))},
-     {"from random",?_assertEqual("g:xr*a\\6r",?TL(vnf_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>)))}
+    [{"empty",?_assertEqual([<<>>],vnf_lcase_ascii(<<"">>))},
+     {"from binary0",?_assertEqual([<<"table">>],vnf_lcase_ascii(<<"täble"/utf8>>))},
+     {"from binary1",?_assertEqual([<<"tuble">>],vnf_lcase_ascii(<<"tüble"/utf8>>))},
+     {"from binary2",?_assertEqual([<<"aaaeeeuu">>],vnf_lcase_ascii(<<"AÀäëéÈüÜ"/utf8>>))},
+     {"from list",?_assertEqual([<<"aaaeee">>],vnf_lcase_ascii("AÀäëéÈ"))},
+     {"from atom",?_assertEqual([<<"atom">>],vnf_lcase_ascii(aTom))},
+     {"from tuple",?_assertEqual([<<"{\"aaaeee\"}">>],vnf_lcase_ascii({"AÀäëéÈ"}))},
+     {"from integer",?_assertEqual([<<"12798">>],vnf_lcase_ascii(12798))},
+     {"from random",?_assertEqual([<<"g:xr*a\\6r">>],vnf_lcase_ascii(<<71,191,58,192,88,82,194,42,223,65,187,19,92,145,228,248, 26,54,196,114>>))}
      ].
 
 binstr_only_ascii_test_() ->

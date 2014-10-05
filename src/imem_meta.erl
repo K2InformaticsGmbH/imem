@@ -272,8 +272,8 @@ init_create_check_table(TableName,RecDef,Opts,Owner) ->
         {'ClientError',{"Table already exists", _}} = R ->   
             ?Info("creating ~p results in ~p", [TableName,"Table already exists"]),
             R;
-        {'ClientError',Reason}=Res ->   
-            ?Info("creating ~p results in ~p", [TableName,Reason]),
+        {'ClientError',_Reason}=Res ->   
+            ?Info("creating ~p results in ~p", [TableName,_Reason]),
             Res;
         Result ->                   
             ?Info("creating ~p results in ~p", [TableName,Result]),
@@ -282,11 +282,11 @@ init_create_check_table(TableName,RecDef,Opts,Owner) ->
 
 init_create_trigger(TableName,TriggerStr) ->
     case (catch create_trigger(TableName,TriggerStr)) of
-        {'ClientError',{"Trigger already exists",{Table,_}}} = Res ->   
-            ?Info("creating trigger for ~p results in ~p", [Table,"Trigger exists in different version"]),
+        {'ClientError',{"Trigger already exists",{_Table,_}}} = Res ->   
+            ?Info("creating trigger for ~p results in ~p", [_Table,"Trigger exists in different version"]),
             Res;
-        {'ClientError',{"Trigger already exists", Table}} = R ->   
-            ?Info("creating trigger for ~p results in ~p", [Table,"Trigger already exists"]),
+        {'ClientError',{"Trigger already exists", _Table}} = R ->   
+            ?Info("creating trigger for ~p results in ~p", [_Table,"Trigger already exists"]),
             R;
         Result ->                   
             ?Info("creating trigger for ~p results in ~p", [TableName,Result]),
@@ -303,11 +303,11 @@ init_create_or_replace_trigger(TableName,TriggerStr) ->
 
 init_create_index(TableName,IndexDefinition) when is_list(IndexDefinition) ->
     case (catch create_index(TableName,IndexDefinition)) of
-        {'ClientError',{"Index already exists",{Table,_}}} = Res ->   
-            ?Info("creating index for ~p results in ~p", [Table,"Index exists in different version"]),
+        {'ClientError',{"Index already exists",{_Table,_}}} = Res ->   
+            ?Info("creating index for ~p results in ~p", [_Table,"Index exists in different version"]),
             Res;
-        {'ClientError',{"Index already exists", Table}} = R ->   
-            ?Info("creating index for ~p results in ~p", [Table,"Index already exists"]),
+        {'ClientError',{"Index already exists", _Table}} = R ->   
+            ?Info("creating index for ~p results in ~p", [_Table,"Index already exists"]),
             R;
         Result ->                   
             ?Info("creating index for ~p results in ~p", [TableName,Result]),
@@ -2342,8 +2342,11 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
     KVPs = case element(Pos,Rec) of
         ?nav -> [];
         RV ->   case Vnf(RV) of         %% apply value normalising function
-                    ?nav -> [];
-                    NVal -> [{Key,NVal}]
+                    ?nav ->     [];
+                    [?nav] ->   [];
+                    [] ->       [];
+                    [NVal] ->   [{Key,NVal}];
+                    LVal ->     [{Key,V} || V <- LVal,V /= ?nav]
                 end
     end,
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)], %% apply index filter function
@@ -2360,12 +2363,16 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
         false ->   
             Match = imem_json:eval(PT,Binds),
             case Match of
-                MV when is_binary(MV);
-                        is_number(MV) ->    [{Key,V} || V <- [Vnf(M) || M  <- [MV]], V /= ?nav];
-                ML when is_list(ML) ->      [{Key,V} || V <- [Vnf(M) || M  <- ML], V /= ?nav];
-                {nomatch, {path_not_found, _}} ->          [];
-                {nomatch, {property_not_found, _, _}} ->   [];
-                {nomatch, {index_out_of_bound, _, _}} ->   [];
+                MV when is_binary(MV);is_number(MV) ->    
+                    [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- [MV]]), V /= ?nav];
+                ML when is_list(ML) ->      
+                    [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- ML]), V /= ?nav];
+                {nomatch, {path_not_found, _}} ->          
+                    [];
+                {nomatch, {property_not_found, _, _}} ->   
+                    [];
+                {nomatch, {index_out_of_bound, _, _}} ->   
+                    [];
                 {error, {operation_not_supported, E1}} ->
                     ?ClientError({"Index error", {operation_not_supported, E1}});
                 {error, {unimplimented, E2}} ->
@@ -2522,11 +2529,11 @@ meta_operations(_) ->
         Idx1Def = #ddIdxDef{id=1,name= <<"string index on b1">>,type=ivk,pl=[<<"b1">>]},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx1Def])),
         ?assertEqual([], read(idx_meta_table_1)),
-        ?assertEqual(<<"table">>, imem_index:vnf_lcase_ascii_ne(<<"täble"/utf8>>)),
+        ?assertEqual([<<"table">>], imem_index:vnf_lcase_ascii_ne(<<"täble"/utf8>>)),
         ?assertEqual({meta_table_1,"meta",<<"täble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta",<<"täble"/utf8>>,"1"})),
         ?assertEqual([{meta_table_1,"meta",<<"täble"/utf8>>,"1"}], read(meta_table_1)),
         ?assertEqual([#ddIndex{stu={1,<<"table">>,"meta"}}], read(idx_meta_table_1)),
-        ?assertEqual(<<"tuble">>, imem_index:vnf_lcase_ascii_ne(<<"tüble"/utf8>>)),
+        ?assertEqual([<<"tuble">>], imem_index:vnf_lcase_ascii_ne(<<"tüble"/utf8>>)),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, update(meta_table_1, {{meta_table_1,"meta",<<"täble"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
         ?assertEqual([{meta_table_1,"meta",<<"tüble"/utf8>>,"1"}], read(meta_table_1)),
         ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
@@ -2610,8 +2617,23 @@ meta_operations(_) ->
         insert(meta_table_1, {meta_table_1,"11",<<"11">>,"11"}),
         ?assertEqual(4, length(read(idx_meta_table_1))),
         insert(meta_table_1, {meta_table_1,"12",<<"12">>,"c112"}),
-        ?assertEqual(4, length(read(idx_meta_table_1))),
+        IdxExpect4 = [{ddIndex,{4,1,"meta"},0}
+                     ,{ddIndex,{4,2,"meta1"},0}
+                     ,{ddIndex,{4,3,"json1"},0}
+                     ,{ddIndex,{4,11,"11"},0}
+                     ],
+        ?assertEqual(IdxExpect4, read(idx_meta_table_1)),
 
+        Vnf5 = <<"fun(__X) -> case imem_index:vnf_integer(__X) of ['$not_a_value'] -> ['$not_a_value']; [__V] -> [2*__V] end end">>,
+        Idx5Def = #ddIdxDef{id=5,name= <<"integer times 2 on b1">>,type=ivk,pl=[<<"c1">>],vnf = Vnf5},
+        ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx5Def])),
+        ?LogDebug("idx_meta_table_1 ~n~p",[read(idx_meta_table_1)]),
+        IdxExpect5 = [{ddIndex,{5,2,"meta"},0}
+                     ,{ddIndex,{5,4,"meta1"},0}
+                     ,{ddIndex,{5,6,"json1"},0}
+                     ,{ddIndex,{5,22,"11"},0}
+                     ],
+        ?assertEqual(IdxExpect5, read(idx_meta_table_1)),
 
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
