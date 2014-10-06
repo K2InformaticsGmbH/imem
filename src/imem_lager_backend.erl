@@ -13,10 +13,9 @@
 -export([test/0]).
 
 -record(state, {
+        tn_event,
         level=info,
-        tables=[],
-        default_table=?MODULE,
-        default_record=?MODULE}).
+        table}).
 
 
 %%%===================================================================
@@ -43,51 +42,28 @@ trace(Filter, Level) ->
 %%%===================================================================
 %%% gen_event callbacks
 %%%===================================================================
-setup_table(Name, []) ->
-    setup_table(Name, record_info(fields, ddLog), ?ddLog, #ddLog{});
-setup_table(Name, Configuration) ->
-    LogFieldDefs = [
-            {logTime, timestamp},
-            {logLevel, atom},
-            {pid, pid},
-            {module, atom},
-            {function, atom},
-            {line, integer},
-            {node, atom},
-            {fields, list},
-            {message, binary},
-            {stacktrace, list}
-            ],
-    % KV-pairs of field/type definitions
-    FieldDefs = LogFieldDefs ++ proplists:get_value(fields, Configuration, []),
-    {Fields, Types} = lists:unzip(FieldDefs),
-    DefFun = fun
-        (integer) -> 0;
-        (list) -> [];
-        (binstr) -> <<"">>;
-        (binary) -> <<>>;
-        (_) -> undefined
-    end,
-    Defaults = list_to_tuple([Name|[DefFun(T) || T <- Types]]),
-    setup_table(Name, Fields, Types, Defaults).
-
 setup_table(Name, Fields, Types, Defaults) ->
     RecordName = element(1, Defaults),
-    imem_meta:create_check_table(
-      Name, {Fields, Types, Defaults},
-      [{record_name, RecordName}, {type, ordered_set},
-       {purge_delay,430000}],
-      lager_imem).
+    try
+        imem_meta:create_check_table(
+          Name, {Fields, Types, Defaults},
+          [{record_name, RecordName}, {type, ordered_set},
+           {purge_delay,430000}],
+          lager_imem),
+        mpro_dal:unsubscribe({table, ddConfig, simple}),
+        mpro_dal:subscribe({table, ddConfig, simple})
+    catch
+        _:Error -> throw(Error)
+    end.
 
 init(Params) ->
     State = state_from_params(#state{}, Params),
-    [setup_table(Name, Configuration)
-     || {Name, Configuration} <- State#state.tables
-                                 ++ [{State#state.default_table, []}]],
+    setup_table(State#state.table,
+                record_info(fields, ddLog),
+                ?ddLog, #ddLog{}),
     {ok, State}.
 
-handle_event({log, LagerMsg}, State = #state{tables=Tables, default_table=DefaultTable,
-                                             default_record=DefaultRecord, level = LogLevel}) ->
+handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = State) ->
     case lager_util:is_loggable(LagerMsg, LogLevel, ?MODULE) of
         true ->
             Level = lager_msg:severity_as_int(LagerMsg),
@@ -107,22 +83,12 @@ handle_event({log, LagerMsg}, State = #state{tables=Tables, default_table=Defaul
             LogRecord =
             case LogTable == DefaultTable of
                 true ->
-                    DefaultRecord;
+                    ddLog;
                 false ->
                     %% LogTable == LogRecord
                     LogTable
             end,
 
-            Node = node(),
-            Configuration = proplists:get_value(LogRecord, Tables, []),
-
-            {FieldData, Fields1} =
-            case proplists:get_value(fields, Configuration) of
-                undefined ->
-                    {[], Fields};
-                L ->
-                    {[proplists:get_value(Field, Fields) || {Field, _} <- L], []}
-            end,
             NPid = case is_list(Pid) of
                 true ->
                     list_to_pid(Pid);
@@ -130,30 +96,25 @@ handle_event({log, LagerMsg}, State = #state{tables=Tables, default_table=Defaul
                     Pid
             end,
 
-            Entry =
-                     lists:append([
-                        [
-                            LogRecord,
-                            Date,
-                            lager_util:num_to_level(Level),
-                            NPid,
-                            Mod,
-                            Fun,
-                            Line,
-                            Node,
-                            Fields1
-                        ],
-                        [
-                            list_to_binary(Message)
-                        ],
-                        [
-                            [] %  Stacktrace
-                        ],
-                        FieldData
-                    ]),
-
-            EntryTuple = list_to_tuple(Entry),
-            imem_meta:dirty_write(LogTable, EntryTuple);
+            EntryTuple = list_to_tuple([LogRecord,
+                                        Date,
+                                        lager_util:num_to_level(Level),
+                                        NPid,
+                                        Mod,
+                                        Fun,
+                                        Line,
+                                        node(),
+                                        Fields,
+                                        list_to_binary(Message),
+                                        [] %  Stacktrace
+                                       ]),
+            try
+                imem_meta:dirty_write(LogTable, EntryTuple)
+            catch
+                _:Error ->
+                    io:format(user, "[~p:~p] failed to write to ~p, ~p~n",
+                              [?MODULE, ?LINE, LogTable, Error])
+            end;
         false ->
             ok
     end,
@@ -170,6 +131,10 @@ handle_call({set_loglevel, Level}, State) ->
 handle_call(get_loglevel, State = #state{level = Level}) ->
     {ok, Level, State}.
 
+handle_info({mnesia_table_event, {write,{ddConfig,Match,DefaultTable,_,_},_}},
+            #state{tn_event = Match, table=OldDefaultTable} = State) ->
+    io:format(user, "Changing default table from ~p to ~p~n", [OldDefaultTable, DefaultTable]),
+    {ok, State#state{table=DefaultTable}};
 handle_info(_Info, State) ->
     %% we'll get (unused) log rotate messages
     {ok, State}.
@@ -184,18 +149,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 state_from_params(OrigState = #state{level = OldLevel,
-                                     default_table = OldDefaultTableName,
-                                     default_record = OldDefaultRecord,
-                                     tables = OldTables}, Params) ->
-    Tables = proplists:get_value(tables, Params, OldTables),
+                                     table = OldTable,
+                                     tn_event = OldTableEvent}, Params) ->
     Level = proplists:get_value(level, Params, OldLevel),
-    DefaultTableName = proplists:get_value(default_table, Params, OldDefaultTableName),
-    DefaultRecord = proplists:get_value(default_record, Params, OldDefaultRecord),
+    Table = proplists:get_value(table, Params, OldTable),
+    TableEvent = proplists:get_value(tn_event, Params, OldTableEvent),
 
     OrigState#state{level=lager_util:level_to_num(Level),
-                    default_table=DefaultTableName,
-                    default_record=DefaultRecord,
-                    tables=Tables}.
+                    table=Table,
+                    tn_event = TableEvent}.
 
 %%%===================================================================
 %%% Tests
@@ -204,17 +166,9 @@ state_from_params(OrigState = #state{level = OldLevel,
 test() ->
     application:load(lager),
     application:set_env(lager, handlers, [{lager_console_backend, debug},
-                                          {lager_imem, [{level, info},
-                                                        {default_table, 'ddLog@'},
-                                                        {default_record, ddLog},
-                                                        {tables,[{customers, [
-                                                                {fields, [
-                                                                        {key, integer},
-                                                                        {client_id, list}
-                                                                    ]}
-                                                                ]}]
-                                                            }
-                                                        ]},
+                                          {?MODULE, [{level, info},
+                                                     {table, 'ddLog@'},
+                                                    ]},
                                           {lager_file_backend,
                                            [{"error.log", error, 10485760, "$D0", 5},
                                             {"console.log", info, 10485760, "$D0", 5}]}]),
