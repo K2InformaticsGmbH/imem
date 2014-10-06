@@ -2374,6 +2374,9 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
             Match = imem_json:eval(PT,Binds),
             case Match of
                 MV when is_binary(MV);is_number(MV) ->    
+                    % ?Info("Value from json ~p",[MV]),
+                    % ?Info("Vnf evaluates to ~p",[Vnf(MV)]),
+                    % ?Info("lists:flatten evaluates to ~p",[lists:flatten([Vnf(M1) || M1  <- [MV]])]),
                     [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- [MV]]), V /= ?nav];
                 ML when is_list(ML) ->      
                     [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- ML]), V /= ?nav];

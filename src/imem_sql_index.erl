@@ -25,8 +25,8 @@ exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec)
 
 exec(SKey, {'create index', IndexType, IndexName, TableName
             , IndexDefn, NormWithFun, FilterWithFun} = _ParseTree
-     , _Stmt, _Opts, IsSec) ->
-    % ?Info("Create Index Parse Tree~n~p~n", [_ParseTree]),
+            , _Stmt, _Opts, IsSec) ->
+    ?Info("Create Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
     if 
@@ -56,28 +56,19 @@ exec(SKey, {'create index', IndexType, IndexName, TableName
         _ -> 
             ok
     end,
-    MaxIdx = if 
-        length(IndexDefs) =:= 0 ->  0;
-        true ->                     lists:max([IdxDef#ddIdxDef.id || IdxDef <- IndexDefs])
+    MaxIdx = lists:max([0|[IdxDef#ddIdxDef.id || IdxDef <- IndexDefs]]),
+    Vnf = case NormWithFun of
+        {} ->                   #ddIdxDef.vnf;
+        {norm, NormF} ->        NormF;
+        NormWithFun ->          ?ClientError({"Bad norm with function", NormWithFun})
     end,
-    NewIdx = #ddIdxDef{id = MaxIdx+1, name = Index, pl = IndexDefn},
-    NewIdx1 = case NormWithFun of
-        {} ->             NewIdx;
-        {norm, NormF} ->  NewIdx#ddIdxDef{vnf = NormF};
-        NormWithFun ->    ?ClientError({"Bad norm with function", NormWithFun})
-    end,
-    NewIdx2 = case FilterWithFun of
-        {} ->                   NewIdx1;
-        {filter, FilterF} ->    NewIdx#ddIdxDef{iff = FilterF};
+    Iff = case FilterWithFun of
+        {} ->                   #ddIdxDef.iff;
+        {filter, FilterF} ->    FilterF;
         FilterWithFun ->        ?ClientError({"Bad filter with function", FilterWithFun})
     end,
-    NewIdx3 = NewIdx2#ddIdxDef{type = imem_index:index_type(IndexType)},
-    create_sql_index(SKey, Table, [NewIdx3|IndexDefs], IsSec).
-
-create_sql_index(SKey, TableName, [#ddIdxDef{}|_] = IndexDefinitions, IsSec) ->
-    if_call_mfa(IsSec, create_or_replace_index, [SKey, TableName, IndexDefinitions]);
-create_sql_index(_SKey, TableName, IndexDefinitions, _IsSec) ->
-    ?ClientError({"Index definition error", {TableName, IndexDefinitions}}).
+    NewIdx = #ddIdxDef{id=MaxIdx+1, name=Index, type=imem_index:index_type(IndexType), pl=IndexDefn},
+    if_call_mfa(IsSec, create_or_replace_index, [SKey, TableName, [NewIdx|IndexDefs]]).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

@@ -507,9 +507,9 @@ strip_quotes([H|T]=Str) ->
 
 
 io_to_atom(Val) when is_binary(Val) ->
-    binary_to_atom(Val, utf8);
+    binary_to_atom(strip_quotes(Val), utf8);
 io_to_atom(Val) when is_list(Val) ->
-    list_to_atom(Val).
+    list_to_atom(strip_quotes(Val)).
 
 io_to_pid(Val) when is_binary(Val) ->
     list_to_pid(binary_to_list(Val));
