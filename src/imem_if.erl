@@ -555,6 +555,8 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 '$end_of_table' ->
                                     % ?Info("[~p] got empty table~n", [Pid]),
                                     Pid ! {row, [?sot,?eot]};
+                                {aborted, Reason} ->
+                                    exit(Reason);
                                 {Rows, Contd1} ->
                                     % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
@@ -573,6 +575,8 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 '$end_of_table' ->
                                     % ?Info("[~p] complete after ~n",[Pid,Contd0]),
                                     Pid ! {row, ?eot};
+                                {aborted, Reason} ->
+                                    exit(Reason);
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->

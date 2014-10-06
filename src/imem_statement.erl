@@ -328,7 +328,9 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
             % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-            RecName = imem_meta:table_record_name(Table),
+            RecName = try imem_meta:table_record_name(Table)
+                      catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
+                      end,
             FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
                                  ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
                                  ,opts=Opts,tailSpec=TailSpec
@@ -351,7 +353,9 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
                     % ?Debug("fetch opts ~p~n", [Opts]),
-                    RecName = imem_meta:table_record_name(Table), 
+                    RecName = try imem_meta:table_record_name(Table)
+                              catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
+                              end,
                     FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
                                           ,metarec=MR,blockSize=BlockSize
                                           ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
@@ -595,9 +599,12 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetchCtx=FetchCtx0}=State) ->
     % ?Debug("received expected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=undefined},   
-    {noreply, State#state{fetchCtx=FetchCtx1}}; 
-handle_info({'DOWN', _Ref, process, _Pid, _Reason}, State) ->
-    ?Debug("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
+    {noreply, State#state{fetchCtx=FetchCtx1}};
+handle_info({'DOWN', Ref, process, Pid, {aborted, {no_exists,{_TableName,_}}=Reason}}, State) ->
+    handle_info({'DOWN', Ref, process, Pid, Reason}, State);
+handle_info({'DOWN', Ref, process, Pid, {no_exists,{TableName,_}}=Reason}, #state{reply=Sock,fetchCtx=#fetchCtx{monref=Ref}}=State) ->
+    ?Debug("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [Pid, Ref, Reason]),
+    send_reply_to_client(Sock, {error, {'ClientError', {"Table does not exist", TableName}}}),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(_Info, State) ->
     ?Debug("received unsolicited info ~p~nin state ~p~n", [_Info, State]),
