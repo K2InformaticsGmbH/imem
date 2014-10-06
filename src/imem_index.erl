@@ -31,7 +31,7 @@
         ,iff_list_pattern/2         %% used in generated iff
         ]).
 
--export([gen_iff_binterm_list_pattern/1      %% used to generated iff fun from key pattern
+-export([gen_iff_binterm_list_pattern/1      %% used to generate iff fun from key pattern
         ]).
 
 -export([preview/7      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) -> [{Strategy,Key,Value,Stu}]
@@ -221,10 +221,10 @@ iff_list_pattern([H|R],[H|P]) ->  iff_list_pattern(R,P);
 iff_list_pattern([_|R],['_'|P]) -> iff_list_pattern(R,P);
 iff_list_pattern(_,_) -> false.
 
-gen_iff_binterm_list_pattern(Pattern) when is_list(Pattern) -> 
-    <<"fun({__Key,_}) -> imem_index:iff_list_pattern(imem_datatype:binterm_to_term(__Key),Pattern) end">>;
-gen_iff_binterm_list_pattern(Pattern) ->
-    ?ClientError({"Expecting a list pattern got",Pattern}).
+gen_iff_binterm_list_pattern(__Pattern) when is_list(__Pattern) -> 
+    fun({__Key,_}) -> imem_index:iff_list_pattern(imem_datatype:binterm_to_term(__Key),__Pattern) end;
+gen_iff_binterm_list_pattern(__Pattern) ->
+    ?ClientError({"Expecting a list pattern with optional wildcards '_' and '*'",__Pattern}).
 
 
 %% ===================================================================
