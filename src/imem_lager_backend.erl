@@ -10,13 +10,14 @@
          terminate/2,
          code_change/3]).
 -export([trace/1, trace/2]).
--export([test/0]).
+%% -export([test/0]).
 
 -record(state, {
         tn_event,
-        level=info,
+        level = info,
+        application,
+        modules = [],
         table}).
-
 
 %%%===================================================================
 %%% trace
@@ -72,53 +73,62 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
             Message = lager_msg:message(LagerMsg),
             Metadata = lager_msg:metadata(LagerMsg),
             Mod = proplists:get_value(module, Metadata),
-            Fun = proplists:get_value(function, Metadata),
-            Line = proplists:get_value(line, Metadata),
-
-            Pid = proplists:get_value(pid, Metadata),
-            Fields = [P || {K,_} = P <- Metadata, K /= node , K /= application, K /= module,
-                           K /= function, K /= line, K /= pid, K /= imem_table],
-
-            LogTable = proplists:get_value(imem_table, Metadata, DefaultTable),
-            LogRecord =
-            case LogTable == DefaultTable of
+            case lists:member(Mod, State#state.modules) of
                 true ->
-                    ddLog;
-                false ->
-                    %% LogTable == LogRecord
-                    LogTable
-            end,
+                    Fun = proplists:get_value(function, Metadata),
+                    Line = proplists:get_value(line, Metadata),
 
-            NPid = case is_list(Pid) of
-                true ->
-                    list_to_pid(Pid);
-                false ->
-                    Pid
-            end,
+                    Pid = proplists:get_value(pid, Metadata),
+                    Fields = [P || {K,_} = P <- Metadata, K /= node , K /= application,
+                                   K /= module, K /= function, K /= line, K /= pid,
+                                   K /= imem_table],
+                    
+                    LogTable = proplists:get_value(imem_table, Metadata, DefaultTable),
+                    LogRecord = if LogTable == DefaultTable -> ddLog;
+                                   true -> LogTable
+                                end,
+                    
+                    NPid = if is_list(Pid) -> list_to_pid(Pid); true -> Pid end,
 
-            EntryTuple = list_to_tuple([LogRecord,
-                                        Date,
-                                        lager_util:num_to_level(Level),
-                                        NPid,
-                                        Mod,
-                                        Fun,
-                                        Line,
-                                        node(),
-                                        Fields,
-                                        list_to_binary(Message),
-                                        [] %  Stacktrace
-                                       ]),
-            try
-                imem_meta:dirty_write(LogTable, EntryTuple)
-            catch
-                _:Error ->
-                    io:format(user, "[~p:~p] failed to write to ~p, ~p~n",
-                              [?MODULE, ?LINE, LogTable, Error])
+                    EntryTuple = list_to_tuple(
+                                   [LogRecord,
+                                    Date,
+                                    lager_util:num_to_level(Level),
+                                    NPid,
+                                    Mod,
+                                    Fun,
+                                    Line,
+                                    node(),
+                                    Fields,
+                                    list_to_binary(Message),
+                                    [] %  Stacktrace
+                                   ]),
+                    try
+                        imem_meta:dirty_write(LogTable, EntryTuple)
+                    catch
+                        _:Error ->
+                            io:format(user, "[~p:~p] failed to write to ~p, ~p~n",
+                                      [?MODULE, ?LINE, LogTable, Error])
+                    end,
+                    {ok, State};
+                false ->
+                    case State#state.modules of
+                        [] ->
+                            Mods = case application:get_key(State#state.application,
+                                                            modules) of
+                                       undefined -> {ok, State};
+                                       {ok, Ms} -> {ok, State#state{modules = Ms}}
+                                   end;
+                        _ ->
+                            %io:format(user, "[~p:~p] log skipped module ~p doesn't"
+                            %                " belong to application ~p~n",
+                            %                [?MODULE, ?LINE, Mod, State#state.application]),
+                            {ok, State}
+                    end
             end;
         false ->
-            ok
-    end,
-    {ok, State};
+            {ok, State}
+    end;
 handle_event({lager_imem_options, Params}, State) ->
     {ok, state_from_params(State, Params)};
 
@@ -150,33 +160,35 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 state_from_params(OrigState = #state{level = OldLevel,
                                      table = OldTable,
+                                     application = OldApplication,
                                      tn_event = OldTableEvent}, Params) ->
     Level = proplists:get_value(level, Params, OldLevel),
     Table = proplists:get_value(table, Params, OldTable),
     TableEvent = proplists:get_value(tn_event, Params, OldTableEvent),
-
+    Application = proplists:get_value(application, Params, OldApplication),
+    Modules = case application:get_key(Application, modules) of
+                  undefined -> OrigState#state.modules;
+                  {ok, Mods} -> Mods
+              end,
     OrigState#state{level=lager_util:level_to_num(Level),
-                    table=Table,
-                    tn_event = TableEvent}.
+                    table=Table, tn_event = TableEvent,
+                    application = Application,
+                    modules = Modules}.
 
-%%%===================================================================
-%%% Tests
-%%%===================================================================
-
-test() ->
-    application:load(lager),
-    application:set_env(lager, handlers, [{lager_console_backend, debug},
-                                          {?MODULE, [{level, info},
-                                                     {table, 'ddLog@'},
-                                                    ]},
-                                          {lager_file_backend,
-                                           [{"error.log", error, 10485760, "$D0", 5},
-                                            {"console.log", info, 10485760, "$D0", 5}]}]),
-    application:set_env(lager, error_logger_redirect, false),
-    lager:start(),
-    lager:info("Test INFO message"),
-    lager:debug("Test DEBUG message"),
-    lager:error("Test ERROR message"),
-    lager:info([{imem_table, customers}, {key, 123456}, {client_id, "abc"}], "TEST debug message"),
-    lager:warning([{a,b}, {c,d}], "Hello", []),
-    lager:info("Info ~p", ["variable"]).
+% test() ->
+%     application:load(lager),
+%     application:set_env(lager, handlers, [{lager_console_backend, debug},
+%                                           {?MODULE, [{level, info},
+%                                                      {table, 'ddLog@'}
+%                                                     ]},
+%                                           {lager_file_backend,
+%                                            [{"error.log", error, 10485760, "$D0", 5},
+%                                             {"console.log", info, 10485760, "$D0", 5}]}]),
+%     application:set_env(lager, error_logger_redirect, false),
+%     lager:start(),
+%     lager:info("Test INFO message"),
+%     lager:debug("Test DEBUG message"),
+%     lager:error("Test ERROR message"),
+%     lager:info([{imem_table, customers}, {key, 123456}, {client_id, "abc"}], "TEST debug message"),
+%     lager:warning([{a,b}, {c,d}], "Hello", []),
+%     lager:info("Info ~p", ["variable"]).
