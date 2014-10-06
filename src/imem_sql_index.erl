@@ -26,49 +26,47 @@ exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec)
 exec(SKey, {'create index', IndexType, IndexName, TableName
             , IndexDefn, NormWithFun, FilterWithFun} = _ParseTree
             , _Stmt, _Opts, IsSec) ->
-    ?Info("Create Index Parse Tree~n~p~n", [_ParseTree]),
-    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
+    ?LogDebug("Create Index Parse Tree~n~p~n", [_ParseTree]),
+    MySchema = imem_meta:schema(),
+    MySchemaName = ?atom_to_binary(MySchema),
+    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),                
     {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
-    if 
-        not (IndexSchema =:= TableSchema) ->
-            ?ClientError({"Index and table are in different schema", {IndexSchema, TableSchema}});
-       true -> 
-            ok
+    Table = case TableSchema of
+        MySchemaName -> list_to_existing_atom(binary_to_list(Tbl)); 
+        undefined ->    list_to_existing_atom(binary_to_list(Tbl)); 
+        _ ->            ?ClientError({"Cannot create index on foreign schema table", TableSchema})
     end,
-    Table = if 
-        TableSchema =:= undefined ->
-            {imem_meta:schema(), list_to_existing_atom(binary_to_list(Tbl))};
-        true ->
-            {list_to_existing_atom(binary_to_list(TableSchema)), list_to_existing_atom(binary_to_list(Tbl))}
+    case IndexSchema of
+        MySchemaName -> ok; 
+        undefined ->    ok; 
+        _ ->            ?ClientError({"Cannot create index in foreign schema", IndexSchema})
     end,
-    IndexDefs = case imem_meta:read(ddTable, Table) of
+    ExistingIndexDefs = case imem_meta:read(ddTable, {MySchema,Table}) of
         [#ddTable{}=D] -> 
             case lists:keysearch(index, 1, D#ddTable.opts) of
-                {value,{index, ExistingIndexDefs}} ->   ExistingIndexDefs;
-                false ->                                []
+                {value,{index, EID}} -> EID;
+                false ->                []
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end,
-    case length([IDf || IDf <- IndexDefs, IDf#ddIdxDef.name =:= Index]) of
-        MatchedIndexes when MatchedIndexes > 0 ->
-            ?ClientError({"Index already exists in table", IndexName, TableName});
-        _ -> 
-            ok
+    case [EII || EII <- ExistingIndexDefs, EII#ddIdxDef.name == Index] of
+        []  ->  ok;
+        _ ->    ?ClientError({"Index already exists for table", {IndexName,TableName}})
     end,
-    MaxIdx = lists:max([0|[IdxDef#ddIdxDef.id || IdxDef <- IndexDefs]]),
+    MaxIdx = lists:max([0|[IdxDef#ddIdxDef.id || IdxDef <- ExistingIndexDefs]]),
     Vnf = case NormWithFun of
-        {} ->                   #ddIdxDef.vnf;
+        {} ->                   (#ddIdxDef{})#ddIdxDef.vnf;
         {norm, NormF} ->        NormF;
         NormWithFun ->          ?ClientError({"Bad norm with function", NormWithFun})
     end,
     Iff = case FilterWithFun of
-        {} ->                   #ddIdxDef.iff;
+        {} ->                   (#ddIdxDef{})#ddIdxDef.iff;
         {filter, FilterF} ->    FilterF;
         FilterWithFun ->        ?ClientError({"Bad filter with function", FilterWithFun})
     end,
-    NewIdx = #ddIdxDef{id=MaxIdx+1, name=Index, type=imem_index:index_type(IndexType), pl=IndexDefn},
-    if_call_mfa(IsSec, create_or_replace_index, [SKey, TableName, [NewIdx|IndexDefs]]).
+    NewIdx = #ddIdxDef{id=MaxIdx+1, name=Index, type=imem_index:index_type(IndexType), pl=IndexDefn, vnf=Vnf, iff=Iff},
+    if_call_mfa(IsSec, create_or_replace_index, [SKey, Table, [NewIdx|ExistingIndexDefs]]).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -245,8 +243,8 @@ test_with_or_without_sec(IsSec) ->
         % Creating a duplicate index (negative test)
         ?assertException(throw
                          , {'ClientError'
-                            , {"Index already exists in table"
-                               , <<"i_col2_age">>, <<"index_test">>}
+                            , {"Index already exists for table"
+                               , {<<"i_col2_age">>, <<"index_test">>}}
                            }
                          , imem_sql:exec(
                              SKey

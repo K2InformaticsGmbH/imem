@@ -1707,7 +1707,9 @@ compile_or_generate(IdxFun) when is_function(IdxFun,1) ->
 compile_or_generate(IdxFun) when is_function(IdxFun,2) ->
     IdxFun;                                                 %% return the arity 2 function for iff
 compile_or_generate(IdxFun) when is_function(IdxFun,0) ->
-    IdxFun().                                               %% arity 0 function is a function generator
+    IdxFun();                                               %% arity 0 function is a function generator
+compile_or_generate(Bad) ->
+    ?ClientError({"Bad index fun",Bad}).
 
 json_pos_list(PathList) -> 
     json_pos_list(PathList,[]).
