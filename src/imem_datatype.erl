@@ -84,7 +84,7 @@
         , io_to_datetime/1
         , io_to_decimal/3
         , io_to_float/2
-        , io_to_fun/2, io_to_fun/3
+        , io_to_fun/1, io_to_fun/2, io_to_fun/3
         , io_to_integer/1
         , io_to_integer/2
         , io_to_integer/3
@@ -1047,13 +1047,22 @@ io_to_binterm(Val) ->
         _:_ -> ?ClientError({})
     end.
 
-io_to_fun(Val,Len) ->
-    Fun = erl_value(Val), 
+io_to_fun(Str) ->
+    Fun = erl_value(Str), 
+    if
+        is_function(Fun) -> 
+            Fun;
+        true ->                 
+            ?ClientError({"Data conversion format error",{'fun',Str}})
+    end.
+
+io_to_fun(Str,Len) ->
+    Fun = erl_value(Str), 
     if
         Len == undefined ->     Fun; 
         is_function(Fun,Len) -> Fun;
         true ->                 
-            ?ClientError({"Data conversion format error",{'fun',Len,Val}})
+            ?ClientError({"Data conversion format error",{'fun',Len,Str}})
     end.
 
 io_to_fun(Str,Len,Bindings) ->
@@ -1062,7 +1071,7 @@ io_to_fun(Str,Len,Bindings) ->
         Len == undefined ->     Fun; 
         is_function(Fun,Len) -> Fun;
         true ->                 
-            ?ClientError({"Data conversion format error",{'fun',Len,Str}})
+            ?ClientError({"Data conversion format error",{'fun',Len,Str,Bindings}})
     end.
 
 erl_value(String) when is_binary(String) -> erl_value(binary_to_list(String),[]);  

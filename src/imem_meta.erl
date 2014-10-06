@@ -1691,13 +1691,23 @@ compiled_index_plan(IdxDef,ColumnInfos) ->
                ],
     % ?Info("FieldMap ~n~p",[FieldMap]),
     Def = [D#ddIdxDef{ pl=compile_path_list(PL,FieldMap) 
-                     , vnf=imem_datatype:io_to_fun(Vnf,1)
-                     , iff=imem_datatype:io_to_fun(Iff,1)
+                     , vnf=compile_or_generate(Vnf)
+                     , iff=compile_or_generate(Iff)
                      } 
            || #ddIdxDef{pl=PL,vnf=Vnf,iff=Iff}=D <- IdxDef
           ],
     JPos = lists:usort(lists:flatten([json_pos_list(PL) || #ddIdxDef{pl=PL} <- Def])),
     #ddIdxPlan{def=Def,jpos=JPos}.
+
+-spec compile_or_generate(binary()|function()) -> function().
+compile_or_generate(Source) when is_binary(Source) ->
+    compile_or_generate(imem_datatype:io_to_fun(Source));   %% compile the source code
+compile_or_generate(IdxFun) when is_function(IdxFun,1) ->
+    IdxFun;                                                 %% return the arity 1 function for vnf
+compile_or_generate(IdxFun) when is_function(IdxFun,2) ->
+    IdxFun;                                                 %% return the arity 2 function for iff
+compile_or_generate(IdxFun) when is_function(IdxFun,0) ->
+    IdxFun().                                               %% arity 0 function is a function generator
 
 json_pos_list(PathList) -> 
     json_pos_list(PathList,[]).
