@@ -36,6 +36,7 @@
 -export([ authenticate/3
         , login/1
         , change_credentials/3
+        , set_credentials/3
         , logout/1
         , clone_seco/2
         , account_id/1
@@ -446,6 +447,13 @@ change_credentials(SKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
     [#ddAccount{credentials=CredList} = Account]= if_read(SKey, ddAccount, AccountId),
     if_write(SKey, ddAccount, Account#ddAccount{credentials=[NewCred|lists:delete(OldCred,CredList)]}),
     login(SKey).
+
+set_credentials(SKey, Name, {CredType,_}= NewCred) ->
+    seco_authenticated(SKey),
+    #ddAccount{credentials=OldCreds} = Account = imem_account:get_by_name(SKey, Name),
+    LocalTime = calendar:local_time(),
+    NewCreds = lists:keydelete(CredType, 1, OldCreds) ++ [NewCred],
+    if_write(SKey, ddAccount, Account#ddAccount{lastPasswordChangeTime=LocalTime, credentials=NewCreds}).
 
 logout(SKey) ->
     seco_delete(SKey, SKey).

@@ -722,16 +722,7 @@ create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner) ->
         _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,TableAlias}})
     end;
 create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
-    Opts = case lists:keyfind(record_name, 1, Opts0) of
-        false ->    
-            case parse_table_name(TableAlias) of
-                %% [Schema,".",Name,Period,"@",Node]
-                [_S,_D,_B,"","",""] ->  Opts0;  %% simmple non sharded table
-                [_S,_D,B,_P,_A,_N] ->   Opts0 ++ [{record_name,list_to_atom(B)}]
-            end;
-        _ ->        
-            Opts0
-    end,
+    MySchema = schema(),
     case is_valid_table_name(TableAlias) of
         true ->     ok;
         false ->    ?ClientError({"Invalid character(s) in table name",TableAlias})
@@ -766,35 +757,60 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         {_,BadDef} -> ?ClientError({"Invalid default fun",BadDef})
     end,
     TableName=physical_table_name(TableAlias),
-    DDTableRow = #ddTable{qname={schema(),TableName}, columns=ColInfos, opts=Opts, owner=Owner},
-    DDAliasRow = #ddAlias{qname={schema(),TableAlias}, columns=ColInfos, opts=Opts, owner=Owner},
     case TableName of
         TA when TA==ddAlias;TA==?CACHE_TABLE ->  
-            % ?Info("creating table with opts ~p ~p ~n", [TA,if_opts(Opts)]),
-            case (catch imem_if:read(ddTable, {schema(),TableName})) of
+            % ?Info("creating table with opts ~p ~p ~n", [TA,if_opts(Opts0)]),
+            DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts0, owner=Owner},
+            case (catch imem_if:read(ddTable, {MySchema,TableName})) of
                 [] ->   
                     imem_if:write(ddTable, DDTableRow),
-                    catch (imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]));    % ddTable meta data is missing
+                    catch (imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]));    % ddTable meta data is missing
                 _ ->    
-                    imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}])                                      % entry exists or ddTable does not exists yet
+                    imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}])                                      % entry exists or ddTable does not exists yet
             end,
             
-            imem_cache:clear({?MODULE, trigger, schema(), TableName});
+            imem_cache:clear({?MODULE, trigger, MySchema, TableName});
         TableAlias ->
+            %% not a sharded table
+            DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts0, owner=Owner},
             try
-                % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts)]),
-                imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+                % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts0)]),
+                imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
                 imem_if:write(ddTable, DDTableRow)
             catch
                 _:{'ClientError',{"Table already exists",TableName}} = Reason ->
-                    case imem_if:read(ddTable, {schema(),TableName}) of
-                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data is missing
+                    case imem_if:read(ddTable, {MySchema,TableName}) of
+                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data was missing
                         _ ->    ok
                     end,
                     throw(Reason)
             end,
-            imem_cache:clear({?MODULE, trigger, schema(), TableName});
+            imem_cache:clear({?MODULE, trigger, MySchema, TableName});
         _ ->
+            %% Sharded table, check if ddAlias parameters match (if alias record already exists)
+            [_,_,B,_,_,_] = parse_table_name(TableAlias), %% [Schema,".",Name,Period,"@",Node]
+            Opts = case imem_if:read(ddAlias,{MySchema,TableAlias}) of
+                [#ddAlias{columns=ColInfos, opts=Opts1, owner=Owner}] ->
+                    Opts1;  %% ddAlias options override the given values for new partitions
+                [#ddAlias{}] ->
+                    ?ClientError({"Create table fails because columns or owner do not match with ddAlias",TableAlias});
+                [] ->
+                    case [ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if:read(ddAlias),S==MySchema] of
+                        [] ->           
+                            ok;
+                        ParsedTNs ->    
+                            case length([ BB || [_,_,BB,_,_,_] <- ParsedTNs, BB==B]) of
+                                0 ->    ok;
+                                _ ->    ?ClientError({"Name conflict (different rolling period) in ddAlias",TableAlias})
+                            end   
+                    end,
+                    case lists:keyfind(record_name, 1, Opts0) of
+                        false ->    Opts0 ++ [{record_name,list_to_atom(B)}];
+                        _ ->        Opts0
+                    end
+            end,
+            DDAliasRow = #ddAlias{qname={MySchema,TableAlias}, columns=ColInfos, opts=Opts, owner=Owner},
+            DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts, owner=Owner},
             try        
                 % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts)]),
                 imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
@@ -802,18 +818,18 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
                 imem_if:write(ddAlias, DDAliasRow)
             catch
                 _:{'ClientError',{"Table already exists",TableName}} = Reason ->
-                    case imem_if:read(ddTable, {schema(),TableName}) of
-                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data is missing
+                    case imem_if:read(ddTable, {MySchema,TableName}) of
+                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data was missing
                         _ ->    ok
                     end,
-                    case imem_if:read(ddAlias, {schema(),TableAlias}) of
-                        [] ->   imem_if:write(ddAlias, DDAliasRow); % ddAlias meta data is missing
+                    case imem_if:read(ddAlias, {MySchema,TableAlias}) of
+                        [] ->   imem_if:write(ddAlias, DDAliasRow); % ddAlias meta data was missing
                         _ ->    ok
                     end,
                     throw(Reason)
             end,
-            imem_cache:clear({?MODULE, trigger, schema(), TableAlias}),
-            imem_cache:clear({?MODULE, trigger, schema(), TableName})
+            imem_cache:clear({?MODULE, trigger, MySchema, TableAlias}),
+            imem_cache:clear({?MODULE, trigger, MySchema, TableName})
     end.
 
 create_table_sys_conf(TableName, ColumnInfos, Opts, Owner) ->
@@ -2720,9 +2736,11 @@ meta_operations(_) ->
         ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable0)),
         ?assertEqual(0, table_size(TimePartTable0)),
+        ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertEqual(ok, create_check_table(tpTest_100@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
 
         Alias0 = read(ddAlias),
-        % ?LogDebug("Alias0 ~p~n", [Alias0]),
+        ?LogDebug("Alias0 ~p~n", [Alias0]),
         ?assert(lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias0])),
 
         ?assertEqual(ok, write(tpTest_1000@, LogRec1)),

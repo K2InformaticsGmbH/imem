@@ -33,7 +33,7 @@ exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _StmtOpts, IsSec) ->
     case lists:keyfind('identified by', 1, Specs) of
         {'identified by', NewPassword} ->  
             NewCredentials = imem_seco:create_credentials(NewPassword),
-            if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, change_credentials, [NewCredentials]]);
+            if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, set_credentials, [Name,NewCredentials]]);
         false -> ok
     end;
 
