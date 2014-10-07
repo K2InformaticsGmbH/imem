@@ -17,7 +17,8 @@
         level = info,
         application,
         modules = [],
-        table}).
+        table,
+        table_opts = []}).
 
 %%%===================================================================
 %%% trace
@@ -43,13 +44,12 @@ trace(Filter, Level) ->
 %%%===================================================================
 %%% gen_event callbacks
 %%%===================================================================
-setup_table(Name, Fields, Types, Defaults) ->
-    RecordName = element(1, Defaults),
+setup_table(Name, TableOpts, Fields, Types, Defaults) ->
     try
         imem_meta:create_check_table(
           Name, {Fields, Types, Defaults},
-          [{record_name, RecordName}, {type, ordered_set},
-           {purge_delay,430000}],
+          [{record_name, element(1, Defaults)},
+           {type, ordered_set} | TableOpts],
           lager_imem),
         mpro_dal:unsubscribe({table, ddConfig, simple}),
         mpro_dal:subscribe({table, ddConfig, simple})
@@ -60,6 +60,7 @@ setup_table(Name, Fields, Types, Defaults) ->
 init(Params) ->
     State = state_from_params(#state{}, Params),
     setup_table(State#state.table,
+                State#state.table_opts,
                 record_info(fields, ddLog),
                 ?ddLog, #ddLog{}),
     {ok, State}.
@@ -159,11 +160,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 state_from_params(OrigState = #state{level = OldLevel,
-                                     table = OldTable,
                                      application = OldApplication,
                                      tn_event = OldTableEvent}, Params) ->
+    {Table, TableOpts} = case proplists:get_value(tablefun, Params) of
+                             TableFun when is_function(TableFun, 0) ->
+                                 TableFun();
+                             _ -> exit({badarg, missing_tablefun})
+                         end,
     Level = proplists:get_value(level, Params, OldLevel),
-    Table = proplists:get_value(table, Params, OldTable),
     TableEvent = proplists:get_value(tn_event, Params, OldTableEvent),
     Application = proplists:get_value(application, Params, OldApplication),
     Modules = case application:get_key(Application, modules) of
@@ -171,7 +175,8 @@ state_from_params(OrigState = #state{level = OldLevel,
                   {ok, Mods} -> Mods
               end,
     OrigState#state{level=lager_util:level_to_num(Level),
-                    table=Table, tn_event = TableEvent,
+                    table=Table, table_opts = TableOpts,
+                    tn_event = TableEvent,
                     application = Application,
                     modules = Modules}.
 
