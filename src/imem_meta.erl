@@ -1288,13 +1288,27 @@ parse_table_name(TableName) when is_list(TableName) ->
     case string:tokens(TableName, ".") of
         [R2] ->         ["",""|parse_simple_name(R2)];
         [Schema|R1] ->  [Schema,"."|parse_simple_name(string:join(R1,"."))]
-    end.
+    end;
+parse_table_name(TableName) when is_binary(TableName) ->
+    parse_table_name(binary_to_list(TableName)).
 
 parse_simple_name(TableName) when is_list(TableName) ->
     %% TableName -> [Name,Period,"@",Node] all strings , all optional except Name        
     case string:tokens(TableName, "@") of
-        [BaseName] ->    
-            [BaseName,"","",""];
+        [TableName] ->    
+            [TableName,"","",""];
+        [Name] ->    
+            case string:tokens(Name, "_") of  
+                [Name] ->  
+                    [Name,"","@",""];
+                BL ->     
+                    case catch list_to_integer(lists:last(BL)) of
+                        I when is_integer(I) ->
+                            [string:join(lists:sublist(BL,length(BL)-1),"."),lists:last(BL),"@",""];
+                        _ ->
+                            [Name,"","@",""]
+                    end
+            end;
         [Name,Node] ->
             case string:tokens(Name, "_") of  
                 [Name] ->  
@@ -2469,6 +2483,7 @@ teardown(_) ->
     catch drop_table(meta_table_2),
     catch drop_table(meta_table_1),
     catch drop_table(tpTest_1000@),
+    catch drop_table(tpTest_100@),
     catch drop_table(test_config),
     catch drop_table(fakelog_1@),
     ?imem_test_teardown.
@@ -2503,6 +2518,13 @@ meta_operations(_) ->
         ?assertEqual(ok, check_table(?LOG_TABLE)),
 
         ?assertEqual(ok, check_table(?CACHE_TABLE)),
+
+        ?assertEqual(["Schema",".","BaseName","01234","@","Node"],parse_table_name("Schema.BaseName_01234@Node")),
+        ?assertEqual(["Schema",".","BaseName","","",""],parse_table_name("Schema.BaseName")),
+        ?assertEqual(["","","BaseName","01234","@","Node"],parse_table_name("BaseName_01234@Node")),
+        ?assertEqual(["","","BaseName","","@","Node"],parse_table_name("BaseName@Node")),
+        ?assertEqual(["","","BaseName","","@",""],parse_table_name("BaseName@")),
+        ?assertEqual(["","","BaseName","","",""],parse_table_name("BaseName")),
 
         Now = erlang:now(),
         LogCount1 = table_size(?LOG_TABLE),
@@ -2737,10 +2759,11 @@ meta_operations(_) ->
         ?assertEqual(ok, check_table(TimePartTable0)),
         ?assertEqual(0, table_size(TimePartTable0)),
         ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
-        ?assertEqual(ok, create_check_table(tpTest_100@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertException(throw, {'ClientError',{"Name conflict (different rolling period) in ddAlias",tpTest_100@}}
+                , create_check_table(tpTest_100@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
 
         Alias0 = read(ddAlias),
-        ?LogDebug("Alias0 ~p~n", [Alias0]),
+        % ?LogDebug("Alias0 ~p~n", [Alias0]),
         ?assert(lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias0])),
 
         ?assertEqual(ok, write(tpTest_1000@, LogRec1)),
