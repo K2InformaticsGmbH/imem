@@ -85,17 +85,15 @@ init(_Args) ->
         QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
         catch imem_meta:create_check_table(ddQuota@, QDef, [{scope,local}, {local_content,true},{record_name,ddQuota}], system),
 
-        UserName= <<"admin">>,
-        case if_select_account_by_name(none, UserName) of
+        case if_select_account_by_name(none, <<"system">>) of
             {[],true} ->  
-                    UserId = erlang:phash2(make_ref()),
                     {ok, Pwd} = application:get_env(imem, default_admin_pswd),
                     UserCred=create_credentials(pwdmd5, Pwd),
-                    User = #ddAccount{id=UserId, name=UserName, credentials=[UserCred]
+                    User = #ddAccount{id=system, name= <<"system">>, credentials=[UserCred]
                                         ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
                     if_write(none, ddAccount, User),                    
-                    if_write(none, ddRole, #ddRole{id=UserId,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
-            _ ->    ok       
+                    if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
+            _ ->    ok
         end,
         % imem_meta:fail({"Fail in imem_seco:init on purpose"}),        
         if_truncate_table(none,ddSeCo@),

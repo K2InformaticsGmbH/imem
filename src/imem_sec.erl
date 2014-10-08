@@ -790,10 +790,8 @@ select(SKey, Table, MatchSpec, Limit) ->
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
-admin_exec(SKey, imem_account, Function, Params) ->
-    admin_apply(SKey, imem_account, Function, [SKey|Params], [manage_accounts, manage_system]);
-admin_exec(SKey, imem_role, Function, Params) ->
-    admin_apply(SKey, imem_role, Function, [SKey|Params], [manage_accounts, manage_system]);
+admin_exec(SKey, M, Function, Params) when M==imem_account;M==imem_role;M==imem_seco ->
+    admin_apply(SKey, M, Function, [SKey|Params], [manage_accounts, manage_system]);
 admin_exec(SKey, Module, Function, Params) ->
     admin_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}]).
 

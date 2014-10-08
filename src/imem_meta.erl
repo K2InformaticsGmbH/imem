@@ -136,6 +136,7 @@
         , failing_function/1
         , get_config_hlk/5
         , put_config_hlk/6
+        , admin_exec/3
         ]).
 
 -export([ init_create_table/3
@@ -2344,6 +2345,9 @@ update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New, Trig, User]) ->
         false ->    [{physical_table_name(Tab),Type}, Item, Old, New, Trig, User];
         true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
     end.
+
+admin_exec(Module, Function, _Params) ->
+    ?ClientError({"Function cannot be called outside of security context",{Module, Function}}).
 
 decode_json(_, {}) -> {};
 decode_json([], Rec) -> Rec;

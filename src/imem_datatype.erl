@@ -611,16 +611,7 @@ io_to_userid(Id) when is_binary(Id) ->
     try 
         list_to_integer(binary_to_list(Id))
     catch
-        _:_ ->
-            % ?Info("UserId: ~p~n", [Id]),
-            MatchHead = #ddAccount{id='$1', name='$2', _='_'},
-            Guard = {'==', '$2', Id},
-            % ?Info("UserGuard: ~p~n", [Guard]),
-            case imem_if:select(ddAccount, [{MatchHead, [Guard], ['$1']}]) of
-                {[],true} ->    ?ClientError({"Account does not exist",Id});
-                {[I],true} ->   I;
-                Else ->         ?SystemException({"Account lookup error",{Id,Else}})
-            end
+        _:_ -> io_to_atom(Id)
     end;
 io_to_userid(Id) when is_list(Id) ->
     io_to_userid(list_to_binary(Id)).
@@ -1200,20 +1191,8 @@ binary_to_io(Val) ->
             list_to_binary(io_lib:format("~s...",[binary_to_hex(binary:part(Val, 0, ?BinaryMaxLen))]))
     end.
 
-
-userid_to_io(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
-userid_to_io(Val) ->    integer_to_binary(Val).
-    % case imem_if:read(ddAccount,Val) of
-    %     [] ->           ?ClientError({"Account does not exist",Val});
-    %     [Account] ->    Name=element(3,Account),
-    %                     if 
-    %                         is_binary(Name) ->  binstr_to_io(Name);
-    %                         is_atom(Name) ->    atom_to_io(Name);
-    %                         true ->             list_to_binary(io_lib:format("~tp",[Name]))
-    %                     end;
-    %     Else ->         ?SystemException({"Account lookup error",{Val,Else}})
-    % end.
-
+userid_to_io(A) when is_atom(A) ->  list_to_binary(atom_to_list(A));
+userid_to_io(Val) ->                integer_to_binary(Val).
 
 offset_datetime('-', DT, Offset) ->
     offset_datetime('+', DT, -Offset);
