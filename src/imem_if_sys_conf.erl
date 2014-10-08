@@ -58,16 +58,16 @@ handle_call({add, Path, Table}, _From, State) ->
             ?Error("failed with ~p:~p(~p)~n", [Class,Reason,erlang:get_stacktrace()]),
             {reply, {error, Reason}, State}
     end;
-handle_call(Request, From, State) ->
-    ?Info("Unknown request ~p from ~p!", [Request, From]),
+handle_call(_Request, _From, State) ->
+    ?Info("Unknown request ~p from ~p!", [_Request, _From]),
     {reply, ok, State}.
 
-handle_cast(Request, State) ->
-    ?Info("Unknown cast ~p!", [Request]),
+handle_cast(_Request, State) ->
+    ?Info("Unknown cast ~p!", [_Request]),
     {noreply, State}.
 
-handle_info(Info, State) ->
-    ?Info("Unknown info ~p!", [Info]),
+handle_info(_Info, State) ->
+    ?Info("Unknown info ~p!", [_Info]),
     {noreply, State}.
 
 terminate(_Reson, _State) -> ok.

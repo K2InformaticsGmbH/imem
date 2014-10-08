@@ -602,8 +602,8 @@ handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetch
     {noreply, State#state{fetchCtx=FetchCtx1}};
 handle_info({'DOWN', Ref, process, Pid, {aborted, {no_exists,{_TableName,_}}=Reason}}, State) ->
     handle_info({'DOWN', Ref, process, Pid, Reason}, State);
-handle_info({'DOWN', Ref, process, Pid, {no_exists,{TableName,_}}=Reason}, #state{reply=Sock,fetchCtx=#fetchCtx{monref=Ref}}=State) ->
-    ?Debug("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [Pid, Ref, Reason]),
+handle_info({'DOWN', Ref, process, _Pid, {no_exists,{TableName,_}}=_Reason}, #state{reply=Sock,fetchCtx=#fetchCtx{monref=Ref}}=State) ->
+    ?Debug("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, Ref, _Reason]),
     send_reply_to_client(Sock, {error, {'ClientError', {"Table does not exist", TableName}}}),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(_Info, State) ->

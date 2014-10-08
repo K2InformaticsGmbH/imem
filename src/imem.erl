@@ -112,9 +112,9 @@ start_test_writer(Param) ->
     {ok, SupPid} = supervisor:start_child(imem_sup, {imem_test_writer
                                                     , {imem_test_writer, start_link, [Param]}
                                                     , permanent, ImemTimeout, worker, [imem_test_writer]}),
-    [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)],
+    [?Info("imem process ~p started pid ~p~n", [_Mod, _Pid]) || {_Mod,_Pid,_,_} <- supervisor:which_children(imem_sup)],
     {ok, SupPid}.
 stop_test_writer() ->
     ok = supervisor:terminate_child(imem_sup, imem_test_writer),
     ok = supervisor:delete_child(imem_sup, imem_test_writer),
-    [?Info("imem process ~p started pid ~p~n", [Mod, Pid]) || {Mod,Pid,_,_} <- supervisor:which_children(imem_sup)].
+    [?Info("imem process ~p started pid ~p~n", [_Mod, _Pid]) || {_Mod,_Pid,_,_} <- supervisor:which_children(imem_sup)].

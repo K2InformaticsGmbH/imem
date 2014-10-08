@@ -113,11 +113,10 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
                 false ->
                     case State#state.modules of
                         [] ->
-                            Mods = case application:get_key(State#state.application,
-                                                            modules) of
-                                       undefined -> {ok, State};
-                                       {ok, Ms} -> {ok, State#state{modules = Ms}}
-                                   end;
+                            case application:get_key(State#state.application,modules) of
+                                undefined ->    {ok, State};
+                                {ok, Ms} ->     {ok, State#state{modules = Ms}}
+                            end;
                         _ ->
                             %io:format(user, "[~p:~p] log skipped module ~p doesn't"
                             %                " belong to application ~p~n",

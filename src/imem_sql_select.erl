@@ -153,7 +153,7 @@ test_with_or_without_sec(IsSec) ->
         end,
 
         if
-            IsSec ->    ?assertEqual(<<"admin">>, imem_seco:account_name(SKey));
+            IsSec ->    ?assertEqual(<<"_test_admin_">>, imem_seco:account_name(SKey));
             true ->     ?assertException(throw,{SeEx,{"Not logged in",none}}, imem_seco:account_name(SKey))
         end,
 
@@ -238,7 +238,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(AllTableCount, length(L4)),
 
         {L5, true} = if_call_mfa(IsSec,select,[SKey, user_tables, ?MatchAllKeys]),
-        % ?LogDebug("Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
+        ?LogDebug("Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
         case IsSec of
             false ->    ?assertEqual(AllTableCount, length(L5));
             true ->     ?assertEqual(2, length(L5))

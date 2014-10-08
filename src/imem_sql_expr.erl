@@ -540,7 +540,7 @@ is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> tru
 is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op=='element';Op=='nth' -> false;  %% editable projection
 is_readonly(_BTree) -> 
-    ?LogDebug("Positive readonly test for ~n~p~n",[_BTree]),
+    % ?LogDebug("Positive readonly test for ~n~p~n",[_BTree]),
     true.
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column

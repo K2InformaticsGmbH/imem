@@ -875,12 +875,12 @@ init(_) ->
     mnesia:subscribe(system),
     {ok,#state{}}.
 
-handle_call(Request, From, State) ->
-    ?Info("Unknown request ~p from ~p!", [Request, From]),
+handle_call(_Request, _From, State) ->
+    ?Info("Unknown request ~p from ~p!", [_Request, _From]),
     {reply, ok, State}.
 
-handle_cast(Request, State) ->
-    ?Info("Unknown cast ~p!", [Request]),
+handle_cast(_Request, State) ->
+    ?Info("Unknown cast ~p!", [_Request]),
     {noreply, State}.
 
 handle_info(Info, State) ->
@@ -913,8 +913,8 @@ handle_info(Info, State) ->
 %TODO : re/start all previously stopped periodic access to any mnesia tables (e.g. imem_snap_loop, imem_monitor_loop etc)
 %            end;
 
-        {mnesia_system_event,{Event,Node}} ->
-            ?Info("Mnesia event ~p from Node ~p!",[Event, Node]);
+        {mnesia_system_event,{_Event,_Node}} ->
+            ?Info("Mnesia event ~p from Node ~p!",[_Event, _Node]);
         Error ->
             ?Error("Mnesia error : ~p",[Error])
     end,

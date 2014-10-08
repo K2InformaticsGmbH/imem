@@ -1789,10 +1789,11 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, io_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,<<"1.2.1.4">>)),
         ?LogDebug("io_to_db success 13~n", []),
 
-        AdminId = io_to_db('Item','OldTerm',userid,undefined,undefined,undefined,RW,<<"admin">>),
-        ?assert(is_integer(AdminId)),
+        AdminId1 = io_to_db('Item','OldTerm',userid,undefined,undefined,undefined,RW,<<"1234">>),
+        ?assert(is_integer(AdminId1)),
+        AdminId2 = io_to_db('Item','OldTerm',userid,undefined,undefined,undefined,RW,<<"test_user">>),
+        ?assert(is_atom(AdminId2)),
         % ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, io_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,"1.2.1.4")),
-        ?LogDebug("Admin Id: ~p~n", [AdminId]),
         ?LogDebug("io_to_db success 12a~n", []),
 
         Fun = fun(X) -> X*X end,
