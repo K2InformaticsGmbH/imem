@@ -48,7 +48,7 @@ start_link(Params) ->
                 ?Info("options ~p~n", [NewOpts]),
                     Success;
                 Error ->
-                    ?Error("~p failed to start ~p~n", [?MODULE, Error]),
+                    ?Error("~p failed to start~n~p~n", [?MODULE, Error]),
                     Error
             end;
         _ ->
