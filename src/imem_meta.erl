@@ -257,12 +257,18 @@ init_create_table(TableName,RecDef,Opts,Owner) ->
         {'ClientError',{"Table already exists", _}} = R ->   
             ?Info("creating ~p results in ~p", [TableName,"Table already exists"]),
             R;
-        {'ClientError',_Reason}=Res ->   
+        {'ClientError',{"Table does not exist",ddTable}} = R ->   
+            ?Info("creating ~p results in ~p", [TableName,"Created without dictionary"]),
+            R;
+        {'ClientError',{"Table does not exist",_Table}} = R ->   
+            ?Info("creating ~p results in \"Table ~p does not exist\"", [TableName,_Table]),
+            R;
+        {'ClientError',_Reason}=R ->   
             ?Info("creating ~p results in ~p", [TableName,_Reason]),
-            Res;
-        Result ->                   
-            ?Info("creating ~p results in ~p", [TableName,Result]),
-            Result
+            R;
+        R ->                   
+            ?Info("creating ~p results in ~p", [TableName,R]),
+            R
     end.
 
 init_create_check_table(TableName,RecDef,Opts) ->
@@ -437,6 +443,7 @@ dictionary_trigger(OldRec,NewRec,T,_User) when T==ddTable; T==ddAlias ->
             {S,TO} = element(2,OldRec),
             %% ToDo: check for changed index definition
             %% ToDo: rebuild index table if index definition changed
+            imem_if:write_table_property_in_transaction(TO,NewRec),
             imem_cache:clear({?MODULE, trigger, S, TO})
     end.
 
@@ -1165,11 +1172,14 @@ drop_system_table(TableAlias) when is_atom(TableAlias) ->
 
 drop_tables_and_infos(TableName,[TableName]) ->
     drop_table_and_info(TableName);
-drop_tables_and_infos(TableAlias, []) -> 
-     imem_if:delete(ddAlias, {schema(),TableAlias});
-drop_tables_and_infos(TableAlias,[TableName|TableNames]) ->
+drop_tables_and_infos(TableAlias, TableList) -> 
+     imem_if:delete(ddAlias, {schema(),TableAlias}),
+     drop_partitions_and_infos(TableList).
+
+drop_partitions_and_infos([]) -> ok;
+drop_partitions_and_infos([TableName|TableNames]) ->
     drop_table_and_info(TableName),
-    drop_tables_and_infos(TableAlias,TableNames).
+    drop_partitions_and_infos(TableNames).
 
 drop_table_and_info(TableName) ->
     try
@@ -2763,12 +2773,17 @@ meta_operations(_) ->
         ?assertEqual(ok, check_table(TimePartTable0)),
         ?assertEqual(0, table_size(TimePartTable0)),
         ?assertEqual(ok, create_check_table(tpTest_1000@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+
+        Alias0 = read(ddAlias),
+        ?LogDebug("Alias0 ~p~n", [[ element(2,A) || A <- Alias0]]),
+        ?assert(lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias0])),
+
         ?assertException(throw, {'ClientError',{"Name conflict (different rolling period) in ddAlias",tpTest_100@}}
                 , create_check_table(tpTest_100@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
 
-        Alias0 = read(ddAlias),
-        % ?LogDebug("Alias0 ~p~n", [Alias0]),
-        ?assert(lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias0])),
+        Alias0a = read(ddAlias),
+        ?LogDebug("Alias0a ~p~n", [[ element(2,A) || A <- Alias0a]]),
+        ?assert(lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias0a])),
 
         ?assertEqual(ok, write(tpTest_1000@, LogRec1)),
         ?assertEqual(1, table_size(TimePartTable0)),

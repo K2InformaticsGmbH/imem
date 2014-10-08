@@ -68,6 +68,7 @@
         , update_tables/2
         , update_bound_counter/6
         , write_table_property/2
+        , write_table_property_in_transaction/2
         , read_table_property/2
         , delete_table_property/2
         ]).
@@ -641,6 +642,11 @@ update_bound_counter(Table, Field, Key, Incr, LimitMin, LimitMax)
 write_table_property(Table, Prop)       -> mnesia:write_table_property(Table, Prop).
 read_table_property(Table, PropName)    -> mnesia:read_table_property(Table, PropName).
 delete_table_property(Table, PropName)  -> mnesia:delete_table_property(Table, PropName).
+
+write_table_property_in_transaction(Table, Prop) -> 
+    S = self(), 
+    spawn(fun() -> S ! mnesia:write_table_property(Table,Prop) end), 
+    receive R -> R end.
 
 update_xt({_Table,bag}, _Item, _Lock, {}, {}, _, _) ->
     ok;
