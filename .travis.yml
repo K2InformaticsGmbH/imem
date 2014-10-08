@@ -1,4 +1,8 @@
 language: erlang
+notifications:
+  email:
+    - ochsenbein@bluewin.ch
+    - acautin@bluewin.ch
 otp_release:
   - 17.1
   - 17.0
