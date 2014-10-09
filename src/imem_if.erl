@@ -837,37 +837,16 @@ start_link(Params) ->
 
 init(_) ->
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
-    {ok, NodeType} = application:get_env(mnesia_node_type),
-    ?Info("mnesia node type is '~p'~n", [NodeType]),
-    SDir = atom_to_list(SchemaName) ++ "." ++ atom_to_list(node()),
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    [_|Rest] = lists:reverse(filename:split(SnapDir)),
-    RootParts = lists:reverse(Rest),
-    SchemaDir = case ((length(RootParts) > 0) andalso
-                      filelib:is_dir(filename:join(RootParts))) of
-                    true -> filename:join(RootParts ++ [SDir]);
-                    false ->
-                        {ok, Cwd} = file:get_cwd(),
-                        LastFolder = lists:last(filename:split(Cwd)),
-                        if LastFolder =:= ".eunit" ->
-                               filename:join([Cwd, "..", SDir]);
-                           true ->  filename:join([Cwd, SDir])
-                        end
-                end,
-    ?Info("schema path ~s~n", [SchemaDir]),
-    random:seed(now()),
-    SleepTime = random:uniform(1000),
-    ?Info("sleeping for ~p ms...~n", [SleepTime]),
-    timer:sleep(SleepTime),
-    application:set_env(mnesia, dir, SchemaDir),
-    ok = mnesia:start(),
     case disc_schema_nodes(SchemaName) of
         [] -> ?Warn("no node found at ~p for schema ~p in erlang cluster ~p~n",
                     [node(), SchemaName, erlang:get_cookie()]);
         [DiscSchemaNode|_] ->
             ?Info("adding ~p to schema ~p on ~p~n", [node(), SchemaName, DiscSchemaNode]),
-            {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config, [extra_db_nodes, [node()]])
+            {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config,
+                               [extra_db_nodes, [node()]])
     end,
+    {ok, NodeType} = application:get_env(mnesia_node_type),
+    ?Info("mnesia node type is '~p'~n", [NodeType]),
     case NodeType of
         disc -> mnesia:change_table_copy_type(schema, node(), disc_copies);
         _ -> ok

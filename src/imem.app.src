@@ -13,6 +13,7 @@
                   ranch,
                   sqlparse
                  ]},
+  {included_applications, [mnesia]},
   {mod, {imem, []}},
   {env, [
          {erl_cluster_mgrs, []},
