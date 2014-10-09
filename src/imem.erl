@@ -258,6 +258,7 @@ stop()  ->
     application:stop(?MODULE).
 
 stop(_State) ->
+    stopped  = mnesia:stop(),
 	?Notice("SHUTDOWN IMEM~n", []),
 	ok.
 
