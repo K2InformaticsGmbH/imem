@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cookie=imem
+ck=imem
 
 unamestr=`uname`
 host=`hostname`
@@ -39,7 +39,44 @@ do
 done
 echo "Node $node and CMs $cms"
 
-Opts="-sname $node -pa ebin -pa deps/*/ebin -setcookie $cookie -env ERL_MAX_ETS_TABLES 10000 -imem start_monitor true -imem tcp_port 8125 -imem erl_cluster_mgrs [$cms] -s imem"
-echo "VM options $Opts"
+os_env=""
+os_env=$os_env" -env ERL_MAX_ETS_TABLES 50"
 
-$exename $Opts
+# PATHS
+paths="-pa"
+paths=$paths" $PWD/ebin"
+paths=$paths" $PWD/deps/*/ebin"
+
+# Node name
+node_name="-sname $node"
+
+# Cookie
+cookie="-setcookie $ck"
+
+# IMEM Opts
+imem_opts="-imem"
+imem_opts=$imem_opts" mnesia_node_type ram"
+imem_opts=$imem_opts" erl_cluster_mgrs [$cms]"
+imem_opts=$imem_opts" mnesia_schema_name mpro"
+imem_opts=$imem_opts" tcp_port 8125"
+
+# Kernel Opts
+kernel_opts="-kernel"
+kernel_opts=$kernel_opts" inet_dist_listen_min 7000"
+kernel_opts=$kernel_opts" inet_dist_listen_max 7020"
+
+start_opts="$os_env $node_name $cookie $paths $kernel_opts $imem_opts"
+
+# MPRO start options
+echo "------------------------------------------"
+echo "Starting IMEM (Opts)"
+echo "------------------------------------------"
+echo "Node Name : $node_name"
+echo "Cookie    : $cookie"
+echo "EBIN Path : $paths"
+echo "IMEM      : $imem_opts"
+echo "Kernel    : $kernel_opts"
+echo "OS Env    : $os_env"
+echo "------------------------------------------"
+
+$exename $start_opts #-s imem

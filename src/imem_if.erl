@@ -852,6 +852,8 @@ init(_) ->
         _ -> ok
     end,
     mnesia:subscribe(system),
+
+    process_flag(trap_exit, true),
     {ok,#state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -904,7 +906,10 @@ handle_info(Info, State) ->
             {stop, mnesia_down, State}
     end.
 
-terminate(_Reson, _State) -> ok.
+terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
+terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);
+terminate({shutdown, Term}, _State) -> ?Info("~p shutdown : ~p~n", [?MODULE, Term]);
+terminate(Reson, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reson]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

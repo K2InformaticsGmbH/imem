@@ -51,6 +51,8 @@ start_link(Params) ->
 
 init(_Args) ->
     erlang:send_after(?PROLL_FIRST_WAIT, self(), roll_partitioned_tables),
+
+    process_flag(trap_exit, true),
     {ok,#state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -115,7 +117,10 @@ handle_info({roll_partitioned_tables,ProllCycleWait,_}, State=#state{prollList=[
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reson, _State) -> ok.
+terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
+terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);
+terminate({shutdown, Term}, _State) -> ?Info("~p shutdown : ~p~n", [?MODULE, Term]);
+terminate(Reson, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reson]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

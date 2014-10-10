@@ -350,6 +350,8 @@ init(_Args) ->
         write(dual,#dual{}),
 
         init_create_trigger(ddTable, ?ddTableTrigger),
+
+        process_flag(trap_exit, true),
         {ok,#state{}}
     catch
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
@@ -420,7 +422,10 @@ handle_cast(_Request, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reson, _State) -> ok.
+terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
+terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);
+terminate({shutdown, Term}, _State) -> ?Info("~p shutdown : ~p~n", [?MODULE, Term]);
+terminate(Reson, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reson]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

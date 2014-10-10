@@ -53,9 +53,9 @@ start(_Type, StartArgs) ->
                              % Setting a start time for this node
                              % in cluster requesting an unique
                              % time from CM
-                             application:set_env(
-                               ?MODULE, start_time,
-                               rpc:call(CMNode, erlang, now, []));
+                             ok = application:set_env(
+                                    ?MODULE, start_time,
+                                    rpc:call(CMNode, erlang, now, []));
                          _ -> ok
                      end,
                      ?Info("joined node ~p~n", [CMNode]);
@@ -68,13 +68,23 @@ start(_Type, StartArgs) ->
     % or started without CMs
     case application:get_env(start_time) of
         undefined ->
-            application:set_env(?MODULE, start_time, erlang:now());
+            ok = application:set_env(?MODULE, start_time, erlang:now());
         _ -> ok
     end,
 
-    % If in a cluser wait for other IMEM nodes to complete a full boot
-    % before starting mnesia to serialize IMEM start in a cluster
+    % If in a cluser wait for other IMEM nodes to complete a full boot before
+    % starting mnesia to serialize IMEM start in a cluster
     wait_remote_imem(),
+
+    % Sets max_ets_tables application env parameter with maximum value either
+    % configured with ERL_MAX_ETS_TABLES OS environment variable or to default
+    % 1400
+    ok = application:set_env(
+           ?MODULE, max_ets_tables,
+           case os:getenv("ERL_MAX_ETS_TABLES") of
+               false -> 1400;
+               MaxEtsTablesStr -> list_to_integer(MaxEtsTablesStr)
+           end),
 
     % Mnesia should be loaded but not started
     AppInfo = application:info(),
@@ -217,10 +227,6 @@ config_start_mnesia() ->
                         end
                 end,
     ?Info("schema path ~s~n", [SchemaDir]),
-    %random:seed(now()),
-    %SleepTime = random:uniform(1000),
-    %?Info("sleeping for ~p ms...~n", [SleepTime]),
-    %timer:sleep(SleepTime),
     application:set_env(mnesia, dir, SchemaDir),
     ok = mnesia:start().
 
@@ -253,22 +259,25 @@ config_if_lager() ->
 
 -endif. % TEST
 
-stop()  ->
-    stop_tcp(),
-    application:stop(?MODULE).
+stop() -> application:stop(?MODULE).
 
 stop(_State) ->
-    stopped  = mnesia:stop(),
-	?Notice("SHUTDOWN IMEM~n", []),
-	ok.
+    stop_tcp(),
+	?Info("stopped imem_server~n"),
+	?Info("stopping mnesia...~n"),
+    spawn(
+      fun() ->
+              stopped = mnesia:stop(),
+              ?Info("stopped mnesia~n")
+      end),
+	?Notice("SHUTDOWN IMEM~n"),
+    ?Notice("---------------------------------------------------~n").
 
 % start stop query imem tcp server
 start_tcp(Ip, Port) ->
     imem_server:start_link([{tcp_ip, Ip},{tcp_port, Port}]).
 
-stop_tcp() ->
-    imem_server:stop().
-
+stop_tcp() -> imem_server:stop().
 
 % start/stop test writer
 start_test_writer(Param) ->

@@ -124,6 +124,8 @@ init(_) ->
         _ -> ok
     end,
     ?Info("snapshot directory ~s~n", [SnapshotDir]),
+
+    process_flag(trap_exit, true),
     {ok,#state{snapdir = SnapshotDir}}.
 
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
@@ -171,7 +173,10 @@ handle_cast(_Request, State) ->
     ?Info("Unknown cast ~p!~n", [_Request]),
     {noreply, State}.
 
-terminate(_Reson, _State) -> ok.
+terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
+terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);
+terminate({shutdown, Term}, _State) -> ?Info("~p shutdown : ~p~n", [?MODULE, Term]);
+terminate(Reson, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reson]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

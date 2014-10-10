@@ -67,7 +67,7 @@ start_link(Params) ->
     end.
 
 init(_Args) ->
-    Result = try %% try creating system tables, may fail if they exist, then check existence 
+    try %% try creating system tables, may fail if they exist, then check existence 
         if_check_table(none, ddTable),
 
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
@@ -99,11 +99,12 @@ init(_Args) ->
         if_truncate_table(none,ddSeCo@),
         if_truncate_table(none,ddPerm@),
         if_truncate_table(none,ddQuota@),
+
+        process_flag(trap_exit, true),
         {ok,#state{}}    
     catch
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
-    end,
-    Result.
+    end.
 
 handle_call({monitor, Pid}, _From, State) ->
     %% ?Debug("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
@@ -127,7 +128,10 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reson, _State) -> ok.
+terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
+terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);
+terminate({shutdown, Term}, _State) -> ?Info("~p shutdown : ~p~n", [?MODULE, Term]);
+terminate(Reson, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reson]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
