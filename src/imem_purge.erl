@@ -10,12 +10,15 @@
 -define(GET_PURGE_SCRIPT,?GET_IMEM_CONFIG(purgeScript,[],false)).
 -define(GET_PURGE_SCRIPT_FUN,?GET_IMEM_CONFIG(purgeScriptFun,[],
 <<"fun (PartTables) ->
+	MAX_TABLE_COUNT_PERCENT = 90,
 	MIN_FREE_MEM_PERCENT = 40,
 	TABLE_EXPIRY_MARGIN_SEC = -200,
+    %[{time_to_part_expiry,table_size,partition_time,table}]
 	SortedPartTables =
 	    lists:sort([{imem_meta:time_to_partition_expiry(T),
 			 imem_meta:table_size(T),
-			 lists:nth(3, imem_meta:parse_table_name(T)), T}
+			 lists:nth(3, imem_meta:parse_table_name(T)),
+             T}
 			|| T <- PartTables]),
     {Os, FreeMemory, TotalMemory} = imem_if:get_os_memory(),
 	MemFreePerCent = FreeMemory / TotalMemory * 100,
@@ -39,14 +42,15 @@
 	       DelCandidates = lists:foldl(MapFun, [],
 					   SortedPartTables),
 	       if DelCandidates =:= [] ->
-		      _TruncCandidates = lists:sort(fun ({_, R1, _, _},
+                %[{time_to_part_expiry,table_size,partition_time,table}]
+		      TruncCandidates = lists:sort(fun ({_, R1, _, _},
 							 {_, R2, _, _}) ->
 							    if R1 > R2 -> true;
 							       true -> false
 							    end
 						    end,
 						    SortedPartTables),
-		      [{_, _, _, T} | _] = _TruncCandidates,
+		      [{_, _, _, T} | _] = TruncCandidates,
               imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"truncate table\"),
 		      imem_meta:truncate_table(T),
 		      io:format(user, \"[~p] Truncated table ~p~n\", [Os, T]);
@@ -56,7 +60,24 @@
 		      imem_meta:drop_table(T),
 		      io:format(user, \"[~p] Deleted table ~p~n\", [Os, T])
 	       end;
-	   true -> ok
+	   true ->
+           {MaxTablesCount, CurrentTableCount} = imem_meta:get_tables_count(),
+           CurrentTableCountParcent = round(CurrentTableCount / MaxTablesCount * 100),
+           if CurrentTableCountParcent < MAX_TABLE_COUNT_PERCENT ->
+                   % Nothing to drop yet
+                   io:format(user, \"No Dropping (~p% of ~p)~n\", [CurrentTableCountParcent, MaxTablesCount]);
+               true ->
+                   DropCandidates = lists:sub_list(lists:sort(fun ({_, R1, _, _},
+							 {_, R2, _, _}) ->
+							    if R1 < R2 -> true;
+							       true -> false
+							    end
+						    end,
+						    SortedPartTables), 100 * (MAX_TABLE_COUNT_PERCENT - CurrentTableCountParcent)),
+                   %[{time_to_part_expiry,table_size,partition_time,table}]
+                   io:format(user, \"Drop table ~p~n\", [DropCandidates]),
+		           [imem_meta:drop_table(T) || {_,_,_,T} <- DropCandidates]
+           end
 	end
 end
 ">>)).
@@ -105,14 +126,12 @@ init(_Args) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-%     {stop,{shutdown,Reason},State};
-% handle_cast({stop, Reason}, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purgeList=[]}) ->
     % restart purge cycle by collecting list of candidates
-    % ?Debug("Purge collect start~n",[]), 
+    ?Debug("Purge collect start~n",[]), 
     case ?GET_PURGE_CYCLE_WAIT of
         PCW when (is_integer(PCW) andalso PCW > 1000) ->    
             Pred = fun imem_meta:is_local_time_partitioned_table/1,
@@ -146,7 +165,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
     end;
 handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#state{purgeList=[Tab|Rest]}) ->
     % process one purge candidate
-    % ?Debug("Purge try table ~p~n",[Tab]), 
+    ?Debug("Purge try table ~p~n",[Tab]), 
     case imem_if:read(ddTable,{imem_meta:schema(), Tab}) of
         [] ->   
             ?Debug("Table deleted before it could be purged ~p~n",[Tab]); 
@@ -201,5 +220,3 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 format_status(_Opt, [_PDict, _State]) -> ok.
-
-

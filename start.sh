@@ -57,7 +57,7 @@ cookie="-setcookie $ck"
 imem_opts="-imem"
 imem_opts=$imem_opts" mnesia_node_type ram"
 imem_opts=$imem_opts" erl_cluster_mgrs [$cms]"
-imem_opts=$imem_opts" mnesia_schema_name mpro"
+imem_opts=$imem_opts" mnesia_schema_name imem"
 imem_opts=$imem_opts" tcp_port 8125"
 
 # Kernel Opts

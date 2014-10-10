@@ -67,12 +67,13 @@
         , terminate/2
         , code_change/3
         , format_status/2
-        , fail/1
         ]).
 
 
 -export([ drop_meta_tables/0
         , drop_system_table/1
+        , fail/1
+        , get_tables_count/0
         ]).
 
 -export([ schema/0
@@ -2485,6 +2486,9 @@ foldl(FoldFun, InputAcc, Table) ->
 lock(LockItem, LockKind) -> 
     imem_if:lock(LockItem, LockKind).
 
+get_tables_count() ->
+    {ok, MaxEtsNoTables} = application:get_env(max_ets_tables),
+    {MaxEtsNoTables, length(mnesia:system_info(tables))}.
 
 %% ----- DATA TYPES ---------------------------------------------
 
