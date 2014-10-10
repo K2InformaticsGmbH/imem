@@ -79,4 +79,4 @@ echo "Kernel    : $kernel_opts"
 echo "OS Env    : $os_env"
 echo "------------------------------------------"
 
-$exename $start_opts #-s imem
+$exename $start_opts -s imem
