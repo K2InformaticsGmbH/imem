@@ -11,16 +11,25 @@ paths=$paths" $PWD/ebin"
 paths=$paths" $PWD/deps/*/ebin"
 
 cookie="-setcookie imem"
-imem="-imem mnesia_node_type ram erl_cluster_mgrs ['imemc@WKS006'] mnesia_schema_name imem"
+
+imem="-imem"
+imem=$imem" mnesia_node_type ram"
+imem=$imem" mnesia_schema_name imem"
+imem_cm="-imem erl_cluster_mgrs []"
 
 kernel="-kernel inet_dist_listen_min 7000 inet_dist_listen_max 8000"
 
 exename='start //MAX werl.exe'
-$exename $paths -sname imemc@WKS006 $cookie $kernel $imem
-
+#$exename -name imemc@127.0.0.1 $cookie $kernel
 node=0
+node_name="-name imem$node@127.0.0.1"
+$exename $paths $node_name $cookie $kernel $imem tcp_port $port $imem_cm -s imem
+
 while [ $node -lt $nodes ]; do
-    let prt=$port+$node
-    $exename $paths -sname imem$node@WKS006 $cookie $kernel $imem -imem tcp_port $prt -s imem
     let node=node+1
+    let privnode=node-1
+    let prt=$port+$node
+    node_name="-name imem$node@127.0.0.1"
+    imem_cm="-imem erl_cluster_mgrs ['imem$privnode@127.0.0.1']"
+    $exename $paths $node_name $cookie $kernel $imem tcp_port $prt $imem_cm -s imem
 done

@@ -46,29 +46,14 @@ start(_Type, StartArgs) ->
         {ok, CMNs} ->
             CMNodes = lists:usort(CMNs) -- [node()],
             ?Info("joining cluster with ~p~n", [CMNodes]),
-            [case net_adm:ping(CMNode) of
-                 pong ->
-                     case application:get_env(start_time) of
-                         undefined ->
-                             % Setting a start time for this node
-                             % in cluster requesting an unique
-                             % time from CM
-                             ok = application:set_env(
-                                    ?MODULE, start_time,
-                                    rpc:call(CMNode, erlang, now, []));
-                         _ -> ok
-                     end,
-                     ?Info("joined node ~p~n", [CMNode]);
-                 pang ->
-                     ?Info("node ~p down!~n", [CMNode])
-            end || CMNode <- CMNodes]
+            ok = join_erl_cluster(CMNodes)
     end,
 
     % Setting a start time for the first node in cluster
     % or started without CMs
     case application:get_env(start_time) of
         undefined ->
-            ok = application:set_env(?MODULE, start_time, erlang:now());
+            ok = application:set_env(?MODULE,start_time,{erlang:now(),node()});
         _ -> ok
     end,
 
@@ -155,12 +140,12 @@ wait_remote_imem() ->
 
     % Create a sublist from LoadedButNotRunningImemNodes
     % with the nodes which started before this node
-    SelfStartTime = element(2, application:get_env(start_time)),
+    {ok,{SelfStartTime,_}} = application:get_env(start_time),
     NodesToWaitFor =
         lists:foldl(
           fun(Node, Nodes) ->
                   case rpc:call(Node, application, get_env, [?MODULE, start_time]) of
-                      {ok, StartTime} when StartTime < SelfStartTime ->
+                      {ok, {StartTime,_}} when StartTime < SelfStartTime ->
                           [Node|Nodes];
                       % Ignoring the node which started after this node
                       % or if RPC fails for any reason
@@ -278,6 +263,34 @@ start_tcp(Ip, Port) ->
     imem_server:start_link([{tcp_ip, Ip},{tcp_port, Port}]).
 
 stop_tcp() -> imem_server:stop().
+
+join_erl_cluster([]) -> ok;
+join_erl_cluster([Node|Nodes]) ->
+    case net_adm:ping(Node) of
+        pong ->
+            case application:get_env(start_time) of
+                undefined -> set_start_time(Node);
+                _ -> ok
+            end,
+            ?Info("joined node ~p~n", [Node]);
+        pang ->
+            ?Info("node ~p down!~n", [Node])
+    end,
+    join_erl_cluster(Nodes).
+
+set_start_time(Node) ->
+    % Setting a start time for this node in cluster requesting an unique time
+    % from TimeKeeper
+    case rpc:call(Node, application, get_env, [imem, start_time]) of
+        {ok, {_,TimeKeeper}} ->
+            ok = application:set_env(
+                   ?MODULE, start_time,
+                   {rpc:call(TimeKeeper, erlang, now, []), TimeKeeper});
+        undefined ->
+            ok = application:set_env(
+                   ?MODULE, start_time,
+                   {rpc:call(Node, erlang, now, []), Node})
+    end.
 
 % start/stop test writer
 start_test_writer(Param) ->
