@@ -1152,6 +1152,36 @@ filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree, LeftTree) ->
     FCond = filter_condition(ColF, ColMap),
     filter_spec_where({FType,ColFs}, ColMap, WhereTree, {FType,LeftTree,FCond}).    
 
+filter_condition({Idx,[<<"$in$">>,Val]}, ColMap) ->
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Value = filter_field_value(Tag,Type,L,P,D,Val),     
+    {'=',qname3_to_binstr({S,T,N}),Value};
+filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap) ->
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Values = [filter_field_value(Tag,Type,L,P,D,Val) || Val <- Vals],      
+    {'in',qname3_to_binstr({S,T,N}),{'list',Values}};
+filter_condition({Idx,[<<"$not_in$">>,Val]}, ColMap) ->
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Value = filter_field_value(Tag,Type,L,P,D,Val),     
+    {'<>',qname3_to_binstr({S,T,N}),Value};
+filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap) ->
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Values = [filter_field_value(Tag,Type,L,P,D,Val) || Val <- Vals],      
+    {'not',{'in',qname3_to_binstr({S,T,N}),{'list',Values}}};
+filter_condition({Idx,[<<"$like$">>|Vals]}, ColMap) ->
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Conditions = [{'like',qname3_to_binstr({S,T,N}),filter_field_value(Tag,Type,L,P,D,Val)} || Val <- Vals],      
+    or_like_expr(Conditions);
+filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
+    #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    Tag = "Col" ++ integer_to_list(Idx),
+    Conditions = [{'like',qname3_to_binstr({S,T,N}),filter_field_value(Tag,Type,L,P,D,Val)} || Val <- Vals],      
+    and_not_like_expr(Conditions);
 filter_condition({Idx,[Val]}, ColMap) ->
     #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
     Tag = "Col" ++ integer_to_list(Idx),
@@ -1162,6 +1192,14 @@ filter_condition({Idx,Vals}, ColMap) ->
     Tag = "Col" ++ integer_to_list(Idx),
     Values = [filter_field_value(Tag,Type,L,P,D,Val) || Val <- Vals],       % list_to_binary(
     {'in',qname3_to_binstr({S,T,N}),{'list',Values}}.
+
+or_like_expr([]) ->             false;
+or_like_expr([C]) ->            C;
+or_like_expr([C|Rest]) ->       {'or', C, or_like_expr(Rest)}.
+
+and_not_like_expr([]) ->        true;
+and_not_like_expr([C]) ->       {'not',C};
+and_not_like_expr([C|Rest]) ->  {'and', {'not',C}, and_not_like_expr(Rest)}.
 
 filter_field_value(_Tag,integer,_Len,_Prec,_Def,Val) -> Val;
 filter_field_value(_Tag,float,_Len,_Prec,_Def,Val) -> Val;
