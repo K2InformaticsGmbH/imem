@@ -61,13 +61,14 @@
 		      io:format(user, \"[~p] Deleted table ~p~n\", [Os, T])
 	       end;
     true ->
-        {MaxTablesCount, CurrentTableCount} = imem_meta:get_tables_count(),
-        if CurrentTableCount =< MaxTablesCount * MAX_TABLE_COUNT_PERCENT / 100 ->
+        {MaxTablesConfig, CurrentTableCount} = imem_meta:get_tables_count(),
+        MaxTablesCount = MaxTablesConfig * MAX_TABLE_COUNT_PERCENT / 100,
+        if CurrentTableCount =< MaxTablesCount ->
             % Nothing to drop yet
             io:format(user, \"No Purge: CurrentTableCount ~p (used ~p% of ~p)~n\",
-				[CurrentTableCount, round(CurrentTableCount / MaxTablesCount * 100), MaxTablesCount]);
+				[CurrentTableCount, round(CurrentTableCount / MaxTablesConfig * 100), MaxTablesConfig]);
         true ->
-            SelectCount = round(CurrentTableCount - MaxTablesCount * MAX_TABLE_COUNT_PERCENT / 100),
+            SelectCount = round(CurrentTableCount - MaxTablesCount),
             if SelectCount > 0 ->
                 ExpiredSortedPartTables = lists:filter(fun ({T, _, _, _}) ->
                                             if T < 0 -> true; true -> false end
@@ -83,6 +84,7 @@
 				       [[T || {_, _, _, T} <- DropCandidates]]),
 			    [imem_meta:drop_table(T) || {_, _, _, T} <- DropCandidates];
             true -> io:format(user, \"This should not print~n\", [])
+            end
         end
 	end
 end
