@@ -60,24 +60,32 @@
 		      imem_meta:drop_table(T),
 		      io:format(user, \"[~p] Deleted table ~p~n\", [Os, T])
 	       end;
-	   true ->
-           {MaxTablesCount, CurrentTableCount} = imem_meta:get_tables_count(),
-           CurrentTableCountParcent = round(CurrentTableCount / MaxTablesCount * 100),
-           if CurrentTableCountParcent < MAX_TABLE_COUNT_PERCENT ->
-                   % Nothing to drop yet
-                   io:format(user, \"No Dropping (~p% of ~p)~n\", [CurrentTableCountParcent, MaxTablesCount]);
-               true ->
-                   DropCandidates = lists:sub_list(lists:sort(fun ({_, R1, _, _},
-							 {_, R2, _, _}) ->
-							    if R1 < R2 -> true;
-							       true -> false
-							    end
-						    end,
-						    SortedPartTables), 100 * (MAX_TABLE_COUNT_PERCENT - CurrentTableCountParcent)),
-                   %[{time_to_part_expiry,table_size,partition_time,table}]
-                   io:format(user, \"Drop table ~p~n\", [DropCandidates]),
-		           [imem_meta:drop_table(T) || {_,_,_,T} <- DropCandidates]
-           end
+    true ->
+        {MaxTablesConfig, CurrentTableCount} = imem_meta:get_tables_count(),
+        MaxTablesCount = MaxTablesConfig * MAX_TABLE_COUNT_PERCENT / 100,
+        if CurrentTableCount =< MaxTablesCount ->
+            % Nothing to drop yet
+            io:format(user, \"No Purge: CurrentTableCount ~p (used ~p% of ~p)~n\",
+				[CurrentTableCount, round(CurrentTableCount / MaxTablesConfig * 100), MaxTablesConfig]);
+        true ->
+            SelectCount = round(CurrentTableCount - MaxTablesCount),
+            if SelectCount > 0 ->
+                ExpiredSortedPartTables = lists:filter(fun ({T, _, _, _}) ->
+                                            if T < 0 -> true; true -> false end
+                                          end,
+								          SortedPartTables),
+                RSortedPartTables = lists:sort(fun ({_, R1, _, _}, {_, R2, _, _}) ->
+                                        if R1 < R2 -> true; true -> false end
+							        end,
+							        ExpiredSortedPartTables),
+                DropCandidates = lists:sublist(RSortedPartTables, SelectCount),
+			    %[{time_to_part_expiry,table_size,partition_time,table}]
+			    io:format(user, \"Tables deleted ~p~n\",
+				       [[T || {_, _, _, T} <- DropCandidates]]),
+			    [imem_meta:drop_table(T) || {_, _, _, T} <- DropCandidates];
+            true -> io:format(user, \"This should not print~n\", [])
+            end
+        end
 	end
 end
 ">>)).
