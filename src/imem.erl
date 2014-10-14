@@ -246,7 +246,7 @@ config_if_lager() ->
 
 stop() ->
     ok = application:stop(?MODULE),
-    ok = application:stop(sqlparse),
+    ok = sqlparse:stop(),
     ok = application:stop(jsx),
     ok = application:stop(ranch),
     ok = application:stop(os_mon),
