@@ -244,7 +244,13 @@ config_if_lager() ->
 
 -endif. % TEST
 
-stop() -> application:stop(?MODULE).
+stop() ->
+    ok = application:stop(?MODULE),
+    ok = application:stop(sqlparse),
+    ok = application:stop(jsx),
+    ok = application:stop(ranch),
+    ok = application:stop(os_mon),
+    ok = application:stop(sasl).
 
 stop(_State) ->
     stop_tcp(),
