@@ -51,7 +51,9 @@
 -export([ create_table/4
         , create_check_table/4
         , create_sys_conf/2
+        , create_index/3
         , create_or_replace_index/3
+        , init_create_index/3
 		, drop_table/2
         , drop_index/2
         , drop_index/3
@@ -402,9 +404,9 @@ create_sys_conf(SKey, Path) ->
             imem_meta:create_sys_conf(Path)
     end.
 
-create_or_replace_index(SKey,Table,IndexDefinition) ->
+authorized_table_create_owner(SKey,Table) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    Owner = case if_is_system_table(SKey, Table) of
+    case if_is_system_table(SKey, Table) of
         true ->     
             system;
         false ->    
@@ -412,8 +414,32 @@ create_or_replace_index(SKey,Table,IndexDefinition) ->
                 true ->     AccountId;
                 false ->    false
             end
-    end,
-    case Owner of
+    end.
+
+init_create_index(SKey,Table,IndexDefinition) ->
+    case authorized_table_create_owner(SKey,Table) of
+        false ->
+            ?SecurityException({"Create index unauthorized", {Table,SKey}});
+        Owner ->
+            case have_table_permission(SKey, Table, select) of
+                true ->     imem_meta:init_create_index(Table, IndexDefinition);
+                false ->    ?SecurityException({"Create index on table unauthorized", {Table,SKey}})
+            end
+    end.
+
+create_index(SKey,Table,IndexDefinition) ->
+    case authorized_table_create_owner(SKey,Table) of
+        false ->
+            ?SecurityException({"Create index unauthorized", {Table,SKey}});
+        Owner ->
+            case have_table_permission(SKey, Table, select) of
+                true ->     imem_meta:create_index(Table, IndexDefinition);
+                false ->    ?SecurityException({"Create index on table unauthorized", {Table,SKey}})
+            end
+    end.
+
+create_or_replace_index(SKey,Table,IndexDefinition) ->
+    case authorized_table_create_owner(SKey,Table) of
         false ->
             ?SecurityException({"Create index unauthorized", {Table,SKey}});
         Owner ->
