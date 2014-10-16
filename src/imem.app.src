@@ -37,6 +37,8 @@
          {tcp_port, 8124},
          {ssl, [{certfile,  "priv/cert/imem.crt"},
                 {keyfile,   "priv/cert/imem.key"},
-                {password,  "mpro"}]}
+                {password,  "mpro"},
+                {versions, ['tlsv1.2', 'tlsv1.1', 'tlsv1']}
+               ]}
         ]}
  ]}.
