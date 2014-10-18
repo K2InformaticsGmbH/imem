@@ -52,9 +52,12 @@
 -define(GET_SNAPSHOT_SCRIPT,?GET_IMEM_CONFIG(snapshotScript,[],true)).
 -define(GET_SNAPSHOT_SCRIPT_FUN,?GET_IMEM_CONFIG(snapshotScriptFun,[],
 <<"fun() ->
-    ExcludeList = [dual, ddSize, ddNode,
-               imem_meta:physical_table_name(ddSeCo@),
-               imem_meta:physical_table_name(mproConnectionProbe@)],
+    ExcludeList = [dual, ddSize, ddNode
+                  ,imem_meta:physical_table_name(ddCache@)
+                  ,imem_meta:physical_table_name(ddSeCo@)
+                  ,imem_meta:physical_table_name(ddPerm@)
+                  ,imem_meta:physical_table_name(mproConnectionProbe@)
+                  ],
     [(fun() ->
         case imem_snap:get_snap_properties(T) of
             {} ->               ok;

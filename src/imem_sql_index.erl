@@ -5,6 +5,16 @@
 -export([ exec/5
         ]).
 
+exec(SKey, {'drop index', {}, TableName}=_ParseTree, _Stmt, _Opts, IsSec) ->
+    % ?LogDebug("Drop Index Parse Tree~n~p~n", [_ParseTree]),
+    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
+    Table = if 
+        TableSchema =:= undefined ->
+            {imem_meta:schema(),list_to_existing_atom(binary_to_list(Tbl))};
+        true ->
+            {list_to_existing_atom(binary_to_list(TableSchema)),list_to_existing_atom(binary_to_list(Tbl))}
+    end,
+    if_call_mfa(IsSec, 'drop_index', [SKey,Table]);
 exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec) ->
     % ?LogDebug("Drop Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),

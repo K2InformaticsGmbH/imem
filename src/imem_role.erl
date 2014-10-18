@@ -53,13 +53,20 @@ create(SeCo, #ddRole{id=RoleId}=Role) ->
                     end;
         false ->    ?SecurityException({"Create role unauthorized",SeCo})
     end;        
-create(SeCo, RoleId) -> 
+create(SeCo, Role) when is_atom(Role); is_binary(Role); is_integer(Role) -> 
     case imem_seco:have_permission(SeCo, manage_accounts) of
-        true ->     case if_read(SeCo, ddRole, RoleId) of
-                        [] ->       ok = if_write(SeCo, ddRole, #ddRole{id=RoleId});
-                        [_] ->      ?ClientError({"Role already exists",RoleId})
-                    end;
-        false ->    ?SecurityException({"Create role unauthorized",SeCo})
+        true ->     
+            RoleId = if
+                is_atom(Role) ->    Role;
+                is_integer(Role) -> Role;
+                is_binary(Role) ->  ?binary_to_atom(Role)
+            end,
+            case if_read(SeCo, ddRole, RoleId) of
+                [] ->       ok = if_write(SeCo, ddRole, #ddRole{id=RoleId});
+                [_] ->      ?ClientError({"Role already exists",RoleId})
+            end;
+        false ->    
+            ?SecurityException({"Create role unauthorized",SeCo})
     end.
 
 get(SeCo, RoleId) -> 

@@ -40,6 +40,12 @@ exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _StmtOpts, IsSec) ->
 exec(SKey, {'drop user', Name, Specs}, _Stmt, _StmtOpts, IsSec) ->
     if_call_mfa(IsSec, admin_exec, [SKey, imem_account, delete, [Name, Specs]]);
 
+exec(SKey, {'create role', Name}, _Stmt, _StmtOpts, IsSec) ->
+    if_call_mfa(IsSec, admin_exec, [SKey, imem_role, create, [Name]]);
+
+exec(SKey, {'drop role', Name}, _Stmt, _StmtOpts, IsSec) ->
+    if_call_mfa(IsSec, admin_exec, [SKey, imem_role, delete, [Name]]);
+
 exec(SKey, {'grant', Privileges, {'on', <<>>}, {'to', Grantees}, _Opts}, _Stmt, _StmtOpts, _IsSec) -> 
     % ?Info("grant privileges ~p~n", [Privileges]),
     % ?Info("grant grantees ~p~n", [Grantees]),

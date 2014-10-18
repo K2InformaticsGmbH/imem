@@ -77,6 +77,10 @@ exec(SKey, 'alter user', ParseTree, Stmt, Opts, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Opts, IsSec);
 exec(SKey, 'drop user', ParseTree, Stmt, Opts, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Opts, IsSec);
+exec(SKey, 'create role', ParseTree, Stmt, Opts, IsSec) ->
+    imem_sql_account:exec(SKey, ParseTree, Stmt, Opts, IsSec);
+exec(SKey, 'drop role', ParseTree, Stmt, Opts, IsSec) ->
+    imem_sql_account:exec(SKey, ParseTree, Stmt, Opts, IsSec);
 exec(SKey, 'grant', ParseTree, Stmt, Opts, IsSec) ->
     imem_sql_account:exec(SKey, ParseTree, Stmt, Opts, IsSec);
 exec(SKey, 'revoke', ParseTree, Stmt, Opts, IsSec) ->
