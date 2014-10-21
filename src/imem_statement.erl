@@ -348,7 +348,8 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             % ?LogDebug("Scan Spec after meta bind:~n~p~n", [SSpec]),
             % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-            case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
+
+            try if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
                 TransPid when is_pid(TransPid) ->
                     MonitorRef = erlang:monitor(process, TransPid),
                     TransPid ! next,
@@ -362,8 +363,15 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                                           ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
                                           ,recName=RecName},
                     {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
-                Error ->    
-                    ?SystemException({"Cannot spawn async fetch process",Error})
+                Error ->
+                    send_reply_to_client(Sock, {error, {"Cannot spawn async fetch process", Error}}),
+                    FetchAborted = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                    {noreply, State#state{reply=Sock,fetchCtx=FetchAborted}}
+            catch
+                {_Ex, _Type} = Error ->
+                    send_reply_to_client(Sock, {error, Error}),
+                    FetchAborted = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                    {noreply, State#state{reply=Sock,fetchCtx=FetchAborted}}
             end;
         {true,_Pid} ->          %% skip ongoing fetch (and possibly go to tail_mode)
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
