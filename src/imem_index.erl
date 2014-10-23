@@ -233,6 +233,9 @@ gen_iff_binterm_list_pattern(__Pattern) ->
 
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function()) -> list().
+preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd} = SearchTerm,Limit,Iff) when
+      is_integer(RangeStart), is_integer(RangeEnd) ->
+    preview_range(IndexTable, ID, Type, SearchTerm, Limit, Iff);
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) ->
     case is_regexp_search(SearchStrategies, SearchTerm) of
         true ->
@@ -260,8 +263,8 @@ preview(_IndexTable,_ID,_Type,_SearchStrategies,_SearchTerm,_Limit,_Iff,_Cont) -
     % ].
 
 %% @doc check if the search term should be interpreted as a regular expression.
--spec is_regexp_search(list(), binary()) -> boolean().
-is_regexp_search(SearchStrategies, SearchTerm) ->
+-spec is_regexp_search(list(), term()) -> boolean().
+is_regexp_search(SearchStrategies, SearchTerm) when is_binary(SearchTerm) ->
     case  binary:match(SearchTerm, [<<"*">>, <<"?">>,<<"_">>,<<"%">>]) of
         nomatch -> false;
         _ ->
@@ -269,8 +272,10 @@ is_regexp_search(SearchStrategies, SearchTerm) ->
                 true -> true;
                 false -> ?ClientError({"Wildcard search is not enabled",SearchTerm})
             end
-    end.
+    end;
+is_regexp_search(_SearchStrategies, _SearchTerm) -> false.
 
+-spec preview_regexp(atom(), integer(), atom(), term(), integer(), function()) -> list().
 preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff) ->
     StartingStu = create_starting_stu(Type, ID, re_match, SearchTerm),
     ReplacedStar = binary:replace(SearchTerm, [<<"*">>], <<"%">>, [global]),
@@ -360,6 +365,84 @@ preview_regexp(IndexTable, ID, iv_h, Pattern, {ID, Value} = Stu, Limit, Iff) ->
             Partial
     end.
 
+-spec preview_range(atom(), integer(), atom(), {integer(), integer()}, integer(), function()) -> list().
+preview_range(IndexTable, ID, Type, SearchTerm, Limit, Iff) ->
+    StartingStu = create_starting_stu(Type, ID, range_match, SearchTerm),
+    {atomic, ResultRange} =
+        imem_if:transaction(fun() -> preview_range(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, Iff) end),
+    ResultRange.
+
+preview_range(_IndexTable, _ID, ivk, _SearchTerm, _Stu, 0, _Iff) -> [];
+preview_range(IndexTable, ID, ivk, {RangeStart, RangeEnd} = SearchTerm, PrevStu, Limit, Iff) ->
+    case imem_if:next(IndexTable, PrevStu) of
+        '$end_of_table' -> [];
+        {ID, Value, Key} = Stu when Value >= RangeStart, Value =< RangeEnd ->
+            case Iff({Key, Value}) of
+                true ->
+                    [build_result_entry(Stu, range_match, Key, Value) |
+                     preview_range(IndexTable, ID, ivk, SearchTerm, Stu, Limit-1, Iff)];
+                false ->
+                    preview_range(IndexTable, ID, ivk, SearchTerm, Stu, Limit, Iff)
+            end;
+        _ -> []
+    end;
+preview_range(IndexTable, ID, iv_k, {RangeStart, RangeEnd} = SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
+    case imem_if:read(IndexTable, Stu) of
+        [#ddIndex{stu = {ID, Value}, lnk = Key} = Entry] ->
+            case Iff({Key, Value}) of
+                true ->
+                    Partial = [build_result_entry(Entry#ddIndex.stu, range_match, Key, Value)];
+                false -> Partial = []
+            end;
+        _ -> Partial = []
+    end,
+    if
+        length(Partial) < Limit ->
+            case imem_if:next(IndexTable, Stu) of
+                '$end_of_table' -> Partial;
+                {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
+                    Partial ++ preview_range(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - length(Partial), Iff);
+                _ -> Partial
+            end;
+        true ->
+            Partial
+    end;
+preview_range(IndexTable, ID, iv_kl, {RangeStart,RangeEnd} = SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
+    case imem_if:read(IndexTable, Stu) of
+        [#ddIndex{stu = {ID, Value}, lnk = KeyList} = Entry] ->
+            Partial = preview_expand_kl(range_match, Entry#ddIndex.stu, KeyList, Value, Limit, Iff);
+        _ ->
+            Partial = []
+    end,
+    if
+        length(Partial) < Limit ->
+            case imem_if:next(IndexTable, Stu) of
+                '$end_of_table' -> Partial;
+                {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
+                    Partial ++ preview_range(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - length(Partial), Iff);
+                _ -> Partial
+            end;
+        true ->
+            Partial
+    end;
+preview_range(IndexTable, ID, iv_h, {RangeStart, RangeEnd} = SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
+    case imem_if:read(IndexTable, Stu) of
+        [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
+            Partial = preview_expand_hash(range_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
+        _ ->
+            Partial = []
+    end,
+    if
+        length(Partial) < Limit ->
+            case imem_if:next(IndexTable, Stu) of
+                '$end_of_table' -> Partial;
+                {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
+                    Partial ++ preview_range(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - length(Partial), Iff);
+                _ -> Partial
+            end;
+        true ->
+            Partial
+    end.
 
 %% @doc Execute preview in the order defined by the list of searchstrategies.
 -spec preview_execute(atom(), integer(), atom(), list(), binary(), integer(), function(), atom()) -> list().
@@ -582,10 +665,12 @@ preview_body(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
     end.
 
 -spec create_starting_stu(atom(), integer(), atom(), binary()) -> tuple().
-create_starting_stu(ivk, ID, head_match, SearchTerm) -> {ID, SearchTerm, ?SMALLEST_TERM};
-create_starting_stu(ivk, ID, _MatchType, _SearchTerm) -> {ID, ?SMALLEST_TERM, ?SMALLEST_TERM};
-create_starting_stu(_Type, ID, head_match, SearchTerm) -> {ID, SearchTerm};
-create_starting_stu(_Type, ID, _MatchType, _SearchTerm) -> {ID, ?SMALLEST_TERM}.
+create_starting_stu(ivk, ID, head_match, SearchTerm)        -> {ID, SearchTerm, ?SMALLEST_TERM};
+create_starting_stu(ivk, ID, range_match, {RangeStart, _})  -> {ID, RangeStart, ?SMALLEST_TERM};
+create_starting_stu(ivk, ID, _MatchType, _SearchTerm)       -> {ID, ?SMALLEST_TERM, ?SMALLEST_TERM};
+create_starting_stu(_Type, ID, head_match, SearchTerm)      -> {ID, SearchTerm};
+create_starting_stu(_Type, ID, range_match, {RangeStart, _})-> {ID, RangeStart};
+create_starting_stu(_Type, ID, _MatchType, _SearchTerm)     -> {ID, ?SMALLEST_TERM}.
 
 -spec preview_expand_kl(atom(), tuple(), list(), list(), integer(), fun()) -> list().
 preview_expand_kl(_Type, _Stu, [], _SearchTerm, _Limit, _Iff) -> [];
@@ -632,7 +717,6 @@ add_filter_duplicated(head_match, SearchTerm, Iff) ->
            _ -> Iff({Key, Value})
        end
     end.
-
 
 
 %% ===================================================================
