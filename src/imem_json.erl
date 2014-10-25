@@ -32,6 +32,7 @@
         , size/1
         , update/3
         , values/1
+        , items/1
         ]).
 
 %% Conversions
@@ -398,6 +399,21 @@ values(DataObject) ->
     values(?FROM_JSON(DataObject)).
 -endif.
 
+%% @doc Returns a complete list of items (objects) , in arbitrary order, from a data object or array
+-spec items(data_object()) -> list().
+-ifdef(MAPS).
+items(DataObject) when is_list(DataObject) ->
+    DataObject;
+items(DataObject) when is_map(DataObject) ->
+    maps:to_list(DataObject);
+items(DataObject) -> 
+    items(?FROM_JSON(DataObject)).
+-else.
+items(DataObject) when is_list(DataObject) ->
+    DataObject;
+items(DataObject) -> 
+    items(?FROM_JSON(DataObject)).
+-endif.
 
 
 %% @doc Convert any format of DataObject to proplist
@@ -1135,6 +1151,9 @@ clean_null_values(DataObject) ->
 -define(TEST_PROP, [{<<"surname">>,<<"Doe">>}, {<<"name">>,<<"John">>}, {<<"foo">>,<<"bar">>}
                     , {<<"earthling">>,true}, {<<"age">>,981},{<<"empty">>,null}]).
 -define(TEST_JSON_LIST, <<"[{\"surname\":\"Doe\"},{\"surname\":\"Jane\"},{\"surname\":\"DoeDoe\"}]">>).
+
+-define(TEST_LACON, <<"[[\"50\",\"LACON\",\"29\"],[\"95\",\"LACON\",\"08\"]]">>).
+
 
 -ifdef(MAPS).
 -define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true, <<"foo">> => <<"bar">>
