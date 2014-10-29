@@ -34,8 +34,8 @@
 -export([gen_iff_binterm_list_pattern/1      %% used to generate iff fun from key pattern
         ]).
 
--export([preview/7      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) -> [{Strategy,Key,Value,Stu}]
-        ,preview/8      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Cont) -> [{Strategy,Key,Value,Stu}]
+-export([preview/8      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) -> [{Strategy,Key,Value,Stu}]
+        ,preview/9      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,Cont) -> [{Strategy,Key,Value,Stu}]
         ]).
 
 -export([binstr_accentfold/1
@@ -232,17 +232,21 @@ gen_iff_binterm_list_pattern(__Pattern) ->
 %% ===================================================================
 
 %% @doc Preview match scan into an index for finding first "best" matches
--spec preview(atom(),integer(),atom(),list(),term(),integer(),function()) -> list().
-preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd} = SearchTerm,Limit,Iff) when
+-spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function()) -> list().
+preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd} = SearchTerm,Limit,Iff,_Vnf) when
       is_integer(RangeStart), is_integer(RangeEnd) ->
     preview_range(IndexTable, ID, Type, SearchTerm, Limit, Iff);
-preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) ->
-    case is_regexp_search(SearchStrategies, SearchTerm) of
-        true ->
-            preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff);
-        false ->
-            FilteredStrategies = [Strategy || Strategy <- SearchStrategies, Strategy =/= re_match],
-            preview_execute(IndexTable, ID, Type, FilteredStrategies, SearchTerm, Limit, Iff, undefined)
+preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
+    case Vnf(SearchTerm) of
+        ['$not_a_value'] -> [];
+        [NormalizedTerm | _] ->
+            case is_regexp_search(SearchStrategies, NormalizedTerm) of
+                true ->
+                    preview_regexp(IndexTable, ID, Type, NormalizedTerm, Limit, Iff);
+                false ->
+                    FilteredStrategies = [Strategy || Strategy <- SearchStrategies, Strategy =/= re_match],
+                    preview_execute(IndexTable, ID, Type, FilteredStrategies, NormalizedTerm, Limit, Iff, undefined)
+            end
     end.
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
@@ -252,8 +256,8 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff) ->
     % ].
 
 %% @doc Preview match scan into an index for finding first "best" matches
--spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),tuple()) -> list().
-preview(_IndexTable,_ID,_Type,_SearchStrategies,_SearchTerm,_Limit,_Iff,_Cont) ->
+-spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function(),tuple()) -> list().
+preview(_IndexTable,_ID,_Type,_SearchStrategies,_SearchTerm,_Limit,_Iff,_Vnf,_Cont) ->
     [].     %% ToDo: implement continuation search
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
