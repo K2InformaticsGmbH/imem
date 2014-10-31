@@ -420,7 +420,7 @@ init_create_index(SKey,Table,IndexDefinition) ->
     case authorized_table_create_owner(SKey,Table) of
         false ->
             ?SecurityException({"Create index unauthorized", {Table,SKey}});
-        Owner ->
+        _Owner ->
             case have_table_permission(SKey, Table, select) of
                 true ->     imem_meta:init_create_index(Table, IndexDefinition);
                 false ->    ?SecurityException({"Create index on table unauthorized", {Table,SKey}})
@@ -431,7 +431,7 @@ create_index(SKey,Table,IndexDefinition) ->
     case authorized_table_create_owner(SKey,Table) of
         false ->
             ?SecurityException({"Create index unauthorized", {Table,SKey}});
-        Owner ->
+        _Owner ->
             case have_table_permission(SKey, Table, select) of
                 true ->     imem_meta:create_index(Table, IndexDefinition);
                 false ->    ?SecurityException({"Create index on table unauthorized", {Table,SKey}})
@@ -442,7 +442,7 @@ create_or_replace_index(SKey,Table,IndexDefinition) ->
     case authorized_table_create_owner(SKey,Table) of
         false ->
             ?SecurityException({"Create index unauthorized", {Table,SKey}});
-        Owner ->
+        _Owner ->
             case have_table_permission(SKey, Table, select) of
                 true ->     imem_meta:create_or_replace_index(Table, IndexDefinition);
                 false ->    ?SecurityException({"Create index on table unauthorized", {Table,SKey}})
@@ -904,8 +904,13 @@ seco_authorized(SKey) ->
 have_table_ownership(SKey, {Schema,Table}) when is_atom(Schema), is_atom(Table) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     Owner = case imem_meta:read(ddTable, {Schema,Table}) of
-        [#ddTable{owner=O}] ->  O;
-        _ ->                    no_one
+        [#ddTable{owner=TO}] ->  
+            TO; 
+        _ ->
+            case imem_meta:read(ddAlias, {Schema,Table}) of
+                [#ddAlias{owner=AO}]    ->  AO;
+                _ ->                        no_one
+            end                
     end,
     (Owner =:= AccountId);
 have_table_ownership(SKey, Table) when is_binary(Table) ->
@@ -918,20 +923,45 @@ have_table_permission(_SKey, {_,dual}, _, _) ->  false;
 have_table_permission(SKey, {_,Table}, Operation, true) ->
     imem_seco:have_permission(SKey, [manage_system_tables, {table,Table,Operation}]);
 have_table_permission(SKey, {Schema,Table}, select, false) ->
-    case imem_seco:have_permission(SKey, [manage_user_tables, {table,Table,select}]) of
-        true ->     true;
-        false ->    have_table_ownership(SKey,{Schema,Table}) 
+    case imem_seco:have_permission(SKey, [manage_user_tables]) of
+        true ->     
+            true;
+        false ->    
+            case have_table_ownership(SKey,{Schema,Table}) of
+                true -> 
+                    true;
+                false ->
+                    [_,_,Name,_,_,_] = imem_meta:parse_table_name(Table),
+                    try  
+                        imem_seco:have_permission(SKey, [{table,list_to_existing_atom(Name),select}])
+                    catch 
+                        _:_ -> false
+                    end
+            end    
     end;
 have_table_permission(SKey, {Schema,Table}, Operation, false) ->
     case imem_meta:read(ddTable, {Schema,Table}) of
         [#ddTable{qname={Schema,Table}, readonly=true}] -> 
-            imem_seco:have_permission(SKey, manage_user_tables);
+            imem_seco:have_permission(SKey, manage_user_tables);    %% allow write for user table managers
         [#ddTable{qname={Schema,Table}, readonly=false}] ->
-            case have_table_ownership(SKey,{Schema,Table}) of
-                true ->     true;
-                false ->    imem_seco:have_permission(SKey, [manage_user_tables, {table,Table,Operation}])
+            case imem_seco:have_permission(SKey, [manage_user_tables]) of
+                true ->     
+                    true;
+                false ->    
+                    case have_table_ownership(SKey,{Schema,Table}) of
+                        true -> 
+                            true;
+                        false ->
+                            [_,_,Name,_,_,_] = imem_meta:parse_table_name(Table),
+                            try  
+                                imem_seco:have_permission(SKey, [{table,list_to_existing_atom(Name),Operation}])
+                            catch 
+                                _:_ -> false
+                            end
+                    end    
             end;
-        _ ->    false
+        _ ->    
+            false
     end;
 have_table_permission(SKey, Table, Operation, Type) ->
     have_table_permission(SKey, imem_meta:qualified_table_name(Table), Operation, Type).
