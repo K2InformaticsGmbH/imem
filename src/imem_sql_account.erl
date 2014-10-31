@@ -118,6 +118,12 @@ revoke_sys_priv(SKey,PA,GBin) when is_atom(PA) ->
 
 grant_obj_priv(SKey,PA,GBin,OBin) when is_atom(PA) ->
     Name = binary_to_list(OBin),
+    Pred = fun({_,N}) ->
+        case imem_meta:parse_table_name(N) of
+            [_,_,Name,_,_,_] -> true;
+            _ ->                false
+        end
+    end, 
     O = case (catch list_to_existing_atom(Name)) of
         OA when is_atom(OA) ->
             case (catch imem_meta:check_table(OA)) of
@@ -128,12 +134,6 @@ grant_obj_priv(SKey,PA,GBin,OBin) when is_atom(PA) ->
                         L when is_list(L) ->    
                             {module,OA};
                         _ ->
-                            Pred = fun({_,N}) ->
-                                case imem_meta:parse_table_name(N) of
-                                    [_,_,Name,_,_,_] -> true;
-                                    _ ->                false
-                                end
-                            end, 
                             case lists:filter(Pred,[QN || #ddAlias{qname=QN} <- imem_meta:read(ddAlias)]) of
                                 [] ->   ?SecurityException({"Object does not exist",{SKey,OBin}});
                                 _ ->    {table,OA}
@@ -141,7 +141,10 @@ grant_obj_priv(SKey,PA,GBin,OBin) when is_atom(PA) ->
                     end
             end;
         _ ->
-            ?SecurityException({"Object does not exist",{SKey,OBin}})
+            case lists:filter(Pred,[QN || #ddAlias{qname=QN} <- imem_meta:read(ddAlias)]) of
+                [] ->   ?SecurityException({"Object does not exist",{SKey,OBin}});
+                _ ->    {table,list_to_atom(Name)}
+            end
     end,
     G = case (catch list_to_existing_atom(binary_to_list(GBin))) of
         GA when is_atom(GA) -> 
@@ -160,11 +163,28 @@ grant_obj_priv(SKey,PA,GBin,OBin) when is_atom(PA) ->
     end.
 
 revoke_obj_priv(SKey,PA,GBin,OBin) when is_atom(PA) ->
-    O = case (catch list_to_existing_atom(binary_to_list(OBin))) of
+    Name = binary_to_list(OBin),
+    Pred = fun({_,N}) ->
+        case imem_meta:parse_table_name(N) of
+            [_,_,Name,_,_,_] -> true;
+            _ ->                false
+        end
+    end, 
+    O = case (catch list_to_existing_atom(Name)) of
         OA when is_atom(OA) ->
             case (catch imem_meta:check_table(OA)) of
-                ok ->   {table,OA};
-                _ ->    {module,OA}
+                ok ->   
+                    {table,OA};
+                _ ->
+                    case (catch OA:module_info()) of 
+                        L when is_list(L) ->    
+                            {module,OA};
+                        _ ->
+                            case lists:filter(Pred,[QN || #ddAlias{qname=QN} <- imem_meta:read(ddAlias)]) of
+                                [] ->   ?SecurityException({"Object does not exist",{SKey,OBin}});
+                                _ ->    {table,OA}
+                            end
+                    end
             end;
         _ ->
             ?SecurityException({"Object does not exist",{SKey,OBin}})

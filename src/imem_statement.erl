@@ -310,7 +310,7 @@ handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fet
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
     % ?LogDebug("fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     % ?LogDebug("fetch_recs_async called with Stmt~n~p~n", [Stmt]),
-    #statement{tables=[Table|_], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
+    #statement{tables=[Table|JTabs], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     Params1 = case lists:keyfind(params, 1, Opts) of
         false ->    Params0;    %% from statement exec, only used on first fetch
@@ -348,30 +348,32 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             % ?LogDebug("Scan Spec after meta bind:~n~p~n", [SSpec]),
             % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-
-            try if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
-                TransPid when is_pid(TransPid) ->
-                    MonitorRef = erlang:monitor(process, TransPid),
-                    TransPid ! next,
-                    % ?Debug("fetch opts ~p~n", [Opts]),
-                    RecName = try imem_meta:table_record_name(Table)
-                              catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
-                              end,
-                    FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
-                                          ,metarec=MR,blockSize=BlockSize
-                                          ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
-                                          ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
-                                          ,recName=RecName},
-                    {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
-                Error ->
-                    send_reply_to_client(Sock, {error, {"Cannot spawn async fetch process", Error}}),
-                    FetchAborted = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
-                    {noreply, State#state{reply=Sock,fetchCtx=FetchAborted}}
+            try 
+                get_select_permissions(IsSec,SKey, [Table|JTabs]),
+                case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
+                    TransPid when is_pid(TransPid) ->
+                        MonitorRef = erlang:monitor(process, TransPid),
+                        TransPid ! next,
+                        % ?Debug("fetch opts ~p~n", [Opts]),
+                        RecName = try imem_meta:table_record_name(Table)
+                                  catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
+                                  end,
+                        FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
+                                              ,metarec=MR,blockSize=BlockSize
+                                              ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
+                                              ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
+                                              ,recName=RecName},
+                        {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
+                    Error ->
+                        send_reply_to_client(Sock, {error, {"Cannot spawn async fetch process", Error}}),
+                        FetchAborted1 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                        {noreply, State#state{reply=Sock,fetchCtx=FetchAborted1}}
+                end
             catch
-                {_Ex, _Type} = Error ->
-                    send_reply_to_client(Sock, {error, Error}),
-                    FetchAborted = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
-                    {noreply, State#state{reply=Sock,fetchCtx=FetchAborted}}
+                _:Err ->
+                    send_reply_to_client(Sock, {error, Err}),
+                    FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                    {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
             end;
         {true,_Pid} ->          %% skip ongoing fetch (and possibly go to tail_mode)
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
@@ -655,6 +657,15 @@ terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=MonitorRef}}) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+
+get_select_permissions(false, _, _) -> true;
+get_select_permissions(true, _, []) -> true;
+get_select_permissions(true, SKey, [Table|JTabs]) ->
+    case imem_sec:have_table_permission(SKey, Table, select) of
+        false ->   ?SecurityException({"Select unauthorized", {Table,SKey}});
+        true ->    get_select_permissions(true, SKey, JTabs)
+    end.
 
 unsubscribe(Stmt) ->
     {_Schema,Table} = hd(Stmt#statement.tables),
