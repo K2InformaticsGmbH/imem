@@ -2288,7 +2288,7 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
                                         end,
                                         Trigger(ORow,Row,TableAlias,User),
                                         Row;
-                    {update,_,_} ->     ?ConcurrencyException({"Data is modified by someone else", {PTN,Key}});
+                    {update,_,R} ->     ?ConcurrencyException({"Data is modified by someone else", {PTN,R}});
                     {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", TableAlias});
                     {merge,_,[]} ->     write(PTN, Row),
                                         Trigger({},Row,TableAlias,User),
@@ -2304,9 +2304,10 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
                                                         Trigger(Row,{},PTN,User),
                                                         Row
                                         end;
-                    {remove,_,[R]} ->   delete(TableAlias, Key),
-                                        Trigger(R,{},TableAlias,User),
-                                        R
+                    {remove,_,[ORow]}-> delete(TableAlias, Key),
+                                        Trigger(ORow,{},TableAlias,User),
+                                        ORow;
+                    {remove,_,R} ->     ?ConcurrencyException({"Data is modified by someone else", {PTN,R}})
                 end
             end,
             return_atomic(transaction(Trans));
@@ -2618,6 +2619,7 @@ meta_operations(_) ->
         ?assertEqual(ok, drop_index(meta_table_1)),
         ?assertEqual(ok, create_index(meta_table_1, [Idx1Def])),
         ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
+        ?assertException(throw, {'ConcurrencyException',{"Data is modified by someone else",_}}, remove(meta_table_1, {meta_table_1,"meta",<<"tible"/utf8>>,"1"})),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, remove(meta_table_1, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"})),
         ?assertEqual([], read(meta_table_1)),
         ?assertEqual([], read(idx_meta_table_1)),
