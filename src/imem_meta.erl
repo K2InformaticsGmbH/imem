@@ -2279,15 +2279,16 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
                     {insert,_,[R]} ->   ?ConcurrencyException({"Insert failed, key already exists in", {PTN,R}});
                     {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", TableAlias});
                     {update,_,[]} ->    ?ConcurrencyException({"Update failed, key does not exist", {PTN,Key}});
-                    {update,_,[R]} ->   case element(?KeyIdx,NRow) of
+                    {update,_,[ORow]}-> case element(?KeyIdx,NRow) of
                                             Key ->  write(PTN, Row);
                                             OK ->   %% key has changed
                                                     %% must evaluate new partition and delete old key
                                                     write(physical_table_name(TableAlias,element(?KeyIdx,Row)), Row),
                                                     delete(PTN,OK)
                                         end,
-                                        Trigger(R,Row,TableAlias,User),
+                                        Trigger(ORow,Row,TableAlias,User),
                                         Row;
+                    {update,_,_} ->     ?ConcurrencyException({"Data is modified by someone else", {PTN,Key}});
                     {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", TableAlias});
                     {merge,_,[]} ->     write(PTN, Row),
                                         Trigger({},Row,TableAlias,User),
@@ -2610,6 +2611,7 @@ meta_operations(_) ->
         ?assertEqual([{meta_table_1,"meta",<<"täble"/utf8>>,"1"}], read(meta_table_1)),
         ?assertEqual([#ddIndex{stu={1,<<"table">>,"meta"}}], read(idx_meta_table_1)),
         ?assertEqual([<<"tuble">>], imem_index:vnf_lcase_ascii_ne(<<"tüble"/utf8>>)),
+        ?assertException(throw, {'ConcurrencyException',{"Data is modified by someone else",_}}, update(meta_table_1, {{meta_table_1,"meta",<<"tible"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, update(meta_table_1, {{meta_table_1,"meta",<<"täble"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
         ?assertEqual([{meta_table_1,"meta",<<"tüble"/utf8>>,"1"}], read(meta_table_1)),
         ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
