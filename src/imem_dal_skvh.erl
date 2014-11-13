@@ -100,7 +100,7 @@ create_check_channel(Channel) ->
 		A = list_to_existing_atom(?AUDIT(Channel)),
 		P = imem_meta:partitioned_table_name_str(A,erlang:now()), 	%% ToDo: remove when partitions are pre-created
 		PN = list_to_existing_atom(P), 								%% ToDo: remove when partitions are pre-created
-		imem_meta:check_table(T),
+		imem_meta:check_local_table_copy(T),
 		imem_meta:check_table(PN),
 		{T,A}
 	catch 

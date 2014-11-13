@@ -36,6 +36,7 @@
         , table_memory/1
         , table_record_name/1        
         , check_table/1
+        , check_local_table_copy/1
         , check_table_columns/2
         , is_system_table/1
         , meta_field_value/1
@@ -296,6 +297,12 @@ check_table(Table) ->
     case is_readable_table(Table) of
         false ->  ?ClientErrorNoLogging({"This table is not readable", Table});
         true  ->  ok
+    end.
+
+check_local_table_copy(Table) ->
+    case mnesia:table_info(Table, storage_type) of
+        unknown -> ?ClientErrorNoLogging({"This table does not reside locally", Table});
+        _ -> ok
     end.
 
 check_table_columns(Table, ColumnNames) ->

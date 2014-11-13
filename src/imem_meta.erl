@@ -116,6 +116,7 @@
         , trigger_infos/1
         , dictionary_trigger/4
         , check_table/1
+        , check_local_table_copy/1
         , check_table_meta/2
         , check_table_columns/2
         , meta_field_list/0        
@@ -311,7 +312,7 @@ init_create_or_replace_trigger(TableName,TriggerStr) ->
 
 init_create_index(TableName,IndexDefinition) when is_list(IndexDefinition) ->
     case (catch create_index(TableName,IndexDefinition)) of
-        {'ClientError',{"Index already exists",{_Table,_}}} = Res ->   
+        {'ClientError',{"Index already exists",{_Table,_}}} = Res ->
             ?Info("creating index for ~p results in ~p", [_Table,"Index exists in different version"]),
             Res;
         {'ClientError',{"Index already exists", _Table}} = R ->   
@@ -477,6 +478,9 @@ check_table(Table) when is_atom(Table) ->
     ok;
 check_table({ddSysConf, _Table}) -> ok.
 
+check_local_table_copy(Table) when is_atom(Table) ->
+    imem_if:check_local_table_copy(physical_table_name(Table));
+check_local_table_copy({ddSysConf, _Table}) -> true.
 
 check_table_meta({ddSysConf, _}, _) -> ok;
 check_table_meta(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAlias) ->
@@ -907,12 +911,18 @@ create_index({Schema,Table},IndexDefinition) when is_list(IndexDefinition) ->
         _ ->        ?UnimplementedException({"Create Index in foreign schema",{Schema,Table}})
     end;
 create_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
+    IndexTable = index_table(Table),
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
             case lists:keysearch(index, 1, D#ddTable.opts) of
-                false ->                    create_or_replace_index(Table,IndexDefinition);
-                {value,IndexDefinition} ->  ?ClientError({"Index already exists",{Table}});
-                {value,IDL} ->              ?ClientError({"Index already exists",{Table,IDL}})
+                false ->
+                    create_or_replace_index(Table,IndexDefinition);
+                {value,{index,IndexDefinition}} ->
+                    create_index_table(IndexTable,D#ddTable.opts,D#ddTable.owner),
+                    ?ClientError({"Index already exists",{Table}});
+                {value,{index,IDL}} ->
+                    create_index_table(IndexTable,D#ddTable.opts,D#ddTable.owner),
+                    ?ClientError({"Index already exists",{Table,IDL}})
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
