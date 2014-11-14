@@ -72,6 +72,7 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
             Message = lager_msg:message(LagerMsg),
             Metadata = lager_msg:metadata(LagerMsg),
             Mod = proplists:get_value(module, Metadata),
+            StackTrace = proplists:get_value(stacktrace, Metadata, []),
             case lists:member(Mod, State#state.modules) of
                 true ->
                     Fun = proplists:get_value(function, Metadata),
@@ -80,7 +81,7 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
                     Pid = proplists:get_value(pid, Metadata),
                     Fields = [P || {K,_} = P <- Metadata, K /= node , K /= application,
                                    K /= module, K /= function, K /= line, K /= pid,
-                                   K /= imem_table],
+                                   K /= imem_table, K /= stacktrace],
                     
                     LogTable = proplists:get_value(imem_table, Metadata, DefaultTable),
                     LogRecord = if LogTable == DefaultTable -> ddLog;
@@ -100,7 +101,7 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
                                     node(),
                                     Fields,
                                     list_to_binary(Message),
-                                    [] %  Stacktrace
+                                    StackTrace
                                    ]),
                     try
                         imem_meta:dirty_write(LogTable, EntryTuple)
