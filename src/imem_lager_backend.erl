@@ -45,13 +45,13 @@ trace(Filter, Level) ->
 %%%===================================================================
 setup_table(Name, Fields, Types, Defaults) ->
     try
-        imem_meta:create_check_table(
+        imem_meta:init_create_check_table(
           Name, {Fields, Types, Defaults},
           [{record_name, element(1, Defaults)},
            {type, ordered_set}, {purge_delay,430000}],
           lager_imem),
-        mpro_dal:unsubscribe({table, ddConfig, simple}),
-        mpro_dal:subscribe({table, ddConfig, simple})
+        imem_meta:unsubscribe({table, ddConfig, simple}),
+        imem_meta:subscribe({table, ddConfig, simple})
     catch
         _:Error -> throw(Error)
     end.
@@ -176,21 +176,3 @@ state_from_params(OrigState = #state{level = OldLevel,
                     tn_event = TableEvent,
                     application = Application,
                     modules = Modules}.
-
-% test() ->
-%     application:load(lager),
-%     application:set_env(lager, handlers, [{lager_console_backend, debug},
-%                                           {?MODULE, [{level, info},
-%                                                      {table, 'ddLog@'}
-%                                                     ]},
-%                                           {lager_file_backend,
-%                                            [{"error.log", error, 10485760, "$D0", 5},
-%                                             {"console.log", info, 10485760, "$D0", 5}]}]),
-%     application:set_env(lager, error_logger_redirect, false),
-%     lager:start(),
-%     lager:info("Test INFO message"),
-%     lager:debug("Test DEBUG message"),
-%     lager:error("Test ERROR message"),
-%     lager:info([{imem_table, customers}, {key, 123456}, {client_id, "abc"}], "TEST debug message"),
-%     lager:warning([{a,b}, {c,d}], "Hello", []),
-%     lager:info("Info ~p", ["variable"]).
