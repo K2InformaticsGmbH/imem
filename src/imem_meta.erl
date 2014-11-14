@@ -39,7 +39,7 @@
                             ,{type,ordered_set}         %% ,{purge_delay,430000}  %% inherit from parent table
                             ]).          
 
--define(INDEX_TABLE(__MasterTableName), "idx_" ++ __MasterTableName).
+-define(INDEX_TABLE(__MasterTableName), __MasterTableName ++ "Idx").
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
@@ -278,27 +278,33 @@ init_create_check_table(TableName,RecDef,Opts) ->
 
 init_create_check_table(TableName,RecDef,Opts,Owner) ->
     case (catch create_check_table(TableName, RecDef, Opts, Owner)) of
-        {'ClientError',{"Table already exists", _}} = R ->   
-            ?Info("creating ~p results in ~p", [TableName,"Table already exists"]),
-            R;
+        ok ->   
+            ?Info("table ~p created", [TableName]),
+            ok;
+        {'ClientError',{"Table already exists", _}} ->   
+            ?Info("table ~p already exists", [TableName]),
+            ok;
         {'ClientError',_Reason}=Res ->   
-            ?Info("creating ~p results in ~p", [TableName,_Reason]),
+            ?Warn("creating ~p results in ~p", [TableName,_Reason]),
             Res;
         Result ->                   
-            ?Info("creating ~p results in ~p", [TableName,Result]),
+            ?Warn("creating ~p results in ~p", [TableName,Result]),
             Result
     end.
 
 init_create_trigger(TableName,TriggerStr) ->
     case (catch create_trigger(TableName,TriggerStr)) of
-        {'ClientError',{"Trigger already exists",{_Table,_}}} = Res ->   
-            ?Info("creating trigger for ~p results in ~p", [_Table,"Trigger exists in different version"]),
+        ok ->   
+            ?Info("trigger for ~p created", [TableName]),
+            ok;
+        {'ClientError',{"Trigger already exists",{_Table,_}}} = Res -> 
+            ?Warn("creating trigger for ~p results in ~p", [_Table,"Trigger exists in different version"]),
             Res;
-        {'ClientError',{"Trigger already exists", _Table}} = R ->   
+        {'ClientError',{"Trigger already exists", _Table}} ->   
             ?Info("creating trigger for ~p results in ~p", [_Table,"Trigger already exists"]),
-            R;
+            ok;
         Result ->                   
-            ?Info("creating trigger for ~p results in ~p", [TableName,Result]),
+            ?Warn("creating trigger for ~p results in ~p", [TableName,Result]),
             Result
     end.
 
@@ -312,14 +318,17 @@ init_create_or_replace_trigger(TableName,TriggerStr) ->
 
 init_create_index(TableName,IndexDefinition) when is_list(IndexDefinition) ->
     case (catch create_index(TableName,IndexDefinition)) of
+        ok ->
+            ?Info("index for ~p created", [TableName]),
+            ok;
         {'ClientError',{"Index already exists",{_Table,_}}} = Res ->
-            ?Info("creating index for ~p results in ~p", [_Table,"Index exists in different version"]),
+            ?Warn("index for ~p results in different version", [_Table]),
             Res;
-        {'ClientError',{"Index already exists", _Table}} = R ->   
-            ?Info("creating index for ~p results in ~p", [_Table,"Index already exists"]),
-            R;
+        {'ClientError',{"Index already exists", _Table}} ->   
+            ?Info("index for ~p already exists", [_Table]),
+            ok;
         Result ->                   
-            ?Info("creating index for ~p results in ~p", [TableName,Result]),
+            ?Warn("creating index for ~p results in ~p", [TableName,Result]),
             Result
     end.
 
@@ -866,8 +875,8 @@ create_trigger(Table,TFunStr) when is_atom(Table) ->
         [#ddTable{}=D] -> 
             case lists:keysearch(trigger, 1, D#ddTable.opts) of
                 false ->            create_or_replace_trigger(Table,TFunStr);
-                {value,TFunStr} ->  ?ClientError({"Trigger already exists",{Table}});
-                {value,Trig} ->     ?ClientError({"Trigger already exists",{Table,Trig}})
+                {value,{_,TFunStr}} ->  ?ClientError({"Trigger already exists",{Table}});
+                {value,{_,Trig}} ->     ?ClientError({"Trigger already exists",{Table,Trig}})
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
@@ -2609,7 +2618,7 @@ meta_operations(_) ->
         ?assertEqual(ok, drop_index(meta_table_1)),
         ?assertException(throw, {'ClientError',{"Table does not exist",idx_meta_table_1}}, check_table(idx_meta_table_1)),
         ?assertEqual(ok, create_index(meta_table_1, [])),
-        ?assertException(throw, {'ClientError',{"Index already exists",{meta_table_1,{index,[]}}}}, create_index(meta_table_1, [])),
+        ?assertException(throw, {'ClientError',{"Index already exists",{meta_table_1}}}, create_index(meta_table_1, [])),
         ?assertEqual([], read(idx_meta_table_1)),
         ?assertEqual(ok, write(idx_meta_table_1, #ddIndex{stu={1,2,3}})),
         ?assertEqual([#ddIndex{stu={1,2,3}}], read(idx_meta_table_1)),

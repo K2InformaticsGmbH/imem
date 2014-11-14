@@ -3,11 +3,11 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
--define(CHANNEL(__Table),list_to_binary(lists:nthtail(4,atom_to_list(__Table)))).
--define(TABLE(__Channel),<<"skvh",__Channel/binary>>).
--define(AUDIT(__Channel),"skvhAudit" ++ binary_to_list(__Channel) ++ "_86400@").
+-define(AUDIT_SUFFIX,"Audit_86400@").
+-define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
+-define(TIME,erlang:now()).
 -define(MATCHHEAD,{skvhTable, '$1', '$2', '$3'}).
--define(AUDIT_MATCHHEAD,{skvhAudit, '$1', '$2', '$3', '$4'}).
+-define(AUDIT_MATCHHEAD,{skvhAudit, '$1', '$2', '$3', '$4', '$5'}).
 
 -define(TABLE_OPTS, [{record_name,skvhTable}
                     ,{type,ordered_set}
@@ -19,13 +19,14 @@
                     ]).          
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
-                    { time                    :: ddTimestamp()	%% erlang:now()
+                    { time                    :: ddTimestamp()			%% erlang:now()
                     , ckey = ?nav             :: binary()|?nav
-                    , cvalue               	  :: binary()|undefined
+                    , ovalue               	  :: binary()|undefined		%% old value
+                    , nvalue               	  :: binary()|undefined		%% new value
                     , cuser=unknown 		  :: ddEntityId()|unknown
                     }
        ).
--define(skvhAudit,  [timestamp,binterm,binstr,userid]).
+-define(skvhAudit,  [timestamp,binterm,binstr,binstr,userid]).
 
 -record(skvhTable,                            %% sorted key value hash table    
                     { ckey = ?nav             :: binary()|?nav
@@ -75,16 +76,25 @@
 
 
 %% @doc Returns table name from channel name (may or may not be a valid channel name)
-%% Channel: Binary string of channel name (preferrably upper case or camel case)
+%% Channel: Binary string of channel name (preferrably lower case or camel case)
 %% returns:	main table name as binstr
 -spec table_name(binary()) -> binary().
-table_name(Channel) -> ?TABLE(Channel).
+table_name(Channel) -> Channel.
 
-%% @doc Returns aufit alias name from channel name (may or may not be a valid channel name)
+%% @doc Returns audit alias name from channel name (may or may not be a valid channel name)
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns:	audit table alias as binstr
 -spec audit_alias(binary()) -> binary().
 audit_alias(Channel) -> list_to_binary(?AUDIT(Channel)).
+
+%% @doc Returns audit table name from channel name 
+%% Channel: String (not binstr) of channel name (preferrably upper case or camel case)
+%% Key: 	Timestamp of change
+%% returns:	audit table name as atom 
+-spec audit_table_name(list(),term()) -> atom().
+audit_table_name(Channel,Key) when is_list(Channel) -> 
+	imem_meta:partitioned_table_name(Channel ++ ?AUDIT_SUFFIX,Key).
+
 
 %% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
 %% creates these tables if not already existing 
@@ -94,14 +104,14 @@ audit_alias(Channel) -> list_to_binary(?AUDIT(Channel)).
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec create_check_channel(binary()) -> {atom(),atom()}.
 create_check_channel(Channel) ->
-	TBin = ?TABLE(Channel),
+	TBin = table_name(Channel),
 	try 
 		T = ?binary_to_existing_atom(TBin),
 		A = list_to_existing_atom(?AUDIT(Channel)),
-		P = imem_meta:partitioned_table_name_str(A,erlang:now()), 	%% ToDo: remove when partitions are pre-created
-		PN = list_to_existing_atom(P), 								%% ToDo: remove when partitions are pre-created
-		imem_meta:check_local_table_copy(T),
-		imem_meta:check_table(PN),
+		P = imem_meta:partitioned_table_name_str(A,erlang:now()), 	
+		PN = list_to_existing_atom(P), 								
+		imem_meta:check_local_table_copy(T),	%% throws if table is not locally resident
+		imem_meta:check_local_table_copy(PN),	%% throws if table is not locally resident
 		{T,A}
 	catch 
 		_:_ -> 
@@ -118,14 +128,21 @@ create_check_channel(Channel) ->
 	end.
 
 write_audit(OldRec,NewRec,Table,User) ->
-	{K,V} = case {OldRec,NewRec} of
-		{{},{}} ->	{undefined,undefined};					%% truncate table
-		{_,{}} ->	{element(2,OldRec),undefined}; 			%% delete old rec
-		{_, _} ->	{element(2,NewRec),element(3,NewRec)}	%% write new rec
+	["","",CH,"","",""] = imem_meta:parse_table_name(Table),
+	CL = case {OldRec,NewRec} of
+		{{},{}} ->	[{?TIME,undefined,undefined,undefined}];				% truncate table
+		{_,{}} ->	[{?TIME,element(2,OldRec),element(3,OldRec),undefined}]; 		% delete old rec
+		{{},_} ->	[{?TIME,element(2,NewRec),undefined,element(3,NewRec)}];		% insert new rec
+		{_, _} ->	
+			OldKey = element(2,OldRec),
+			case element(2,NewRec) of
+				OldKey ->													% update value
+					[{?TIME,element(2,NewRec),element(3,OldRec),element(3,NewRec)}];	
+				NewKey ->													% delete and insert
+					[{?TIME,OldKey,element(3,OldRec),undefined}, {?TIME,NewKey,undefined,element(3,NewRec)}]
+			end
 	end,
-	CH = ?CHANNEL(Table),
-	A = list_to_atom(?AUDIT(CH)),
-	imem_meta:write(A,#skvhAudit{time=erlang:now(),ckey=K,cvalue=V,cuser=User}).
+	[imem_meta:write(audit_table_name(CH,Time),#skvhAudit{time=Time,ckey=K,ovalue=O,nvalue=N,cuser=User}) || {Time,K,O,N} <- CL].
 
 % return(Cmd, Result) ->
 % 	debug(Cmd, Result), 
@@ -249,11 +266,16 @@ delete(User, Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) ->
 
 delete(_User, Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 delete(User, Cmd, {TN,AN}, [Key|Keys], Acc)  ->
-	Hash = try
-		#skvhTable{chash=H} = imem_meta:remove(TN,#skvhTable{ckey=Key},User),
-		H
-	catch
-		throw:{'ConcurrencyException',{"Remove failed, key does not exist", _}} -> undefined
+	Hash = case imem_meta:read(TN,Key) of
+		[] ->
+			undefined;
+		[Rec] ->	
+			try
+				#skvhTable{chash=H} = imem_meta:remove(TN,Rec,User),
+				H
+			catch
+				throw:{'ConcurrencyException',{"Remove failed, key does not exist", _}} -> undefined
+			end
 	end,
 	delete(User, Cmd, {TN,AN}, Keys, [term_hash_to_io(Hash)|Acc]).
 
@@ -361,15 +383,25 @@ audit_project_result(Cmd, L, <<"time">>) ->
 audit_project_result(Cmd, L, <<"key">>) ->
 	return_stringlist(Cmd, [term_key_to_io(K) ||  #skvhAudit{ckey=K} <- L]);
 audit_project_result(Cmd, L, <<"value">>) ->
-	return_stringlist(Cmd, [term_value_to_io(V) ||  #skvhAudit{cvalue=V} <- L]);
+	return_stringlist(Cmd, [term_value_to_io(V) ||  #skvhAudit{nvalue=V} <- L]);
+audit_project_result(Cmd, L, <<"new">>) ->
+	return_stringlist(Cmd, [term_value_to_io(V) ||  #skvhAudit{nvalue=V} <- L]);
+audit_project_result(Cmd, L, <<"old">>) ->
+	return_stringlist(Cmd, [term_value_to_io(V) ||  #skvhAudit{ovalue=V} <- L]);
 audit_project_result(Cmd, L, <<"user">>) ->
 	return_stringlist(Cmd, [term_user_to_io(U) ||  #skvhAudit{cuser=U} <- L]);
 audit_project_result(Cmd, L, <<"kvpair">>) ->
-	return_stringlist(Cmd, [term_kv_tuple_to_io({K,V}) ||  #skvhAudit{ckey=K,cvalue=V} <- L]);
+	return_stringlist(Cmd, [term_kv_tuple_to_io({K,V}) ||  #skvhAudit{ckey=K,nvalue=V} <- L]);
+audit_project_result(Cmd, L, <<"kvtriple">>) ->
+	return_stringlist(Cmd, [term_kv_tuple_to_io({K,O,N}) ||  #skvhAudit{ckey=K,ovalue=O,nvalue=N} <- L]);
 audit_project_result(Cmd, L, <<"tkvtriple">>) ->
-	return_stringlist(Cmd, [term_tkv_triple_to_io({T,K,V}) ||  #skvhAudit{time=T,ckey=K,cvalue=V} <- L]);
+	return_stringlist(Cmd, [term_tkv_triple_to_io({T,K,V}) ||  #skvhAudit{time=T,ckey=K,nvalue=V} <- L]);
+audit_project_result(Cmd, L, <<"tkvquadruple">>) ->
+	return_stringlist(Cmd, [term_tkv_triple_to_io({T,K,O,N}) ||  #skvhAudit{time=T,ckey=K,ovalue=O,nvalue=N} <- L]);
 audit_project_result(Cmd, L, <<"tkvuquadruple">>) ->
-	return_stringlist(Cmd, [term_tkvu_quadruple_to_io({T,K,V,U}) ||  #skvhAudit{time=T,ckey=K,cvalue=V,cuser=U} <- L]).
+	return_stringlist(Cmd, [term_tkvu_quadruple_to_io({T,K,V,U}) ||  #skvhAudit{time=T,ckey=K,nvalue=V,cuser=U} <- L]);
+audit_project_result(Cmd, L, <<"tkvuquintuple">>) ->
+	return_stringlist(Cmd, [term_tkvu_quadruple_to_io({T,K,O,N,U}) ||  #skvhAudit{time=T,ckey=K,ovalue=O,nvalue=N,cuser=U} <- L]).
 
 debug(Cmd, Resp) ->
     lager:debug([ {cmd, hd(Cmd)}]
@@ -385,12 +417,12 @@ debug(Cmd, Resp) ->
 
 setup() ->
     ?imem_test_setup,
-    catch imem_meta:drop_table(skvhTEST),
-    catch imem_meta:drop_table(skvhAuditTEST_86400@).
+    catch imem_meta:drop_table(skvhTest),
+    catch imem_meta:drop_table(skvhTestAudit_86400@).
 
 teardown(_) ->
-    catch imem_meta:drop_table(skvhTEST),
-    catch imem_meta:drop_table(skvhAuditTEST_86400@),
+    catch imem_meta:drop_table(skvhTest),
+    catch imem_meta:drop_table(skvhTestAudit_86400@),
     ?imem_test_teardown.
 
 db_test_() ->
@@ -405,14 +437,14 @@ db_test_() ->
 skvh_operations(_) ->
     try 
         ClEr = 'ClientError',
-        Channel = <<"TEST">>,
+        Channel = <<"skvhTest">>,
 
         ?LogDebug("---TEST---~p:test_skvh~n", [?MODULE]),
 
-        ?assertEqual(<<"skvhTEST">>, ?TABLE(Channel)),
+        ?assertEqual(<<"skvhTest">>, table_name(Channel)),
 
-        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTEST)), 
-        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhAuditTEST_86400@)), 
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTest)), 
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestAudit_86400@)), 
 
         KVa = <<"[1,a]",9,"123456">>,
         KVb = <<"[1,b]",9,"234567">>,
@@ -429,8 +461,8 @@ skvh_operations(_) ->
         ?assertEqual({ok,[<<"undefined">>]}, read(system, Channel, <<"value">>, <<"[1,a]">>)),
         ?assertEqual({ok,[<<"undefined">>]}, read(system, Channel, <<"hash">>, <<"[1,a]">>)),
 
-        ?assertEqual(ok, imem_meta:check_table(skvhTEST)),        
-        ?assertEqual(ok, imem_meta:check_table(skvhAuditTEST_86400@)),
+        ?assertEqual(ok, imem_meta:check_table(skvhTest)),        
+        ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
@@ -443,13 +475,13 @@ skvh_operations(_) ->
         ?assertEqual({ok,[KVc,KVb,KVa]}, read(system, Channel, <<"kvpair">>, <<"[1,c]",13,10,"[1,b]",10,"[1,a]">>)),
         ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
-        Dat = imem_meta:read(skvhTEST),
+        Dat = imem_meta:read(skvhTest),
         ?LogDebug("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
-        Aud = imem_meta:read(skvhAuditTEST_86400@),
+        Aud = imem_meta:read(skvhTestAudit_86400@),
         ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
         {ok,Aud1} = audit_readGT(system, Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
@@ -489,11 +521,11 @@ skvh_operations(_) ->
 		?assertEqual({ok,[<<"1W8TVA">>]}, write(system, Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
 		?assertEqual({ok,[<<"22D5ZL">>]}, write(system, Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
 
-		?assertEqual(ok,imem_meta:truncate_table(skvhTEST)),
+		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 				
-        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhAuditTEST_86400@)]),
+        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@)]),
 
-		?assertEqual(ok,imem_meta:drop_table(skvhTEST)),
+		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
@@ -522,7 +554,7 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"BFFHP">>]}, readGELT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
     	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
-    	?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),
+    	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
@@ -532,7 +564,7 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"234567">>,<<"[1,c]",9,"345678">>]}, readGT(system, Channel, <<"kvpair">>, <<"[1,ab]">>, <<"2">>)),
     	?assertEqual({ok,[<<"[1,b]",9,"BFFHP">>,<<"[1,c]",9,"ZCZ28">>]}, readGT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"2">>)),
 
-		?assertEqual(ok,imem_meta:truncate_table(skvhTEST)),
+		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
     	KVtab = <<"{<<\"52015\">>,<<>>,<<\"AaaEnabled\">>}	false
 {<<\"52015\">>,<<\"SMS-SUB-52015\">>,<<\"AaaEnabled\">>}	false">>,
 		TabRes1 = write(system, Channel, KVtab),
@@ -541,8 +573,8 @@ skvh_operations(_) ->
 <<"{<<\"52015\">>,<<>>,<<\"AllowedContentTypes\">>}	\"audio/amr;audio/mp3;audio/x-rmf;audio/x-beatnic-rmf;audio/sp-midi;audio/imelody;audio/smaf;audio/rmf;text/x-imelody;text/x-vcalendar;text/x-vcard;text/xml;text/html;text/plain;text/x-melody;image/png;image/vnd.wap.wbmp;image/bmp;image/gif;image/ief;image/jpeg;image/jpg;image/tiff;image/x-xwindowdump;image/vnd.nokwallpaper;application/smil;application/postscript;application/rtf;application/x-tex;application/x-texinfo;application/x-troff;audio/basic;audio/midi;audio/x-aifc;audio/x-aiff;audio/x-mpeg;audio/x-wav;video/3gpp;video/mpeg;video/quicktime;video/x-msvideo;video/x-rn-mp4;video/x-pn-realvideo;video/mpeg4;multipart/related;multipart/mixed;multipart/alternative;message/rfc822;application/vnd.oma.drm.message;application/vnd.oma.dm.message;application/vnd.sem.mms.protected;application/vnd.sonyericsson.mms-template;application/vnd.smaf;application/xml;video/mp4;\"">>,
         ?assertEqual({ok,[<<"206MFE">>]}, write(system, Channel, KVLong)),
 
-        ?assertEqual(ok, imem_meta:drop_table(skvhTEST)),
-        ?assertEqual(ok, imem_meta:drop_table(skvhAuditTEST_86400@)),
+        ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
+        ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@)),
 
         ?LogDebug("success ~p~n", [drop_tables])
     catch
