@@ -1143,87 +1143,87 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        Q6bExpected=
-        [{<<"1">>,<<"8.94736842105263160000e-01">>}
-        ,{<<"2">>,<<"1.57894736842105270000e+00">>}
-        ,{<<"3">>,<<"2.05263157894736860000e+00">>}
-        ,{<<"4">>,<<"2.31578947368421060000e+00">>}
-        ,{<<"5">>,<<"2.36842105263157880000e+00">>}
-        ,{<<"6">>,<<"2.21052631578947390000e+00">>}
-        ,{<<"7">>,<<"1.84210526315789470000e+00">>}
-        ,{<<"8">>,<<"1.26315789473684250000e+00">>}
-        ,{<<"9">>,<<"4.73684210526315040000e-01">>}
-        ],
-        exec_fetch_sort_equal(SKey, query6b, 100, IsSec, "
-            select col1, col1 - col1*col1/9.5
-            from def
-            where col1 <= 9 
-            and col1 <> 0 
-            order by 1"
-            , 
-            Q6bExpected
-        ),
+        % Q6bExpected=
+        % [{<<"1">>,<<"8.94736842105263160000e-01">>}
+        % ,{<<"2">>,<<"1.57894736842105270000e+00">>}
+        % ,{<<"3">>,<<"2.05263157894736860000e+00">>}
+        % ,{<<"4">>,<<"2.31578947368421060000e+00">>}
+        % ,{<<"5">>,<<"2.36842105263157880000e+00">>}
+        % ,{<<"6">>,<<"2.21052631578947390000e+00">>}
+        % ,{<<"7">>,<<"1.84210526315789470000e+00">>}
+        % ,{<<"8">>,<<"1.26315789473684250000e+00">>}
+        % ,{<<"9">>,<<"4.73684210526315040000e-01">>}
+        % ],
+        % exec_fetch_sort_equal(SKey, query6b, 100, IsSec, "
+        %     select col1, col1 - col1*col1/9.5
+        %     from def
+        %     where col1 <= 9 
+        %     and col1 <> 0 
+        %     order by 1"
+        %     , 
+        %     Q6bExpected
+        % ),
 
-        exec_fetch_sort_equal(SKey, query6c, 100, IsSec, "
-            select col1, col1 - col1*col1/9.5
-            from def
-            where col1 <= 9 
-            and col1 <> 0 
-            order by 1 desc"
-            , 
-            lists:reverse(Q6bExpected)
-        ),
+        % exec_fetch_sort_equal(SKey, query6c, 100, IsSec, "
+        %     select col1, col1 - col1*col1/9.5
+        %     from def
+        %     where col1 <= 9 
+        %     and col1 <> 0 
+        %     order by 1 desc"
+        %     , 
+        %     lists:reverse(Q6bExpected)
+        % ),
 
-        Q6dExpected=
-        [{<<"9">>,<<"4.73684210526315040000e-01">>}
-        ,{<<"1">>,<<"8.94736842105263160000e-01">>}
-        ,{<<"8">>,<<"1.26315789473684250000e+00">>}
-        ,{<<"2">>,<<"1.57894736842105270000e+00">>}
-        ,{<<"7">>,<<"1.84210526315789470000e+00">>}
-        ,{<<"3">>,<<"2.05263157894736860000e+00">>}
-        ,{<<"6">>,<<"2.21052631578947390000e+00">>}
-        ,{<<"4">>,<<"2.31578947368421060000e+00">>}
-        ,{<<"5">>,<<"2.36842105263157880000e+00">>}
-        ],
-        exec_fetch_sort_equal(SKey, query6d, 100, IsSec, "
-            select col1, col1 - col1*col1/9.5
-            from def
-            where col1 <= 9 
-            and col1 <> 0 
-            order by 2"
-            , 
-            Q6dExpected
-        ),
+        % Q6dExpected=
+        % [{<<"9">>,<<"4.73684210526315040000e-01">>}
+        % ,{<<"1">>,<<"8.94736842105263160000e-01">>}
+        % ,{<<"8">>,<<"1.26315789473684250000e+00">>}
+        % ,{<<"2">>,<<"1.57894736842105270000e+00">>}
+        % ,{<<"7">>,<<"1.84210526315789470000e+00">>}
+        % ,{<<"3">>,<<"2.05263157894736860000e+00">>}
+        % ,{<<"6">>,<<"2.21052631578947390000e+00">>}
+        % ,{<<"4">>,<<"2.31578947368421060000e+00">>}
+        % ,{<<"5">>,<<"2.36842105263157880000e+00">>}
+        % ],
+        % exec_fetch_sort_equal(SKey, query6d, 100, IsSec, "
+        %     select col1, col1 - col1*col1/9.5
+        %     from def
+        %     where col1 <= 9 
+        %     and col1 <> 0 
+        %     order by 2"
+        %     , 
+        %     Q6dExpected
+        % ),
 
-        exec_fetch_sort_equal(SKey, query6e, 100, IsSec, "
-            select col1, col1 - col1*col1/9.5
-            from def
-            where col1 <= 9 
-            and col1 <> 0 
-            order by 2 desc"
-            , 
-            lists:reverse(Q6dExpected)
-        ),
+        % exec_fetch_sort_equal(SKey, query6e, 100, IsSec, "
+        %     select col1, col1 - col1*col1/9.5
+        %     from def
+        %     where col1 <= 9 
+        %     and col1 <> 0 
+        %     order by 2 desc"
+        %     , 
+        %     lists:reverse(Q6dExpected)
+        % ),
 
-        exec_fetch_sort_equal(SKey, query6f, 100, IsSec, "
-            select col1, col1 - col1*col1/9.5
-            from def
-            where col1 <= 9 
-            and col1 <> 0 
-            order by col1 - col1*col1/9.5 desc"
-            , 
-            lists:reverse(Q6dExpected)
-        ),
+        % exec_fetch_sort_equal(SKey, query6f, 100, IsSec, "
+        %     select col1, col1 - col1*col1/9.5
+        %     from def
+        %     where col1 <= 9 
+        %     and col1 <> 0 
+        %     order by col1 - col1*col1/9.5 desc"
+        %     , 
+        %     lists:reverse(Q6dExpected)
+        % ),
 
-        exec_fetch_sort_equal(SKey, query6g, 100, IsSec, "
-            select col1, col1 - col1*col1/9.5
-            from def
-            where col1 <= 9 
-            and col1 <> 0 
-            order by '12' asc, col1 - col1*col1/9.5 desc"
-            , 
-            lists:reverse(Q6dExpected)
-        ),
+        % exec_fetch_sort_equal(SKey, query6g, 100, IsSec, "
+        %     select col1, col1 - col1*col1/9.5
+        %     from def
+        %     where col1 <= 9 
+        %     and col1 <> 0 
+        %     order by '12' asc, col1 - col1*col1/9.5 desc"
+        %     , 
+        %     lists:reverse(Q6dExpected)
+        % ),
 
         exec_fetch_sort_equal(SKey, query6h, 100, IsSec, "
             select * 

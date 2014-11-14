@@ -1508,33 +1508,33 @@ data_types(_) ->
         ?assertEqual(<<"1.2.3.4">>, ipaddr_to_io({1,2,3,4})),
         ?LogDebug("ipaddr_to_io success~n", []),
 
-        %% ?assertEqual(2208985200,local_datetime_to_utc_seconds({{1970, 01, 01}, {00, 00, 00}})),
-        ?assertException(throw,{ClEr,{"Cannot handle dates before 1970"}},local_datetime_to_utc_seconds({{1900, 01, 01}, {00, 00, 00}})),
         ?assertEqual({1900,2,1}, parse_date_eu("01.02.1900")),
         ?assertEqual({1900,2,1}, parse_date_us("02/01/1900")),
         ?assertEqual({1900,2,1}, parse_date_us("02/01/1900")),
         ?assertEqual({1900,2,1}, parse_date_int("1900-02-01")),
         ?assertException(throw,{ClEr,{"parse_month","1900"}}, parse_date_us("1900/02/01")),
-        ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,0,123456},0)),  %% with DLS offset wintertime CH
-        ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,0},0)),  %% with DLS offset wintertime CH
-        ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,0,123000},3)),  %% with DLS offset wintertime CH
-        ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1,2,123456},6)),  %% with DLS offset wintertime CH
-        ?assertEqual(<<"{1,2,1234}">>, timestamp_to_io({1,2,1234},3,erlang)),  %% with DLS offset wintertime CH
-        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1,2,1234},3,raw)),  %% with DLS offset wintertime CH
+        ?assertException(throw,{ClEr,{"Cannot handle dates before 1970"}},local_datetime_to_utc_seconds({{1900, 01, 01}, {00, 00, 00}})),
+        % ?assertEqual(2208985200,local_datetime_to_utc_seconds({{1970, 01, 01}, {00, 00, 00}})),
+        % ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,0,123456},0)),  %% with DLS offset wintertime CH
+        % ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,0},0)),  %% with DLS offset wintertime CH
+        % ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,0,123000},3)),  %% with DLS offset wintertime CH
+        % ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1,2,123456},6)),  %% with DLS offset wintertime CH
+        ?assertEqual(<<"{1,2,1234}">>, timestamp_to_io({1,2,1234},3,erlang)),  
+        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1,2,1234},3,raw)), 
         ?LogDebug("timestamp_to_io success~n", []),
-        ?assertEqual({0,0,0}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),  %% with DLS offset wintertime CH
-        ?assertEqual({0,-3600,0}, io_to_timestamp(<<"01.01.1970">>,0)),                  %% with DLS offset wintertime CH
-        ?assertEqual({0,-3600,0}, io_to_timestamp(<<"1970-01-01">>)),                  %% with DLS offset wintertime CH
-        ?assertEqual({162,946800,0}, io_to_timestamp(<<"1975-03-02">>)),                  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.70 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,6)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,123000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,3,0}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,123000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,100000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,1)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,12345}, io_to_timestamp(<<"{1,2,12345}">>,0)),  %% with DLS offset wintertime CH
+        % ?assertEqual({0,0,0}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),  %% with DLS offset wintertime CH
+        % ?assertEqual({0,-3600,0}, io_to_timestamp(<<"01.01.1970">>,0)),                  %% with DLS offset wintertime CH
+        % ?assertEqual({0,-3600,0}, io_to_timestamp(<<"1970-01-01">>)),                  %% with DLS offset wintertime CH
+        % ?assertEqual({162,946800,0}, io_to_timestamp(<<"1975-03-02">>)),                  %% with DLS offset wintertime CH
+        % ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
+        % ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.70 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
+        % ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,6)),  %% with DLS offset wintertime CH
+        % ?assertEqual({1,2,123000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),  %% with DLS offset wintertime CH
+        % ?assertEqual({1,2,123456}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset wintertime CH
+        % ?assertEqual({1,3,0}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),  %% with DLS offset wintertime CH
+        % ?assertEqual({1,2,123000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),  %% with DLS offset wintertime CH
+        % ?assertEqual({1,2,100000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,1)),  %% with DLS offset wintertime CH
+        ?assertEqual({1,2,12345}, io_to_timestamp(<<"{1,2,12345}">>,0)),  
         ?LogDebug("io_to_timestamp success~n", []),
 
         LocalTime = erlang:localtime(),
