@@ -2613,52 +2613,52 @@ meta_operations(_) ->
 
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_index(meta_table_1, [])),
-        ?assertEqual(ok, check_table(idx_meta_table_1)),
+        ?assertEqual(ok, check_table(meta_table_1Idx)),
         ?LogDebug("ddTable for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
         ?assertEqual(ok, drop_index(meta_table_1)),
-        ?assertException(throw, {'ClientError',{"Table does not exist",idx_meta_table_1}}, check_table(idx_meta_table_1)),
+        ?assertException(throw, {'ClientError',{"Table does not exist",meta_table_1Idx}}, check_table(meta_table_1Idx)),
         ?assertEqual(ok, create_index(meta_table_1, [])),
         ?assertException(throw, {'ClientError',{"Index already exists",{meta_table_1}}}, create_index(meta_table_1, [])),
-        ?assertEqual([], read(idx_meta_table_1)),
-        ?assertEqual(ok, write(idx_meta_table_1, #ddIndex{stu={1,2,3}})),
-        ?assertEqual([#ddIndex{stu={1,2,3}}], read(idx_meta_table_1)),
+        ?assertEqual([], read(meta_table_1Idx)),
+        ?assertEqual(ok, write(meta_table_1Idx, #ddIndex{stu={1,2,3}})),
+        ?assertEqual([#ddIndex{stu={1,2,3}}], read(meta_table_1Idx)),
 
         Idx1Def = #ddIdxDef{id=1,name= <<"string index on b1">>,type=ivk,pl=[<<"b1">>]},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx1Def])),
-        ?assertEqual([], read(idx_meta_table_1)),
+        ?assertEqual([], read(meta_table_1Idx)),
         ?assertEqual([<<"table">>], imem_index:vnf_lcase_ascii_ne(<<"täble"/utf8>>)),
         ?assertEqual({meta_table_1,"meta",<<"täble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta",<<"täble"/utf8>>,"1"})),
         ?assertEqual([{meta_table_1,"meta",<<"täble"/utf8>>,"1"}], read(meta_table_1)),
-        ?assertEqual([#ddIndex{stu={1,<<"table">>,"meta"}}], read(idx_meta_table_1)),
+        ?assertEqual([#ddIndex{stu={1,<<"table">>,"meta"}}], read(meta_table_1Idx)),
         ?assertEqual([<<"tuble">>], imem_index:vnf_lcase_ascii_ne(<<"tüble"/utf8>>)),
         ?assertException(throw, {'ConcurrencyException',{"Data is modified by someone else",_}}, update(meta_table_1, {{meta_table_1,"meta",<<"tible"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, update(meta_table_1, {{meta_table_1,"meta",<<"täble"/utf8>>,"1"}, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"}})),
         ?assertEqual([{meta_table_1,"meta",<<"tüble"/utf8>>,"1"}], read(meta_table_1)),
-        ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
+        ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(meta_table_1Idx)),
         ?assertEqual(ok, drop_index(meta_table_1)),
         ?assertEqual(ok, create_index(meta_table_1, [Idx1Def])),
-        ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(idx_meta_table_1)),
+        ?assertEqual([#ddIndex{stu={1,<<"tuble">>,"meta"}}], read(meta_table_1Idx)),
         ?assertException(throw, {'ConcurrencyException',{"Data is modified by someone else",_}}, remove(meta_table_1, {meta_table_1,"meta",<<"tible"/utf8>>,"1"})),
         ?assertEqual({meta_table_1,"meta",<<"tüble"/utf8>>,"1"}, remove(meta_table_1, {meta_table_1,"meta",<<"tüble"/utf8>>,"1"})),
         ?assertEqual([], read(meta_table_1)),
-        ?assertEqual([], read(idx_meta_table_1)),
+        ?assertEqual([], read(meta_table_1Idx)),
 
         Idx2Def = #ddIdxDef{id=2,name= <<"unique string index on b1">>,type=iv_k,pl=[<<"b1">>]},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx2Def])),
         ?assertEqual({meta_table_1,"meta",<<"täble"/utf8>>,"1"}, insert(meta_table_1, {meta_table_1,"meta",<<"täble"/utf8>>,"1"})),
         ?assertEqual(1, length(read(meta_table_1))),
-        ?assertEqual(1, length(read(idx_meta_table_1))),
+        ?assertEqual(1, length(read(meta_table_1Idx))),
         ?assertEqual({meta_table_1,"meta1",<<"tüble"/utf8>>,"2"}, insert(meta_table_1, {meta_table_1,"meta1",<<"tüble"/utf8>>,"2"})),
         ?assertEqual(2, length(read(meta_table_1))),
-        ?assertEqual(2, length(read(idx_meta_table_1))),
-        ?assertException(throw,{'ClientError',{"Unique index violation",{idx_meta_table_1,2,<<"table">>,"meta"}}}, insert(meta_table_1, {meta_table_1,"meta2",<<"table"/utf8>>,"2"})),
+        ?assertEqual(2, length(read(meta_table_1Idx))),
+        ?assertException(throw,{'ClientError',{"Unique index violation",{meta_table_1Idx,2,<<"table">>,"meta"}}}, insert(meta_table_1, {meta_table_1,"meta2",<<"table"/utf8>>,"2"})),
         ?assertEqual(2, length(read(meta_table_1))),
-        ?assertEqual(2, length(read(idx_meta_table_1))),
+        ?assertEqual(2, length(read(meta_table_1Idx))),
 
         Idx3Def = #ddIdxDef{id=3,name= <<"json index on b1:b">>,type=ivk,pl=[<<"b1:b">>,<<"b1:c:a">>]},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx3Def])),
         ?assertEqual(2, length(read(meta_table_1))),
-        ?assertEqual(0, length(read(idx_meta_table_1))),
+        ?assertEqual(0, length(read(meta_table_1Idx))),
         JSON1 = <<
             "{"
                 "\"a\":\"Value-a\","
@@ -2689,7 +2689,7 @@ meta_operations(_) ->
         ?assertEqual({meta_table_1,"json1",JSON1,"3"}, insert(meta_table_1, {meta_table_1,"json1",JSON1,"3"})),
         ?assertEqual([#ddIndex{stu={3, <<"value-b">>,"json1"}}
                      ,#ddIndex{stu={3, <<"value-ca">>,"json1"}}
-                     ], read(idx_meta_table_1)),
+                     ], read(meta_table_1Idx)),
 
         % Drop individual indices
         ?assertEqual(ok, drop_index(meta_table_1)),
@@ -2705,34 +2705,34 @@ meta_operations(_) ->
                          , drop_index(meta_table_1, 7)),
         ?assertEqual(ok, drop_index(meta_table_1, 2)),
         ?assertEqual(ok, drop_index(meta_table_1, 1)),
-        ?assertEqual({'ClientError',{"Table does not exist",idx_meta_table_1}}
+        ?assertEqual({'ClientError',{"Table does not exist",meta_table_1Idx}}
                          , drop_index(meta_table_1)),
 
         ?LogDebug("meta_table_1 ~n~p",[read(meta_table_1)]),
 
         Idx4Def = #ddIdxDef{id=4,name= <<"integer index on b1">>,type=ivk,pl=[<<"c1">>],vnf = <<"fun imem_index:vnf_integer/1">>},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx4Def])),
-        ?assertEqual(3, length(read(idx_meta_table_1))),
+        ?assertEqual(3, length(read(meta_table_1Idx))),
         insert(meta_table_1, {meta_table_1,"11",<<"11">>,"11"}),
-        ?assertEqual(4, length(read(idx_meta_table_1))),
+        ?assertEqual(4, length(read(meta_table_1Idx))),
         insert(meta_table_1, {meta_table_1,"12",<<"12">>,"c112"}),
         IdxExpect4 = [{ddIndex,{4,1,"meta"},0}
                      ,{ddIndex,{4,2,"meta1"},0}
                      ,{ddIndex,{4,3,"json1"},0}
                      ,{ddIndex,{4,11,"11"},0}
                      ],
-        ?assertEqual(IdxExpect4, read(idx_meta_table_1)),
+        ?assertEqual(IdxExpect4, read(meta_table_1Idx)),
 
         Vnf5 = <<"fun(__X) -> case imem_index:vnf_integer(__X) of ['$not_a_value'] -> ['$not_a_value']; [__V] -> [2*__V] end end">>,
         Idx5Def = #ddIdxDef{id=5,name= <<"integer times 2 on b1">>,type=ivk,pl=[<<"c1">>],vnf = Vnf5},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx5Def])),
-        ?LogDebug("idx_meta_table_1 ~n~p",[read(idx_meta_table_1)]),
+        ?LogDebug("meta_table_1Idx ~n~p",[read(meta_table_1Idx)]),
         IdxExpect5 = [{ddIndex,{5,2,"meta"},0}
                      ,{ddIndex,{5,4,"meta1"},0}
                      ,{ddIndex,{5,6,"json1"},0}
                      ,{ddIndex,{5,22,"11"},0}
                      ],
-        ?assertEqual(IdxExpect5, read(idx_meta_table_1)),
+        ?assertEqual(IdxExpect5, read(meta_table_1Idx)),
 
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
@@ -2841,8 +2841,8 @@ meta_operations(_) ->
         ?assertEqual(false,lists:member({schema(),tpTest_1000@},[element(2,A) || A <- Alias1])),
         ?LogDebug("success ~p~n", [tpTest_1000@]),
 
-        ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
-        ?assertEqual([meta_table_1,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
+        ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
+        ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
 
         DdNode0 = read(ddNode),
         ?LogDebug("ddNode0 ~p~n", [DdNode0]),
