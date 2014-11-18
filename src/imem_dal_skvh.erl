@@ -20,7 +20,7 @@
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
                     { time                    :: ddTimestamp()			%% erlang:now()
-                    , ckey = ?nav             :: binary()|?nav
+                    , ckey = ?nav             :: binary()|?nav			
                     , ovalue               	  :: binary()|undefined		%% old value
                     , nvalue               	  :: binary()|undefined		%% new value
                     , cuser=unknown 		  :: ddEntityId()|unknown
@@ -130,7 +130,7 @@ create_check_channel(Channel) ->
 write_audit(OldRec,NewRec,Table,User) ->
 	["","",CH,"","",""] = imem_meta:parse_table_name(Table),
 	CL = case {OldRec,NewRec} of
-		{{},{}} ->	[{?TIME,undefined,undefined,undefined}];				% truncate table
+		{{},{}} ->	[{?TIME,sext:encode(undefined),undefined,undefined}];			% truncate table
 		{_,{}} ->	[{?TIME,element(2,OldRec),element(3,OldRec),undefined}]; 		% delete old rec
 		{{},_} ->	[{?TIME,element(2,NewRec),undefined,element(3,NewRec)}];		% insert new rec
 		{_, _} ->	
@@ -212,6 +212,12 @@ term_kv_tuple_to_io({K,V}) ->
 	ValueBin = term_value_to_io(V), 
 	<<KeyBin/binary,9,ValueBin/binary>>.
 
+term_kv_triple_to_io({K,O,N}) ->
+	KeyBin = term_key_to_io(K),
+	OldValueBin = term_value_to_io(O), 
+	NewValueBin = term_value_to_io(N), 
+	<<KeyBin/binary,9,OldValueBin/binary,9,NewValueBin/binary>>.
+
 term_kh_tuple_to_io({K,H}) ->
 	KeyBin = term_key_to_io(K),
 	HashBin = term_hash_to_io(H), 
@@ -235,6 +241,14 @@ term_tkvu_quadruple_to_io({T,K,V,U}) ->
 	ValueBin = term_value_to_io(V), 
 	UserBin = term_user_to_io(U),
 	<<TimeBin/binary,9,KeyBin/binary,9,ValueBin/binary,9,UserBin/binary>>.
+
+term_tkvu_quintuple_to_io({T,K,O,N,U}) ->
+	TimeBin = term_time_to_io(T),
+	KeyBin = term_key_to_io(K),
+	OldValueBin = term_value_to_io(O), 
+	NewValueBin = term_value_to_io(N), 
+	UserBin = term_user_to_io(U),
+	<<TimeBin/binary,9,KeyBin/binary,9,OldValueBin/binary,9,NewValueBin/binary,9,UserBin/binary>>.
 
 %% Data access per key (read,write,delete)
 
@@ -393,7 +407,7 @@ audit_project_result(Cmd, L, <<"user">>) ->
 audit_project_result(Cmd, L, <<"kvpair">>) ->
 	return_stringlist(Cmd, [term_kv_tuple_to_io({K,V}) ||  #skvhAudit{ckey=K,nvalue=V} <- L]);
 audit_project_result(Cmd, L, <<"kvtriple">>) ->
-	return_stringlist(Cmd, [term_kv_tuple_to_io({K,O,N}) ||  #skvhAudit{ckey=K,ovalue=O,nvalue=N} <- L]);
+	return_stringlist(Cmd, [term_kv_triple_to_io({K,O,N}) ||  #skvhAudit{ckey=K,ovalue=O,nvalue=N} <- L]);
 audit_project_result(Cmd, L, <<"tkvtriple">>) ->
 	return_stringlist(Cmd, [term_tkv_triple_to_io({T,K,V}) ||  #skvhAudit{time=T,ckey=K,nvalue=V} <- L]);
 audit_project_result(Cmd, L, <<"tkvquadruple">>) ->
@@ -401,7 +415,7 @@ audit_project_result(Cmd, L, <<"tkvquadruple">>) ->
 audit_project_result(Cmd, L, <<"tkvuquadruple">>) ->
 	return_stringlist(Cmd, [term_tkvu_quadruple_to_io({T,K,V,U}) ||  #skvhAudit{time=T,ckey=K,nvalue=V,cuser=U} <- L]);
 audit_project_result(Cmd, L, <<"tkvuquintuple">>) ->
-	return_stringlist(Cmd, [term_tkvu_quadruple_to_io({T,K,O,N,U}) ||  #skvhAudit{time=T,ckey=K,ovalue=O,nvalue=N,cuser=U} <- L]).
+	return_stringlist(Cmd, [term_tkvu_quintuple_to_io({T,K,O,N,U}) ||  #skvhAudit{time=T,ckey=K,ovalue=O,nvalue=N,cuser=U} <- L]).
 
 debug(Cmd, Resp) ->
     lager:debug([ {cmd, hd(Cmd)}]
