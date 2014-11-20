@@ -1,42 +1,62 @@
 -module(imem_inet_tcp_dist).
+-behavior(gen_server).
 
 -export([listen/1, accept/1, accept_connection/5,
 	 setup/5, close/1, select/1, is_node_name/1]).
 
-listen(Name) ->    
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3, getq/0]).
+
+listen(Name) ->
+    start(),
     R = inet_tcp_dist:listen(Name),
-    %io:format("listen(~p) -> ~p~n", [Name, R]),
+    ?MODULE ! {listen, Name, R},
     R.
 
 accept(Listen) ->
     R = inet_tcp_dist:accept(Listen),
-    %io:format("accept(~p) -> ~p~n", [Listen, R]),
+    ?MODULE ! {accept, Listen, R},
     R.
 
 accept_connection(AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
     R = inet_tcp_dist:accept_connection(AcceptPid, Socket, MyNode, Allowed, SetupTime),
-    %io:format("accept_connection(~p,~p,~p,~p,~p) -> ~p~n",
-    %          [AcceptPid, Socket, MyNode, Allowed, SetupTime, R]),
+    ?MODULE ! {accept_connection, {AcceptPid, Socket, MyNode, Allowed, SetupTime}, R},
     R.
 
 setup(Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     R = inet_tcp_dist:setup(Node, Type, MyNode, LongOrShortNames,SetupTime),
-    %io:format("setup(~p,~p,~p,~p,~p) -> ~p~n",
-    %          [Node, Type, MyNode, LongOrShortNames, SetupTime, R]),
+    ?MODULE ! {setup, {Node, Type, MyNode, LongOrShortNames, SetupTime}, R},
     R.
 
 close(Socket) ->
     R = inet_tcp_dist:close(Socket),
-    %io:format("close(~p) -> ~p~n", [Socket, R]),
+    ?MODULE ! {close, Socket, R},
     R.
 
 select(Node) ->
     R = inet_tcp_dist:select(Node),
-    %io:format("select(~p) -> ~p~n", [Node, R]),
+    ?MODULE ! {select, Node, R},
     R.
 
 is_node_name(Node) ->
     R = inet_tcp_dist:is_node_name(Node),
-    %io:format("is_node_name(~p) -> ~p~n", [Node, R]),
+    ?MODULE ! {is_node_name, Node, R},
     R.
 
+-record(state, {calls = []}).
+start() ->
+    case catch erlang:is_process_alive(erlang:whereis(?MODULE)) of
+        true -> ok;
+        _ ->
+            catch gen_server:start_link({local, ?MODULE}, ?MODULE, [], [])
+    end.
+init([]) -> {ok, #state{}}.
+getq() -> gen_server:call(?MODULE, get).
+handle_call(get, _From, State) ->
+    {reply, lists:reverse(State#state.calls), State};
+handle_call(_, _From, State) -> {reply, ok, State}.
+handle_cast(_Request, State) -> {noreply,State}.
+handle_info(Info, #state{calls = Calls} = State) ->
+    {noreply,State#state{calls = [Info, Calls]}}.
+terminate(_Reason, _State) -> ok.
+code_change(_OldVsn, State, _Extra) -> {ok, State}.
