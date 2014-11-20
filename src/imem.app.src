@@ -11,7 +11,8 @@
                   sasl,
                   os_mon,
                   ranch,
-                  sqlparse
+                  sqlparse,
+                  lager
                  ]},
   {included_applications, [mnesia]},
   {mod, {imem, []}},

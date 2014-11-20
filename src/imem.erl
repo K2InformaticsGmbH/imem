@@ -33,8 +33,38 @@ start() ->
     application:start(ranch),
     application:start(jsx),
     sqlparse:start(),
-    config_if_lager(),
+    ok = application:start(compiler),
+    ok = application:start(syntax_tools),
+    ok = application:start(goldrush),
+    ok = application:load(lager),
+    ok = application:set_env(lager, handlers, [{lager_console_backend, info},
+                                               {lager_file_backend, [{file, "log/error.log"},
+                                                                     {level, error},
+                                                                     {size, 10485760},
+                                                                     {date, "$D0"},
+                                                                     {count, 5}]},
+                                               {lager_file_backend, [{file, "log/console.log"},
+                                                                     {level, info},
+                                                                     {size, 10485760},
+                                                                     {date, "$D0"},
+                                                                     {count, 5}]}]),
+    ok = application:set_env(lager, error_logger_redirect, false),
+    ok = application:start(lager),
     application:start(?MODULE).
+
+stop() ->
+    ok = application:stop(?MODULE),
+    ok = application:stop(lager),
+    ok = application:unload(lager),
+    ok = application:stop(goldrush),
+    ok = application:stop(syntax_tools),
+    ok = application:stop(compiler),
+    ok = sqlparse:stop(),
+    ok = application:stop(jsx),
+    ok = application:stop(ranch),
+    ok = application:stop(os_mon),
+    ok = application:stop(sasl),
+    ok = application:unload(sasl).
 
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
@@ -215,42 +245,34 @@ config_start_mnesia() ->
     application:set_env(mnesia, dir, SchemaDir),
     ok = mnesia:start().
 
-% LAGER Disabled in test
--ifndef(TEST).
-
-config_if_lager() ->
-    application:load(lager),
-    application:set_env(lager, handlers,
-                        [{lager_console_backend, info},
-                         {lager_file_backend, [{file, "log/error.log"},
-                                               {level, error},
-                                               {size, 10485760},
-                                               {date, "$D0"},
-                                               {count, 5}]},
-                         {lager_file_backend, [{file, "log/console.log"},
-                                               {level, info},
-                                               {size, 10485760},
-                                               {date, "$D0"},
-                                               {count, 5}]}]),
-    application:set_env(lager, error_logger_redirect, false),
-    lager:start(),
-    ?Info("IMEM starting with lager!").
-
--else. % TEST
-
-% Lager disabled
-config_if_lager() ->
-    ?Info("IMEM starting without lager!").
-
--endif. % TEST
-
-stop() ->
-    ok = application:stop(?MODULE),
-    ok = sqlparse:stop(),
-    ok = application:stop(jsx),
-    ok = application:stop(ranch),
-    ok = application:stop(os_mon),
-    ok = application:stop(sasl).
+%% LAGER Disabled in test
+%-ifndef(TEST).
+%
+%config_if_lager() ->
+%    application:load(lager),
+%    application:set_env(lager, handlers,
+%                        [{lager_console_backend, info},
+%                         {lager_file_backend, [{file, "log/error.log"},
+%                                               {level, error},
+%                                               {size, 10485760},
+%                                               {date, "$D0"},
+%                                               {count, 5}]},
+%                         {lager_file_backend, [{file, "log/console.log"},
+%                                               {level, info},
+%                                               {size, 10485760},
+%                                               {date, "$D0"},
+%                                               {count, 5}]}]),
+%    application:set_env(lager, error_logger_redirect, false),
+%    lager:start(),
+%    ?Info("IMEM starting with lager!").
+%
+%-else. % TEST
+%
+%% Lager disabled
+%config_if_lager() ->
+%    ?Info("IMEM starting without lager!").
+%
+%-endif. % TEST
 
 stop(_State) ->
     stop_tcp(),
