@@ -701,7 +701,9 @@ io_to_timestamp(Val,Prec) when Prec =< 0 ->
     {Megas,erlang:round(erlang:round(math:pow(10, -Prec) * Secs) * erlang:round(math:pow(10,Prec))),0}.  
 
 io_to_datetime(B) when is_binary(B) ->
-    io_to_datetime(binary_to_list(B));
+    B0 = re:replace(B, "T", " ", [{return, binary}]),
+    B1 = re:replace(B0, "\.[0-9]*Z$", "", [{return, binary}]),
+    io_to_datetime(binary_to_list(B1));
 io_to_datetime("today") ->
     {Date,_} = io_to_datetime("localtime"),
     {Date,{0,0,0}}; 
@@ -1562,6 +1564,7 @@ data_types(_) ->
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18880818012359">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18880818 012359">>)),
         ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"880818 012359">>)),
+        ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"1988-8-18T01:23:59.585Z">>)),
         ?LogDebug("io_to_datetime success~n", []),
 
         ?assertEqual({1,23,59}, parse_time("01:23:59")),        
