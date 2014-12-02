@@ -2526,11 +2526,13 @@ sql_jp_bind(Sql) ->
             ?ClientError({"Bad format", Other})
     end,
     ParamsMap = [{lists:flatten(Param)
-                  , ":" ++ re:replace(lists:flatten(Param), "[:_]+", ""
+                  , ":" ++ re:replace(lists:flatten(Param), "[:_\\[\\]{}]+", ""
                                       , [global,{return,list}])}
                  || Param <- lists:usort(Parameters)],
     {lists:foldl(fun({M,R}, Sql0) ->
-                         re:replace(Sql0, M, R, [global, {return, list}])
+                         M1 =  re:replace(M, "([\\[\\]])", "\\\\&"
+                                          , [global, {return, list}]),
+                         re:replace(Sql0, M1, R, [global, {return, list}])
                  end, Sql, ParamsMap)
      , [list_to_tuple(
           [list_to_binary(R)
