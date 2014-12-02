@@ -74,6 +74,7 @@
         , drop_system_table/1
         , fail/1
         , get_tables_count/0
+        , sql_jp_bind/1
         ]).
 
 -export([ schema/0
@@ -2511,6 +2512,56 @@ get_tables_count() ->
     {ok, MaxEtsNoTables} = application:get_env(max_ets_tables),
     {MaxEtsNoTables, length(mnesia:system_info(tables))}.
 
+-spec sql_jp_bind(Sql :: string()) ->
+    {NewSql :: string(), {binary(), atom(), string()}}.
+sql_jp_bind(Sql) ->
+    {match, Parameters} = re:run(Sql, ":[^ ,\)\n\r;]+"
+                                 , [global,{capture,all,list}]),
+    ParamsMap = [{lists:flatten(Param)
+                  , ":" ++ re:replace(lists:flatten(Param), "[:_]+", ""
+                                      , [global,{return,list}])}
+                 || Param <- lists:usort(Parameters)],
+    {lists:foldl(fun({M,R}, Sql0) ->
+                         re:replace(Sql0, M, R, [global, {return, list}])
+                 end, Sql, ParamsMap)
+     , [list_to_tuple(
+          [list_to_binary(R)
+           | case re:run(M, "^:([a-zA-Z]+)_(.*)$"
+                         ,[{capture,[1,2],list}]) of
+                 {match,["a",    Jp]} -> [atom,      Jp];
+                 {match,["b",    Jp]} -> [binary,    Jp];
+                 {match,["rw",   Jp]} -> [raw,       Jp];
+                 {match,["bb",   Jp]} -> [blob,      Jp];
+                 {match,["rid",  Jp]} -> [rowid,     Jp];
+                 {match,["bs",   Jp]} -> [binstr,    Jp];
+                 {match,["cb",   Jp]} -> [clob,      Jp];
+                 {match,["ncb",  Jp]} -> [nclob,     Jp];
+                 {match,["vc",   Jp]} -> [varchar2,  Jp];
+                 {match,["nvc",  Jp]} -> [nvarchar2, Jp];
+                 {match,["c",    Jp]} -> [char,      Jp];
+                 {match,["nc",   Jp]} -> [nchar,     Jp];
+                 {match,["bl",   Jp]} -> [boolean,   Jp];
+                 {match,["dt",   Jp]} -> [datetime,  Jp];
+                 {match,["d",    Jp]} -> [decimal,   Jp];
+                 {match,["f",    Jp]} -> [float,     Jp];
+                 {match,["fn",   Jp]} -> ['fun',     Jp];
+                 {match,["i",    Jp]} -> [integer,   Jp];
+                 {match,["ip",   Jp]} -> [ipaddr,    Jp];
+                 {match,["l",    Jp]} -> [list,      Jp];
+                 {match,["n",    Jp]} -> [number,    Jp];
+                 {match,["p",    Jp]} -> [pid,       Jp];
+                 {match,["r",    Jp]} -> [ref,       Jp];
+                 {match,["s",    Jp]} -> [string,    Jp];
+                 {match,["t",    Jp]} -> [term,      Jp];
+                 {match,["b",    Jp]} -> [binterm,   Jp];
+                 {match,["ts",   Jp]} -> [timestamp, Jp];
+                 {match,["tp",   Jp]} -> [tuple,     Jp];
+                 {match,["u",    Jp]} -> [userid,    Jp];
+                 {match,[X,     _Jp]} -> ?ClientError({"Unknown type", X});
+                 Other                -> ?ClientError({"Bad format", Other})
+             end]) || {M,R} <- ParamsMap]
+    }.
+    
 %% ----- DATA TYPES ---------------------------------------------
 
 
