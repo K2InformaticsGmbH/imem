@@ -75,6 +75,7 @@
         , fail/1
         , get_tables_count/0
         , sql_jp_bind/1
+        , sql_bind_jp_values/2
         ]).
 
 -export([ schema/0
@@ -2513,10 +2514,17 @@ get_tables_count() ->
     {MaxEtsNoTables, length(mnesia:system_info(tables))}.
 
 -spec sql_jp_bind(Sql :: string()) ->
-    {NewSql :: string(), {binary(), atom(), string()}}.
+    {NewSql :: string()
+     , BindParamsMeta :: [{BindParam :: binary(), BindType :: atom()
+                           , JPPath :: string()}]}
+    | no_return().
 sql_jp_bind(Sql) ->
-    {match, Parameters} = re:run(Sql, ":[^ ,\)\n\r;]+"
-                                 , [global,{capture,all,list}]),
+    case re:run(Sql, ":[^ ,\)\n\r;]+", [global,{capture,all,list}]) of
+        {match, Parameters} -> Parameters;
+        Other ->
+            Parameters = undefined,
+            ?ClientError({"Bad format", Other})
+    end,
     ParamsMap = [{lists:flatten(Param)
                   , ":" ++ re:replace(lists:flatten(Param), "[:_]+", ""
                                       , [global,{return,list}])}
@@ -2553,14 +2561,23 @@ sql_jp_bind(Sql) ->
                  {match,["r",    Jp]} -> [ref,       Jp];
                  {match,["s",    Jp]} -> [string,    Jp];
                  {match,["t",    Jp]} -> [term,      Jp];
-                 {match,["b",    Jp]} -> [binterm,   Jp];
+                 {match,["bt",   Jp]} -> [binterm,   Jp];
                  {match,["ts",   Jp]} -> [timestamp, Jp];
                  {match,["tp",   Jp]} -> [tuple,     Jp];
                  {match,["u",    Jp]} -> [userid,    Jp];
                  {match,[X,     _Jp]} -> ?ClientError({"Unknown type", X});
-                 Other                -> ?ClientError({"Bad format", Other})
+                 Other1               -> ?ClientError({"Bad format", Other1})
              end]) || {M,R} <- ParamsMap]
     }.
+
+-spec sql_bind_jp_values(BindParamsMeta :: [{BindParam :: binary()
+                                             , BindType :: atom()
+                                             , JPPath :: string()}]
+                        , JpPathBinds :: [{BindName :: binary()
+                                           , BindObj :: any()}]) ->
+    {Values :: list()} | no_return().
+sql_bind_jp_values(BindParamsMeta, JpPathBinds) ->
+    [imem_json:eval(Jp, JpPathBinds) || {_,_,Jp} <- BindParamsMeta].
     
 %% ----- DATA TYPES ---------------------------------------------
 
@@ -2569,6 +2586,108 @@ sql_jp_bind(Sql) ->
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
+
+sql_bind_jp_values_test_() ->
+    {inparallel
+     , [{P, fun() ->
+                    {_, R} = ?MODULE:sql_jp_bind(S),
+                    ?assertEqual(V, ?MODULE:sql_bind_jp_values(R, B))
+            end}
+        || {P,S,B,V} <-
+           [
+            {"common"
+             , "select :a_obj:x,:b_obj:y from x where :a_obj:x = 1 "
+               "and :b_obj:y = 0 and :rw_obj1:a > 0"
+             , [{<<"obj">>, <<"{\"x\":1,\"y\":2}">>}
+                , {<<"obj1">>, <<"{\"a\":3}">>}]
+             , [<<"1">>,<<"2">>,<<"3">>]}
+           ]
+       ]
+    }.
+
+sql_jp_bind_test_() ->
+    {inparallel
+     , [{P, case R of
+                {error, E} ->
+                    ?_assertException(throw,{'ClientError',E}
+                                      , ?MODULE:sql_jp_bind(S));
+                R ->
+                    fun() ->
+                            {S1, R1} = ?MODULE:sql_jp_bind(S),
+                            {S0, R0} = R,
+                            ?assertEqual(S1, S0),
+                            ?assertEqual(lists:usort(R1), lists:usort(R0))
+                    end
+            end}
+        || {P,S,R} <-
+           [
+            {"common",
+             "select :a_obj:x,:b_obj:x,:rw_obj:x,:bb_obj:x,:rid_obj:x,:bs_obj:x"
+             ",:cb_obj:x,:ncb_obj:x,:vc_obj:x,:nvc_obj:x,:c_obj:x,:nc_obj:x"
+             ",:bl_obj:x,:dt_obj:x,:d_obj:x,:f_obj:x,:fn_obj:x,:i_obj:x,"
+             ":ip_obj:x,:l_obj:x,:n_obj:x,:p_obj:x,:r_obj:x,:s_obj:x,:t_obj:x,"
+             ":bt_obj:x,:ts_obj:x,:tp_obj:x,:u_obj:x"
+             " from x where "
+             ":a_obj:x = 1 and :b_obj:x = 1 and :rw_obj:x = 1 and :bb_obj:x = 1 "
+             "and :rid_obj:x = 1 and :bs_obj:x = 1 and :cb_obj:x = 1 "
+             "and :ncb_obj:x = 1 and :vc_obj:x = 1 and :nvc_obj:x = 1 "
+             "and :c_obj:x = 1 and :nc_obj:x = 1 and :bl_obj:x = 1 "
+             "and :dt_obj:x  = 1 and :d_obj:x = 1 and :f_obj:x = 1 "
+             "and :fn_obj:x  = 1 and :i_obj:x = 1 and :ip_obj:x = 1 "
+             "and :l_obj:x = 1 and :n_obj:x = 1 and :p_obj:x = 1 "
+             "and :r_obj:x = 1 and :s_obj:x = 1 and :t_obj:x = 1 "
+             "and :bt_obj:x = 1 and :ts_obj:x = 1 and :tp_obj:x = 1 "
+             "and :u_obj:x"
+             , {"select :aobjx,:bobjx,:rwobjx,:bbobjx,:ridobjx,:bsobjx"
+                ",:cbobjx,:ncbobjx,:vcobjx,:nvcobjx,:cobjx,:ncobjx"
+                ",:blobjx,:dtobjx,:dobjx,:fobjx,:fnobjx,:iobjx,"
+                ":ipobjx,:lobjx,:nobjx,:pobjx,:robjx,:sobjx,:tobjx,"
+                ":btobjx,:tsobjx,:tpobjx,:uobjx"
+                " from x where "
+                ":aobjx = 1 and :bobjx = 1 and :rwobjx = 1 and :bbobjx = 1 "
+                "and :ridobjx = 1 and :bsobjx = 1 and :cbobjx = 1 "
+                "and :ncbobjx = 1 and :vcobjx = 1 and :nvcobjx = 1 "
+                "and :cobjx = 1 and :ncobjx = 1 and :blobjx = 1 "
+                "and :dtobjx  = 1 and :dobjx = 1 and :fobjx = 1 "
+                "and :fnobjx  = 1 and :iobjx = 1 and :ipobjx = 1 "
+                "and :lobjx = 1 and :nobjx = 1 and :pobjx = 1 "
+                "and :robjx = 1 and :sobjx = 1 and :tobjx = 1 "
+                "and :btobjx = 1 and :tsobjx = 1 and :tpobjx = 1 "
+                "and :uobjx"
+                , [{<<":aobjx">>,   atom,     "obj:x"}
+                  ,{<<":bobjx">>,   binary,   "obj:x"}
+                  ,{<<":rwobjx">>,  raw,      "obj:x"}
+                  ,{<<":bbobjx">>,  blob,     "obj:x"}
+                  ,{<<":ridobjx">>, rowid,    "obj:x"}
+                  ,{<<":bsobjx">>,  binstr,   "obj:x"}
+                  ,{<<":cbobjx">>,  clob,     "obj:x"}
+                  ,{<<":ncbobjx">>, nclob,    "obj:x"}
+                  ,{<<":vcobjx">>,  varchar2, "obj:x"}
+                  ,{<<":nvcobjx">>, nvarchar2,"obj:x"}
+                  ,{<<":cobjx">>,   char,     "obj:x"}
+                  ,{<<":ncobjx">>,  nchar,    "obj:x"}
+                  ,{<<":blobjx">>,  boolean,  "obj:x"}
+                  ,{<<":dtobjx">>,  datetime, "obj:x"}
+                  ,{<<":dobjx">>,   decimal,  "obj:x"}
+                  ,{<<":fobjx">>,   float,    "obj:x"}
+                  ,{<<":fnobjx">>,  'fun',    "obj:x"}
+                  ,{<<":iobjx">>,   integer,  "obj:x"}
+                  ,{<<":ipobjx">>,  ipaddr,   "obj:x"}
+                  ,{<<":lobjx">>,   list,     "obj:x"}
+                  ,{<<":nobjx">>,   number,   "obj:x"}
+                  ,{<<":pobjx">>,   pid,      "obj:x"}
+                  ,{<<":robjx">>,   ref,      "obj:x"}
+                  ,{<<":sobjx">>,   string,   "obj:x"}
+                  ,{<<":tobjx">>,   term,     "obj:x"}
+                  ,{<<":btobjx">>,  binterm,  "obj:x"}
+                  ,{<<":tsobjx">>,  timestamp,"obj:x"}
+                  ,{<<":tpobjx">>,  tuple,    "obj:x"}
+                  ,{<<":uobjx">>,   userid,   "obj:x"}]}}
+           , {"exception", "select :y_b from s", {error, {"Unknown type", "y"}}}
+           , {"exception", "select :yb from s", {error, {"Bad format", nomatch}}}
+           ]
+       ]
+    }.
 
 setup() ->
     ?imem_test_setup.
