@@ -2630,7 +2630,7 @@ sql_bind_jp_values(BindParamsMeta, JpPathBinds) ->
 
 -include_lib("eunit/include/eunit.hrl").
 -define(TPTEST0, tpTest_1000@).
--define(TPTEST1, tpTest1_1000000000@_).
+-define(TPTEST1, tpTest1_999999999@_).
 -define(TPTEST2, tpTest_100@).
 
 sql_bind_jp_values_test_() ->
@@ -3080,7 +3080,7 @@ meta_operations(_) ->
         ?LogDebug("success ~p~n", [?TPTEST0]),
 
         TimePartTable1 = physical_table_name(?TPTEST1),
-        ?assertEqual(tpTest1_2000000000@_, TimePartTable1),
+        ?assertEqual(tpTest1_1999999998@_, TimePartTable1),
         ?assertEqual(TimePartTable1, physical_table_name(?TPTEST1,erlang:now())),
         ?assertEqual(ok, create_check_table(?TPTEST1, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable1)),
@@ -3096,12 +3096,16 @@ meta_operations(_) ->
         ?assertEqual(1, table_size(TimePartTable1)),
         ?assertEqual(0, purge_table(?TPTEST1)),
         LogRecP = LogRec0#ddLog{logTime={900,0,0}},  
-        Error3 = {error,{'ClientError',{"Table already exists",tpTest1_2000000000@_}}},     % cannot create past partitions
-        ?assertException(throw,{'ClientError',{"Table partition cannot be created",{tpTest1_1000000000@_,Error3}}},write(?TPTEST1, LogRecP)),
+        ?LogDebug("Big Partition Tables before back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
+        % Error3 = {error,{'ClientError',{"Table already exists",tpTest1_1999999998@_}}},     % cannot create past partitions
+        % ?assertException(throw,{'ClientError',{"Table partition cannot be created",{tpTest1_999999999@_,Error3}}},write(?TPTEST1, LogRecP)),
+        ?assertEqual(ok, write(?TPTEST1, LogRecP)),
+        ?LogDebug("Big Partition Tables after back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
         LogRecFF = LogRec0#ddLog{logTime={2900,0,0}},  
         ?assertEqual(ok, write(?TPTEST1, LogRecFF)),
-        ?assertEqual(2,length(physical_table_names(?TPTEST1))),     % another partition created
-        ?assertEqual(0, purge_table(?TPTEST1)),
+        ?LogDebug("Big Partition Tables after forward-insert~n~p~n", [physical_table_names(?TPTEST1)]),
+        ?assertEqual(3,length(physical_table_names(?TPTEST1))),     % another partition created
+        ?assert(purge_table(?TPTEST1) > 0),
         ?assertEqual(ok, drop_table(?TPTEST1)),
         Alias1a = read(ddAlias),
         ?assertEqual(false,lists:member({schema(),?TPTEST1},[element(2,A) || A <- Alias1a])),
