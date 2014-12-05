@@ -12,7 +12,8 @@
                   os_mon,
                   ranch,
                   sqlparse,
-                  lager
+                  lager,
+                  erlhlc
                  ]},
   {included_applications, [mnesia]},
   {mod, {imem, []}},

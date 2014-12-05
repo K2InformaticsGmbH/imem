@@ -50,10 +50,12 @@ start() ->
                                                                      {count, 5}]}]),
     ok = application:set_env(lager, error_logger_redirect, false),
     ok = application:start(lager),
+    erlhlc:start(),
     application:start(?MODULE).
 
 stop() ->
     ok = application:stop(?MODULE),
+    erlhlc:stop(),
     ok = application:stop(lager),
     ok = application:unload(lager),
     ok = application:stop(goldrush),
