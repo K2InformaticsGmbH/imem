@@ -105,6 +105,7 @@
         , is_readable_table/1
         , is_virtual_table/1
         , is_time_partitioned_alias/1
+        , is_time_partitioned_table/1
         , is_local_time_partitioned_table/1
         , is_node_sharded_alias/1
         , is_local_node_sharded_table/1
@@ -1279,7 +1280,8 @@ simple_or_local_node_sharded_tables(TableAlias) ->
 
 is_node_sharded_alias(TableAlias) when is_atom(TableAlias) -> 
     is_node_sharded_alias(atom_to_list(TableAlias));
-is_node_sharded_alias(TableAlias) when is_list(TableAlias) -> (lists:last(TableAlias) == $@).
+is_node_sharded_alias(TableAlias) when is_list(TableAlias) -> 
+    (lists:last(TableAlias) == $@).
 
 is_time_partitioned_alias(TableAlias) when is_atom(TableAlias) ->
     is_time_partitioned_alias(atom_to_list(TableAlias));
@@ -1295,7 +1297,7 @@ is_reverse_timed_name(TableAliasRev) ->
     case string:tokens(TableAliasRev, "_") of
         [[$@|RN]|_] -> 
             try 
-                _ = list_to_integer(lists:reverse(RN)),
+                _ = list_to_integer(RN),
                 true    % timestamp partitioned
             catch
                 _:_ -> false
@@ -1313,12 +1315,17 @@ is_local_time_partitioned_table(Name) when is_atom(Name) ->
     is_local_time_partitioned_table(atom_to_list(Name));
 is_local_time_partitioned_table(Name) when is_list(Name) ->
     case is_local_node_sharded_table(Name) of
-        false -> 
-            false;
-        true ->
-            is_time_partitioned_alias(lists:sublist(Name, length(Name)-length(node_shard())))
+        false ->    false;
+        true ->     is_time_partitioned_table(Name)
     end.
 
+is_time_partitioned_table(Name) when is_atom(Name) ->
+    is_time_partitioned_table(atom_to_list(Name));
+is_time_partitioned_table(Name) when is_list(Name) ->
+    case parse_table_name(Name) of
+        [_,_,_,"",_,_] ->   false;
+        _ ->                true
+    end.
 
 -spec parse_table_name(atom()|list()|binary()) -> list(list()).
     %% TableName -> [Schema,".",Name,Period,"@",Node] all strings , all optional ("") except Name
@@ -1504,16 +1511,20 @@ partitioned_table_name_str(TableAlias,Key) when is_list(TableAlias) ->
             end;
         [$_,$@|_] ->       
             [[$@|RN]|_] = string:tokens(tl(TableAliasRev), "_"),
-            try 
-                Period = list_to_integer(lists:reverse(RN)),
-                {Mega,Sec,_} = Key,
-                PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
-                Prefix = lists:duplicate(10-length(PartitionEnd),$0),
-                {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
-                lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@_" )
-                % timestamp partitioned cluster table
-            catch
-                _:_ -> lists:flatten(TableAlias)
+            case length(RN) of
+                10 ->   TableAlias;         % this is a partition name
+                _ ->
+                    try 
+                        Period = list_to_integer(lists:reverse(RN)),
+                        {Mega,Sec,_} = Key,
+                        PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
+                        Prefix = lists:duplicate(10-length(PartitionEnd),$0),
+                        {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
+                        lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@_" )
+                        % timestamp partitioned cluster table
+                    catch
+                        _:_ -> TableAlias   % this is a table name
+                    end
             end;
         _ ->
             TableAlias    
@@ -2037,7 +2048,7 @@ read(ddSchema,Key) when is_tuple(Key) ->
 read(ddSchema,_) -> [];
 read(ddSize,Table) ->
     PTN =  physical_table_name(Table),
-    case is_local_time_partitioned_table(PTN) of  % 
+    case is_time_partitioned_table(PTN) of 
         true ->
             case (catch {table_size(PTN),table_memory(PTN), time_of_partition_expiry(PTN),time_to_partition_expiry(PTN)}) of
                 {S,M,E,T} when is_integer(S),is_integer(M) -> 
