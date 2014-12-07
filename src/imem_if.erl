@@ -149,36 +149,42 @@ return_atomic(Other) ->                     Other.
 transaction(Function) when is_atom(Function) ->
     case mnesia:is_transaction() of
         false ->    F = fun() -> apply(mnesia, Function, []) end,
+                    ?TRANS_TIME_INIT,
                     mnesia:transaction(F);
         true ->     mnesia:Function()
     end;
 transaction(Fun) when is_function(Fun)->
     case mnesia:is_transaction() of
-        false ->    mnesia:transaction(Fun);
+        false ->    ?TRANS_TIME_INIT,
+                    mnesia:transaction(Fun);
         true ->     Fun()
     end.
 
 transaction(Function, Args) when is_atom(Function)->
     case mnesia:is_transaction() of
         false ->    F = fun() -> apply(mnesia, Function, Args) end,
+                    ?TRANS_TIME_INIT,
                     mnesia:transaction(F);
         true ->     apply(mnesia, Function, Args)
     end;
 transaction(Fun, Args) when is_function(Fun)->
     case mnesia:is_transaction() of
-        false ->    mnesia:transaction(Fun, Args);
+        false ->    ?TRANS_TIME_INIT,
+                    mnesia:transaction(Fun, Args);
         true ->     apply(Fun, Args)        
     end.
 
 transaction(Function, Args, Retries) when is_atom(Function)->
     case mnesia:is_transaction() of
         false ->    F = fun() -> apply(mnesia, Function, Args) end,
+                    ?TRANS_TIME_INIT,
                     mnesia:transaction(F, Retries);
         true ->     apply(mnesia, Function, Args)
     end;
 transaction(Fun, Args, Retries) when is_function(Fun)->
     case mnesia:is_transaction() of
-        false ->    mnesia:transaction(Fun, Args, Retries);
+        false ->    ?TRANS_TIME_INIT,
+                    mnesia:transaction(Fun, Args, Retries);
         true ->     ?ClientErrorNoLogging({"Cannot specify retries in nested transaction"})
     end.
 

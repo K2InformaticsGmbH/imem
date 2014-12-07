@@ -3,9 +3,8 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
--define(AUDIT_SUFFIX,"Audit_86400@").
+-define(AUDIT_SUFFIX,"Audit_86400@_").
 -define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
--define(TIME,erlang:now()).
 -define(MATCHHEAD,{skvhTable, '$1', '$2', '$3'}).
 -define(AUDIT_MATCHHEAD,{skvhAudit, '$1', '$2', '$3', '$4', '$5'}).
 
@@ -95,6 +94,31 @@ audit_alias(Channel) -> list_to_binary(?AUDIT(Channel)).
 audit_table_name(Channel,Key) when is_list(Channel) -> 
 	imem_meta:partitioned_table_name(Channel ++ ?AUDIT_SUFFIX,Key).
 
+audit_table_time(TransTime,CH) ->
+	ATName = audit_table_name(CH,TransTime),
+	case imem_meta:last(ATName) of 
+		'$end_of_table' ->	 
+			{ATName,TransTime};
+		LastLog when (LastLog >= TransTime) andalso (element(3,LastLog) < 999999) ->
+			{ATName,{element(1,LastLog),element(2,LastLog),element(3,LastLog)+1}};
+		LastLog when (LastLog >= TransTime) andalso (element(2,LastLog) < 999999) ->
+			audit_table_time({element(1,LastLog),element(2,LastLog)+1,0},CH);
+		LastLog when (LastLog >= TransTime) ->
+			audit_table_time({element(1,LastLog)+1,0,0},CH);
+		_ -> 
+		 	{ATName,TransTime}
+	end.
+
+audit_table_next(ATName,TransTime,CH) -> 
+	case TransTime of 
+		{M,S,Mic} when Mic < 999999 ->
+			{ATName,{M,S,Mic+1}};
+		{M,S,999999} when S < 999999 ->
+			audit_table_time({M,S+1,0},CH);
+		{M,999999,999999} ->
+			audit_table_time({M+1,0,0},CH)
+	end.
+
 
 %% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
 %% creates these tables if not already existing 
@@ -129,20 +153,24 @@ create_check_channel(Channel) ->
 
 write_audit(OldRec,NewRec,Table,User) ->
 	["","",CH,"","",""] = imem_meta:parse_table_name(Table),
+	{AT1,TT1} = audit_table_time(?TRANS_TIME_GET,CH),
+	?TRANS_TIME_PUT(TT1),
 	CL = case {OldRec,NewRec} of
-		{{},{}} ->	[{?TIME,sext:encode(undefined),undefined,undefined}];			% truncate table
-		{_,{}} ->	[{?TIME,element(2,OldRec),element(3,OldRec),undefined}]; 		% delete old rec
-		{{},_} ->	[{?TIME,element(2,NewRec),undefined,element(3,NewRec)}];		% insert new rec
+		{{},{}} ->	[{AT1,TT1,sext:encode(undefined),undefined,undefined}];			% truncate table
+		{_,{}} ->	[{AT1,TT1,element(2,OldRec),element(3,OldRec),undefined}]; 		% delete old rec
+		{{},_} ->	[{AT1,TT1,element(2,NewRec),undefined,element(3,NewRec)}];		% insert new rec
 		{_, _} ->	
 			OldKey = element(2,OldRec),
 			case element(2,NewRec) of
-				OldKey ->													% update value
-					[{?TIME,element(2,NewRec),element(3,OldRec),element(3,NewRec)}];	
-				NewKey ->													% delete and insert
-					[{?TIME,OldKey,element(3,OldRec),undefined}, {?TIME,NewKey,undefined,element(3,NewRec)}]
+				OldKey ->															% update value
+					[{AT1,TT1,element(2,NewRec),element(3,OldRec),element(3,NewRec)}];	
+				NewKey ->															% delete and insert
+					{AT2,TT2} = audit_table_next(AT1,TT1,CH),
+					?TRANS_TIME_PUT(TT1),				
+					[{AT1,TT1,OldKey,element(3,OldRec),undefined}, {AT2,TT2,NewKey,undefined,element(3,NewRec)}]
 			end
 	end,
-	[imem_meta:write(audit_table_name(CH,Time),#skvhAudit{time=Time,ckey=K,ovalue=O,nvalue=N,cuser=User}) || {Time,K,O,N} <- CL].
+	[imem_meta:write(AT,#skvhAudit{time=TT,ckey=K,ovalue=O,nvalue=N,cuser=User}) || {AT,TT,K,O,N} <- CL].
 
 % return(Cmd, Result) ->
 % 	debug(Cmd, Result), 
@@ -432,11 +460,11 @@ debug(Cmd, Resp) ->
 setup() ->
     ?imem_test_setup,
     catch imem_meta:drop_table(skvhTest),
-    catch imem_meta:drop_table(skvhTestAudit_86400@).
+    catch imem_meta:drop_table(skvhTestAudit_86400@_).
 
 teardown(_) ->
     catch imem_meta:drop_table(skvhTest),
-    catch imem_meta:drop_table(skvhTestAudit_86400@),
+    catch imem_meta:drop_table(skvhTestAudit_86400@_),
     ?imem_test_teardown.
 
 db_test_() ->
@@ -458,7 +486,7 @@ skvh_operations(_) ->
         ?assertEqual(<<"skvhTest">>, table_name(Channel)),
 
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTest)), 
-        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestAudit_86400@)), 
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestAudit_86400@_)), 
 
         KVa = <<"[1,a]",9,"123456">>,
         KVb = <<"[1,b]",9,"234567">>,
@@ -476,7 +504,7 @@ skvh_operations(_) ->
         ?assertEqual({ok,[<<"undefined">>]}, read(system, Channel, <<"hash">>, <<"[1,a]">>)),
 
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),        
-        ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@)),
+        ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
@@ -495,7 +523,7 @@ skvh_operations(_) ->
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
-        Aud = imem_meta:read(skvhTestAudit_86400@),
+        Aud = imem_meta:read(skvhTestAudit_86400@_),
         ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
         {ok,Aud1} = audit_readGT(system, Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
@@ -537,7 +565,7 @@ skvh_operations(_) ->
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 				
-        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@)]),
+        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
@@ -568,7 +596,7 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"BFFHP">>]}, readGELT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
     	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
-    	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@)),
+    	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
@@ -588,7 +616,7 @@ skvh_operations(_) ->
         ?assertEqual({ok,[<<"206MFE">>]}, write(system, Channel, KVLong)),
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
-        ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@)),
+        ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
 
         ?LogDebug("success ~p~n", [drop_tables])
     catch

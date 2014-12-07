@@ -13,7 +13,7 @@
 
 %% HARD CODED CONFIGURATIONS
 
--define(DDNODE_TIMEOUT,3000).       %% RPC timeout for ddNode evaluation
+-define(DDNODE_TIMEOUT,3000).       % RPC timeout for ddNode evaluation
 
 -define(META_TABLES,[?CACHE_TABLE,?LOG_TABLE,?MONITOR_TABLE,dual,ddNode,ddSchema,ddSize,ddAlias,ddTable]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
