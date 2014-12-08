@@ -1078,7 +1078,8 @@ erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
         _ -> String ++ "."
     end,
     {ok,ErlTokens,_}=erl_scan:string(Code),    
-    {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
+    {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),
+    % ToDo: Check ErlAbsForm to contain only acceptable function calls to modules such as math / list / string / binary   
     {value,Value,_}=erl_eval:exprs(ErlAbsForm,Bindings),    
     Value.
 

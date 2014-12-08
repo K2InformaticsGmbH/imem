@@ -6,9 +6,11 @@
 %% HARD CODED CONFIGURATIONS
 -ifdef(TEST).
 -define(PROLL_FIRST_WAIT,1000).                                             %% 1000 = 1 sec
+-define(PROLL_ERROR_WAIT,1000).                                             %% 1000 = 1 sec
 -define(GET_PROLL_CYCLE_WAIT,?GET_IMEM_CONFIG(prollCycleWait,[],1000)).     %% 1000 = 1 sec
 -else.
 -define(PROLL_FIRST_WAIT,10000).                                            %% 10000 = 10 sec
+-define(PROLL_ERROR_WAIT,1000).                                             %% 1000 = 1 sec
 -define(GET_PROLL_CYCLE_WAIT,?GET_IMEM_CONFIG(prollCycleWait,[],100000)).   %% 100000 = 100 sec
 -endif. %TEST
 
@@ -94,21 +96,26 @@ handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
     end;
 handle_info({roll_partitioned_tables,ProllCycleWait,ProllItemWait}, State=#state{prollList=[{TableAlias,TableName}|Rest]}) ->
     % process one proll candidate
-    case imem_if:read(ddAlias,{imem_meta:schema(), TableAlias}) of
+    NextWait = case imem_if:read(ddAlias,{imem_meta:schema(), TableAlias}) of
         [] ->   
-            ?Info("TableAlias ~p deleted before partition ~p could be rolled",[TableAlias,TableName]); 
+            ?Info("TableAlias ~p deleted before partition ~p could be rolled",[TableAlias,TableName]),
+            ProllItemWait; 
         [#ddAlias{}] ->
             try
                 % ?Info("Trying to roll partition ~p",[TableName]), 
                 imem_meta:create_partitioned_table(TableAlias, TableName),
-                ?Info("Rolling time partition ~p suceeded",[TableName])
+                ?Info("Rolling time partition ~p suceeded",[TableName]),
+                ProllItemWait
             catch
                  _:{'ClientError',{"Table already exists",TableName}} ->
-                    ?Info("Time partition ~p already exists, rolling is skipped",[TableName]);   
-                _:Reason -> ?Error("Rolling time partition ~p failed with reason ~p",[TableName, Reason])
+                    ?Info("Time partition ~p already exists, rolling is skipped",[TableName]),
+                    ProllItemWait;
+                _:Reason -> 
+                    ?Error("Rolling time partition ~p failed with reason ~p",[TableName, Reason]),
+                    ?PROLL_ERROR_WAIT
             end
     end,  
-    erlang:send_after(ProllItemWait, self(), {roll_partitioned_tables,ProllCycleWait,ProllItemWait}),
+    erlang:send_after(NextWait, self(), {roll_partitioned_tables,ProllCycleWait,ProllItemWait}),
     {noreply, State#state{prollList=Rest}};
 handle_info({roll_partitioned_tables,ProllCycleWait,_}, State=#state{prollList=[]}) ->
     % ?Info("Partition rolling completed",[]), 

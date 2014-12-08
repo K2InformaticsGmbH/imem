@@ -5,6 +5,9 @@
 
 -define(AUDIT_SUFFIX,"Audit_86400@_").
 -define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
+-define(HIST_SUFFIX,"Hist").
+-define(HIST(__Channel), binary_to_list(__Channel) ++ ?HIST_SUFFIX).
+-define(HIST_FROM_STR(__Channel),list_to_existing_atom(__Channel ++ ?HIST_SUFFIX)).
 -define(MATCHHEAD,{skvhTable, '$1', '$2', '$3'}).
 -define(AUDIT_MATCHHEAD,{skvhAudit, '$1', '$2', '$3', '$4', '$5'}).
 
@@ -14,8 +17,34 @@
 
 -define(AUDIT_OPTS, [{record_name,skvhAudit}
                     ,{type,ordered_set}
-                    ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
+                    ,{purge_delay,430000}     %% 430000 = 5 Days - 2000 sec
                     ]).          
+
+-define(HIST_OPTS,  [{record_name,skvhHist}
+                    ,{type,ordered_set}
+                    ]).          
+
+-record(skvhCtx,                           	  %% table provisioning context    
+                    { mainAlias               :: atom()					%% main table alias
+                    , auditAlias              :: atom()					%% audit table alias
+                    , histAlias               :: atom()					%% history table alias
+                    }
+       ).
+
+-record(skvhCL,                           	  %% value change log    
+                    { time                    :: ddTimestamp()			%% erlang:now()
+                    , ovalue               	  :: binary()|undefined		%% old value
+                    , nvalue               	  :: binary()|undefined		%% new value
+                    , cuser=unknown 		  :: ddEntityId()|unknown
+                    }
+       ).
+
+-record(skvhHist,                             %% sorted key value hash table    
+                    { ckey = ?nav             :: binary()|?nav
+                    , cvhist  				  :: list(#skvhCL{})      
+                    }
+       ).
+-define(skvhHist,  [binterm,list]).
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
                     { time                    :: ddTimestamp()			%% erlang:now()
@@ -124,53 +153,73 @@ audit_table_next(ATName,TransTime,CH) ->
 %% creates these tables if not already existing 
 %% return atom names of the tables (StateTable and AuditTable)
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
-%% returns:	Tuple of table names to be used for data transfer
+%% returns:	provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_channel(binary()) -> {atom(),atom()}.
+-spec create_check_channel(binary()) -> #skvhCtx{}.
 create_check_channel(Channel) ->
-	TBin = table_name(Channel),
+	Main = table_name(Channel),
 	try 
-		T = ?binary_to_existing_atom(TBin),
+		M = ?binary_to_existing_atom(Main),
+		H = list_to_existing_atom(?HIST(Channel)),
 		A = list_to_existing_atom(?AUDIT(Channel)),
-		P = imem_meta:partitioned_table_name_str(A,erlang:now()), 	
-		PN = list_to_existing_atom(P), 								
-		imem_meta:check_local_table_copy(T),	%% throws if table is not locally resident
-		imem_meta:check_local_table_copy(PN),	%% throws if table is not locally resident
-		{T,A}
+		imem_meta:check_local_table_copy(M),							%% throws if master table is not locally resident
+		imem_meta:check_local_table_copy(H),							%% throws if history table is not locally resident
+		AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME), 	
+		imem_meta:check_local_table_copy(list_to_existing_atom(AP)),	%% throws if table is not locally resident
+		#skvhCtx{mainAlias=M, auditAlias=A, histAlias=H}
 	catch 
 		_:_ -> 
-			TN = ?binary_to_atom(TBin),
-			case (catch imem_meta:create_check_table(TN, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system)) of
+			MC = ?binary_to_atom(Main),
+			case (catch imem_meta:create_check_table(MC, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system)) of
 				ok ->				ok;
-    			{error, Reason} -> 	imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TN}],io_lib:format("~p",[Reason]));
-    			Reason -> 			imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TN}],io_lib:format("~p",[Reason]))
+    			{error, Reason} -> 	imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,MC}],io_lib:format("~p",[Reason]));
+    			Reason -> 			imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,MC}],io_lib:format("~p",[Reason]))
     		end,
-			AN = list_to_atom(?AUDIT(Channel)),
-			catch imem_meta:create_check_table(AN, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
-        	catch imem_meta:create_trigger(TN, ?skvhTableTrigger),
-			{TN,AN}
+			AC = list_to_atom(?AUDIT(Channel)),
+			catch imem_meta:create_check_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
+        	catch imem_meta:create_trigger(MC, ?skvhTableTrigger),
+        	HC = list_to_atom(?HIST(Channel)),
+			catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, system),
+			#skvhCtx{mainAlias=MC, auditAlias=AC, histAlias=HC}
 	end.
 
 write_audit(OldRec,NewRec,Table,User) ->
 	["","",CH,"","",""] = imem_meta:parse_table_name(Table),
 	{AT1,TT1} = audit_table_time(?TRANS_TIME_GET,CH),
 	?TRANS_TIME_PUT(TT1),
+	HT = ?HIST_FROM_STR(CH),
 	CL = case {OldRec,NewRec} of
-		{{},{}} ->	[{AT1,TT1,sext:encode(undefined),undefined,undefined}];			% truncate table
-		{_,{}} ->	[{AT1,TT1,element(2,OldRec),element(3,OldRec),undefined}]; 		% delete old rec
-		{{},_} ->	[{AT1,TT1,element(2,NewRec),undefined,element(3,NewRec)}];		% insert new rec
+		{{},{}} ->	% truncate table
+			ok = imem_meta:truncate_table(HT),
+			[{AT1,#skvhAudit{time=TT1,ckey=sext:encode(undefined),ovalue=undefined,nvalue=undefined,cuser=User}}];
+		{_,{}} ->	% delete old rec
+			[{AT1,#skvhAudit{time=TT1,ckey=element(2,OldRec),ovalue=element(3,OldRec),nvalue=undefined,cuser=User}}];
+		{{},_} ->	% insert new rec
+			[{AT1,#skvhAudit{time=TT1,ckey=element(2,NewRec),ovalue=undefined,nvalue=element(3,NewRec),cuser=User}}];		
 		{_, _} ->	
 			OldKey = element(2,OldRec),
 			case element(2,NewRec) of
-				OldKey ->															% update value
-					[{AT1,TT1,element(2,NewRec),element(3,OldRec),element(3,NewRec)}];	
-				NewKey ->															% delete and insert
+				OldKey ->	% update value
+					[{AT1,#skvhAudit{time=TT1,ckey=OldKey,ovalue=element(3,OldRec),nvalue=element(3,NewRec),cuser=User}}];	
+				NewKey ->	% delete and insert
 					{AT2,TT2} = audit_table_next(AT1,TT1,CH),
 					?TRANS_TIME_PUT(TT1),				
-					[{AT1,TT1,OldKey,element(3,OldRec),undefined}, {AT2,TT2,NewKey,undefined,element(3,NewRec)}]
+					[{AT1,#skvhAudit{time=TT1,ckey=OldKey,ovalue=element(3,OldRec),nvalue=undefined,cuser=User}}
+					,{AT2,#skvhAudit{time=TT2,ckey=NewKey,ovalue=undefined,nvalue=element(3,NewRec),cuser=User}}
+					]
 			end
 	end,
-	[imem_meta:write(AT,#skvhAudit{time=TT,ckey=K,ovalue=O,nvalue=N,cuser=User}) || {AT,TT,K,O,N} <- CL].
+	[ write_audit_and_hist(AT,HT,C) || {AT,C} <- CL].
+
+write_audit_and_hist(AT, HT, #skvhAudit{time=T,ckey=K,ovalue=O,nvalue=N,cuser=U}=C) ->
+	ok = imem_meta:write(AT,C),
+	case imem_meta:read(HT,K) of
+		[#skvhHist{ckey=K,cvhist=CH}=H] ->	
+			ok = imem_meta:write(HT, H#skvhHist{ckey=K,cvhist=[#skvhCL{time=T,ovalue=O,nvalue=N,cuser=U}|CH]});
+		[] ->	
+			ok = imem_meta:write(HT,#skvhHist{ckey=K,cvhist=[#skvhCL{time=T,ovalue=O,nvalue=N,cuser=U}]})
+	end.
+
 
 % return(Cmd, Result) ->
 % 	debug(Cmd, Result), 
@@ -285,12 +334,12 @@ read(User, Channel, Item, KeyTable) when is_binary(Channel), is_binary(Item), is
 	read(Cmd, create_check_channel(Channel), Item, io_key_table_to_term_list(KeyTable), []).
 
 read(Cmd, _, Item, [], Acc)  -> project_result(Cmd, lists:reverse(Acc), Item);
-read(Cmd, {TN,AN}, Item, [Key|Keys], Acc)  ->
-	KVP = case imem_meta:dirty_read(TN,Key) of
+read(Cmd, SkvhCtx, Item, [Key|Keys], Acc)  ->
+	KVP = case imem_meta:dirty_read(SkvhCtx#skvhCtx.mainAlias,Key) of
 		[] ->		#skvhTable{ckey=Key,cvalue=undefined,chash=undefined} ;
 		[Rec] ->	Rec
 	end,
-	read(Cmd, {TN,AN}, Item, Keys, [KVP|Acc]).
+	read(Cmd, SkvhCtx, Item, Keys, [KVP|Acc]).
 	
 
 write(User,Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
@@ -298,28 +347,28 @@ write(User,Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 	write(User, Cmd, create_check_channel(Channel), io_kv_table_to_tuple_list(KVTable), []).
 
 write(_User, Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
-write(User, Cmd, {TN,AN}, [{K,V}|KVPairs], Acc)  ->
-	#skvhTable{chash=Hash} = imem_meta:merge(TN,#skvhTable{ckey=K,cvalue=V},User),
-	write(User,Cmd, {TN,AN}, KVPairs, [Hash|Acc]).
+write(User, Cmd, SkvhCtx, [{K,V}|KVPairs], Acc)  ->
+	#skvhTable{chash=Hash} = imem_meta:merge(SkvhCtx#skvhCtx.mainAlias,#skvhTable{ckey=K,cvalue=V},User),
+	write(User,Cmd, SkvhCtx, KVPairs, [Hash|Acc]).
 
 delete(User, Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 
 	Cmd = [delete,User,Channel,KeyTable],
 	delete(User, Cmd, create_check_channel(Channel), io_key_table_to_term_list(KeyTable), []).
 
 delete(_User, Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
-delete(User, Cmd, {TN,AN}, [Key|Keys], Acc)  ->
-	Hash = case imem_meta:read(TN,Key) of
+delete(User, Cmd, SkvhCtx, [Key|Keys], Acc)  ->
+	Hash = case imem_meta:read(SkvhCtx#skvhCtx.mainAlias,Key) of
 		[] ->
 			undefined;
 		[Rec] ->	
 			try
-				#skvhTable{chash=H} = imem_meta:remove(TN,Rec,User),
+				#skvhTable{chash=H} = imem_meta:remove(SkvhCtx#skvhCtx.mainAlias,Rec,User),
 				H
 			catch
 				throw:{'ConcurrencyException',{"Remove failed, key does not exist", _}} -> undefined
 			end
 	end,
-	delete(User, Cmd, {TN,AN}, Keys, [term_hash_to_io(Hash)|Acc]).
+	delete(User, Cmd, SkvhCtx, Keys, [term_hash_to_io(Hash)|Acc]).
 
 %% Data Access per key range
 
@@ -330,17 +379,17 @@ readGT(User, Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1
 	Cmd = [readGT, User, Channel, Item, CKey1, Limit],
 	readGT(User, Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
 
-readGT(_User, Cmd, {TN,TA}, Item, Key1, Limit) ->
+readGT(_User, Cmd, SkvhCtx, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}], ['$_']},
-	read_limited(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+	read_limited(Cmd, SkvhCtx, Item, MatchFunction, Limit).
 
 audit_readGT(User, Channel, Item, TS1, Limit)  when is_binary(Item), is_binary(TS1) ->
 	Cmd = [audit_readGT, User, Channel, Item, TS1, Limit],
 	audit_readGT(User, Cmd, create_check_channel(Channel), Item, imem_datatype:io_to_timestamp(TS1), io_to_integer(Limit)).
 
-audit_readGT(_User, Cmd, {_TN,TA}, Item, TS1, Limit) ->
+audit_readGT(_User, Cmd, SkvhCtx, Item, TS1, Limit) ->
 	MatchFunction = {?AUDIT_MATCHHEAD, [{'>', '$1', match_val(TS1)}], ['$_']},
-	audit_read_limited(Cmd, audit_partitions(TA,TS1), Item, MatchFunction, Limit, []).
+	audit_read_limited(Cmd, audit_partitions(SkvhCtx#skvhCtx.auditAlias,TS1), Item, MatchFunction, Limit, []).
 
 audit_partitions(Alias, TS1) ->
 	FirstPartitionName = imem_meta:partitioned_table_name(Alias,TS1),
@@ -359,24 +408,24 @@ readGE(User, Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1
 	Cmd = [readGT, User, Channel, Item, CKey1, Limit],
 	readGE(User, Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
 
-readGE(_User, Cmd, {TN,TA}, Item, Key1, Limit) ->
+readGE(_User, Cmd, SkvhCtx, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}], ['$_']},
-	read_limited(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+	read_limited(Cmd, SkvhCtx, Item, MatchFunction, Limit).
 
-read_limited(Cmd, {TN,_}, Item, MatchFunction, Limit) ->
-	{L,_} = imem_meta:select(TN, [MatchFunction], Limit),
+read_limited(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
+	{L,_} = imem_meta:select(SkvhCtx#skvhCtx.mainAlias, [MatchFunction], Limit),
 	project_result(Cmd, L, Item).
 
 readGELT(User, Channel, Item, CKey1, CKey2, Limit) when is_binary(Item), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [readGELT, User, Channel, Item, CKey1, CKey2, Limit],
 	readGELT(User, Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
-readGELT(_User, Cmd, {TN,TA}, Item, Key1, Key2, Limit) ->
+readGELT(_User, Cmd, SkvhCtx, Item, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
-	read_with_limit(Cmd, {TN,TA}, Item, MatchFunction, Limit).
+	read_with_limit(Cmd, SkvhCtx, Item, MatchFunction, Limit).
 
-read_with_limit(Cmd, {TN,_}, Item, MatchFunction, Limit) ->
-	{L,_} = imem_meta:select(TN, [MatchFunction], Limit+1),
+read_with_limit(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
+	{L,_} = imem_meta:select(SkvhCtx#skvhCtx.mainAlias, [MatchFunction], Limit+1),
 	if  
 		length(L) > Limit ->	?ClientError(?E117(Limit));
 		true ->					project_result(Cmd, L, Item)
@@ -387,23 +436,23 @@ deleteGELT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binar
 	Cmd = [deleteGELT, User, Channel, CKey1, CKey2, Limit],
 	deleteGELT(User, Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
-deleteGELT(User, Cmd, {TN,AN}, Key1, Key2, Limit) ->
+deleteGELT(User, Cmd, SkvhCtx, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
-	delete_with_limit(User, Cmd, {TN,AN}, MatchFunction, Limit).
+	delete_with_limit(User, Cmd, SkvhCtx, MatchFunction, Limit).
 
 deleteGTLT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGTLT, User, Channel, CKey1, CKey2, Limit],
 	deleteGTLT(User, Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
-deleteGTLT(User, Cmd, {TN,AN}, Key1, Key2, Limit) ->
+deleteGTLT(User, Cmd, SkvhCtx, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
-	delete_with_limit(User, Cmd, {TN,AN}, MatchFunction, Limit).
+	delete_with_limit(User, Cmd, SkvhCtx, MatchFunction, Limit).
 
-delete_with_limit(User, Cmd, {TN,AN}, MatchFunction, Limit) ->
-	{L,_} = imem_meta:select(TN, [MatchFunction], Limit+1),	
+delete_with_limit(User, Cmd, SkvhCtx, MatchFunction, Limit) ->
+	{L,_} = imem_meta:select(SkvhCtx#skvhCtx.mainAlias, [MatchFunction], Limit+1),	
 	if  
 		length(L) > Limit ->	?ClientError(?E117(Limit));
-		true ->					delete(User, Cmd, {TN,AN}, L, [])
+		true ->					delete(User, Cmd, SkvhCtx, L, [])
 	end.
 
 project_result(Cmd, L, <<"key">>) ->
@@ -460,11 +509,13 @@ debug(Cmd, Resp) ->
 setup() ->
     ?imem_test_setup,
     catch imem_meta:drop_table(skvhTest),
-    catch imem_meta:drop_table(skvhTestAudit_86400@_).
+    catch imem_meta:drop_table(skvhTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhTestHist).
 
 teardown(_) ->
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhTestHist),
     ?imem_test_teardown.
 
 db_test_() ->
@@ -487,6 +538,7 @@ skvh_operations(_) ->
 
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTest)), 
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestAudit_86400@_)), 
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestHist)), 
 
         KVa = <<"[1,a]",9,"123456">>,
         KVb = <<"[1,b]",9,"234567">>,
@@ -505,6 +557,7 @@ skvh_operations(_) ->
 
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),        
         ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
+        ?assertEqual(ok, imem_meta:check_table(skvhTestHist)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
@@ -540,6 +593,10 @@ skvh_operations(_) ->
         {ok,Aud5} = audit_readGT(system, Channel,<<"tkvuquadruple">>, <<"1970-01-01">>, 100),
         ?assertEqual(Aud1, Aud5),
 
+        Hist = imem_meta:read(skvhTestHist),
+        ?LogDebug("audit trail~n~p~n", [Hist]),
+        ?assertEqual(3, length(Hist)),
+
         ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,a]">>)),
         ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,b]">>)),
         ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,c]">>)),
@@ -564,6 +621,7 @@ skvh_operations(_) ->
 		?assertEqual({ok,[<<"22D5ZL">>]}, write(system, Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
+		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
 				
         ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
 
