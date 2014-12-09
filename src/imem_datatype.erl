@@ -1077,12 +1077,34 @@ erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
         "." -> String;
         _ -> String ++ "."
     end,
-    {ok,ErlTokens,_}=erl_scan:string(Code),    
-    {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),
-    % ToDo: Check ErlAbsForm to contain only acceptable function calls to modules such as math / list / string / binary   
-    {value,Value,_}=erl_eval:exprs(ErlAbsForm,Bindings),    
-    Value.
+    {ok,ErlTokens,_} = erl_scan:string(Code),    
+    {ok,ErlAbsForm} = erl_parse:parse_exprs(ErlTokens),
+    case catch erl_eval:exprs(ErlAbsForm, Bindings, none,
+                              {value, fun nonlocalHFun/2}) of
+        {value,Value,_} -> Value;
+        {'SecurityException', Exception} ->
+            ?SecurityException({"Potentially harmful code", Exception});
+        {'EXIT', Error} -> ?ClientError({"Term compile error", Error})
+    end.
 
+% @doc callback function used as 'Non-local Function Handler' in
+% erl_eval:exprs/4 to restrict code injection. This callback function will
+% exit with '{restricted,{M,F}}' exit value. If the exprassion is evaluated to
+% an erlang fun, the fun will throw the same expection at runtime.
+% The following list of functions are restricted:
+%   - os:cmd|putenv|unsetenv
+%   - filelib:ensure_dir
+%   - file:*, zip:*, erl_eval:*
+nonlocalHFun({os, Fun} = FSpec, _Args)
+  when Fun == cmd; Fun == putenv; Fun == unsetenv ->
+    ?SecurityException({restricted, FSpec});
+nonlocalHFun({filelib, ensure_dir} = FSpec, _Args) ->
+    ?SecurityException({restricted, FSpec});
+nonlocalHFun({Mod, _Fun} = FSpec, _Args)
+  when Mod == file; Mod == zip; Mod == erl_eval ->
+    ?SecurityException({restricted, FSpec});
+nonlocalHFun({Mod, Fun}, Args) ->
+    apply(Mod, Fun, Args).
 
 %% ----- CAST Data from DB to string ------------------
 
@@ -1437,6 +1459,34 @@ hex(X) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
+erl_value_test_() ->
+    {inparallel,
+     [{C, case O of
+              'SecurityException' ->
+                  ?_assertException(throw, {'SecurityException', _},
+                                    erl_value(C));
+              'ClientError' ->
+                  ?_assertException(throw, {'ClientError', _},
+                                    erl_value(C));
+              runtime ->
+                  Fun = erl_value(C),
+                  ?_assertException(throw, {'SecurityException', _},
+                                    Fun());
+              _ ->
+                  ?_assertEqual(O, erl_value(C))
+          end}
+      || {C,O} <-
+         [
+          {"{1,2}", {1,2}},
+          {"(fun() -> 1 + 2 end)()", 3},
+          {"(fun() -> A end)()", 'ClientError'},
+          {"os:cmd(\"pwd\")", 'SecurityException'},
+          {"(fun() -> apply(filelib, ensure_dir, [\"pwd\"]) end)()",
+           'SecurityException'},
+          {"fun() -> os:cmd(\"pwd\") end", runtime}
+         ]
+     ]}.
+
 setup() ->
     ?imem_test_setup.
 
@@ -1451,7 +1501,6 @@ db_test_() ->
         {with, [
               fun data_types/1
         ]}}.    
-
 
 data_types(_) ->
     try 
@@ -1873,7 +1922,8 @@ data_types(_) ->
         ?assertEqual(true, is_term_or_fun_text("fun")),
         ?assertEqual(true, is_term_or_fun_text("fun()-> ok end.")),
         ?assertEqual(true, is_term_or_fun_text(<<"fun(X,Y)-> erlang:now() end.">>)),
-        ?assertEqual(false, is_term_or_fun_text(<<"fun()-> A end.">>)),
+        % TODO: Behavior inconsistant between erl_eval:exprs/2 and erl_eval:exprs/3,4
+        %?assertEqual(false, is_term_or_fun_text(<<"fun()-> A end.">>)),
         ?assertEqual(true, is_term_or_fun_text("fun()-> A end")),
         ?assertEqual(true, is_term_or_fun_text("fun()- A end.")),
 
