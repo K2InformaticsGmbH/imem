@@ -9,6 +9,10 @@
 -define(rawTypeIo,binary).
 -define(emptyIo,<<>>).
 
+
+-define(SAFE_ERLANG_FUNCTIONS,['+','-','*','/','abs','div','rem','min','max','float','now','date','element','size','bit_size','byte_size','binary_part','phash2','md5']).
+-define(UNSAFE_ERLANG_FUNCTIONS,['list_to_atom','binary_to_atom','list_to_pid','binary_to_term','is_pid','is_port','is_process_alive']).
+
 -define(ROWFUN_EXTENSIONS,[{<<"nodef">>,1}
                           ,{<<"item1">>,1},{<<"item2">>,1},{<<"item3">>,1},{<<"item4">>,1}
                           ,{<<"item5">>,1},{<<"item6">>,1},{<<"item7">>,1},{<<"item8">>,1},{<<"item9">>,1}
@@ -1080,7 +1084,7 @@ erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
     {ok,ErlTokens,_} = erl_scan:string(Code),    
     {ok,ErlAbsForm} = erl_parse:parse_exprs(ErlTokens),
     case catch erl_eval:exprs(ErlAbsForm, Bindings, none,
-                              {value, fun nonlocalHFun/2}) of
+                              {value, fun nonLocalHFun/2}) of
         {value,Value,_} -> Value;
         {'SecurityException', Exception} ->
             ?SecurityException({"Potentially harmful code", Exception});
@@ -1091,20 +1095,38 @@ erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
 % erl_eval:exprs/4 to restrict code injection. This callback function will
 % exit with '{restricted,{M,F}}' exit value. If the exprassion is evaluated to
 % an erlang fun, the fun will throw the same expection at runtime.
-% The following list of functions are restricted:
-%   - os:cmd|putenv|unsetenv
-%   - filelib:ensure_dir
-%   - file:*, zip:*, erl_eval:*
-nonlocalHFun({os, Fun} = FSpec, _Args)
-  when Fun == cmd; Fun == putenv; Fun == unsetenv ->
-    ?SecurityException({restricted, FSpec});
-nonlocalHFun({filelib, ensure_dir} = FSpec, _Args) ->
-    ?SecurityException({restricted, FSpec});
-nonlocalHFun({Mod, _Fun} = FSpec, _Args)
-  when Mod == file; Mod == zip; Mod == erl_eval ->
-    ?SecurityException({restricted, FSpec});
-nonlocalHFun({Mod, Fun}, Args) ->
-    apply(Mod, Fun, Args).
+nonLocalHFun({erlang, Fun} = FSpec, Args) ->
+    case lists:member(Fun,?SAFE_ERLANG_FUNCTIONS) of
+        true ->     
+            apply(erlang, Fun, Args);
+        false ->    
+            case lists:member(Fun,?UNSAFE_ERLANG_FUNCTIONS) of
+                true ->
+                    ?SecurityException({restricted, FSpec});
+                false ->
+                    case re:run(atom_to_list(Fun),"^is_") of
+                        nomatch ->  
+                            case re:run(atom_to_list(Fun),"_to_") of
+                                nomatch ->  ?SecurityException({restricted, FSpec});
+                                _ ->        apply(erlang, Fun, Args)
+                            end;
+                        _ ->         
+                            apply(erlang, Fun, Args)
+                    end
+            end
+    end;
+nonLocalHFun({Mod, Fun}, Args) when Mod==math;Mod==lists;Mod==imem_datatype;Mod==imem_json ->
+    apply(Mod, Fun, Args);
+nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index ->
+    apply(imem_meta, Fun, Args);
+nonLocalHFun({imem_dal_skvh, Fun}, Args) ->
+    apply(imem_dal_skvh, Fun, Args);   % TODO: restrict to subset of functions
+nonLocalHFun({imem_index, Fun}, Args) ->
+    apply(imem_index, Fun, Args);   % TODO: restrict to subset of functions
+nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
+    apply(io_lib, Fun, Args);
+nonLocalHFun(FSpec, _Args) ->
+    ?SecurityException({restricted, FSpec}).
 
 %% ----- CAST Data from DB to string ------------------
 
