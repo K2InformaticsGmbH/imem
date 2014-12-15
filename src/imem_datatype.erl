@@ -35,7 +35,7 @@
 
 -export([ is_binterm/1
         , term_to_binterm/1
-        , binterm_to_term/1 
+        , binterm_to_term/1
         ]).
 
 -export([ add_squotes/1
@@ -48,12 +48,12 @@
 
 -export([ offset_datetime/3
         , offset_timestamp/3
-        , musec_diff/1              %% UTC time difference in microseconds towards erlang:now() 
+        , musec_diff/1              %% UTC time difference in microseconds towards erlang:now()
         , musec_diff/2              %% UTC time difference in microseconds
-        , msec_diff/1               %% UTC time difference in milliseconds towards erlang:now() 
-        , msec_diff/2               %% UTC time difference in milliseconds 
-        , sec_diff/1                %% UTC time difference in milliseconds towards erlang:now() 
-        , sec_diff/2                %% UTC time difference in milliseconds 
+        , msec_diff/1               %% UTC time difference in milliseconds towards erlang:now()
+        , msec_diff/2               %% UTC time difference in milliseconds
+        , sec_diff/1                %% UTC time difference in milliseconds towards erlang:now()
+        , sec_diff/2                %% UTC time difference in milliseconds
         ]).
 
 %   datatypes
@@ -73,7 +73,7 @@
 %   number      (virtual= integer|float)
 %   pid
 %   ref
-%   string      
+%   string
 %   term
 %   binterm
 %   timestamp
@@ -92,7 +92,7 @@
         , io_to_integer/1
         , io_to_integer/2
         , io_to_integer/3
-        , io_to_ipaddr/1        
+        , io_to_ipaddr/1
         , io_to_ipaddr/2
         , io_to_list/2
         , io_to_string/1
@@ -141,8 +141,8 @@
         ]).
 
 select_rowfun_raw(ColMap) ->
-    fun(Recs) -> 
-        select_rowfun_raw(Recs, ColMap, []) 
+    fun(Recs) ->
+        select_rowfun_raw(Recs, ColMap, [])
     end.
 
 select_rowfun_raw(_Recs, [], Acc) ->
@@ -164,7 +164,7 @@ select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=undefined}|ColMap], Acc) ->
     select_rowfun_raw(Recs, ColMap, [Fld|Acc]);
 select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
     Fld = case element(Ti,Recs) of
-        undefined ->    
+        undefined ->
             undefined;
         Rec ->
             try
@@ -175,13 +175,13 @@ select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
             catch
                 _:Reason ->  ?UnimplementedException({"Failed row function",{F,Reason}})
             end
-    end,    
+    end,
     select_rowfun_raw(Recs, ColMap, [Fld|Acc]).
 
 
 select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
-    fun(Recs) -> 
-        select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, []) 
+    fun(Recs) ->
+        select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [])
     end.
 
 select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->
@@ -194,7 +194,7 @@ select_rowfun_str(Recs, [#bind{type=T,prec=P,tind=0,cind=0,func=F}|ColMap], Date
     select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [Str|Acc]);
 select_rowfun_str(Recs, [#bind{type=T,prec=P,tind=Ti,cind=Ci,func=F,default=D}|ColMap], DateFmt, NumFmt, StrFmt, Acc) ->
     Str = case element(Ti,Recs) of
-        undefined ->    
+        undefined ->
             ?emptyIo;
         Rec ->
             X = case Ci of
@@ -231,11 +231,11 @@ is_number_type(Type) when is_atom(Type) -> lists:member(Type,?NumberTypes).
 
 is_datatype([]) -> false;
 is_datatype({}) -> false;
-is_datatype(Type) when is_binary(Type) -> 
+is_datatype(Type) when is_binary(Type) ->
     case (catch ?binary_to_existing_atom(Type)) of
         T when is_atom(T) ->    is_datatype(T);
         _ ->                    false
-    end; 
+    end;
 is_datatype(Type) when is_atom(Type) -> lists:member(Type,?DataTypes);
 is_datatype(Types) when is_list(Types) ->
     (not lists:member(false,[is_datatype(T) || T <- Types]));
@@ -245,20 +245,20 @@ is_datatype(_) -> false.
 is_rowfun_extension(Func,Arity) when is_atom(Func) -> is_rowfun_extension(atom_to_binary(Func, utf8),Arity);
 is_rowfun_extension(Func,Arity) -> lists:member({Func,Arity},?ROWFUN_EXTENSIONS).
 
-imem_type(raw) -> binary; 
-imem_type(blob) -> binary; 
-imem_type(rowid) -> rowid; 
-imem_type(clob) -> binstr; 
-imem_type(nclob) -> binstr; 
-imem_type(bool) -> boolean; 
-imem_type(date) -> datetime; 
-imem_type(number) -> decimal; 
-imem_type(int) -> integer; 
-imem_type(varchar2) -> binstr; 
-imem_type(nvarchar2) -> binstr; 
-imem_type(char) -> binstr; 
-imem_type(nchar) -> binstr; 
-imem_type(Type) -> Type. 
+imem_type(raw) -> binary;
+imem_type(blob) -> binary;
+imem_type(rowid) -> rowid;
+imem_type(clob) -> binstr;
+imem_type(nclob) -> binstr;
+imem_type(bool) -> boolean;
+imem_type(date) -> datetime;
+imem_type(number) -> decimal;
+imem_type(int) -> integer;
+imem_type(varchar2) -> binstr;
+imem_type(nvarchar2) -> binstr;
+imem_type(char) -> binstr;
+imem_type(nchar) -> binstr;
+imem_type(Type) -> Type.
 
 raw_type(userid) -> integer;
 raw_type(binstr) -> binary;
@@ -274,24 +274,24 @@ raw_type(Type) -> Type.
 %% ----- Value Type Tests and Conversions ---------------------------------
 
 type_check(V,_,_,_,V) -> ok;
-type_check(V,binary,Len,_,_) when is_binary(V) -> length_check(binary,Len,byte_size(V)); 
-type_check(V,binstr,Len,_,_) when is_binary(V) -> length_check(binstr,Len,byte_size(V)); 
-type_check(V,Type,_,_,Def) -> type_check(V,Type,Def). 
+type_check(V,binary,Len,_,_) when is_binary(V) -> length_check(binary,Len,byte_size(V));
+type_check(V,binstr,Len,_,_) when is_binary(V) -> length_check(binstr,Len,byte_size(V));
+type_check(V,Type,_,_,Def) -> type_check(V,Type,Def).
 
 type_check(V,atom,_) when is_atom(V),V/=?nav -> ok;
 type_check(V,boolean,_) when is_boolean(V) -> ok;
-type_check({{Y,M,D},{Hh,Mm,Ss}},datetime,_) when 
-            is_integer(Y), is_integer(M), is_integer(D), 
+type_check({{Y,M,D},{Hh,Mm,Ss}},datetime,_) when
+            is_integer(Y), is_integer(M), is_integer(D),
             is_integer(Hh), is_integer(Mm), is_integer(Ss) -> ok;
 type_check(V,decimal,_) when is_integer(V) -> ok;
 type_check(V,float,_) when is_float(V) -> ok;
 type_check(V,'fun',_) when is_function(V) -> ok;
 type_check(V,integer,_) when is_integer(V) -> ok;
-type_check({A,B,C,D},ipaddr,_) when 
-            is_integer(A), is_integer(B), 
+type_check({A,B,C,D},ipaddr,_) when
+            is_integer(A), is_integer(B),
             is_integer(C), is_integer(D) -> ok;
-type_check({A,B,C,D,E,F,G,H},ipaddr,_) when 
-            is_integer(A), is_integer(B), is_integer(C), is_integer(D), 
+type_check({A,B,C,D,E,F,G,H},ipaddr,_) when
+            is_integer(A), is_integer(B), is_integer(C), is_integer(D),
             is_integer(E), is_integer(F), is_integer(G), is_integer(H) -> ok;
 type_check(V,list,_) when is_list(V) -> ok;
 type_check(V,number,_) when is_integer(V);is_float(V) -> ok;
@@ -300,46 +300,46 @@ type_check(V,ref,_) when is_reference(V) -> ok;
 type_check(V,string,_) when is_list(V) -> ok;
 type_check(V,term,_) when V/=?nav -> ok;
 type_check(V,binterm,Def) when is_binary(V);is_list(V);is_tuple(V) ->
-    try 
-        case binterm_to_term(V) of  
-            ?nav -> {error,{"Wrong data type for value, expecting type or default",{V,binterm,Def}}}; 
+    try
+        case binterm_to_term(V) of
+            ?nav -> {error,{"Wrong data type for value, expecting type or default",{V,binterm,Def}}};
             _ ->    ok
         end
-    catch 
+    catch
         _:_ -> {error,{"Wrong data type for value, expecting type or default",{V,binterm,Def}}}
     end;
-type_check({D,T,M},timestamp,_) when 
+type_check({D,T,M},timestamp,_) when
             is_integer(D), is_integer(T), is_integer(M) -> ok;
 type_check(V,tuple,_) when is_tuple(V) -> ok;
 type_check(V,userid,_) when is_integer(V) -> ok;
-type_check(V,Type,Def) -> 
+type_check(V,Type,Def) ->
     {error,{"Wrong data type for value, expecting type or default",{V,Type,Def}}}.
 
-length_check(_,0,_) -> ok; 
-length_check(_,undefined,_) -> ok; 
-length_check(Type,Max,Len) -> 
-    if 
+length_check(_,0,_) -> ok;
+length_check(_,undefined,_) -> ok;
+length_check(Type,Max,Len) ->
+    if
         Len=<Max -> ok;
         true -> {error,{"Data exceeds maximum byte length",{Type,Len}}}
     end.
 
 is_binterm(B) when is_binary(B) ->
-    try 
+    try
         _ = sext:decode(B),
         true
-    catch 
+    catch
         _:_ -> false
     end;
 is_binterm(_) -> false.
 
 term_to_binterm(T) -> sext:encode(T).
 
-binterm_to_term(B) when is_binary(B) -> 
+binterm_to_term(B) when is_binary(B) ->
     sext:decode(B);
-binterm_to_term(L) when is_list(L) -> 
+binterm_to_term(L) when is_list(L) ->
     [binterm_to_term(I) || I <- L];
-binterm_to_term(T) when is_tuple(T) -> 
-    list_to_tuple([binterm_to_term(I) || I <- tuple_to_list(T)]). 
+binterm_to_term(T) when is_tuple(T) ->
+    list_to_tuple([binterm_to_term(I) || I <- tuple_to_list(T)]).
 
 is_unicode_binary(B) when is_binary(B) ->
     case unicode:characters_to_binary(B,utf8,utf8) of
@@ -347,16 +347,16 @@ is_unicode_binary(B) when is_binary(B) ->
         _ ->    false
     end;
 is_unicode_binary(_) ->
-    false.    
+    false.
 
 is_term_or_fun_text(B) when is_binary(B) ->
     is_term_or_fun_text(binary_to_list(B));
 is_term_or_fun_text([$f,$u,$n|_]=Str) ->
-    try 
+    try
         case re:run(Str, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], list}]) of
             {match,[[_Params,_Body]]} ->
                 is_function((catch io_to_fun(Str,undefined)));
-            nomatch ->  
+            nomatch ->
                 true
         end
     catch
@@ -372,7 +372,7 @@ to_term_or_fun(L) when is_list(L) ->
 to_term_or_fun(T) -> T.
 
 to_term_or_fun(T, [$f,$u,$n|_]=Str) ->
-    try 
+    try
         case re:run(Str, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], list}]) of
             {match,[[_Params,_Body]]} ->    io_to_fun(Str,undefined);
             nomatch ->                      T
@@ -393,37 +393,37 @@ io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_binary(Val);is_list(Val) 
     try
         {DefAsStr,OldAsStr} = case Type of
             binterm ->  { io_to_binstr(io_lib:format("~p", [Def]))
-                        , io_to_binstr(io_lib:format("~p", [term_to_binterm(Old)]))}; 
+                        , io_to_binstr(io_lib:format("~p", [term_to_binterm(Old)]))};
             _ ->        { io_to_binstr(io_lib:format("~p", [Def]))
                         , io_to_binstr(io_lib:format("~p", [Old]))}
         end,
         % ?LogDebug("DefAsStr ~tp ~ts~n",[<<DefAsStr/binary,1>>,<<DefAsStr/binary,1>>]),
         % ?LogDebug("OldAsStr ~tp ~ts~n",[<<OldAsStr/binary,1>>,<<OldAsStr/binary,1>>]),
-        ValAsStr = io_to_binstr(io_lib:format("~ts", [Val])), 
+        ValAsStr = io_to_binstr(io_lib:format("~ts", [Val])),
         % ?LogDebug("ValAsStr ~tp ~ts~n",[<<ValAsStr/binary,1>>,<<ValAsStr/binary,1>>]),
-        if 
+        if
             (DefAsStr == ValAsStr) ->   Def;
             (OldAsStr == ValAsStr) ->   Old;
-            (Type == 'fun') ->          io_to_fun(Val,Len);                
-            (Type == atom) ->           io_to_atom(Val);                    
-            (Type == binary) ->         io_to_binary(Val,Len);              
-            (Type == binstr) ->         io_to_binstr(Val,Len);              
-            (Type == boolean) ->        io_to_boolean(Val);                 
-            (Type == datetime) ->       io_to_datetime(Val);                
-            (Type == decimal) ->        io_to_decimal(Val,Len,Prec);        
-            (Type == float) ->          io_to_float(Val,Prec);              
-            (Type == integer) ->        io_to_integer(Val,Len,Prec);        
-            (Type == ipaddr) ->         io_to_ipaddr(Val,Len);              
-            (Type == list) ->           io_to_list(Val,Len);                
-            (Type == pid) ->            io_to_pid(Val);                     
+            (Type == 'fun') ->          io_to_fun(Val,Len);
+            (Type == atom) ->           io_to_atom(Val);
+            (Type == binary) ->         io_to_binary(Val,Len);
+            (Type == binstr) ->         io_to_binstr(Val,Len);
+            (Type == boolean) ->        io_to_boolean(Val);
+            (Type == datetime) ->       io_to_datetime(Val);
+            (Type == decimal) ->        io_to_decimal(Val,Len,Prec);
+            (Type == float) ->          io_to_float(Val,Prec);
+            (Type == integer) ->        io_to_integer(Val,Len,Prec);
+            (Type == ipaddr) ->         io_to_ipaddr(Val,Len);
+            (Type == list) ->           io_to_list(Val,Len);
+            (Type == pid) ->            io_to_pid(Val);
             (Type == ref) ->            Old;    %% cannot convert back
             (Type == string) ->         io_to_string(Val,Len);
             (Type == term) ->           io_to_term(Val);
             (Type == binterm) ->        io_to_binterm(Val);
-            (Type == timestamp) ->      io_to_timestamp(Val,Prec); 
+            (Type == timestamp) ->      io_to_timestamp(Val,Prec);
             (Type == tuple) ->          io_to_tuple(Val,Len);
             (Type == userid) ->         io_to_userid(Val);
-            true ->                     io_to_term(Val)   
+            true ->                     io_to_term(Val)
         end
     catch
         _:{'UnimplementedException',_} ->       ?ClientError({"Unimplemented data type conversion",{Item,{Type,Val}}});
@@ -442,11 +442,11 @@ add_dquotes([]) -> "\"\"";
 add_dquotes(String) when is_list(String) -> "\"" ++ String ++ "\"".
 
 strip_dquotes(<<>>) -> ?emptyIo;
-strip_dquotes(<<H:8>>) -> <<H:8>>; 
+strip_dquotes(<<H:8>>) -> <<H:8>>;
 strip_dquotes(B) when is_binary(B) ->
     F = binary:first(B),
     L = binary:last(B),
-    if 
+    if
         (F == $") andalso (L == $") ->
             binary:part(B, 1, size(B)-2);
         true ->
@@ -456,19 +456,19 @@ strip_dquotes([]) -> [];
 strip_dquotes([H]) -> [H];
 strip_dquotes([H|T]=Str) ->
     L = lists:last(Str),
-    if 
-        H == $" andalso L == $" ->  
+    if
+        H == $" andalso L == $" ->
             lists:sublist(T, length(T)-1);
-        true ->                     
+        true ->
             Str
     end.
 
 strip_squotes(<<>>) -> ?emptyIo;
-strip_squotes(<<H:8>>) -> <<H:8>>; 
+strip_squotes(<<H:8>>) -> <<H:8>>;
 strip_squotes(B) when is_binary(B) ->
     F = binary:first(B),
     L = binary:last(B),
-    if 
+    if
         (F == $') andalso (L == $') ->
             binary:part(B, 1, size(B)-2);
         true ->
@@ -478,17 +478,17 @@ strip_squotes([]) -> [];
 strip_squotes([H]) -> [H];
 strip_squotes([H|T]=Str) ->
     L = lists:last(Str),
-    if 
+    if
         H == $' andalso L == $' ->  lists:sublist(T, length(T)-1);
         true ->                     Str
     end.
 
 strip_quotes(<<>>) -> ?emptyIo;
-strip_quotes(<<H:8>>) -> <<H:8>>; 
+strip_quotes(<<H:8>>) -> <<H:8>>;
 strip_quotes(B) when is_binary(B) ->
     F = binary:first(B),
     L = binary:last(B),
-    if 
+    if
         (F == $') andalso (L == $') ->
             strip_dquotes(binary:part(B, 1, size(B)-2));
         (F == $") andalso (L == $") ->
@@ -500,12 +500,12 @@ strip_quotes([]) -> [];
 strip_quotes([H]) -> [H];
 strip_quotes([H|T]=Str) ->
     L = lists:last(Str),
-    if 
-        H == $' andalso L == $' ->  
+    if
+        H == $' andalso L == $' ->
             strip_dquotes(lists:sublist(T, length(T)-1));
-        H == $" andalso L == $" ->  
+        H == $" andalso L == $" ->
             strip_squotes(lists:sublist(T, length(T)-1));
-        true ->                     
+        true ->
             Str
     end.
 
@@ -536,13 +536,13 @@ io_to_integer(Val,Len,Prec) ->
         V when is_float(V) ->   erlang:round(V);
         _ ->                    ?ClientError({"Data conversion format error",{integer,Len,Prec,Val}})
     end,
-    Result = if 
+    Result = if
         Prec == undefined ->    Value;
         Prec <  0 ->            erlang:round(erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec));
         true ->                 Value
     end,
     RLen = length(integer_to_list(Result)),
-    if 
+    if
         Len == undefined ->     Result;
         RLen > Len ->           ?ClientError({"Data conversion format error",{integer,Len,Prec,Val}});
         true ->                 Result
@@ -554,7 +554,7 @@ io_to_float(Val,Prec) ->
         V when is_integer(V) -> float(V);
         _ ->                    ?ClientError({"Data conversion format error",{float,Prec,Val}})
     end,
-    if 
+    if
         Prec == undefined ->    Value;
         true ->                 erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec)
     end.
@@ -565,7 +565,7 @@ io_to_binary(Val,Len) when is_binary(Val) ->
     S = size(Val),
     F = binary:first(Val),
     L = binary:last(Val),
-    if 
+    if
         (F < $0) orelse (F > $F) ->
             ?ClientError({"Invalid hex string starts with",{binary,[F]}});
         (F > $9) andalso (F < $A) ->
@@ -585,7 +585,7 @@ io_to_binary(Val,Len) when is_list(Val) ->
     L = length(Val),
     FirstOK = lists:member(hd(Val),"0123456789ABCDEF"),
     LastOK = lists:member(lists:last(Val),"0123456789ABCDEF"),
-    if 
+    if
         (FirstOK == false) ->
             ?ClientError({"Invalid hex string starts with",{binary,[hd(Val)]}});
         (LastOK == false) ->
@@ -599,7 +599,7 @@ io_to_binary(Val,Len) when is_list(Val) ->
     end.
 
 hexstr_to_bin(B) when is_binary(B) ->
-    hexstr_to_bin(binary_to_list(B));    
+    hexstr_to_bin(binary_to_list(B));
 hexstr_to_bin(S) when is_list(S) ->
     hexstr_to_bin(S, []).
 
@@ -612,7 +612,7 @@ hexstr_to_bin([X,Y|T], Acc) ->
 io_to_userid(<<"system">>) -> system;
 io_to_userid(<<"unknown">>) -> unknown;
 io_to_userid(Id) when is_binary(Id) ->
-    try 
+    try
         list_to_integer(binary_to_list(Id))
     catch
         _:_ -> io_to_atom(Id)
@@ -624,7 +624,7 @@ io_to_timestamp(TS) ->
     io_to_timestamp(TS,undefined).
 
 io_to_timestamp(TS,undefined) ->
-    io_to_timestamp(TS,6);    
+    io_to_timestamp(TS,6);
 io_to_timestamp(B,Prec) when is_binary(B) ->
     io_to_timestamp(binary_to_list(B),Prec);
 io_to_timestamp("systime",Prec) ->
@@ -632,26 +632,27 @@ io_to_timestamp("systime",Prec) ->
 io_to_timestamp("sysdate",Prec) ->
     io_to_timestamp("now",Prec);
 io_to_timestamp("now",Prec) ->
-    {Megas,Secs,Micros} = erlang:now(),    
-    {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};  
+    {Megas,Secs,Micros} = erlang:now(),
+    {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
 io_to_timestamp([${|_]=Val,_Prec) ->
     case io_to_tuple(Val,3) of
         {D,T,M} when is_integer(D), is_integer(T), is_integer(M) -> {D,T,M}
     end;
-io_to_timestamp(Val,6) ->
-    try 
+io_to_timestamp(Val0,6) ->
+    Val = re:replace(re:replace(Val0, "T", " ", [{return, list}]), "Z$", "", [{return, list}]),
+    try
         {Date,Time,Micro} = case re:run(lists:sublist(Val,5),"[\/\.\-]+",[{capture,all,list}]) of
-            {match,["/"]} ->    
+            {match,["/"]} ->
                 case string:tokens(Val, " ") of
                     [D,T] ->  case re:split(T,"[$.]",[{return,list}]) of
-                                        [Hms,M] -> 
+                                        [Hms,M] ->
                                             {parse_date_us(D),parse_time(Hms),parse_micro(M)};
                                         [Hms] ->
                                             {parse_date_us(D),parse_time(Hms),0.0}
                                     end;
                     [D] ->       {parse_date_us(D),{0,0,0},0.0}
                 end;
-            {match,["-"]} ->    
+            {match,["-"]} ->
                 case string:tokens(Val, " ") of
                     [D,T] ->    case re:split(T,"[$.]",[{return,list}]) of
                                     [Hms,M] ->  {parse_date_int(D),parse_time(Hms),parse_micro(M)};
@@ -659,10 +660,10 @@ io_to_timestamp(Val,6) ->
                                 end;
                     [D] ->      {parse_date_int(D),{0,0,0},0.0}
                 end;
-            {match,["."]} ->    
+            {match,["."]} ->
                 case string:tokens(Val, " ") of
                     [D,T] ->  case re:split(T,"[$.]",[{return,list}]) of
-                                        [Hms,M] -> 
+                                        [Hms,M] ->
                                             {parse_date_eu(D),parse_time(Hms),parse_micro(M)};
                                         [Hms] ->
                                             {parse_date_eu(D),parse_time(Hms),0.0}
@@ -686,13 +687,13 @@ io_to_timestamp(Val,6) ->
     catch
         _:{'ClientError',Reason} -> ?ClientError({"Data conversion format error",{timestamp,Val,Reason}});
         _:Reason ->  ?ClientError({"Data conversion format error",{timestamp,Val,Reason}})
-    end;   
+    end;
 io_to_timestamp(Val,Prec) when Prec == 0 ->
     {Megas,Secs,Micros} = io_to_timestamp(Val,6),
-    if 
-        (Micros >= 500000) and (Secs == 999999) -> 
+    if
+        (Micros >= 500000) and (Secs == 999999) ->
             {Megas+1,0,0};
-        Micros >= 500000 -> 
+        Micros >= 500000 ->
             {Megas,Secs+1,0};
         true ->
             {Megas,Secs,0}
@@ -702,44 +703,44 @@ io_to_timestamp(Val,Prec) when Prec > 0 ->
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
 io_to_timestamp(Val,Prec) when Prec =< 0 ->
     {Megas,Secs,_} = io_to_timestamp(Val),
-    {Megas,erlang:round(erlang:round(math:pow(10, -Prec) * Secs) * erlang:round(math:pow(10,Prec))),0}.  
+    {Megas,erlang:round(erlang:round(math:pow(10, -Prec) * Secs) * erlang:round(math:pow(10,Prec))),0}.
 
 io_to_datetime(B) when is_binary(B) ->
-    B0 = re:replace(B, "T", " ", [{return, binary}]),
-    B1 = re:replace(B0, "\.[0-9]*Z$", "", [{return, binary}]),
-    io_to_datetime(binary_to_list(B1));
+    io_to_datetime(binary_to_list(B));
 io_to_datetime("today") ->
     {Date,_} = io_to_datetime("localtime"),
-    {Date,{0,0,0}}; 
+    {Date,{0,0,0}};
 io_to_datetime("systime") ->
-    io_to_datetime("localtime"); 
+    io_to_datetime("localtime");
 io_to_datetime("sysdate") ->
-    io_to_datetime("localtime"); 
+    io_to_datetime("localtime");
 io_to_datetime("now") ->
-    io_to_datetime("localtime"); 
+    io_to_datetime("localtime");
 io_to_datetime("localtime") ->
     erlang:localtime();
 io_to_datetime([${|_]=Val) ->
     case io_to_tuple(Val,2) of
-        {{Y,M,D},{Hh,Mm,Ss}} when 
-            is_integer(Y), is_integer(M), is_integer(D), 
-            is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
+        {{Y,M,D},{Hh,Mm,Ss}} when
+            is_integer(Y), is_integer(M), is_integer(D),
+            is_integer(Hh), is_integer(Mm), is_integer(Ss) ->
                 {{Y,M,D},{Hh,Mm,Ss}}
     end;
-io_to_datetime(Val) ->
-    try 
+io_to_datetime(Val0) ->
+    Val = re:replace(re:replace(Val0, "T", " ", [{return, list}]),
+                     "\.[0-9]*Z$", "", [{return, list}]),
+    try
         case re:run(lists:sublist(Val,5),"[\/\.\-]+",[{capture,all,list}]) of
-            {match,["."]} ->    
+            {match,["."]} ->
                 case string:tokens(Val, " ") of
                     [Date,Time] ->              {parse_date_eu(Date),parse_time(Time)};
                     [Date] ->                   {parse_date_eu(Date),{0,0,0}}
                 end;
-            {match,["/"]} ->    
+            {match,["/"]} ->
                 case string:tokens(Val, " ") of
                     [Date,Time] ->              {parse_date_us(Date),parse_time(Time)};
                     [Date] ->                   {parse_date_us(Date),{0,0,0}}
                 end;
-            {match,["-"]} ->    
+            {match,["-"]} ->
                 case string:tokens(Val, " ") of
                     [Date,Time] ->              {parse_date_int(Date),parse_time(Time)};
                     [Date] ->                   {parse_date_int(Date),{0,0,0}}
@@ -754,63 +755,63 @@ io_to_datetime(Val) ->
         end
     catch
         _:_ ->  ?ClientError({"Data conversion format error",{datetime,Val}})
-    end.    
+    end.
 
 parse_date_eu(Val) ->
     case string:tokens(Val, ".") of
         [Day,Month,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
         _ ->                    ?ClientError({"parse_date_eu",Val})
-    end.    
+    end.
 
 parse_date_us(Val) ->
     case string:tokens(Val, "/") of
         [Month,Day,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
         _ ->                    ?ClientError({"parse_date_us",Val})
-    end.    
+    end.
 
 parse_date_int(Val) ->
     case string:tokens(Val, "-") of
         [Year,Month,Day] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
         _ ->                    ?ClientError({"parse_date_int",Val})
-    end.    
+    end.
 
 parse_date_raw(Val) ->
     case length(Val) of
         8 ->    validate_date({parse_year(lists:sublist(Val,1,4)),parse_month(lists:sublist(Val,5,2)),parse_day(lists:sublist(Val,7,2))});
         6 ->    validate_date({parse_year(lists:sublist(Val,1,2)),parse_month(lists:sublist(Val,3,2)),parse_day(lists:sublist(Val,5,2))});
         _ ->    ?ClientError({"parse_date_raw",Val})
-    end.    
+    end.
 
 parse_year(Val) ->
     case length(Val) of
         4 ->    list_to_integer(Val);
         2 ->    Year2 = list_to_integer(Val),
-                if 
+                if
                    Year2 < 50 ->    2000+Year2;
                    true ->          1900+Year2
-                end;   
+                end;
         _ ->    ?ClientError({"parse_year",Val})
-    end.    
+    end.
 
 parse_month(Val) ->
     case length(Val) of
         1 ->                    list_to_integer(Val);
         2 ->                    list_to_integer(Val);
         _ ->                    ?ClientError({"parse_month",Val})
-    end.    
+    end.
 
 parse_day(Val) ->
     case length(Val) of
         1 ->                    list_to_integer(Val);
         2 ->                    list_to_integer(Val);
         _ ->                    ?ClientError({"parse_day",Val})
-    end.    
+    end.
 
 parse_time(Val) ->
     case string:tokens(Val, ":") of
         [H,M,S] ->      {parse_hour(H),parse_minute(M),parse_second(S)};
         [H,M] ->        {parse_hour(H),parse_minute(M),0};
-        _ ->            
+        _ ->
             case length(Val) of
                 6 ->    {parse_hour(lists:sublist(Val,1,2)),parse_minute(lists:sublist(Val,3,2)),parse_minute(lists:sublist(Val,5,2))};
                 4 ->    {parse_hour(lists:sublist(Val,1,2)),parse_minute(lists:sublist(Val,3,2)),0};
@@ -818,7 +819,7 @@ parse_time(Val) ->
                 0 ->    {0,0,0};
                 _ ->    ?ClientError({"parse_time",Val})
             end
-    end.    
+    end.
 
 parse_hour(Val) ->
     H = list_to_integer(Val),
@@ -859,7 +860,7 @@ local_datetime_to_utc_seconds({Date, Time}) ->
 %%  DateTime1900 = calendar:datetime_to_gregorian_seconds({{1900, 01, 01}, {00, 00, 00}}),
 %%  calendar:datetime_to_gregorian_seconds({Date, Time}) - DateTime1900.
     case calendar:local_time_to_universal_time_dst({Date, Time}) of
-        [DateTimeUTC] -> 
+        [DateTimeUTC] ->
             calendar:datetime_to_gregorian_seconds(DateTimeUTC) - 59958230400;
         [DstDateTimeUTC, _] ->
             calendar:datetime_to_gregorian_seconds(DstDateTimeUTC) - 59958230400
@@ -869,7 +870,7 @@ validate_date(Date) ->
     case calendar:valid_date(Date) of
         true ->     Date;
         false ->    ?ClientError({"validate_date",Date})
-    end.    
+    end.
 
 io_to_ipaddr(Val) ->
     io_to_ipaddr(Val,undefined).
@@ -880,17 +881,17 @@ io_to_ipaddr(Val,Len) when is_binary(Val) ->
     io_to_ipaddr(binary_to_list(Val),Len);
 io_to_ipaddr([${|_]=Val,Len) ->
     case io_to_term(Val) of
-        {A,B,C,D} when is_integer(A), is_integer(B), 
-            is_integer(C), is_integer(D) -> 
-                if 
+        {A,B,C,D} when is_integer(A), is_integer(B),
+            is_integer(C), is_integer(D) ->
+                if
                     Len==undefined ->   {A,B,C,D};
                     Len==4 ->           {A,B,C,D};
                     true ->             ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
                 end;
-        {A,B,C,D,E,F,G,H} when 
-            is_integer(A), is_integer(B), is_integer(C), is_integer(D), 
+        {A,B,C,D,E,F,G,H} when
+            is_integer(A), is_integer(B), is_integer(C), is_integer(D),
             is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
-                if 
+                if
                     Len==undefined ->   {A,B,C,D,E,F,G,H};
                     Len==8 ->           {A,B,C,D,E,F,G,H};
                     true ->             ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
@@ -898,14 +899,14 @@ io_to_ipaddr([${|_]=Val,Len) ->
         _ -> ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
     end;
 io_to_ipaddr(Val,Len) ->
-    Result = try 
+    Result = try
         {ok,Ip} = inet_parse:address(Val),
         Ip
     catch
         _:_ -> ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
     end,
     RLen = size(Result),
-    if 
+    if
         Len == undefined andalso RLen == 4 ->   Result;
         Len == undefined andalso RLen == 8 ->   Result;
         RLen == Len ->                          Result;
@@ -917,7 +918,7 @@ io_to_decimal(Val,Len,Prec) when is_binary(Val) ->
 io_to_decimal(Val,Len,undefined) ->
     io_to_decimal(Val,Len,0);
 io_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
-    io_to_integer(Val,Len,0);  
+    io_to_integer(Val,Len,0);
 io_to_decimal(Val,Len,Prec) ->
     case Val of
         [$-|Positive] -> Sign = [$-];
@@ -986,7 +987,7 @@ io_to_string(Bin,Len) when is_binary(Bin) ->
             List = case unicode:characters_to_list(B, utf8) of
                 L when is_list(L) ->
                     lists:flatten(io_lib:format("~s",[un_escape_io(L)]));   %% Bin was utf8 encoded
-                _ ->                  
+                _ ->
                     lists:flatten(io_lib:format("~s",[un_escape_io(B)]))    %% Bin is bytewise encoded
             end,
             if
@@ -997,10 +998,10 @@ io_to_string(Bin,Len) when is_binary(Bin) ->
             end
     end.
 
-io_to_list(Val,Len) -> 
+io_to_list(Val,Len) ->
     case io_to_term(Val) of
         V when is_list(V) ->
-            if 
+            if
                 Len == undefined -> V;
                 Len == 0 ->         V;
                 length(V) == Len -> V;
@@ -1010,10 +1011,10 @@ io_to_list(Val,Len) ->
             ?ClientError({"Data conversion format error",{list,Len,Val}})
     end.
 
-io_to_tuple(Val,Len) -> 
+io_to_tuple(Val,Len) ->
     case io_to_term(Val) of
         V when is_tuple(V) ->
-            if 
+            if
                 Len == undefined -> V;
                 Len == 0 ->         V;
                 size(V) == Len ->   V;
@@ -1045,43 +1046,43 @@ io_to_binterm(Val) ->
     end.
 
 io_to_fun(Str) ->
-    Fun = erl_value(Str), 
+    Fun = erl_value(Str),
     if
-        is_function(Fun) -> 
+        is_function(Fun) ->
             Fun;
-        true ->                 
+        true ->
             ?ClientError({"Data conversion format error",{'fun',Str}})
     end.
 
 io_to_fun(Str,Len) ->
-    Fun = erl_value(Str), 
+    Fun = erl_value(Str),
     if
-        Len == undefined ->     Fun; 
+        Len == undefined ->     Fun;
         is_function(Fun,Len) -> Fun;
-        true ->                 
+        true ->
             ?ClientError({"Data conversion format error",{'fun',Len,Str}})
     end.
 
 io_to_fun(Str,Len,Bindings) ->
-    Fun = erl_value(Str,Bindings), 
+    Fun = erl_value(Str,Bindings),
     if
-        Len == undefined ->     Fun; 
+        Len == undefined ->     Fun;
         is_function(Fun,Len) -> Fun;
-        true ->                 
+        true ->
             ?ClientError({"Data conversion format error",{'fun',Len,Str,Bindings}})
     end.
 
-erl_value(String) when is_binary(String) -> erl_value(binary_to_list(String),[]);  
+erl_value(String) when is_binary(String) -> erl_value(binary_to_list(String),[]);
 erl_value(String) when is_list(String) -> erl_value(String,[]).
 
 erl_value(String,Bindings) when is_binary(String), is_list(Bindings) ->
-    erl_value(binary_to_list(String),Bindings);  
-erl_value(String,Bindings) when is_list(String), is_list(Bindings) -> 
+    erl_value(binary_to_list(String),Bindings);
+erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
     Code = case [lists:last(string:strip(String))] of
         "." -> String;
         _ -> String ++ "."
     end,
-    {ok,ErlTokens,_} = erl_scan:string(Code),    
+    {ok,ErlTokens,_} = erl_scan:string(Code),
     {ok,ErlAbsForm} = erl_parse:parse_exprs(ErlTokens),
     case catch erl_eval:exprs(ErlAbsForm, Bindings, none,
                               {value, fun nonLocalHFun/2}) of
@@ -1097,20 +1098,20 @@ erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
 % an erlang fun, the fun will throw the same expection at runtime.
 nonLocalHFun({erlang, Fun} = FSpec, Args) ->
     case lists:member(Fun,?SAFE_ERLANG_FUNCTIONS) of
-        true ->     
+        true ->
             apply(erlang, Fun, Args);
-        false ->    
+        false ->
             case lists:member(Fun,?UNSAFE_ERLANG_FUNCTIONS) of
                 true ->
                     ?SecurityException({restricted, FSpec});
                 false ->
                     case re:run(atom_to_list(Fun),"^is_") of
-                        nomatch ->  
+                        nomatch ->
                             case re:run(atom_to_list(Fun),"_to_") of
                                 nomatch ->  ?SecurityException({restricted, FSpec});
                                 _ ->        apply(erlang, Fun, Args)
                             end;
-                        _ ->         
+                        _ ->
                             apply(erlang, Fun, Args)
                     end
             end
@@ -1132,7 +1133,7 @@ nonLocalHFun(FSpec, _Args) ->
 
 db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
     try
-        if 
+        if
             (Type == atom) andalso is_atom(Val) ->          atom_to_io(Val);
             (Type == binary) andalso is_binary(Val) ->      binary_to_io(Val);
             (Type == binstr) andalso is_binary(Val) ->      binstr_to_io(Val);
@@ -1147,10 +1148,10 @@ db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
             (Type == userid) andalso is_atom(Val) ->        atom_to_io(Val);
             (Type == userid) ->                             userid_to_io(Val);
             (Type == binterm) andalso is_binary(Val) ->     binterm_to_io(Val);
-            true -> term_to_io(Val)   
+            true -> term_to_io(Val)
         end
     catch
-        _:_ -> io_lib:format("~tp",[Val]) 
+        _:_ -> io_lib:format("~tp",[Val])
     end.
 
 atom_to_io(Val) ->
@@ -1187,9 +1188,9 @@ timestamp_to_io(TS,Prec) ->
 timestamp_to_io(TS,undefined,Fmt) ->
     timestamp_to_io(TS,6,Fmt);
 timestamp_to_io({Megas,Secs,Micros},_Prec,raw) ->
-    list_to_binary(io_lib:format("~6.6.0w~6.6.0w~6.6.0w",[Megas,Secs,Micros]));   
+    list_to_binary(io_lib:format("~6.6.0w~6.6.0w~6.6.0w",[Megas,Secs,Micros]));
 timestamp_to_io(TS,_Prec,erlang) ->
-    term_to_io(TS);   
+    term_to_io(TS);
 timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec >= 6 ->
     list_to_binary(io_lib:format("~s.~6.6.0w",[datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt), Micros]));
 timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec > 0 ->
@@ -1199,26 +1200,26 @@ timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec > 0 ->
     MStr1 = case list_to_integer(lists:sublist(MStr0, Prec+1, 6-Prec)) of
         0 ->    [$.|lists:sublist(MStr0, Prec)];
         _ ->    [$.|MStr0]
-    end,    
+    end,
     list_to_binary(io_lib:format("~s~s",[datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt),MStr1]));
 timestamp_to_io({Megas,Secs,0},_,Fmt) ->
     datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt);
 timestamp_to_io({Megas,Secs,Micros},_,Fmt) ->
     timestamp_to_io({Megas,Secs,Micros},6,Fmt).
 
-   
 
-decimal_to_io(Val,undefined) -> 
+
+decimal_to_io(Val,undefined) ->
     decimal_to_io(Val,0);
 decimal_to_io(Val,0) ->
-    list_to_binary(io_lib:format("~p",[Val]));   
+    list_to_binary(io_lib:format("~p",[Val]));
 decimal_to_io(Val,Prec) when Val < 0 ->
     list_to_binary(io_lib:format("-~s",[decimal_to_io(-Val,Prec)]));
 decimal_to_io(Val,Prec) when Prec > 0 ->
     Str = integer_to_list(Val),
     Len = length(Str),
-    if 
-        Prec-Len+1 > 0 -> 
+    if
+        Prec-Len+1 > 0 ->
             {Whole,Frac} = lists:split(1,lists:duplicate(Prec-Len+1,$0) ++ Str),
             list_to_binary(io_lib:format("~s.~s",[Whole,Frac]));
         true ->
@@ -1230,7 +1231,7 @@ decimal_to_io(Val,Prec) ->
 
 binstr_to_io(BinStr) -> BinStr.
 
-binary_to_io(Val) -> 
+binary_to_io(Val) ->
     if
         byte_size(Val) =< ?BinaryMaxLen ->
             list_to_binary(io_lib:format("~s",[binary_to_hex(Val)]));
@@ -1249,43 +1250,43 @@ offset_datetime('+', {{Y,M,D},{HH,MI,SS}}, Offset) ->
 offset_datetime(OP, DT, Offset) ->
     ?ClientError({"Illegal datetime offset operation",{OP,DT,Offset}}).
 
-offset_timestamp('+', TS, Offset) when Offset < 0.0 -> 
-    offset_timestamp('-', TS, -Offset);    
-offset_timestamp('-', TS, Offset) when Offset < 0.0 -> 
-    offset_timestamp('+', TS, -Offset);    
-offset_timestamp(_, TS, Offset) when Offset < 5.787e-12 -> 
+offset_timestamp('+', TS, Offset) when Offset < 0.0 ->
+    offset_timestamp('-', TS, -Offset);
+offset_timestamp('-', TS, Offset) when Offset < 0.0 ->
+    offset_timestamp('+', TS, -Offset);
+offset_timestamp(_, TS, Offset) when Offset < 5.787e-12 ->
     TS;
 offset_timestamp('+', {Mega,Sec,Micro}, Offset) ->
     NewMicro = Micro + round(Offset*8.64e10),
     NewSec = Sec + NewMicro div 1000000,
     NewMega = Mega + NewSec div 1000000,
-    {NewMega, NewSec rem 1000000, NewMicro rem 1000000};    
+    {NewMega, NewSec rem 1000000, NewMicro rem 1000000};
 offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
     NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 + Mega * 1000000000000,
     Mi = NewMicro rem 1000000,
-    NewSec = (NewMicro-Mi) div 1000000, 
+    NewSec = (NewMicro-Mi) div 1000000,
     Se = NewSec rem 1000000,
     NewMega = (NewSec-Se) div 1000000,
-    {NewMega, Se, Mi};    
+    {NewMega, Se, Mi};
 offset_timestamp(OP, TS, Offset) ->
     ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
 
 musec_diff(TS1) -> musec_diff(TS1,erlang:now()).
 
 musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
-    Micro2 - Micro1 + 1000000 *(Sec2 - Sec1) + 1000000000000 * (Mega2 - Mega1).   
+    Micro2 - Micro1 + 1000000 *(Sec2 - Sec1) + 1000000000000 * (Mega2 - Mega1).
 
 msec_diff(TS1) -> msec_diff(TS1,erlang:now()).
 
 msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
-    Micro2 div 1000 - Micro1 div 1000 + 1000 *(Sec2 - Sec1) + 1000000000 * (Mega2 - Mega1).   
+    Micro2 div 1000 - Micro1 div 1000 + 1000 *(Sec2 - Sec1) + 1000000000 * (Mega2 - Mega1).
 
 sec_diff(TS1) -> sec_diff(TS1,erlang:now()).
 
 sec_diff({Mega1,Sec1,_},{Mega2,Sec2,_}) ->
-    Sec2 - Sec1 + 1000000 * (Mega2 - Mega1).   
+    Sec2 - Sec1 + 1000000 * (Mega2 - Mega1).
 
-ipaddr_to_io(IpAddr) -> 
+ipaddr_to_io(IpAddr) ->
     list_to_binary(inet_parse:ntoa(IpAddr)).
 
 float_to_io(Val,_Prec,_NumFmt) ->
@@ -1316,9 +1317,9 @@ binterm_to_io(B) when is_binary(B) ->
 
 
 % escape_io(Str) when is_list(Str) ->
-%     re:replace(Str, "(\")", "(\\\\\")", [global, {return, list}]);   
+%     re:replace(Str, "(\")", "(\\\\\")", [global, {return, list}]);
 % escape_io(Bin) when is_binary(Bin) ->
-%     re:replace(Bin, "(\")", "(\\\\\")", [global, {return, binary}]). 
+%     re:replace(Bin, "(\")", "(\\\\\")", [global, {return, binary}]).
 
 un_escape_io(Str) when is_list(Str) ->
     re:replace(Str, "(\\\\\")", "\"", [global, {return, list}]);
@@ -1327,11 +1328,11 @@ un_escape_io(Bin) when is_binary(Bin) ->
 
 string_to_io(Val) when is_list(Val) ->
     case io_lib:printable_unicode_list(Val) of
-        true ->    
+        true ->
             unicode:characters_to_binary(io_lib:format("~p",[Val]));
         false ->
             list_to_binary(lists:flatten(io_lib:format("\"~tp\"",[Val])))
-    end;                                    
+    end;
 string_to_io(Val) ->
     list_to_binary(lists:flatten(io_lib:format("~tp",[Val]))).      %% "\"~tp\""
 
@@ -1378,26 +1379,26 @@ field_value_type(Tag,Type,Len,Prec,Def,Val) when is_binary(Val) ->
             L when is_list(L) ->                        {L,L,list,0};
             X ->                                        {X,X,term,0}
         end
-    catch 
+    catch
         _:_ -> {Val,Val,binstr,0}
     end.
 
 item(I,T) when is_tuple(T) ->
-    if 
+    if
         size(T) >= I ->
             term_to_io(element(I,T));
         true ->
             ?emptyIo        %% ?ClientError({"Tuple too short",{T,I}})
     end;
 item(I,L) when is_list(L) ->
-    if 
+    if
         length(L) >= I ->
             term_to_io(lists:nth(I,L));
         true ->
             ?emptyIo        %% ?ClientError({"List too short",{L,I}})
     end;
 item(I,B) when is_binary(B) ->
-    try 
+    try
         case sext:decode(B) of
             T when is_tuple(T) ->   item(I,T);
             L when is_list(L) ->    item(I,L);
@@ -1522,10 +1523,10 @@ db_test_() ->
         fun teardown/1,
         {with, [
               fun data_types/1
-        ]}}.    
+        ]}}.
 
 data_types(_) ->
-    try 
+    try
         ClEr = 'ClientError',
         %% SyEx = 'SystemException',    %% difficult to test
 
@@ -1552,8 +1553,8 @@ data_types(_) ->
         ?LogDebug("Str0 äöü -> ~p~n",[[0|"äöü"]]),
 
         Str1 = "äöü",                       ?LogDebug("Str1 äöü -> ~p~n",[[<<?H(I)>> || I <- Str1]]),
-        Utf8 = unicode:characters_to_binary("äöü",unicode,utf8), ?LogDebug("Utf8 äöü -> ~p~n",[binary_to_hex(Utf8)]),        
-        Exp1 = <<"\"äöü\""/utf8>>,          ?LogDebug("Exp1 äöü -> ~p~n",[binary_to_hex(Exp1)]), 
+        Utf8 = unicode:characters_to_binary("äöü",unicode,utf8), ?LogDebug("Utf8 äöü -> ~p~n",[binary_to_hex(Utf8)]),
+        Exp1 = <<"\"äöü\""/utf8>>,          ?LogDebug("Exp1 äöü -> ~p~n",[binary_to_hex(Exp1)]),
         Ios1 = string_to_io(Str1),          ?LogDebug("Ios1 äöü -> ~p~n",[binary_to_hex(Ios1)]),
         ?assertEqual(Exp1, Ios1),
 
@@ -1593,8 +1594,8 @@ data_types(_) ->
         % ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,0},0)),  %% with DLS offset wintertime CH
         % ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,0,123000},3)),  %% with DLS offset wintertime CH
         % ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1,2,123456},6)),  %% with DLS offset wintertime CH
-        ?assertEqual(<<"{1,2,1234}">>, timestamp_to_io({1,2,1234},3,erlang)),  
-        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1,2,1234},3,raw)), 
+        ?assertEqual(<<"{1,2,1234}">>, timestamp_to_io({1,2,1234},3,erlang)),
+        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1,2,1234},3,raw)),
         ?LogDebug("timestamp_to_io success~n", []),
         % ?assertEqual({0,0,0}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),  %% with DLS offset wintertime CH
         % ?assertEqual({0,-3600,0}, io_to_timestamp(<<"01.01.1970">>,0)),                  %% with DLS offset wintertime CH
@@ -1608,7 +1609,8 @@ data_types(_) ->
         % ?assertEqual({1,3,0}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),  %% with DLS offset wintertime CH
         % ?assertEqual({1,2,123000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),  %% with DLS offset wintertime CH
         % ?assertEqual({1,2,100000}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,1)),  %% with DLS offset wintertime CH
-        ?assertEqual({1,2,12345}, io_to_timestamp(<<"{1,2,12345}">>,0)),  
+        ?assertEqual({587,863439,585000}, io_to_timestamp(<<"1988-8-18T01:23:59.585Z">>)),
+        ?assertEqual({1,2,12345}, io_to_timestamp(<<"{1,2,12345}">>,0)),
         ?LogDebug("io_to_timestamp success~n", []),
 
         LocalTime = erlang:localtime(),
@@ -1639,13 +1641,13 @@ data_types(_) ->
         ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"1988-8-18T01:23:59.585Z">>)),
         ?LogDebug("io_to_datetime success~n", []),
 
-        ?assertEqual({1,23,59}, parse_time("01:23:59")),        
-        ?assertEqual({1,23,59}, parse_time("1:23:59")),        
-        ?assertEqual({1,23,0}, parse_time("01:23")),        
-        ?assertEqual({1,23,59}, parse_time("012359")),        
-        ?assertEqual({1,23,0}, parse_time("0123")),        
-        ?assertEqual({1,0,0}, parse_time("01")),        
-        ?assertEqual({0,0,0}, parse_time("")),        
+        ?assertEqual({1,23,59}, parse_time("01:23:59")),
+        ?assertEqual({1,23,59}, parse_time("1:23:59")),
+        ?assertEqual({1,23,0}, parse_time("01:23")),
+        ?assertEqual({1,23,59}, parse_time("012359")),
+        ?assertEqual({1,23,0}, parse_time("0123")),
+        ?assertEqual({1,0,0}, parse_time("01")),
+        ?assertEqual({0,0,0}, parse_time("")),
         ?LogDebug("parse_time success~n", []),
 
         ?assertEqual({1,2,3,4},io_to_ipaddr(<<"1.2.3.4">>,0)),
@@ -1897,9 +1899,9 @@ data_types(_) ->
         ?LogDebug("io_to_binary success~n", []),
 
         RF1 = select_rowfun_str([#bind{type=integer,tind=1,cind=2}], eu, undefined, undefined),
-        ?assert(is_function(RF1)), 
-        ?assertEqual([<<"5">>],RF1({{dummy,5},{}})), 
-        ?LogDebug("rowfun success~n", []),   
+        ?assert(is_function(RF1)),
+        ?assertEqual([<<"5">>],RF1({{dummy,5},{}})),
+        ?LogDebug("rowfun success~n", []),
 
         ?assertEqual({{2000,1,29},{12,13,14}}, offset_datetime('+', {{2000,1,28},{12,13,14}}, 1.0)),
         ?assertEqual({{2000,1,27},{12,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0)),
@@ -1908,7 +1910,7 @@ data_types(_) ->
         ?assertEqual({{2000,1,28},{11,13,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0)),
         ?assertEqual({{2000,1,28},{12,12,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/60.0)),
         ?assertEqual({{2000,1,28},{12,13,13}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/3600.0)),
-        
+
         ENow = erlang:now(),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('+', ENow, 1.0),-1.0)),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0),1.0)),
@@ -1952,7 +1954,7 @@ data_types(_) ->
         ?assertEqual(true, true)
     catch
         Class:Reason ->
-            timer:sleep(1000),    
+            timer:sleep(1000),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
