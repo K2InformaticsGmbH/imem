@@ -87,20 +87,32 @@
 -define(E117(__Term),{117,"Too many values, Limit exceeded",__Term}).
 
 
--export([ table_name/1 				%% (Channel)					return table name as binstr
-		, audit_alias/1 			%% (Channel) 					return audit alias as bisntr 
-		, create_check_channel/1 	%% (Channel)					create empty table and audit table if necessary
-		, write/3 			%% (User, Channel, KVTable)    			resource may not exist, will be created, return list of hashes 
-		, read/4			%% (User, Channel, KeyTable)   			return empty Arraylist if none of these resources exists
-		, readGELT/6		%% (User, Channel, Item, CKey1, CKey2, L)	start with first key after CKey1, end with last key before CKey2, fails if more than L rows
-		, readGT/5			%% (User, Channel, Item, CKey1, Limit)	start with first key after CKey1, return Limit results or less
-		, audit_readGT/5	%% (User, Channel, Item, TS1, Limit)	read audit info after Timestamp1, return Limit results or less
- 		, readGE/5			%% (User, Channel, Item, CKey1, Limit)	start with first key at or after CKey1, return Limit results or less
- 		, delete/3			%% (User, Channel, KeyTable)    		do not complain if keys do not exist
- 		, deleteGELT/5		%% (User, Channel, CKey1, CKey2), L		delete range of keys >= CKey1 and < CKey2, fails if more than L rows
-		, deleteGTLT/5		%% (User, Channel, CKey1, CKey2), L		delete range of keys > CKey1 and < CKey2, fails if more than L rows
-		, write_audit/4 	%% (OldRec,NewRec,Table,User)			default trigger for writing audit trail
-		]).
+-export([ table_name/1              %% (Channel)                    return table name as binstr
+        , atom_table_name/1         %% (Channel)                    return table name as atom
+        , audit_alias/1             %% (Channel)                    return audit alias as bisntr
+        , create_check_channel/1    %% (Channel)                    create empty table and audit table if necessary
+        , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
+        , insert/3          %% (User, Channel, MapList)             resources should not exist will be created, retrun list of maps with inserted rows
+        , insert/4          %% (User, Channel, Key, Value)          resource should not exist will be created, return map with inserted row
+        , update/3          %% (user, Channel, ChangeList)          update a list of resources, it will fail if the old value was modified by someone else
+        , update/4          %% (User, Channel, OldRow, NewRow)      update a resource, it will fail if the old value was modified, rows should be in map format
+        , read/3            %% (User, Channel, KeyList)             return empty Arraylist if none of these resources exists, the list is returning as a map
+        , read/4            %% (User, Channel, Item, KeyTable)      return empty Arraylist if none of these resources exists
+        , readGELT/5        %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, result as map, fails if more than L rows
+        , readGELT/6        %% (User, Channel, Item, CKey1, CKey2, L)   from key at or after CKey1 to last key before CKey2, fails if more than L rows
+        , readGT/4          %% (User, Channel, CKey1, L)            start with first key after CKey1, return result as list of maps of lenght L or less
+        , readGT/5          %% (User, Channel, Item, CKey1, Limit)  start with first key after CKey1, return Limit results or less
+        , readGE/4          %% (User, Channel, CKey1, Limit)        start with first key at or after CKey1, return Limit results or less as maps
+        , readGE/5          %% (User, Channel, Item, CKey1, Limit)  start with first key at or after CKey1, return Limit results or less
+        , audit_readGT/4    %% (User, Channel, TS1, Limit)          read audit info after Timestamp1, resturn a list of maps with Limit results or less
+        , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
+        , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
+        , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
+        , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
+        , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
+        , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
+        , write_audit/4     %% (OldRec,NewRec,Table,User)           default trigger for writing audit trail
+        ]).
 
 
 %% @doc Returns table name from channel name (may or may not be a valid channel name)
@@ -109,11 +121,35 @@
 -spec table_name(binary()) -> binary().
 table_name(Channel) -> Channel.
 
+%% @doc Returns table name as atom from channel name (may or may not be a valid channel name)
+%% Channel: Binary string of channel name (preferrably lower case or camel case)
+%% returns:	main table name as an atom
+-spec atom_table_name(binary()) -> atom().
+atom_table_name(Channel) -> ?binary_to_existing_atom(table_name(Channel)).
+
+%% @doc Returns history alias name from channel name (may or may not be a valid channel name)
+%% Channel: Binary string of channel name (preferrably upper case or camel case)
+%% returns:	history table alias as binstr
+-spec history_alias(binary()) -> binary().
+history_alias(Channel) -> list_to_binary(?HIST(Channel)).
+
+%% @doc Returns history alias name from channel name (may or may not be a valid channel name)
+%% Channel: Binary string of channel name (preferrably upper case or camel case)
+%% returns:	history table alias as atom
+-spec atom_history_alias(binary()) -> atom().
+atom_history_alias(Channel) -> ?binary_to_existing_atom(history_alias(Channel)).
+
 %% @doc Returns audit alias name from channel name (may or may not be a valid channel name)
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns:	audit table alias as binstr
 -spec audit_alias(binary()) -> binary().
 audit_alias(Channel) -> list_to_binary(?AUDIT(Channel)).
+
+%% @doc Returns audit alias name from channel name (may or may not be a valid channel name)
+%% Channel: Binary string of channel name (preferrably upper case or camel case)
+%% returns:	audit table alias as atom
+-spec atom_audit_alias(binary()) -> atom().
+atom_audit_alias(Channel) -> ?binary_to_existing_atom(audit_alias(Channel)).
 
 %% @doc Returns audit table name from channel name 
 %% Channel: String (not binstr) of channel name (preferrably upper case or camel case)
@@ -253,6 +289,24 @@ io_to_integer(Key) when is_binary(Key) ->	imem_datatype:io_to_integer(Key,0,0).
 
 io_value_to_term(V) when is_binary(V) -> 		V.	%% ToDo: Maybe convert to map datatype when available
 
+term_key_to_binterm(MaybeEncodedKey) when is_binary(MaybeEncodedKey) ->
+    try
+        imem_datatype:binterm_to_term(MaybeEncodedKey),
+        MaybeEncodedKey
+    catch
+        _:_ ->
+            imem_datatype:term_to_binterm(MaybeEncodedKey)
+    end;
+term_key_to_binterm(TermKey) ->
+    imem_datatype:term_to_binterm(TermKey).
+
+map_to_skvh_rec(#{ckey := DecodedKey, cvalue := CValue, chash := CHash}) ->
+    CKey = imem_datatype:term_to_binterm(DecodedKey),
+    #skvhTable{ckey = CKey, cvalue = CValue, chash = CHash};
+map_to_skvh_rec(#{ckey := DecodedKey, cvalue := CValue}) ->
+    CKey = imem_datatype:term_to_binterm(DecodedKey),
+    #skvhTable{ckey = CKey, cvalue = CValue}.
+
 % io_hash_to_term(Hash) when is_binary(Hash) -> Hash.
 
 io_kv_pair_to_tuple(KVPair) ->
@@ -327,6 +381,22 @@ term_tkvu_quintuple_to_io({T,K,O,N,U}) ->
 	UserBin = term_user_to_io(U),
 	<<TimeBin/binary,9,KeyBin/binary,9,OldValueBin/binary,9,NewValueBin/binary,9,UserBin/binary>>.
 
+skvh_rec_to_map(#skvhTable{ckey=EncodedKey, cvalue=CValue, chash=CHash}) ->
+    CKey = imem_datatype:binterm_to_term(EncodedKey),
+    #{ckey => CKey, cvalue => CValue, chash => CHash}.
+
+skvh_audit_to_map(#skvhAudit{time = Time, ckey = EncodedKey, ovalue = OldValue, nvalue = NewValue, cuser = User}) ->
+    CKey = imem_datatype:binterm_to_term(EncodedKey),
+    #{time => Time, ckey => CKey, ovalue => OldValue, nvalue => NewValue, cuser => User}.
+
+skvh_hist_to_map(#skvhHist{ckey = EncodedKey, cvhist = ChangeList}) ->
+    CKey = imem_datatype:binterm_to_term(EncodedKey),
+    MapChangeList = [skvh_cl_to_map(C) || C <- ChangeList],
+    #{ckey => CKey, cvhist => MapChangeList}.
+
+skvh_cl_to_map(#skvhCL{time = Time, ovalue = OldValue, nvalue = NewValue, cuser = User}) ->
+    #{time => Time, ovalue => OldValue, nvalue => NewValue, cuser => User}.
+
 %% Data access per key (read,write,delete)
 
 read(User, Channel, Item, KeyTable) when is_binary(Channel), is_binary(Item), is_binary(KeyTable) ->
@@ -369,6 +439,77 @@ delete(User, Cmd, SkvhCtx, [Key|Keys], Acc)  ->
 			end
 	end,
 	delete(User, Cmd, SkvhCtx, Keys, [term_hash_to_io(Hash)|Acc]).
+
+%% Raw data access per key (read, insert, remove)
+read(_User, _Channel, []) -> [];
+read(User, Channel, [DecodedKey | Keys]) ->
+    Key = term_key_to_binterm(DecodedKey),
+    TableName = atom_table_name(Channel),
+    case imem_meta:read(TableName, Key) of
+        [ReadResult] ->
+            [skvh_rec_to_map(ReadResult) |
+             read(User, Channel, Keys)];
+        [] ->
+            read(User, Channel, Keys)
+    end.
+
+insert(User, Channel, DecodedKey, Value) ->
+    Key = term_key_to_binterm(DecodedKey),
+    TableName = atom_table_name(Channel),
+    InsertResult = imem_meta:insert(TableName, #skvhTable{ckey=Key, cvalue=Value}, User),
+    skvh_rec_to_map(InsertResult).
+
+insert(User, Channel, MapList) ->
+    InsertFun = fun() -> insert_priv(User, Channel, MapList) end,
+    imem_if:return_atomic_list(imem_meta:transaction(InsertFun)).
+
+insert_priv(_User, _Channel, []) -> [];
+insert_priv(User, Channel, [#{ckey := DecodedKey, cvalue := Value} | MapList]) ->
+    [insert(User, Channel, DecodedKey, Value) | insert_priv(User, Channel, MapList)].
+
+update(User, Channel, #{} = OldMapRow, #{} = NewMapRow) ->
+    OldRow = map_to_skvh_rec(OldMapRow),
+    NewRow = map_to_skvh_rec(NewMapRow),
+    TableName = atom_table_name(Channel),
+    UpdateResult = imem_meta:update(TableName, {OldRow, NewRow}, User),
+    skvh_rec_to_map(UpdateResult).
+
+update(User, Channel, ChangeList) ->
+    UpdateFun = fun() -> update_priv(User, Channel, ChangeList) end,
+    imem_if:return_atomic_list(imem_meta:transaction(UpdateFun)).
+
+update_priv(_User, _Channel, []) -> [];
+update_priv(User, Channel, [{#{} = OldMapRow, #{} = NewMapRow} | ChangeList]) ->
+    [update(User, Channel, OldMapRow, NewMapRow) | update_priv(User, Channel, ChangeList)].
+
+remove(User, Channel, Rows) when is_list(Rows) ->
+    RemoveFun = fun() -> remove_list(User, Channel, Rows) end,
+    imem_if:return_atomic_list(imem_meta:transaction(RemoveFun));
+remove(User, Channel, Row) ->
+    remove_single(User, Channel, Row).
+
+remove_single(User, Channel, #{ckey := DecodedKey, cvalue := Value, chash := Hash}) ->
+    Key = imem_datatype:term_to_binterm(DecodedKey),
+    TableName = atom_table_name(Channel),
+    RemoveResult = imem_meta:remove(TableName, #skvhTable{ckey=Key, cvalue=Value, chash=Hash}, User),
+    #skvhTable{ckey=DeletedKey, cvalue=CValue, chash=CHash} = RemoveResult,
+    CKey = imem_datatype:binterm_to_term(DeletedKey),
+    #{ckey => CKey, cvalue => CValue, chash => CHash}.
+
+remove_list(_User, _Channel, []) -> [];
+remove_list(User, Channel, [#{} = Row | Rows]) ->
+    [remove_single(User, Channel, Row) | remove_list(User, Channel, Rows)].
+
+hist_read(_User, _Channel, []) -> [];
+hist_read(User, Channel, [DecodedKey | DecodedKeys]) ->
+    HistTableName = atom_history_alias(Channel),
+    Key = term_key_to_binterm(DecodedKey),
+    case imem_meta:read(HistTableName, Key) of
+        [HistResult] ->
+            [skvh_hist_to_map(HistResult) | hist_read(User, Channel, DecodedKeys)];
+        [] ->
+            hist_read(User, Channel, DecodedKeys)
+    end.
 
 %% Data Access per key range
 
@@ -450,7 +591,7 @@ deleteGTLT(User, Cmd, SkvhCtx, Key1, Key2, Limit) ->
 
 delete_with_limit(User, Cmd, SkvhCtx, MatchFunction, Limit) ->
 	{L,_} = imem_meta:select(SkvhCtx#skvhCtx.mainAlias, [MatchFunction], Limit+1),	
-	if  
+	if
 		length(L) > Limit ->	?ClientError(?E117(Limit));
 		true ->					delete(User, Cmd, SkvhCtx, L, [])
 	end.
@@ -494,6 +635,47 @@ audit_project_result(Cmd, L, <<"tkvuquadruple">>) ->
 audit_project_result(Cmd, L, <<"tkvuquintuple">>) ->
 	return_stringlist(Cmd, [term_tkvu_quintuple_to_io({T,K,O,N,U}) ||  #skvhAudit{time=T,ckey=K,ovalue=O,nvalue=N,cuser=U} <- L]).
 
+%% raw data access for key range
+
+readGT(_User, Channel, DecodedKey, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key = term_key_to_binterm(DecodedKey),
+    MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key)}], ['$_']},
+	{L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [skvh_rec_to_map(R) || R <- L ].
+
+readGE(_User, Channel, DecodedKey, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key = term_key_to_binterm(DecodedKey),
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key)}], ['$_']},
+	{L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [skvh_rec_to_map(R) || R <- L ].
+
+readGELT(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key1 = term_key_to_binterm(DecodedKey1),
+    Key2 = term_key_to_binterm(DecodedKey2),
+	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit+1),
+    if
+        length(L) > Limit -> ?ClientError(?E117(Limit));
+        true -> [skvh_rec_to_map(R) || R <- L ]
+    end.
+audit_readGT(User, Channel, TS1, Limit) when is_binary(TS1) ->
+    audit_readGT(User, Channel, imem_datatype:io_to_timestamp(TS1), Limit);
+audit_readGT(_User, Channel, TS1, Limit) ->
+    TableName = atom_audit_alias(Channel),
+    Partitions = audit_partitions(TableName, TS1),
+    MatchFunction = {?AUDIT_MATCHHEAD, [{'>', '$1', match_val(TS1)}], ['$_']},
+    audit_part_readGT(Partitions, MatchFunction, Limit).
+
+audit_part_readGT([], _MatchFunction, _Limit) -> [];
+audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
+audit_part_readGT([Partition | Rest], MatchFunction, Limit) ->
+    {L,_} = imem_meta:select(Partition, [MatchFunction], Limit),
+    Res = [skvh_audit_to_map(R) || R <- L],
+    Res ++ audit_part_readGT(Rest, MatchFunction, Limit-length(Res)).
+
 debug(Cmd, Resp) ->
     lager:debug([ {cmd, hd(Cmd)}]
     			  , "PROVISIONING EVENT for ~p ~p returns ~p"
@@ -526,6 +708,10 @@ db_test_() ->
         {with, [
               fun skvh_operations/1
         ]}}.    
+
+hist_reset_time([]) -> [];
+hist_reset_time([#{cvhist := CList} = Hist | Rest]) ->
+    [Hist#{cvhist := [C#{time := {0,0,0}} || C <- CList]} | hist_reset_time(Rest)].
 
 skvh_operations(_) ->
     try 
@@ -675,6 +861,171 @@ skvh_operations(_) ->
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
+
+        %% Test the raw access interface. %%
+
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTest)),
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestAudit_86400@_)),
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, read(system, Channel, ["1"])),
+
+        %% Base maps
+        Map1 = #{ckey => ["1"], cvalue => <<"{\"testKey\": \"testValue\"}">>, chash => <<"1HU42V">>},
+        Map2 = #{ckey => ["1", "a"], cvalue => <<"{\"testKey\": \"a\", \"testNumber\": 2}">>, chash => <<"1Y22WI">>},
+        Map3 = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"testNumber\": 100}">>, chash => <<"3MBW5">>},
+        Map4 = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 250}">>, chash => <<"1RZ299">>},
+        Map5 = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 300}">>, chash => <<"1DKGDA">>},
+
+        %% Keys not in the table.
+        FirstKey = [""],
+        MidleKey = ["1", "b", "1"],
+        LastKey = ["1", "e"],
+
+        %% Read some data text interface to create the tables
+        ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, Channel, <<"kvpair">>, K0)),
+        ?assertEqual(ok, imem_meta:check_table(skvhTest)),
+        ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
+
+        ?assertEqual([], read(system, Channel, [["1"]])),
+
+        BeforeInsert = erlang:now(),
+
+        ?assertEqual(Map1, insert(system, Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
+        ?assertEqual(Map2, insert(system, Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
+
+        %% Test insert using encoded key
+        ?assertEqual(Map3, insert(system, Channel, imem_datatype:term_to_binterm(maps:get(ckey, Map3)), maps:get(cvalue, Map3))),
+
+        %% Test insert using maps
+        ?assertEqual([Map4, Map5], insert(system, Channel, [Map4#{chash := <<>>}, Map5#{chash := <<>>}])),
+
+        %% Fail to insert concurrency exception
+        CoEx = 'ConcurrencyException',
+
+        MapNotInserted = #{ckey => ["1", "1"], cvalue => <<"{\"testKey\": \"roll\", \"testNumber\": 100}">>},
+        ?assertException(throw, {CoEx, {"Insert failed, key already exists in", _}}, insert(system, Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
+        ?assertException(throw, {CoEx, {"Insert failed, key already exists in", _}}, insert(system, Channel, [MapNotInserted, Map4#{chash := <<>>}])),
+        ?assertEqual([], read(system, Channel, [maps:get(ckey, MapNotInserted)])),
+
+        %% Read tests
+        ?assertEqual([Map1], read(system, Channel, [maps:get(ckey, Map1)])),
+        ?assertEqual([Map1, Map2, Map3], read(system, Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
+
+        %% Test read using encoded key
+        ?assertEqual([Map1], read(system, Channel, [imem_datatype:term_to_binterm(maps:get(ckey, Map1))])),
+
+        %% Updated maps
+        Map1Upd = #{ckey => ["1"], cvalue => <<"{\"testKey\": \"newValue\"}">>, chash => <<"1H51UT">>},
+        Map2Upd = #{ckey => ["1", "a"], cvalue => <<"{\"testKey\": \"a\", \"newNumber\": 10}">>, chash => <<"16GAFP">>},
+        Map3Upd = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"newNumber\": 150}">>, chash => <<"H3LYB">>},
+
+        BeforeUpdate = erlang:now(),
+
+        %% Update using single maps
+        ?assertEqual(Map1Upd, update(system, Channel, Map1, Map1Upd)),
+
+        %% Update multiple objects
+        ?assertEqual([Map2Upd, Map3Upd], update(system, Channel, [{Map2, Map2Upd#{chash := <<>>}}, {Map3, Map3Upd#{chash := <<>>}}])),
+
+        %% Concurrency exception
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, Map1, Map1Upd)),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, [{Map2, Map2Upd#{chash := <<>>}}, {Map3, Map3Upd#{chash := <<>>}}])),
+
+        %% Read tests
+        ?assertEqual([Map4, Map5], readGT(system, Channel, maps:get(ckey, Map3), 10)),
+        ?assertEqual([Map3Upd, Map4], readGT(system, Channel, maps:get(ckey, Map2), 2)),
+        ?assertEqual([Map4, Map5], readGT(system, Channel, MidleKey, 10)),
+        ?assertEqual([], readGT(system, Channel, maps:get(ckey, Map5), 2)),
+
+        ?assertEqual([Map3Upd, Map4, Map5], readGE(system, Channel, maps:get(ckey, Map3), 10)),
+        ?assertEqual([Map3Upd, Map4], readGE(system, Channel, maps:get(ckey, Map3), 2)),
+        ?assertEqual([Map4, Map5], readGE(system, Channel, MidleKey, 10)),
+        ?assertEqual([Map5], readGE(system, Channel, maps:get(ckey, Map5), 2)),
+        ?assertEqual([], readGE(system, Channel, LastKey, 2)),
+
+        ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(system, Channel, FirstKey, LastKey, 1)),
+        ?assertEqual([Map1Upd, Map2Upd, Map3Upd, Map4, Map5], readGELT(system, Channel, FirstKey, LastKey, 10)),
+
+        ?assertEqual([Map3Upd, Map4, Map5], readGELT(system, Channel, maps:get(ckey, Map3), LastKey, 10)),
+        ?assertEqual([Map3Upd, Map4], readGELT(system, Channel, maps:get(ckey, Map3), maps:get(ckey, Map5), 10)),
+        ?assertEqual([Map4, Map5], readGELT(system, Channel, MidleKey, LastKey, 10)),
+        ?assertEqual([], readGELT(system, Channel, LastKey, [LastKey | "1"], 10)),
+
+        BeforeRemove = erlang:now(),
+
+        %% Tests removing rows
+        ?assertEqual(Map1Upd, remove(system, Channel, Map1Upd)),
+
+        %% Concurrency exception
+        ?assertException(throw, {CoEx, {"Remove failed, key does not exist", _}}, remove(system, Channel, Map1)),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, remove(system, Channel, [Map2Upd, Map3])),
+
+        %% Remove in bulk
+        ?assertEqual([Map2Upd, Map3Upd], remove(system, Channel, [Map2Upd, Map3Upd])),
+
+        %% Test final number of rows
+        ?assertEqual(2, length(imem_meta:read(skvhTest))),
+
+        %% Audit Tests maps interface.
+        %% TODO: How to test reads with multiple partitions.
+        ?assertEqual(11, length(audit_readGT(system, Channel, {0, 0, 0}, 100))),
+
+        %% Set time to 0 since depends on the execution of the test.
+        AuditInsert1 = #{time => {0,0,0}, ckey => maps:get(ckey, Map1), ovalue => undefined, nvalue => maps:get(cvalue, Map1), cuser => system},
+        AuditInsert2 = #{time => {0,0,0}, ckey => maps:get(ckey, Map2), ovalue => undefined, nvalue => maps:get(cvalue, Map2), cuser => system},
+        AuditInsert3 = #{time => {0,0,0}, ckey => maps:get(ckey, Map3), ovalue => undefined, nvalue => maps:get(cvalue, Map3), cuser => system},
+        ResultAuditInserts = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, Channel, BeforeInsert, 3)],
+        ?assertEqual([AuditInsert1, AuditInsert2, AuditInsert3], ResultAuditInserts),
+
+        AuditUpdate1 = #{time => {0,0,0}, ckey => maps:get(ckey, Map1), ovalue => maps:get(cvalue, Map1), nvalue => maps:get(cvalue, Map1Upd), cuser => system},
+        AuditUpdate2 = #{time => {0,0,0}, ckey => maps:get(ckey, Map2), ovalue => maps:get(cvalue, Map2), nvalue => maps:get(cvalue, Map2Upd), cuser => system},
+        AuditUpdate3 = #{time => {0,0,0}, ckey => maps:get(ckey, Map3), ovalue => maps:get(cvalue, Map3), nvalue => maps:get(cvalue, Map3Upd), cuser => system},
+        ResultAuditUpdates = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, Channel, BeforeUpdate, 3)],
+        ?assertEqual([AuditUpdate1, AuditUpdate2, AuditUpdate3], ResultAuditUpdates),
+
+        AuditRemove1 = #{time => {0,0,0}, ckey => maps:get(ckey, Map1), ovalue => maps:get(cvalue, Map1Upd), nvalue => undefined, cuser => system},
+        AuditRemove2 = #{time => {0,0,0}, ckey => maps:get(ckey, Map2), ovalue => maps:get(cvalue, Map2Upd), nvalue => undefined, cuser => system},
+        AuditRemove3 = #{time => {0,0,0}, ckey => maps:get(ckey, Map3), ovalue => maps:get(cvalue, Map3Upd), nvalue => undefined, cuser => system},
+        ResultAuditRemoves = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, Channel, BeforeRemove, 3)],
+        ?assertEqual([AuditRemove1, AuditRemove2, AuditRemove3], ResultAuditRemoves),
+
+        ?assertEqual([], audit_readGT(system, Channel, <<"now">>, 100)),
+        ?assertEqual([], audit_readGT(system, Channel, <<"2100-01-01">>, 100)),
+        ?assertEqual(11, length(audit_readGT(system, Channel, <<"1970-01-01">>, 100))),
+
+        Ex4 = {'ClientError',{"Data conversion format error",{timestamp,"1900-01-01",{"Cannot handle dates before 1970"}}}},
+        ?assertException(throw, Ex4, audit_readGT(system, Channel, <<"1900-01-01">>, 100)),
+
+        %% Read History tests, time is reset to 0 for comparison but should be ordered from new to old.
+        CL1 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1Upd), nvalue => undefined, cuser => system}
+              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1), nvalue => maps:get(cvalue, Map1Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map1), cuser => system}],
+        History1 = #{ckey => maps:get(ckey, Map1), cvhist => CL1},
+        CL2 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map2Upd), nvalue => undefined, cuser => system}
+              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map2), nvalue => maps:get(cvalue, Map2Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map2), cuser => system}],
+        History2 = #{ckey => maps:get(ckey, Map2), cvhist => CL2},
+        CL3 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map3Upd), nvalue => undefined, cuser => system}
+              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map3), nvalue => maps:get(cvalue, Map3Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map3), cuser => system}],
+        History3 = #{ckey => maps:get(ckey, Map3), cvhist => CL3},
+
+        %% Read using a list of term keys.
+        HistResult = hist_reset_time(hist_read(system, Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
+        ?assertEqual(3, length(HistResult)),
+        ?assertEqual([History1, History2, History3], HistResult),
+
+        %% Using sext encoded Keys
+        EncodedKeys = [imem_datatype:term_to_binterm(maps:get(ckey, Map1))
+                      ,imem_datatype:term_to_binterm(maps:get(ckey, Map2))
+                      ,imem_datatype:term_to_binterm(maps:get(ckey, Map3))],
+
+        HistResultEnc = hist_reset_time(hist_read(system, Channel, EncodedKeys)),
+
+        ?assertEqual([History1, History2, History3], HistResultEnc),
+
+        ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
+        ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
+        ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
 
         ?LogDebug("success ~p~n", [drop_tables])
     catch
