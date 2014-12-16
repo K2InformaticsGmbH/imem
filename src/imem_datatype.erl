@@ -79,7 +79,13 @@
 %   timestamp
 %   tuple
 %   userid
+-define(CLM_TYPES,
+        [atom, binary,  raw,  blob,  rowid,  binstr, clob, nclob, varchar2,
+         nvarchar2, char, nchar, boolean, datetime, decimal, float, 'fun',
+         integer, ipaddr, list, number, pid, ref, string, term, binterm,
+         timestamp, tuple, userid]).
 
+-export([bind_arg_types/0]).
 
 -export([ io_to_db/8
         , io_to_binary/2
@@ -139,6 +145,9 @@
 -export([ select_rowfun_raw/1   %% return rows in raw erlang db format
         , select_rowfun_str/4   %% convert all rows to string
         ]).
+
+bind_arg_types() ->
+    [atom_to_binary(T,utf8) || T <- ?CLM_TYPES].
 
 select_rowfun_raw(ColMap) ->
     fun(Recs) -> 
