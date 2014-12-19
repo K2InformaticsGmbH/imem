@@ -1127,7 +1127,7 @@ nonLocalHFun({erlang, Fun} = FSpec, Args) ->
     end;
 nonLocalHFun({Mod, Fun}, Args) when Mod==math;Mod==lists;Mod==imem_datatype;Mod==imem_json ->
     apply(Mod, Fun, Args);
-nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index ->
+nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index;Fun==dictionary_trigger ->
     apply(imem_meta, Fun, Args);
 nonLocalHFun({imem_dal_skvh, Fun}, Args) ->
     apply(imem_dal_skvh, Fun, Args);   % TODO: restrict to subset of functions
