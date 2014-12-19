@@ -51,6 +51,7 @@
         , is_disjoint/2 %% Check if data objects have no keys in common
         , project/2     %% Create a projection of a json document based on paths
         , eval/2        %% Constructs a data object prescribed by json path (using jpparse)
+        , expand_inline/2   %% Recursively expands 'inline_*' references in a JSON object
         ]).
  
 %% @doc ==============================================================
@@ -758,6 +759,64 @@ clean_null_values(DataObject) when is_map(DataObject) ->
 clean_null_values(DataObject) ->
     encode(clean_null_values(decode(DataObject))).
 
+%% @doc recursively replaces propertie names matching 'inline_*' pattern in
+%% Root object which with corresponding bind from Binds lists and returns the
+%% fully expanded object.
+%% New Root is re-scanned after each replacement untill new head doesn't change
+%% anymore. Return types are preserved to type of input Root parameter.
+-spec expand_inline(Root :: data_object(),
+                    Binds :: [{any(), data_object()}]) -> data_object().
+expand_inline(Root, Binds) when is_binary(Root) ->
+    encode(expand_inline(decode(Root), Binds));
+expand_inline(Root, Binds) ->
+    expand_inline(Root, undefined, [if is_map(Root) ->
+                    case V of
+                        V when is_binary(V) -> {K, decode(V, [return_maps])};
+                        V when is_map(V) -> {K, V};
+                        [{_,_}|_] -> {K, decode(encode(V), [return_maps])}
+                    end;
+                true ->
+                    case V of
+                        V when is_binary(V) -> {K, decode(V)};
+                        [{_,_}|_] -> {K, V};
+                        V when is_map(V) -> {K, decode(encode(V))}
+                    end
+             end || {K, V} <- Binds]).
+
+expand_inline(Root, Root, _) -> Root;
+expand_inline(Root, _OldRoot, Binds) when is_map(Root) ->
+    expand_inline(
+      maps:fold(
+        fun(K, V, AccIn) ->
+                case re:run(K, "^inline_*") of
+                    nomatch -> AccIn;
+                    _ -> case proplists:get_value(V, Binds, '$not_found') of
+                             '$not_found' -> maps:remove(K, AccIn);
+                             ValObj -> maps:merge(ValObj, maps:remove(K, AccIn))
+                         end
+                end
+        end, Root, Root),
+      Root, Binds);
+expand_inline(Root, _OldRoot, Binds) ->
+    expand_inline(
+      lists:foldl(
+        fun({K, V}, AccIn) ->
+                case re:run(K, "^inline_*") of
+                    nomatch -> AccIn;
+                    _ -> case proplists:get_value(V, Binds, '$not_found') of
+                             '$not_found' -> lists:keydelete(K, 1, AccIn);
+                             ValObj ->
+                                 lists:foldl(
+                                   fun({ValObjK, ValObjV}, AccInI) ->
+                                           case proplists:get_value(ValObjK, AccInI, '$not_found') of
+                                               '$not_found' -> [{ValObjK, ValObjV} | AccInI];
+                                               _ -> AccInI
+                                           end
+                                   end, lists:keydelete(K, 1, AccIn), ValObj)
+                         end
+                end
+        end, Root, Root),
+      Root, Binds).
 
 %% ===================================================================
 %% JSON Binary Handling Power Functions
@@ -834,6 +893,19 @@ clean_null_values(DataObject) ->
 -define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true,
                    <<"foo">> => <<"bar">>, <<"name">> => <<"John">>,
                    <<"surname">> => <<"Doe">>,<<"empty">> => null}).
+
+%% expand_inline tests
+expand_inline_test_() ->
+    {inparallel,
+     [{"map_mixed_bind",
+      ?_assertEqual(#{<<"a">> => 1, <<"b">> => 2, <<"c">> => 3, <<"d">> => 4},
+                    expand_inline(
+                      #{<<"a">> => 1, <<"inline_bin">> => [1],
+                        <<"inline_pl">> => [2], <<"inline_map">> => [3]},
+                      [{[1], <<"{\"b\":2}">>}, {[2], [{<<"c">>,3}]},
+                       {[3], #{<<"d">> => 4}}]))
+      }]}.
+
 
 %% JSON is tested for each function as well even if, basically, it only tests the 
 %% JSON to map/proplist conversion each time. This could at least be used as regression
