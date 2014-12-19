@@ -114,6 +114,36 @@
         , write_audit/4     %% (OldRec,NewRec,Table,User)           default trigger for writing audit trail
         ]).
 
+-export([expand_inline_key/3, expand_inline/3]).
+
+-spec expand_inline_key(User :: any(), Channel :: binary(), Key :: any()) ->
+    Json :: binary().
+expand_inline_key(User, Channel, Key) ->
+    case imem_dal_skvh:read(User, Channel, [Key]) of
+        [] -> [];
+        [#{cvalue := Json}] -> expand_inline(User, Channel, Json)
+    end.
+
+-spec expand_inline(User :: any(), Channel :: binary(), Json :: binary()) ->
+    ExpandedJson :: binary().
+expand_inline(User, Channel, Json) when is_binary(Json) ->
+    Binds =
+    maps:fold(
+      fun(K,V,Acc) ->
+              case re:run(K, "^inline_*") of
+                  nomatch -> Acc;
+                  _ ->
+                      V1 = [if is_binary(V11) -> binary_to_list(V11);
+                               true -> V11
+                            end || V11 <- V],
+                      case imem_dal_skvh:read(User, Channel, [V1]) of
+                          [] -> Acc;
+                          [#{cvalue := BVal}] -> [{V, BVal} | Acc]
+                      end
+              end
+      end,
+      [], imem_json:decode(Json, [return_maps])),
+    imem_json:expand_inline(Json, Binds).
 
 %% @doc Returns table name from channel name (may or may not be a valid channel name)
 %% Channel: Binary string of channel name (preferrably lower case or camel case)
