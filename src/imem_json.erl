@@ -897,14 +897,67 @@ expand_inline(Root, _OldRoot, Binds) ->
 %% expand_inline tests
 expand_inline_test_() ->
     {inparallel,
-     [{"map_mixed_bind",
-      ?_assertEqual(#{<<"a">> => 1, <<"b">> => 2, <<"c">> => 3, <<"d">> => 4},
-                    expand_inline(
-                      #{<<"a">> => 1, <<"inline_bin">> => [1],
-                        <<"inline_pl">> => [2], <<"inline_map">> => [3]},
-                      [{[1], <<"{\"b\":2}">>}, {[2], [{<<"c">>,3}]},
-                       {[3], #{<<"d">> => 4}}]))
-      }]}.
+     [{Title, ?_assertEqual(Expected, expand_inline(Root, Binds))}
+      || {Title,Expected,Root,Binds} <-
+         [ % Mixed format tests
+           {"map_mixed_bind",
+            #{<<"a">>=>1,<<"b">>=>2,<<"c">>=>3,<<"d">>=>4},
+            #{<<"a">>=>1,<<"inline_bin">> =>[1],<<"inline_pl">>=>[2],
+              <<"inline_map">>=>[3]},
+            [{[1], <<"{\"b\":2}">>}, {[2], [{<<"c">>,3}]},
+             {[3], #{<<"d">> => 4}}]},
+           {"pl_mixed_bind",
+            [{<<"d">>,4},{<<"c">>,3},{<<"b">>,2},{<<"a">>,1}],
+            [{<<"a">>,1},{<<"inline_bin">>,[1]},{<<"inline_pl">>,[2]},
+             {<<"inline_map">>,[3]}],
+            [{[1], <<"{\"b\":2}">>}, {[2], [{<<"c">>,3}]},
+             {[3], #{<<"d">> => 4}}]},
+           {"bin_mixed_bind",
+            <<"{\"d\":4,\"c\":3,\"b\":2,\"a\":1}">>,
+            <<"{\"a\":1,\"inline_bin\":[1],\"inline_pl\":[2],"
+              "\"inline_map\":[3]}">>,
+            [{[1], <<"{\"b\":2}">>}, {[2], [{<<"c">>,3}]},
+             {[3], #{<<"d">> => 4}}]},
+
+           %
+           % expand tests override/add
+           %
+
+           % (map)
+           {"map_add_override",
+            #{<<"a">>=>1,<<"b">>=>2},
+            #{<<"a">>=>1,<<"inline_map">>=>[1]},
+            [{[1], #{<<"a">>=>3,<<"b">>=>2}}]},
+           {"map_inline_inline",
+            #{<<"a">>=>1,<<"b">>=>2,<<"c">>=>3},
+            #{<<"a">>=>1,<<"inline_map">>=>[1]},
+            [{[1], #{<<"b">>=>2,<<"inline_map1">>=>[2]}},
+             {[2], #{<<"c">>=>3}}]},
+
+           % (proplists)
+           {"pl_add_override",
+            [{<<"b">>,2},{<<"a">>,1}],
+            [{<<"a">>,1},{<<"inline_map">>,[1]}],
+            [{[1], [{<<"a">>,3},{<<"b">>,2}]}]},
+           {"pl_inline_inline",
+            [{<<"c">>,3},{<<"b">>,2},{<<"a">>,1}],
+            [{<<"a">>,1},{<<"inline_map">>,[1]}],
+            [{[1], [{<<"b">>,2},{<<"inline_map1">>,[2]}]},
+             {[2], [{<<"c">>,3}]}]},
+
+           % (binary)
+           {"bin_add_override",
+            <<"{\"b\":2,\"a\":1}">>,
+            <<"{\"a\":1,\"inline_map\":[1]}">>,
+            [{[1], <<"{\"a\":3,\"b\":2}">>}]},
+           {"bin_inline_inline",
+            <<"{\"c\":3,\"b\":2,\"a\":1}">>,
+            <<"{\"a\":1,\"inline_map\":[1]}">>,
+            [{[1], <<"{\"b\":2,\"inline_map1\":[2]}">>},
+             {[2], <<"{\"c\":3}">>}]}
+         ]
+     ]
+    }.
 
 
 %% JSON is tested for each function as well even if, basically, it only tests the 
