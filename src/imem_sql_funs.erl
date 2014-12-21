@@ -9,7 +9,7 @@
             , add_dt, add_ts, diff_dt, diff_ts
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_term, to_binterm, from_binterm
-            , to_decimal, from_decimal
+            , to_decimal, from_decimal, to_timestamp, to_datetime
             , byte_size, bit_size, nth, sort, usort, reverse, last
             , remap
             ]).
@@ -52,6 +52,8 @@
         , to_list/1
         , to_term/1
         , to_binterm/1
+        , to_timestamp/1
+        , to_datetime/1
         , to_name/1
         , to_text/1
         ]).
@@ -308,6 +310,8 @@ expr_fun({'safe', A}) ->
 expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='from_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term';Op=='to_name';Op=='to_text';Op=='is_nav' ->
+    unary_fun({Op, A});
+expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
@@ -576,6 +580,14 @@ to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
 to_binterm(B) when is_binary(B) ->   imem_datatype:io_to_binterm(B);
 to_binterm(T) ->                     imem_datatype:term_to_binterm(T).
+
+to_datetime(B) when is_binary(B) ->  imem_datatype:io_to_datetime(B);
+to_datetime(L) when is_list(L) ->    imem_datatype:io_to_datetime(L);
+to_datetime(T) when is_tuple(T) ->   T.
+
+to_timestamp(B) when is_binary(B) -> imem_datatype:io_to_timestamp(B);
+to_timestamp(L) when is_list(L) ->   imem_datatype:io_to_timestamp(L);
+to_timestamp(T) when is_tuple(T) ->  T.
 
 from_binterm(B)  ->                  imem_datatype:binterm_to_term(B).
 
