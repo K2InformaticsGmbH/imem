@@ -133,10 +133,9 @@ expand_inline(User, Channel, Json) when is_binary(Json) ->
               case re:run(K, "^inline_*") of
                   nomatch -> Acc;
                   _ ->
-                      V1 = [if is_binary(V11) -> binary_to_list(V11);
-                               true -> V11
-                            end || V11 <- V],
-                      case imem_dal_skvh:read(User, Channel, [V1]) of
+                      case imem_dal_skvh:read(
+                             User, Channel,
+                             [imem_json_data:to_strbinterm(V)]) of
                           [] -> Acc;
                           [#{cvalue := BVal}] -> [{V, BVal} | Acc]
                       end
