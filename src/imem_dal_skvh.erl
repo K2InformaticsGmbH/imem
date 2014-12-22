@@ -127,6 +127,9 @@ expand_inline_key(User, Channel, Key) ->
 -spec expand_inline(User :: any(), Channel :: binary(), Json :: binary()) ->
     ExpandedJson :: binary().
 expand_inline(User, Channel, Json) when is_binary(Json) ->
+    imem_json:encode(expand_inline(User, Channel,
+                                   imem_json:decode(Json, [return_maps])));
+expand_inline(User, Channel, Json) when is_map(Json) ->
     Binds =
     maps:fold(
       fun(K,V,Acc) ->
@@ -140,8 +143,7 @@ expand_inline(User, Channel, Json) when is_binary(Json) ->
                           [#{cvalue := BVal}] -> [{V, BVal} | Acc]
                       end
               end
-      end,
-      [], imem_json:decode(Json, [return_maps])),
+      end, [], Json),
     imem_json:expand_inline(Json, Binds).
 
 %% @doc Returns table name from channel name (may or may not be a valid channel name)
