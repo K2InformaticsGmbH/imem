@@ -10,8 +10,8 @@
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_term, to_binterm, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime
-            , byte_size, bit_size, nth, sort, usort, reverse, last
-            , remap
+            , byte_size, bit_size, nth, sort, usort, reverse, last, remap
+            , '[]', '{}', ':', '#keys', '#values', '::'
             ]).
 
 -export([ filter_funs/0

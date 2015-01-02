@@ -813,6 +813,12 @@ expr({'fun',Fname,[A,B]}, FullMap, _) ->
     catch
         _:_ -> ?UnimplementedException({"Unsupported binary sql function", Fname})
     end;
+expr({'#',<<"keys">>,A}, FullMap, _) ->
+    CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
+    #bind{type=list,btree={'#keys',CMapA}};
+expr({'#',<<"values">>,A}, FullMap, _) ->
+    CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
+    #bind{type=list,btree={'#values',CMapA}};
 expr({Op,A}, FullMap, _) when Op=='+';Op=='-' ->
     CMapA = expr(A,FullMap,#bind{type=number,default=?nav}),
     #bind{type=number,btree={Op,CMapA}};
