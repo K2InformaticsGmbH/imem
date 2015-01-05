@@ -185,6 +185,12 @@ bind_value(Tup) when is_tuple(Tup) ->         {const,Tup};
 bind_value(Other) ->                          Other.   
 
 %% Is this expression tree completely bound?
+bind_done({list,[]}) -> true;
+bind_done({list,[A|Rest]}) ->
+    case bind_done(A) of
+        false ->    false;
+        true ->     bind_done({list,Rest})
+    end;
 bind_done({_,A}) -> bind_done(A);
 bind_done(#bind{tind=0,cind=0,btree=BTree}) -> bind_done(BTree);
 bind_done(#bind{}) -> false;
@@ -192,7 +198,6 @@ bind_done({_,A,B}) -> bind_done(A) andalso bind_done(B);
 bind_done({_,A,B,C}) -> bind_done(A) andalso bind_done(B) andalso bind_done(C);
 bind_done({_,A,B,C,D}) -> bind_done(A) andalso bind_done(B) andalso bind_done(C) andalso bind_done(D);
 bind_done(_) -> true.
-
 
 % Unary eval rules
 bind_eval({_, ?nav}) ->             ?nav;
@@ -243,18 +248,28 @@ bind_eval({'and', B, A} = G) ->
 % Operators and functions with 3 parameters
 bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav; 
 % Functions with 4 parameters
-bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav; 
+bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav;
+bind_eval({list,L}) ->
+    BTL = [ bind_eval(Ele) || Ele <- L], 
+    case lists:usort([bind_done(El)|| El <- BTL]) of
+        [false|_] ->    %% cannot simplify tree list here
+            {list,BTL};  
+        [true] ->     %% BTree evaluates to a list of values
+            BTL 
+    end;
 bind_eval(BTree) ->
     case bind_done(BTree) of
         false ->    %% cannot simplify BTree here
             BTree;  
         true ->     %% BTree evaluates to a value
-            BTF = imem_sql_funs:expr_fun(BTree),
-            case is_function(BTF) of
-                true ->     bind_value(BTF(anything));
-                false ->    bind_value(BTF)
-            end
+            bind_fun(imem_sql_funs:expr_fun(BTree))
     end.
+
+bind_fun(BTF) when is_function(BTF) -> 
+    bind_value(BTF(anything));
+bind_fun(Value) -> 
+    bind_value(Value).
+
 
 %% @doc Binds unbound variables for Table Ti in a condition tree, means that all variables  
 %% for tables with index smaller than Ti must be bound to values.
@@ -751,8 +766,18 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
                 _ ->
                     {S,T,N} = binstr_to_qname3(PTree),
                     case N of
-                        ?Star ->    #bind{schema=S,table=T,name=?Star};
-                        _ ->        field_map_lookup({S,T,N},FullMap)  %% N could be a table name here
+                        ?Star ->    
+                            #bind{schema=S,table=T,name=?Star};
+                        _ ->
+                            case BindTemplate#bind.type of
+                                json -> 
+                                    case (catch field_map_lookup({S,T,N},FullMap)) of
+                                        #bind{} = B ->  B;              % binding for resolved relational name has priority 
+                                        _ ->            PTree           % leave json attribute name as binary
+                                    end;           
+                                _ ->    
+                                    field_map_lookup({S,T,N},FullMap)  %% N could be a table name here
+                            end 
                     end
             end;
         {B,Tbind} when Tbind==#bind{} ->    %% assume binstr, use to_<datatype>() to override
@@ -819,6 +844,20 @@ expr({'#',<<"keys">>,A}, FullMap, _) ->
 expr({'#',<<"values">>,A}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
     #bind{type=list,btree={'#values',CMapA}};
+expr({'[]',A,[]}, FullMap, _) ->
+    CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
+    #bind{type=list,btree={json_to_list,CMapA}};
+expr({'[]',A,Filter}, FullMap, _) ->
+    CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
+    CMapF = expr({list,Filter},FullMap,#bind{type=list,default=?nav}),
+    #bind{type=list,btree={json_arr_proj,CMapA,CMapF}};
+expr({'{}',A,[]}, FullMap, _) ->
+    CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
+    #bind{type=list,btree={json_to_list,CMapA}};
+expr({'{}',A,Filter}, FullMap, _) ->
+    CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
+    CMapF = expr({list,Filter},FullMap,#bind{type=json,default=?nav}),
+    #bind{type=list,btree={json_obj_proj,CMapA,CMapF}};
 expr({Op,A}, FullMap, _) when Op=='+';Op=='-' ->
     CMapA = expr(A,FullMap,#bind{type=number,default=?nav}),
     #bind{type=number,btree={Op,CMapA}};
@@ -920,8 +959,13 @@ expr({'regexp_like',Str,Pat,<<>>}, FullMap, _) ->
     CMapA = expr(Str,FullMap,#bind{type=binstr,default=?nav}),
     CMapB = expr(Pat,FullMap,#bind{type=binstr,default=?nav}),
     #bind{type=boolean,btree={'is_regexp_like', CMapA, CMapB}};
-expr(RawExpr, _FullMap0, _Type) ->
-    ?UnimplementedException({"Unsupported sql expression", RawExpr}).
+expr({list,L},FullMap,BT) when is_list(L) -> 
+    CMapL = [expr(A,FullMap,BT) || A <- L],
+    #bind{type=list,btree={list,CMapL}};
+expr(RawExpr, _FullMap0, _Type) when is_tuple(RawExpr) ->
+    ?UnimplementedException({"Unsupported sql expression", RawExpr});
+expr(Val,_,_) -> 
+    Val.
 
 default_to_number(#bind{type=datetime}=BT) -> BT;
 default_to_number(#bind{type=timestamp}=BT) -> BT;

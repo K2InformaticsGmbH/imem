@@ -110,10 +110,10 @@ has_key(Key,DataObject) ->
 
 %% @doc Erlang term ordered list of keys used by data object
 -spec keys(data_object()) -> list().
-keys(DataObject) when is_list(DataObject) -> 
-    lists:sort(proplists:get_keys(DataObject));
+keys(DataObject) when is_list(DataObject) ->
+    [K || {K,_} <- DataObject];                 % lists:sort(proplists:get_keys(DataObject));
 keys(DataObject) when is_map(DataObject) -> 
-    lists:sort(maps:keys(DataObject));
+    maps:keys(DataObject);                      % lists:sort(
 keys(DataObject) -> 
     keys(decode(DataObject)).
 
@@ -1017,11 +1017,11 @@ has_key_test_() ->
         , {"json_fail",?_assert(not has_key(<<"sname">>,?TEST_JSON))}]}.
 
 keys_test_() ->
-    Keys = lists:sort([<<"surname">>,<<"name">>,<<"foo">>
-                       ,<<"earthling">>,<<"age">>,<<"empty">>]),
+    Keys = [<<"surname">>,<<"name">>,<<"foo">>
+                       ,<<"earthling">>,<<"age">>,<<"empty">>], % lists:sort
     {inparallel
      , [{"proplist", ?_assertEqual(Keys,keys(?TEST_PROP))}
-        , {"map", ?_assertEqual(Keys,keys(?TEST_MAP))}
+        , {"map", ?_assertEqual(lists:sort(Keys),lists:sort(keys(?TEST_MAP)))}
         , {"json", ?_assertEqual(Keys,keys(?TEST_JSON))}]}.
 
 map_map_test_() -> 

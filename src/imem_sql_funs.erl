@@ -4,12 +4,13 @@
 -include("imem_sql.hrl").
 
 -define( FilterFuns, 
-            [ safe, concat, is_nav 
+            [ list, safe, concat, is_nav 
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_term, to_binterm, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime
+            , json_to_list, json_arr_proj, json_obj_proj
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap
             , '[]', '{}', ':', '#keys', '#values', '::'
             ]).
@@ -70,11 +71,19 @@
         , remap/3
         ]).
 
+-export([ '#keys'/1
+        , '#values'/1
+        , json_to_list/1
+        , json_arr_proj/2
+        , json_obj_proj/2
+        ]).
+
 
 filter_funs() -> ?FilterFuns.
 
 unary_fun_bind_type(B) when is_binary(B) ->     unary_fun_bind_type(binary_to_list(B));
 unary_fun_bind_type([$t,$o,$_|_]) ->            #bind{type=binstr,default= <<>>};
+unary_fun_bind_type([$#,_]) ->                  #bind{type=json,default= <<>>};     % #keys, #values for now
 unary_fun_bind_type("is_integer") ->            #bind{type=integer,default=?nav};
 unary_fun_bind_type("is_float") ->              #bind{type=float,default=?nav};
 unary_fun_bind_type("is_boolean") ->            #bind{type=boolean,default=?nav};
@@ -98,10 +107,12 @@ unary_fun_bind_type("tuple_size") ->            #bind{type=tuple,default=undefin
 unary_fun_bind_type("byte_size") ->             #bind{type=binary,default= <<>>};
 unary_fun_bind_type("bit_size") ->              #bind{type=binary,default= <<>>};
 unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
+unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
 unary_fun_result_type([$i,$s,$_|_]) ->          #bind{type=boolean,default=?nav};
+unary_fun_result_type([$#,_]) ->                #bind{type=list,default= []};     % #keys, #values for now
 unary_fun_result_type("hd") ->                  #bind{type=term,default=undefined};
 unary_fun_result_type("last") ->                #bind{type=term,default=undefined};
 unary_fun_result_type("tl") ->                  #bind{type=list,default=[]};
@@ -115,6 +126,7 @@ unary_fun_result_type("byte_size") ->           #bind{type=integer,default=?nav}
 unary_fun_result_type("bit_size") ->            #bind{type=integer,default=?nav};
 unary_fun_result_type("from_decimal") ->        #bind{type=float,default=?nav};
 unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
+unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
@@ -138,6 +150,8 @@ binary_fun_bind_type1("is_like") ->             #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("is_regexp_like") ->      #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("to_decimal") ->          #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("from_decimal") ->        #bind{type=decimal,default=?nav};
+binary_fun_bind_type1("json_arr_proj") ->       #bind{type=list,default=[]};
+binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_bind_type2(B) when is_binary(B) ->   binary_fun_bind_type2(binary_to_list(B));
@@ -147,6 +161,8 @@ binary_fun_bind_type2("is_like") ->             #bind{type=binstr,default=?nav};
 binary_fun_bind_type2("is_regexp_like") ->      #bind{type=binstr,default=?nav};
 binary_fun_bind_type2("to_decimal") ->          #bind{type=integer,default=0};
 binary_fun_bind_type2("from_decimal") ->        #bind{type=integer,default=0};
+binary_fun_bind_type2("json_arr_proj") ->       #bind{type=list,default=[]};
+binary_fun_bind_type2("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_result_type(B) when is_binary(B) ->  binary_fun_result_type(binary_to_list(B));
@@ -156,6 +172,8 @@ binary_fun_result_type("is_like") ->            #bind{type=boolean,default=?nav}
 binary_fun_result_type("is_regexp_like") ->     #bind{type=boolean,default=?nav};
 binary_fun_result_type("to_decimal") ->         #bind{type=decimal,default=?nav};
 binary_fun_result_type("from_decimal") ->       #bind{type=float,default=?nav};
+binary_fun_result_type("json_arr_proj") ->      #bind{type=list,default=[]};
+binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 
 re_compile(?nav) -> ?nav;
@@ -221,6 +239,9 @@ filter_fun(FTree) ->
 
 %% Constant tuple expressions
 expr_fun({const, A}) when is_tuple(A) -> A;
+%% create a list
+expr_fun({list, L}) when is_list(L) -> 
+    [expr_fun(E) || E <- L];
 %% Select field Expression header
 expr_fun(#bind{tind=0,cind=0,btree=BTree}) -> expr_fun(BTree);
 %% Comparison expressions
@@ -313,12 +334,16 @@ expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term';
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp' ->
     unary_fun({Op, A});
+expr_fun({Op, A}) when Op=='#keys';Op=='#values';Op=='json_to_list'->
+    unary_json_fun({Op, A});
 expr_fun({Op, A}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
 %% Binary custom filters
 expr_fun({Op, A, B}) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element';Op=='concat' ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts' ->
+    binary_fun({Op, A, B});
+expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj' ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
@@ -591,6 +616,27 @@ to_timestamp(T) when is_tuple(T) ->  T.
 
 from_binterm(B)  ->                  imem_datatype:binterm_to_term(B).
 
+unary_json_fun({_, {const,A}}) when is_tuple(A) ->
+    ?nav;
+unary_json_fun({Op, A}) ->
+    unary_json_fun_final( {Op, expr_fun(A)});
+unary_json_fun(Value) -> Value.
+
+unary_json_fun_final({Op, A}) -> 
+    case bind_action(A) of 
+        false ->        mod_op_1(?MODULE,Op,A);
+        true ->         fun(X) -> Ab=A(X),mod_op_1(?MODULE,Op,Ab) end;
+        ABind ->        fun(X) -> Ab=?BoundVal(ABind,X),mod_op_1(?MODULE,Op,Ab) end
+    end.
+
+'#keys'(O) when is_list(O);is_map(O);is_binary(O) -> imem_json:keys(O);
+'#keys'(_) -> ?nav.
+
+'#values'(O) when is_list(O);is_map(O);is_binary(O) -> imem_json:values(O);
+'#values'(_) -> ?nav.
+
+json_to_list(O) when is_list(O);is_map(O);is_binary(O) -> imem_json:to_proplist(O).
+
 binary_fun({Op, {const,A}, {const,B}}) when is_tuple(A), is_tuple(B) ->
     binary_fun_final({Op, A, B});
 binary_fun({Op, {const,A}, B}) when is_tuple(A) ->
@@ -647,7 +693,7 @@ binary_fun_final({'is_regexp_like', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat' ->
+binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj' ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -670,6 +716,36 @@ add_ts(TS, Offset) when is_tuple(TS),is_number(Offset) ->
 
 concat(A, B) when is_list(A),is_list(B) -> A ++ B;
 concat(A, B) when is_binary(A),is_binary(B) -> <<A/binary,B/binary>>.
+
+json_arr_proj(A, B) when is_list(B) ->
+    L = json_to_list(A),
+    [safe_nth(I,L) || I <- B];
+json_arr_proj(A, B) ->
+    L = json_to_list(A),
+    F = json_to_list(B),
+    [safe_nth(I,L) || I <- F].
+
+safe_nth(I,A) ->
+    L=length(A),
+    if 
+        I < 1 ->    ?nav;
+        I > L ->    ?nav;
+        true ->     lists:nth(I,A)
+    end.
+
+json_obj_proj(A, B) when is_list(B) ->
+    L = json_to_list(A),
+    [safe_property(Name,L) || Name <- B];
+json_obj_proj(A, B) ->
+    L = json_to_list(A),
+    F = json_to_list(B),
+    [safe_property(Name,L) || Name <- F].
+
+safe_property(Name,A) ->
+    case lists:keyfind(Name, 1, A) of
+        {_, Value} ->   {Name,Value};
+        _ ->            {Name,?nav}
+    end.
 
 diff_dt(A,B) when is_tuple(A),is_tuple(B) -> 
     (calendar:datetime_to_gregorian_seconds(A)-calendar:datetime_to_gregorian_seconds(B))/86400.0.
@@ -949,6 +1025,13 @@ test_with_or_without_sec(IsSec) ->
         F4 = expr_fun({'is_member', {'+',B1c,1}, B2}),
         ?assertEqual(true, F4({{1,2,[3,4,5]},{2,2,2}})),        
         ?assertEqual(false,F4({{1,2,[c,4,d]},{2,2,2}})),        
+
+        ?assertEqual([],json_arr_proj([a1,a2,a3,a4,a5], [])),
+        ?assertEqual([a3,a5],json_arr_proj([a1,a2,a3,a4,a5], [3,5])),
+        ?assertEqual([a1,?nav],json_arr_proj([a1,a2,a3,a4,a5], [1,6])),
+        ?assertEqual([a1,?nav],json_arr_proj([a1,a2,a3,a4,a5], [1,?nav])),
+        ?assertEqual([?nav],json_arr_proj([a1,a2,a3,a4,a5], [6])),
+        ?assertEqual([3,5],json_arr_proj(<<"[1,2,3,4,5]">>, [3,5])),
 
         ?assert(true)
     catch

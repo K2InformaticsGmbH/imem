@@ -72,6 +72,12 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(BINSTR(__M), list_to_binary(integer_to_list(__M))).
+-define(TEST_JSON(__N), begin __B = ?BINSTR(__N), <<"{\"name\":\"John",__B/binary,"\",\"age\":",__B/binary,",\"empty\":null}">> end).
+-define(TEST_JSON_LIST(__E), list_to_binary(lists:flatten([$[,[case NN of __E -> integer_to_list(NN); _ -> integer_to_list(NN) ++ [$,] end || NN <- lists:seq(1,__E)],$]]))).
+-define(TEST_JSON_STR_LIST(__E), list_to_binary(lists:flatten([$[,[case NN of __E -> [34,$a] ++ integer_to_list(NN) ++ [34]; _ -> [34,$a] ++ integer_to_list(NN) ++ [34,$,] end || NN <- lists:seq(1,__E)],$]]))).
+
+
 if_call_mfa(IsSec,Fun,Args) ->
     case IsSec of
         true -> apply(imem_sec,Fun,Args);
@@ -183,12 +189,156 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey,
             "create table def (
                 col1 integer, 
-                col2 varchar2(20), 
+                col2 varchar2(2000), 
                 col3 date,
                 col4 ipaddr,
                 col5 tuple
             );", 0, [{schema,imem}], IsSec)),
 
+
+
+        ?LogDebug("Test json(3) :~n~p~n", [?TEST_JSON(3)]),
+
+        ?assertEqual(ok, insert_json(SKey, 3, def, imem, IsSec)),
+        ?LogDebug("Test table def :~n~p~n", [imem_meta:read(def)]),
+
+        exec_fetch_sort_equal(SKey, query9a, 100, IsSec, "
+            select col2 
+            from def
+            "
+            ,
+            [{<<"{\"name\":\"John1\",\"age\":1,\"empty\":null}">>}
+            ,{<<"{\"name\":\"John2\",\"age\":2,\"empty\":null}">>}
+            ,{<<"{\"name\":\"John3\",\"age\":3,\"empty\":null}">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query9b, 100, IsSec, "
+            select col2#keys 
+            from def
+            "
+            ,
+            [{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query9c, 100, IsSec, "
+            select col2#values 
+            from def
+            "
+            ,
+            [{<<"[<<\"John1\">>,1,null]">>}
+            ,{<<"[<<\"John2\">>,2,null]">>}
+            ,{<<"[<<\"John3\">>,3,null]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query9d, 100, IsSec, "
+            select col2{} 
+            from def
+            "
+            ,
+            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"age\">>,1},{<<\"empty\">>,null}]">>}
+            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"age\">>,2},{<<\"empty\">>,null}]">>}
+            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"age\">>,3},{<<\"empty\">>,null}]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query9e, 100, IsSec, "
+            select col2{name,age} 
+            from def
+            "
+            ,
+            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"age\">>,1}]">>}
+            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"age\">>,2}]">>}
+            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"age\">>,3}]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query9f, 100, IsSec, "
+            select col2{name,noattr} 
+            from def
+            "
+            ,
+            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
+            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
+            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
+            ]
+        ),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "truncate table def;", 0, [{schema,imem}], IsSec)),
+        ?assertEqual(ok, insert_json_int_list(SKey, 5, def, imem, IsSec)),
+        ?assertEqual(ok, insert_json_str_list(SKey, 2, def, imem, IsSec)),
+        ?LogDebug("Test table def :~n~p~n", [imem_meta:read(def)]),
+
+        exec_fetch_sort_equal(SKey, query10a, 100, IsSec, "
+            select col2[] 
+            from def
+            "
+            ,
+            [{<<"[<<\"a1\">>]">>}
+            ,{<<"[<<\"a1\">>,<<\"a2\">>]">>}
+            ,{<<"[1,2,3]">>}
+            ,{<<"[1,2,3,4]">>}
+            ,{<<"[1,2,3,4,5]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query10b, 100, IsSec, "
+            select is_list(col2[]) 
+            from def
+            "
+            ,
+            [{<<"true">>}
+            ,{<<"true">>}
+            ,{<<"true">>}
+            ,{<<"true">>}
+            ,{<<"true">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query10c, 100, IsSec, "
+            select col2[1,3] 
+            from def
+            "
+            ,
+            [{<<"[<<\"a1\">>,'$not_a_value']">>}
+            ,{<<"[<<\"a1\">>,'$not_a_value']">>}
+            ,{<<"[1,3]">>}
+            ,{<<"[1,3]">>}
+            ,{<<"[1,3]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query10d, 100, IsSec, "
+            select col2[0] 
+            from def
+            "
+            ,
+            [{<<"['$not_a_value']">>}
+            ,{<<"['$not_a_value']">>}
+            ,{<<"['$not_a_value']">>}
+            ,{<<"['$not_a_value']">>}
+            ,{<<"['$not_a_value']">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query10e, 100, IsSec, "
+            select col1 
+            from def
+            where col2[1,3] = to_list('[1,3]')
+            "
+            ,
+            [{<<"3">>}
+            ,{<<"4">>}
+            ,{<<"5">>}
+            ]
+        ),
+
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "truncate table def;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
 
         {L0, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
@@ -1593,7 +1743,6 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, [{schema,imem}], IsSec)),
-
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema,imem}], IsSec)),
 
         case IsSec of
@@ -1608,6 +1757,27 @@ test_with_or_without_sec(IsSec) ->
             ?assert( true == "all tests completed")
     end,
     ok.     
+
+insert_json(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
+insert_json(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
+    if_call_mfa(IsSec, write,[SKey,Table,
+        {Table,N,?TEST_JSON(N),calendar:local_time(),{10,132,7,N},{list_to_atom("Atom" ++ integer_to_list(N)),N}}
+    ]),
+    insert_json(SKey, N-1, Table, Schema, IsSec).
+
+insert_json_int_list(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
+insert_json_int_list(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
+    if_call_mfa(IsSec, write,[SKey,Table,
+        {Table,N,?TEST_JSON_LIST(N),calendar:local_time(),{10,132,7,N},{list_to_atom("Atom" ++ integer_to_list(N)),N}}
+    ]),
+    insert_json_int_list(SKey, N-1, Table, Schema, IsSec).
+
+insert_json_str_list(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
+insert_json_str_list(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
+    if_call_mfa(IsSec, write,[SKey,Table,
+        {Table,N,?TEST_JSON_STR_LIST(N),calendar:local_time(),{10,132,7,N},{list_to_atom("Atom" ++ integer_to_list(N)),N}}
+    ]),
+    insert_json_str_list(SKey, N-1, Table, Schema, IsSec).
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
