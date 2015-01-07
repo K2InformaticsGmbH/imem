@@ -96,6 +96,9 @@
 -export([ field_pick/2
         ]).
 
+-export([ epmd_register/0
+        ]).
+
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
@@ -957,6 +960,31 @@ get_vm_memory() ->
             };
         Unknown ->
 		       {Unknown, 0}
+    end.
+
+% @doc reregisters an disconnected node back to epmd. Requires the node to be
+% initially started with '-proto_dist imem_inet_tcp' as command line option and
+% there is a running instance of epmd process in the local system. If
+% unsuccessful {error, Reason} is returned. This function never generates any
+% exception.
+-spec epmd_register() -> ok | {error, Reason :: any()}.
+epmd_register() ->
+    try
+        {Node,{Ip,Port},Host} = imem_inet_tcp_dist:reg_info(),
+        NodeName = atom_to_list(Node),
+        case erl_epmd:names() of
+            {error, address} -> {error, epmd_not_started};
+            {ok, RegisteredNodes} ->
+                case proplists:get_value(NodeName, RegisteredNodes) of
+                    undefined ->
+                        {ok, _} = erl_epmd:register_node(Node, Port),
+                        ok;
+                    OldPort ->
+                        {error, {already_registered, OldPort}}
+                end
+        end
+    catch
+        _:Reason -> {error, Reason}
     end.
 
 %% ----- Private functions ------------------------------------
