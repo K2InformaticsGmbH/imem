@@ -973,7 +973,16 @@ epmd_register() ->
         {Node,{Ip,Port},Host} = imem_inet_tcp_dist:reg_info(),
         NodeName = atom_to_list(Node),
         case erl_epmd:names() of
-            {error, address} -> {error, epmd_not_started};
+            {error, address} ->
+                spawn(
+                  fun() ->
+                          open_port({spawn_executable,
+                                     os:find_executable("epmd")},
+                                    [{args, ["-daemon"]}])
+                  end),
+                ?Info("Started epmd, retrying after 1s"),
+                timer:sleep(1000),
+                epmd_register();
             {ok, RegisteredNodes} ->
                 case proplists:get_value(NodeName, RegisteredNodes) of
                     undefined ->
