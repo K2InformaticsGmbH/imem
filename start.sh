@@ -60,18 +60,18 @@ imem_opts=$imem_opts" erl_cluster_mgrs [$cms]"
 imem_opts=$imem_opts" mnesia_schema_name imem"
 imem_opts=$imem_opts" tcp_port 8125"
 
+# Proto dist module
+dist_opts="-proto_dist"
+dist_opts=$dist_opts" imem_inet_tcp"
+
 # Kernel Opts
 kernel_opts="-kernel"
 kernel_opts=$kernel_opts" inet_dist_listen_min 7000"
 kernel_opts=$kernel_opts" inet_dist_listen_max 7020"
 
-# Proto dist module
-dist_opts="-proto_dist"
-dist_opts=$dist_opts" imem_inet_tcp"
-
 start_opts="$os_env $node_name $cookie $paths $dist_opts $kernel_opts $imem_opts"
 
-# MPRO start options
+# IMEM start options
 echo "------------------------------------------"
 echo "Starting IMEM (Opts)"
 echo "------------------------------------------"
@@ -79,8 +79,8 @@ echo "Node Name : $node_name"
 echo "Cookie    : $cookie"
 echo "EBIN Path : $paths"
 echo "IMEM      : $imem_opts"
-echo "Kernel    : $kernel_opts"
 echo "Dist      : $dist_opts"
+echo "Kernel    : $kernel_opts"
 echo "OS Env    : $os_env"
 echo "------------------------------------------"
 
