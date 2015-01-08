@@ -210,13 +210,13 @@ transform_like(S, Esc) ->
 
 re_match(?nav, _) -> ?nav;
 re_match(_, ?nav) -> ?nav;
-re_match(RE, S) when is_list(S);is_binary(S) ->
+re_match(RE, S) when is_binary(S) ->
     case re:run(S, RE) of
         nomatch ->  false;
         _ ->        true
     end;
 re_match(RE, S) ->
-    case re:run(io_lib:format("~p", [S]), RE) of
+    case re:run(lists:flatten(io_lib:format("~p", [S])), RE) of
         nomatch ->  false;
         _ ->        true
     end.
