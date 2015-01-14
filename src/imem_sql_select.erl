@@ -31,7 +31,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
-    % ?Debug("Statement columns: (~p)~n~p~n", [StmtCols]),
+    % ?Info("Statement columns: (~p)~n~p~n", [StmtCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
     % ?LogDebug("WhereParseTree~n~p~n", [WPTree]),
     WBTree0 = case WPTree of

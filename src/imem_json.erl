@@ -759,10 +759,10 @@ clean_null_values(DataObject) when is_map(DataObject) ->
 clean_null_values(DataObject) ->
     encode(clean_null_values(decode(DataObject))).
 
-%% @doc recursively replaces propertie names matching 'inline_*' pattern in
-%% Root object which with corresponding bind from Binds lists and returns the
-%% fully expanded object.
-%% New Root is re-scanned after each replacement untill new head doesn't change
+%% @doc recursively replaces property names matching 'inline_*' pattern in
+%% Root (json object) which corresponding bind from Binds lists and returns the
+%% fully expanded object. Used for default lookup and hierarchical overrrides.
+%% New Root is re-scanned after each replacement until new head doesn't change
 %% anymore. Return types are preserved to type of input Root parameter.
 -spec expand_inline(Root :: data_object(),
                     Binds :: [{any(), data_object()}]) -> data_object().
