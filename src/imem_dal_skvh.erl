@@ -484,7 +484,6 @@ read_shallow(User, Channel, [Key | Keys]) ->
                 length(CK) == KeyLen]
     ++ read_shallow(User, Channel, Keys).
 
-% imem_dal_skvh:read_deep(system, <<"tpac">>, [["0728896850","ipcon","0728896884"]]).
 read_deep(_User, _Channel, []) -> [];
 read_deep(User, Channel, [Key | Keys]) ->
     StartKey = term_key_to_binterm(Key),
