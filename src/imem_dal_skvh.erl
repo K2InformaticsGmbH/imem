@@ -481,7 +481,7 @@ delete(User, Cmd, SkvhCtx, [Key|Keys], Acc)  ->
 read_siblings(_User, _Channel, []) -> [];
 read_siblings(User, Channel, [Key | Keys]) ->
     [_|ParentKeyRev] = lists:reverse(binterm_to_term_key(Key)),
-    read_shallow(User, Channel, [lists:reverse(ParentKeyRev])
+    read_shallow(User, Channel, [lists:reverse(ParentKeyRev)])
     ++ read_siblings(User, Channel, Keys).
 
 read_shallow(_User, _Channel, []) -> [];
