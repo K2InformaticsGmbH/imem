@@ -97,6 +97,7 @@
         , update/3          %% (user, Channel, ChangeList)          update a list of resources, it will fail if the old value was modified by someone else
         , update/4          %% (User, Channel, OldRow, NewRow)      update a resource, it will fail if the old value was modified, rows should be in map format
         , read/3            %% (User, Channel, KeyList)             return empty Arraylist if none of these resources exists, the list is returning as a map
+        , read_siblings/3   %% (User, Channel, KeyList)             return list of maps
         , read_shallow/3    %% (User, Channel, KeyList)             return list of maps
         , read_deep/3       %% (User, Channel, KeyList)             return empty Arraylist if none of these resources exists, the list is returning as a map
         , read/4            %% (User, Channel, Item, KeyTable)      return empty Arraylist if none of these resources exists
@@ -476,6 +477,12 @@ delete(User, Cmd, SkvhCtx, [Key|Keys], Acc)  ->
 			end
 	end,
 	delete(User, Cmd, SkvhCtx, Keys, [term_hash_to_io(Hash)|Acc]).
+
+read_siblings(_User, _Channel, []) -> [];
+read_siblings(User, Channel, [Key | Keys]) ->
+    [_|ParentKeyRev] = lists:reverse(binterm_to_term_key(Key)),
+    read_shallow(User, Channel, [lists:reverse(ParentKeyRev])
+    ++ read_siblings(User, Channel, Keys).
 
 read_shallow(_User, _Channel, []) -> [];
 read_shallow(User, Channel, [Key | Keys]) ->
