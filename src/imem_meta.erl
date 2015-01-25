@@ -638,7 +638,9 @@ column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) 
 column_infos({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
     case lists:member(TableAlias, ?DataTypes) of
         true -> 
-            [#ddColumn{name=item, type=TableAlias, len=0, prec=0, default=undefined}];
+            [#ddColumn{name=item, type=TableAlias, len=0, prec=0, default=undefined}
+            ,#ddColumn{name=itemkey, type=binstr, len=0, prec=0, default=undefined}
+            ];
         false ->
             case imem_if:read(ddTable,{Schema, physical_table_name(TableAlias)}) of
                 [] ->                       ?ClientError({"Table does not exist",{Schema,TableAlias}}); 

@@ -782,11 +782,14 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
                     end
             end;
         {B,Tbind} when Tbind==#bind{} ->    %% assume binstr, use to_<datatype>() to override
+            % ?Info("~p guessing for ~p -> ~p ~p",[undefined,B,binstr,nowrap]),
             #bind{tind=0,cind=0,type=binstr,default= <<>>,readonly=true,btree=imem_sql:un_escape_sql(B)};
         {B,#bind{type=binstr}} ->           %% just take the literal value from SQL text
+            % ?Info("~p guessing for ~p -> ~p ~p",[binstr,B,binstr,nowrap]),
             #bind{tind=0,cind=0,type=binstr,default= <<>>,readonly=true,btree=imem_sql:un_escape_sql(B)};
         {B,#bind{type=T,len=L,prec=P,default=D,tag=Tag}} ->     %% best effort conversion to proposed type
             {_,ValWrap,Type,Prec} = imem_datatype:field_value_type(Tag,T,L,P,D,imem_sql:un_escape_sql(B)),
+            % ?Info("~p guessing for ~p -> ~p ~p",[T,B,Type,ValWrap]),
             #bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}
     end;
 expr({param,Name}, FullMap, _) when is_binary(Name) -> 
@@ -927,10 +930,16 @@ expr({Op, A, B}, FullMap, _) when Op=='and';Op=='or' ->
 expr({'between', A, Low, High}, FullMap, BT) ->
     expr({'and', {'>=',A,Low}, {'<=',A,High}}, FullMap, BT);
 expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op=='<>' ->
-    CMapA = expr(A,FullMap,#bind{type=binstr}),
-    CMapB = expr(B,FullMap,#bind{type=binstr}),
-    % ?LogDebug("Comparison ~p CMapA~n~p~n", [Op,CMapA]),
-    % ?LogDebug("Comparison ~p CMapB~n~p~n", [Op,CMapB]),
+    CMapA = case expr(A,FullMap,#bind{type=binstr}) of
+        % #bind{btree={from_binterm,_}} = CMA ->  CMA#bind{tind=-1,type=term};
+        CMA0 ->                                 CMA0
+    end, 
+    CMapB = case expr(B,FullMap,#bind{type=binstr}) of
+        % #bind{btree={from_binterm,_}} = CMB ->  CMB#bind{tind=-1,type=term};
+        CMB0 ->                                 CMB0
+    end,         
+    % ?Info("Comparison ~p CMapA~n~p~n", [Op,CMapA]),
+    % ?Info("Comparison ~p CMapB~n~p~n", [Op,CMapB]),
     BTree = case {CMapA#bind.tind, CMapB#bind.tind} of
         {0,0} -> 
             case CMapA#bind.type > CMapB#bind.type of    
@@ -1246,7 +1255,7 @@ filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
 %     {'in',qname3_to_binstr({S,T,N}),{'list',Values}}.
 
 filter_name_value(F,Idx,Val,ColMap) ->
-    ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
+    % ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
     #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,alias=A,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
     Tag = "Col" ++ integer_to_list(Idx),
     Name = case {Ti,Ci} of

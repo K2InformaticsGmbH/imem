@@ -787,8 +787,8 @@ json_value(A, [[{_,_}|_]|_]=L) when is_binary(A) -> % pick value of attribute A 
     [safe_value(A,B) || B <- L];
 json_value(A, [#{}|_]=L) when is_binary(A) ->       % pick value of attribute A in array of objects L
     [safe_value(A,B) || B <- L];
-json_value(Name, PL)  ->    
-    ?Info("JSON attribute ~p not found in ~p",[Name,PL]),
+json_value(_Name, _PL)  ->    
+    % ?Info("JSON attribute ~p not found in ~p",[_Name,_PL]),
     ?nav.
 
 safe_value(Name,M) when is_map(M) -> 
@@ -800,7 +800,7 @@ safe_value(Name,PL) ->
     case lists:keyfind(Name, 1, PL) of
         {_, Value} ->   Value;
         _ ->            
-            ?Info("Unsafe JSON attribute ~p in ~p",[Name,PL]),
+            % ?Info("Unsafe JSON attribute ~p in ~p",[Name,PL]),
             ?nav
     end.
 
