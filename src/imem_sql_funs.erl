@@ -1110,7 +1110,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([a3,a5],json_arr_proj([a1,a2,a3,a4,a5], [3,5])),
         ?assertEqual([a1,?nav],json_arr_proj([a1,a2,a3,a4,a5], [1,6])),
         ?assertEqual([a1,?nav],json_arr_proj([a1,a2,a3,a4,a5], [1,?nav])),
-        ?assertEqual([?nav],json_arr_proj([a1,a2,a3,a4,a5], [6])),
+        ?assertEqual(?nav,json_arr_proj([a1,a2,a3,a4,a5], [6])),
         ?assertEqual([3,5],json_arr_proj(<<"[1,2,3,4,5]">>, [3,5])),
 
         ?assert(true)

@@ -1224,18 +1224,31 @@ teardown(_SKey) ->
     ?LogDebug("test teardown....~n",[]),
     ?imem_test_teardown.
 
+
 db_test_() ->
-    {timeout, 20000, 
-        {
-            setup,
-            fun setup/0,
-            fun teardown/1,
-            {with, [
-                  fun test_without_sec/1
-                , fun test_with_sec/1
-            ]}
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with,inorder,[
+              fun test_without_sec/1
+            , fun test_with_sec/1
+        ]
         }
     }.
+
+% db_test_() ->
+%     {timeout, 20000, 
+%         {
+%             setup,
+%             fun setup/0,
+%             fun teardown/1,
+%             {with, [
+%                   fun test_without_sec/1
+%                 , fun test_with_sec/1
+%             ]}
+%         }
+%     }.
     
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
@@ -1828,19 +1841,19 @@ test_with_or_without_sec(IsSec) ->
             Expected8b = "select col1 c1, col2 from def where col1 < '4' order by col1 asc",
             ?assertEqual(Expected8b, string:strip(binary_to_list(Sql8b))),
 
-            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
+            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"$in$">>,<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?LogDebug("Sql8c ~p~n", [Sql8c]),
             Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
-            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
+            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
             ?LogDebug("Sql8d ~p~n", [Sql8d]),
             Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(binary_to_list(Sql8d))),
 
-            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
+            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]},{2,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?LogDebug("Sql8e ~p~n", [Sql8e]),
             Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",

@@ -220,10 +220,14 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
-            ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
-            ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            [{<<"[\"name\",\"age\",\"empty\"]">>}
+            ,{<<"[\"name\",\"age\",\"empty\"]">>}
+            ,{<<"[\"name\",\"age\",\"empty\"]">>}
             ]
+            % [{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            % ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            % ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            % ]
         ),
 
         exec_fetch_sort_equal(SKey, query9c, 100, IsSec, "
@@ -231,9 +235,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"John1\">>,1,null]">>}
-            ,{<<"[<<\"John2\">>,2,null]">>}
-            ,{<<"[<<\"John3\">>,3,null]">>}
+            [{<<"[\"John1\",1,null]">>}
+            ,{<<"[\"John2\",2,null]">>}
+            ,{<<"[\"John3\",3,null]">>}
             ]
         ),
 
@@ -242,9 +246,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"age\">>,1},{<<\"empty\">>,null}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"age\">>,2},{<<\"empty\">>,null}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"age\">>,3},{<<\"empty\">>,null}]">>}
+            [{<<"{\"name\":\"John1\",\"age\":1,\"empty\":null}">>}
+            ,{<<"{\"name\":\"John2\",\"age\":2,\"empty\":null}">>}
+            ,{<<"{\"name\":\"John3\",\"age\":3,\"empty\":null}">>}
             ]
         ),
 
@@ -253,9 +257,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"age\">>,1}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"age\">>,2}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"age\">>,3}]">>}
+            [{<<"{\"name\":\"John1\",\"age\":1}">>}
+            ,{<<"{\"name\":\"John2\",\"age\":2}">>}
+            ,{<<"{\"name\":\"John3\",\"age\":3}">>}
             ]
         ),
 
@@ -264,9 +268,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
+            [{<<"{\"name\":\"John1\",\"noattr\":\"$not_a_value\"}">>}
+            ,{<<"{\"name\":\"John2\",\"noattr\":\"$not_a_value\"}">>}
+            ,{<<"{\"name\":\"John3\",\"noattr\":\"$not_a_value\"}">>}
             ]
         ),
 
@@ -280,8 +284,8 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"a1\">>]">>}
-            ,{<<"[<<\"a1\">>,<<\"a2\">>]">>}
+            [{<<"[\"a1\"]">>}
+            ,{<<"[\"a1\",\"a2\"]">>}
             ,{<<"[1,2,3]">>}
             ,{<<"[1,2,3,4]">>}
             ,{<<"[1,2,3,4,5]">>}
@@ -306,8 +310,8 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"a1\">>,'$not_a_value']">>}
-            ,{<<"[<<\"a1\">>,'$not_a_value']">>}
+            [{<<"[\"a1\",\"$not_a_value\"]">>}
+            ,{<<"[\"a1\",\"$not_a_value\"]">>}
             ,{<<"[1,3]">>}
             ,{<<"[1,3]">>}
             ,{<<"[1,3]">>}
@@ -319,11 +323,11 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
+            [{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
             ]
         ),
 
