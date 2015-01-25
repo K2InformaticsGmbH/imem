@@ -1157,6 +1157,13 @@ db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
             (Type == userid) andalso is_atom(Val) ->        atom_to_io(Val);
             (Type == userid) ->                             userid_to_io(Val);
             (Type == binterm) andalso is_binary(Val) ->     binterm_to_io(Val);
+            (Type == json) andalso is_binary(Val) ->        Val;
+            (Type == json) andalso is_integer(Val) ->       integer_to_io(Val);
+            (Type == json) andalso is_float(Val) ->         float_to_io(Val,Prec,NumFmt);
+            (Type == json) andalso is_boolean(Val) ->       boolean_to_io(Val);
+            (Type == json) andalso (Val==null) ->           atom_to_io(Val);
+            (Type == json) andalso is_map(Val) ->           imem_json:encode(Val);
+            (Type == json) andalso is_list(Val) ->          imem_json:encode(Val);
             true -> term_to_io(Val)
         end
     catch

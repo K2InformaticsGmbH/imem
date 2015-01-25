@@ -249,33 +249,33 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From
     % ?LogDebug("FullMap~n~p~n", [FullMap]),
     Reply = try
         NewSortFun = imem_sql_expr:sort_spec_fun(SortSpec, FullMap, ColMap),
-        % ?LogDebug("NewSortFun ~p~n", [NewSortFun]),
+        % ?Info("NewSortFun ~p~n", [NewSortFun]),
         OrderBy = imem_sql_expr:sort_spec_order(SortSpec, FullMap, ColMap),
-        % ?LogDebug("OrderBy ~p~n", [OrderBy]),
+        % ?Info("OrderBy ~p~n", [OrderBy]),
         Filter =  imem_sql_expr:filter_spec_where(FilterSpec, ColMap, WhereTree),
-        % ?LogDebug("Filter ~p~n", [Filter]),
+        % ?Info("Filter ~p~n", [Filter]),
         Cols1 = case Cols0 of
             [] ->   lists:seq(1,length(ColMap));
             _ ->    Cols0
         end,
         AllFields = imem_sql_expr:column_map_items(ColMap, ptree),
-        % ?LogDebug("AllFields ~p~n", [AllFields]),
+        % ?Info("AllFields ~p~n", [AllFields]),
         NewFields =  [lists:nth(N,AllFields) || N <- Cols1],
-        % ?LogDebug("NewFields ~p~n", [NewFields]),
+        % ?Info("NewFields ~p~n", [NewFields]),
         NewSections0 = lists:keyreplace('fields', 1, SelectSections, {'fields',NewFields}),
         NewSections1 = lists:keyreplace('where', 1, NewSections0, {'where',Filter}),
-        % ?LogDebug("NewSections1~n~p~n", [NewSections1]),
+        % ?Info("NewSections1~n~p~n", [NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
-        % ?LogDebug("NewSections2~n~p~n", [NewSections2]),
+        % ?Info("NewSections2~n~p~n", [NewSections2]),
         NewSql = sqlparse:pt_to_string({select,NewSections2}),     % sql_box:flat_from_pt({select,NewSections2}),
-        % ?LogDebug("NewSql~n~p~n", [NewSql]),
+        % ?Info("NewSql~n~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
     catch
         _:Reason ->
             imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{filter_spec,FilterSpec},{sort_spec,SortSpec},{cols,Cols0}],"filter_and_sort error"),
             {error,Reason}
     end,
-    % ?Debug("replace_sort result ~p~n", [Reply]),
+    % ?LogDebug("replace_sort result ~p~n", [Reply]),
     imem_meta:log_slow_process(?MODULE,filter_and_sort,STT,100,4000,[{table,hd(Stmt#statement.tables)},{filter_spec,FilterSpec},{sort_spec,SortSpec}]),    
     {reply, Reply, State};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=FetchCtx0}=State) ->
@@ -750,13 +750,13 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
 
 join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     % ?LogDebug("Virtual join scan spec unbound (~p)~n~p~n", [Ti,SSpec0]),
-    {SSpec1,_TailSpec,_FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
+    {SSpec1,_TailSpec,FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
     [{_,[SGuard1],_}] = SSpec1,
     % ?LogDebug("Virtual join table (~p) ~p~n", [Ti,Table]),
     % ?LogDebug("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
     % ?LogDebug("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
-    case SGuard1 of
+    Recs = case SGuard1 of
         false ->
             [];
         true ->
@@ -772,8 +772,24 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
             Virt = generate_virtual(Table,Items,MaxSize),
             % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
             [setelement(Ti, Rec, {Table,I}) || I <- Virt];
+        {'and',{is_member,Tag, '$_'},_} when is_atom(Tag) ->
+            Items = element(?MainIdx,Rec),
+            % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+            Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
+            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            [setelement(Ti, Rec, {Table,I}) || I <- Virt];
+        {'and',{is_member,Tag, Items},_} when is_atom(Tag) ->
+            % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
+            Virt = generate_virtual(Table,Items,MaxSize),
+            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            [setelement(Ti, Rec, {Table,I}) || I <- Virt];
         BadFG ->
             ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
+    end,
+    case FilterFun of
+        true ->     Recs;
+        false ->    [];
+        Filter ->   lists:filter(Filter,Recs)
     end.
 
 generate_virtual(Table, {const,Items}, MaxSize) when is_tuple(Items) ->
@@ -858,6 +874,13 @@ generate_virtual(ipaddr, {A,B,C,D}=Item, _) when is_integer(A), is_integer(B), i
 generate_virtual(ipaddr, _, _) -> [];      %% ToDo: IpV6
 
 generate_virtual(list=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
+    Items;
+
+generate_virtual(json=Table, Items, MaxSize) when is_binary(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
+    [imem_json:to_proplist(I) || I <- Items];
+generate_virtual(json=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Items;
 
