@@ -97,6 +97,9 @@
         , update/3          %% (user, Channel, ChangeList)          update a list of resources, it will fail if the old value was modified by someone else
         , update/4          %% (User, Channel, OldRow, NewRow)      update a resource, it will fail if the old value was modified, rows should be in map format
         , read/3            %% (User, Channel, KeyList)             return empty Arraylist if none of these resources exists, the list is returning as a map
+        , read_siblings/3   %% (User, Channel, KeyList)             return list of maps
+        , read_shallow/3    %% (User, Channel, KeyList)             return list of maps
+        , read_deep/3       %% (User, Channel, KeyList)             return empty Arraylist if none of these resources exists, the list is returning as a map
         , read/4            %% (User, Channel, Item, KeyTable)      return empty Arraylist if none of these resources exists
         , readGELT/5        %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, result as map, fails if more than L rows
         , readGELT/6        %% (User, Channel, Item, CKey1, CKey2, L)   from key at or after CKey1 to last key before CKey2, fails if more than L rows
@@ -119,7 +122,7 @@
 -spec expand_inline_key(User :: any(), Channel :: binary(), Key :: any()) ->
     Json :: binary().
 expand_inline_key(User, Channel, Key) ->
-    case imem_dal_skvh:read(User, Channel, [Key]) of
+    case read(User, Channel, [Key]) of
         [] -> [];
         [#{cvalue := Json}] -> expand_inline(User, Channel, Json)
     end.
@@ -136,9 +139,8 @@ expand_inline(User, Channel, Json) when is_map(Json) ->
               case re:run(K, "^inline_*") of
                   nomatch -> Acc;
                   _ ->
-                      case imem_dal_skvh:read(
-                             User, Channel,
-                             [imem_json_data:to_strbinterm(V)]) of
+                      case read(User, Channel,
+                                [imem_json_data:to_strbinterm(V)]) of
                           [] -> Acc;
                           [#{cvalue := BVal}] -> [{V, BVal} | Acc]
                       end
@@ -320,6 +322,11 @@ io_to_integer(Key) when is_binary(Key) ->	imem_datatype:io_to_integer(Key,0,0).
 
 io_value_to_term(V) when is_binary(V) -> 		V.	%% ToDo: Maybe convert to map datatype when available
 
+binterm_to_term_key(MaybeDecodedKey) when is_binary(MaybeDecodedKey) ->
+    imem_datatype:binterm_to_term(MaybeDecodedKey);
+binterm_to_term_key(MaybeDecodedKey) when is_list(MaybeDecodedKey) ->
+    MaybeDecodedKey.
+
 term_key_to_binterm(MaybeEncodedKey) when is_binary(MaybeEncodedKey) ->
     try
         imem_datatype:binterm_to_term(MaybeEncodedKey),
@@ -470,6 +477,33 @@ delete(User, Cmd, SkvhCtx, [Key|Keys], Acc)  ->
 			end
 	end,
 	delete(User, Cmd, SkvhCtx, Keys, [term_hash_to_io(Hash)|Acc]).
+
+read_siblings(_User, _Channel, []) -> [];
+read_siblings(User, Channel, [Key | Keys]) ->
+    [_|ParentKeyRev] = lists:reverse(binterm_to_term_key(Key)),
+    read_shallow(User, Channel, [lists:reverse(ParentKeyRev)])
+    ++ read_siblings(User, Channel, Keys).
+
+read_shallow(_User, _Channel, []) -> [];
+read_shallow(User, Channel, [Key | Keys]) ->
+    KeyLen = length(binterm_to_term_key(Key)) + 1,
+    [SkvhRow || #{ckey := CK} = SkvhRow <- read_deep(User, Channel, [Key]),
+                length(CK) == KeyLen]
+    ++ read_shallow(User, Channel, Keys).
+
+read_deep(_User, _Channel, []) -> [];
+read_deep(User, Channel, [Key | Keys]) ->
+    StartKey = term_key_to_binterm(Key),
+    EndKey = term_key_to_binterm(binterm_to_term_key(Key)
+                                 ++ [<<255>>]),
+    TableName = atom_table_name(Channel),
+    {SkvhRows, true} = imem_meta:select(
+                         TableName,
+                         [{#skvhTable{ckey='$1', cvalue = '$2', chash = '$3'},
+                           [{'andalso',{'>','$1',StartKey},{'<','$1',EndKey}}],
+                           ['$_']}]),
+    [skvh_rec_to_map(SkvhRow) || SkvhRow <- SkvhRows]
+    ++ read_deep(User, Channel, Keys).
 
 %% Raw data access per key (read, insert, remove)
 read(_User, _Channel, []) -> [];

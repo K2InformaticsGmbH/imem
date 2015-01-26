@@ -638,7 +638,9 @@ column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) 
 column_infos({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
     case lists:member(TableAlias, ?DataTypes) of
         true -> 
-            [#ddColumn{name=item, type=TableAlias, len=0, prec=0, default=undefined}];
+            [#ddColumn{name=item, type=TableAlias, len=0, prec=0, default=undefined}
+            ,#ddColumn{name=itemkey, type=binstr, len=0, prec=0, default=undefined}
+            ];
         false ->
             case imem_if:read(ddTable,{Schema, physical_table_name(TableAlias)}) of
                 [] ->                       ?ClientError({"Table does not exist",{Schema,TableAlias}}); 
@@ -1457,32 +1459,33 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
     case TableAliasRev of
         [$@|_] ->       
             case string:tokens(TableAliasRev, "_") of
-                [[$@|RN]|_] ->      % timestamp sharded node sharded partitions 
+                [[$@|RN]|_] ->                          % possibly time sharded node sharded partitions 
                     try 
                         _ = list_to_integer(lists:reverse(RN)),
                         {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
                         Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
                         lists:filter(Pred,tables_starting_with(BaseName))
                     catch
-                        _:_ -> tables_starting_with(TableAlias)
+                        _:_ -> tables_starting_with(TableAlias) % node sharded table only
                     end;
-                 _ ->               % node sharded table only   
-                    tables_starting_with(TableAlias)
+                 _ ->               
+                    tables_starting_with(TableAlias)            % node sharded table only
             end;
         [$_,$@|_] ->    
             case string:tokens(tl(TableAliasRev), "_") of
-                [[$@|RN]|_] ->      % timestamp sharded cluster table 
+                [[$@|RN]|_] when length(RN) >= 10 ->      
+                     [list_to_atom(TableAlias)];                % timestamp sharded cluster table
+                [[$@|RN]|_] ->                                  % timestamp sharded cluster alias 
                     try 
                         _ = list_to_integer(lists:reverse(RN)),
                         {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
                         Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
                         lists:filter(Pred,tables_starting_with(BaseName))
                     catch
-                        _:_ -> tables_starting_with(TableAlias)
+                        _:_ -> [list_to_atom(TableAlias)]       % plain table name, not time sharded
                     end;
                  _ ->   
-                    % node sharded tables only   
-                    tables_starting_with(TableAlias)
+                    [list_to_atom(TableAlias)]                  % plain table name, not time sharded
             end;
         _ ->
             [list_to_atom(TableAlias)]

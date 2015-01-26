@@ -249,33 +249,33 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From
     % ?LogDebug("FullMap~n~p~n", [FullMap]),
     Reply = try
         NewSortFun = imem_sql_expr:sort_spec_fun(SortSpec, FullMap, ColMap),
-        % ?LogDebug("NewSortFun ~p~n", [NewSortFun]),
+        % ?Info("NewSortFun ~p~n", [NewSortFun]),
         OrderBy = imem_sql_expr:sort_spec_order(SortSpec, FullMap, ColMap),
-        % ?LogDebug("OrderBy ~p~n", [OrderBy]),
+        % ?Info("OrderBy ~p~n", [OrderBy]),
         Filter =  imem_sql_expr:filter_spec_where(FilterSpec, ColMap, WhereTree),
-        % ?LogDebug("Filter ~p~n", [Filter]),
+        % ?Info("Filter ~p~n", [Filter]),
         Cols1 = case Cols0 of
             [] ->   lists:seq(1,length(ColMap));
             _ ->    Cols0
         end,
         AllFields = imem_sql_expr:column_map_items(ColMap, ptree),
-        % ?LogDebug("AllFields ~p~n", [AllFields]),
+        % ?Info("AllFields ~p~n", [AllFields]),
         NewFields =  [lists:nth(N,AllFields) || N <- Cols1],
-        % ?LogDebug("NewFields ~p~n", [NewFields]),
+        % ?Info("NewFields ~p~n", [NewFields]),
         NewSections0 = lists:keyreplace('fields', 1, SelectSections, {'fields',NewFields}),
         NewSections1 = lists:keyreplace('where', 1, NewSections0, {'where',Filter}),
-        % ?LogDebug("NewSections1~n~p~n", [NewSections1]),
+        % ?Info("NewSections1~n~p~n", [NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
-        % ?LogDebug("NewSections2~n~p~n", [NewSections2]),
+        % ?Info("NewSections2~n~p~n", [NewSections2]),
         NewSql = sqlparse:pt_to_string({select,NewSections2}),     % sql_box:flat_from_pt({select,NewSections2}),
-        % ?LogDebug("NewSql~n~p~n", [NewSql]),
+        % ?Info("NewSql~n~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
     catch
         _:Reason ->
             imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{filter_spec,FilterSpec},{sort_spec,SortSpec},{cols,Cols0}],"filter_and_sort error"),
             {error,Reason}
     end,
-    % ?Debug("replace_sort result ~p~n", [Reply]),
+    % ?LogDebug("replace_sort result ~p~n", [Reply]),
     imem_meta:log_slow_process(?MODULE,filter_and_sort,STT,100,4000,[{table,hd(Stmt#statement.tables)},{filter_spec,FilterSpec},{sort_spec,SortSpec}]),    
     {reply, Reply, State};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=FetchCtx0}=State) ->
@@ -750,13 +750,13 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
 
 join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     % ?LogDebug("Virtual join scan spec unbound (~p)~n~p~n", [Ti,SSpec0]),
-    {SSpec1,_TailSpec,_FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
+    {SSpec1,_TailSpec,FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
     [{_,[SGuard1],_}] = SSpec1,
     % ?LogDebug("Virtual join table (~p) ~p~n", [Ti,Table]),
     % ?LogDebug("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
     % ?LogDebug("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
-    case SGuard1 of
+    Recs = case SGuard1 of
         false ->
             [];
         true ->
@@ -766,16 +766,34 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
             % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
             Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
             % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I}) || I <- Virt];
+            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
         {is_member,Tag, Items} when is_atom(Tag) ->
             % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
             Virt = generate_virtual(Table,Items,MaxSize),
             % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I}) || I <- Virt];
+            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
+        {'and',{is_member,Tag, '$_'},_} when is_atom(Tag) ->
+            Items = element(?MainIdx,Rec),
+            % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+            Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
+            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
+        {'and',{is_member,Tag, Items},_} when is_atom(Tag) ->
+            % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
+            Virt = generate_virtual(Table,Items,MaxSize),
+            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
         BadFG ->
             ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
+    end,
+    case FilterFun of
+        true ->     Recs;
+        false ->    [];
+        Filter ->   lists:filter(Filter,Recs)
     end.
 
+generate_virtual(Table, {list,Items}, MaxSize)  ->
+    generate_virtual(Table, Items, MaxSize);
 generate_virtual(Table, {const,Items}, MaxSize) when is_tuple(Items) ->
     generate_virtual(Table, tuple_to_list(Items), MaxSize);
 generate_virtual(Table, Items, MaxSize) when is_tuple(Items) ->
@@ -784,28 +802,28 @@ generate_virtual(Table, Items, MaxSize) when is_tuple(Items) ->
 generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_atom(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(atom, Item, _) when is_atom(Item)-> [Item];
+    [{I,imem_datatype:atom_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(atom, I, _) when is_atom(I)-> [{I,imem_datatype:atom_to_io(I)}];
 generate_virtual(atom, _, _) -> [];
 
 generate_virtual(binary=Table, Items, MaxSize) when is_binary(Items) ->
     generate_limit_check(Table, byte_size(Items), MaxSize),
-    [list_to_binary([B]) || B <- binary_to_list(Items)];
+    [{list_to_binary([I]),list_to_binary([I])} || I <- binary_to_list(Items)];
 generate_virtual(binary, _, _) -> [];
 
 generate_virtual(binstr=Table, Items, MaxSize) when is_binary(Items) ->
     generate_limit_check(Table, byte_size(Items), MaxSize),
     String = binary_to_list(Items),
     case io_lib:printable_unicode_list(String) of
-        true ->     String;
+        true ->     [{S,<<S>>} || S <- String];
         false ->    []
     end;
 
 generate_virtual(boolean=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_boolean(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(boolean, Item, _) when is_boolean(Item)-> [Item];
+    [{I,imem_datatype:boolean_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(boolean, I, _) when is_boolean(I)-> [{I,imem_datatype:boolean_to_io(I)}];
 generate_virtual(boolean, _, _) -> [];
 
 generate_virtual(datetime=Table, Items, MaxSize) when is_list(Items) ->
@@ -814,37 +832,37 @@ generate_virtual(datetime=Table, Items, MaxSize) when is_list(Items) ->
         ({{_,_,_},{_,_,_}}) -> true;
         (_) -> false
     end,
-    lists:filter(Pred,Items);
-generate_virtual(datetime, {{_,_,_},{_,_,_}}=Item, _) -> 
-    [Item];
+    [{I,imem_datatype:datetime_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(datetime, {{_,_,_},{_,_,_}}=I, _) -> 
+    [{I,imem_datatype:datetime_to_io(I)}];
 generate_virtual(datetime, _, _) -> [];
 
-generate_virtual(decimal=Table, Items, MaxSize) when is_list(Items) ->
+generate_virtual(decimal=Table, Items, MaxSize) when is_list(Items) ->  % TODO: check function
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(decimal, Item, _) when is_integer(Item)-> [Item];
+    [{I,imem_datatype:integer_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(decimal, I, _) when is_integer(I)-> [{I,imem_datatype:integer_to_io(I)}];
 generate_virtual(decimal, _, _) -> [];
 
 generate_virtual(float=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_float(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(float, Item, _) when is_float(Item)-> [Item];
+    [{I,imem_datatype:float_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(float, I, _) when is_float(I)-> [{I,imem_datatype:float_to_io(I)}];
 generate_virtual(float, _, _) -> [];
 
 generate_virtual('fun'=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_function(X) end,
-    lists:filter(Pred,Items);
-generate_virtual('fun', Item, _) when is_function(Item)-> [Item];
+    [{I,imem_datatype:fun_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual('fun', I, _) when is_function(I)-> [{I,imem_datatype:fun_to_io(I)}];
 generate_virtual('fun', _, _) -> [];
 
 generate_virtual(integer=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(integer, Item, _) when is_integer(Item)-> [Item];
+    [{I,imem_datatype:integer_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(integer, I, _) when is_integer(I)-> [{I,imem_datatype:integer_to_io(I)}];
 generate_virtual(integer, _, _) -> [];
 
 generate_virtual(ipaddr=Table, Items, MaxSize) when is_list(Items) ->
@@ -853,13 +871,24 @@ generate_virtual(ipaddr=Table, Items, MaxSize) when is_list(Items) ->
         ({A,B,C,D}) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> true;
         (_) -> false
     end,                                %% ToDo: IpV6
-    lists:filter(Pred,Items);
-generate_virtual(ipaddr, {A,B,C,D}=Item, _) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> [Item];
+    [{I,imem_datatype:ipaddr_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(ipaddr, {A,B,C,D}=I, _) when is_integer(A), is_integer(B), is_integer(C), is_integer(D) -> [{I,imem_datatype:ipaddr_to_io(I)}];
 generate_virtual(ipaddr, _, _) -> [];      %% ToDo: IpV6
 
 generate_virtual(list=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
-    Items;
+    [{I,imem_datatype:term_to_io(I)} || I <- Items];
+
+generate_virtual(json=Table, Items, MaxSize) when is_binary(Items) ->
+    generate_virtual(json=Table, imem_json:to_proplist(Items), MaxSize);
+generate_virtual(json=Table, Items, MaxSize) ->
+    generate_limit_check(Table, length(Items), MaxSize),
+    case Items of
+        [] ->                       [];
+        [{_,_}|_] = PL ->           [{V,K} || {K,V} <- PL];
+        Arr when is_list(Arr) ->    [{I,imem_datatype:term_to_io(I)} || I <- Arr];
+        _ ->                        []
+    end;
 
 generate_virtual(timestamp=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
@@ -867,51 +896,52 @@ generate_virtual(timestamp=Table, Items, MaxSize) when is_list(Items) ->
         ({Meg,Sec,Mic}) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> true;
         (_) -> false
     end,
-    lists:filter(Pred,Items);
-generate_virtual(timestamp, {Meg,Sec,Mic}=Item, _) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> 
-    [Item];
+    [{I,imem_datatype:timestamp_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(timestamp, {Meg,Sec,Mic}=I, _) when is_number(Meg), is_integer(Sec), is_integer(Mic) -> 
+    [{I,imem_datatype:integer_to_io(I)}];
 generate_virtual(timestamp, _, _) -> [];
 
 generate_virtual(tuple=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_tuple(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(tuple, Item, _) when is_tuple(Item)-> [Item];
+    [{I,imem_datatype:tuple_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(tuple, I, _) when is_tuple(I)-> [{I,imem_datatype:tuple_to_io(I)}];
 generate_virtual(tuple, _, _) -> [];
 
 generate_virtual(pid=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_pid(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(pid, Item, _) when is_pid(Item)-> [Item];
+    [{I,imem_datatype:pid_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(pid, I, _) when is_pid(I)-> [{I,imem_datatype:pid_to_io(I)}];
 generate_virtual(pid, _, _) -> [];
 
 generate_virtual(ref=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_reference(X) end,
-    lists:filter(Pred,Items);
-generate_virtual(ref, Item, _) when is_reference(Item)-> [Item];
+    [{I,imem_datatype:ref_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(ref, I, _) when is_reference(I)-> [{I,imem_datatype:ref_to_io(I)}];
 generate_virtual(ref, _, _) -> [];
 
 generate_virtual(string=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     case io_lib:printable_unicode_list(Items) of
-        true ->     Items;
+        true ->     [{I,imem_datatype:integer_to_io(I)} || I <- Items];
         false ->    []
     end;
 
 generate_virtual(term=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
-    Items;
-generate_virtual(term, Item, _) ->
-    [Item];
+    [{I,imem_datatype:term_to_io(I)} || I <- Items];
+generate_virtual(term, I, _) -> [{I,imem_datatype:term_to_io(I)}];
 
 generate_virtual(userid=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
-    lists:filter(Pred,Items);               %% ToDo: filter in imem_account
-generate_virtual(userid, Item, _) when is_integer(Item)-> 
-    [Item];                                 %% ToDo: filter in imem_account
+    [{I,imem_datatype:term_to_io(I)} || I <- lists:filter(Pred,Items)];  %% ToDo: filter in imem_account
+generate_virtual(userid, I, _) when is_integer(I)-> 
+    [{I,imem_datatype:integer_to_io(I)}];                                %% ToDo: filter in imem_account
+generate_virtual(userid, system, _) -> 
+    [{system,imem_datatype:atom_to_io(system)}];
 generate_virtual(userid, _, _) -> [];
 
 generate_virtual(Table, Items, _MaxSize) -> 
@@ -1201,18 +1231,31 @@ teardown(_SKey) ->
     ?LogDebug("test teardown....~n",[]),
     ?imem_test_teardown.
 
+
 db_test_() ->
-    {timeout, 20000, 
-        {
-            setup,
-            fun setup/0,
-            fun teardown/1,
-            {with, [
-                  fun test_without_sec/1
-                , fun test_with_sec/1
-            ]}
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with,inorder,[
+              fun test_without_sec/1
+            , fun test_with_sec/1
+        ]
         }
     }.
+
+% db_test_() ->
+%     {timeout, 20000, 
+%         {
+%             setup,
+%             fun setup/0,
+%             fun teardown/1,
+%             {with, [
+%                   fun test_without_sec/1
+%                 , fun test_with_sec/1
+%             ]}
+%         }
+%     }.
     
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
@@ -1805,19 +1848,19 @@ test_with_or_without_sec(IsSec) ->
             Expected8b = "select col1 c1, col2 from def where col1 < '4' order by col1 asc",
             ?assertEqual(Expected8b, string:strip(binary_to_list(Sql8b))),
 
-            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
+            {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"$in$">>,<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?LogDebug("Sql8c ~p~n", [Sql8c]),
             Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
-            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
+            {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
             ?LogDebug("Sql8d ~p~n", [Sql8d]),
             Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(binary_to_list(Sql8d))),
 
-            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"3">>]},{2,[<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
+            {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]},{2,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?LogDebug("Sql8e ~p~n", [Sql8e]),
             Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",

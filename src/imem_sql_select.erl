@@ -19,7 +19,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("Params: ~p~n", [Params]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
-    % ?LogDebug("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
+    % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
     Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
     % ?LogDebug("Tables: (~p)~n~p~n", [length(Tables),Tables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
@@ -31,7 +31,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
-    % ?Info("Statement columns: (~p)~n~p~n", [StmtCols]),
+    % ?Info("Statement columns: ~n~p~n", [StmtCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
     % ?LogDebug("WhereParseTree~n~p~n", [WPTree]),
     WBTree0 = case WPTree of
@@ -48,10 +48,12 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
+    % ?Info("ColMap1:~n~p~n", [ColMap1]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap1);
         str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
     end,
+    % ?Info("RowFun:~n~p~n", [RowFun]),
     SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap, ColMap1),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap, ColMap1),
     % ?LogDebug("SortSpec:~p~n", [SortSpec]),
@@ -218,10 +220,14 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
-            ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
-            ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            [{<<"[\"name\",\"age\",\"empty\"]">>}
+            ,{<<"[\"name\",\"age\",\"empty\"]">>}
+            ,{<<"[\"name\",\"age\",\"empty\"]">>}
             ]
+            % [{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            % ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            % ,{<<"[<<\"name\">>,<<\"age\">>,<<\"empty\">>]">>}
+            % ]
         ),
 
         exec_fetch_sort_equal(SKey, query9c, 100, IsSec, "
@@ -229,9 +235,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"John1\">>,1,null]">>}
-            ,{<<"[<<\"John2\">>,2,null]">>}
-            ,{<<"[<<\"John3\">>,3,null]">>}
+            [{<<"[\"John1\",1,null]">>}
+            ,{<<"[\"John2\",2,null]">>}
+            ,{<<"[\"John3\",3,null]">>}
             ]
         ),
 
@@ -240,9 +246,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"age\">>,1},{<<\"empty\">>,null}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"age\">>,2},{<<\"empty\">>,null}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"age\">>,3},{<<\"empty\">>,null}]">>}
+            [{<<"{\"name\":\"John1\",\"age\":1,\"empty\":null}">>}
+            ,{<<"{\"name\":\"John2\",\"age\":2,\"empty\":null}">>}
+            ,{<<"{\"name\":\"John3\",\"age\":3,\"empty\":null}">>}
             ]
         ),
 
@@ -251,9 +257,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"age\">>,1}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"age\">>,2}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"age\">>,3}]">>}
+            [{<<"{\"name\":\"John1\",\"age\":1}">>}
+            ,{<<"{\"name\":\"John2\",\"age\":2}">>}
+            ,{<<"{\"name\":\"John3\",\"age\":3}">>}
             ]
         ),
 
@@ -262,9 +268,9 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[{<<\"name\">>,<<\"John1\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John2\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
-            ,{<<"[{<<\"name\">>,<<\"John3\">>},{<<\"noattr\">>,'$not_a_value'}]">>}
+            [{<<"{\"name\":\"John1\",\"noattr\":\"$not_a_value\"}">>}
+            ,{<<"{\"name\":\"John2\",\"noattr\":\"$not_a_value\"}">>}
+            ,{<<"{\"name\":\"John3\",\"noattr\":\"$not_a_value\"}">>}
             ]
         ),
 
@@ -278,8 +284,8 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"a1\">>]">>}
-            ,{<<"[<<\"a1\">>,<<\"a2\">>]">>}
+            [{<<"[\"a1\"]">>}
+            ,{<<"[\"a1\",\"a2\"]">>}
             ,{<<"[1,2,3]">>}
             ,{<<"[1,2,3,4]">>}
             ,{<<"[1,2,3,4,5]">>}
@@ -304,8 +310,8 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"[<<\"a1\">>,'$not_a_value']">>}
-            ,{<<"[<<\"a1\">>,'$not_a_value']">>}
+            [{<<"[\"a1\",\"$not_a_value\"]">>}
+            ,{<<"[\"a1\",\"$not_a_value\"]">>}
             ,{<<"[1,3]">>}
             ,{<<"[1,3]">>}
             ,{<<"[1,3]">>}
@@ -317,11 +323,11 @@ test_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
-            ,{<<"['$not_a_value']">>}
+            [{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
+            ,{<<"'$not_a_value'">>}
             ]
         ),
 

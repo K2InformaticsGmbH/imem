@@ -201,6 +201,7 @@
 				  , timestamp
 				  , tuple
 				  , userid
+				  , json
 				  ]).
 
 -define(NumberTypes,[ decimal
