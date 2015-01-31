@@ -823,9 +823,11 @@ expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) ->
 expr({'||',A,B}, FullMap, _) -> 
     CMapA = expr(A,FullMap,#bind{type=binstr}),
     CMapB = expr(B,FullMap,#bind{type=binstr}),
-    % ?LogDebug("Concatenation CMapA~n~p~n", [CMapA]),
-    % ?LogDebug("Concatenation CMapB~n~p~n", [CMapB]),
     expr_concat(CMapA, CMapB);
+expr({'fun',<<"is_prefix">>,[A,B]}, FullMap, _) -> 
+    CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
+    CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
+    #bind{type=boolean,btree={'and',{'>=',CMapB,CMapA},{'<',CMapB,#bind{type=list,btree={prefix_ul,CMapA}}}}};
 expr({'fun',Fname,[A,B]}, FullMap, _) -> 
     CMapA = case imem_sql_funs:binary_fun_bind_type1(Fname) of
         undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
@@ -991,15 +993,21 @@ default_to_number(#bind{type=datetime}=BT) -> BT;
 default_to_number(#bind{type=timestamp}=BT) -> BT;
 default_to_number(_) -> #bind{type=number,default=?nav}.
 
+expr_concat(#bind{type=TA}=CMapA, #bind{type=TB}=CMapB) when TA==json;TB==json ->
+    #bind{type=json,btree={'concat',{'json_to_list',CMapA},{'json_to_list',CMapB}}};
 expr_concat(#bind{type=T}=CMapA, #bind{type=T}=CMapB) ->
     #bind{type=T,btree={'concat',CMapA,CMapB}};
-expr_concat(#bind{type=list}=CMapA, #bind{type=string}=CMapB) ->
+expr_concat(#bind{type=list}=CMapA, #bind{type=TB}=CMapB) when TB==string;TB==term ->
     #bind{type=list,btree={'concat',CMapA,CMapB}};
-expr_concat(#bind{type=string}=CMapA, #bind{type=list}=CMapB) ->
+expr_concat(#bind{type=TA}=CMapA, #bind{type=list}=CMapB)  when TA==string;TA==term ->
     #bind{type=list,btree={'concat',CMapA,CMapB}};
-expr_concat(CMapA, #bind{type=TB}=CMapB) when TB==list;TB==string ->
+expr_concat(#bind{type=TA}=CMapA, #bind{type=binstr}=CMapB) when TA==list;TA==term ->
+    #bind{type=list,btree={'concat',CMapA,{'to_list',CMapB}}};
+expr_concat(#bind{type=binstr}=CMapA, #bind{type=TB}=CMapB) when TB==list;TB==term ->
+    #bind{type=list,btree={'concat',{'to_list',CMapA},CMapB}};
+expr_concat(CMapA, #bind{type=TB}=CMapB) when TB==string ->
     #bind{type=TB,btree={'concat',{'to_string',CMapA},CMapB}};
-expr_concat(#bind{type=TA}=CMapA, CMapB) when TA==list;TA==string ->
+expr_concat(#bind{type=TA}=CMapA, CMapB) when TA==string ->
     #bind{type=TA,btree={'concat',CMapA,{'to_string',CMapB}}}.
 
 expr_math(Op, CMapA, CMapB, BT) ->

@@ -4,7 +4,7 @@
 -include("imem_sql.hrl").
 
 -define( FilterFuns, 
-            [ list, safe, concat, is_nav 
+            [ list, prefix_ul, safe, concat, is_nav 
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
@@ -69,6 +69,7 @@
         , from_decimal/2
         , from_binterm/1
         , is_member/2
+        , prefix_ul/1
         , remap/3
         ]).
 
@@ -111,6 +112,7 @@ unary_fun_bind_type("tuple_size") ->            #bind{type=tuple,default=undefin
 unary_fun_bind_type("byte_size") ->             #bind{type=binary,default= <<>>};
 unary_fun_bind_type("bit_size") ->              #bind{type=binary,default= <<>>};
 unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
+unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
@@ -130,6 +132,7 @@ unary_fun_result_type("byte_size") ->           #bind{type=integer,default=?nav}
 unary_fun_result_type("bit_size") ->            #bind{type=integer,default=?nav};
 unary_fun_result_type("from_decimal") ->        #bind{type=float,default=?nav};
 unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
+unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
@@ -335,11 +338,13 @@ expr_fun({'or', A, B}) ->
 %% Unary custom filters
 expr_fun({'safe', A}) ->
     safe_fun(A);
-expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='from_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
+expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_term';Op=='to_name';Op=='to_text';Op=='is_nav' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr' ->
+    unary_fun({Op, A});
+expr_fun({Op, A}) when Op=='from_binterm';Op=='prefix_ul' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op=='json_to_list'->
     unary_json_fun({Op, A});
@@ -565,11 +570,14 @@ to_text(T) when is_list(T) ->
 to_text(T) ->
     imem_datatype:term_to_io(T).
 
-to_tuple(B) when is_binary(B) -> imem_datatype:io_to_tuple(B,0).
+to_tuple(B) when is_binary(B) -> imem_datatype:io_to_tuple(B,0);
+to_tuple(T) when is_tuple(T) -> T.
 
-to_list(B) when is_binary(B) -> imem_datatype:io_to_list(B,0).
+to_list(B) when is_binary(B) -> imem_datatype:io_to_list(B,0);
+to_list(L) when is_list(L) -> L.
 
-to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B).
+to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
+to_term(T) -> T.
 
 to_existing_atom(A) when is_atom(A) -> A;
 to_existing_atom(B) when is_binary(B) -> ?binary_to_existing_atom(B);
@@ -626,6 +634,15 @@ to_ipaddr(L) when is_list(L) ->      imem_datatype:io_to_ipaddr(L);
 to_ipaddr(T) when is_tuple(T) ->     T.
 
 from_binterm(B)  ->                  imem_datatype:binterm_to_term(B).
+
+prefix_ul([A]) ->   [A|<<>>];
+prefix_ul([A,B]) ->   [A,B|<<>>];
+prefix_ul([A,B,C]) ->   [A,B,C|<<>>];
+prefix_ul([A,B,C,D]) ->   [A,B,C,D|<<>>];
+prefix_ul([A,B,C,D,E]) ->   [A,B,C,D,E|<<>>];
+prefix_ul([A,B,C,D,E,F]) ->   [A,B,C,D,E,F|<<>>];
+prefix_ul([A,B,C,D,E,F,G]) ->   [A,B,C,D,E,F,G|<<>>];
+prefix_ul([A,B,C,D,E,F,G,H]) ->   [A,B,C,D,E,F,G,H|<<>>].
 
 unary_json_fun({_, {const,A}}) when is_tuple(A) ->
     ?nav;
