@@ -1044,7 +1044,9 @@ io_to_term(Val) ->
     try
         erl_value(Val)
     catch
-        _:_ -> ?ClientError({})
+        _:_ -> 
+            ?LogDebug("Cannot convert this to erlang term: ~p", [Val]),
+            ?ClientError({})
     end.
 
 io_to_binterm(Val) ->

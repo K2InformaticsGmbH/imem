@@ -1729,7 +1729,7 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query8p, 100, IsSec, "
-            select to_text(to_list('[1,64,3]') || 'SomeText' || to_list('[7,64,9]'))
+            select to_text(to_list('[1,64,3]') || '\"SomeText\"' || to_list('[7,64,9]'))
             from member_test 
             where col1 = 1" 
             , 
@@ -1739,7 +1739,7 @@ test_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query8q, 100, IsSec, "
-            select to_text(to_list('[1,64,3]') || to_binstr(col1) || to_list('[7,64,9]'))
+            select to_text(to_list('[1,64,3]') || to_string(col1) || to_list('[7,64,9]'))
             from member_test 
             where col1 = 1" 
             , 
