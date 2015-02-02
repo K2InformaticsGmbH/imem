@@ -494,8 +494,7 @@ read_shallow(User, Channel, [Key | Keys]) ->
 read_deep(_User, _Channel, []) -> [];
 read_deep(User, Channel, [Key | Keys]) ->
     StartKey = term_key_to_binterm(Key),
-    EndKey = term_key_to_binterm(binterm_to_term_key(Key)
-                                 ++ [<<255>>]),
+    EndKey = term_key_to_binterm(binterm_to_term_key(Key) ++ <<255>>), % improper list [...|<<255>>]
     TableName = atom_table_name(Channel),
     {SkvhRows, true} = imem_meta:select(
                          TableName,

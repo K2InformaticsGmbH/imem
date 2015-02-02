@@ -48,8 +48,8 @@
 -spec bind_scan(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_scan(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?LogDebug("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?LogDebug("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
@@ -827,7 +827,10 @@ expr({'||',A,B}, FullMap, _) ->
 expr({'fun',<<"is_prefix">>,[A,B]}, FullMap, _) -> 
     CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
     CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
-    #bind{type=boolean,btree={'and',{'>=',CMapB,CMapA},{'<',CMapB,#bind{type=list,btree={prefix_ul,CMapA}}}}};
+    CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
+    CMpLow = expr_comp('>=',CMapB,CMapA),
+    CMpHigh = expr_comp('<',CMapB,CMapC),
+    #bind{type=boolean,btree={'and',CMpLow,CMpHigh}};
 expr({'fun',Fname,[A,B]}, FullMap, _) -> 
     CMapA = case imem_sql_funs:binary_fun_bind_type1(Fname) of
         undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
@@ -932,14 +935,8 @@ expr({Op, A, B}, FullMap, _) when Op=='and';Op=='or' ->
 expr({'between', A, Low, High}, FullMap, BT) ->
     expr({'and', {'>=',A,Low}, {'<=',A,High}}, FullMap, BT);
 expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op=='<>' ->
-    CMapA = case expr(A,FullMap,#bind{type=binstr}) of
-        % #bind{btree={from_binterm,_}} = CMA ->  CMA#bind{tind=-1,type=term};
-        CMA0 ->                                 CMA0
-    end, 
-    CMapB = case expr(B,FullMap,#bind{type=binstr}) of
-        % #bind{btree={from_binterm,_}} = CMB ->  CMB#bind{tind=-1,type=term};
-        CMB0 ->                                 CMB0
-    end,         
+    CMapA = expr(A,FullMap,#bind{type=binstr}), 
+    CMapB = expr(B,FullMap,#bind{type=binstr}),         
     % ?Info("Comparison ~p CMapA~n~p~n", [Op,CMapA]),
     % ?Info("Comparison ~p CMapB~n~p~n", [Op,CMapB]),
     BTree = case {CMapA#bind.tind, CMapB#bind.tind} of
@@ -1061,6 +1058,13 @@ expr_time(Op, CMapA, CMapB, BT) ->
 expr_comp('=', A, B) -> expr_comp('==', A, B);
 expr_comp('<>', A, B) -> expr_comp('/=', A, B);
 expr_comp('<=', A, B) -> expr_comp('=<', A, B);
+
+expr_comp(Op, #bind{type=term,btree={from_binterm,CMapA}},#bind{type=term,btree={from_binterm,CMapB}}) ->
+    {Op, CMapA, CMapB};                           
+expr_comp(Op, #bind{type=term,btree={from_binterm,CMapA}},#bind{btree=BTree}=CMapB) ->
+    {Op, CMapA, CMapB#bind{btree={to_binterm,BTree}}};                           
+expr_comp(Op, #bind{type=term,btree=BTree}=CMapA, #bind{type=term,btree={from_binterm,CMapB}}) ->
+    {Op, CMapA#bind{btree={to_binterm,BTree}}, CMapB};                           
 expr_comp(Op, #bind{type=T}=CMapA, #bind{type=T}=CMapB) ->
     {Op, CMapA, CMapB};                           %% equal types, direct comparison
 expr_comp(Op, #bind{type=binstr,btree=BTA}, #bind{type=string}=CMapB) ->

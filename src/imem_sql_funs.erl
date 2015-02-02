@@ -635,14 +635,7 @@ to_ipaddr(T) when is_tuple(T) ->     T.
 
 from_binterm(B)  ->                  imem_datatype:binterm_to_term(B).
 
-prefix_ul([A]) ->   [A|<<>>];
-prefix_ul([A,B]) ->   [A,B|<<>>];
-prefix_ul([A,B,C]) ->   [A,B,C|<<>>];
-prefix_ul([A,B,C,D]) ->   [A,B,C,D|<<>>];
-prefix_ul([A,B,C,D,E]) ->   [A,B,C,D,E|<<>>];
-prefix_ul([A,B,C,D,E,F]) ->   [A,B,C,D,E,F|<<>>];
-prefix_ul([A,B,C,D,E,F,G]) ->   [A,B,C,D,E,F,G|<<>>];
-prefix_ul([A,B,C,D,E,F,G,H]) ->   [A,B,C,D,E,F,G,H|<<>>].
+prefix_ul(L) when is_list(L) ->      L ++ <<255>>. % improper list [...|<<255>>]
 
 unary_json_fun({_, {const,A}}) when is_tuple(A) ->
     ?nav;
