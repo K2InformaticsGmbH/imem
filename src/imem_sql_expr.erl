@@ -831,6 +831,27 @@ expr({'fun',<<"is_prefix">>,[A,B]}, FullMap, _) ->
     CMpLow = expr_comp('>=',CMapB,CMapA),
     CMpHigh = expr_comp('<',CMapB,CMapC),
     #bind{type=boolean,btree={'and',CMpLow,CMpHigh}};
+expr({'fun',<<"is_true_prefix">>,[A,B]}, FullMap, _) -> 
+    CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
+    CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
+    CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
+    CMpLow = expr_comp('>',CMapB,CMapA),
+    CMpHigh = expr_comp('<',CMapB,CMapC),
+    #bind{type=boolean,btree={'and',CMpLow,CMpHigh}};
+expr({'fun',<<"is_prefix1">>,[A,B]}, FullMap, _) -> 
+    CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
+    CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
+    CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
+    CMpLow = expr_comp('>',CMapB,CMapA),
+    CMpHigh = expr_comp('<',CMapB,CMapC),
+    #bind{type=boolean,btree={'and',{'and',CMpLow,CMpHigh},{'==',{'length',CMapB},{'+',{'length',CMapA},1}}}};
+expr({'fun',<<"is_prefix2">>,[A,B]}, FullMap, _) -> 
+    CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
+    CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
+    CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
+    CMpLow = expr_comp('>',CMapB,CMapA),
+    CMpHigh = expr_comp('<',CMapB,CMapC),
+    #bind{type=boolean,btree={'and',{'and',CMpLow,CMpHigh},{'==',{'length',CMapB},{'+',{'length',CMapA},2}}}};
 expr({'fun',Fname,[A,B]}, FullMap, _) -> 
     CMapA = case imem_sql_funs:binary_fun_bind_type1(Fname) of
         undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
