@@ -95,7 +95,6 @@
         , insert/3          %% (User, Channel, MapList)             resources should not exist will be created, retrun list of maps with inserted rows
         , insert/4          %% (User, Channel, Key, Value)          resource should not exist will be created, return map with inserted row
         , update/3          %% (user, Channel, ChangeList)          update a list of resources, it will fail if the old value was modified by someone else
-        , update/4          %% (User, Channel, OldRow, NewRow)      update a resource, it will fail if the old value was modified, rows should be in map format
         , read/3            %% (User, Channel, KeyList)             return empty Arraylist if none of these resources exists, the list is returning as a map
         , read_siblings/3   %% (User, Channel, KeyList)             return list of maps
         , read_shallow/3    %% (User, Channel, KeyList)             return list of maps
@@ -531,20 +530,19 @@ insert_priv(_User, _Channel, []) -> [];
 insert_priv(User, Channel, [#{ckey := DecodedKey, cvalue := Value} | MapList]) ->
     [insert(User, Channel, DecodedKey, Value) | insert_priv(User, Channel, MapList)].
 
-update(User, Channel, #{} = OldMapRow, #{} = NewMapRow) ->
-    OldRow = map_to_skvh_rec(OldMapRow),
-    NewRow = map_to_skvh_rec(NewMapRow),
+update(User, Channel, RowMap) when is_map(RowMap) ->
+    NewRow = map_to_skvh_rec(RowMap),
+    OldRow = NewRow#skvhTable{cvalue = '_'},
     TableName = atom_table_name(Channel),
     UpdateResult = imem_meta:update(TableName, {OldRow, NewRow}, User),
-    skvh_rec_to_map(UpdateResult).
-
+    skvh_rec_to_map(UpdateResult);
 update(User, Channel, ChangeList) ->
     UpdateFun = fun() -> update_priv(User, Channel, ChangeList) end,
     imem_if:return_atomic_list(imem_meta:transaction(UpdateFun)).
 
 update_priv(_User, _Channel, []) -> [];
-update_priv(User, Channel, [{#{} = OldMapRow, #{} = NewMapRow} | ChangeList]) ->
-    [update(User, Channel, OldMapRow, NewMapRow) | update_priv(User, Channel, ChangeList)].
+update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
+    [update(User, Channel, NewRow) | update_priv(User, Channel, ChangeList)].
 
 remove(User, Channel, Rows) when is_list(Rows) ->
     RemoveFun = fun() -> remove_list(User, Channel, Rows) end,
