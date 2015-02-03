@@ -1080,6 +1080,14 @@ expr_comp('=', A, B) -> expr_comp('==', A, B);
 expr_comp('<>', A, B) -> expr_comp('/=', A, B);
 expr_comp('<=', A, B) -> expr_comp('=<', A, B);
 
+
+% expr_comp('==', #bind{type=TA,btree={'hd',CMapA}},CMapB) when TA==term;TA==list  ->
+%     CMapC = expr({'fun',<<"prefix_ul">>,[CMapA]},FullMap,#bind{type=list,default= ?nav}),
+%     CMpLow = expr_comp('>=',CMapB,CMapA),
+%     CMpHigh = expr_comp('<',CMapB,CMapC),
+%     {'and',CMpLow,CMpHigh};
+
+
 expr_comp(Op, #bind{type=term,btree={from_binterm,CMapA}},#bind{type=term,btree={from_binterm,CMapB}}) ->
     {Op, CMapA, CMapB};                           
 expr_comp(Op, #bind{type=term,btree={from_binterm,CMapA}},#bind{btree=BTree}=CMapB) ->
