@@ -2353,7 +2353,14 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
                                         end,
                                         Trigger(ORow,Row,TableAlias,User),
                                         Row;
-                    {update,_,R} ->     ?ConcurrencyException({"Data is modified by someone else", {PTN,R}});
+                    {update,_,[R]}->    case record_match(R,ORow) of
+                                            true -> 
+                                                write(PTN, Row),
+                                                Trigger(R,Row,TableAlias,User),
+                                                Row;
+                                            false ->   
+                                                ?ConcurrencyException({"Data is modified by someone else", {PTN,R}})
+                                        end;
                     {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", TableAlias});
                     {merge,_,[]} ->     write(PTN, Row),
                                         Trigger({},Row,TableAlias,User),
@@ -2372,7 +2379,15 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
                     {remove,_,[ORow]}-> delete(TableAlias, Key),
                                         Trigger(ORow,{},TableAlias,User),
                                         ORow;
-                    {remove,_,R} ->     ?ConcurrencyException({"Data is modified by someone else", {PTN,R}})
+                    {remove,_,[R]}->    case record_match(R,ORow) of
+                                            true -> 
+                                                delete(TableAlias, Key),
+                                                Trigger(R,{},TableAlias,User),
+                                                R;
+                                            false ->   
+                                                ?ConcurrencyException({"Data is modified by someone else", {PTN,R}})
+                                        end;
+                    {Op,Type,R} ->      ?SystemException({"Unexpected result in row modify", {PTN,{Op,Type,R}}})
                 end
             end,
             return_atomic(transaction(Trans));
@@ -2380,6 +2395,14 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
             ?ClientError({"Not null constraint violation", {TableAlias,Row}})
     end.
 
+record_match(Rec,Pattern) when is_tuple(Rec), is_tuple(Pattern), size(Rec)==size(Pattern) ->
+    list_match(tuple_to_list(Rec),tuple_to_list(Pattern));
+record_match(_,_) -> false. 
+
+list_match([],[]) -> true;
+list_match([A|List],[A|Pat]) -> list_match(List,Pat);
+list_match([_|List],['_'|Pat]) -> list_match(List,Pat);
+list_match(_,_) -> false.
 
 delete({_Schema,TableAlias}, Key) ->
     delete(TableAlias, Key);             %% ToDo: may depend on schema

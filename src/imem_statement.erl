@@ -1038,6 +1038,15 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [
                             end 
                         end,     
                         {Cx,Pos,Fx};
+                    {from_binterm,#bind{tind=?MainIdx,cind=Cx,type=Type}} ->
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case imem_datatype:io_to_db(Item,OldVal,Type,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal ->   ?replace(X,Cx,NewVal)
+                            end
+                        end,     
+                        {Cx,0,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
                 end;
             #bind{tind=0,cind=0} ->  
