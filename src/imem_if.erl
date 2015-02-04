@@ -327,6 +327,7 @@ check_table_columns(Table, ColumnNames) ->
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
 create_table(Table, ColumnNames, Opts) ->
+    % ?LogDebug("imem_if create table ~p ~p",[Table,Opts]),
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
     if

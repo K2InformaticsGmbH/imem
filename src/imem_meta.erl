@@ -345,7 +345,6 @@ init_create_or_replace_index(TableName,IndexDefinition) when is_list(IndexDefini
 init(_Args) ->
     Result = try
         application:set_env(imem, node_shard, node_shard()),
-
         init_create_table(ddAlias, {record_info(fields, ddAlias),?ddAlias,#ddAlias{}}, ?DD_ALIAS_OPTS, system),         %% may not be able to register in ddTable
         init_create_table(?CACHE_TABLE, {record_info(fields, ddCache), ?ddCache, #ddCache{}}, ?DD_CACHE_OPTS, system),  %% may not be able to register in ddTable
         init_create_table(ddTable, {record_info(fields, ddTable),?ddTable,#ddTable{}}, ?DD_TABLE_OPTS, system),
@@ -677,7 +676,7 @@ create_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner)
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
     create_physical_table(TableAlias,ColumnInfos,Opts,Owner);
-create_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
+create_table(TableAlias, ColumnInfos, Opts, Owner) when is_list(ColumnInfos) ->  % [#ddColumn{}|_]=
     Conv = fun(X) ->
         case X#ddColumn.name of
             A when is_atom(A) -> X; 
@@ -714,30 +713,31 @@ create_sys_conf(Path) ->
 
 create_check_physical_table(TableAlias,ColumnInfos,Opts,Owner) when is_atom(TableAlias) ->
     create_check_physical_table({schema(),TableAlias},ColumnInfos,Opts,Owner);    
-create_check_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner) ->
+create_check_physical_table({Schema,TableAlias},ColumnInfos,Opts0,Owner) ->
     MySchema = schema(),
+    Opts1 = norm_opts(Opts0),
     case lists:member(Schema, [MySchema, ddSysConf]) of
         true ->
             PhysicalName=physical_table_name(TableAlias),
             case read(ddTable,{Schema,PhysicalName}) of 
                 [] ->
-                    create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner);
-                [#ddTable{opts=Opts,owner=Owner}] ->
-                    catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner),
+                    create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner);
+                [#ddTable{opts=Opts1,owner=Owner}] ->
+                    catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner),
                     ok;
                 [#ddTable{opts=Old,owner=Owner}] ->
                     OldOpts = lists:sort(lists:keydelete(purge_delay,1,Old)),
-                    NewOpts = lists:sort(lists:keydelete(purge_delay,1,Opts)),
+                    NewOpts = lists:sort(lists:keydelete(purge_delay,1,Opts1)),
                     case NewOpts of
                         OldOpts ->
-                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner),
+                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner),
                             ok;
                         _ ->
-                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner), 
+                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner), 
                             ?SystemException({"Wrong table options",{TableAlias,Old}})
                     end;        
                 [#ddTable{owner=Own}] ->
-                    catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner),
+                    catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner),
                     ?SystemException({"Wrong table owner",{TableAlias,Own}})        
             end;
         _ ->        
@@ -749,12 +749,11 @@ create_physical_table({Schema,TableAlias,_Alias},ColumnInfos,Opts,Owner) ->
 create_physical_table({Schema,TableAlias},ColumnInfos,Opts,Owner) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> create_physical_table(TableAlias,ColumnInfos,Opts,Owner);
-        ddSysConf -> create_table_sys_conf(TableAlias, ColumnInfos, Opts, Owner);
+        MySchema ->  create_physical_table(TableAlias,ColumnInfos,Opts,Owner);
+        ddSysConf -> create_table_sys_conf(TableAlias, ColumnInfos, norm_opts(Opts), Owner);
         _ ->    ?UnimplementedException({"Create table in foreign schema",{Schema,TableAlias}})
     end;
 create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
-    MySchema = schema(),
     case is_valid_table_name(TableAlias) of
         true ->     ok;
         false ->    ?ClientError({"Invalid character(s) in table name",TableAlias})
@@ -763,10 +762,26 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         false ->    ok;
         true ->     ?ClientError({"Reserved table name",TableAlias})
     end,
-    case length(ColInfos) of
-        0 ->    ?ClientError({"No columns given in create table",TableAlias});
-        1 ->    ?ClientError({"No value column given in create table, add dummy value column",TableAlias});
-        _ ->    ok
+    Opts1 = norm_opts(Opts0),
+    TypeMod = case lists:keyfind(type, 1, Opts1) of
+        false ->                                        undefined;  % normal table
+        {type,T} when T==set;T==ordered_set;T==bag ->   undefined;  % normal table
+        {type,?MODULE} ->                                                 % module defined table
+                ?ClientError({"Invalid module name for table type",{type,?MODULE}});
+        {type,M} ->                                                 % module defined table
+                case lists:member(M,erlang:loaded()) of
+                    true -> case lists:member({create_table,4},M:module_info(exports)) of
+                                true ->     M;
+                                false ->    ?ClientError({"Bad module name for table type",{type,M}})
+                            end;
+                    false ->
+                        ?ClientError({"Unknown module name for table type",{type,M}})
+                end
+    end,
+    case {TypeMod,length(ColInfos)} of
+        {undefined,0} ->    ?ClientError({"No columns given in create table",TableAlias});
+        {undefined,1} ->    ?ClientError({"No value column given in create table, add dummy value column",TableAlias});
+        _ ->                ok % no such check for module defined tables
     end,
     CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(false, 1, CharsCheck) of
@@ -788,10 +803,16 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         false ->    ok;
         {_,BadDef} -> ?ClientError({"Invalid default fun",BadDef})
     end,
+    case TypeMod of 
+        undefined ->    create_physical_standard_table(TableAlias,ColInfos,Opts1,Owner);
+        _ ->            TypeMod:create_table(TableAlias,ColInfos,Opts1,Owner)
+    end.
+
+create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
+    MySchema = schema(),
     TableName = physical_table_name(TableAlias),
     case TableName of
         TA when TA==ddAlias;TA==?CACHE_TABLE ->  
-            % ?Info("creating table with opts ~p ~p ~n", [TA,if_opts(Opts0)]),
             DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts0, owner=Owner},
             case (catch imem_if:read(ddTable, {MySchema,TableName})) of
                 [] ->   
@@ -805,7 +826,6 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
             %% not a sharded table
             DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts0, owner=Owner},
             try
-                % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts0)]),
                 imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
                 imem_if:write(ddTable, DDTableRow)
             catch
@@ -843,7 +863,6 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
             DDAliasRow = #ddAlias{qname={MySchema,TableAlias}, columns=ColInfos, opts=Opts, owner=Owner},
             DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts, owner=Owner},
             try        
-                % ?Info("creating table with opts ~p ~p ~n", [TableName,if_opts(Opts)]),
                 imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
                 imem_if:write(ddTable, DDTableRow),
                 imem_if:write(ddAlias, DDAliasRow)
@@ -893,7 +912,6 @@ create_or_replace_trigger({Schema,Table},TFun) ->
         _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
     end;
 create_or_replace_trigger(Table,TFunStr) when is_atom(Table) ->
-    % ?LogDebug("Create trigger ~p~n~p",[Table,TFunStr]),
     imem_datatype:io_to_fun(TFunStr,4),
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
@@ -948,7 +966,6 @@ create_or_replace_index({Schema,Table},IndexDefinition) when is_list(IndexDefini
         _ ->        ?UnimplementedException({"Create Index in foreign schema",{Schema,Table}})
     end;
 create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
-    %?LogDebug("Create index ~p~n~p",[Table,IndexDefinition]),
     Schema = schema(),
     case read(ddTable,{Schema, Table}) of
         [#ddTable{}=D] -> 
@@ -1088,8 +1105,18 @@ is_valid_table_name(Table) when is_list(Table) ->
 is_valid_column_name(Column) ->
     is_valid_table_name(atom_to_list(Column)).
 
-if_opts(Opts) ->
-    % Remove imem_meta table options which are not recognized by imem_if
+norm_opts(Opts) ->  % Normalize option datatypes (binstr -> atom) and do some checks 
+    [norm_opt(O) || O <- Opts].
+
+norm_opt({trigger,V}) -> {trigger,V};   % trigger is the only binary option for now
+norm_opt({K,V}) when is_binary(V) ->
+    case (catch ?binary_to_existing_atom(V)) of
+        A when is_atom(A) -> {K,A};
+        _ ->   ?ClientError({"Unsupported table option",{K,V}})
+    end;
+norm_opt(Opt) -> Opt.
+
+if_opts(Opts) ->    % Remove imem_meta table options which are not recognized by imem_if
     if_opts(Opts,?META_OPTS).
 
 if_opts([],_) -> [];
@@ -2459,9 +2486,9 @@ decode_json(_, {}) -> {};
 decode_json([], Rec) -> Rec;
 decode_json([Pos|Rest], Rec) ->
     Val = element(Pos,Rec),
-    % ?Info("decode_json Val ~p",[Val]),
+    % ?LogDebug("decode_json Val ~p",[Val]),
     Decoded = try imem_json:decode(Val) catch _:_ -> ?nav end,
-    % ?Info("decode_json Decoded ~p",[Decoded]),
+    % ?LogDebug("decode_json Decoded ~p",[Decoded]),
     decode_json(Rest, setelement(Pos,Rec,Decoded)).
 
 update_index(_,_,_,_,#ddIdxPlan{def=[]}) -> 
@@ -2506,9 +2533,9 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
 index_items(Rec,{},Table,User,ID,Type,[_|PL],Vnf,Iff,Changes) ->
     index_items(Rec,{},Table,User,ID,Type,PL,Vnf,Iff,Changes);
 index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
-    %?Info("index_items RecJ ~p",[RecJ]),
-    %?Info("index_items ParseTree ~p",[PT]),
-    %?Info("index_items FieldList ~p",[FL]),
+    %?LogDebug("index_items RecJ ~p",[RecJ]),
+    %?LogDebug("index_items ParseTree ~p",[PT]),
+    %?LogDebug("index_items FieldList ~p",[FL]),
     Key = element(?KeyIdx,RecJ),
     Binds = [{Name,element(Pos,RecJ)} || {Name,Pos} <- FL],
     KVPs = case lists:keyfind(?nav, 2, Binds) of
@@ -2516,9 +2543,9 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
             Match = imem_json:eval(PT,Binds),
             case Match of
                 MV when is_binary(MV);is_number(MV) ->    
-                    % ?Info("Value from json ~p",[MV]),
-                    % ?Info("Vnf evaluates to ~p",[Vnf(MV)]),
-                    % ?Info("lists:flatten evaluates to ~p",[lists:flatten([Vnf(M1) || M1  <- [MV]])]),
+                    % ?LogDebug("Value from json ~p",[MV]),
+                    % ?LogDebug("Vnf evaluates to ~p",[Vnf(MV)]),
+                    % ?LogDebug("lists:flatten evaluates to ~p",[lists:flatten([Vnf(M1) || M1  <- [MV]])]),
                     [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- [MV]]), V /= ?nav];
                 ML when is_list(ML) ->      
                     [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- ML]), V /= ?nav];
@@ -2540,7 +2567,7 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
         _ ->
             []  %% one or more bind variables are not values. Don't try to evaluate the json path.
     end,
-    %% ?Info("index_items KVPs ~p",[KVPs]),
+    %% ?LogDebug("index_items KVPs ~p",[KVPs]),
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
     index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch).
 

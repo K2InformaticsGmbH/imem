@@ -17,10 +17,12 @@ exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Opts, IsSec
     if_call_mfa(IsSec, 'truncate_table', [SKey, imem_meta:qualified_table_name(TableName)]);
 
 exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Opts, IsSec) ->
-    % ?Info("Parse Tree ~p~n", [_ParseTree]),
+    % ?LogDebug("Parse Tree ~p", [_ParseTree]),
+    % ?LogDebug("TOpts ~p", [TOpts]),
     create_table(SKey, imem_sql_expr:binstr_to_qname2(TableName), TOpts, Columns, IsSec, []).
 
 create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
+    % ?LogDebug("create_table ~p ~p", [Table,TOpts]),
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);        %% {Schema,Table} not converted to atom yet !!!
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) when is_binary(Name) ->
     % ?LogDebug("Create table column ~p of type ~p~n",[Name,Type]),
@@ -139,7 +141,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(Expected,element(3,Meta)),    
 
         ?assertEqual(ok, imem_sql:exec(SKey, 
-            "create table truncate_test (col1 integer, col2 string);", 0, imem, IsSec)),
+            "create cluster table truncate_test (col1 integer, col2 string);", 0, imem, IsSec)),
         if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,1,""}]),
         if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,2,"abc"}]),
         if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,3,"123"}]),
@@ -151,20 +153,21 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, imem, IsSec)),
 
-        Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
+        Sql30 = "create loCal SeT table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
         ?LogDebug("Sql30: ~p~n", [Sql30]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
         TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
-        ?LogDebug("TableDef: ~p~n", [TableDef]),
+        % ?LogDebug("TableDef: ~p~n", [TableDef]),
 
-
-
+        Sql40 = "create someType table def (col1 varchar2(10) not null, col2 integer);",
+        ?assertException(throw, {ClEr,{"Unsupported table option",{type,<<"someType">>}}}, imem_sql:exec(SKey, Sql40, 0, imem, IsSec)),
+        Sql41 = "create imem_meta table skvhTEST();",
+        ?assertException(throw, {ClEr,{"Invalid module name for table type",{type,imem_meta}}}, imem_sql:exec(SKey, Sql41, 0, imem, IsSec)),
 
         Sql97 = "drop table key_test;",
         ?LogDebug("Sql97: ~p~n", [Sql97]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, imem, IsSec)),
-
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
         ?assertException(throw, {ClEr,{"Table does not exist",def}},  if_call_mfa(IsSec, table_size, [SKey, def])),

@@ -90,7 +90,8 @@
 -export([ table_name/1              %% (Channel)                    return table name as binstr
         , atom_table_name/1         %% (Channel)                    return table name as atom
         , audit_alias/1             %% (Channel)                    return audit alias as bisntr
-        , create_check_channel/1    %% (Channel)                    create empty table and audit table if necessary
+        , create_table/4            %% (Name)                       create empty table / audit table / history table (Name as binary or atom)
+        , create_check_channel/1    %% (Channel)                    create empty table / audit table / history table if necessary (Name as binary or atom)
         , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
         , insert/3          %% (User, Channel, MapList)             resources should not exist will be created, retrun list of maps with inserted rows
         , insert/4          %% (User, Channel, Key, Value)          resource should not exist will be created, return map with inserted row
@@ -223,7 +224,7 @@ audit_table_next(ATName,TransTime,CH) ->
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns:	provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_channel(binary()) -> #skvhCtx{}.
+-spec create_check_channel(binary()|atom()) -> #skvhCtx{}.
 create_check_channel(Channel) ->
 	Main = table_name(Channel),
 	try 
@@ -237,19 +238,31 @@ create_check_channel(Channel) ->
 		#skvhCtx{mainAlias=M, auditAlias=A, histAlias=H}
 	catch 
 		_:_ -> 
-			MC = ?binary_to_atom(Main),
-			case (catch imem_meta:create_check_table(MC, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system)) of
+			Tab = ?binary_to_atom(Main),
+			case (catch imem_meta:create_check_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system)) of
 				ok ->				ok;
-    			{error, Reason} -> 	imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,MC}],io_lib:format("~p",[Reason]));
-    			Reason -> 			imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,MC}],io_lib:format("~p",[Reason]))
+    			{error, Reason} -> 	imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,Tab}],io_lib:format("~p",[Reason]));
+    			Reason -> 			imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,Tab}],io_lib:format("~p",[Reason]))
     		end,
 			AC = list_to_atom(?AUDIT(Channel)),
 			catch imem_meta:create_check_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
-        	catch imem_meta:create_trigger(MC, ?skvhTableTrigger),
+        	catch imem_meta:create_trigger(Tab, ?skvhTableTrigger),
         	HC = list_to_atom(?HIST(Channel)),
 			catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, system),
-			#skvhCtx{mainAlias=MC, auditAlias=AC, histAlias=HC}
+			#skvhCtx{mainAlias=Tab, auditAlias=AC, histAlias=HC}
 	end.
+
+-spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
+create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
+    create_table(list_to_binary(atom_to_list(Name)),[],_TOpts,Owner);
+create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
+    Tab = ?binary_to_atom(table_name(Channel)),
+    ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
+    AC = list_to_atom(?AUDIT(Channel)),
+    ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
+    ok = imem_meta:create_trigger(?binary_to_atom(Channel), ?skvhTableTrigger),
+    HC = list_to_atom(?HIST(Channel)),
+    ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
 
 write_audit(OldRec,NewRec,Table,User) ->
 	["","",CH,"","",""] = imem_meta:parse_table_name(Table),
@@ -976,53 +989,57 @@ skvh_operations(_) ->
         ?assertEqual([Map1], read(system, Channel, [imem_datatype:term_to_binterm(maps:get(ckey, Map1))])),
 
         %% Updated maps
-        Map1Upd = #{ckey => ["1"], cvalue => <<"{\"testKey\": \"newValue\"}">>, chash => <<"1H51UT">>},
-        Map2Upd = #{ckey => ["1", "a"], cvalue => <<"{\"testKey\": \"a\", \"newNumber\": 10}">>, chash => <<"16GAFP">>},
-        Map3Upd = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"newNumber\": 150}">>, chash => <<"H3LYB">>},
+        Map1Upd = #{ckey => ["1"], cvalue => <<"{\"testKey\": \"newValue\"}">>, chash => <<"1HU42V">>},
+        Map2Upd = #{ckey => ["1", "a"], cvalue => <<"{\"testKey\": \"a\", \"newNumber\": 10}">>, chash => <<"1Y22WI">>},
+        Map3Upd = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"newNumber\": 150}">>, chash => <<"3MBW5">>},
 
         BeforeUpdate = erlang:now(),
 
         %% Update using single maps
-        ?assertEqual(Map1Upd, update(system, Channel, Map1Upd)),
+        Map1Done = update(system, Channel, Map1Upd),
+        ?assertEqual(maps:remove(chash,Map1Upd), maps:remove(chash,Map1Done)),
 
         %% Update multiple objects
-        ?assertEqual([Map2Upd, Map3Upd], update(system, Channel, [Map2Upd#{chash := <<>>}, Map3Upd#{chash := <<>>}])),
+        [Map2Done,Map3Done] = update(system, Channel, [Map2Upd, Map3Upd]),
+        ?assertEqual([maps:remove(chash,Map2Upd), maps:remove(chash,Map3Upd)]
+                    , [maps:remove(chash,M) || M <- [Map2Done,Map3Done]]
+                    ),
 
         %% Concurrency exception
         ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, Map1Upd)),
-        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, [Map2Upd#{chash := <<>>}, Map3Upd#{chash := <<>>}])),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, [Map2Upd, Map3Upd])),
 
         %% Read tests
         ?assertEqual([Map4, Map5], readGT(system, Channel, maps:get(ckey, Map3), 10)),
-        ?assertEqual([Map3Upd, Map4], readGT(system, Channel, maps:get(ckey, Map2), 2)),
+        ?assertEqual([Map3Done, Map4], readGT(system, Channel, maps:get(ckey, Map2), 2)),
         ?assertEqual([Map4, Map5], readGT(system, Channel, MidleKey, 10)),
         ?assertEqual([], readGT(system, Channel, maps:get(ckey, Map5), 2)),
 
-        ?assertEqual([Map3Upd, Map4, Map5], readGE(system, Channel, maps:get(ckey, Map3), 10)),
-        ?assertEqual([Map3Upd, Map4], readGE(system, Channel, maps:get(ckey, Map3), 2)),
+        ?assertEqual([Map3Done, Map4, Map5], readGE(system, Channel, maps:get(ckey, Map3), 10)),
+        ?assertEqual([Map3Done, Map4], readGE(system, Channel, maps:get(ckey, Map3), 2)),
         ?assertEqual([Map4, Map5], readGE(system, Channel, MidleKey, 10)),
         ?assertEqual([Map5], readGE(system, Channel, maps:get(ckey, Map5), 2)),
         ?assertEqual([], readGE(system, Channel, LastKey, 2)),
 
         ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(system, Channel, FirstKey, LastKey, 1)),
-        ?assertEqual([Map1Upd, Map2Upd, Map3Upd, Map4, Map5], readGELT(system, Channel, FirstKey, LastKey, 10)),
+        ?assertEqual([Map1Done, Map2Done, Map3Done, Map4, Map5], readGELT(system, Channel, FirstKey, LastKey, 10)),
 
-        ?assertEqual([Map3Upd, Map4, Map5], readGELT(system, Channel, maps:get(ckey, Map3), LastKey, 10)),
-        ?assertEqual([Map3Upd, Map4], readGELT(system, Channel, maps:get(ckey, Map3), maps:get(ckey, Map5), 10)),
+        ?assertEqual([Map3Done, Map4, Map5], readGELT(system, Channel, maps:get(ckey, Map3), LastKey, 10)),
+        ?assertEqual([Map3Done, Map4], readGELT(system, Channel, maps:get(ckey, Map3), maps:get(ckey, Map5), 10)),
         ?assertEqual([Map4, Map5], readGELT(system, Channel, MidleKey, LastKey, 10)),
         ?assertEqual([], readGELT(system, Channel, LastKey, [LastKey | "1"], 10)),
 
         BeforeRemove = erlang:now(),
 
         %% Tests removing rows
-        ?assertEqual(Map1Upd, remove(system, Channel, Map1Upd)),
+        ?assertEqual(Map1Done, remove(system, Channel, Map1Done)),
 
         %% Concurrency exception
         ?assertException(throw, {CoEx, {"Remove failed, key does not exist", _}}, remove(system, Channel, Map1)),
         ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, remove(system, Channel, [Map2Upd, Map3])),
 
         %% Remove in bulk
-        ?assertEqual([Map2Upd, Map3Upd], remove(system, Channel, [Map2Upd, Map3Upd])),
+        ?assertEqual([Map2Done, Map3Done], remove(system, Channel, [Map2Done, Map3Done])),
 
         %% Test final number of rows
         ?assertEqual(2, length(imem_meta:read(skvhTest))),
@@ -1084,6 +1101,12 @@ skvh_operations(_) ->
         HistResultEnc = hist_reset_time(hist_read(system, Channel, EncodedKeys)),
 
         ?assertEqual([History1, History2, History3], HistResultEnc),
+
+        ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
+        ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
+        ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
+
+        ?assertEqual(ok, create_table(skvhTest,[],[],system)),
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
