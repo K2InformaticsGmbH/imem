@@ -983,14 +983,14 @@ skvh_operations(_) ->
         BeforeUpdate = erlang:now(),
 
         %% Update using single maps
-        ?assertEqual(Map1Upd, update(system, Channel, Map1, Map1Upd)),
+        ?assertEqual(Map1Upd, update(system, Channel, Map1Upd)),
 
         %% Update multiple objects
-        ?assertEqual([Map2Upd, Map3Upd], update(system, Channel, [{Map2, Map2Upd#{chash := <<>>}}, {Map3, Map3Upd#{chash := <<>>}}])),
+        ?assertEqual([Map2Upd, Map3Upd], update(system, Channel, [Map2Upd#{chash := <<>>}, Map3Upd#{chash := <<>>}])),
 
         %% Concurrency exception
-        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, Map1, Map1Upd)),
-        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, [{Map2, Map2Upd#{chash := <<>>}}, {Map3, Map3Upd#{chash := <<>>}}])),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, Map1Upd)),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, [Map2Upd#{chash := <<>>}, Map3Upd#{chash := <<>>}])),
 
         %% Read tests
         ?assertEqual([Map4, Map5], readGT(system, Channel, maps:get(ckey, Map3), 10)),
