@@ -676,7 +676,7 @@ create_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner)
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
     create_physical_table(TableAlias,ColumnInfos,Opts,Owner);
-create_table(TableAlias, ColumnInfos, Opts, Owner) when is_list(ColumnInfos) ->  % [#ddColumn{}|_]=
+create_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->   
     Conv = fun(X) ->
         case X#ddColumn.name of
             A when is_atom(A) -> X; 
@@ -686,7 +686,7 @@ create_table(TableAlias, ColumnInfos, Opts, Owner) when is_list(ColumnInfos) -> 
     create_physical_table(qualified_new_table_name(TableAlias),lists:map(Conv,ColumnInfos),Opts,Owner);
 create_table(TableAlias, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
-    create_physical_table(TableAlias,ColumnInfos,Opts,Owner).
+    create_physical_table(qualified_new_table_name(TableAlias),ColumnInfos,Opts,Owner).
 
 create_check_table(TableAlias, Columns, Opts) ->
     create_check_table(TableAlias, Columns, Opts, (#ddTable{})#ddTable.owner).
