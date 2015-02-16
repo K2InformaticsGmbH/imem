@@ -870,7 +870,12 @@ init(_) ->
     end,
     mnesia:subscribe(system),
 
+    % For application gracefull shutdown cleanup
     process_flag(trap_exit, true),
+
+    % Start periodic EPMD check
+    self() ! check_epmd,
+
     {ok,#state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -881,6 +886,15 @@ handle_cast(_Request, State) ->
     ?Info("Unknown cast ~p!", [_Request]),
     {noreply, State}.
 
+handle_info(check_epmd, State) ->
+    case epmd_register() of
+        {error, {already_registered, OldPort}} ->
+            ?Debug("EPMD has registration on ~p", [OldPort]);
+        ok -> ?Info("Registration entered in EPMD");
+        {error, Reason} -> ?Error("EPMD registration error ~p", [Reason])
+    end,
+    erlang:send_after(30000, self(), check_epmd),
+    {noreply, State};
 handle_info(Info, State) ->
     case Info of
         {mnesia_system_event,{mnesia_overload,Details}} ->
@@ -971,23 +985,25 @@ get_vm_memory() ->
 -spec epmd_register() -> ok | {error, Reason :: any()}.
 epmd_register() ->
     try
-        {Node,{Ip,Port},Host} = imem_inet_tcp_dist:reg_info(),
-        NodeName = atom_to_list(Node),
         case erl_epmd:names() of
             {error, address} ->
                 spawn(
                   fun() ->
                           open_port({spawn_executable,
                                      os:find_executable("epmd")},
-                                    [{args, ["-daemon"]}])
+                                    [{args, ["-daemon"]}]),
+                          ?Info("Started epmd, retrying after 1s"),
+                          timer:sleep(1000),
+                          epmd_register()
                   end),
-                ?Info("Started epmd, retrying after 1s"),
-                timer:sleep(1000),
-                epmd_register();
+                {error, not_running};
             {ok, RegisteredNodes} ->
+                {Node,{Ip,Port},Host} = imem_inet_tcp_dist:reg_info(),
+                NodeName = atom_to_list(Node),
                 case proplists:get_value(NodeName, RegisteredNodes) of
                     undefined ->
                         {ok, _} = erl_epmd:register_node(Node, Port),
+                        ?Info("Registered in EPMD on port ~p", [Port]),
                         ok;
                     OldPort ->
                         {error, {already_registered, OldPort}}
