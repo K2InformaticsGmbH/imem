@@ -13,13 +13,22 @@
                     , type='user'               ::atom()              %% user | driver | deamon | application 
                     , credentials               ::[ddCredential()]  
                     , fullName                  ::binary()                    
-                    , lastLoginTime             ::ddDatetime()        %% erlang time of last login success
-                    , lastFailureTime           ::ddDatetime()        %% erlang time of last login failure (for existing account name)
+                    , lastLoginTime             ::ddDatetime()        %% deprecated
+                    , lastFailureTime           ::ddDatetime()        %% last locking time for now
                     , lastPasswordChangeTime    ::ddDatetime()        %% change time (undefined or too old  => must change it now and reconnect)
                     , locked='false'            ::'true' | 'false'
                     }
        ).
 -define(ddAccount, [userid,binstr,atom,list,binstr,datetime,datetime,datetime,boolean]).
+
+-record(ddAccountDyn,  %% imem cluster account (dynamic state)
+                    { id                        ::ddEntityId() 
+                    , lastLoginTime             ::ddDatetime()        %% erlang time of last login success
+                    , lastFailureTime           ::ddDatetime()        %% erlang time of last login failure (for existing account name)
+                    , opts=[]                   ::list()
+                    }
+       ).
+-define(ddAccountDyn, [userid,datetime,datetime,list]).
 
 -record(ddRole,     %% hierarchy of roles with permissions and access privileges to connections and commands  
                     { id                        ::ddEntityId()            %% lookup starts with ddAccount.id, other roles are atoms
