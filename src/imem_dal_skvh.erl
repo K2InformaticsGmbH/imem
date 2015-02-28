@@ -115,6 +115,7 @@
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
         , write_audit/4     %% (OldRec,NewRec,Table,User)           default trigger for writing audit trail
+        , get_longest_prefix/4
         ]).
 
 -export([expand_inline_key/3, expand_inline/3]).
@@ -515,6 +516,31 @@ read_deep(User, Channel, [Key | Keys]) ->
                            ['$_']}]),
     [skvh_rec_to_map(SkvhRow) || SkvhRow <- SkvhRows]
     ++ read_deep(User, Channel, Keys).
+
+% @doc Returnes the longest
+%  prefix >= startKey and =< EndKey
+get_longest_prefix(User, {table, Table}, StartKey, EndKey) ->
+    case imem_meta:next(Table, StartKey) of
+        '$end_of_table' -> StartKey;
+        NextKey ->
+            if NextKey == EndKey -> NextKey;
+               NextKey < EndKey ->
+                   get_longest_prefix(User, {table, Table}, NextKey, EndKey);
+               
+               true -> StartKey
+            end
+    end;
+get_longest_prefix(User, Channel, StartKey, EndKey) ->
+    StartKeyEnc = sext:encode(StartKey),
+    EndKeyEnc = sext:encode(EndKey),
+    case imem_meta:transaction(
+           fun() ->
+                   get_longest_prefix(User, {table, atom_table_name(Channel)},
+                                      StartKeyEnc, EndKeyEnc)
+           end) of
+        {atomic, KeyEnc} -> sext:decode(KeyEnc);
+        Error -> {error, Error}
+    end.
 
 %% Raw data access per key (read, insert, remove)
 read(_User, _Channel, []) -> [];
