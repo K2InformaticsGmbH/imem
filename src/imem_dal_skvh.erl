@@ -517,20 +517,11 @@ read_deep(User, Channel, [Key | Keys]) ->
     [skvh_rec_to_map(SkvhRow) || SkvhRow <- SkvhRows]
     ++ read_deep(User, Channel, Keys).
 
-% @doc Returnes the longest
-%  prefix >= startKey and =< EndKey
-get_longest_prefix(User, {table, Table}, StartKey, EndKey) ->
-    case imem_meta:next(Table, StartKey) of
-        '$end_of_table' -> StartKey;
-        NextKey ->
-            if NextKey == EndKey -> NextKey;
-               NextKey < EndKey ->
-                   get_longest_prefix(User, {table, Table}, NextKey, EndKey);
-               
-               true -> StartKey
-            end
-    end;
-get_longest_prefix(User, Channel, StartKey, EndKey) ->
+% @doc Returnes the longest prefix >= startKey and =< EndKey
+-spec get_longest_prefix(User :: any(), Channel :: binary(),
+                         StartKey :: [list()], EndKey :: [list()]) ->
+    LongestPrefixMatchedKey :: [list()].
+get_longest_prefix(User, Channel, StartKey, EndKey) when is_binary(Channel) ->
     StartKeyEnc = sext:encode(StartKey),
     EndKeyEnc = sext:encode(EndKey),
     case imem_meta:transaction(
@@ -540,6 +531,17 @@ get_longest_prefix(User, Channel, StartKey, EndKey) ->
            end) of
         {atomic, KeyEnc} -> sext:decode(KeyEnc);
         Error -> {error, Error}
+    end;
+get_longest_prefix(User, {table, Table}, StartKeyEnc, EndKeyEnc) ->
+    case imem_meta:next(Table, StartKeyEnc) of
+        '$end_of_table' -> StartKeyEnc;
+        NextKeyEnc ->
+            if NextKeyEnc == EndKeyEnc -> NextKeyEnc;
+               NextKeyEnc < EndKeyEnc ->
+                   get_longest_prefix(User, {table, Table},
+                                      NextKeyEnc, EndKeyEnc);
+               true -> StartKeyEnc
+            end
     end.
 
 %% Raw data access per key (read, insert, remove)
