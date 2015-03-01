@@ -3,6 +3,8 @@
 -include("imem_seco.hrl").
 
 -define(GET_PASSWORD_LIFE_TIME(__AccountId),?GET_IMEM_CONFIG(passwordLifeTime,[__AccountId],100)).
+-define(SALT_BYTES,16).
+-define(PWD_HASH,sha512).
 
 -behavior(gen_server).
 
@@ -396,12 +398,12 @@ have_permission(SKey, Permission) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     if_has_permission(SKey, AccountId, Permission).
 
-authenticate(SessionId, Name, Credentials) ->
+authenticate(SessionId, Name, {pwdmd5,Token} = Credentials) ->
     LocalTime = calendar:local_time(),
     #ddSeCo{skey=SKey} = SeCo = seco_create(SessionId, Name, Credentials),
     case if_select_account_by_name(SKey, Name) of
         {[#ddAccount{locked='true'}],true} ->
-            ?SecurityException({"Account is locked. Contact a system administrator", Name});
+            authenticate_fail(SKey,locked,Name,LocalTime);
         {[#ddAccount{id=AccountId, credentials=CredList} = Account],true} ->
             AccountDyn = case if_read(SKey,ddAccountDyn,AccountId) of
                 [] ->   
@@ -411,19 +413,46 @@ authenticate(SessionId, Name, Credentials) ->
                 [#ddAccountDyn{lastFailureTime=LocalTime} = AD] ->
                     %% lie a bit, don't show a fast attacker that this attempt might have worked
                     if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
-                    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime}),
-                    ?SecurityException({"Invalid account credentials. Please retry", Name});
+                    authenticate_fail(SKey,AD,Name,LocalTime);
                 [AD] -> AD
             end,
             case lists:member(Credentials,CredList) of
-                false ->    if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastFailureTime=LocalTime}),
-                            ?SecurityException({"Invalid account credentials. Please retry", Name});
-                true ->     ok=if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastFailureTime=undefined}),
-                            seco_register(SeCo, AccountId)  % return (hash) value to client
+                false ->
+                    case lists:keyfind(pwdmd5_sha512,1,CredList) of
+                        false ->
+                            authenticate_fail(SKey,AccountDyn,Name,LocalTime);
+                        {pwdmd5_sha512,{Salt,Hash}} ->
+                            case crypto:hash(?PWD_HASH,<<Salt/binary,Token/binary>>) of
+                                Hash -> 
+                                    authenticate_succeed(SeCo,AccountId, AccountDyn, Name);
+                                _ ->
+                                    authenticate_fail(SKey,AccountDyn,Name,LocalTime)
+                            end
+                    end;
+                true ->     % unsalted password hash, convert to salted hash
+                    Salt = crypto:rand_bytes(?SALT_BYTES),
+                    Hash = crypto:hash(?PWD_HASH,<<Salt/binary,Token/binary>>),
+                    NewCredList = lists:delete(Credentials,CredList) ++ [{pwdmd5_sha512,{Salt,Hash}}],      
+                    ok=if_write(SKey, ddAccount, Account#ddAccount{credentials=NewCredList}),
+                    authenticate_succeed(SeCo,AccountId, AccountDyn, Name)
             end;
-        {[],true} -> 
-            ?SecurityException({"Invalid account credentials. Please retry", Name})
+        {[],true} ->
+            authenticate_fail(SKey,nomatch,Name,LocalTime)
     end.
+
+authenticate_fail(_,locked,Name,_) ->
+    ?SecurityException({"Account is locked. Contact a system administrator", Name});
+authenticate_fail(_,nomatch,Name,_) ->
+    ?SecurityException({"Invalid account credentials. Please retry", Name});
+authenticate_fail(SKey, AD, Name, LocalTime) ->
+    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime}),
+    authenticate_fail(SKey,nomatch,Name,LocalTime).
+
+authenticate_succeed(SKey, AccountId, #ddAccountDyn{lastFailureTime=undefined}, _Name) ->
+    seco_register(SKey, AccountId);   % return (hash) value to client
+authenticate_succeed(SKey, AccountId, AD, _Name) ->
+    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=undefined}),
+    seco_register(SKey, AccountId).   % return (hash) value to client
 
 login(SKey) ->
     #ddSeCo{accountId=AccountId, authMethod=AuthenticationMethod} = SeCo = seco_authenticated(SKey),

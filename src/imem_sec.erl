@@ -1038,7 +1038,7 @@ test(_) ->
         ?LogDebug("~p:test_admin_exec~n", [?MODULE]),
 
         ?LogDebug("accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, "PasswordMd5"])),
+        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, <<"PasswordMd5">>])),
         ?LogDebug("success ~p~n", [account_create_user]),
         UserId = admin_exec(SeCoAdmin, imem_account, get_id_by_name, [<<"test_user_123">>]),
         ?assert(is_integer(UserId)),
@@ -1048,15 +1048,15 @@ test(_) ->
      
         ?LogDebug("~p:test_user_login~n", [?MODULE]),
 
-        SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}),
+        SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,<<"PasswordMd5">>}),
         ?assertEqual(true, is_integer(SeCoUser0)),
         ?LogDebug("success ~p~n", [user_authentication]), 
         ?assertException(throw,{SeEx,{?PasswordChangeNeeded, _}}, login(SeCoUser0)),
         ?LogDebug("success ~p~n", [password_expired]), 
-        SeCoUser=authenticate(none, someSessionId, <<"test_user_123">>, {pwdmd5,"PasswordMd5"}), 
+        SeCoUser=authenticate(none, someSessionId, <<"test_user_123">>, {pwdmd5,<<"PasswordMd5">>}), 
         ?assertEqual(true, is_integer(SeCoUser)),
         ?LogDebug("success ~p~n", [user_authentication]), 
-        ?assertEqual(SeCoUser, change_credentials(SeCoUser, {pwdmd5,"PasswordMd5"}, {pwdmd5,"NewPasswordMd5"})),
+        ?assertEqual(SeCoUser, change_credentials(SeCoUser, {pwdmd5,<<"PasswordMd5">>}, {pwdmd5,<<"NewPasswordMd5">>})),
         ?LogDebug("success ~p~n", [password_changed]), 
         Type123a = {[a,b,c],[term,term,term],{user_table_123,undefined,undefined,undefined}},
         Type123b = {[a,b,a],[term,term,term],{user_table_123,undefined,undefined,undefined}},
