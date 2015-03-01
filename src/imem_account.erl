@@ -57,13 +57,16 @@ create(SeKey, #ddAccount{id=AccountId, name=Name}=Account) when is_binary(Name) 
                             ?ClientError({"Account already exists", AccountId});
                         [] ->   
                             case if_select_account_by_name(SeKey, Name) of
-                                {[],true} ->   
+                                {[],true} ->
+                                    AccountDyn = #ddAccountDyn{id=AccountId},
+                                    ok = if_write(SeKey, ddAccountDyn, AccountDyn),   
                                     ok = if_write(SeKey, ddAccount, Account),
                                     try
                                         ok=imem_role:create(SeKey, AccountId)
                                     catch
                                         _:Error ->  %% simple transaction rollback
                                                     delete(SeKey, Account),
+                                                    delete(SeKey, AccountDyn),
                                                     ?SystemException(Error)
                                     end;
                                 {[#ddAccount{}],true} ->    ?ClientError({"Account already exists", Name})
@@ -119,6 +122,16 @@ update(SeKey, #ddAccount{id=AccountId}=Account, AccountNew) ->
         false ->    ?SecurityException({"Update account unauthorized",SeKey})
     end.    
 
+update_dyn(SeKey, #ddAccountDyn{id=AccountId}=AccountDyn, AccountDynNew) -> 
+    case imem_seco:have_permission(SeKey, manage_accounts) of
+        true ->     case if_read(SeKey, ddAccountDyn, AccountId) of
+                        [] ->           ?ClientError({"AccountDyn does not exist", AccountId});
+                        [AccountDyn] -> if_write(SeKey, ddAccountDyn, AccountDynNew);
+                        [_] ->          ?ConcurrencyException({"AccountDyn is modified by someone else", AccountId})
+                    end;
+        false ->    ?SecurityException({"Update account unauthorized",SeKey})
+    end.    
+
 delete(SeKey, Name, []) ->
     delete(SeKey, Name);
 delete(_SeKey, _Name, Opts) ->
@@ -146,10 +159,10 @@ delete(SeKey, AccountId) ->
 lock(SeKey, Name) when is_binary(Name)->
     lock(SeKey, get_by_name(SeKey, Name));
 lock(SeKey, #ddAccount{}=Account) -> 
-    update(SeKey, Account, Account#ddAccount{locked=true});
+    update(SeKey, Account, Account#ddAccount{locked=true,lastFailureTime=calendar:local_time()});
 lock(SeKey, AccountId) -> 
     Account = get(SeKey, AccountId),
-    update(SeKey,  Account, Account#ddAccount{locked=true}).
+    update(SeKey,  Account, Account#ddAccount{locked=true,lastFailureTime=calendar:local_time()}).
 
 unlock(SeKey, Name) when is_binary(Name)->
     unlock(SeKey, get_by_name(SeKey, Name));
@@ -161,19 +174,25 @@ unlock(SeKey, AccountId) ->
 
 renew(SeKey, Name) when is_binary(Name)->
     renew(SeKey, get_by_name(SeKey, Name));
-renew(SeKey, #ddAccount{}=Account) -> 
-    update(SeKey, Account, Account#ddAccount{lastLoginTime=calendar:local_time()});
+renew(SeKey, #ddAccount{id=AccountId}) ->
+    get(SeKey, AccountId),
+    [AccountDyn] = if_read(SeKey,ddAccountDyn,AccountId), 
+    update_dyn(SeKey, AccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=calendar:local_time()});
 renew(SeKey, AccountId) ->
-    Account = get(SeKey, AccountId),
-    update(SeKey, Account, Account#ddAccount{lastLoginTime=calendar:local_time()}).
+    get(SeKey, AccountId),
+    [AccountDyn] = if_read(SeKey,ddAccountDyn,AccountId), 
+    update_dyn(SeKey, AccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=calendar:local_time()}).
 
 expire(SeKey, Name) when is_binary(Name)->
     expire(SeKey, get_by_name(SeKey, Name));
-expire(SeKey, #ddAccount{}=Account) -> 
-    update(SeKey, Account, Account#ddAccount{lastLoginTime=undefined});
+expire(SeKey, #ddAccount{id=AccountId}) -> 
+    get(SeKey, AccountId),
+    [AccountDyn] = if_read(SeKey,ddAccountDyn,AccountId), 
+    update_dyn(SeKey, AccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=undefined});
 expire(SeKey, AccountId) ->
-    Account = get(SeKey, AccountId),
-    update(SeKey, Account, Account#ddAccount{lastLoginTime=undefined}).
+    get(SeKey, AccountId),
+    [AccountDyn] = if_read(SeKey,ddAccountDyn,AccountId), 
+    update_dyn(SeKey, AccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=undefined}).
 
 exists(SeKey, Name) when is_binary(Name)->
     exists(SeKey, get_by_name(SeKey, Name));

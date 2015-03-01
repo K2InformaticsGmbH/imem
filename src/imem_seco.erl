@@ -73,6 +73,9 @@ init(_Args) ->
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
         catch imem_meta:create_check_table(ddAccount, ADef, [], system),
 
+        ADDef = {record_info(fields, ddAccountDyn),?ddAccountDyn,#ddAccountDyn{}},
+        catch imem_meta:create_check_table(ddAccountDyn, ADDef, [], system),
+
         RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
         catch imem_meta:create_check_table(ddRole, RDef, [], system),
 
@@ -88,10 +91,13 @@ init(_Args) ->
         case if_select_account_by_name(none, <<"system">>) of
             {[],true} ->  
                     {ok, Pwd} = application:get_env(imem, default_admin_pswd),
+                    LocalTime = calendar:local_time(),
                     UserCred=create_credentials(pwdmd5, Pwd),
-                    User = #ddAccount{id=system, name= <<"system">>, credentials=[UserCred]
-                                        ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
-                    if_write(none, ddAccount, User),                    
+                    Account = #ddAccount{id=system, name= <<"system">>, credentials=[UserCred]
+                                , fullName= <<"DB Administrator">>, lastPasswordChangeTime=LocalTime},
+                    AccountDyn = #ddAccountDyn{id=system},
+                    if_write(none, ddAccount, Account),                    
+                    if_write(none, ddAccountDyn, AccountDyn),                    
                     if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok
         end,
@@ -279,6 +285,7 @@ drop_seco_tables(SKey) ->
         true ->
             if_drop_table(SKey, ddSeCo@),     
             if_drop_table(SKey, ddRole),         
+            if_drop_table(SKey, ddAccountDyn),
             if_drop_table(SKey, ddAccount);   
         false ->
             ?SecurityException({"Drop seco tables unauthorized", SKey})
@@ -395,15 +402,23 @@ authenticate(SessionId, Name, Credentials) ->
     case if_select_account_by_name(SKey, Name) of
         {[#ddAccount{locked='true'}],true} ->
             ?SecurityException({"Account is locked. Contact a system administrator", Name});
-        {[#ddAccount{lastFailureTime=LocalTime} = Account],true} ->
-            %% lie a bit, don't show a fast attacker that this attempt might have worked
-            if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
-            ?SecurityException({"Invalid account credentials. Please retry", Name});
-        {[#ddAccount{id=AccountId, credentials=CredList} = Account],true} -> 
+        {[#ddAccount{id=AccountId, credentials=CredList} = Account],true} ->
+            AccountDyn = case if_read(SKey,ddAccountDyn,AccountId) of
+                [] ->   
+                    AD = #ddAccountDyn{id=AccountId},
+                    if_write(SKey,ddAccountDyn, AD),
+                    AD;
+                [#ddAccountDyn{lastFailureTime=LocalTime} = AD] ->
+                    %% lie a bit, don't show a fast attacker that this attempt might have worked
+                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
+                    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime}),
+                    ?SecurityException({"Invalid account credentials. Please retry", Name});
+                [AD] -> AD
+            end,
             case lists:member(Credentials,CredList) of
-                false ->    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time()}),
+                false ->    if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastFailureTime=LocalTime}),
                             ?SecurityException({"Invalid account credentials. Please retry", Name});
-                true ->     ok=if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=undefined}),
+                true ->     ok=if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastFailureTime=undefined}),
                             seco_register(SeCo, AccountId)  % return (hash) value to client
             end;
         {[],true} -> 
@@ -425,9 +440,10 @@ login(SKey) ->
         {[#ddAccount{lastPasswordChangeTime=LastChange}], pwdmd5} when LastChange < PwdExpireDate -> 
             logout(SKey),
             ?SecurityException({?PasswordChangeNeeded, AccountId});
-        {[#ddAccount{}=Account], _} ->
+        {[_], _} ->
+            [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
             ok = seco_update(SeCo, SeCo#ddSeCo{state=authorized}),
-            if_write(SKey, ddAccount, Account#ddAccount{lastLoginTime=calendar:local_time()}),
+            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=LocalTime}),
             SKey;            
         {[], _} ->                    
             logout(SKey),
