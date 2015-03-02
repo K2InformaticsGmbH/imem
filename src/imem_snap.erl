@@ -58,6 +58,9 @@
                   ,imem_meta:physical_table_name(ddPerm@)
                   ,imem_meta:physical_table_name(mproConnectionProbe@)
                   ],
+    ExcludeSuff = [\"Dyn\",\"Audit\",\"Hist\"],
+    ExcludePred = fun(AN) -> SN = atom_to_list(AN), (lists:usort([lists:suffix(E,SN) || E <- ExcludeSuff]) == [false]) end,
+    Candidates = lists:filter(ExcludePred,imem_snap:all_snap_tables() -- ExcludeList), 
     [(fun() ->
         case imem_snap:get_snap_properties(T) of
             {} ->               ok;
@@ -78,7 +81,7 @@
                 end
         end
       end)()
-    || T <- imem_snap:all_snap_tables() -- ExcludeList],
+    || T <- Candidates],
     ok
 end.">>)).
 
