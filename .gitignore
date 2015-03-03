@@ -9,3 +9,4 @@ deps
 .eunit/*
 *@*/
 snapshot/
+.rebar/

@@ -13,7 +13,8 @@
                   ranch,
                   sqlparse,
                   lager,
-                  erlhlc
+                  erlhlc,
+                  erlscrypt
                  ]},
   {included_applications, [mnesia]},
   {mod, {imem, []}},
