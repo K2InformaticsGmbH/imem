@@ -891,7 +891,7 @@ handle_info(check_epmd, State) ->
         {error, {already_registered, OldPort}} ->
             ?Debug("EPMD has registration on ~p", [OldPort]);
         ok -> ?Info("Registration entered in EPMD");
-        {error, Reason} -> ?Error("EPMD registration error ~p", [Reason])
+        {error, Reason} -> ?Warn("EPMD registration error ~p", [Reason])
     end,
     erlang:send_after(30000, self(), check_epmd),
     {noreply, State};
