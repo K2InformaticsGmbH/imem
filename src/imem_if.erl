@@ -888,8 +888,8 @@ handle_cast(_Request, State) ->
 
 handle_info(check_epmd, State) ->
     case epmd_register() of
-        {error, {already_registered, OldPort}} ->
-            ?Debug("EPMD has registration on ~p", [OldPort]);
+        {error, {already_registered, _OldPort}} ->
+            ?Debug("EPMD has registration on ~p", [_OldPort]);
         ok -> ?Info("Registration entered in EPMD");
         {error, Reason} -> ?Warn("EPMD registration error ~p", [Reason])
     end,

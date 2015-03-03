@@ -3,6 +3,8 @@
 -include("imem_seco.hrl").
 
 -define(GET_PASSWORD_LIFE_TIME(__AccountId),?GET_IMEM_CONFIG(passwordLifeTime,[__AccountId],100)).
+-define(SALT_BYTES,16).
+-define(PWD_HASH,sha512).
 
 -behavior(gen_server).
 
@@ -73,6 +75,9 @@ init(_Args) ->
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
         catch imem_meta:create_check_table(ddAccount, ADef, [], system),
 
+        ADDef = {record_info(fields, ddAccountDyn),?ddAccountDyn,#ddAccountDyn{}},
+        catch imem_meta:create_check_table(ddAccountDyn, ADDef, [], system),
+
         RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
         catch imem_meta:create_check_table(ddRole, RDef, [], system),
 
@@ -88,10 +93,13 @@ init(_Args) ->
         case if_select_account_by_name(none, <<"system">>) of
             {[],true} ->  
                     {ok, Pwd} = application:get_env(imem, default_admin_pswd),
+                    LocalTime = calendar:local_time(),
                     UserCred=create_credentials(pwdmd5, Pwd),
-                    User = #ddAccount{id=system, name= <<"system">>, credentials=[UserCred]
-                                        ,fullName= <<"DB Administrator">>, lastPasswordChangeTime=calendar:local_time()},
-                    if_write(none, ddAccount, User),                    
+                    Account = #ddAccount{id=system, name= <<"system">>, credentials=[UserCred]
+                                , fullName= <<"DB Administrator">>, lastPasswordChangeTime=LocalTime},
+                    AccountDyn = #ddAccountDyn{id=system},
+                    if_write(none, ddAccount, Account),                    
+                    if_write(none, ddAccountDyn, AccountDyn),                    
                     if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
             _ ->    ok
         end,
@@ -279,6 +287,7 @@ drop_seco_tables(SKey) ->
         true ->
             if_drop_table(SKey, ddSeCo@),     
             if_drop_table(SKey, ddRole),         
+            if_drop_table(SKey, ddAccountDyn),
             if_drop_table(SKey, ddAccount);   
         false ->
             ?SecurityException({"Drop seco tables unauthorized", SKey})
@@ -389,26 +398,61 @@ have_permission(SKey, Permission) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     if_has_permission(SKey, AccountId, Permission).
 
-authenticate(SessionId, Name, Credentials) ->
+authenticate(SessionId, Name, {pwdmd5,Token} = Credentials) ->
     LocalTime = calendar:local_time(),
     #ddSeCo{skey=SKey} = SeCo = seco_create(SessionId, Name, Credentials),
     case if_select_account_by_name(SKey, Name) of
         {[#ddAccount{locked='true'}],true} ->
-            ?SecurityException({"Account is locked. Contact a system administrator", Name});
-        {[#ddAccount{lastFailureTime=LocalTime} = Account],true} ->
-            %% lie a bit, don't show a fast attacker that this attempt might have worked
-            if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time(), locked='true'}),
-            ?SecurityException({"Invalid account credentials. Please retry", Name});
-        {[#ddAccount{id=AccountId, credentials=CredList} = Account],true} -> 
+            authenticate_fail(SKey,locked,Name,LocalTime);
+        {[#ddAccount{id=AccountId, credentials=CredList} = Account],true} ->
+            AccountDyn = case if_read(SKey,ddAccountDyn,AccountId) of
+                [] ->   
+                    AD = #ddAccountDyn{id=AccountId},
+                    if_write(SKey,ddAccountDyn, AD),
+                    AD;
+                [#ddAccountDyn{lastFailureTime=LocalTime} = AD] ->
+                    %% lie a bit, don't show a fast attacker that this attempt might have worked
+                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
+                    authenticate_fail(SKey,AD,Name,LocalTime);
+                [AD] -> AD
+            end,
             case lists:member(Credentials,CredList) of
-                false ->    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=calendar:local_time()}),
-                            ?SecurityException({"Invalid account credentials. Please retry", Name});
-                true ->     ok=if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=undefined}),
-                            seco_register(SeCo, AccountId)  % return (hash) value to client
+                false ->
+                    case lists:keyfind(pwdmd5_sha512,1,CredList) of
+                        false ->
+                            authenticate_fail(SKey,AccountDyn,Name,LocalTime);
+                        {pwdmd5_sha512,{Salt,Hash}} ->
+                            case crypto:hash(?PWD_HASH,<<Salt/binary,Token/binary>>) of
+                                Hash -> 
+                                    authenticate_succeed(SeCo,AccountId, AccountDyn, Name);
+                                _ ->
+                                    authenticate_fail(SKey,AccountDyn,Name,LocalTime)
+                            end
+                    end;
+                true ->     % unsalted password hash, convert to salted hash
+                    Salt = crypto:rand_bytes(?SALT_BYTES),
+                    Hash = crypto:hash(?PWD_HASH,<<Salt/binary,Token/binary>>),
+                    NewCredList = lists:delete(Credentials,CredList) ++ [{pwdmd5_sha512,{Salt,Hash}}],      
+                    ok=if_write(SKey, ddAccount, Account#ddAccount{credentials=NewCredList}),
+                    authenticate_succeed(SeCo,AccountId, AccountDyn, Name)
             end;
-        {[],true} -> 
-            ?SecurityException({"Invalid account credentials. Please retry", Name})
+        {[],true} ->
+            authenticate_fail(SKey,nomatch,Name,LocalTime)
     end.
+
+authenticate_fail(_,locked,Name,_) ->
+    ?SecurityException({"Account is locked. Contact a system administrator", Name});
+authenticate_fail(_,nomatch,Name,_) ->
+    ?SecurityException({"Invalid account credentials. Please retry", Name});
+authenticate_fail(SKey, AD, Name, LocalTime) ->
+    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime}),
+    authenticate_fail(SKey,nomatch,Name,LocalTime).
+
+authenticate_succeed(SKey, AccountId, #ddAccountDyn{lastFailureTime=undefined}, _Name) ->
+    seco_register(SKey, AccountId);   % return (hash) value to client
+authenticate_succeed(SKey, AccountId, AD, _Name) ->
+    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=undefined}),
+    seco_register(SKey, AccountId).   % return (hash) value to client
 
 login(SKey) ->
     #ddSeCo{accountId=AccountId, authMethod=AuthenticationMethod} = SeCo = seco_authenticated(SKey),
@@ -425,9 +469,10 @@ login(SKey) ->
         {[#ddAccount{lastPasswordChangeTime=LastChange}], pwdmd5} when LastChange < PwdExpireDate -> 
             logout(SKey),
             ?SecurityException({?PasswordChangeNeeded, AccountId});
-        {[#ddAccount{}=Account], _} ->
+        {[_], _} ->
+            [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
             ok = seco_update(SeCo, SeCo#ddSeCo{state=authorized}),
-            if_write(SKey, ddAccount, Account#ddAccount{lastLoginTime=calendar:local_time()}),
+            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=LocalTime}),
             SKey;            
         {[], _} ->                    
             logout(SKey),

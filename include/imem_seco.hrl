@@ -13,13 +13,22 @@
                     , type='user'               ::atom()              %% user | driver | deamon | application 
                     , credentials               ::[ddCredential()]  
                     , fullName                  ::binary()                    
-                    , lastLoginTime             ::ddDatetime()        %% erlang time of last login success
-                    , lastFailureTime           ::ddDatetime()        %% erlang time of last login failure (for existing account name)
+                    , lastLoginTime             ::ddDatetime()        %% deprecated
+                    , lastFailureTime           ::ddDatetime()        %% last locking time for now
                     , lastPasswordChangeTime    ::ddDatetime()        %% change time (undefined or too old  => must change it now and reconnect)
                     , locked='false'            ::'true' | 'false'
                     }
        ).
 -define(ddAccount, [userid,binstr,atom,list,binstr,datetime,datetime,datetime,boolean]).
+
+-record(ddAccountDyn,  %% imem cluster account (dynamic state)
+                    { id                        ::ddEntityId() 
+                    , lastLoginTime             ::ddDatetime()        %% erlang time of last login success
+                    , lastFailureTime           ::ddDatetime()        %% erlang time of last login failure (for existing account name)
+                    , opts=[]                   ::list()
+                    }
+       ).
+-define(ddAccountDyn, [userid,datetime,datetime,list]).
 
 -record(ddRole,     %% hierarchy of roles with permissions and access privileges to connections and commands  
                     { id                        ::ddEntityId()            %% lookup starts with ddAccount.id, other roles are atoms
@@ -76,30 +85,34 @@
 -define(imem_test_admin_login, fun() -> 
     __MH = #ddAccount{name='$1', _='_'},
     case imem_meta:select(ddAccount, [{__MH,[{'==','$1',<<"_test_admin_">>}],['$_']}]) of 
-        {[__Ta],true} -> 
-            __Cred = hd(__Ta#ddAccount.credentials);
-        {[],true} ->    
-            __Cred = imem_seco:create_credentials(crypto:rand_bytes(50)),
-            __AcId = imem_account:make_id(),
-            imem_meta:write( ddAccount
-                           , #ddAccount{ id=__AcId
-                                       , name= <<"_test_admin_">>
-                                       , fullName= <<"_test_admin_">>
-                                       , credentials=[__Cred]
-                                       , lastLoginTime= calendar:local_time()
-                                       , lastPasswordChangeTime= calendar:local_time()
-                                       }
-                           ),
-            imem_meta:write( ddRole
-                           , #ddRole{ id=__AcId
-                                    , permissions=[ manage_system
-                                                  , manage_accounts
-                                                  , manage_system_tables
-                                                  , manage_user_tables
-                                                  ]
-                                    }
-                           )
-    end,
+        {[#ddAccount{id=__ACID} = __Ta],true} ->  
+            catch (imem_meta:delete(ddAccountDyn,__ACID)),
+            imem_meta:delete(ddAccount,__ACID);
+        {[],true} ->
+            ok
+    end,    
+    __Cred = imem_seco:create_credentials(crypto:rand_bytes(50)),
+    __AcId = imem_account:make_id(),
+    imem_meta:write( ddAccount
+                   , #ddAccount{ id=__AcId
+                               , name= <<"_test_admin_">>
+                               , fullName= <<"_test_admin_">>
+                               , credentials=[__Cred]
+                               , lastPasswordChangeTime= calendar:local_time()
+                               }
+                   ),
+    imem_meta:write( ddAccountDyn
+                   , #ddAccountDyn{id=__AcId,lastLoginTime= calendar:local_time()}
+                   ),
+    imem_meta:write( ddRole
+                   , #ddRole{ id=__AcId
+                            , permissions=[ manage_system
+                                          , manage_accounts
+                                          , manage_system_tables
+                                          , manage_user_tables
+                                          ]
+                            }
+                   ),
     imem_seco:login(imem_seco:authenticate(testAdminSessionId, <<"_test_admin_">>, __Cred))
 end 
 ).
@@ -108,7 +121,8 @@ end
     __MH = #ddAccount{name='$1', _='_'},
     case imem_meta:select(ddAccount, [{__MH,[{'==','$1',<<"_test_admin_">>}],['$_']}]) of 
         {[__Ta],true} ->    catch (imem_meta:delete(ddRole, __Ta#ddAccount.id)),
-                            catch (imem_meta:delete(ddRole, __Ta#ddAccount.id))
+                            catch (imem_meta:delete(ddAccountDyn, __Ta#ddAccount.id)),
+                            catch (imem_meta:delete(ddAccount, __Ta#ddAccount.id)),
                             ok;
         {[],true} ->        ok
     end

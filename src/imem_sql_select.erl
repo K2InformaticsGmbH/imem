@@ -143,9 +143,10 @@ test_with_or_without_sec(IsSec) ->
         QSTime = calendar:local_time(),
 
         R00 = exec_fetch_sort(SKey, query00, 100, IsSec, "
-            select name, lastLoginTime 
-            from ddAccount 
-            where lastLoginTime >= sysdate - 1.1574074074074073e-5"   %% 1.0 * ?OneSecond
+            select name, d.lastLoginTime 
+            from ddAccountDyn d, ddAccount a 
+            where d.lastLoginTime >= sysdate - 1.1574074074074073e-5
+            and d.id = a.id"                    %% 1.0 * ?OneSecond
         ),
         QETime = calendar:local_time(),
         case IsSec of
