@@ -4,8 +4,6 @@ notifications:
     - ochsenbein@bluewin.ch
     - acautin@bluewin.ch
 otp_release:
-  - 17.3
-  - 17.1
-  - 17.0
+  - 17.4
 before_install:
   - cp .netrc ~
