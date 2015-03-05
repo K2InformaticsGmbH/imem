@@ -1,8 +1,8 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
--type ddIdentity() :: binary().                 %% Account name
--type ddCredential() :: {pwdmd5, binary()}.     %% {pwdmd5, md5(password)} for now
+-type ddIdentity() :: system | binary().        %% Account name
+-type ddCredential() :: {atom(), any()}.        %% {pwdmd5, md5(password)} / {sha512,{Salt,Hash}} / {scrypt,{Salt,Hash}}
 -type ddPermission() :: atom() | tuple().       %% e.g. manage_accounts, {table,ddSeCo,select}
 -type ddQuota() :: {atom(),any()}.              %% e.g. {max_memory, 1000000000}
 -type ddSeCoKey() :: integer().                 %% security context key ('random' hash)
@@ -82,15 +82,20 @@
 % end 
 % ).
 
--define(imem_test_admin_login, fun() -> 
+-define(imem_test_admin_drop, fun() -> 
     __MH = #ddAccount{name='$1', _='_'},
     case imem_meta:select(ddAccount, [{__MH,[{'==','$1',<<"_test_admin_">>}],['$_']}]) of 
-        {[#ddAccount{id=__ACID} = __Ta],true} ->  
-            catch (imem_meta:delete(ddAccountDyn,__ACID)),
-            imem_meta:delete(ddAccount,__ACID);
-        {[],true} ->
-            ok
-    end,    
+        {[__Ta],true} ->    catch (imem_meta:delete(ddRole, __Ta#ddAccount.id)),
+                            catch (imem_meta:delete(ddAccountDyn, __Ta#ddAccount.id)),
+                            catch (imem_meta:delete(ddAccount, __Ta#ddAccount.id)),
+                            ok;
+        {[],true} ->        ok
+    end
+end 
+).
+
+-define(imem_test_admin_login, fun() -> 
+    ?imem_test_admin_drop(),    
     __Cred = imem_seco:create_credentials(crypto:rand_bytes(50)),
     __AcId = imem_account:make_id(),
     imem_meta:write( ddAccount
@@ -114,18 +119,6 @@
                             }
                    ),
     imem_seco:login(imem_seco:authenticate(testAdminSessionId, <<"_test_admin_">>, __Cred))
-end 
-).
-
--define(imem_test_admin_drop, fun() -> 
-    __MH = #ddAccount{name='$1', _='_'},
-    case imem_meta:select(ddAccount, [{__MH,[{'==','$1',<<"_test_admin_">>}],['$_']}]) of 
-        {[__Ta],true} ->    catch (imem_meta:delete(ddRole, __Ta#ddAccount.id)),
-                            catch (imem_meta:delete(ddAccountDyn, __Ta#ddAccount.id)),
-                            catch (imem_meta:delete(ddAccount, __Ta#ddAccount.id)),
-                            ok;
-        {[],true} ->        ok
-    end
 end 
 ).
 
