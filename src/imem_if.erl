@@ -874,7 +874,10 @@ init(_) ->
     process_flag(trap_exit, true),
 
     % Start periodic EPMD check
-    self() ! check_epmd,
+    case is_pid(whereis(imem_inet_tcp_dist)) of
+        true -> self() ! check_epmd;
+        _ -> ok
+    end,
 
     {ok,#state{}}.
 
