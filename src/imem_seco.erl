@@ -498,8 +498,6 @@ hash(scrypt,Salt,Token) when is_binary(Salt), is_binary(Token) ->
     %    throw(scrypt_timeout)
     %end;
     erlscrypt:scrypt(nif, Token, Salt, 16384, 8, 1, 64);
-%hash(scrypt,Salt,Token) when is_binary(Salt), is_binary(Token) ->
-%    erlscrypt:scrypt(nif, Token, Salt, 16384, 8, 1, 64);
 hash(Type,Salt,Token) when is_atom(Type), is_binary(Salt), is_binary(Token) ->
     crypto:hash(Type,<<Salt/binary,Token/binary>>).
 
