@@ -484,21 +484,22 @@ re_hash(SeCo, FoundCred, OldToken, NewToken, Account) ->
     ok=if_write(SeCo#ddSeCo.skey, ddAccount, NewAccount).
 
 
-% hash(scrypt,Salt,Token) when is_binary(Salt), is_binary(Token) ->
-%     io:format(user,"scrypt hash start ~p ~p~n",[Salt,Token]),
-%     Self = self(),
-%     spawn(fun() -> 
-%         {T,Res}=timer:tc(fun()-> erlscrypt:scrypt(nif, Token, Salt, 16384, 8, 1, 64) end),
-%         io:format(user,"scrypt hash result after ~p ~p~n",[T,Res]),
-%         Self! Res
-%     end),
-%     receive
-%         Res2 -> Res2
-%     after 2000 ->
-%         throw(scrypt_timeout)
-%     end;
 hash(scrypt,Salt,Token) when is_binary(Salt), is_binary(Token) ->
-    erlscrypt:scrypt(nif, Token, Salt, 16384, 8, 1, 64);
+    %io:format(user,"scrypt hash start ~p ~p~n",[Salt,Token]),
+    %Self = self(),
+    %spawn(fun() -> 
+    %    {T,Res}=timer:tc(fun()-> erlscrypt:scrypt(Token, Salt, 16384, 8, 1, 64) end),
+    %    io:format(user,"scrypt hash result after ~p ~p~n",[T,Res]),
+    %    Self! Res
+    %end),
+    %receive
+    %    Res2 -> Res2
+    %after 2000 ->
+    %    throw(scrypt_timeout)
+    %end;
+    erlscrypt:scrypt(Token, Salt, 16384, 8, 1, 64);
+%hash(scrypt,Salt,Token) when is_binary(Salt), is_binary(Token) ->
+%    erlscrypt:scrypt(nif, Token, Salt, 16384, 8, 1, 64);
 hash(Type,Salt,Token) when is_atom(Type), is_binary(Salt), is_binary(Token) ->
     crypto:hash(Type,<<Salt/binary,Token/binary>>).
 
