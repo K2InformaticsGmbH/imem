@@ -18,13 +18,19 @@
 
 % EUnit tests --
 setup() ->
-    mnesia:start(),
+    case erlang:whereis(imem_sup) of
+        undefined -> mnesia:start();
+        _ -> ok
+    end,
     {atomic, ok} = mnesia:create_table(table, [{attributes, [col1, col2, col3]}]),
     ok.
 
 teardown(_) ->
     mnesia:delete_table(table),
-    mnesia:stop().
+    case erlang:whereis(imem_sup) of
+        undefined -> mnesia:stop();
+        _ -> ok
+    end.
 
 imem_mnesia_test_() ->
     {timeout, ?TEST_TIMEOUT, {
