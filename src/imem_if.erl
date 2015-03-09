@@ -936,9 +936,17 @@ handle_info(Info, State) ->
     case lists:keyfind(mnesia, 1, application:which_applications()) of
         {mnesia,_,_} -> {noreply, State};
         false ->
-            ?Error("Mnesia down!"),
-            {stop, mnesia_down, State}
+            mnesia_down_stop_if_not_testing(State)
     end.
+
+-ifdef(TEST).
+mnesia_down_stop_if_not_testing(State) ->
+    {noreply, State}.
+-else.
+mnesia_down_stop_if_not_testing(State) ->
+    ?Error("Mnesia down!"),
+    {stop, mnesia_down, State}.
+-endif.
 
 terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
 terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);

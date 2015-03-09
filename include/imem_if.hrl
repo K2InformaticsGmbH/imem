@@ -47,11 +47,16 @@
     ).
 
 
--define(imem_test_setup, 
-      application:load(imem),
-      application:set_env(imem, mnesia_node_type, disc),
-      imem:start()
+-define(imem_test_setup,
+        case erlang:whereis(imem_sup) of
+            undefined ->
+                application:load(imem),
+                application:set_env(imem, mnesia_node_type, disc),
+                imem:start();
+            _ -> ok
+        end
     ).
 
--define(imem_test_teardown, imem:stop() ).
+%-define(imem_test_teardown, imem:stop() ).
+-define(imem_test_teardown, ok).
 
