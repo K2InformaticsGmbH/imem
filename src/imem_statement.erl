@@ -1227,58 +1227,40 @@ if_call_mfa(IsSec,Fun,Args) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
-setup() -> 
-    ?imem_test_setup,
-    catch imem_meta:drop_table(def),
-    catch imem_meta:drop_table(tuple_test),
-    catch imem_meta:drop_table(fun_test).
+setup() -> ?imem_test_setup.
 
-teardown(_SKey) -> 
-    catch imem_meta:drop_table(def),
-    catch imem_meta:drop_table(tuple_test),
-    catch imem_meta:drop_table(fun_test),
+teardown(_SKey) ->    
     ?LogDebug("test teardown....~n",[]),
     ?imem_test_teardown.
 
 
-db_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with,inorder,[
-              fun test_without_sec/1
-            , fun test_with_sec/1
-        ]
-        }
+db_part1_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,inorder,
+      [fun(_) -> test_with_or_without_sec_part1(false) end,
+       fun(_) -> test_with_or_without_sec_part1(true) end
+      ]}
     }.
 
-% db_test_() ->
-%     {timeout, 20000, 
-%         {
-%             setup,
-%             fun setup/0,
-%             fun teardown/1,
-%             {with, [
-%                   fun test_without_sec/1
-%                 , fun test_with_sec/1
-%             ]}
-%         }
-%     }.
-    
-test_without_sec(_) -> 
-    test_with_or_without_sec(false).
+db_part2_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,inorder,
+      [fun(_) -> test_with_or_without_sec_part2(false) end,
+       fun(_) -> test_with_or_without_sec_part2(true) end
+      ]}
+    }.
 
-test_with_sec(_) ->
-    test_with_or_without_sec(true).
-
-test_with_or_without_sec(IsSec) ->
+test_with_or_without_sec_part1(IsSec) ->
     try
         ClEr = 'ClientError',
         % SeEx = 'SecurityException',
 
         ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("---TEST--- ~p_part1 ----Security ~p", [?MODULE, IsSec]),
         ?LogDebug("----------------------------------~n"),
 
         ?LogDebug("schema ~p~n", [imem_meta:schema()]),
@@ -1293,7 +1275,11 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-    %% test table tuple_test
+        catch imem_meta:drop_table(def),
+        catch imem_meta:drop_table(tuple_test),
+        catch imem_meta:drop_table(fun_test),
+
+        %% test table tuple_test
 
         ?assertEqual(ok, imem_sql:exec(SKey, "
             create table fun_test (
@@ -1832,8 +1818,52 @@ test_with_or_without_sec(IsSec) ->
             ?assertEqual(ok, fetch_close(SKey, SR7b, IsSec))
         after
             ?assertEqual(ok, close(SKey, SR7b))
+        end
+    catch
+        Class:Reason ->  
+            timer:sleep(1000),
+            ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?assert( true == "all tests completed")
+    end,
+    ok. 
+
+test_with_or_without_sec_part2(IsSec) ->
+    try
+        ClEr = 'ClientError',
+        % SeEx = 'SecurityException',
+
+        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p_part2 ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("----------------------------------~n"),
+
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?assertEqual(true, is_atom(imem_meta:schema())),
+        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+
+        ?assertEqual([],receive_raw()),
+
+        SKey=case IsSec of
+            true ->     ?imem_test_admin_login();
+            false ->    none
         end,
 
+        catch imem_meta:drop_table(def),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "
+            create table def (
+                col1 varchar2(10), 
+                col2 integer
+            );"
+            , 0, [{schema,imem}], IsSec)),
+
+        ?assertEqual(ok, insert_range(SKey, 11, def, imem, IsSec)),
+
+        TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
+        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
+        ?LogDebug("Meta table~n~p~n", [Meta]),
+        ?LogDebug("original table~n~p~n", [TableRows1]),
+        
         SR8 = exec(SKey,query8, 100, IsSec, "
             select 
                   col1 as c1
@@ -1845,6 +1875,7 @@ test_with_or_without_sec(IsSec) ->
         % ?LogDebug("StmtCols8 ~p~n", [SR8#stmtResult.stmtCols]),
         % ?LogDebug("SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
         ?assertEqual([{2,<<"desc">>}], SR8#stmtResult.sortSpec),
+
         try
             ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
             List8a = receive_recs(SR8,true),
@@ -1854,13 +1885,13 @@ test_with_or_without_sec(IsSec) ->
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
-            Expected8b = "select col1 c1, col2 from def where col1 < '4' order by col1 asc",
+            Expected8b = "select col1 as c1, col2 from def where col1 < '4' order by col1 asc",
             ?assertEqual(Expected8b, string:strip(binary_to_list(Sql8b))),
 
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"$in$">>,<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             ?LogDebug("Sql8c ~p~n", [Sql8c]),
-            Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
+            Expected8c = "select col1 as c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
             {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
@@ -1872,7 +1903,7 @@ test_with_or_without_sec(IsSec) ->
             {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]},{2,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             ?LogDebug("Sql8e ~p~n", [Sql8e]),
-            Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
+            Expected8e = "select col2, col1 as c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8e, string:strip(binary_to_list(Sql8e))),
 
             ?assertEqual(ok, fetch_close(SKey, SR8, IsSec))
@@ -1908,14 +1939,14 @@ test_with_or_without_sec(IsSec) ->
             % ?LogDebug("Result9a ~p~n", [Result9a]),
             {ok, Sql9a, _SF9a} = Result9a,
             % ?LogDebug("Sql9a ~p~n", [Sql9a]),
-            Expected9a = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by 1 asc, 3 desc",
+            Expected9a = "select a.col1, b.col1, a.col2 from def as a, def as b where a.col1 = b.col1 order by 1 asc, 3 desc",
             ?assertEqual(Expected9a, string:strip(binary_to_list(Sql9a))),
 
             Result9b = filter_and_sort(SKey, SR9a, {undefined,[]}, [{3,2,<<"asc">>},{2,3,<<"desc">>}], [1,3,2], IsSec),
             % ?LogDebug("Result9b ~p~n", [Result9b]),
             {ok, Sql9b, _SF9b} = Result9b,
             % ?LogDebug("Sql9b ~p~n", [Sql9b]),
-            Expected9b = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by b.col1 asc, a.col2 desc",
+            Expected9b = "select a.col1, b.col1, a.col2 from def as a, def as b where a.col1 = b.col1 order by b.col1 asc, a.col2 desc",
             ?assertEqual(Expected9b, string:strip(binary_to_list(Sql9b))),
 
             ?assertEqual(ok, fetch_close(SKey, SR9a, IsSec))
