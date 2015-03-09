@@ -29,7 +29,11 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) w
     {T,L,P} = case Type of
         B when B==<<"decimal">>;B==<<"number">> ->          {decimal,38,0};
         {B,SLen} when B==<<"decimal">>;B==<<"number">> ->   {decimal,binary_to_integer(SLen),0};
-        B when is_binary(B) ->      {imem_datatype:io_to_term(imem_datatype:strip_squotes(binary_to_list(B))),undefined,undefined};
+        B when is_binary(B) ->      
+            case imem_datatype:imem_type(imem_datatype:io_to_term(imem_datatype:strip_squotes(binary_to_list(B)))) of
+                Bterm when is_binary(Bterm) ->  ?ClientError({"Unknown datatype",Bterm});
+                Term ->                         {Term,undefined,undefined}
+            end;
         {<<"float">>,SPrec} ->      {float,undefined,binary_to_integer(SPrec)};
         {<<"timestamp">>,SPrec} ->  {timestamp,undefined,binary_to_integer(SPrec)};
         {Typ,SLen} ->               {imem_datatype:imem_type(binary_to_existing_atom(Typ, utf8)),binary_to_integer(SLen),undefined};
