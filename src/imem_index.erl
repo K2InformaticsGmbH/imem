@@ -9,6 +9,7 @@
 -export([index_type/1
         ,remove/2       %% (IndexTable,Removes)
         ,insert/2       %% (IndexTable,Inserts)
+        ,lookup/2       %% (IndexTable,Stu)
         ]).
 
 
@@ -118,6 +119,14 @@ insert(IndexTable,[{ID,iv_k,Key,Value}|Items]) ->
         [#ddIndex{lnk=K0}] ->   ?ClientError({"Unique index violation",{IndexTable,ID,Value,K0}})
     end,
     insert(IndexTable,Items).
+
+%% @doc Lookup an index by key
+-spec lookup(atom(),tuple()) -> [term()].
+lookup(IndexTable, Stu) ->
+    {Keys, true} = imem_if:select(
+                     IndexTable,
+                     [{#ddIndex{stu = Stu, lnk = '$1'}, [], ['$1']}]),
+    lists:merge(Keys).
 
 %% @doc Find unused new hash for a new value in a hashmap, start with small hash range and escalate to bigger ones upon hash collisions
 -spec new_hash(term(),atom(),integer()) -> integer().
