@@ -6,6 +6,7 @@
 -export([ read/1
         , write/2
         , clear/1
+        , clear_local/1
         ]).
 
 
@@ -18,8 +19,27 @@ read(Key) ->
 write(Key,Value) -> 
     imem_meta:write(?CACHE_TABLE,#ddCache{ckey=Key,cvalue=Value}).
 
-clear(Key) -> 
+clear_local(Key) ->
     catch (imem_meta:delete(?CACHE_TABLE,Key)).
+
+-spec clear(any()) -> ok | {error, [{node(),any()}]}.
+clear(Key) ->
+    {atomic, ClusterClearResult}
+    = imem_if:transaction(
+        fun() ->
+                [{node(), imem_cache:clear_local(Key)} |
+                 [{N, case rpc:call(N, imem_cache, clear_local, [Key]) of
+                          {badrpc,{'EXIT',{undef,_}}} -> old_version;
+                          {badrpc, Error} -> Error;
+                          ok -> ok
+                      end} || {_,N} <- imem_meta:data_nodes(), N /= node()]]
+        end),
+    case [{Node,Error}
+          || {Node,Error} <- ClusterClearResult,
+             Error /= ok, Error /= old_version] of
+        [] -> ok;
+        Errors -> {error, Errors}
+    end.
 
 
 %% TESTS ------------------------------------------------------------------
@@ -67,7 +87,7 @@ test_without_sec(_) ->
         ?assertEqual([], read(some_test_key)),
         ?assertEqual(ok, write(some_test_key,"Test Value")),
         ?assertEqual(["Test Value"], read(some_test_key)),
-        ?assertEqual(ok, clear(some_test_key)),
+        ?assertEqual(ok, clear_local(some_test_key)),
         ?assertEqual([], read(some_test_key)),
 
         ?LogDebug("success ~p~n", [cache_operations])
