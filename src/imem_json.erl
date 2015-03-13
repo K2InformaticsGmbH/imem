@@ -77,18 +77,82 @@ encode(Json) -> jsx:encode(Json).
 %% ===================================================================
 %% Other Exported functions
 %% ===================================================================
-%% @doc Find function, returns {ok,Value} or error
-%% default decoding maps
--spec find(key(),data_object()) -> {ok, value()} | error.
-find(Key,DataObject) when is_list(DataObject) ->
-    case proplists:get_value(Key,DataObject,undefined) of
-        undefined -> error;
-        Value -> {ok,Value}
+%% @doc Find the value of a property and return in matching erlang type
+%% throw exception if property not found.
+-define(JRENUMBR, "(-?(0|[1-9]\\d*)(\.\\d+)?([eE][+-]?\\d+)?)").
+-define(JRESTRNG, "(\".*\")").
+-define(JRECONST, "(true|false|null)").
+-spec find(nonempty_string() | atom() | binary(), jsx:json_term()) ->
+    jsx:json_term() | no_return().
+find(Property, _DataObject)
+  when not (is_atom(Property) orelse
+            (is_binary(Property) andalso byte_size(Property) > 0) orelse
+            (is_list(Property) andalso length(Property) > 0)) ->
+    error(bad_property);
+find(_Property, DataObject)
+  when not (is_map(DataObject) orelse
+            (is_list(DataObject) andalso length(DataObject) > 0) orelse
+            (is_binary(DataObject) andalso byte_size(DataObject) > 0)) ->
+    error(bad_object);
+find(Property, DataObject) when is_atom(Property) ->
+    find(atom_to_list(Property), DataObject);
+find(Property, DataObject) when is_binary(Property) ->
+    find(binary_to_list(Property), DataObject);
+find([First|_] = Property, DataObject)
+  when is_list(Property), is_binary(DataObject) ->
+    ReExp = case {First, lists:last(Property)} of
+               {$",$"} -> Property;
+               {_,$"} -> [$"|Property];
+               {$",_} -> Property++"\"";
+               {_,_} -> [$"|Property++"\""]
+            end
+    ++ ":" ++
+        % Duplicate subpattern numbers
+        "(?|"?JRENUMBR"|"?JRESTRNG"|"?JRECONST")"
+        "[,}\r\n]", % End of object or property TODO newline check
+
+    case re:run(DataObject, ReExp, [{capture, [1], list}]) of
+        nomatch -> error({not_found, DataObject, ReExp});
+        {match, [Got]} ->
+            case [Re
+                  || Re <- ["^"?JRENUMBR"$", "^"?JRESTRNG"$", "^"?JRECONST"$"],
+                     re:run(Got, Re) /= nomatch] of
+                ["^"?JRESTRNG"$"] -> re:replace(Got, "^\"|\"$", "", [{return,binary},global]);
+                ["^"?JRECONST"$"] -> list_to_existing_atom(Got);
+                ["^"?JRENUMBR"$"] -> try jsx:decode(list_to_binary(Got))
+                                     catch _:Error -> error({Error, Got}) end;
+                [] -> error({badmatch, Got})
+            end
     end;
-find(Key,DataObject) when is_map(DataObject) ->
-    maps:find(Key,DataObject);
-find(Key,DataObject) ->
-    find(Key, decode(DataObject)).
+find(Property, DataObject) when is_map(DataObject) ->
+    Prop = list_to_binary([Property]),
+    case maps:fold(
+           fun(K,V,'$not_found') when K == Prop -> V;
+              (_K,V,'$not_found') when is_map(V) ->
+                   find(Property, V);
+              (_K,_V,AccIn) -> AccIn
+           end, '$not_found', DataObject) of
+        '$not_found' -> error({not_found, Prop, DataObject});
+        Value when is_map(Value) -> find(Property, Value);
+        Value -> Value
+    end;
+find(Property, DataObject) when is_list(DataObject) ->
+io:format(user, "~p)~p~n", [?LINE, DataObject]),
+    Prop = list_to_binary([Property]),
+    case lists:foldl(
+           fun({K,V},'$not_found') when K == Prop ->
+io:format(user, "~p)~p~n", [?LINE, V]),
+                   V;
+              ({_K,V},'$not_found') when is_list(V) ->
+                   find(Property, V);
+              ({_K,_V}, AccIn) -> AccIn
+           end, '$not_found', DataObject) of
+        '$not_found' -> error({not_found, Prop, DataObject});
+        [{_,_}|_] = Value -> find(Property, Value);
+        Value ->
+io:format(user, "~p)~p~n", [?LINE, Value]),
+            Value
+    end.
 
 %% @doc Erlang term ordered list of keys used by data object
 -spec keys(data_object()) -> list().
@@ -958,21 +1022,23 @@ expand_inline_test_() ->
 %% JSON is tested for each function as well even if, basically, it only tests the 
 %% JSON to map/proplist conversion each time. This could at least be used as regression
 %% testing should JSON data be handled differently.
-    
+
 find_test_() ->
-    {inparallel
-     , [{"proplist_success"
-         , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_PROP))}
-        , {"map_success"
-           , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_MAP))}
-        , {"json_success"
-           , ?_assertEqual({ok,<<"Doe">>}, find(<<"surname">>,?TEST_JSON))}
-        , {"proplist_fail"
-           , ?_assertEqual(error, find(<<"sme">>,?TEST_PROP))}
-        , {"map_fail"
-           , ?_assertEqual(error, find(<<"sme">>,?TEST_MAP))}
-        , {"json_fail"
-           , ?_assertEqual(error, find(<<"sme">>,?TEST_JSON))}]}.
+    Tests = [
+             {<<"{\"a\":\"b\"}">>,  <<"a">>, <<"b">>},
+             {<<"{\"a\":1}">>,      a,       1},
+             {<<"{\"a\":null}">>,   "a",     null} %,
+             %{<<"{\"a\":[{\"a\":1}]}">>,   "a",     1}
+            ],
+    {inparallel,
+     [{"find_test_"++integer_to_list(I),
+       fun() ->
+               PL = decode(B),
+               Map = decode(B, [return_maps]),
+               ?assertEqual(V, find(K,B)),
+               ?assertEqual(V, find(K,PL)),
+               ?assertEqual(V, find(K,Map))
+       end} || {I,{B,K,V}} <- lists:zip(lists:seq(1,length(Tests)), Tests)]}.
 
 get_test_() ->
     {inparallel
