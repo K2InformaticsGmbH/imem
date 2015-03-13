@@ -134,24 +134,32 @@ find(Property, DataObject) when is_map(DataObject) ->
            end, '$not_found', DataObject) of
         '$not_found' -> error({not_found, Prop, DataObject});
         Value when is_map(Value) -> find(Property, Value);
+        [_|_] = Value ->
+            lists:foldl(
+              fun(#{} = Val, '$not_found') ->
+                      find(Property, Val);
+                 (_, AccIn) -> AccIn
+              end, '$not_found', Value);
         Value -> Value
     end;
 find(Property, DataObject) when is_list(DataObject) ->
-io:format(user, "~p)~p~n", [?LINE, DataObject]),
     Prop = list_to_binary([Property]),
     case lists:foldl(
-           fun({K,V},'$not_found') when K == Prop ->
-io:format(user, "~p)~p~n", [?LINE, V]),
-                   V;
-              ({_K,V},'$not_found') when is_list(V) ->
-                   find(Property, V);
+           fun({K,V},'$not_found') when K == Prop -> V;
+              ({_K,V},'$not_found') when is_list(V) -> find(Property, V);
               ({_K,_V}, AccIn) -> AccIn
            end, '$not_found', DataObject) of
         '$not_found' -> error({not_found, Prop, DataObject});
+        % Recurse into object
         [{_,_}|_] = Value -> find(Property, Value);
-        Value ->
-io:format(user, "~p)~p~n", [?LINE, Value]),
-            Value
+        % Recurse into list
+        [_|_] = Value ->
+            lists:foldl(
+              fun([{_,_}|_] = Val, '$not_found') ->
+                      find(Property, Val);
+                 (_, AccIn) -> AccIn
+              end, '$not_found', Value);
+        Value -> Value
     end.
 
 %% @doc Erlang term ordered list of keys used by data object
@@ -1025,10 +1033,14 @@ expand_inline_test_() ->
 
 find_test_() ->
     Tests = [
-             {<<"{\"a\":\"b\"}">>,  <<"a">>, <<"b">>},
-             {<<"{\"a\":1}">>,      a,       1},
-             {<<"{\"a\":null}">>,   "a",     null} %,
-             %{<<"{\"a\":[{\"a\":1}]}">>,   "a",     1}
+             {<<"{\"a\":\"b\"}">>,          <<"a">>,    <<"b">>},
+             {<<"{\"a\":1}">>,              a,          1},
+             {<<"{\"a\":null}">>,           "a",        null},
+             {<<"{\"a\":true}">>,           "a",        true},
+             {<<"{\"a\":false}">>,          "a",        false},
+             {<<"{\"a\":[{\"a\":1}]}">>,    "a",        1},
+             {<<"{\"r\":\"{\\\"a\\\":1}\","
+                 "\"b\":{\"a\":-2.0}}">>,   "a",        -2.0}
             ],
     {inparallel,
      [{"find_test_"++integer_to_list(I),
