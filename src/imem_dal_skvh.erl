@@ -2,6 +2,7 @@
 
 -include("imem.hrl").
 -include("imem_meta.hrl").
+-include("imem_dal_skvh.hrl").
 
 -define(AUDIT_SUFFIX,"Audit_86400@_").
 -define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
@@ -64,8 +65,6 @@
                     }
        ).
 -define(skvhTable,  [binterm,binstr,binstr]).
--define(skvhTableTrigger, <<"fun(__OR,__NR,__T,__U) -> imem_dal_skvh:write_audit(__OR,__NR,__T,__U) end.">>
-	   ).
 
 % -define(E100,{100,"Invalid key"}).
 % -define(E101,{101,"Duplicate key"}).
@@ -92,6 +91,7 @@
         , audit_alias/1             %% (Channel)                    return audit alias as bisntr
         , create_table/4            %% (Name)                       create empty table / audit table / history table (Name as binary or atom)
         , create_check_channel/1    %% (Channel)                    create empty table / audit table / history table if necessary (Name as binary or atom)
+        , create_check_channel/2    %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
         , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
         , insert/3          %% (User, Channel, MapList)             resources should not exist will be created, retrun list of maps with inserted rows
         , insert/4          %% (User, Channel, Key, Value)          resource should not exist will be created, return map with inserted row
@@ -114,9 +114,14 @@
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
-        , write_audit/4     %% (OldRec,NewRec,Table,User)           default trigger for writing audit trail
+        %, write_audit/4     %% (OldRec,NewRec,Table,User)           default trigger for writing audit trail
         , get_longest_prefix/4
         ]).
+
+-export([build_aux_table_info/1,
+         audit_info/6,
+         write_audit/1,
+         write_history/2]).
 
 -export([expand_inline_key/3, expand_inline/3]).
 
@@ -193,6 +198,11 @@ atom_audit_alias(Channel) -> ?binary_to_existing_atom(audit_alias(Channel)).
 audit_table_name(Channel,Key) when is_list(Channel) -> 
 	imem_meta:partitioned_table_name(Channel ++ ?AUDIT_SUFFIX,Key).
 
+audit_table_time(Channel) ->
+    	{AuditTab,TransTime} = audit_table_time(?TRANS_TIME_GET,Channel),
+        ?TRANS_TIME_PUT(TransTime),
+        {AuditTab,TransTime}.
+
 audit_table_time(TransTime,CH) ->
 	ATName = audit_table_name(CH,TransTime),
 	case imem_meta:last(ATName) of 
@@ -227,31 +237,60 @@ audit_table_next(ATName,TransTime,CH) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec create_check_channel(binary()|atom()) -> #skvhCtx{}.
 create_check_channel(Channel) ->
+    create_check_channel(Channel, [audit,history]).
+
+-spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> #skvhCtx{}.
+create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
-	try 
-		M = ?binary_to_existing_atom(Main),
-		H = list_to_existing_atom(?HIST(Channel)),
-		A = list_to_existing_atom(?AUDIT(Channel)),
-		imem_meta:check_local_table_copy(M),							%% throws if master table is not locally resident
-		imem_meta:check_local_table_copy(H),							%% throws if history table is not locally resident
-		AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME), 	
-		imem_meta:check_local_table_copy(list_to_existing_atom(AP)),	%% throws if table is not locally resident
-		#skvhCtx{mainAlias=M, auditAlias=A, histAlias=H}
-	catch 
-		_:_ -> 
-			Tab = ?binary_to_atom(Main),
-			case (catch imem_meta:create_check_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, system)) of
-				ok ->				ok;
-    			{error, Reason} -> 	imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,Tab}],io_lib:format("~p",[Reason]));
-    			Reason -> 			imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,Tab}],io_lib:format("~p",[Reason]))
-    		end,
-			AC = list_to_atom(?AUDIT(Channel)),
-			catch imem_meta:create_check_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, system),
-        	catch imem_meta:create_trigger(Tab, ?skvhTableTrigger),
-        	HC = list_to_atom(?HIST(Channel)),
-			catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, system),
-			#skvhCtx{mainAlias=Tab, auditAlias=AC, histAlias=HC}
-	end.
+    CreateAudit = proplists:get_value(audit, Options, false),
+    CreateHistory = proplists:get_value(history, Options, false),
+	Tab = try 
+		T = ?binary_to_existing_atom(Main),
+		imem_meta:check_local_table_copy(T),           %% throws if master table is not locally resident
+        T
+	catch _:_ ->
+              TC = ?binary_to_atom(Main),
+              case (catch imem_meta:create_check_table(TC, {record_info(fields,skvhTable),?skvhTable,#skvhTable{}},
+                                                       ?TABLE_OPTS, system)) of
+                  ok -> ok;
+                  {error, Reason} ->
+                      imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TC}],io_lib:format("~p",[Reason]));
+                  Reason ->
+                      imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TC}],io_lib:format("~p",[Reason]))
+              end,
+              TC
+    end,
+    Audit
+    = if CreateAudit ->
+             try
+                 A = list_to_existing_atom(?AUDIT(Channel)),
+                 AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
+                 imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
+                 A
+             catch _:_ ->
+                       AC = list_to_atom(?AUDIT(Channel)),
+                       catch imem_meta:create_check_table(AC, {record_info(fields,skvhAudit),?skvhAudit,#skvhAudit{}},
+                                                          ?AUDIT_OPTS, system),
+                       AC
+             end;
+         true -> undefined
+      end,    
+    Hist
+    = if CreateHistory ->
+             try
+                 H = list_to_existing_atom(?HIST(Channel)),
+                 imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident
+                 H
+             catch _:_ ->
+                       HC = list_to_atom(?HIST(Channel)),
+                       catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}},
+                                                          ?HIST_OPTS, system),
+                       HC
+             end;
+         true -> undefined
+      end,    
+    catch imem_meta:create_trigger(Tab, ?skvhTableTrigger(Options, "")),
+    #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
 create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
@@ -261,47 +300,70 @@ create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_trigger(?binary_to_atom(Channel), ?skvhTableTrigger),
+    ok = imem_meta:create_trigger(?binary_to_atom(Channel), ?skvhTableTrigger([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
 
-write_audit(OldRec,NewRec,Table,User) ->
-	["","",CH,"","",""] = imem_meta:parse_table_name(Table),
-	{AT1,TT1} = audit_table_time(?TRANS_TIME_GET,CH),
-	?TRANS_TIME_PUT(TT1),
-	HT = ?HIST_FROM_STR(CH),
-	CL = case {OldRec,NewRec} of
-		{{},{}} ->	% truncate table
-			ok = imem_meta:truncate_table(HT),
-			[{AT1,#skvhAudit{time=TT1,ckey=sext:encode(undefined),ovalue=undefined,nvalue=undefined,cuser=User}}];
-		{_,{}} ->	% delete old rec
-			[{AT1,#skvhAudit{time=TT1,ckey=element(2,OldRec),ovalue=element(3,OldRec),nvalue=undefined,cuser=User}}];
-		{{},_} ->	% insert new rec
-			[{AT1,#skvhAudit{time=TT1,ckey=element(2,NewRec),ovalue=undefined,nvalue=element(3,NewRec),cuser=User}}];		
-		{_, _} ->	
-			OldKey = element(2,OldRec),
-			case element(2,NewRec) of
-				OldKey ->	% update value
-					[{AT1,#skvhAudit{time=TT1,ckey=OldKey,ovalue=element(3,OldRec),nvalue=element(3,NewRec),cuser=User}}];	
-				NewKey ->	% delete and insert
-					{AT2,TT2} = audit_table_next(AT1,TT1,CH),
-					?TRANS_TIME_PUT(TT1),				
-					[{AT1,#skvhAudit{time=TT1,ckey=OldKey,ovalue=element(3,OldRec),nvalue=undefined,cuser=User}}
-					,{AT2,#skvhAudit{time=TT2,ckey=NewKey,ovalue=undefined,nvalue=element(3,NewRec),cuser=User}}
-					]
-			end
-	end,
-	[ write_audit_and_hist(AT,HT,C) || {AT,C} <- CL].
+build_aux_table_info(Table) ->
+	["","",Channel,"","",""] = imem_meta:parse_table_name(Table),
+	HistoryTable = ?HIST_FROM_STR(Channel),
+	{AuditTable,TransTime} = audit_table_time(Channel),
+    {AuditTable,HistoryTable,TransTime,Channel}.
 
-write_audit_and_hist(AT, HT, #skvhAudit{time=T,ckey=K,ovalue=O,nvalue=N,cuser=U}=C) ->
-	ok = imem_meta:write(AT,C),
-	case imem_meta:read(HT,K) of
-		[#skvhHist{ckey=K,cvhist=CH}=H] ->	
-			ok = imem_meta:write(HT, H#skvhHist{ckey=K,cvhist=[#skvhCL{time=T,ovalue=O,nvalue=N,cuser=U}|CH]});
-		[] ->	
-			ok = imem_meta:write(HT,#skvhHist{ckey=K,cvhist=[#skvhCL{time=T,ovalue=O,nvalue=N,cuser=U}]})
-	end.
+% truncate table
+audit_info(User,_Channel,AuditTable,TransTime,{},{}) ->
+    [{AuditTable, #skvhAudit{time=TransTime,ckey=sext:encode(undefined),
+                             ovalue=undefined,nvalue=undefined,cuser=User}}];
+% delete old rec
+audit_info(User,_Channel,AuditTable,TransTime,OldRec,{}) ->
+    [{AuditTable, #skvhAudit{time=TransTime,ckey=element(2,OldRec),
+                             ovalue=element(3,OldRec),nvalue=undefined,
+                             cuser=User}}];
+% insert new rec
+audit_info(User,_Channel,AuditTable,TransTime,{},NewRec) ->
+    [{AuditTable, #skvhAudit{time=TransTime,ckey=element(2,NewRec),
+                             ovalue=undefined,nvalue=element(3,NewRec),
+                             cuser=User}}];
+% update value
+audit_info(User,_Channel,AuditTable,TransTime,OldRec,NewRec)
+  when element(2,OldRec) == element(2,NewRec) ->
+    OldKey = element(2,OldRec),
+    [{AuditTable, #skvhAudit{time=TransTime,ckey=OldKey,
+                             ovalue=element(3,OldRec),nvalue=element(3,NewRec),
+                             cuser=User}}];
+% delete and insert
+audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec) ->
+    {AuditTable1, TransTime1} = audit_table_next(AuditTable,TransTime,Channel),
+    OldKey = element(2,OldRec),
+    NewKey = element(2,NewRec),
+    [{AuditTable, #skvhAudit{time=TransTime,ckey=OldKey,
+                             ovalue=element(3,OldRec),nvalue=undefined,
+                             cuser=User}},
+     {AuditTable1, #skvhAudit{time=TransTime1,ckey=NewKey,ovalue=undefined,
+                              nvalue=element(3,NewRec),cuser=User}}].
 
+write_audit([]) -> ok;
+write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
+    ok = imem_meta:write(AuditTable,Rec),
+    write_audit(Rest).
+
+write_history(_HistoryTable, []) -> ok;
+write_history(HistoryTable, [{_AuditTable,#skvhAudit{time=T,ckey=K,
+                                                     ovalue=O,nvalue=N,
+                                                     cuser=U}}|Rest]) ->
+    if O == N andalso N == undefined ->
+           ok = imem_meta:truncate_table(HistoryTable);
+       true -> ok
+    end,
+    ok = imem_meta:write(
+           HistoryTable,
+           case imem_meta:read(HistoryTable,K) of
+               [#skvhHist{ckey=K,cvhist=CH}=H] ->
+                   H#skvhHist{ckey=K,cvhist=[#skvhCL{time=T,ovalue=O,nvalue=N,cuser=U}|CH]};
+               [] ->
+                   #skvhHist{ckey=K,cvhist=[#skvhCL{time=T,ovalue=O,nvalue=N,cuser=U}]}
+           end),
+    write_history(HistoryTable, Rest).
 
 % return(Cmd, Result) ->
 % 	debug(Cmd, Result), 

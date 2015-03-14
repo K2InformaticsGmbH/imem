@@ -159,6 +159,7 @@
         , create_check_table/3
         , create_check_table/4
         , create_trigger/2
+        , get_trigger/1
         , create_or_replace_trigger/2
         , create_index/2
         , create_or_replace_index/2
@@ -886,6 +887,23 @@ create_table_sys_conf(TableName, ColumnInfos, Opts, Owner) ->
     DDTableRow = #ddTable{qname={ddSysConf,TableName}, columns=ColumnInfos, opts=Opts, owner=Owner},
     return_atomic_ok(imem_if:write(ddTable, DDTableRow)).
 
+
+get_trigger({Schema,Table}) ->
+    MySchema = schema(),
+    case Schema of
+        MySchema -> get_trigger(Table);
+        _ ->        ?UnimplementedException({"Get Trigger in foreign schema",{Schema,Table}})
+    end;
+get_trigger(Table) when is_atom(Table) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=D] ->
+            case lists:keysearch(trigger, 1, D#ddTable.opts) of
+                false -> undefined;
+                {value,{_,TFunStr}} ->  TFunStr
+            end;
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end.
 
 create_trigger({Schema,Table},TFun) ->
     MySchema = schema(),
@@ -3010,6 +3028,7 @@ meta_operations(_) ->
         ?LogDebug("success ~p~n", [create_table_not_null]),
         Trig = <<"fun(O,N,T,U) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U}],\"trigger\") end.">>,
         ?assertEqual(ok, create_or_replace_trigger(meta_table_3, Trig)),
+        ?assertEqual(Trig, get_trigger(meta_table_3)),
 
         ?assertException(throw, {ClEr,{"No columns given in create table",bad_table_0}}, create_table('bad_table_0', [], [])),
         ?assertException(throw, {ClEr,{"No value column given in create table, add dummy value column",bad_table_0}}, create_table('bad_table_0', BadTypes0, [])),
