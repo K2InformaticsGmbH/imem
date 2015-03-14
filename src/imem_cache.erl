@@ -24,16 +24,19 @@ clear_local(Key) ->
 
 -spec clear(any()) -> ok | {error, [{node(),any()}]}.
 clear(Key) ->
-    {atomic, ClusterClearResult}
-    = imem_if:transaction(
-        fun() ->
-                [{node(), imem_cache:clear_local(Key)} |
-                 [{N, case rpc:call(N, imem_cache, clear_local, [Key]) of
-                          {badrpc,{'EXIT',{undef,_}}} -> old_version;
-                          {badrpc, Error} -> Error;
-                          ok -> ok
-                      end} || {_,N} <- imem_meta:data_nodes(), N /= node()]]
-        end),
+    ClusterClearResult
+    = case imem_if:transaction(
+             fun() ->
+                     [{node(), imem_cache:clear_local(Key)} |
+                      [{N, case rpc:call(N, imem_cache, clear_local, [Key]) of
+                               {badrpc,{'EXIT',{undef,_}}} -> old_version;
+                               {badrpc, Error} -> Error;
+                               ok -> ok
+                           end} || {_,N} <- imem_meta:data_nodes(), N/=node()]]
+             end) of
+          {atomic, CCR} -> CCR;
+          CCR -> CCR
+      end,
     case [{Node,Error}
           || {Node,Error} <- ClusterClearResult,
              Error /= ok, Error /= old_version] of
