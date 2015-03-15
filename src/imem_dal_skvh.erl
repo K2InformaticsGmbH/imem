@@ -122,10 +122,27 @@
          audit_info/6,
          write_audit/1,
          add_channel_trigger_hook/3,
+         get_channel_trigger_hook/2,
          del_channel_trigger_hook/2,
          write_history/2]).
 
 -export([expand_inline_key/3, expand_inline/3]).
+
+get_channel_trigger_hook(Mod, Channel) when is_atom(Mod) ->
+    Tab = atom_table_name(Channel),
+    case imem_meta:get_trigger(Tab) of
+        TrgrFun when is_binary(TrgrFun) ->
+            HookTok = atom_to_list(Mod),
+            HookStartTok = "\n%"++HookTok++"_hook_start",
+            HookEndTok = "\n%"++HookTok++"_hook_end",
+            ModHookCodeRe = lists:flatten([HookStartTok,"(.*)",HookEndTok]),
+            case re:run(TrgrFun, ModHookCodeRe, [{capture, [1], binary},dotall]) of
+                {match, [Hook|_]} -> Hook;
+                _ -> {error, nohook}
+            end;
+        _ ->
+            {error, nohook}
+    end.
 
 add_channel_trigger_hook(Mod, Channel, Hook) when is_atom(Mod) ->
     Tab = atom_table_name(Channel),
@@ -135,10 +152,10 @@ add_channel_trigger_hook(Mod, Channel, Hook) when is_atom(Mod) ->
             HookStartTok = "\n%"++HookTok++"_hook_start",
             HookEndTok = "\n%"++HookTok++"_hook_end",
             PreparedHook = lists:flatten([HookStartTok,"\n,",Hook,HookEndTok]),
-            ModHookCodeRe = lists:flatten([HookStartTok,"([.\r\n]*)",HookEndTok]),
+            ModHookCodeRe = lists:flatten([HookStartTok,".*",HookEndTok]),
             NewTrgrFun
             = case re:replace(TrgrFun, ModHookCodeRe, PreparedHook,
-                              [{return, binary}]) of
+                              [{return, binary},dotall]) of
                   TrgrFun -> % No previous hook
                       re:replace(TrgrFun,"\n    %extend_code_end",
                                  PreparedHook++"\n    %extend_code_end",
