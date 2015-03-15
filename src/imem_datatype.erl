@@ -1137,6 +1137,8 @@ nonLocalHFun({imem_index, Fun}, Args) ->
     apply(imem_index, Fun, Args);   % TODO: restrict to subset of functions
 nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
     apply(io_lib, Fun, Args);
+nonLocalHFun({io, Fun}, Args) when Fun==format ->
+    apply(io, Fun, Args);
 nonLocalHFun(FSpec, _Args) ->
     ?SecurityException({restricted, FSpec}).
 

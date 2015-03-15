@@ -121,9 +121,53 @@
 -export([build_aux_table_info/1,
          audit_info/6,
          write_audit/1,
+         add_channel_trigger_hook/3,
+         del_channel_trigger_hook/2,
          write_history/2]).
 
 -export([expand_inline_key/3, expand_inline/3]).
+
+add_channel_trigger_hook(Mod, Channel, Hook) when is_atom(Mod) ->
+    Tab = atom_table_name(Channel),
+    case imem_meta:get_trigger(Tab) of
+        TrgrFun when is_binary(TrgrFun) ->
+            HookTok = atom_to_list(Mod),
+            HookStartTok = "\n%"++HookTok++"_hook_start",
+            HookEndTok = "\n%"++HookTok++"_hook_end",
+            PreparedHook = lists:flatten([HookStartTok,"\n,",Hook,HookEndTok]),
+            ModHookCodeRe = lists:flatten([HookStartTok,"([.\r\n]*)",HookEndTok]),
+            NewTrgrFun
+            = case re:replace(TrgrFun, ModHookCodeRe, PreparedHook,
+                              [{return, binary}]) of
+                  TrgrFun -> % No previous hook
+                      re:replace(TrgrFun,"\n    %extend_code_end",
+                                 PreparedHook++"\n    %extend_code_end",
+                                 [{return, binary}]);
+                  NTrgrFun -> NTrgrFun
+              end,
+            imem_meta:create_or_replace_trigger(Tab, NewTrgrFun),
+            ok;
+        _ ->
+            {error, notrigger}
+    end.
+
+del_channel_trigger_hook(Mod, Channel) when is_atom(Mod) ->
+    Tab = atom_table_name(Channel),
+    case imem_meta:get_trigger(Tab) of
+        TrgrFun when is_binary(TrgrFun) ->
+            HookTok = atom_to_list(Mod),
+            HookStartTok = "\n%"++HookTok++"_hook_start",
+            HookEndTok = "\n%"++HookTok++"_hook_end",
+            ModHookCodeRe = lists:flatten([HookStartTok,".*",HookEndTok]),
+            case re:replace(TrgrFun, ModHookCodeRe, "", [{return, binary},dotall]) of
+                TrgrFun -> % No previous hook
+                    ok;
+                NewTrgrFun ->
+                    imem_meta:create_or_replace_trigger(Tab, NewTrgrFun)
+            end;
+        _ ->
+            {error, notrigger}
+    end.
 
 -spec expand_inline_key(User :: any(), Channel :: binary(), Key :: any()) ->
     Json :: binary().
@@ -289,7 +333,7 @@ create_check_channel(Channel, Options) ->
              end;
          true -> undefined
       end,    
-    catch imem_meta:create_trigger(Tab, ?skvhTableTrigger(Options, "")),
+    catch imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
     #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
@@ -300,7 +344,7 @@ create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_trigger(?binary_to_atom(Channel), ?skvhTableTrigger([audit,history],"")),
+    ok = imem_meta:create_or_replace_trigger(?binary_to_atom(Channel), ?skvhTableTrigger([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
 
