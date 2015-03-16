@@ -2,7 +2,7 @@
 
 -include("imem_seco.hrl").
 
--define(GET_PASSWORD_LIFE_TIME(__AccountId),?GET_IMEM_CONFIG(passwordLifeTime,[__AccountId],100)).
+-define(GET_PASSWORD_LIFE_TIME(__AccountId),?GET_CONFIG(passwordLifeTime,[__AccountId],100)).
 -define(SALT_BYTES,32).
 -define(PWD_HASH,scrypt).                       %% target hash: pwdmd5,md4,md5,sha512,scrypt 
 -define(PWD_HASH_LIST,[scrypt,sha512,pwdmd5]).  %% allowed hash types

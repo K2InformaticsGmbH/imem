@@ -6,7 +6,7 @@
 -define(MaxChar,16#FFFFFF).
 -define(Star,<<"*">>).
 -define(Join,'$join$').
--define(GET_ROWNUM_LIMIT,?GET_IMEM_CONFIG(rownumDefaultLimit,[],10000)).
+-define(GET_ROWNUM_LIMIT,?GET_CONFIG(rownumDefaultLimit,[],10000)).
 -define(MetaTab,<<"_meta_">>).
 -define(ParamTab,<<"_param_">>).
 -define(ParamNameIdx,1).

@@ -5,9 +5,9 @@
 
 -define(DefaultRendering, str ).         %% gui (strings when necessary) | str (always strings) | raw (erlang terms) 
 
--define(GET_DATE_FORMAT(__IsSec),?GET_IMEM_CONFIG(dateFormat,[__IsSec],eu)).            %% eu | us | iso | raw
--define(GET_NUM_FORMAT(__IsSec),?GET_IMEM_CONFIG(numberFormat,[__IsSec],{prec,2})).     %% not used yet
--define(GET_STR_FORMAT(__IsSec),?GET_IMEM_CONFIG(stringFormat,[__IsSec],[])).           %% not used yet
+-define(GET_DATE_FORMAT(__IsSec),?GET_CONFIG(dateFormat,[__IsSec],eu)).            %% eu | us | iso | raw
+-define(GET_NUM_FORMAT(__IsSec),?GET_CONFIG(numberFormat,[__IsSec],{prec,2})).     %% not used yet
+-define(GET_STR_FORMAT(__IsSec),?GET_CONFIG(stringFormat,[__IsSec],[])).           %% not used yet
 
 -export([ exec/5
         ]).

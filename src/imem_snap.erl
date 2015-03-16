@@ -46,11 +46,11 @@
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
 
--define(GET_SNAPSHOT_CYCLE_WAIT,?GET_IMEM_CONFIG(snapshotCycleWait,[],10000)).
--define(GET_SNAPSHOT_CHUNK_MAX_SIZE,?GET_IMEM_CONFIG(snapshotChunkMaxSize,[],500)).
--define(GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT,?GET_IMEM_CONFIG(snapshotChunkFetchTimeout,[],20000)).
--define(GET_SNAPSHOT_SCRIPT,?GET_IMEM_CONFIG(snapshotScript,[],true)).
--define(GET_SNAPSHOT_SCRIPT_FUN,?GET_IMEM_CONFIG(snapshotScriptFun,[],
+-define(GET_SNAPSHOT_CYCLE_WAIT,?GET_CONFIG(snapshotCycleWait,[],10000)).
+-define(GET_SNAPSHOT_CHUNK_MAX_SIZE,?GET_CONFIG(snapshotChunkMaxSize,[],500)).
+-define(GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT,?GET_CONFIG(snapshotChunkFetchTimeout,[],20000)).
+-define(GET_SNAPSHOT_SCRIPT,?GET_CONFIG(snapshotScript,[],true)).
+-define(GET_SNAPSHOT_SCRIPT_FUN,?GET_CONFIG(snapshotScriptFun,[],
 <<"fun() ->
     ExcludeList = [dual, ddSize, ddNode
                   ,imem_meta:physical_table_name(ddCache@)
