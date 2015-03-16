@@ -1838,8 +1838,8 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
                     % ?LogDebug("trigger_infos ~p",[Result]),
                     Result
             end;
-        [{TT, DR, TR}] ->
-            {TT, DR, TR}
+        [{TT, DR, TR}] -> {TT, DR, TR};
+        Other -> ?SystemException({"Unexpected trigger format", Other})
     end.
 
 compiled_index_plan(IdxDef,ColumnInfos) ->
@@ -1907,7 +1907,7 @@ compile_json_path(JsonPath,FieldMap) when is_tuple(JsonPath) ->
     compile_json_path({jp, JsonPath}, FieldMap).
 
 trigger_with_indexing(TFun,MF,Var) ->
-    case re:run(TFun, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], binary}]) of
+    case re:run(TFun, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], binary}, dotall]) of
         {match,[[Params,Body0]]} ->
             case binary:match(Body0,MF) of
                 nomatch ->    <<"fun(",Params/binary,") ->",Body0/binary,", ",MF/binary,"(",Params/binary,",",Var/binary,") end." >>;
