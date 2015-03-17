@@ -3,7 +3,6 @@
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
--define(GET_ROWNUM_LIMIT,?GET_IMEM_CONFIG(rownumDefaultLimit,[],10000)).
 -define(MaxChar,16#FFFFFF).
 
 -export([ exec/5
