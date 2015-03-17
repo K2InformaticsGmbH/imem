@@ -1,3 +1,7 @@
+-ifndef(IMEM_SQL_HRL).
+-define(IMEM_SQL_HRL, true).
+
+-include("imem_meta.hrl").
 
 -define(ComparisonOperators, ['==','/=','>=','=<','<','>']).	%% as supported here in matchspecs 
 
@@ -94,3 +98,5 @@
                   , sortSpec = []                   ::list()
                   }
        ).
+
+-endif.

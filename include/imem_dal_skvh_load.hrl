@@ -1,3 +1,6 @@
+-ifndef(IMEM_DAL_SKVH_LOAD_HRL).
+-define(IMEM_DAL_SKVH_LOAD_HRL, true).
+
 -include("imem_meta.hrl").
 
 -record(loadControl,
@@ -24,3 +27,5 @@
         ).
 
 -define(loadOutput, [atom,integer,list,timestamp,integer,float,term,term]).
+
+-endif.

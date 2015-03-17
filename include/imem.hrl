@@ -1,3 +1,6 @@
+-ifndef(IMEM_HRL).
+-define(IMEM_HRL, true).
+
 -define(LOG_TAG, "_IMEM_").
 
 -ifdef(TEST).
@@ -81,3 +84,5 @@
 -define(Emergency(__M,__F,__A), ?L(emergency, __M, __F, __A)).
 -define(Emergency(__F,__A),     ?L(emergency, __F, __A)).
 -define(Emergency(__F),         ?L(emergency, __F)).
+
+-endif.

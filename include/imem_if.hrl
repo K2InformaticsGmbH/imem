@@ -1,3 +1,6 @@
+-ifndef(IMEM_IF_HRL).
+-define(IMEM_IF_HRL, true).
+
 -type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
 -type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
 
@@ -60,3 +63,4 @@
 %-define(imem_test_teardown, imem:stop() ).
 -define(imem_test_teardown, ok).
 
+-endif.

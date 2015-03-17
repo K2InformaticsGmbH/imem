@@ -1,3 +1,6 @@
+-ifndef(IMEM_META_HRL).
+-define(IMEM_META_HRL, true).
+
 -include("imem_if.hrl").
 
 -define(ClientError(__Reason), ?THROW_EXCEPTION('ClientError',__Reason)).
@@ -12,6 +15,10 @@
 
 -define(GET_CONFIG(__PName,__Context,__Default),
         imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
+       ).
+
+-define(GET_ROWNUM_LIMIT,
+        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],10000)
        ).
 
 -type ddEntityId() :: 	reference() | integer() | atom().
@@ -255,3 +262,5 @@
 		end
 	end)(__Reason)
 ).
+
+-endif.

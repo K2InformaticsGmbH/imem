@@ -1,5 +1,5 @@
 -ifndef(IMEM_DAL_SKVH_HRL).
--define(IMEM_DAL_SKVH_HRL, 0).
+-define(IMEM_DAL_SKVH_HRL, true).
 
 -define(ADDIF(__Flag,__Opts,__Code),
         (fun(_F,_O) ->

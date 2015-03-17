@@ -1,3 +1,6 @@
+-ifndef(IMEM_SECO_HRL).
+-define(IMEM_SECO_HRL, true).
+
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
@@ -123,3 +126,5 @@ end
 ).
 
 -define(imem_logout, fun(__X) -> imem_seco:logout(__X) end).
+
+-endif.

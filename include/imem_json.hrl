@@ -1,4 +1,6 @@
-%% -*- coding: utf-8 -*-
+-ifndef(IMEM_JSON_HRL).
+-define(IMEM_JSON_HRL, true).
+
 -define(decode_maps(__J), decode(__J, [return_maps])).
 
 -type data_object() :: jsx:json_term().
@@ -9,3 +11,5 @@
 
 -type value()   :: term().
 -type key()     :: binary().
+
+-endif.
