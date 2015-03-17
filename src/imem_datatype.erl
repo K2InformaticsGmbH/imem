@@ -1129,18 +1129,16 @@ nonLocalHFun({erlang, Fun} = FSpec, Args) ->
     end;
 nonLocalHFun({Mod, Fun}, Args) when Mod==math;Mod==lists;Mod==imem_datatype;Mod==imem_json ->
     apply(Mod, Fun, Args);
+nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
+    apply(io_lib, Fun, Args);
 nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index;Fun==dictionary_trigger ->
     apply(imem_meta, Fun, Args);
 nonLocalHFun({imem_dal_skvh, Fun}, Args) ->
     apply(imem_dal_skvh, Fun, Args);   % TODO: restrict to subset of functions
 nonLocalHFun({imem_index, Fun}, Args) ->
     apply(imem_index, Fun, Args);   % TODO: restrict to subset of functions
-nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
-    apply(io_lib, Fun, Args);
-nonLocalHFun({io, Fun}, Args) when Fun==format ->
-    apply(io, Fun, Args);
-nonLocalHFun(FSpec, _Args) ->
-    ?SecurityException({restricted, FSpec}).
+nonLocalHFun({Mod, Fun}, Args) ->
+    apply(imem_meta, secure_apply, [Mod, Fun, Args]).
 
 %% ----- CAST Data from DB to string ------------------
 

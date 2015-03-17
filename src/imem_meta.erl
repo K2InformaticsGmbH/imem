@@ -243,6 +243,26 @@
 
 -export([ simple_or_local_node_sharded_tables/1]).
 
+-export([ secure_apply/3]).
+
+-spec secure_apply(Mod :: atom(), Fun :: atom(), Args :: list()) ->
+    any() | no_return.
+secure_apply(Mod, Fun, Args) ->
+    {ModFunList,true}
+    = imem_if:select(?CONFIG_TABLE,
+                     [{#ddConfig{hkl=[{'_','$1',secureFunctions}|'_'],
+                                 val='$2',_='_'},[],[{{'$1','$2'}}]}]),
+    case lists:foldl(fun({M,Funs}, {false, undefined}) when M == Mod ->
+                             case lists:member(Fun, Funs) of
+                                 true -> {true, apply(Mod,Fun,Args)};
+                                 false -> {false, undefined}
+                             end;
+                        (_, {true,_}=Executed) -> Executed;
+                        (_,NotFound) -> NotFound
+                     end, {false,undefined}, ModFunList) of
+        {true, Result} -> Result;
+        _ -> ?SystemException({"Can not run in DB", {Mod, Fun}})
+    end.
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),

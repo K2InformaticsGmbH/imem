@@ -17,6 +17,10 @@
         imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
        ).
 
+-define(SET_SEC_FUNS(__Funs),
+        imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,secureFunctions},?MODULE,[node()],__Funs)
+       ).
+
 -define(GET_ROWNUM_LIMIT,
         imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],10000)
        ).
