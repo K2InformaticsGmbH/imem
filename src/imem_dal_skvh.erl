@@ -114,19 +114,21 @@
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
-        %, write_audit/4     %% (OldRec,NewRec,Table,User)           default trigger for writing audit trail
         , get_longest_prefix/4
         ]).
 
 -export([build_aux_table_info/1,
          audit_info/6,
          write_audit/1,
+         audit_recs_time/1,
          add_channel_trigger_hook/3,
          get_channel_trigger_hook/2,
          del_channel_trigger_hook/2,
          write_history/2]).
 
 -export([expand_inline_key/3, expand_inline/3]).
+
+-export([skvh_rec_to_map/1, map_to_skvh_rec/1]).
 
 get_channel_trigger_hook(Mod, Channel) when is_atom(Mod) ->
     Tab = atom_table_name(Channel),
@@ -402,6 +404,14 @@ audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec) ->
                              cuser=User}},
      {AuditTable1, #skvhAudit{time=TransTime1,ckey=NewKey,ovalue=undefined,
                               nvalue=element(3,NewRec),cuser=User}}].
+
+audit_recs_time(A) when is_record(A, skvhAudit) ->
+    imem_datatype:timestamp_to_io(A#skvhAudit.time);
+audit_recs_time({_,A}) when is_record(A, skvhAudit) ->
+    imem_datatype:timestamp_to_io(A#skvhAudit.time);
+audit_recs_time([]) -> [];
+audit_recs_time([A|Rest]) ->
+    [audit_recs_time(A)|audit_recs_time(Rest)].
 
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
