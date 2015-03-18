@@ -111,7 +111,7 @@ find([First|_] = Property, DataObject)
         "(?|"?JRENUMBR"|"?JRESTRNG"|"?JRECONST")"
         "[,}\r\n]", % End of object or property TODO newline check
 
-    case re:run(DataObject, ReExp, [{capture, [1], list}]) of
+    case re:run(DataObject, ReExp, [{capture, [1], list},ungreedy]) of
         nomatch -> error({not_found, DataObject, ReExp});
         {match, [Got]} ->
             case [Re
@@ -1033,14 +1033,15 @@ expand_inline_test_() ->
 
 find_test_() ->
     Tests = [
-             {<<"{\"a\":\"b\"}">>,          <<"a">>,    <<"b">>},
-             {<<"{\"a\":1}">>,              a,          1},
-             {<<"{\"a\":null}">>,           "a",        null},
-             {<<"{\"a\":true}">>,           "a",        true},
-             {<<"{\"a\":false}">>,          "a",        false},
-             {<<"{\"a\":[{\"a\":1}]}">>,    "a",        1},
+             {<<"{\"a\":\"b\"}">>,              <<"a">>,    <<"b">>},
+             {<<"{\"a\":1}">>,                  a,          1},
+             {<<"{\"a\":\"1\",\"b\":\"2\"}">>,  a,          <<"1">>},
+             {<<"{\"a\":null}">>,               "a",        null},
+             {<<"{\"a\":true}">>,               "a",        true},
+             {<<"{\"a\":false}">>,              "a",        false},
+             {<<"{\"a\":[{\"a\":1}]}">>,        "a",        1},
              {<<"{\"r\":\"{\\\"a\\\":1}\","
-                 "\"b\":{\"a\":-2.0}}">>,   "a",        -2.0}
+                 "\"b\":{\"a\":-2.0}}">>,       "a",        -2.0}
             ],
     {inparallel,
      [{"find_test_"++integer_to_list(I),
