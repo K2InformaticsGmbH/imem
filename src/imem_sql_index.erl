@@ -8,7 +8,7 @@
 exec(SKey, {'drop index', {}, TableName}=_ParseTree, _Stmt, _Opts, IsSec) ->
     % ?LogDebug("Drop Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
-    Table = if 
+    Table = if
         TableSchema =:= undefined ->
             {imem_meta:schema(),list_to_existing_atom(binary_to_list(Tbl))};
         true ->
@@ -19,13 +19,13 @@ exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec)
     % ?LogDebug("Drop Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
-    if 
+    if
         not (IndexSchema =:= TableSchema) ->
             ?ClientError({"Index and table are in different schema",{IndexSchema,TableSchema}});
-        true -> 
+        true ->
             ok
     end,
-    Table = if 
+    Table = if
         TableSchema =:= undefined ->
             {imem_meta:schema(),list_to_existing_atom(binary_to_list(Tbl))};
         true ->
@@ -33,26 +33,46 @@ exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec)
     end,
     if_call_mfa(IsSec, 'drop_index', [SKey,Table,Index]);
 
+exec(SKey, {'create index',{},{},TableName,[],{},{}} = _ParseTree, _Stmt, _Opts, IsSec) ->
+    ?LogDebug("Re-Create Index Parse Tree~n~p~n", [_ParseTree]),
+    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
+    MySchema = imem_meta:schema(),
+    MySchemaName = ?atom_to_binary(MySchema),
+    Table = case TableSchema of
+        MySchemaName -> list_to_existing_atom(binary_to_list(Tbl));
+        undefined ->    list_to_existing_atom(binary_to_list(Tbl));
+        _ ->            ?ClientError({"Cannot re-create index on foreign schema table", TableSchema})
+    end,
+    ExistingIndexDefs = case imem_meta:read(ddTable, {MySchema,Table}) of
+        [#ddTable{}=D] ->
+            case lists:keysearch(index, 1, D#ddTable.opts) of
+                {value,{index, EID}} -> EID;
+                false ->                []
+            end;
+        [] ->
+            ?ClientError({"Table dictionary does not exist for",Table})
+    end,
+    if_call_mfa(IsSec, create_or_replace_index, [SKey, Table, ExistingIndexDefs]);
 exec(SKey, {'create index', IndexType, IndexName, TableName
             , IndexDefn, NormWithFun, FilterWithFun} = _ParseTree
             , _Stmt, _Opts, IsSec) ->
     ?LogDebug("Create Index Parse Tree~n~p~n", [_ParseTree]),
     MySchema = imem_meta:schema(),
     MySchemaName = ?atom_to_binary(MySchema),
-    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),                
+    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
     Table = case TableSchema of
-        MySchemaName -> list_to_existing_atom(binary_to_list(Tbl)); 
-        undefined ->    list_to_existing_atom(binary_to_list(Tbl)); 
+        MySchemaName -> list_to_existing_atom(binary_to_list(Tbl));
+        undefined ->    list_to_existing_atom(binary_to_list(Tbl));
         _ ->            ?ClientError({"Cannot create index on foreign schema table", TableSchema})
     end,
     case IndexSchema of
-        MySchemaName -> ok; 
-        undefined ->    ok; 
+        MySchemaName -> ok;
+        undefined ->    ok;
         _ ->            ?ClientError({"Cannot create index in foreign schema", IndexSchema})
     end,
     ExistingIndexDefs = case imem_meta:read(ddTable, {MySchema,Table}) of
-        [#ddTable{}=D] -> 
+        [#ddTable{}=D] ->
             case lists:keysearch(index, 1, D#ddTable.opts) of
                 {value,{index, EID}} -> EID;
                 false ->                []
@@ -91,10 +111,10 @@ if_call_mfa(IsSec,Fun,Args) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
-setup() -> 
+setup() ->
     ?imem_test_setup.
 
-teardown(_) -> 
+teardown(_) ->
     catch imem_meta:drop_table(idx_index_test),
     catch imem_meta:drop_table(index_test),
     ?imem_test_teardown.
@@ -109,8 +129,8 @@ db_test_() ->
             , fun test_with_sec/1
         ]}
     }.
-    
-test_without_sec(_) -> 
+
+test_without_sec(_) ->
     test_with_or_without_sec(false).
 
 test_with_sec(_) ->
@@ -374,7 +394,7 @@ test_with_or_without_sec(IsSec) ->
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
-    ok. 
+    ok.
 
 print_indices(IsSec, SKey, Schema, Table) ->
     [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {Schema,Table}]),
