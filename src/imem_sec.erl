@@ -107,6 +107,13 @@
         , return_atomic/2
         ]).
 
+-export([ first/2
+        , next/3
+        , last/2
+        , prev/3
+        , foldl/4
+        ]).
+
 -export([ have_table_permission/3   %% includes table ownership and readonly
         , have_module_permission/3  
         , have_permission/2    
@@ -340,6 +347,12 @@ return_atomic_ok(_SKey, Result) ->
 
 return_atomic(_SKey, Result) -> 
     imem_meta:return_atomic(Result).
+
+first(_SKey, Table)                 -> imem_meta:first(Table).
+next(_SKey, Table,Key)              -> imem_meta:next(Table,Key).
+last(_SKey, Table)                  -> imem_meta:last(Table).
+prev(_SKey, Table,Key)              -> imem_meta:prev(Table,Key).
+foldl(_SKey,FoldFun,InputAcc,Table) -> imem_meta:foldl(FoldFun,InputAcc,Table).
 
 %% imem_if but security context added --- DATA DEFINITIONimem_meta--
 

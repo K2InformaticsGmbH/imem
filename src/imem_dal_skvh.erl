@@ -130,6 +130,18 @@
 
 -export([skvh_rec_to_map/1, map_to_skvh_rec/1]).
 
+-export([foldl/4]).
+
+-spec foldl(User :: any(), FoldFun :: function(), InputAcc :: any(),
+            Channel :: binary()) -> OutPutAcc :: any().
+foldl(_User, FoldFun, InputAcc, Channel) when is_function(FoldFun, 2) ->
+    Tab = atom_table_name(Channel),
+    imem_meta:foldl(
+      fun(Rec, Acc) when is_record(Rec,skvhTable) ->
+              FoldFun(skvh_rec_to_map(Rec), Acc);
+         (_Rec, Acc) -> Acc
+      end, InputAcc, Tab).
+
 get_channel_trigger_hook(Mod, Channel) when is_atom(Mod) ->
     Tab = atom_table_name(Channel),
     case imem_meta:get_trigger(Tab) of
