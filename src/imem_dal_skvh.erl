@@ -338,8 +338,8 @@ create_check_channel(Channel, Options) ->
              end;
          true -> undefined
       end,    
-    Hist
-    = if CreateHistory ->
+    Hist % Depends on presence of audit table
+    = if CreateAudit andalso CreateHistory ->
              try
                  H = list_to_existing_atom(?HIST(Channel)),
                  imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident

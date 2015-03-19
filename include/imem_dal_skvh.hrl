@@ -1,22 +1,25 @@
 -ifndef(IMEM_DAL_SKVH_HRL).
 -define(IMEM_DAL_SKVH_HRL, true).
 
--define(ADDIF(__Flag,__Opts,__Code),
+-define(ADDIF(__Flags,__Opts,__Code),
         (fun(_F,_O) ->
-                case proplists:get_value(_F, _O, false) of
-                    true -> __Code;
-                    false -> ""
+                 case lists:usort(
+                        [_Fi||_Fi<-_F,
+                              proplists:get_value(_Fi,_O,false)==true]) of
+                    [true] -> __Code;
+                    [] -> ""
                 end
-        end)(__Flag,__Opts)).
+        end)(__Flags,__Opts)).
 -define(skvhTableTrigger(__Opts, __ExtraFun),
         list_to_binary(
           ["fun(OldRec,NewRec,Table,User) ->\n"
-           "    {AuditTable,HistoryTable,TransTime,Channel}\n"
+           "    start_trigger",
+           ?ADDIF([audit], __Opts,
+           ",\n    {AuditTable,HistoryTable,TransTime,Channel}\n"
            "        = imem_dal_skvh:build_aux_table_info(Table),\n"
-           "    AuditInfoList = imem_dal_skvh:audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec)",
-           ?ADDIF(audit, __Opts,
-           ",\n    ok = imem_dal_skvh:write_audit(AuditInfoList)"),
-           ?ADDIF(history, __Opts,
+           "    AuditInfoList = imem_dal_skvh:audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec),\n"
+           "    ok = imem_dal_skvh:write_audit(AuditInfoList)"),
+           ?ADDIF([audit, history], __Opts,
            ",\n    ok = imem_dal_skvh:write_history(HistoryTable,AuditInfoList)"),
            (fun(_E) ->
                     if length(_E) == 0 -> "";
