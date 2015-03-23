@@ -1098,7 +1098,7 @@ erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
     case catch erl_eval:exprs(ErlAbsForm, Bindings, none,
                               {value, fun nonLocalHFun/2}) of
         {value,Value,_} -> Value;
-        {'SecurityException', Exception} ->
+        {Ex, Exception} when Ex == 'SystemException'; Ex == 'SecurityException' ->
             ?SecurityException({"Potentially harmful code", Exception});
         {'EXIT', Error} -> ?ClientError({"Term compile error", Error})
     end.
@@ -1503,7 +1503,7 @@ hex(X) ->
 erl_value_test_() ->
     {inparallel,
      [{C, case O of
-              'SecurityException' ->
+              'SystemException' ->
                   ?_assertException(throw, {'SecurityException', _},
                                     erl_value(C));
               'ClientError' ->
@@ -1511,7 +1511,7 @@ erl_value_test_() ->
                                     erl_value(C));
               runtime ->
                   Fun = erl_value(C),
-                  ?_assertException(throw, {'SecurityException', _},
+                  ?_assertException(throw, {'SystemException', _},
                                     Fun());
               _ ->
                   ?_assertEqual(O, erl_value(C))
@@ -1521,9 +1521,9 @@ erl_value_test_() ->
           {"{1,2}", {1,2}},
           {"(fun() -> 1 + 2 end)()", 3},
           {"(fun() -> A end)()", 'ClientError'},
-          {"os:cmd(\"pwd\")", 'SecurityException'},
+          {"os:cmd(\"pwd\")", 'SystemException'},
           {"(fun() -> apply(filelib, ensure_dir, [\"pwd\"]) end)()",
-           'SecurityException'},
+           'SystemException'},
           {"fun() -> os:cmd(\"pwd\") end", runtime}
          ]
      ]}.
