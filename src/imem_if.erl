@@ -834,7 +834,7 @@ last(Table) ->      mnesia:last(Table).
 prev(Table,Key) ->  mnesia:prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->
-    return_atomic_list(transaction(fun mnesia:foldl/3, [FoldFun, InputAcc, Table])).
+    return_atomic(transaction(fun mnesia:foldl/3, [FoldFun, InputAcc, Table])).
 
 lock(LockItem, LockKind) -> mnesia:lock(LockItem, LockKind).
 
