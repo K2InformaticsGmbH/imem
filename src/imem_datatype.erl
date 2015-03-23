@@ -1528,17 +1528,11 @@ erl_value_test_() ->
          ]
      ]}.
 
-setup() ->
-    ?imem_test_setup.
-
-teardown(_) ->
-    ?imem_test_teardown.
-
 db_test_() ->
     {
         setup,
-        fun setup/0,
-        fun teardown/1,
+        fun() -> ok end,
+        fun(_) -> ok end,
         {with, [
               fun data_types/1
         ]}}.
