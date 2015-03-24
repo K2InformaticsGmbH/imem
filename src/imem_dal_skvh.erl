@@ -363,8 +363,8 @@ create_check_channel(Channel, Options) ->
                        HC
              end;
          true -> undefined
-      end,    
-    catch imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
+      end,
+    imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
     #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
