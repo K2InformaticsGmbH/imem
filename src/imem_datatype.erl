@@ -70,6 +70,7 @@
 %   integer     int
 %   ipaddr
 %   list
+%   map
 %   number      (virtual= integer|float)
 %   pid
 %   ref
@@ -82,7 +83,7 @@
 -define(CLM_TYPES,
         [atom, binary,  raw,  blob,  rowid,  binstr, clob, nclob, varchar2,
          nvarchar2, char, nchar, boolean, datetime, decimal, float, 'fun',
-         integer, ipaddr, list, number, pid, ref, string, term, binterm,
+         integer, ipaddr, list, map, number, pid, ref, string, term, binterm,
          timestamp, tuple, userid]).
 
 -export([bind_arg_types/0]).
@@ -101,6 +102,7 @@
         , io_to_ipaddr/1
         , io_to_ipaddr/2
         , io_to_list/2
+        , io_to_map/1        
         , io_to_string/1
         , io_to_term/1
         , io_to_binterm/1
@@ -303,6 +305,7 @@ type_check({A,B,C,D,E,F,G,H},ipaddr,_) when
             is_integer(A), is_integer(B), is_integer(C), is_integer(D),
             is_integer(E), is_integer(F), is_integer(G), is_integer(H) -> ok;
 type_check(V,list,_) when is_list(V) -> ok;
+type_check(V,map,_) when is_map(V) -> ok;
 type_check(V,number,_) when is_integer(V);is_float(V) -> ok;
 type_check(V,pid,_) when is_pid(V) -> ok;
 type_check(V,ref,_) when is_reference(V) -> ok;
@@ -424,6 +427,7 @@ io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_binary(Val);is_list(Val) 
             (Type == integer) ->        io_to_integer(Val,Len,Prec);
             (Type == ipaddr) ->         io_to_ipaddr(Val,Len);
             (Type == list) ->           io_to_list(Val,Len);
+            (Type == map) ->            io_to_map(Val);            
             (Type == pid) ->            io_to_pid(Val);
             (Type == ref) ->            Old;    %% cannot convert back
             (Type == string) ->         io_to_string(Val,Len);
@@ -1018,6 +1022,12 @@ io_to_list(Val,Len) ->
             end;
         _ ->
             ?ClientError({"Data conversion format error",{list,Len,Val}})
+    end.
+
+io_to_map(Val) ->
+    case io_to_term(Val) of
+        V when is_map(V) -> V;
+        _ -> ?ClientError({"Data conversion format error",{map,Val}})
     end.
 
 io_to_tuple(Val,Len) ->
@@ -1868,6 +1878,10 @@ data_types(_) ->
         ?assertEqual([a,b], io_to_db(Item,OldTerm,list,undefined,Prec,Def,RW,<<"[a,b]">>)),
         ?assertEqual("123", io_to_db(Item,OldTerm,list,0,Prec,Def,RW,<<"\"123\"">>)),
         ?LogDebug("io_to_db success 12~n", []),
+
+        ?assertEqual(#{}, io_to_db(Item,OldTerm,map,Len,Prec,Def,RW,<<"#{}">>)),
+        ?assertEqual(#{a=>1,b=>2}, io_to_db(Item,OldTerm,map,Len,Prec,Def,RW,<<"#{a=>1,b=>2}">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{map,<<"[a]">>}}}}, io_to_db(Item,OldTerm,map,Len,Prec,Def,RW,<<"[a]">>)),
 
         ?assertEqual({10,132,7,92}, io_to_db(Item,OldTerm,ipaddr,0,Prec,Def,RW,<<"10.132.7.92">>)),
         ?assertEqual({0,0,0,0}, io_to_db(Item,OldTerm,ipaddr,4,undefined,Def,RW,<<"0.0.0.0">>)),
