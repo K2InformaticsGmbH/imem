@@ -990,6 +990,8 @@ skvh_operations(_) ->
         ClEr = 'ClientError',
         Channel = <<"skvhTest">>,
 
+        ?LogDebug("---TEST---~p:test_skvh~n", [?MODULE]),
+
         ?assertMatch(#skvhCtx{mainAlias=mapChannel}, create_check_channel(<<"mapChannel">>,[{type,map}])),
         ?assertMatch(#skvhCtx{mainAlias=lstChannel}, create_check_channel(<<"lstChannel">>,[{type,list}])),
         ?assertMatch(#skvhCtx{mainAlias=binChannel}, create_check_channel(<<"binChannel">>,[{type,binary}])),
@@ -1004,8 +1006,6 @@ skvh_operations(_) ->
         ?assertException(throw, {ClEr,{"Bad datatype, expected list",<<"a">>}}, write(system,<<"lstChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
         ?assertException(throw, {ClEr,{"Bad datatype, expected binary",#{a:=1}}},   write(system,<<"binChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
         ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}}, write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
-
-        ?LogDebug("---TEST---~p:test_skvh~n", [?MODULE]),
 
         ?assertEqual(<<"skvhTest">>, table_name(Channel)),
 
