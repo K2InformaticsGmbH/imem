@@ -59,7 +59,7 @@
 
 -record(skvhTable,                            %% sorted key value hash table    
                     { ckey = ?nav             :: binary()|?nav
-                    , cvalue  				  :: binary()      
+                    , cvalue                  :: term()
                     , chash	= <<"fun(_,__Rec) -> list_to_binary(io_lib:format(\"~.36B\",[erlang:phash2({element(2,__Rec),element(3,__Rec)})])) end.">>
                     						  :: binary()
                     }
@@ -325,8 +325,23 @@ create_check_channel(Channel, Options) ->
         T
 	catch _:_ ->
               TC = ?binary_to_atom(Main),
-              case (catch imem_meta:create_check_table(TC, {record_info(fields,skvhTable),?skvhTable,#skvhTable{}},
-                                                       ?TABLE_OPTS, system)) of
+              case (catch imem_meta:create_check_table(
+                            TC, {record_info(fields,skvhTable),?skvhTable,
+                                 #skvhTable{cvalue = case proplists:get_value(type, Options, binary) of
+                                                         binary ->
+                                                             fun(R) when is_binary(R) -> R;
+                                                                (R) -> ?ClientError({"Bad datatype, expected binary", R})
+                                                             end;
+                                                         list ->
+                                                             fun(R) when is_list(R) -> R;
+                                                                (R) -> ?ClientError({"Bad datatype, expected list", R})
+                                                             end;
+                                                         map ->
+                                                             fun(R) when is_map(R) -> R;
+                                                                (R) -> ?ClientError({"Bad datatype, expected map", R})
+                                                             end
+                                                     end}},
+                            ?TABLE_OPTS, system)) of
                   ok -> ok;
                   {error, Reason} ->
                       imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TC}],io_lib:format("~p",[Reason]));
@@ -610,7 +625,10 @@ read(Cmd, SkvhCtx, Item, [Key|Keys], Acc)  ->
 
 write(User,Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 	Cmd = [write,User,Channel,KVTable],
-	write(User, Cmd, create_check_channel(Channel), io_kv_table_to_tuple_list(KVTable), []).
+	write(User, Cmd, create_check_channel(Channel), io_kv_table_to_tuple_list(KVTable), []);
+write(User,Channel, KVTuples) when is_binary(Channel), is_list(KVTuples) ->
+	Cmd = [write,User,Channel,KVTuples],
+	write(User, Cmd, create_check_channel(Channel), KVTuples, []).
 
 write(_User, Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 write(User, Cmd, SkvhCtx, [{K,V}|KVPairs], Acc)  ->
@@ -938,11 +956,17 @@ debug(Cmd, Resp) ->
 
 setup() ->
     ?imem_test_setup,
+    catch imem_meta:drop_table(mapChannel),
+    catch imem_meta:drop_table(lstChannel),
+    catch imem_meta:drop_table(binChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist).
 
 teardown(_) ->
+    catch imem_meta:drop_table(mapChannel),
+    catch imem_meta:drop_table(lstChannel),
+    catch imem_meta:drop_table(binChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
@@ -962,9 +986,24 @@ hist_reset_time([#{cvhist := CList} = Hist | Rest]) ->
     [Hist#{cvhist := [C#{time := {0,0,0}} || C <- CList]} | hist_reset_time(Rest)].
 
 skvh_operations(_) ->
-    try 
+    try
         ClEr = 'ClientError',
         Channel = <<"skvhTest">>,
+
+        ?assertMatch(#skvhCtx{mainAlias=mapChannel}, create_check_channel(<<"mapChannel">>,[{type,map}])),
+        ?assertMatch(#skvhCtx{mainAlias=lstChannel}, create_check_channel(<<"lstChannel">>,[{type,list}])),
+        ?assertMatch(#skvhCtx{mainAlias=binChannel}, create_check_channel(<<"binChannel">>,[{type,binary}])),
+
+        ?assertMatch({ok, [_,_]}, write(system,<<"mapChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
+        ?assertMatch({ok, [_,_]}, write(system,<<"lstChannel">>,[{1,[a]},{2,[b]}])),
+        ?assertMatch({ok, [_,_]}, write(system,<<"binChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
+
+        ?assertException(throw, {ClEr,{"Bad datatype, expected map",[a]}}, write(system,<<"mapChannel">>,[{1,[a]},{2,[b]}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected map",<<"a">>}}, write(system,<<"mapChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected list",#{a:=1}}}, write(system,<<"lstChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected list",<<"a">>}}, write(system,<<"lstChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",#{a:=1}}},   write(system,<<"binChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}}, write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
 
         ?LogDebug("---TEST---~p:test_skvh~n", [?MODULE]),
 
