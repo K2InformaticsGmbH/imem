@@ -204,6 +204,7 @@
 				  , number
 				  , ipaddr
 				  , list
+				  , map
 				  , pid
 				  , ref
 				  , string
