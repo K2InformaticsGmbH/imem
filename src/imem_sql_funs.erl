@@ -112,7 +112,6 @@ unary_fun_bind_type("reverse") ->               #bind{type=list,default=[]};
 unary_fun_bind_type("size") ->                  #bind{type=tuple,default=undefined};
 unary_fun_bind_type("tuple_size") ->            #bind{type=tuple,default=undefined};
 unary_fun_bind_type("byte_size") ->             #bind{type=binary,default= <<>>};
-unary_fun_bind_type("map_size") ->              #bind{type=map,default= #{}};
 unary_fun_bind_type("bit_size") ->              #bind{type=binary,default= <<>>};
 unary_fun_bind_type("map_size") ->              #bind{type=map,default= #{}};
 unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
