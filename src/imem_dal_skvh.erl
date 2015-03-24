@@ -329,17 +329,17 @@ create_check_channel(Channel, Options) ->
                             TC, {record_info(fields,skvhTable),?skvhTable,
                                  #skvhTable{cvalue = case proplists:get_value(type, Options, binary) of
                                                          binary ->
-                                                             fun(R) when is_binary(R) -> R;
-                                                                (R) -> ?ClientError({"Bad datatype, expected binary", R})
-                                                             end;
+                                                             <<"fun(R) when is_binary(R) -> R;\n"
+                                                               "   (R) -> throw({'ClientError',{\"Bad datatype, expected binary\", R}})\n"
+                                                               "end">>;
                                                          list ->
-                                                             fun(R) when is_list(R) -> R;
-                                                                (R) -> ?ClientError({"Bad datatype, expected list", R})
-                                                             end;
+                                                             <<"fun(R) when is_list(R) -> R;\n"
+                                                               "   (R) -> throw({'ClientError',{\"Bad datatype, expected list\", R}})\n"
+                                                               "end">>;
                                                          map ->
-                                                             fun(R) when is_map(R) -> R;
-                                                                (R) -> ?ClientError({"Bad datatype, expected map", R})
-                                                             end
+                                                             <<"fun(R) when is_map(R) -> R;;\n"
+                                                               "   (R) -> throw({'ClientError',{\"Bad datatype, expected map\", R}});\n"
+                                                               "end">>
                                                      end}},
                             ?TABLE_OPTS, system)) of
                   ok -> ok;
@@ -1000,12 +1000,12 @@ skvh_operations(_) ->
         ?assertMatch({ok, [_,_]}, write(system,<<"lstChannel">>,[{1,[a]},{2,[b]}])),
         ?assertMatch({ok, [_,_]}, write(system,<<"binChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
 
-        ?assertException(throw, {ClEr,{"Bad datatype, expected map",[a]}}, write(system,<<"mapChannel">>,[{1,[a]},{2,[b]}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected map",<<"a">>}}, write(system,<<"mapChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected list",#{a:=1}}}, write(system,<<"lstChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected list",<<"a">>}}, write(system,<<"lstChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected map",[a]}},          write(system,<<"mapChannel">>,[{1,[a]},{2,[b]}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected map",<<"a">>}},      write(system,<<"mapChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected list",#{a:=1}}},     write(system,<<"lstChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected list",<<"a">>}},     write(system,<<"lstChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
         ?assertException(throw, {ClEr,{"Bad datatype, expected binary",#{a:=1}}},   write(system,<<"binChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}}, write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}},       write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
 
         ?assertEqual(<<"skvhTest">>, table_name(Channel)),
 
