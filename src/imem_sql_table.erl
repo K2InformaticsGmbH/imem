@@ -25,7 +25,7 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
     % ?LogDebug("create_table ~p ~p", [Table,TOpts]),
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);        %% {Schema,Table} not converted to atom yet !!!
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) when is_binary(Name) ->
-    % ?LogDebug("Create table column ~p of type ~p~n",[Name,Type]),
+    ?LogDebug("Create table column ~p of type ~p ~p~n",[Name,Type,COpts]),
     {T,L,P} = case Type of
         B when B==<<"decimal">>;B==<<"number">> ->          {decimal,38,0};
         {B,SLen} when B==<<"decimal">>;B==<<"number">> ->   {decimal,binary_to_integer(SLen),0};
@@ -57,7 +57,8 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) w
                         imem_datatype:io_to_term(Body)
                     catch _:_ -> 
                         try 
-                            imem_datatype:io_to_fun(Str,undefined)
+                            imem_datatype:io_to_fun(Str,undefined),
+                            Bin
                         catch _:Reason -> 
                             ?ClientError({"Bad default fun",Reason})
                         end
