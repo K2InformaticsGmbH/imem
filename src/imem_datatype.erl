@@ -361,6 +361,7 @@ is_unicode_binary(B) when is_binary(B) ->
 is_unicode_binary(_) ->
     false.
 
+is_term_or_fun_text(F) when is_function(F) -> false;
 is_term_or_fun_text(B) when is_binary(B) ->
     is_term_or_fun_text(binary_to_list(B));
 is_term_or_fun_text([$f,$u,$n|_]=Str) ->
