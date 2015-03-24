@@ -4,7 +4,7 @@
 -define(ADDIF(__Flags,__Opts,__Code),
         (fun(_F,_O) ->
                  case lists:usort(
-                        [_Fi||_Fi<-_F,
+                        [true||_Fi<-_F,
                               proplists:get_value(_Fi,_O,false)==true]) of
                     [true] -> __Code;
                     [] -> ""
