@@ -334,18 +334,20 @@ create_check_channel(Channel, Options) ->
         T
 	catch _:_ ->
               TC = ?binary_to_atom(Main),
-              NewCValue
+              {NewCValue, NewTypes}
               = case proplists:get_value(type, Options, binary) of
                     binary ->
-                        <<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>;
+                        {<<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>,
+                         ?skvhTable};
                     list ->
-                        <<"fun(R) -> imem_dal_skvh:is_row_type(list,R) end.">>;
+                        {<<"fun(R) -> imem_dal_skvh:is_row_type(list,R) end.">>,
+                         [lists:nth(1,?skvhTable), list | lists:nthtail(2, ?skvhTable)]};
                     map ->
-                        <<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>
+                        {<<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>,
+                         [lists:nth(1,?skvhTable), map | lists:nthtail(2, ?skvhTable)]}
                 end,
               ok = imem_meta:create_check_table(
-                     TC, {record_info(fields,skvhTable),?skvhTable,
-                          #skvhTable{cvalue=NewCValue}},
+                     TC, {record_info(fields,skvhTable),NewTypes,#skvhTable{cvalue=NewCValue}},
                      ?TABLE_OPTS, system),
               TC
     end,
@@ -431,13 +433,10 @@ audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec) ->
      {AuditTable1, #skvhAudit{time=TransTime1,ckey=NewKey,ovalue=undefined,
                               nvalue=element(3,NewRec),cuser=User}}].
 
-audit_recs_time(A) when is_record(A, skvhAudit) ->
-    imem_datatype:timestamp_to_io(A#skvhAudit.time);
-audit_recs_time({_,A}) when is_record(A, skvhAudit) ->
-    imem_datatype:timestamp_to_io(A#skvhAudit.time);
-audit_recs_time([]) -> [];
-audit_recs_time([A|Rest]) ->
-    [audit_recs_time(A)|audit_recs_time(Rest)].
+audit_recs_time(A) when is_record(A, skvhAudit) -> A#skvhAudit.time;
+audit_recs_time({_,A}) when is_record(A, skvhAudit) -> A#skvhAudit.time;
+audit_recs_time([A|Rest]) -> [audit_recs_time(A)|audit_recs_time(Rest)];
+audit_recs_time([]) -> [].
 
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
