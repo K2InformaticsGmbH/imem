@@ -59,7 +59,7 @@
 
 -record(skvhTable,                            %% sorted key value hash table    
                     { ckey = ?nav             :: binary()|?nav
-                    , cvalue                  :: term()
+                    , cvalue                  :: binary() | list() | map()
                     , chash	= <<"fun(_,__Rec) -> list_to_binary(io_lib:format(\"~.36B\",[erlang:phash2({element(2,__Rec),element(3,__Rec)})])) end.">>
                     						  :: binary()
                     }
@@ -131,6 +131,8 @@
 -export([skvh_rec_to_map/1, map_to_skvh_rec/1]).
 
 -export([foldl/4]).
+
+-export([is_row_type/2]).
 
 -spec foldl(User :: any(), FoldFun :: function(), InputAcc :: any(),
             Channel :: binary()) -> OutPutAcc :: any().
@@ -314,6 +316,13 @@ audit_table_next(ATName,TransTime,CH) ->
 create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
+is_row_type(map, R) when is_map(R) -> R;
+is_row_type(map, R) -> ?ClientError({"Bad datatype, expected map", R});
+is_row_type(list, R) when is_list(R) -> R;
+is_row_type(list, R) -> ?ClientError({"Bad datatype, expected list", R});
+is_row_type(binary, R) when is_binary(R) -> R;
+is_row_type(binary, R) -> ?ClientError({"Bad datatype, expected binary", R}).
+
 -spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> #skvhCtx{}.
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
@@ -325,29 +334,19 @@ create_check_channel(Channel, Options) ->
         T
 	catch _:_ ->
               TC = ?binary_to_atom(Main),
-              case (catch imem_meta:create_check_table(
-                            TC, {record_info(fields,skvhTable),?skvhTable,
-                                 #skvhTable{cvalue = case proplists:get_value(type, Options, binary) of
-                                                         binary ->
-                                                             <<"fun(R) when is_binary(R) -> R;\n"
-                                                               "   (R) -> throw({'ClientError',{\"Bad datatype, expected binary\", R}})\n"
-                                                               "end">>;
-                                                         list ->
-                                                             <<"fun(R) when is_list(R) -> R;\n"
-                                                               "   (R) -> throw({'ClientError',{\"Bad datatype, expected list\", R}})\n"
-                                                               "end">>;
-                                                         map ->
-                                                             <<"fun(R) when is_map(R) -> R;;\n"
-                                                               "   (R) -> throw({'ClientError',{\"Bad datatype, expected map\", R}});\n"
-                                                               "end">>
-                                                     end}},
-                            ?TABLE_OPTS, system)) of
-                  ok -> ok;
-                  {error, Reason} ->
-                      imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TC}],io_lib:format("~p",[Reason]));
-                  Reason ->
-                      imem_meta:log_to_db(warning,?MODULE,create_check_table,[{table,TC}],io_lib:format("~p",[Reason]))
-              end,
+              NewCValue
+              = case proplists:get_value(type, Options, binary) of
+                    binary ->
+                        <<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>;
+                    list ->
+                        <<"fun(R) -> imem_dal_skvh:is_row_type(list,R) end.">>;
+                    map ->
+                        <<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>
+                end,
+              ok = imem_meta:create_check_table(
+                     TC, {record_info(fields,skvhTable),?skvhTable,
+                          #skvhTable{cvalue=NewCValue}},
+                     ?TABLE_OPTS, system),
               TC
     end,
     Audit
@@ -1000,12 +999,18 @@ skvh_operations(_) ->
         ?assertMatch({ok, [_,_]}, write(system,<<"lstChannel">>,[{1,[a]},{2,[b]}])),
         ?assertMatch({ok, [_,_]}, write(system,<<"binChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
 
-        ?assertException(throw, {ClEr,{"Bad datatype, expected map",[a]}},          write(system,<<"mapChannel">>,[{1,[a]},{2,[b]}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected map",<<"a">>}},      write(system,<<"mapChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected list",#{a:=1}}},     write(system,<<"lstChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected list",<<"a">>}},     write(system,<<"lstChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",#{a:=1}}},   write(system,<<"binChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
-        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}},       write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected map",[a]}},
+                         write(system,<<"mapChannel">>,[{1,[a]},{2,[b]}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected map",<<"a">>}},
+                         write(system,<<"mapChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected list",#{a:=1}}},
+                         write(system,<<"lstChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected list",<<"a">>}},
+                         write(system,<<"lstChannel">>,[{1,<<"a">>},{2,<<"b">>}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",#{a:=1}}},
+                         write(system,<<"binChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
+        ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}},
+                         write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
 
         ?assertEqual(<<"skvhTest">>, table_name(Channel)),
 
