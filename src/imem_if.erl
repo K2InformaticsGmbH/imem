@@ -702,40 +702,40 @@ update_xt({Table,bag}, Item, Lock, Old, Old, Trigger, User) when is_atom(Table) 
             {Item,Old};
         Lock == none ->
             mnesia_table_write_access(write, [Table, Old, write]),
-            Trigger({}, Old, Table, User),
+            Trigger(?NoRec, Old, Table, User),
             {Item,Old};
         true ->
             ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item, Old}})
     end;
 update_xt({Table,bag}, Item, Lock, Old, New, Trigger, User) when is_atom(Table) ->
-    update_xt({Table,bag}, Item, Lock, Old, {}, Trigger, User),
-    update_xt({Table,bag}, Item, Lock, {}, New, Trigger, User);
+    update_xt({Table,bag}, Item, Lock, Old, ?NoRec, Trigger, User),
+    update_xt({Table,bag}, Item, Lock, ?NoRec, New, Trigger, User);
 
-update_xt({_Table,_}, _Item, _Lock, {}, {}, _, _) ->
+update_xt({_Table,_}, _Item, _Lock, ?NoRec, ?NoRec, _, _) ->
     ok;
-update_xt({Table,_}, Item, Lock, Old, {}, Trigger, User) when is_atom(Table), is_tuple(Old) ->
+update_xt({Table,_}, Item, Lock, Old, ?NoRec, Trigger, User) when is_atom(Table), is_tuple(Old) ->
     case mnesia:read(Table, element(?KeyIdx,Old)) of
         [Old] ->    
             mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
-            Trigger(Old, {}, Table, User),
-            {Item,{}};
+            Trigger(Old, ?NoRec, Table, User),
+            {Item,?NoRec};
         [] ->       
             case Lock of
-                none -> {Item,{}};
+                none -> {Item,?NoRec};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Missing key", {Item,Old}})
             end;
         [Current] ->  
             case Lock of
                 none -> mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
-                        Trigger(Current, {}, Table, User),
-                        {Item,{}};
+                        Trigger(Current, ?NoRec, Table, User),
+                        {Item,?NoRec};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Old,Current}}})
             end
     end;
-update_xt({Table,_}, Item, Lock, {}, New, Trigger, User) when is_atom(Table), is_tuple(New) ->
+update_xt({Table,_}, Item, Lock, ?NoRec, New, Trigger, User) when is_atom(Table), is_tuple(New) ->
     case mnesia:read(Table, element(?KeyIdx,New)) of
         [] ->       mnesia_table_write_access(write, [Table, New, write]),
-                    Trigger({}, New, Table, User),
+                    Trigger(?NoRec, New, Table, User),
                     {Item,New};
         [New] ->    Trigger(New, New, Table, User),
                     {Item,New};
@@ -754,7 +754,7 @@ update_xt({Table,_}, Item, Lock, Old, Old, Trigger, User) when is_atom(Table), i
         [] ->       
             case Lock of
                 none -> mnesia_table_write_access(write, [Table, Old, write]),
-                        Trigger({}, Old, Table, User),
+                        Trigger(?NoRec, Old, Table, User),
                         {Item,Old};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
             end;
@@ -782,7 +782,7 @@ update_xt({Table,_}, Item, Lock, Old, New, Trigger, User) when is_atom(Table), i
         {[],_} ->       
             case Lock of
                 none -> mnesia_table_write_access(write, [Table, New, write]),
-                        Trigger({}, New, Table, User),
+                        Trigger(?NoRec, New, Table, User),
                         {Item,New};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
             end;
