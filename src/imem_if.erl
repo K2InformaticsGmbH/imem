@@ -261,8 +261,7 @@ is_readable_table(Table) ->
             _ ->        true
         end
     catch
-        exit:{aborted,{no_exists,_,_}} ->  false;
-        throw:Error -> ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  false
     end.  
 
 table_type(Table) ->
@@ -288,8 +287,7 @@ table_info(Table, InfoKey) ->
                 end
         end
     catch
-        exit:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table}); 
-        throw:Error ->                     ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table})
     end.  
 
 table_record_name(Table) ->
@@ -309,9 +307,13 @@ check_table(Table) ->
     end.
 
 check_local_table_copy(Table) ->
-    case mnesia:table_info(Table, storage_type) of
-        unknown -> ?ClientErrorNoLogging({"This table does not reside locally", Table});
-        _ -> ok
+    try 
+        case mnesia:table_info(Table, storage_type) of
+            unknown -> ?ClientErrorNoLogging({"This table does not reside locally", Table});
+            _ -> ok
+        end
+    catch
+        exit:{aborted,{no_exists,_,_}} -> ?ClientErrorNoLogging({"Table does not exist", Table})
     end.
 
 check_table_columns(Table, ColumnNames) ->
