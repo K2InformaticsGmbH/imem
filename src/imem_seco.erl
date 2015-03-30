@@ -40,6 +40,7 @@
         , login/1
         , change_credentials/3
         , set_credentials/3
+        , set_login_time/2
         , logout/1
         , clone_seco/2
         , account_id/1
@@ -544,12 +545,21 @@ change_credentials(SKey, {pwdmd5,OldToken}, {pwdmd5,NewToken}) ->
 
 set_credentials(SKey, Name, {pwdmd5,NewToken}) ->
     SeCo = seco_authenticated(SKey),
-    Account = imem_account:get_by_name(SKey, Name),
-    find_re_hash(SeCo, Account, NewToken, ?PWD_HASH_LIST).
+    case have_permission(SKey, manage_accounts) of
+        true ->     Account = imem_account:get_by_name(SKey, Name),
+                    find_re_hash(SeCo, Account, NewToken, ?PWD_HASH_LIST); 
+        false ->    ?SecurityException({"Set credentials unauthorized",SKey})
+    end.
+
+set_login_time(SKey, AccountId) ->
+    case have_permission(SKey, manage_accounts) of
+        true ->     [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
+                    if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=erlang:now()});
+        false ->    ?SecurityException({"Set login time unauthorized",SKey})
+    end.
 
 logout(SKey) ->
     seco_delete(SKey, SKey).
-
 
 clone_seco(SKeyParent, Pid) ->
     SeCoParent = seco_authenticated(SKeyParent),
