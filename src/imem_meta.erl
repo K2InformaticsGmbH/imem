@@ -50,6 +50,9 @@
 -define(EmptyJPStr, <<>>).  %% placeholder for JSON path pointing to the whole document (record position)    
 -define(EmptyJP, {}).       %% placeholder for compiled JSON path pointing to the whole document (record position)    
 
+-define(PartEndDigits,10).  % Number of digits representing the partition end (seconds since epoch) in partition names
+
+
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
 -behavior(gen_server).
@@ -850,7 +853,7 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
                 imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
                 imem_if:write(ddTable, DDTableRow)
             catch
-                _:{'ClientError',{"Table already exists",TableName}} = Reason ->
+                throw:{'ClientError',{"Table already exists",TableName}} = Reason ->
                     case imem_if:read(ddTable, {MySchema,TableName}) of
                         [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data was missing
                         _ ->    ok
@@ -888,7 +891,7 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
                 imem_if:write(ddTable, DDTableRow),
                 imem_if:write(ddAlias, DDAliasRow)
             catch
-                _:{'ClientError',{"Table already exists",TableName}} = Reason ->
+                throw:{'ClientError',{"Table already exists",TableName}} = Reason ->
                     case imem_if:read(ddTable, {MySchema,TableName}) of
                         [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data was missing
                         _ ->    ok
@@ -1524,30 +1527,31 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
     case TableAliasRev of
         [$@|_] ->       
             case string:tokens(TableAliasRev, "_") of
-                [[$@|RN]|_] ->                          % possibly time sharded node sharded partitions 
-                    try 
-                        _ = list_to_integer(lists:reverse(RN)),
-                        {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
-                        Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
-                        lists:filter(Pred,tables_starting_with(BaseName))
-                    catch
-                        _:_ -> tables_starting_with(TableAlias) % node sharded table only
+                [[$@|RN]|_] ->                          % possibly time sharded node sharded partitions
+                    PL = length(RN),  
+                    case catch list_to_integer(lists:reverse(RN)) of
+                        P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
+                            {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
+                            Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
+                            lists:filter(Pred,tables_starting_with(BaseName));
+                        _ ->
+                            tables_starting_with(TableAlias) % node sharded table only
                     end;
                  _ ->               
                     tables_starting_with(TableAlias)            % node sharded table only
             end;
         [$_,$@|_] ->    
             case string:tokens(tl(TableAliasRev), "_") of
-                [[$@|RN]|_] when length(RN) >= 10 ->      
+                [[$@|RN]|_] when length(RN) >= ?PartEndDigits ->      
                      [list_to_atom(TableAlias)];                % timestamp sharded cluster table
                 [[$@|RN]|_] ->                                  % timestamp sharded cluster alias 
-                    try 
-                        _ = list_to_integer(lists:reverse(RN)),
-                        {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
-                        Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
-                        lists:filter(Pred,tables_starting_with(BaseName))
-                    catch
-                        _:_ -> [list_to_atom(TableAlias)]       % plain table name, not time sharded
+                    case catch list_to_integer(lists:reverse(RN)) of
+                        I when is_integer(I) ->
+                            {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
+                            Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
+                            lists:filter(Pred,tables_starting_with(BaseName));
+                        _ ->
+                            [list_to_atom(TableAlias)]          % plain table name, not time sharded
                     end;
                  _ ->   
                     [list_to_atom(TableAlias)]                  % plain table name, not time sharded
@@ -1565,34 +1569,34 @@ partitioned_table_name_str(TableAlias,Key) when is_list(TableAlias) ->
     TableAliasRev = lists:reverse(TableAlias),
     case TableAliasRev of
         [$@|_] ->       
-            [[$@|RN]|_] = string:tokens(TableAliasRev, "_"), 
-            try 
-                Period = list_to_integer(lists:reverse(RN)),
-                {Mega,Sec,_} = Key,
-                PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
-                Prefix = lists:duplicate(10-length(PartitionEnd),$0),
-                {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
-                lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard())
-                % timestamp partitiond and node sharded table
-            catch
-                _:_ -> lists:flatten(TableAlias ++ node_shard())
+            [[$@|RN]|_] = string:tokens(TableAliasRev, "_"),
+            PL = length(RN), 
+            case catch list_to_integer(lists:reverse(RN)) of
+                P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
+                    % timestamp partitiond and node sharded table alias
+                    {Mega,Sec,_} = Key,
+                    PartitionEnd=integer_to_list(P*((1000000*Mega+Sec) div P) + P),
+                    Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
+                    {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
+                    lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard());
+                _ ->
+                    % unpartitiond but node sharded table alias
+                    lists:flatten(TableAlias ++ node_shard())
             end;
         [$_,$@|_] ->       
             [[$@|RN]|_] = string:tokens(tl(TableAliasRev), "_"),
-            case length(RN) of
-                10 ->   TableAlias;         % this is a partition name
+            PL = length(RN),             
+            case catch list_to_integer(lists:reverse(RN)) of
+                P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
+                    % timestamp partitioned global (not node sharded) table alias
+                    {Mega,Sec,_} = Key,
+                    PartitionEnd=integer_to_list(P*((1000000*Mega+Sec) div P) + P),
+                    Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
+                    {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
+                    lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@_" );
                 _ ->
-                    try 
-                        Period = list_to_integer(lists:reverse(RN)),
-                        {Mega,Sec,_} = Key,
-                        PartitionEnd=integer_to_list(Period*((1000000*Mega+Sec) div Period) + Period),
-                        Prefix = lists:duplicate(10-length(PartitionEnd),$0),
-                        {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
-                        lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@_" )
-                        % timestamp partitioned cluster table
-                    catch
-                        _:_ -> TableAlias   % this is a table name
-                    end
+                    % unpartitiond global table alias (a normal table)
+                    TableAlias
             end;
         _ ->
             TableAlias    
@@ -3234,18 +3238,26 @@ meta_operations(_) ->
 
         ?assertEqual( {error,{"Table template not found in ddAlias",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name,dummy_table_name)),
         ?assertEqual([],physical_table_names(fakelog_1@)),
+        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,0]),
+
         ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
-        ?assertEqual(1,length(physical_table_names(fakelog_1@))),
+        FL1 = length(physical_table_names(fakelog_1@)),
+        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL1,created]),
+        ?assertEqual(1,FL1),
         LogRec3 = #ddLog{logTime=erlang:now(),logLevel=debug,pid=self()
                         ,module=?MODULE,function=test,node=node()
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
-        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)),
-        timer:sleep(1100),
-        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:now()})),
-        ?assert(length(physical_table_names(fakelog_1@)) >= 3),
-        timer:sleep(1100),
-        % ?assertEqual(ok, create_partitioned_table_sync(fakelog_1@,physical_table_name(fakelog_1@))),
+        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)), % one record to first partition
+        timer:sleep(1050),
+        FL2 = length(physical_table_names(fakelog_1@)),
+        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL2,written]), 
+
+        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:now()})), % one record to second partition
+        FL3 = length(physical_table_names(fakelog_1@)),
+        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
+        ?assert(FL3 >= 3),
+        timer:sleep(1050),
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
         ?LogDebug("success ~p~n", [create_partitioned_table]),
 

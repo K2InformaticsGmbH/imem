@@ -261,8 +261,8 @@ is_readable_table(Table) ->
             _ ->        true
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  false;
-        _:Error ->                      ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  false;
+        throw:Error -> ?SystemExceptionNoLogging(Error)
     end.  
 
 table_type(Table) ->
@@ -288,8 +288,8 @@ table_info(Table, InfoKey) ->
                 end
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table});
-        _:Error ->                      ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table}); 
+        throw:Error ->                     ?SystemExceptionNoLogging(Error)
     end.  
 
 table_record_name(Table) ->
@@ -460,7 +460,7 @@ dirty_read(Table, Key) when is_atom(Table) ->
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_read failure",Reason})
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_read failure",Reason})
     end.
 
 read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
@@ -487,7 +487,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_write failure",Reason})
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_write failure",Reason})
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
