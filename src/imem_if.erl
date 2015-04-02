@@ -261,8 +261,7 @@ is_readable_table(Table) ->
             _ ->        true
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  false;
-        _:Error ->                      ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  false
     end.  
 
 table_type(Table) ->
@@ -288,8 +287,7 @@ table_info(Table, InfoKey) ->
                 end
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table});
-        _:Error ->                      ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table})
     end.  
 
 table_record_name(Table) ->
@@ -309,9 +307,13 @@ check_table(Table) ->
     end.
 
 check_local_table_copy(Table) ->
-    case mnesia:table_info(Table, storage_type) of
-        unknown -> ?ClientErrorNoLogging({"This table does not reside locally", Table});
-        _ -> ok
+    try 
+        case mnesia:table_info(Table, storage_type) of
+            unknown -> ?ClientErrorNoLogging({"This table does not reside locally", Table});
+            _ -> ok
+        end
+    catch
+        exit:{aborted,{no_exists,_,_}} -> ?ClientErrorNoLogging({"Table does not exist", Table})
     end.
 
 check_table_columns(Table, ColumnNames) ->
@@ -460,7 +462,7 @@ dirty_read(Table, Key) when is_atom(Table) ->
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_read failure",Reason})
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_read failure",Reason})
     end.
 
 read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
@@ -487,7 +489,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_write failure",Reason})
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_write failure",Reason})
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->

@@ -139,10 +139,10 @@
 foldl(_User, FoldFun, InputAcc, Channel) when is_function(FoldFun, 2) ->
     Tab = atom_table_name(Channel),
     imem_meta:foldl(
-      fun(Rec, Acc) when is_record(Rec,skvhTable) ->
-              FoldFun(skvh_rec_to_map(Rec), Acc);
-         (_Rec, Acc) -> Acc
-      end, InputAcc, Tab).
+        fun (Rec, Acc) when is_record(Rec,skvhTable) ->
+            FoldFun(skvh_rec_to_map(Rec), Acc);
+            (_Rec, Acc) -> Acc
+        end, InputAcc, Tab).
 
 get_channel_trigger_hook(Mod, Channel) when is_atom(Mod) ->
     Tab = atom_table_name(Channel),
@@ -169,15 +169,14 @@ add_channel_trigger_hook(Mod, Channel, Hook) when is_atom(Mod) ->
             HookEndTok = "\n%"++HookTok++"_hook_end",
             PreparedHook = lists:flatten([HookStartTok,"\n,",Hook,HookEndTok]),
             ModHookCodeRe = lists:flatten([HookStartTok,".*",HookEndTok]),
-            NewTrgrFun
-            = case re:replace(TrgrFun, ModHookCodeRe, PreparedHook,
-                              [{return, binary},dotall]) of
-                  TrgrFun -> % No previous hook
-                      re:replace(TrgrFun,"\n    %extend_code_end",
-                                 PreparedHook++"\n    %extend_code_end",
-                                 [{return, binary}]);
-                  NTrgrFun -> NTrgrFun
-              end,
+            NewTrgrFun = 
+                case re:replace(TrgrFun, ModHookCodeRe, PreparedHook,[{return, binary},dotall]) of
+                    TrgrFun -> % No previous hook
+                        re:replace(TrgrFun,"\n    %extend_code_end",
+                            PreparedHook++"\n    %extend_code_end",
+                            [{return, binary}]);
+                    NTrgrFun -> NTrgrFun
+                end,
             imem_meta:create_or_replace_trigger(Tab, NewTrgrFun),
             ok;
         _ ->
@@ -216,19 +215,17 @@ expand_inline(User, Channel, Json) when is_binary(Json) ->
     imem_json:encode(expand_inline(User, Channel,
                                    imem_json:decode(Json, [return_maps])));
 expand_inline(User, Channel, Json) when is_map(Json) ->
-    Binds =
-    maps:fold(
-      fun(K,V,Acc) ->
-              case re:run(K, "^inline_*") of
-                  nomatch -> Acc;
-                  _ ->
-                      case read(User, Channel,
-                                [imem_json_data:to_strbinterm(V)]) of
-                          [] -> Acc;
-                          [#{cvalue := BVal}] -> [{V, BVal} | Acc]
-                      end
-              end
-      end, [], Json),
+    Binds = maps:fold(
+        fun(K,V,Acc) ->
+            case re:run(K, "^inline_*") of
+                nomatch -> Acc;
+                _ ->
+                    case read(User, Channel,[imem_json_data:to_strbinterm(V)]) of
+                        [] -> Acc;
+                        [#{cvalue := BVal}] -> [{V, BVal} | Acc]
+                    end
+            end
+        end, [], Json),
     imem_json:expand_inline(Json, Binds).
 
 %% @doc Returns table name from channel name (may or may not be a valid channel name)
@@ -241,7 +238,7 @@ table_name(Channel) -> Channel.
 %% Channel: Binary string of channel name (preferrably lower case or camel case)
 %% returns:	main table name as an atom
 -spec atom_table_name(binary()) -> atom().
-atom_table_name(Channel) -> ?binary_to_existing_atom(table_name(Channel)).
+atom_table_name(Channel) -> binary_to_existing_atom(table_name(Channel),utf8).
 
 %% @doc Returns history alias name from channel name (may or may not be a valid channel name)
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
@@ -253,7 +250,7 @@ history_alias(Channel) -> list_to_binary(?HIST(Channel)).
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns:	history table alias as atom
 -spec atom_history_alias(binary()) -> atom().
-atom_history_alias(Channel) -> ?binary_to_existing_atom(history_alias(Channel)).
+atom_history_alias(Channel) -> binary_to_existing_atom(history_alias(Channel),utf8).
 
 %% @doc Returns audit alias name from channel name (may or may not be a valid channel name)
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
@@ -265,7 +262,7 @@ audit_alias(Channel) -> list_to_binary(?AUDIT(Channel)).
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns:	audit table alias as atom
 -spec atom_audit_alias(binary()) -> atom().
-atom_audit_alias(Channel) -> ?binary_to_existing_atom(audit_alias(Channel)).
+atom_audit_alias(Channel) -> binary_to_existing_atom(audit_alias(Channel),utf8).
 
 %% @doc Returns audit table name from channel name 
 %% Channel: String (not binstr) of channel name (preferrably upper case or camel case)
@@ -329,57 +326,58 @@ create_check_channel(Channel, Options) ->
     CreateAudit = proplists:get_value(audit, Options, false),
     CreateHistory = proplists:get_value(history, Options, false),
 	Tab = try 
-		T = ?binary_to_existing_atom(Main),
+		T = binary_to_existing_atom(Main,utf8),
 		imem_meta:check_local_table_copy(T),           %% throws if master table is not locally resident
         T
-	catch _:_ ->
-              TC = ?binary_to_atom(Main),
-              {NewCValue, NewTypes}
-              = case proplists:get_value(type, Options, binary) of
-                    binary ->
-                        {<<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>,
-                         ?skvhTable};
-                    list ->
-                        {<<"fun(R) -> imem_dal_skvh:is_row_type(list,R) end.">>,
-                         [lists:nth(1,?skvhTable), list | lists:nthtail(2, ?skvhTable)]};
-                    map ->
-                        {<<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>,
-                         [lists:nth(1,?skvhTable), map | lists:nthtail(2, ?skvhTable)]}
+	catch
+        Class1:_ when Class1 =:= error; Class1 =:= throw ->
+            TC = binary_to_atom(Main,utf8),
+            {NewCValue, NewTypes} = case proplists:get_value(type, Options, binary) of
+                binary ->
+                    {<<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>,?skvhTable};
+                list ->
+                    {<<"fun(R) -> imem_dal_skvh:is_row_type(list,R) end.">>,
+                        [lists:nth(1,?skvhTable), list | lists:nthtail(2, ?skvhTable)]};
+                map ->
+                    {<<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>,
+                        [lists:nth(1,?skvhTable), map | lists:nthtail(2, ?skvhTable)]}
                 end,
-              ok = imem_meta:create_check_table(
-                     TC, {record_info(fields,skvhTable),NewTypes,#skvhTable{cvalue=NewCValue}},
-                     ?TABLE_OPTS, system),
-              TC
+            ok = imem_meta:create_check_table(
+                TC, {record_info(fields,skvhTable),NewTypes,#skvhTable{cvalue=NewCValue}},
+                ?TABLE_OPTS, system),
+            TC
     end,
-    Audit
-    = if CreateAudit ->
-             try
-                 A = list_to_existing_atom(?AUDIT(Channel)),
-                 AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
-                 imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
-                 A
-             catch _:_ ->
-                       AC = list_to_atom(?AUDIT(Channel)),
-                       catch imem_meta:create_check_table(AC, {record_info(fields,skvhAudit),?skvhAudit,#skvhAudit{}},
+    Audit = if 
+        CreateAudit ->
+            try
+                A = list_to_existing_atom(?AUDIT(Channel)),
+                AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
+                imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
+                A
+            catch 
+                Class2:_ when Class2 =:= error; Class2 =:= throw ->
+                    AC = list_to_atom(?AUDIT(Channel)),
+                    catch imem_meta:create_check_table(AC, {record_info(fields,skvhAudit),?skvhAudit,#skvhAudit{}},
                                                           ?AUDIT_OPTS, system),
-                       AC
-             end;
-         true -> undefined
-      end,    
-    Hist % Depends on presence of audit table
-    = if CreateAudit andalso CreateHistory ->
-             try
-                 H = list_to_existing_atom(?HIST(Channel)),
-                 imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident
-                 H
-             catch _:_ ->
-                       HC = list_to_atom(?HIST(Channel)),
-                       catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}},
+                    AC
+            end;
+        true -> undefined
+    end,    
+    Hist = if 
+        CreateAudit andalso CreateHistory ->
+            try
+                H = list_to_existing_atom(?HIST(Channel)),
+                imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident
+                H
+            catch 
+                Class:_Reason when Class =:= error; Class =:= throw ->
+                    HC = list_to_atom(?HIST(Channel)),
+                    catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}},
                                                           ?HIST_OPTS, system),
-                       HC
-             end;
-         true -> undefined
-      end,
+                    HC
+            end;
+        true -> undefined
+    end,
     imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
     #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
 
@@ -387,11 +385,11 @@ create_check_channel(Channel, Options) ->
 create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
     create_table(list_to_binary(atom_to_list(Name)),[],_TOpts,Owner);
 create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
-    Tab = ?binary_to_atom(table_name(Channel)),
+    Tab = binary_to_atom(table_name(Channel),utf8),
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(?binary_to_atom(Channel), ?skvhTableTrigger([audit,history],"")),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), ?skvhTableTrigger([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
 
@@ -448,8 +446,8 @@ write_history(HistoryTable, [{_AuditTable,#skvhAudit{time=T,ckey=K,
                                                      ovalue=O,nvalue=N,
                                                      cuser=U}}|Rest]) ->
     if O == N andalso N == undefined ->
-           ok = imem_meta:truncate_table(HistoryTable);
-       true -> ok
+        ok = imem_meta:truncate_table(HistoryTable);
+        true -> ok
     end,
     ok = imem_meta:write(
            HistoryTable,
