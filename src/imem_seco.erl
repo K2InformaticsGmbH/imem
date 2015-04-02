@@ -192,14 +192,18 @@ if_read(_SKey, Table, Key) ->
 if_delete(_SKey, Table, RowId) ->
     imem_meta:delete(Table, RowId).
 
+if_missing_role(RoleId) when is_atom(RoleId) ->
+    ?Warn("Role ~p does not exist", [RoleId]),
+    false;
+if_missing_role(_) -> false.
+
 if_has_role(_SKey, _RootRoleId, _RootRoleId) ->
     true;
 if_has_role(SKey, RootRoleId, RoleId) ->
     case if_read(SKey, ddRole, RootRoleId) of
         [#ddRole{roles=[]}] ->          false;
         [#ddRole{roles=ChildRoles}] ->  if_has_child_role(SKey,  ChildRoles, RoleId);
-        [] ->                           %% ToDo: log missing role
-                                        false
+        [] ->                           if_missing_role(RootRoleId)
     end.
 
 if_has_child_role(_SKey, [], _RoleId) -> false;
@@ -224,8 +228,7 @@ if_has_permission(SKey, RootRoleId, PermissionList) when is_list(PermissionList)
                 false ->    if_has_child_permission(SKey,  ChildRoles, PermissionList)
             end;
         [] ->
-            %% ToDo: log missing role
-            false
+            if_missing_role(RootRoleId)
     end;
 if_has_permission(SKey, RootRoleId, PermissionId) ->
     %% search for single permission
@@ -240,8 +243,7 @@ if_has_permission(SKey, RootRoleId, PermissionId) ->
                 false ->    if_has_child_permission(SKey,  ChildRoles, PermissionId)
             end;
         [] ->
-             %% ToDo: log missing role
-            false
+            if_missing_role(RootRoleId)
     end.
 
 if_has_child_permission(_SKey, [], _Permission) -> false;
