@@ -1072,6 +1072,7 @@ table_operations(_) ->
         ClEr = 'ClientError',
         SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
+        Self = self(),
 
         ?LogDebug("---TEST---~p:test_mnesia", [?MODULE]),
 
@@ -1253,12 +1254,46 @@ table_operations(_) ->
 
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read_hlk(non_existing_table, [some_key,over_context])),
 
-        ?assertEqual(ok, drop_table(imem_table_123))
+        Key = [sum],
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123, Key,0})),
+        [spawn(fun() -> Self ! {N,read_write_test(imem_table_123,Key,N)} end) || N <- lists:seq(1,10)],
+        ?LogDebug("success ~p", [read_write_spawned]),
+        ReadWriteResult = receive_results(10,[]),
+        ?assertEqual(10, length(ReadWriteResult)),
+        ?assertEqual([{imem_table_123,Key,55}], read(imem_table_123,Key)),
+        ?assertEqual([{atomic,ok}],lists:usort([R || {_,R} <- ReadWriteResult])),
+        ?LogDebug("success ~p~n", [bulk_read_write]),
+
+        ?assertEqual(ok, drop_table(imem_table_123)),
+        ?LogDebug("success ~p~n", [drop_table])
 
     catch
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.
+
+read_write_test(Tab, Key, N) ->
+    Upd = fun() ->
+        [{Tab, Key, Val}] = read(Tab, Key),
+        write(Tab, {Tab, Key, Val + N})
+    end,
+    transaction(Upd).
+
+receive_results(N,Acc) ->
+    receive 
+        Result ->
+            case N of 
+                1 ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    [Result|Acc]; 
+                _ ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    receive_results(N-1,[Result|Acc])
+            end
+    after 4000 ->   
+        ?LogDebug("Result timeout ~p", [4000]),
+        Acc
+    end.
 
 -endif.

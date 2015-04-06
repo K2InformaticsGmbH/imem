@@ -2303,10 +2303,7 @@ write(TableAlias, Record) ->
                     end;        
                 false ->
                     ?ClientError({"Table does not exist",T})
-            end;
-        _Class:Reason ->
-            ?Debug("Write error ~p:~p~n", [_Class,Reason]),
-            throw(Reason)
+            end
     end. 
 
 dirty_write({ddSysConf,TableAlias}, _Record) -> 
@@ -2333,10 +2330,11 @@ dirty_write(TableAlias, Record) ->
                     end;        
                 false ->
                     ?ClientError({"Table does not exist",T})
-            end;
-        _Class:Reason ->
-            ?Debug("Dirty write error ~p:~p~n", [_Class,Reason]),
-            throw(Reason)
+            end
+        %     ;
+        % _Class:Reason ->
+        %     ?Debug("Dirty write error ~p:~p~n", [_Class,Reason]),
+        %     throw(Reason)
     end. 
 
 insert(TableAlias, Row) ->
@@ -2842,6 +2840,7 @@ teardown(_) ->
     catch drop_table(?TPTEST2),
     catch drop_table(test_config),
     catch drop_table(fakelog_1@),
+    catch drop_table(imem_table_123),
     ?imem_test_teardown.
 
 db_test_() ->
@@ -3261,6 +3260,19 @@ meta_operations(_) ->
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
         ?LogDebug("success ~p~n", [create_partitioned_table]),
 
+        ?assertEqual(ok, create_table(imem_table_123, [hlk,val], [])),
+        Self = self(),
+        Key = [sum],
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123, Key,0})),
+        [spawn(fun() -> Self ! {N,read_write_test(imem_table_123,Key,N)} end) || N <- lists:seq(1,10)],
+        ?LogDebug("success ~p", [read_write_spawned]),
+        ReadWriteResult = receive_results(10,[]),
+        ?assertEqual(10, length(ReadWriteResult)),
+        ?assertEqual([{imem_table_123,Key,55}], read(imem_table_123,Key)),
+        ?assertEqual([{atomic,ok}],lists:usort([R || {_,R} <- ReadWriteResult])),
+        ?LogDebug("success ~p~n", [bulk_read_write]),
+
+        ?assertEqual(ok, drop_table(imem_table_123)),
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
@@ -3275,5 +3287,28 @@ meta_operations(_) ->
             throw ({Class, Reason})
     end,
     ok.
+
+read_write_test(Tab, Key, N) ->
+    Upd = fun() ->
+        [{Tab, Key, Val}] = read(Tab, Key),
+        write(Tab, {Tab, Key, Val + N})
+    end,
+    transaction(Upd).
+
+receive_results(N,Acc) ->
+    receive 
+        Result ->
+            case N of 
+                1 ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    [Result|Acc]; 
+                _ ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    receive_results(N-1,[Result|Acc])
+            end
+    after 4000 ->   
+        ?LogDebug("Result timeout ~p", [4000]),
+        Acc
+    end.
     
 -endif.
