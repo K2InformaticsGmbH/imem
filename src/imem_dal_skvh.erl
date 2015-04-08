@@ -406,7 +406,7 @@ drop_table(Channel) when is_binary(Channel) ->
     ok = imem_meta:drop_table(HC).
 
 build_aux_table_info(Table) ->
-	["","",Channel,"","",""] = imem_meta:parse_table_name(Table),
+	["","",Channel,"","","",""] = imem_meta:parse_table_name(Table),
 	HistoryTable = ?HIST_FROM_STR(Channel),
 	{AuditTable,TransTime} = audit_table_time(Channel),
     {AuditTable,HistoryTable,TransTime,Channel}.

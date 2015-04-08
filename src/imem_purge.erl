@@ -142,7 +142,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
     ?Debug("Purge collect start~n",[]), 
     case ?GET_PURGE_CYCLE_WAIT of
         PCW when (is_integer(PCW) andalso PCW > 1000) ->    
-            Pred = fun imem_meta:is_local_time_partitioned_table/1,
+            Pred = fun imem_meta:is_local_or_schema_time_partitioned_table/1,
             case lists:sort(lists:filter(Pred,imem_meta:all_tables())) of
                 [] ->   
                     erlang:send_after(PCW, self(), purge_partitioned_tables),
@@ -153,21 +153,29 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
                         {true, <<"">>} ->   {undefined,undefined};
                         {true, PFStr} ->
                             case erlang:phash2(PFStr) of
-                                PH ->   {PH,PF};
-                                H1 ->   {H1,imem_meta:compile_fun(PFStr)}
+                                PH ->   {PH,PF};        % existing compiled purge fun (may be undefined)
+                                H1 ->   
+                                    case (catch imem_meta:compile_fun(PFStr)) of
+                                        CPF when is_function(CPF) ->  
+                                            {H1,CPF};   % new compiled purge fun
+                                        Err ->
+                                            ?Error("Purge script fun compile failed with reason ~p",[Err]),
+                                            {H1,undefined}
+                                    end
                             end      
                     end,
                     try
                         case PFun of
                             undefined ->    ok;
-                            P ->            P(PL)
+                            P ->            P(PL)   % execute "emergency purge"
                         end
                     catch
                         _:Reason -> ?Error("Purge script Fun failed with reason ~p~n",[Reason])
                     end,
                     handle_info({purge_partitioned_tables, PCW, ?GET_PURGE_ITEM_WAIT}, State#state{purgeFun=PFun,purgeHash=PHash,purgeList=PL})   
             end;
-        _ ->  
+        BadPCW ->
+            ?Error("Invalid purge cycle wait time ~p",[BadPCW]),  
             erlang:send_after(10000, self(), purge_partitioned_tables),
             {noreply, State}
     end;
@@ -182,31 +190,19 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
                 false ->
                     ok;             %% no purge delay in table create options, do not purge this file
                 {purge_delay,PD} ->
-                    Name = atom_to_list(Tab),
-                    {BaseName,PartitionName} = lists:split(length(Name)-length(imem_meta:node_shard())-11, Name),
-                    case Rest of
-                        [] ->   
-                            ok;                     %% no follower, do not purge this file
-                        [Next|_] ->
-                            NextName = atom_to_list(Next),
-                            case lists:prefix(BaseName,NextName) of
-                                false -> 
-                                    ok;             %% no follower, do not purge this file
-                                true ->
-                                    {Mega,Sec,_} = erlang:now(),
-                                    PurgeEnd=1000000*Mega+Sec-PD,
-                                    PartitionEnd=list_to_integer(lists:sublist(PartitionName,10)),
-                                    if
-                                        (PartitionEnd >= PurgeEnd) ->
-                                            ok;     %% too young, do not purge this file  
-                                        true ->                     
-                                            ?Info("Purge time partition ~p~n",[Tab]), %% cannot log here
-                                            % FreedMemory = table_memory(Tab),
-                                            % Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
-                                            % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"), %% cannot log here
-                                            imem_meta:drop_table(Tab)
-                                    end
-                            end
+                    {Mega,Sec,_} = os:timestamp(),
+                    PurgeEnd=1000000*Mega+Sec-PD,
+                    [_,_,_,"_",PE,"@",_] = imem_meta:parse_table_name(Tab),
+                    PartitionEnd=list_to_integer(PE),
+                    if
+                        (PartitionEnd >= PurgeEnd) ->
+                            ok;     %% too young, do not purge this file  
+                        true ->                     
+                            ?Info("Purge time partition ~p~n",[Tab]), %% cannot log here
+                            % FreedMemory = table_memory(Tab),
+                            % Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
+                            % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"), %% cannot log here
+                            catch imem_meta:drop_table(Tab)
                     end
             end
     end,  

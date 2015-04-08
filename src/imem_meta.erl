@@ -110,6 +110,8 @@
         , is_time_partitioned_alias/1
         , is_time_partitioned_table/1
         , is_local_time_partitioned_table/1
+        , is_schema_time_partitioned_table/1
+        , is_local_or_schema_time_partitioned_table/1
         , is_node_sharded_alias/1
         , is_local_node_sharded_table/1
         , time_of_partition_expiry/1
@@ -863,7 +865,7 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
             imem_cache:clear({?MODULE, trigger, MySchema, TableName});
         _ ->
             %% Sharded table, check if ddAlias parameters match (if alias record already exists)
-            [_,_,B,_,_,_] = parse_table_name(TableAlias), %% [Schema,".",Name,Period,"@",Node]
+            [_,_,B,_,_,_,_] = parse_table_name(TableAlias), %% [Schema,".",Name,"_",Period,"@",Node]
             Opts = case imem_if:read(ddAlias,{MySchema,TableAlias}) of
                 [#ddAlias{columns=ColInfos, opts=Opts1, owner=Owner}] ->
                     Opts1;  %% ddAlias options override the given values for new partitions
@@ -874,7 +876,7 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
                         [] ->           
                             ok;
                         ParsedTNs ->    
-                            case length([ BB || [_,_,BB,_,_,_] <- ParsedTNs, BB==B]) of
+                            case length([ BB || [_,_,BB,_,_,_,_] <- ParsedTNs, BB==B]) of
                                 0 ->    ok;
                                 _ ->    ?ClientError({"Name conflict (different rolling period) in ddAlias",TableAlias})
                             end   
@@ -1393,12 +1395,32 @@ is_time_partitioned_table(Name) when is_atom(Name) ->
     is_time_partitioned_table(atom_to_list(Name));
 is_time_partitioned_table(Name) when is_list(Name) ->
     case parse_table_name(Name) of
-        [_,_,_,"",_,_] ->   false;
+        [_,_,_,_,"",_,_] ->   false;
         _ ->                true
     end.
 
+is_schema_time_partitioned_table(Name) when is_atom(Name) ->
+    is_schema_time_partitioned_table(atom_to_list(Name));
+is_schema_time_partitioned_table(Name) when is_list(Name) ->
+    case parse_table_name(Name) of
+        [_,_,_,_,"",_,_] ->     false;
+        [_,_,_,_,_,"@","_"] ->  true;
+        _ ->                    false
+    end.
+
+is_local_or_schema_time_partitioned_table(Name) when is_atom(Name) ->
+    is_local_or_schema_time_partitioned_table(atom_to_list(Name));
+is_local_or_schema_time_partitioned_table(Name) when is_list(Name) ->
+    NS = node_shard(),
+    case parse_table_name(Name) of
+        [_,_,_,_,"",_,_] ->     false;
+        [_,_,_,_,_,"@","_"] ->  true;
+        [_,_,_,_,_,"@",NS] ->   true;
+        _ ->                    false
+    end.
+
 -spec parse_table_name(atom()|list()|binary()) -> list(list()).
-    %% TableName -> [Schema,".",Name,Period,"@",Node] all strings , all optional ("") except Name
+    %% TableName -> [Schema,".",Name,"_",Period,"@",Node] all strings , all optional ("") except Name
 parse_table_name(TableName) when is_atom(TableName) -> 
     parse_table_name(atom_to_list(TableName));
 parse_table_name(TableName) when is_list(TableName) ->
@@ -1410,36 +1432,36 @@ parse_table_name(TableName) when is_binary(TableName) ->
     parse_table_name(binary_to_list(TableName)).
 
 parse_simple_name(TableName) when is_list(TableName) ->
-    %% TableName -> [Name,Period,"@",Node] all strings , all optional except Name        
+    %% TableName -> [Name,"_",Period,"@",Node] all strings , all optional except Name        
     case string:tokens(TableName, "@") of
         [TableName] ->    
-            [TableName,"","",""];
+            [TableName,"","","",""];
         [Name] ->    
             case string:tokens(Name, "_") of  
                 [Name] ->  
-                    [Name,"","@",""];
+                    [Name,"","","@",""];
                 BL ->     
                     case catch list_to_integer(lists:last(BL)) of
                         I when is_integer(I) ->
-                            [string:join(lists:sublist(BL,length(BL)-1),"."),lists:last(BL),"@",""];
+                            [string:join(lists:sublist(BL,length(BL)-1),"."),"_",lists:last(BL),"@",""];
                         _ ->
-                            [Name,"","@",""]
+                            [Name,"","","@",""]
                     end
             end;
         [Name,Node] ->
             case string:tokens(Name, "_") of  
                 [Name] ->  
-                    [Name,"","@",Node];
+                    [Name,"","","@",Node];
                 BL ->     
                     case catch list_to_integer(lists:last(BL)) of
                         I when is_integer(I) ->
-                            [string:join(lists:sublist(BL,length(BL)-1),"."),lists:last(BL),"@",Node];
+                            [string:join(lists:sublist(BL,length(BL)-1),"."),"_",lists:last(BL),"@",Node];
                         _ ->
-                            [Name,"","@",Node]
+                            [Name,"","","@",Node]
                     end
             end;
         _ ->
-            [TableName,"","",""]
+            [TableName,"","","",""]
     end.
 
 
@@ -1457,9 +1479,9 @@ time_to_partition_expiry(Table) when is_atom(Table) ->
     time_to_partition_expiry(atom_to_list(Table));
 time_to_partition_expiry(Table) when is_list(Table) ->
     case parse_table_name(Table) of
-        [_Schema,_Dot,_BaseName,"",_Aterate,_Shard] ->
+        [_Schema,_Dot,_BaseName,_,"",_Aterate,_Shard] ->
             ?ClientError({"Not a time partitioned table",Table});     
-        [_Schema,_Dot,_BaseName,Number,_Aterate,_Shard] ->
+        [_Schema,_Dot,_BaseName,"_",Number,_Aterate,_Shard] ->
             {Mega,Secs,_} = erlang:now(),
             list_to_integer(Number) - Mega * 1000000 - Secs
     end.
@@ -1468,9 +1490,9 @@ time_of_partition_expiry(Table) when is_atom(Table) ->
     time_of_partition_expiry(atom_to_list(Table));
 time_of_partition_expiry(Table) when is_list(Table) ->
     case parse_table_name(Table) of
-        [_Schema,_Dot,_BaseName,"",_Aterate,_Shard] ->
+        [_Schema,_Dot,_BaseName,_,"",_Aterate,_Shard] ->
             ?ClientError({"Not a time partitioned table",Table});     
-        [_Schema,_Dot,_BaseName,N,_Aterate,_Shard] ->
+        [_Schema,_Dot,_BaseName,"_",N,_Aterate,_Shard] ->
             Number = list_to_integer(N),
             {Number div 1000000, Number rem 1000000, 0}
     end.
@@ -2850,6 +2872,8 @@ db_test_() ->
         fun teardown/1,
         {with, [
               fun meta_operations/1
+            , fun meta_partitions/1
+            , fun meta_concurrency/1
         ]}}.    
 
 meta_operations(_) ->
@@ -2858,7 +2882,7 @@ meta_operations(_) ->
         SyEx = 'SystemException', 
         UiEx = 'UnimplementedException', 
 
-        ?LogDebug("---TEST---~p:test_mnesia~n", [?MODULE]),
+        ?LogDebug("---TEST---~p:meta_operations~n", [?MODULE]),
 
         ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -2873,13 +2897,6 @@ meta_operations(_) ->
         ?assertEqual(ok, check_table(?LOG_TABLE)),
 
         ?assertEqual(ok, check_table(?CACHE_TABLE)),
-
-        ?assertEqual(["Schema",".","BaseName","01234","@","Node"],parse_table_name("Schema.BaseName_01234@Node")),
-        ?assertEqual(["Schema",".","BaseName","","",""],parse_table_name("Schema.BaseName")),
-        ?assertEqual(["","","BaseName","01234","@","Node"],parse_table_name("BaseName_01234@Node")),
-        ?assertEqual(["","","BaseName","","@","Node"],parse_table_name("BaseName@Node")),
-        ?assertEqual(["","","BaseName","","@",""],parse_table_name("BaseName@")),
-        ?assertEqual(["","","BaseName","","",""],parse_table_name("BaseName")),
 
         Now = erlang:now(),
         LogCount1 = table_size(?LOG_TABLE),
@@ -3103,14 +3120,77 @@ meta_operations(_) ->
         ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
 
-        ?assertEqual(["Schema",".","Name_Period",""     ,"@","Node"], parse_table_name('Schema.Name_Period@Node')),
-        ?assertEqual(["Schema",".","Name"       ,"12345","@","Node"], parse_table_name('Schema.Name_12345@Node')),
-        ?assertEqual(["Schema",".","Name_Period",""     ,"@","_"], parse_table_name('Schema.Name_Period@_')),
-        ?assertEqual(["Schema",".","Name"       ,"12345","@","_"], parse_table_name('Schema.Name_12345@_')),
-        ?assertEqual(["Schema",".","Name_Period",""     ,"@",""], parse_table_name('Schema.Name_Period@')),
-        ?assertEqual(["Schema",".","Name"       ,"12345","@",""], parse_table_name('Schema.Name_12345@')),
-        ?assertEqual(["Schema",".","Name_Period",""     ,"" ,""], parse_table_name('Schema.Name_Period')),
-        ?assertEqual(["Schema",".","Name_12345" ,""     ,"" ,""], parse_table_name('Schema.Name_12345')),
+        DdNode0 = read(ddNode),
+        ?LogDebug("ddNode0 ~p~n", [DdNode0]),
+        DdNode1 = read(ddNode,node()),
+        ?LogDebug("ddNode1 ~p~n", [DdNode1]),
+        DdNode2 = select(ddNode,?MatchAllRecords),
+        ?LogDebug("ddNode2 ~p~n", [DdNode2]),
+
+        Schema0 = [{ddSchema,{schema(),node()},[]}],
+        ?assertEqual(Schema0, read(ddSchema)),
+        ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords)),
+
+        ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
+        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default created, owner set
+        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, not_test_owner, [test_context], other_default)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default not overwritten, wrong owner
+        ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value1)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)), %% new default overwritten by owner
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [],test_value2,<<"Test Remark">>)),
+        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value3)),
+        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value2}],read(test_config)),
+        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context],context_value,<<"Test Remark">>)),
+        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
+        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
+        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
+        ?LogDebug("success ~p~n", [get_config_hlk]),
+
+        ?assertEqual(ok, drop_table(meta_table_3)),
+        ?assertEqual(ok, drop_table(meta_table_2)),
+        ?assertEqual(ok, drop_table(meta_table_1)),
+        ?assertEqual(ok, drop_table(test_config)),
+
+        ?LogDebug("success ~p~n", [drop_tables])
+    catch
+        Class:Reason ->     
+            timer:sleep(1000),
+            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            throw ({Class, Reason})
+    end,
+    ok.
+
+
+meta_partitions(_) ->
+    try 
+        ClEr = 'ClientError',
+        UiEx = 'UnimplementedException', 
+
+        ?LogDebug("---TEST---~p:meta_partitions~n", [?MODULE]),
+
+        ?assertEqual(["Schema",".","BaseName"   ,"_","01234","@","Node"],parse_table_name("Schema.BaseName_01234@Node")),
+        ?assertEqual(["Schema",".","BaseName"   ,"" ,""     ,"" ,""    ],parse_table_name("Schema.BaseName")),
+        ?assertEqual([""      ,"" ,"BaseName"   ,"_","01234","@","Node"],parse_table_name("BaseName_01234@Node")),
+        ?assertEqual([""      ,"" ,"BaseName"   ,"" ,""     ,"@","Node"],parse_table_name("BaseName@Node")),
+        ?assertEqual([""      ,"" ,"BaseName"   ,"" ,""     ,"@",""    ],parse_table_name("BaseName@")),
+        ?assertEqual([""      ,"" ,"BaseName"   ,"" ,""     ,"" ,""    ],parse_table_name("BaseName")),
+        ?assertEqual(["Schema",".","Name_Period","" , ""     ,"@","Node"], parse_table_name('Schema.Name_Period@Node')),
+        ?assertEqual(["Schema",".","Name"       ,"_", "12345","@","Node"], parse_table_name('Schema.Name_12345@Node')),
+        ?assertEqual(["Schema",".","Name_Period","" , ""     ,"@","_"   ], parse_table_name('Schema.Name_Period@_')),
+        ?assertEqual(["Schema",".","Name"       ,"_", "12345","@","_"   ], parse_table_name('Schema.Name_12345@_')),
+        ?assertEqual(["Schema",".","Name_Period","" , ""     ,"@",""    ], parse_table_name('Schema.Name_Period@')),
+        ?assertEqual(["Sch_01",".","Name"       ,"_", "12345","@",""    ], parse_table_name('Sch_01.Name_12345@')),
+        ?assertEqual(["Sch_99",".","Name_Period","" , ""     ,"" ,""    ], parse_table_name('Sch_99.Name_Period')),
+        ?assertEqual(["Sch_ma",".","Name_12345" ,"" , ""     ,"" ,""    ], parse_table_name('Sch_ma.Name_12345')),
+        ?assertEqual([""      ,"" ,"Name_Period","" , ""     ,"@","Node"], parse_table_name('Name_Period@Node')),
+        ?assertEqual([""      ,"" ,"Name"       ,"_", "12345","@","Node"], parse_table_name('Name_12345@Node')),
+        ?assertEqual([""      ,"" ,"Name_Period","" , ""     ,"@","_"   ], parse_table_name('Name_Period@_')),
+        ?assertEqual([""      ,"" ,"Name"       ,"_", "12345","@","_"   ], parse_table_name('Name_12345@_')),
+        ?assertEqual([""      ,"" ,"Name_Period","" , ""     ,"@",""    ], parse_table_name('Name_Period@')),
+        ?assertEqual([""      ,"" ,"Name"       ,"_", "12345","@",""    ], parse_table_name('Name_12345@')),
+        ?assertEqual([""      ,"" ,"Name_Period","" , ""     ,"" ,""    ], parse_table_name('Name_Period')),
+        ?assertEqual([""      ,"" ,"Name_12345" ,"" , ""     ,"" ,""    ], parse_table_name('Name_12345')),
 
         ?assertEqual(true,is_time_partitioned_alias(?TPTEST1)),
         ?assertEqual(true,is_time_partitioned_alias(?TPTEST0)),
@@ -3153,13 +3233,17 @@ meta_operations(_) ->
 
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- read(ddAlias)])),
 
-        ?assertEqual(ok, write(?TPTEST0, LogRec0)),
+        LogRec = #ddLog{logTime= erlang:now(),logLevel=info,pid=self()
+                            ,module=?MODULE,function=meta_partitions,node=node()
+                            ,fields=[],message= <<"some log message">>},
+
+        ?assertEqual(ok, write(?TPTEST0, LogRec)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(?TPTEST0)),
         {Megs,Secs,Mics} = erlang:now(),
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
-        LogRecF = LogRec0#ddLog{logTime=Future},
+        LogRecF = LogRec#ddLog{logTime=Future},
         ?assertEqual(ok, write(?TPTEST0, LogRecF)),
         ?LogDebug("physical_table_names ~p~n", [physical_table_names(?TPTEST0)]),
         ?assertEqual(0, purge_table(?TPTEST0,[{purge_delay,10000}])),
@@ -3187,16 +3271,16 @@ meta_operations(_) ->
         ?LogDebug("Alias1 ~p~n", [[ element(2,A) || A <- Alias1]]),
         ?assert(lists:member({schema(),?TPTEST1},[element(2,A) || A <- Alias1])),
 
-        ?assertEqual(ok, write(?TPTEST1, LogRec0)),
+        ?assertEqual(ok, write(?TPTEST1, LogRec)),
         ?assertEqual(1, table_size(TimePartTable1)),
         ?assertEqual(0, purge_table(?TPTEST1)),
-        LogRecP = LogRec0#ddLog{logTime={900,0,0}},  
+        LogRecP = LogRec#ddLog{logTime={900,0,0}},  
         ?LogDebug("Big Partition Tables before back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
         % Error3 = {error,{'ClientError',{"Table already exists",tpTest1_1999999998@_}}},     % cannot create past partitions
         % ?assertException(throw,{'ClientError',{"Table partition cannot be created",{tpTest1_999999999@_,Error3}}},write(?TPTEST1, LogRecP)),
         ?assertEqual(ok, write(?TPTEST1, LogRecP)),
         ?LogDebug("Big Partition Tables after back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
-        LogRecFF = LogRec0#ddLog{logTime={2900,0,0}},  
+        LogRecFF = LogRec#ddLog{logTime={2900,0,0}},  
         ?assertEqual(ok, write(?TPTEST1, LogRecFF)),
         ?LogDebug("Big Partition Tables after forward-insert~n~p~n", [physical_table_names(?TPTEST1)]),
         ?assertEqual(3,length(physical_table_names(?TPTEST1))),     % another partition created
@@ -3207,35 +3291,8 @@ meta_operations(_) ->
         ?assertEqual([],physical_table_names(?TPTEST1)),
         ?LogDebug("success ~p~n", [?TPTEST1]),
 
-
-        DdNode0 = read(ddNode),
-        ?LogDebug("ddNode0 ~p~n", [DdNode0]),
-        DdNode1 = read(ddNode,node()),
-        ?LogDebug("ddNode1 ~p~n", [DdNode1]),
-        DdNode2 = select(ddNode,?MatchAllRecords),
-        ?LogDebug("ddNode2 ~p~n", [DdNode2]),
-
-        Schema0 = [{ddSchema,{schema(),node()},[]}],
-        ?assertEqual(Schema0, read(ddSchema)),
-        ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords)),
-
-        ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default created, owner set
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, not_test_owner, [test_context], other_default)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default not overwritten, wrong owner
-        ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value1)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)), %% new default overwritten by owner
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [],test_value2,<<"Test Remark">>)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value3)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value2}],read(test_config)),
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context],context_value,<<"Test Remark">>)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
-        ?LogDebug("success ~p~n", [get_config_hlk]),
-
         ?assertEqual( {error,{"Table template not found in ddAlias",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name,dummy_table_name)),
+
         ?assertEqual([],physical_table_names(fakelog_1@)),
         ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,0]),
 
@@ -3258,8 +3315,21 @@ meta_operations(_) ->
         ?assert(FL3 >= 3),
         timer:sleep(1050),
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
-        ?LogDebug("success ~p~n", [create_partitioned_table]),
+        ?LogDebug("success ~p~n", [roll_partitioned_table]),
+        ?assertEqual(ok,drop_table(fakelog_1@)),
+        ?LogDebug("success ~p~n", [drop_table])
+    catch
+        Class:Reason ->     
+            timer:sleep(1000),
+            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            throw ({Class, Reason})
+    end,
+    ok.
 
+
+meta_concurrency(_) ->
+    try 
+        ?LogDebug("---TEST---~p:meta_concurrency~n", [?MODULE]),
         ?assertEqual(ok, create_table(imem_table_123, [hlk,val], [])),
         Self = self(),
         Key = [sum],
@@ -3271,15 +3341,8 @@ meta_operations(_) ->
         ?assertEqual([{imem_table_123,Key,55}], read(imem_table_123,Key)),
         ?assertEqual([{atomic,ok}],lists:usort([R || {_,R} <- ReadWriteResult])),
         ?LogDebug("success ~p~n", [bulk_read_write]),
-
         ?assertEqual(ok, drop_table(imem_table_123)),
-        ?assertEqual(ok, drop_table(meta_table_3)),
-        ?assertEqual(ok, drop_table(meta_table_2)),
-        ?assertEqual(ok, drop_table(meta_table_1)),
-        ?assertEqual(ok, drop_table(test_config)),
-        ?assertEqual(ok,drop_table(fakelog_1@)),
-
-        ?LogDebug("success ~p~n", [drop_tables])
+        ?LogDebug("success ~p~n", [drop_table])
     catch
         Class:Reason ->     
             timer:sleep(1000),
@@ -3287,6 +3350,7 @@ meta_operations(_) ->
             throw ({Class, Reason})
     end,
     ok.
+
 
 read_write_test(Tab, Key, N) ->
     Upd = fun() ->

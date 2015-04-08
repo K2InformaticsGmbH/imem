@@ -120,8 +120,8 @@ grant_obj_priv(SKey,PA,GBin,OBin) when is_atom(PA) ->
     Name = binary_to_list(OBin),
     Pred = fun({_,N}) ->
         case imem_meta:parse_table_name(N) of
-            [_,_,Name,_,_,_] -> true;
-            _ ->                false
+            [_,_,Name,_,_,_,_] ->   true;
+            _ ->                    false
         end
     end, 
     O = case (catch list_to_existing_atom(Name)) of
@@ -166,8 +166,8 @@ revoke_obj_priv(SKey,PA,GBin,OBin) when is_atom(PA) ->
     Name = binary_to_list(OBin),
     Pred = fun({_,N}) ->
         case imem_meta:parse_table_name(N) of
-            [_,_,Name,_,_,_] -> true;
-            _ ->                false
+            [_,_,Name,_,_,_,_] ->   true;
+            _ ->                    false
         end
     end, 
     O = case (catch list_to_existing_atom(Name)) of
