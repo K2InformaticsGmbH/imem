@@ -555,8 +555,12 @@ set_credentials(SKey, Name, {pwdmd5,NewToken}) ->
 
 set_login_time(SKey, AccountId) ->
     case have_permission(SKey, manage_accounts) of
-        true ->     [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
-                    if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=erlang:now()});
+        true ->
+            AccountDyn = case if_read(SKey,ddAccountDyn,AccountId) of
+                             [AccountDynRec] ->  AccountDynRec;
+                             [] -> #ddAccountDyn{id = AccountId}
+                         end,
+            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=erlang:now()});
         false ->    ?SecurityException({"Set login time unauthorized",SKey})
     end.
 
