@@ -25,7 +25,7 @@
         imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],10000)
        ).
 
--type ddEntityId() :: 	reference() | integer() | atom().
+-type ddEntityId() :: 	integer() | atom().
 -type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 
 -record(ddIdxDef, %% record definition for index definition              

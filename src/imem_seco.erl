@@ -97,7 +97,7 @@ init(_Args) ->
                     {ok, Pwd} = application:get_env(imem, default_admin_pswd),
                     LocalTime = calendar:local_time(),
                     UserCred=create_credentials(pwdmd5, Pwd),
-                    Account = #ddAccount{id=system, name= <<"system">>, credentials=[UserCred]
+                    Account = #ddAccount{id=system, type=deamon, name= <<"system">>, credentials=[UserCred]
                                 , fullName= <<"DB Administrator">>, lastPasswordChangeTime=LocalTime},
                     AccountDyn = #ddAccountDyn{id=system},
                     if_write(none, ddAccount, Account),                    
