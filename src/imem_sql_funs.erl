@@ -8,7 +8,7 @@
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
-            , to_tuple, to_list, to_map, to_term, to_binterm, from_binterm
+            , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
             , json_to_list, json_arr_proj, json_obj_proj, json_value
             , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap
@@ -54,6 +54,7 @@
         , to_list/1
         , to_map/1
         , to_term/1
+        , to_pid/1
         , to_binterm/1
         , to_timestamp/1
         , to_datetime/1
@@ -141,7 +142,9 @@ unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
+        {match,["term"]}->                      #bind{type=term,default=?nav};
         {match,["binterm"]}->                   #bind{type=binterm,default=?nav};
+        {match,["pid"]}->                       #bind{type=pid,default=?nav};
         {match,["boolean"]}->                   #bind{type=boolean,default=?nav};
         {match,["decimal"]}->                   #bind{type=decimal,default=?nav};
         {match,["float"]}->                     #bind{type=float,default=?nav};
@@ -350,7 +353,7 @@ expr_fun({'safe', A}) ->
     safe_fun(A);
 expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_name';Op=='to_text';Op=='is_nav' ->
+expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr' ->
     unary_fun({Op, A});
@@ -594,6 +597,9 @@ to_map(L) when is_list(L) -> maps:from_list(L).
 
 to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
 to_term(T) -> T.
+
+to_pid(T) when is_pid(T) -> T;
+to_pid(B) -> imem_datatype:io_to_pid(B).
 
 to_existing_atom(A) when is_atom(A) -> A;
 to_existing_atom(B) when is_binary(B) -> ?binary_to_existing_atom(B);

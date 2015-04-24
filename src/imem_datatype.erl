@@ -104,6 +104,7 @@
         , io_to_list/2
         , io_to_map/1        
         , io_to_string/1
+        , io_to_pid/1
         , io_to_term/1
         , io_to_binterm/1
         , io_to_timestamp/1, io_to_timestamp/2
@@ -1636,6 +1637,12 @@ data_types(_) ->
         ?assertEqual({1,2,12345}, io_to_timestamp(<<"{1,2,12345}">>,0)),
         ?LogDebug("io_to_timestamp success~n", []),
 
+        ?assertEqual(list_to_pid("<0.44.0>"), io_to_pid("<0.44.0>")),
+        ?assertEqual(list_to_pid("<0.44.555>"), io_to_pid(<<"<0.44.555>">>)),
+        ?assertEqual(list_to_pid("<0.55.0>"), io_to_pid(<<"<0.55.0>">>)),
+
+        ?LogDebug("io_to_db success 5~n", []),
+
         LocalTime = erlang:localtime(),
         {Date,_Time} = LocalTime,
         ?assertEqual({{2004,3,1},{0,0,0}}, io_to_datetime(<<"1.3.2004">>)),
@@ -1712,7 +1719,7 @@ data_types(_) ->
         ?assertEqual(-15, io_to_db(Item,-15,string,Len,Prec,Def,RW,<<"-15">>)),
         ?LogDebug("io_to_db success 3a~n", []),
 
-    ?assertEqual(OldString, io_to_db(Item,OldString,binstr,Len,Prec,Def,true,<<"NewVal">>)),
+        ?assertEqual(OldString, io_to_db(Item,OldString,binstr,Len,Prec,Def,true,<<"NewVal">>)),
         ?LogDebug("io_to_db success 4a~n", []),
         ?assertEqual(<<"NöVal"/utf8>>, io_to_db(Item,OldString,binstr,6,undefined,Def,RW,<<"NöVal"/utf8>>)),
         ?assertEqual(default, io_to_db(Item,OldString,binstr,Len,Prec,Def,RW,?emptyIo)),
@@ -1892,6 +1899,12 @@ data_types(_) ->
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,6,"1.256.1.4"}}}}, io_to_db(Item,OldTerm,ipaddr,6,0,Def,RW,<<"1.256.1.4">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{ipaddr,8,"1.2.1.4"}}}}, io_to_db(Item,OldTerm,ipaddr,8,0,Def,RW,<<"1.2.1.4">>)),
         ?LogDebug("io_to_db success 13~n", []),
+
+        OldPid = self(),
+        ?assertEqual(OldPid, io_to_db(Item,OldPid,pid,Len,Prec,Def,RW,pid_to_list(OldPid))),
+        ?assertEqual(OldPid, io_to_db(Item,OldPid,pid,Len,Prec,Def,RW,list_to_binary(pid_to_list(OldPid)))),
+        ?assertEqual(list_to_pid("<0.55.0>"), io_to_db(Item,OldPid,pid,Len,Prec,Def,RW,"<0.55.0>")),
+        ?assertEqual(list_to_pid("<0.55.66>"), io_to_db(Item,OldPid,pid,Len,Prec,Def,RW,<<"<0.55.66>">>)),
 
         AdminId1 = io_to_db('Item','OldTerm',userid,undefined,undefined,undefined,RW,<<"1234">>),
         ?assert(is_integer(AdminId1)),
