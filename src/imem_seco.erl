@@ -76,6 +76,7 @@ init(_Args) ->
 
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
         catch imem_meta:create_check_table(ddAccount, ADef, [], system),
+        imem_meta:create_or_replace_index(ddAccount, name),
 
         ADDef = {record_info(fields, ddAccountDyn),?ddAccountDyn,#ddAccountDyn{}},
         catch imem_meta:create_check_table(ddAccountDyn, ADDef, [], system),
@@ -166,17 +167,20 @@ if_select_perm_keys_by_skey(_SKeyM, SKey) ->      %% M=Monitor / MasterContext
     Result = '$1',
     if_select(SKey, ddPerm@, [{MatchHead, [Guard], [Result]}]).
 
-if_select_account_by_name(SKey, Name) -> 
-    MatchHead = #ddAccount{name='$1', _='_'},
-    Guard = {'==', '$1', Name},
-    Result = '$_',
-    if_select(SKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
-
 if_check_table(_SeKey, Table) ->
     imem_meta:check_table(Table).
 
-%% --Interface functions  (calling imem_meta) ----------------------------------
+%% -- See similar Implementation in imem_account, imem_seco, imem_role -------------- 
 
+if_dirty_index_read(_SeKey, Table, SecKey, Index) -> 
+    imem_meta:dirty_index_read(Table, SecKey, Index).
+
+if_select_account_by_name(_SeKey, <<"system">>) -> 
+    {if_read(_SeKey, ddAccount, system),true};
+if_select_account_by_name(_SeKey, Name) -> 
+    {if_dirty_index_read(_SeKey,ddAccount,Name, #ddAccount.name),true}.
+
+%% --Interface functions  (calling imem_meta) ----------------------------------
 
 if_drop_table(_SKey, Table) -> 
     imem_meta:drop_table(Table).

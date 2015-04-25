@@ -27,20 +27,22 @@ if_read(_SeCo, Table, RoleId) ->
 if_delete(_SeCo, Table, RoleId) ->
     imem_meta:delete(Table, RoleId).
 
-if_select(_SeKey, Table, MatchSpec) ->
-    imem_meta:select(Table, MatchSpec). 
-
-if_select_account_by_name(SKey, Name) -> 
-    MatchHead = #ddAccount{name='$1', _='_'},
-    Guard = {'==', '$1', Name},
-    Result = '$_',
-    if_select(SKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
-
 if_get_account_id_by_name(SKey, Name) ->
     case if_select_account_by_name(SKey, Name) of
-        {[#ddAccount{id=AccountId}], true} -> AccountId;
+        {[#ddAccount{id=AccountId}], true} ->   AccountId;
         {[],true} ->                            ?ClientError({"Account does not exist", Name})
     end.
+
+%% -- See similar Implementation in imem_account, imem_seco, imem_role -------------- 
+
+if_dirty_index_read(_SeKey, Table, SecKey, Index) -> 
+    imem_meta:dirty_index_read(Table, SecKey, Index).
+
+if_select_account_by_name(_SeKey, <<"system">>) -> 
+    {if_read(_SeKey, ddAccount, system),true};
+if_select_account_by_name(_SeKey, Name) -> 
+    {if_dirty_index_read(_SeKey,ddAccount,Name, #ddAccount.name),true}.
+
 
 %% --Implementation ------------------------------------------------------------------
 

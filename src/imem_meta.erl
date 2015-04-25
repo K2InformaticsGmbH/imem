@@ -199,6 +199,7 @@
         , write/2           %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
         , dirty_read/2
+        , dirty_index_read/3
         , dirty_write/2
         , delete/2          %% delete row by key
         , delete_object/2   %% delete single row in bag table 
@@ -2193,6 +2194,10 @@ dirty_read(ddSchema,Key) -> read(ddSchema,Key);
 dirty_read(ddSize,Table) -> read(ddSize,Table);
 dirty_read(Table, Key) ->   imem_if:dirty_read(physical_table_name(Table), Key).
 
+dirty_index_read({_Schema,Table}, SecKey,Index) -> 
+    dirty_index_read(Table, SecKey, Index);
+dirty_index_read(Table, SecKey, Index) ->   
+    imem_if:dirty_index_read(physical_table_name(Table), SecKey, Index).
 
 read_hlk({_Schema,Table}, HListKey) -> 
     read_hlk(Table, HListKey);
