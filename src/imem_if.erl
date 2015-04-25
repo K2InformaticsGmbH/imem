@@ -51,6 +51,7 @@
 -export([ create_table/3
         , drop_table/1
         , create_index/2
+        , create_or_replace_index/2
         , drop_index/2
         , truncate_table/1
         , select/2
@@ -410,6 +411,13 @@ create_index(Table, Column) when is_atom(Table) ->
         {aborted, {already_exists, {Table,Column}}} ->
                                         ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
         Result ->                       return_atomic_ok(Result)
+    end.
+
+create_or_replace_index(Table, Column) when is_atom(Table) ->
+    case mnesia:add_table_index(Table, Column) of
+        {aborted, {no_exists, Table}} ->   ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {already_exists, {Table,Column}}} ->  ok;
+        Result ->                           return_atomic_ok(Result)
     end.
 
 drop_index(Table, Column) when is_atom(Table) ->

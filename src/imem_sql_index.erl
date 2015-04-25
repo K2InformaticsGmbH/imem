@@ -31,10 +31,14 @@ exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec)
         true ->
             {list_to_existing_atom(binary_to_list(TableSchema)),list_to_existing_atom(binary_to_list(Tbl))}
     end,
-    if_call_mfa(IsSec, 'drop_index', [SKey,Table,Index]);
+    Pred = fun(X) -> (atom_to_binary(X,utf8) == Index) end,
+    case lists:filter(Pred,imem_meta:table_columns(Table)) of
+        [] ->       if_call_mfa(IsSec, 'drop_index', [SKey,Table,Index]);   % Index = external index name
+        [Field] ->  if_call_mfa(IsSec, 'drop_index', [SKey,Table,Field])    % Field = internal index atom
+    end;    
 
 exec(SKey, {'create index',{},{},TableName,[],{},{}} = _ParseTree, _Stmt, _Opts, IsSec) ->
-    ?LogDebug("Re-Create Index Parse Tree~n~p~n", [_ParseTree]),
+    ?LogDebug("Re-Create external Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     MySchema = imem_meta:schema(),
     MySchemaName = ?atom_to_binary(MySchema),
@@ -53,6 +57,27 @@ exec(SKey, {'create index',{},{},TableName,[],{},{}} = _ParseTree, _Stmt, _Opts,
             ?ClientError({"Table dictionary does not exist for",Table})
     end,
     if_call_mfa(IsSec, create_or_replace_index, [SKey, Table, ExistingIndexDefs]);
+exec(SKey, {'create index', {}, IndexName, TableName, [], {}, {}} = _ParseTree, _Stmt, _Opts, IsSec) ->
+    ?LogDebug("Create internal (MNESIA) Index Parse Tree~n~p~n", [_ParseTree]),
+    {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
+    {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
+    if
+        not (IndexSchema =:= TableSchema) ->
+            ?ClientError({"Index and table are in different schema",{IndexSchema,TableSchema}});
+        true ->
+            ok
+    end,
+    Table = if
+        TableSchema =:= undefined ->
+            {imem_meta:schema(),list_to_existing_atom(binary_to_list(Tbl))};
+        true ->
+            {list_to_existing_atom(binary_to_list(TableSchema)),list_to_existing_atom(binary_to_list(Tbl))}
+    end,
+    Pred = fun(X) -> (atom_to_binary(X,utf8) == Index) end,
+    case lists:filter(Pred,imem_meta:table_columns(Table)) of
+        [] ->       ?ClientError({"Column does not exist in table",{Index,Tbl}});
+        [Field] ->  if_call_mfa(IsSec, 'create_index', [SKey,Table,Field])
+    end;
 exec(SKey, {'create index', IndexType, IndexName, TableName
             , IndexDefn, NormWithFun, FilterWithFun} = _ParseTree
             , _Stmt, _Opts, IsSec) ->

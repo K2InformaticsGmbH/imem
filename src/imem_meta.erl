@@ -971,6 +971,8 @@ create_or_replace_trigger(Table,_) when is_atom(Table) ->
     ?ClientError({"Bad fun for create_or_replace_trigger, expecting arity 4", Table}).
 
 
+-spec create_index(atom()|{atom(),atom()},atom()|list()) -> ok.
+%% Create external index or MNESIA internal index
 create_index_table(IndexTable,ParentOpts,Owner) ->
     IndexOpts = case lists:keysearch(purge_delay, 1, ParentOpts) of
                 false ->        ?DD_INDEX_OPTS;
@@ -978,11 +980,16 @@ create_index_table(IndexTable,ParentOpts,Owner) ->
     end,
     init_create_table(IndexTable, {record_info(fields, ddIndex), ?ddIndex, #ddIndex{}}, IndexOpts, Owner). 
 
-create_index({Schema,Table},IndexDefinition) when is_list(IndexDefinition) ->
+create_index({Schema,Table},IndexDefinition) ->
     MySchema = schema(),
     case Schema of
         MySchema -> create_index(Table,IndexDefinition);
         _ ->        ?UnimplementedException({"Create Index in foreign schema",{Schema,Table}})
+    end;
+create_index(Table,ColName) when is_atom(Table),is_atom(ColName) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=_D] ->  imem_if:create_index(Table,ColName);
+        [] ->               ?ClientError({"Table dictionary does not exist for",Table})
     end;
 create_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
     IndexTable = index_table(Table),
@@ -1002,11 +1009,18 @@ create_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition)
             ?ClientError({"Table dictionary does not exist for",Table})
     end.
 
-create_or_replace_index({Schema,Table},IndexDefinition) when is_list(IndexDefinition) ->
+-spec create_or_replace_index(atom()|{atom(),atom()},atom()|list()) -> ok.
+%% Create or replace external index or MNESIA internal index
+create_or_replace_index({Schema,Table},IndexDefinition)  ->
     MySchema = schema(),
     case Schema of
         MySchema -> create_or_replace_index(Table,IndexDefinition);
         _ ->        ?UnimplementedException({"Create Index in foreign schema",{Schema,Table}})
+    end;
+create_or_replace_index(Table,ColName) when is_atom(Table),is_atom(ColName) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=_D] ->  imem_if:create_or_replace_index(Table,ColName);
+        [] ->               ?ClientError({"Table dictionary does not exist for",Table})
     end;
 create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
     Schema = schema(),
@@ -1038,6 +1052,8 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
             ?ClientError({"Table dictionary does not exist for",Table})
     end.
 
+-spec fill_index(atom(),list()) -> ok.
+%% Fill external index for a table with data
 fill_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
     Schema = schema(),
     case imem_if:read(ddTable,{Schema, Table}) of
@@ -1049,11 +1065,18 @@ fill_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) -
             foldl(FoldFun, ok, Table)
     end.
 
+-spec drop_index(atom()|{atom(),atom()},atom()|integer()|list()) -> ok.
+%% Drop external index for a table or MNESIA internal index
 drop_index({Schema,Table}, Index) ->
     MySchema = schema(),
     case Schema of
         MySchema -> drop_index(Table, Index);
         _ ->        ?UnimplementedException({"Drop Index in foreign schema",{Schema,Table}})
+    end;
+drop_index(Table, ColName) when is_atom(Table), is_atom(ColName) ->
+    case read(ddTable,{schema(), Table}) of
+        [#ddTable{}=_D] ->  imem_if:drop_index(Table,ColName);
+        [] ->               ?ClientError({"Table dictionary does not exist for",Table})
     end;
 drop_index(Table, Index) when is_atom(Table) ->
     case read(ddTable,{schema(), Table}) of
@@ -1095,6 +1118,8 @@ drop_index(Table, Index) when is_atom(Table) ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end.
 
+-spec drop_index(atom()|{atom(),atom()}) -> ok.
+%% Drop all external indexes for a table (but not MNESIA internal indexes)
 drop_index({Schema,Table}) ->
     MySchema = schema(),
     case Schema of
