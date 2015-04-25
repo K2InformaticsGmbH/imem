@@ -397,37 +397,46 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
 
 drop_table(Table) when is_atom(Table) ->
     case spawn_sync_mfa(mnesia,delete_table,[Table]) of
-        ok ->                           true = ets:delete(?SNAP_ETS_TAB, Table),
-                                        ok;
-        {atomic,ok} ->                  true = ets:delete(?SNAP_ETS_TAB, Table),
-                                        ok;
-        {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        Error ->                        ?SystemExceptionNoLogging(Error)
+        ok ->                           
+            true = ets:delete(?SNAP_ETS_TAB, Table),
+            ok;
+        {atomic,ok} ->                  
+            true = ets:delete(?SNAP_ETS_TAB, Table),
+            ok;
+        {aborted,{no_exists,Table}} ->  
+            ?ClientErrorNoLogging({"Table does not exist",Table});
+        Error ->                        
+            ?SystemExceptionNoLogging(Error)
     end.
 
 create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-                                        ?ClientErrorNoLogging({"Table does not exist", Table});
-        {aborted, {already_exists, {Table,Column}}} ->
-                                        ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
-        Result ->                       return_atomic_ok(Result)
+            ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {already_exists, Table, _ }} ->
+            ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
+        Result ->                       
+            return_atomic_ok(Result)
     end.
 
 create_or_replace_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
-        {aborted, {no_exists, Table}} ->   ?ClientErrorNoLogging({"Table does not exist", Table});
-        {aborted, {already_exists, {Table,Column}}} ->  ok;
-        Result ->                           return_atomic_ok(Result)
+        {aborted, {no_exists, Table}} ->   
+            ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {already_exists, Table, _ }} ->   
+            ok;
+        Result ->
+            return_atomic_ok(Result)
     end.
 
 drop_index(Table, Column) when is_atom(Table) ->
     case mnesia:del_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-                                        ?ClientErrorNoLogging({"Table does not exist", Table});
-        {aborted, {no_exists, {Table,Column}}} ->   
-                                        ?ClientErrorNoLogging({"Index does not exist", {Table,Column}});
-        Result ->                       return_atomic_ok(Result)
+            ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {no_exists, Table, _ }} ->   
+            ?ClientErrorNoLogging({"Index does not exist", {Table,Column}});
+        Result ->                       
+            return_atomic_ok(Result)
     end.
 
 truncate_table(Table) when is_atom(Table) ->
