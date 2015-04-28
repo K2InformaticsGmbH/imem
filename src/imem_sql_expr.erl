@@ -817,6 +817,10 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
                     end
             end
     end;        
+expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) -> 
+    #bind{type=list,btree=[expr(A,FullMap,#bind{type=term}) || A <- L]};
+expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) -> 
+    #bind{type=tuple,btree={list_to_tuple,[expr(A,FullMap,#bind{type=term}) || A <- L]}};
 expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) -> 
     expr({'fun',<<"is_regexp_like">>,[A,B]}, FullMap, BT); 
 expr({'||',A,B}, FullMap, _) -> 

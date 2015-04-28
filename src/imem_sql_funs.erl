@@ -6,7 +6,7 @@
 -define( FilterFuns, 
             [ list, prefix_ul, safe, concat, is_nav, is_key 
             , is_member, is_like, is_regexp_like, to_name, to_text
-            , add_dt, add_ts, diff_dt, diff_ts
+            , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
