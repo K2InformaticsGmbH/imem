@@ -431,6 +431,18 @@ test_with_or_without_sec(IsSec) ->
             [{<<"1">>}]
         ),
 
+        exec_fetch_sort_equal(SKey, query0d, 100, IsSec, "
+            select list(1,to_atom('b'),3.14,to_string('4')) from dual"
+            ,
+            [{<<"[1,b,3.14,\"4\"]">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query0e, 100, IsSec, "
+            select tuple(1,to_binstr('2'),3,4) from dual"
+            ,
+            [{<<"{1,<<\"2\">>,3,4}">>}]
+        ),
+
     %% simple queries on meta fields
 
         exec_fetch_sort_equal(SKey, query1, 100, IsSec, "
