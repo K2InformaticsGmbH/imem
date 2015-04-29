@@ -261,7 +261,7 @@ filter_fun(FTree) ->
 expr_fun({const, A}) when is_tuple(A) -> A;
 %% create a list
 expr_fun({list, L}) when is_list(L) -> 
-    [expr_fun(E) || E <- L];
+    list_fun(lists:reverse([expr_fun(E) || E <- L]),[]);
 %% Select field Expression header
 expr_fun(#bind{tind=0,cind=0,btree=BTree}) -> expr_fun(BTree);
 %% Comparison expressions
@@ -395,6 +395,35 @@ safe_fun_final(A) ->
         false ->            A;        
         true ->             fun(X) -> try A(X) catch _:_ -> ?nav end end;       
         ABind ->            fun(X) -> try ?BoundVal(ABind,X) catch _:_ -> ?nav end end
+    end.
+
+% list_fun([],Acc,false) -> lists:reverse(Acc);
+% list_fun([],Acc,true) ->  fun(X) -> [case is_function(F) of true -> F(X); false -> F end || F <- lists:reverse(Acc)] end;
+% list_fun([A|Rest],Acc,false) -> 
+%     case bind_action(A) of 
+%         false ->        list_fun(Rest,[A|Acc],false);
+%         true ->         fun(X) -> list_fun(Rest,[A(X)|Acc],true) end;
+%         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
+%     end;
+% list_fun([A|Rest],Acc,true) -> 
+%     case bind_action(A) of 
+%         false ->        list_fun(Rest,[A|Acc],true);
+%         true ->         fun(X) -> list_fun(Rest,[A(X)|Acc],true) end;
+%         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
+%     end.
+
+list_fun([],Acc) -> Acc;
+list_fun([A|Rest],Acc) when is_list(Acc) -> 
+    case bind_action(A) of 
+        false ->        list_fun(Rest,[A|Acc]);
+        true ->         list_fun(Rest,fun(X) -> [A(X)|Acc] end);
+        ABind ->        list_fun(Rest,fun(X) -> [?BoundVal(ABind,X)|Acc] end)
+    end;
+list_fun([A|Rest],Acc) -> 
+    case bind_action(A) of 
+        false ->        list_fun(Rest,fun(X) -> [A|Acc(X)] end);
+        true ->         list_fun(Rest,fun(X) -> [A(X)|Acc(X)] end);
+        ABind ->        list_fun(Rest,fun(X) -> [?BoundVal(ABind,X)|Acc(X)] end)
     end.
 
 module_fun(Mod, {Op, {const,A}}) when is_tuple(A) ->
@@ -965,15 +994,15 @@ db_test_() ->
         fun teardown/1,
         {with, [
               fun test_without_sec/1
-            % , fun test_with_sec/1
+            , fun test_with_sec/1
         ]}
     }.
     
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
-% test_with_sec(_) ->
-%     test_with_or_without_sec(true).
+test_with_sec(_) ->
+    test_with_or_without_sec(true).
 
 test_with_or_without_sec(IsSec) ->
     try

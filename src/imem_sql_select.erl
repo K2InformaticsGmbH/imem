@@ -43,12 +43,12 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     end,
     % ?Info("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
-    % ?Info("MainSpec:~n~p~n", [MainSpec]),
+    % ?LogDebug("MainSpec:~n~p~n", [MainSpec]),
     JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
     % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
-    % ?Info("ColMap1:~n~p~n", [ColMap1]),
+    % ?LogDebug("ColMap1:~n~p~n", [ColMap1]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap1);
         str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
@@ -103,7 +103,7 @@ db_test_() ->
         fun teardown/1,
         {with,inorder,[
               fun test_without_sec/1
-            , fun test_with_sec/1
+            % , fun test_with_sec/1
         ]
         }
     }.
@@ -140,6 +140,32 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
+        exec_fetch_sort_equal(SKey, query0g, 100, IsSec, "
+            select list(1,to_atom('a')) from dual"
+            ,
+            [{<<"[1,a]">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query0h, 100, IsSec, "
+            select tuple(1,to_atom('A')) from dual"
+            ,
+            [{<<"{1,'A'}">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query0i, 100, IsSec, "
+            select list(1,dummy) from dual"
+            ,
+            [{<<"[1,\"X\"]">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query0j, 100, IsSec, "
+            select tuple(1,dummy) from dual"
+            ,
+            [{<<"{1,\"X\"}">>}]
+        ),
+
+
+
         QSTime = calendar:local_time(),
 
         R00 = exec_fetch_sort(SKey, query00, 100, IsSec, "
@@ -167,7 +193,6 @@ test_with_or_without_sec(IsSec) ->
             IsSec ->    ?assertEqual(<<"_test_admin_">>, imem_seco:account_name(SKey));
             true ->     ?assertException(throw,{SeEx,{"Not logged in",none}}, imem_seco:account_name(SKey))
         end,
-
 
     %% test ddSysConf schema access
 
@@ -441,6 +466,19 @@ test_with_or_without_sec(IsSec) ->
             select tuple(1,to_binstr('2'),3,4) from dual"
             ,
             [{<<"{1,<<\"2\">>,3,4}">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query0f, 100, IsSec, "
+            select list(col1,col3) from member_test
+            where col1 = 5"
+            ,
+            [{<<"[5,{a,d,e}]">>}]
+        ),
+        exec_fetch_sort_equal(SKey, query0g, 100, IsSec, "
+            select tuple(col1,col3) from member_test
+            where col1 = 5"
+            ,
+            [{<<"{5,{a,d,e}}">>}]
         ),
 
     %% simple queries on meta fields
@@ -1826,6 +1864,7 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
+    % ?LogDebug("List:~n~p~n", [List]),
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
