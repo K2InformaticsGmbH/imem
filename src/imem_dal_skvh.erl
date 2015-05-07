@@ -89,7 +89,8 @@
 -export([ table_name/1              %% (Channel)                    return table name as binstr
         , atom_table_name/1         %% (Channel)                    return table name as atom
         , audit_alias/1             %% (Channel)                    return audit alias as bisntr
-        , create_table/4            %% (Name)                       create empty table / audit table / history table (Name as binary or atom)
+        , create_table/4            %% (Name,[],Opts,Owner)         create empty table / audit table / history table (Name as binary or atom)
+        , drop_table/1              %% (Name)
         , create_check_channel/1    %% (Channel)                    create empty table / audit table / history table if necessary (Name as binary or atom)
         , create_check_channel/2    %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
         , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
@@ -139,10 +140,10 @@
 foldl(_User, FoldFun, InputAcc, Channel) when is_function(FoldFun, 2) ->
     Tab = atom_table_name(Channel),
     imem_meta:foldl(
-      fun(Rec, Acc) when is_record(Rec,skvhTable) ->
-              FoldFun(skvh_rec_to_map(Rec), Acc);
-         (_Rec, Acc) -> Acc
-      end, InputAcc, Tab).
+        fun (Rec, Acc) when is_record(Rec,skvhTable) ->
+            FoldFun(skvh_rec_to_map(Rec), Acc);
+            (_Rec, Acc) -> Acc
+        end, InputAcc, Tab).
 
 get_channel_trigger_hook(Mod, Channel) when is_atom(Mod) ->
     Tab = atom_table_name(Channel),
@@ -169,15 +170,14 @@ add_channel_trigger_hook(Mod, Channel, Hook) when is_atom(Mod) ->
             HookEndTok = "\n%"++HookTok++"_hook_end",
             PreparedHook = lists:flatten([HookStartTok,"\n,",Hook,HookEndTok]),
             ModHookCodeRe = lists:flatten([HookStartTok,".*",HookEndTok]),
-            NewTrgrFun
-            = case re:replace(TrgrFun, ModHookCodeRe, PreparedHook,
-                              [{return, binary},dotall]) of
-                  TrgrFun -> % No previous hook
-                      re:replace(TrgrFun,"\n    %extend_code_end",
-                                 PreparedHook++"\n    %extend_code_end",
-                                 [{return, binary}]);
-                  NTrgrFun -> NTrgrFun
-              end,
+            NewTrgrFun = 
+                case re:replace(TrgrFun, ModHookCodeRe, PreparedHook,[{return, binary},dotall]) of
+                    TrgrFun -> % No previous hook
+                        re:replace(TrgrFun,"\n    %extend_code_end",
+                            PreparedHook++"\n    %extend_code_end",
+                            [{return, binary}]);
+                    NTrgrFun -> NTrgrFun
+                end,
             imem_meta:create_or_replace_trigger(Tab, NewTrgrFun),
             ok;
         _ ->
@@ -216,19 +216,17 @@ expand_inline(User, Channel, Json) when is_binary(Json) ->
     imem_json:encode(expand_inline(User, Channel,
                                    imem_json:decode(Json, [return_maps])));
 expand_inline(User, Channel, Json) when is_map(Json) ->
-    Binds =
-    maps:fold(
-      fun(K,V,Acc) ->
-              case re:run(K, "^inline_*") of
-                  nomatch -> Acc;
-                  _ ->
-                      case read(User, Channel,
-                                [imem_json_data:to_strbinterm(V)]) of
-                          [] -> Acc;
-                          [#{cvalue := BVal}] -> [{V, BVal} | Acc]
-                      end
-              end
-      end, [], Json),
+    Binds = maps:fold(
+        fun(K,V,Acc) ->
+            case re:run(K, "^inline_*") of
+                nomatch -> Acc;
+                _ ->
+                    case read(User, Channel,[imem_json_data:to_strbinterm(V)]) of
+                        [] -> Acc;
+                        [#{cvalue := BVal}] -> [{V, BVal} | Acc]
+                    end
+            end
+        end, [], Json),
     imem_json:expand_inline(Json, Binds).
 
 %% @doc Returns table name from channel name (may or may not be a valid channel name)
@@ -241,7 +239,7 @@ table_name(Channel) -> Channel.
 %% Channel: Binary string of channel name (preferrably lower case or camel case)
 %% returns:	main table name as an atom
 -spec atom_table_name(binary()) -> atom().
-atom_table_name(Channel) -> ?binary_to_existing_atom(table_name(Channel)).
+atom_table_name(Channel) -> binary_to_existing_atom(table_name(Channel),utf8).
 
 %% @doc Returns history alias name from channel name (may or may not be a valid channel name)
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
@@ -253,7 +251,7 @@ history_alias(Channel) -> list_to_binary(?HIST(Channel)).
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns:	history table alias as atom
 -spec atom_history_alias(binary()) -> atom().
-atom_history_alias(Channel) -> ?binary_to_existing_atom(history_alias(Channel)).
+atom_history_alias(Channel) -> binary_to_existing_atom(history_alias(Channel),utf8).
 
 %% @doc Returns audit alias name from channel name (may or may not be a valid channel name)
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
@@ -265,7 +263,7 @@ audit_alias(Channel) -> list_to_binary(?AUDIT(Channel)).
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns:	audit table alias as atom
 -spec atom_audit_alias(binary()) -> atom().
-atom_audit_alias(Channel) -> ?binary_to_existing_atom(audit_alias(Channel)).
+atom_audit_alias(Channel) -> binary_to_existing_atom(audit_alias(Channel),utf8).
 
 %% @doc Returns audit table name from channel name 
 %% Channel: String (not binstr) of channel name (preferrably upper case or camel case)
@@ -329,55 +327,58 @@ create_check_channel(Channel, Options) ->
     CreateAudit = proplists:get_value(audit, Options, false),
     CreateHistory = proplists:get_value(history, Options, false),
 	Tab = try 
-		T = ?binary_to_existing_atom(Main),
+		T = binary_to_existing_atom(Main,utf8),
 		imem_meta:check_local_table_copy(T),           %% throws if master table is not locally resident
         T
-	catch _:_ ->
-              TC = ?binary_to_atom(Main),
-              NewCValue
-              = case proplists:get_value(type, Options, binary) of
-                    binary ->
-                        <<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>;
-                    list ->
-                        <<"fun(R) -> imem_dal_skvh:is_row_type(list,R) end.">>;
-                    map ->
-                        <<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>
+	catch
+        Class1:_ when Class1 =:= error; Class1 =:= throw ->
+            TC = binary_to_atom(Main,utf8),
+            {NewCValue, NewTypes} = case proplists:get_value(type, Options, binary) of
+                binary ->
+                    {<<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>,?skvhTable};
+                list ->
+                    {<<"fun(R) -> imem_dal_skvh:is_row_type(list,R) end.">>,
+                        [lists:nth(1,?skvhTable), list | lists:nthtail(2, ?skvhTable)]};
+                map ->
+                    {<<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>,
+                        [lists:nth(1,?skvhTable), map | lists:nthtail(2, ?skvhTable)]}
                 end,
-              ok = imem_meta:create_check_table(
-                     TC, {record_info(fields,skvhTable),?skvhTable,
-                          #skvhTable{cvalue=NewCValue}},
-                     ?TABLE_OPTS, system),
-              TC
+            ok = imem_meta:create_check_table(
+                TC, {record_info(fields,skvhTable),NewTypes,#skvhTable{cvalue=NewCValue}},
+                ?TABLE_OPTS, system),
+            TC
     end,
-    Audit
-    = if CreateAudit ->
-             try
-                 A = list_to_existing_atom(?AUDIT(Channel)),
-                 AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
-                 imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
-                 A
-             catch _:_ ->
-                       AC = list_to_atom(?AUDIT(Channel)),
-                       catch imem_meta:create_check_table(AC, {record_info(fields,skvhAudit),?skvhAudit,#skvhAudit{}},
+    Audit = if 
+        CreateAudit ->
+            try
+                A = list_to_existing_atom(?AUDIT(Channel)),
+                AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
+                imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
+                A
+            catch 
+                Class2:_ when Class2 =:= error; Class2 =:= throw ->
+                    AC = list_to_atom(?AUDIT(Channel)),
+                    catch imem_meta:create_check_table(AC, {record_info(fields,skvhAudit),?skvhAudit,#skvhAudit{}},
                                                           ?AUDIT_OPTS, system),
-                       AC
-             end;
-         true -> undefined
-      end,    
-    Hist % Depends on presence of audit table
-    = if CreateAudit andalso CreateHistory ->
-             try
-                 H = list_to_existing_atom(?HIST(Channel)),
-                 imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident
-                 H
-             catch _:_ ->
-                       HC = list_to_atom(?HIST(Channel)),
-                       catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}},
+                    AC
+            end;
+        true -> undefined
+    end,    
+    Hist = if 
+        CreateAudit andalso CreateHistory ->
+            try
+                H = list_to_existing_atom(?HIST(Channel)),
+                imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident
+                H
+            catch 
+                Class:_Reason when Class =:= error; Class =:= throw ->
+                    HC = list_to_atom(?HIST(Channel)),
+                    catch imem_meta:create_check_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}},
                                                           ?HIST_OPTS, system),
-                       HC
-             end;
-         true -> undefined
-      end,
+                    HC
+            end;
+        true -> undefined
+    end,
     imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
     #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
 
@@ -385,16 +386,27 @@ create_check_channel(Channel, Options) ->
 create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
     create_table(list_to_binary(atom_to_list(Name)),[],_TOpts,Owner);
 create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
-    Tab = ?binary_to_atom(table_name(Channel)),
+    Tab = binary_to_atom(table_name(Channel),utf8),
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(?binary_to_atom(Channel), ?skvhTableTrigger([audit,history],"")),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), ?skvhTableTrigger([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
 
+-spec drop_table(binary()|atom()) -> ok.
+drop_table(Name) when is_atom(Name) ->
+    drop_table(list_to_binary(atom_to_list(Name)));
+drop_table(Channel) when is_binary(Channel) ->
+    Tab = binary_to_atom(table_name(Channel),utf8),
+    ok = imem_meta:drop_table(Tab),
+    AC = list_to_atom(?AUDIT(Channel)),
+    ok = imem_meta:drop_table(AC),
+    HC = list_to_atom(?HIST(Channel)),
+    ok = imem_meta:drop_table(HC).
+
 build_aux_table_info(Table) ->
-	["","",Channel,"","",""] = imem_meta:parse_table_name(Table),
+	["","",Channel,"","","",""] = imem_meta:parse_table_name(Table),
 	HistoryTable = ?HIST_FROM_STR(Channel),
 	{AuditTable,TransTime} = audit_table_time(Channel),
     {AuditTable,HistoryTable,TransTime,Channel}.
@@ -431,13 +443,10 @@ audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec) ->
      {AuditTable1, #skvhAudit{time=TransTime1,ckey=NewKey,ovalue=undefined,
                               nvalue=element(3,NewRec),cuser=User}}].
 
-audit_recs_time(A) when is_record(A, skvhAudit) ->
-    imem_datatype:timestamp_to_io(A#skvhAudit.time);
-audit_recs_time({_,A}) when is_record(A, skvhAudit) ->
-    imem_datatype:timestamp_to_io(A#skvhAudit.time);
-audit_recs_time([]) -> [];
-audit_recs_time([A|Rest]) ->
-    [audit_recs_time(A)|audit_recs_time(Rest)].
+audit_recs_time(A) when is_record(A, skvhAudit) -> A#skvhAudit.time;
+audit_recs_time({_,A}) when is_record(A, skvhAudit) -> A#skvhAudit.time;
+audit_recs_time([A|Rest]) -> [audit_recs_time(A)|audit_recs_time(Rest)];
+audit_recs_time([]) -> [].
 
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
@@ -449,8 +458,8 @@ write_history(HistoryTable, [{_AuditTable,#skvhAudit{time=T,ckey=K,
                                                      ovalue=O,nvalue=N,
                                                      cuser=U}}|Rest]) ->
     if O == N andalso N == undefined ->
-           ok = imem_meta:truncate_table(HistoryTable);
-       true -> ok
+        ok = imem_meta:truncate_table(HistoryTable);
+        true -> ok
     end,
     ok = imem_meta:write(
            HistoryTable,
@@ -952,6 +961,9 @@ debug(Cmd, Resp) ->
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
+-define(Channel, <<"skvhTest">> ).
+-define(Channels, [<<"skvhTest",N>> || N <- lists:seq($0,$9)] ).
+
 
 setup() ->
     ?imem_test_setup,
@@ -960,7 +972,15 @@ setup() ->
     catch imem_meta:drop_table(binChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
-    catch imem_meta:drop_table(skvhTestHist).
+    catch imem_meta:drop_table(skvhTestHist),
+    [ begin 
+        catch imem_meta:drop_table(binary_to_atom(table_name(Ch),utf8)),
+        catch imem_meta:drop_table(list_to_atom(?AUDIT(Ch))),
+        catch imem_meta:drop_table(list_to_atom(?HIST(Ch)))
+      end
+      || Ch <- ?Channels
+    ],
+    timer:sleep(50).
 
 teardown(_) ->
     catch imem_meta:drop_table(mapChannel),
@@ -977,7 +997,8 @@ db_test_() ->
         fun setup/0,
         fun teardown/1,
         {with, [
-              fun skvh_operations/1
+              fun skvh_operations/1,
+              fun skvh_concurrency/1
         ]}}.    
 
 hist_reset_time([]) -> [];
@@ -987,9 +1008,7 @@ hist_reset_time([#{cvhist := CList} = Hist | Rest]) ->
 skvh_operations(_) ->
     try
         ClEr = 'ClientError',
-        Channel = <<"skvhTest">>,
-
-        ?LogDebug("---TEST---~p:test_skvh~n", [?MODULE]),
+        ?LogDebug("---TEST---~p:skvh_operations~n", [?MODULE]),
 
         ?assertMatch(#skvhCtx{mainAlias=mapChannel}, create_check_channel(<<"mapChannel">>,[{type,map}])),
         ?assertMatch(#skvhCtx{mainAlias=lstChannel}, create_check_channel(<<"lstChannel">>,[{type,list}])),
@@ -1012,7 +1031,7 @@ skvh_operations(_) ->
         ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}},
                          write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
 
-        ?assertEqual(<<"skvhTest">>, table_name(Channel)),
+        ?assertEqual(<<"skvhTest">>, table_name(?Channel)),
 
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTest)), 
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestAudit_86400@_)), 
@@ -1024,79 +1043,79 @@ skvh_operations(_) ->
 
 		K0 = <<"{<<\"0\">>,<<>>,<<>>}">>,
 
-        ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, Channel, <<"kvpair">>, K0)),
-		?assertEqual({ok,[]}, readGT(system, Channel, <<"khpair">>, <<"{<<\"0\">>,<<>>,<<>>}">>, <<"1000">>)),
+        ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
+		?assertEqual({ok,[]}, readGT(system, ?Channel, <<"khpair">>, <<"{<<\"0\">>,<<>>,<<>>}">>, <<"1000">>)),
 
-        ?assertEqual({ok,[<<"[1,a]\tundefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,a]">>)),
-        ?assertEqual({ok,[<<"[1,a]\tundefined">>]}, read(system, Channel, <<"khpair">>, <<"[1,a]">>)),
-        ?assertEqual({ok,[<<"[1,a]">>]}, read(system, Channel, <<"key">>, <<"[1,a]">>)),
-        ?assertEqual({ok,[<<"undefined">>]}, read(system, Channel, <<"value">>, <<"[1,a]">>)),
-        ?assertEqual({ok,[<<"undefined">>]}, read(system, Channel, <<"hash">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,a]\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,a]\tundefined">>]}, read(system, ?Channel, <<"khpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,a]">>]}, read(system, ?Channel, <<"key">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"undefined">>]}, read(system, ?Channel, <<"value">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"undefined">>]}, read(system, ?Channel, <<"hash">>, <<"[1,a]">>)),
 
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),        
         ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
         ?assertEqual(ok, imem_meta:check_table(skvhTestHist)),
 
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-        ?assertEqual({ok,[KVa]}, read(system, Channel, <<"kvpair">>, <<"[1,a]">>)),
-        ?assertEqual({ok,[KVc]}, read(system, Channel, <<"kvpair">>, <<"[1,c]">>)),
-        ?assertEqual({ok,[KVb]}, read(system, Channel, <<"kvpair">>, <<"[1,b]">>)),
-        ?assertEqual({ok,[<<"[1,c]",9,"ZCZ28">>]}, read(system, Channel, <<"khpair">>, <<"[1,c]">>)),
-        ?assertEqual({ok,[<<"BFFHP">>]}, read(system, Channel, <<"hash">>, <<"[1,b]">>)),
+        ?assertEqual({ok,[KVa]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[KVc]}, read(system, ?Channel, <<"kvpair">>, <<"[1,c]">>)),
+        ?assertEqual({ok,[KVb]}, read(system, ?Channel, <<"kvpair">>, <<"[1,b]">>)),
+        ?assertEqual({ok,[<<"[1,c]",9,"ZCZ28">>]}, read(system, ?Channel, <<"khpair">>, <<"[1,c]">>)),
+        ?assertEqual({ok,[<<"BFFHP">>]}, read(system, ?Channel, <<"hash">>, <<"[1,b]">>)),
 
-        ?assertEqual({ok,[KVc,KVb,KVa]}, read(system, Channel, <<"kvpair">>, <<"[1,c]",13,10,"[1,b]",10,"[1,a]">>)),
-        ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
+        ?assertEqual({ok,[KVc,KVb,KVa]}, read(system, ?Channel, <<"kvpair">>, <<"[1,c]",13,10,"[1,b]",10,"[1,a]">>)),
+        ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
         Dat = imem_meta:read(skvhTest),
         ?LogDebug("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
         ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
-        {ok,Aud1} = audit_readGT(system, Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
+        {ok,Aud1} = audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
         ?LogDebug("audit trail~n~p~n", [Aud1]),
         ?assertEqual(6, length(Aud1)),
-        {ok,Aud2} = audit_readGT(system, Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
+        {ok,Aud2} = audit_readGT(system, ?Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
-        {ok,Aud3} = audit_readGT(system, Channel,<<"kvpair">>, <<"now">>, 100),
+        {ok,Aud3} = audit_readGT(system, ?Channel,<<"kvpair">>, <<"now">>, 100),
         ?assertEqual(0, length(Aud3)),
-        {ok,Aud4} = audit_readGT(system, Channel,<<"key">>, <<"2100-01-01">>, 100),
+        {ok,Aud4} = audit_readGT(system, ?Channel,<<"key">>, <<"2100-01-01">>, 100),
         ?assertEqual(0, length(Aud4)),
         Ex4 = {'ClientError',{"Data conversion format error",{timestamp,"1900-01-01",{"Cannot handle dates before 1970"}}}},
-        ?assertException(throw,Ex4,audit_readGT(system, Channel,<<"tkvuquadruple">>, <<"1900-01-01">>, 100)),
-        {ok,Aud5} = audit_readGT(system, Channel,<<"tkvuquadruple">>, <<"1970-01-01">>, 100),
+        ?assertException(throw,Ex4,audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"1900-01-01">>, 100)),
+        {ok,Aud5} = audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"1970-01-01">>, 100),
         ?assertEqual(Aud1, Aud5),
 
         Hist = imem_meta:read(skvhTestHist),
         ?LogDebug("audit trail~n~p~n", [Hist]),
         ?assertEqual(3, length(Hist)),
 
-        ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,a]">>)),
-        ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,b]">>)),
-        ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(system, Channel, <<"kvpair">>, <<"[1,c]">>)),
+        ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]">>)),
+        ?assertEqual({ok,[<<"[1,b]",9,"undefined">>]}, read(system, ?Channel, <<"kvpair">>, <<"[1,b]">>)),
+        ?assertEqual({ok,[<<"[1,c]",9,"undefined">>]}, read(system, ?Channel, <<"kvpair">>, <<"[1,c]">>)),
 
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[]">>, <<"[]">>, <<"2">>)),
-		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[]">>, <<"[1,a]">>, <<"2">>)),
+		?assertEqual({ok,[]},deleteGELT(system, ?Channel, <<"[]">>, <<"[]">>, <<"2">>)),
+		?assertEqual({ok,[]},deleteGELT(system, ?Channel, <<"[]">>, <<"[1,a]">>, <<"2">>)),
 
-		?assertEqual({ok,[<<"1EXV0I">>]},deleteGELT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
-		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
+		?assertEqual({ok,[<<"1EXV0I">>]},deleteGELT(system, ?Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
+		?assertEqual({ok,[]},deleteGELT(system, ?Channel, <<"[]">>, <<"[1,ab]">>, <<"2">>)),
 
-		?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}},deleteGELT(system, Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"1">>)),		
-		?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]},deleteGELT(system, Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),		
-		?assertEqual({ok,[]},deleteGELT(system, Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
+		?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}},deleteGELT(system, ?Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"1">>)),		
+		?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]},deleteGELT(system, ?Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),		
+		?assertEqual({ok,[]},deleteGELT(system, ?Channel, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
 
-        ?assertEqual({ok,[<<"undefined">>,<<"undefined">>,<<"undefined">>]}, delete(system, Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+        ?assertEqual({ok,[<<"undefined">>,<<"undefined">>,<<"undefined">>]}, delete(system, ?Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
-        ?assertEqual({ok,[<<"IEXQW">>]}, write(system, Channel, <<"[90074,[],\"AaaEnabled\"]",9,"true">>)),
-		?assertEqual({ok,[<<"24OMVH">>]}, write(system, Channel, <<"[90074,[],\"ContentSizeMax\"]",9,"297000">>)),
-		?assertEqual({ok,[<<"1W8TVA">>]}, write(system, Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
-		?assertEqual({ok,[<<"22D5ZL">>]}, write(system, Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
+        ?assertEqual({ok,[<<"IEXQW">>]}, write(system, ?Channel, <<"[90074,[],\"AaaEnabled\"]",9,"true">>)),
+		?assertEqual({ok,[<<"24OMVH">>]}, write(system, ?Channel, <<"[90074,[],\"ContentSizeMax\"]",9,"297000">>)),
+		?assertEqual({ok,[<<"1W8TVA">>]}, write(system, ?Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
+		?assertEqual({ok,[<<"22D5ZL">>]}, write(system, ?Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
@@ -1105,51 +1124,51 @@ skvh_operations(_) ->
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[]">>, <<"[]">>, <<"1">>)),
-		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[]">>, <<"[1,a]">>, <<"1">>)),
+		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[]">>, <<"1">>)),
+		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[1,a]">>, <<"1">>)),
 
-		?assertEqual({ok,[<<"1EXV0I">>]},deleteGTLT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
-		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
+		?assertEqual({ok,[<<"1EXV0I">>]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
+		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[1,ab]">>, <<"1">>)),
 
-		?assertEqual({ok,[<<"ZCZ28">>]},deleteGTLT(system, Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),		
-		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),
+		?assertEqual({ok,[<<"ZCZ28">>]},deleteGTLT(system, ?Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),		
+		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[1,b]">>, <<"[1,d]">>, <<"1">>)),
 
-		?assertEqual({ok,[<<"BFFHP">>]},deleteGTLT(system, Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
-		?assertEqual({ok,[]},deleteGTLT(system, Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
+		?assertEqual({ok,[<<"BFFHP">>]},deleteGTLT(system, ?Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
+		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[1,a]">>, <<"[1,c]">>, <<"1">>)),		
 
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
-        ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(system, Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"1">>)),
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGELT(system, Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"3">>)),
+        ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(system, ?Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"1">>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGELT(system, ?Channel, <<"hash">>, <<"[]">>, <<"[1,d]">>, <<"3">>)),
 
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGELT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"[1,d]">>, <<"5">>)),
-    	?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGELT(system, Channel, <<"hash">>, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]">>]}, readGELT(system, Channel, <<"key">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"234567">>]}, readGELT(system, Channel, <<"value">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"234567">>]}, readGELT(system, Channel, <<"kvpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"BFFHP">>]}, readGELT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGELT(system, ?Channel, <<"hash">>, <<"[1,a]">>, <<"[1,d]">>, <<"5">>)),
+    	?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGELT(system, ?Channel, <<"hash">>, <<"[1,ab]">>, <<"[1,d]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]">>]}, readGELT(system, ?Channel, <<"key">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"234567">>]}, readGELT(system, ?Channel, <<"value">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"234567">>]}, readGELT(system, ?Channel, <<"kvpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"BFFHP">>]}, readGELT(system, ?Channel, <<"khpair">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, ?Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
     	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
 
-        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
-        ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
-    	?assertEqual({ok,[<<"BFFHP">>]}, readGT(system, Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
-    	?assertEqual({ok,[<<"[1,b]">>,<<"[1,c]">>]}, readGT(system, Channel, <<"key">>, <<"[1,a]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"234567">>,<<"345678">>]}, readGT(system, Channel, <<"value">>, <<"[1,ab]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"234567">>,<<"[1,c]",9,"345678">>]}, readGT(system, Channel, <<"kvpair">>, <<"[1,ab]">>, <<"2">>)),
-    	?assertEqual({ok,[<<"[1,b]",9,"BFFHP">>,<<"[1,c]",9,"ZCZ28">>]}, readGT(system, Channel, <<"khpair">>, <<"[1,ab]">>, <<"2">>)),
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
+        ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
+    	?assertEqual({ok,[<<"BFFHP">>]}, readGT(system, ?Channel, <<"hash">>, <<"[1,a]">>, <<"1">>)),
+    	?assertEqual({ok,[<<"[1,b]">>,<<"[1,c]">>]}, readGT(system, ?Channel, <<"key">>, <<"[1,a]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"234567">>,<<"345678">>]}, readGT(system, ?Channel, <<"value">>, <<"[1,ab]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"234567">>,<<"[1,c]",9,"345678">>]}, readGT(system, ?Channel, <<"kvpair">>, <<"[1,ab]">>, <<"2">>)),
+    	?assertEqual({ok,[<<"[1,b]",9,"BFFHP">>,<<"[1,c]",9,"ZCZ28">>]}, readGT(system, ?Channel, <<"khpair">>, <<"[1,ab]">>, <<"2">>)),
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
     	KVtab = <<"{<<\"52015\">>,<<>>,<<\"AaaEnabled\">>}	false
 {<<\"52015\">>,<<\"SMS-SUB-52015\">>,<<\"AaaEnabled\">>}	false">>,
-		TabRes1 = write(system, Channel, KVtab),
+		TabRes1 = write(system, ?Channel, KVtab),
         ?assertEqual({ok,[<<"2FAJ6">>,<<"G8J8Y">>]}, TabRes1),
         KVLong = 
 <<"{<<\"52015\">>,<<>>,<<\"AllowedContentTypes\">>}	\"audio/amr;audio/mp3;audio/x-rmf;audio/x-beatnic-rmf;audio/sp-midi;audio/imelody;audio/smaf;audio/rmf;text/x-imelody;text/x-vcalendar;text/x-vcard;text/xml;text/html;text/plain;text/x-melody;image/png;image/vnd.wap.wbmp;image/bmp;image/gif;image/ief;image/jpeg;image/jpg;image/tiff;image/x-xwindowdump;image/vnd.nokwallpaper;application/smil;application/postscript;application/rtf;application/x-tex;application/x-texinfo;application/x-troff;audio/basic;audio/midi;audio/x-aifc;audio/x-aiff;audio/x-mpeg;audio/x-wav;video/3gpp;video/mpeg;video/quicktime;video/x-msvideo;video/x-rn-mp4;video/x-pn-realvideo;video/mpeg4;multipart/related;multipart/mixed;multipart/alternative;message/rfc822;application/vnd.oma.drm.message;application/vnd.oma.dm.message;application/vnd.sem.mms.protected;application/vnd.sonyericsson.mms-template;application/vnd.smaf;application/xml;video/mp4;\"">>,
-        ?assertEqual({ok,[<<"206MFE">>]}, write(system, Channel, KVLong)),
+        ?assertEqual({ok,[<<"206MFE">>]}, write(system, ?Channel, KVLong)),
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
@@ -1158,7 +1177,7 @@ skvh_operations(_) ->
 
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTest)),
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTestAudit_86400@_)),
-        ?assertException(throw, {ClEr,{"Table does not exist",_}}, read(system, Channel, ["1"])),
+        ?assertException(throw, {ClEr,{"Table does not exist",_}}, read(system, ?Channel, ["1"])),
 
         %% Base maps
         Map1 = #{ckey => ["1"], cvalue => <<"{\"testKey\": \"testValue\"}">>, chash => <<"1HU42V">>},
@@ -1173,37 +1192,37 @@ skvh_operations(_) ->
         LastKey = ["1", "e"],
 
         %% Read some data text interface to create the tables
-        ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, Channel, <<"kvpair">>, K0)),
+        ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),
         ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
 
-        ?assertEqual([], read(system, Channel, [["1"]])),
+        ?assertEqual([], read(system, ?Channel, [["1"]])),
 
         BeforeInsert = erlang:now(),
 
-        ?assertEqual(Map1, insert(system, Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
-        ?assertEqual(Map2, insert(system, Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
+        ?assertEqual(Map1, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
+        ?assertEqual(Map2, insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
 
         %% Test insert using encoded key
-        ?assertEqual(Map3, insert(system, Channel, imem_datatype:term_to_binterm(maps:get(ckey, Map3)), maps:get(cvalue, Map3))),
+        ?assertEqual(Map3, insert(system, ?Channel, imem_datatype:term_to_binterm(maps:get(ckey, Map3)), maps:get(cvalue, Map3))),
 
         %% Test insert using maps
-        ?assertEqual([Map4, Map5], insert(system, Channel, [Map4#{chash := <<>>}, Map5#{chash := <<>>}])),
+        ?assertEqual([Map4, Map5], insert(system, ?Channel, [Map4#{chash := <<>>}, Map5#{chash := <<>>}])),
 
         %% Fail to insert concurrency exception
         CoEx = 'ConcurrencyException',
 
         MapNotInserted = #{ckey => ["1", "1"], cvalue => <<"{\"testKey\": \"roll\", \"testNumber\": 100}">>},
-        ?assertException(throw, {CoEx, {"Insert failed, key already exists in", _}}, insert(system, Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
-        ?assertException(throw, {CoEx, {"Insert failed, key already exists in", _}}, insert(system, Channel, [MapNotInserted, Map4#{chash := <<>>}])),
-        ?assertEqual([], read(system, Channel, [maps:get(ckey, MapNotInserted)])),
+        ?assertException(throw, {CoEx, {"Insert failed, key already exists in", _}}, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
+        ?assertException(throw, {CoEx, {"Insert failed, key already exists in", _}}, insert(system, ?Channel, [MapNotInserted, Map4#{chash := <<>>}])),
+        ?assertEqual([], read(system, ?Channel, [maps:get(ckey, MapNotInserted)])),
 
         %% Read tests
-        ?assertEqual([Map1], read(system, Channel, [maps:get(ckey, Map1)])),
-        ?assertEqual([Map1, Map2, Map3], read(system, Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
+        ?assertEqual([Map1], read(system, ?Channel, [maps:get(ckey, Map1)])),
+        ?assertEqual([Map1, Map2, Map3], read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
 
         %% Test read using encoded key
-        ?assertEqual([Map1], read(system, Channel, [imem_datatype:term_to_binterm(maps:get(ckey, Map1))])),
+        ?assertEqual([Map1], read(system, ?Channel, [imem_datatype:term_to_binterm(maps:get(ckey, Map1))])),
 
         %% Updated maps
         Map1Upd = #{ckey => ["1"], cvalue => <<"{\"testKey\": \"newValue\"}">>, chash => <<"1HU42V">>},
@@ -1213,83 +1232,83 @@ skvh_operations(_) ->
         BeforeUpdate = erlang:now(),
 
         %% Update using single maps
-        Map1Done = update(system, Channel, Map1Upd),
+        Map1Done = update(system, ?Channel, Map1Upd),
         ?assertEqual(maps:remove(chash,Map1Upd), maps:remove(chash,Map1Done)),
 
         %% Update multiple objects
-        [Map2Done,Map3Done] = update(system, Channel, [Map2Upd, Map3Upd]),
+        [Map2Done,Map3Done] = update(system, ?Channel, [Map2Upd, Map3Upd]),
         ?assertEqual([maps:remove(chash,Map2Upd), maps:remove(chash,Map3Upd)]
                     , [maps:remove(chash,M) || M <- [Map2Done,Map3Done]]
                     ),
 
         %% Concurrency exception
-        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, Map1Upd)),
-        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, Channel, [Map2Upd, Map3Upd])),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, ?Channel, Map1Upd)),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, ?Channel, [Map2Upd, Map3Upd])),
 
         %% Read tests
-        ?assertEqual([Map4, Map5], readGT(system, Channel, maps:get(ckey, Map3), 10)),
-        ?assertEqual([Map3Done, Map4], readGT(system, Channel, maps:get(ckey, Map2), 2)),
-        ?assertEqual([Map4, Map5], readGT(system, Channel, MidleKey, 10)),
-        ?assertEqual([], readGT(system, Channel, maps:get(ckey, Map5), 2)),
+        ?assertEqual([Map4, Map5], readGT(system, ?Channel, maps:get(ckey, Map3), 10)),
+        ?assertEqual([Map3Done, Map4], readGT(system, ?Channel, maps:get(ckey, Map2), 2)),
+        ?assertEqual([Map4, Map5], readGT(system, ?Channel, MidleKey, 10)),
+        ?assertEqual([], readGT(system, ?Channel, maps:get(ckey, Map5), 2)),
 
-        ?assertEqual([Map3Done, Map4, Map5], readGE(system, Channel, maps:get(ckey, Map3), 10)),
-        ?assertEqual([Map3Done, Map4], readGE(system, Channel, maps:get(ckey, Map3), 2)),
-        ?assertEqual([Map4, Map5], readGE(system, Channel, MidleKey, 10)),
-        ?assertEqual([Map5], readGE(system, Channel, maps:get(ckey, Map5), 2)),
-        ?assertEqual([], readGE(system, Channel, LastKey, 2)),
+        ?assertEqual([Map3Done, Map4, Map5], readGE(system, ?Channel, maps:get(ckey, Map3), 10)),
+        ?assertEqual([Map3Done, Map4], readGE(system, ?Channel, maps:get(ckey, Map3), 2)),
+        ?assertEqual([Map4, Map5], readGE(system, ?Channel, MidleKey, 10)),
+        ?assertEqual([Map5], readGE(system, ?Channel, maps:get(ckey, Map5), 2)),
+        ?assertEqual([], readGE(system, ?Channel, LastKey, 2)),
 
-        ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(system, Channel, FirstKey, LastKey, 1)),
-        ?assertEqual([Map1Done, Map2Done, Map3Done, Map4, Map5], readGELT(system, Channel, FirstKey, LastKey, 10)),
+        ?assertException(throw,{ClEr,{117,"Too many values, Limit exceeded",1}}, readGELT(system, ?Channel, FirstKey, LastKey, 1)),
+        ?assertEqual([Map1Done, Map2Done, Map3Done, Map4, Map5], readGELT(system, ?Channel, FirstKey, LastKey, 10)),
 
-        ?assertEqual([Map3Done, Map4, Map5], readGELT(system, Channel, maps:get(ckey, Map3), LastKey, 10)),
-        ?assertEqual([Map3Done, Map4], readGELT(system, Channel, maps:get(ckey, Map3), maps:get(ckey, Map5), 10)),
-        ?assertEqual([Map4, Map5], readGELT(system, Channel, MidleKey, LastKey, 10)),
-        ?assertEqual([], readGELT(system, Channel, LastKey, [LastKey | "1"], 10)),
+        ?assertEqual([Map3Done, Map4, Map5], readGELT(system, ?Channel, maps:get(ckey, Map3), LastKey, 10)),
+        ?assertEqual([Map3Done, Map4], readGELT(system, ?Channel, maps:get(ckey, Map3), maps:get(ckey, Map5), 10)),
+        ?assertEqual([Map4, Map5], readGELT(system, ?Channel, MidleKey, LastKey, 10)),
+        ?assertEqual([], readGELT(system, ?Channel, LastKey, [LastKey | "1"], 10)),
 
         BeforeRemove = erlang:now(),
 
         %% Tests removing rows
-        ?assertEqual(Map1Done, remove(system, Channel, Map1Done)),
+        ?assertEqual(Map1Done, remove(system, ?Channel, Map1Done)),
 
         %% Concurrency exception
-        ?assertException(throw, {CoEx, {"Remove failed, key does not exist", _}}, remove(system, Channel, Map1)),
-        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, remove(system, Channel, [Map2Upd, Map3])),
+        ?assertException(throw, {CoEx, {"Remove failed, key does not exist", _}}, remove(system, ?Channel, Map1)),
+        ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, remove(system, ?Channel, [Map2Upd, Map3])),
 
         %% Remove in bulk
-        ?assertEqual([Map2Done, Map3Done], remove(system, Channel, [Map2Done, Map3Done])),
+        ?assertEqual([Map2Done, Map3Done], remove(system, ?Channel, [Map2Done, Map3Done])),
 
         %% Test final number of rows
         ?assertEqual(2, length(imem_meta:read(skvhTest))),
 
         %% Audit Tests maps interface.
         %% TODO: How to test reads with multiple partitions.
-        ?assertEqual(11, length(audit_readGT(system, Channel, {0, 0, 0}, 100))),
+        ?assertEqual(11, length(audit_readGT(system, ?Channel, {0, 0, 0}, 100))),
 
         %% Set time to 0 since depends on the execution of the test.
         AuditInsert1 = #{time => {0,0,0}, ckey => maps:get(ckey, Map1), ovalue => undefined, nvalue => maps:get(cvalue, Map1), cuser => system},
         AuditInsert2 = #{time => {0,0,0}, ckey => maps:get(ckey, Map2), ovalue => undefined, nvalue => maps:get(cvalue, Map2), cuser => system},
         AuditInsert3 = #{time => {0,0,0}, ckey => maps:get(ckey, Map3), ovalue => undefined, nvalue => maps:get(cvalue, Map3), cuser => system},
-        ResultAuditInserts = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, Channel, BeforeInsert, 3)],
+        ResultAuditInserts = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, ?Channel, BeforeInsert, 3)],
         ?assertEqual([AuditInsert1, AuditInsert2, AuditInsert3], ResultAuditInserts),
 
         AuditUpdate1 = #{time => {0,0,0}, ckey => maps:get(ckey, Map1), ovalue => maps:get(cvalue, Map1), nvalue => maps:get(cvalue, Map1Upd), cuser => system},
         AuditUpdate2 = #{time => {0,0,0}, ckey => maps:get(ckey, Map2), ovalue => maps:get(cvalue, Map2), nvalue => maps:get(cvalue, Map2Upd), cuser => system},
         AuditUpdate3 = #{time => {0,0,0}, ckey => maps:get(ckey, Map3), ovalue => maps:get(cvalue, Map3), nvalue => maps:get(cvalue, Map3Upd), cuser => system},
-        ResultAuditUpdates = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, Channel, BeforeUpdate, 3)],
+        ResultAuditUpdates = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, ?Channel, BeforeUpdate, 3)],
         ?assertEqual([AuditUpdate1, AuditUpdate2, AuditUpdate3], ResultAuditUpdates),
 
         AuditRemove1 = #{time => {0,0,0}, ckey => maps:get(ckey, Map1), ovalue => maps:get(cvalue, Map1Upd), nvalue => undefined, cuser => system},
         AuditRemove2 = #{time => {0,0,0}, ckey => maps:get(ckey, Map2), ovalue => maps:get(cvalue, Map2Upd), nvalue => undefined, cuser => system},
         AuditRemove3 = #{time => {0,0,0}, ckey => maps:get(ckey, Map3), ovalue => maps:get(cvalue, Map3Upd), nvalue => undefined, cuser => system},
-        ResultAuditRemoves = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, Channel, BeforeRemove, 3)],
+        ResultAuditRemoves = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, ?Channel, BeforeRemove, 3)],
         ?assertEqual([AuditRemove1, AuditRemove2, AuditRemove3], ResultAuditRemoves),
 
-        ?assertEqual([], audit_readGT(system, Channel, <<"now">>, 100)),
-        ?assertEqual([], audit_readGT(system, Channel, <<"2100-01-01">>, 100)),
-        ?assertEqual(11, length(audit_readGT(system, Channel, <<"1970-01-01">>, 100))),
+        ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),
+        ?assertEqual([], audit_readGT(system, ?Channel, <<"2100-01-01">>, 100)),
+        ?assertEqual(11, length(audit_readGT(system, ?Channel, <<"1970-01-01">>, 100))),
 
         Ex4 = {'ClientError',{"Data conversion format error",{timestamp,"1900-01-01",{"Cannot handle dates before 1970"}}}},
-        ?assertException(throw, Ex4, audit_readGT(system, Channel, <<"1900-01-01">>, 100)),
+        ?assertException(throw, Ex4, audit_readGT(system, ?Channel, <<"1900-01-01">>, 100)),
 
         %% Read History tests, time is reset to 0 for comparison but should be ordered from new to old.
         CL1 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1Upd), nvalue => undefined, cuser => system}
@@ -1306,7 +1325,7 @@ skvh_operations(_) ->
         History3 = #{ckey => maps:get(ckey, Map3), cvhist => CL3},
 
         %% Read using a list of term keys.
-        HistResult = hist_reset_time(hist_read(system, Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
+        HistResult = hist_reset_time(hist_read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
         ?assertEqual(3, length(HistResult)),
         ?assertEqual([History1, History2, History3], HistResult),
 
@@ -1315,21 +1334,67 @@ skvh_operations(_) ->
                       ,imem_datatype:term_to_binterm(maps:get(ckey, Map2))
                       ,imem_datatype:term_to_binterm(maps:get(ckey, Map3))],
 
-        HistResultEnc = hist_reset_time(hist_read(system, Channel, EncodedKeys)),
+        HistResultEnc = hist_reset_time(hist_read(system, ?Channel, EncodedKeys)),
 
         ?assertEqual([History1, History2, History3], HistResultEnc),
 
+        ?LogDebug("starting ~p", [drop_table123]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
+        ?LogDebug("success drop ~p", [skvhTest]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
+        ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
+        ?LogDebug("success drop ~p", [skvhTestHist]),
 
         ?assertEqual(ok, create_table(skvhTest,[],[],system)),
+        ?LogDebug("starting ~p", [drop_table]),
+        ?assertEqual(ok, drop_table(skvhTest)),
+        ?LogDebug("success ~p~n", [drop_table])
+ 
+   catch
+        Class:Reason ->     
+            timer:sleep(1000),
+            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            throw ({Class, Reason})
+    end,
+    ok.
 
-        ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
-        ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
+skvh_concurrency(_) ->
+    try
+        ClEr = 'ClientError',
+        TestKey = ["sum"],
 
-        ?LogDebug("success ~p~n", [drop_tables])
+        ?LogDebug("---TEST---~p:skvh_concurrency~n", [?MODULE]),
+
+        % CreateResult = [create_table(Ch,[],[],system) || Ch <- ?Channels],  % serialized version
+        Self = self(),
+        TabCount = length(?Channels),
+        [spawn(fun() -> Self ! {Ch,create_table(Ch,[],[],system)} end) || Ch <- ?Channels],
+        ?LogDebug("success ~p", [bulk_create_spawned]),
+        CreateResult = receive_results(TabCount,[]),
+        ?assertEqual(TabCount, length(CreateResult)),
+        ?assertEqual([ok], lists:usort([ R || {_,R} <- CreateResult])),
+        ?LogDebug("success ~p~n", [bulk_create_tables]),
+
+        [spawn(fun() -> Self ! {Ch,insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
+        ?LogDebug("success ~p", [bulk_insert_spawned]),
+        InitResult = receive_results(TabCount,[]),
+        ?assertEqual(TabCount, length(InitResult)),
+        ?LogDebug("success ~p~n", [bulk_insert]),
+
+        [spawn(fun() -> Self ! {N,update_test(hd(?Channels),TestKey,N)} end) || N <- lists:seq(1,10)],
+        ?LogDebug("success ~p", [bulk_update_spawned]),
+        UpdateResult = receive_results(10,[]),
+        ?assertEqual(10, length(UpdateResult)),
+        ?assertMatch([{skvhTable,_,<<"55">>,_}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
+        ?LogDebug("success ~p~n", [bulk_update]),
+
+        % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
+        [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
+        ?LogDebug("success ~p", [bulk_drop_spawned]),
+        DropResult = receive_results(TabCount,[]),
+        ?assertEqual([ok], lists:usort([ R || {_,R} <- DropResult])),
+        ?LogDebug("success ~p~n", [bulk_drop_tables])
     catch
         Class:Reason ->     
             timer:sleep(1000),
@@ -1337,5 +1402,29 @@ skvh_operations(_) ->
             throw ({Class, Reason})
     end,
     ok.
+
+update_test(Ch,Key,N) ->
+    Upd = fun() ->
+        [RowMap] = read(system, Ch, [Key]),
+        CVal = list_to_integer(binary_to_list(maps:get(cvalue,RowMap))) + N,
+        update(system, Ch, RowMap#{cvalue => list_to_binary(integer_to_list(CVal))})
+    end,
+    imem_meta:transaction(Upd).
     
+receive_results(N,Acc) ->
+    receive 
+        Result ->
+            case N of 
+                1 ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    [Result|Acc]; 
+                _ ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    receive_results(N-1,[Result|Acc])
+            end
+    after 4000 ->   
+        ?LogDebug("Result timeout ~p", [4000]),
+        Acc
+    end.
+
 -endif.

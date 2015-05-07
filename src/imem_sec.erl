@@ -944,7 +944,7 @@ have_table_permission(SKey, {Schema,Table}, select, false) ->
                 true -> 
                     true;
                 false ->
-                    [_,_,Name,_,_,_] = imem_meta:parse_table_name(Table),
+                    [_,_,Name,_,_,_,_] = imem_meta:parse_table_name(Table),
                     try  
                         imem_seco:have_permission(SKey, [{table,list_to_existing_atom(Name),select}])
                     catch 
@@ -965,7 +965,7 @@ have_table_permission(SKey, {Schema,Table}, Operation, false) ->
                         true -> 
                             true;
                         false ->
-                            [_,_,Name,_,_,_] = imem_meta:parse_table_name(Table),
+                            [_,_,Name,_,_,_,_] = imem_meta:parse_table_name(Table),
                             try  
                                 imem_seco:have_permission(SKey, [{table,list_to_existing_atom(Name),Operation}])
                             catch 

@@ -13,8 +13,8 @@
 -record(ddAccount,  %% imem cluster account (shared by application)
                     { id                        ::ddEntityId() 
                     , name                      ::ddIdentity()        %% unique login id (mutable)
-                    , type='user'               ::atom()              %% user | driver | deamon | application 
-                    , credentials               ::[ddCredential()]  
+                    , type='user'               ::atom()              %% user | driver | deamon | application
+                    , credentials=[]            ::[ddCredential()]  
                     , fullName                  ::binary()                    
                     , lastLoginTime             ::ddDatetime()        %% deprecated
                     , lastFailureTime           ::ddDatetime()        %% last locking time for now

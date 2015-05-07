@@ -40,6 +40,7 @@
         , login/1
         , change_credentials/3
         , set_credentials/3
+        , set_login_time/2
         , logout/1
         , clone_seco/2
         , account_id/1
@@ -75,6 +76,7 @@ init(_Args) ->
 
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
         catch imem_meta:create_check_table(ddAccount, ADef, [], system),
+        imem_meta:create_or_replace_index(ddAccount, name),
 
         ADDef = {record_info(fields, ddAccountDyn),?ddAccountDyn,#ddAccountDyn{}},
         catch imem_meta:create_check_table(ddAccountDyn, ADDef, [], system),
@@ -96,7 +98,7 @@ init(_Args) ->
                     {ok, Pwd} = application:get_env(imem, default_admin_pswd),
                     LocalTime = calendar:local_time(),
                     UserCred=create_credentials(pwdmd5, Pwd),
-                    Account = #ddAccount{id=system, name= <<"system">>, credentials=[UserCred]
+                    Account = #ddAccount{id=system, type=deamon, name= <<"system">>, credentials=[UserCred]
                                 , fullName= <<"DB Administrator">>, lastPasswordChangeTime=LocalTime},
                     AccountDyn = #ddAccountDyn{id=system},
                     if_write(none, ddAccount, Account),                    
@@ -165,17 +167,20 @@ if_select_perm_keys_by_skey(_SKeyM, SKey) ->      %% M=Monitor / MasterContext
     Result = '$1',
     if_select(SKey, ddPerm@, [{MatchHead, [Guard], [Result]}]).
 
-if_select_account_by_name(SKey, Name) -> 
-    MatchHead = #ddAccount{name='$1', _='_'},
-    Guard = {'==', '$1', Name},
-    Result = '$_',
-    if_select(SKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
-
 if_check_table(_SeKey, Table) ->
     imem_meta:check_table(Table).
 
-%% --Interface functions  (calling imem_meta) ----------------------------------
+%% -- See similar Implementation in imem_account, imem_seco, imem_role -------------- 
 
+if_dirty_index_read(_SeKey, Table, SecKey, Index) -> 
+    imem_meta:dirty_index_read(Table, SecKey, Index).
+
+if_select_account_by_name(_SeKey, <<"system">>) -> 
+    {if_read(_SeKey, ddAccount, system),true};
+if_select_account_by_name(_SeKey, Name) -> 
+    {if_dirty_index_read(_SeKey,ddAccount,Name, #ddAccount.name),true}.
+
+%% --Interface functions  (calling imem_meta) ----------------------------------
 
 if_drop_table(_SKey, Table) -> 
     imem_meta:drop_table(Table).
@@ -192,14 +197,18 @@ if_read(_SKey, Table, Key) ->
 if_delete(_SKey, Table, RowId) ->
     imem_meta:delete(Table, RowId).
 
+if_missing_role(RoleId) when is_atom(RoleId) ->
+    ?Warn("Role ~p does not exist", [RoleId]),
+    false;
+if_missing_role(_) -> false.
+
 if_has_role(_SKey, _RootRoleId, _RootRoleId) ->
     true;
 if_has_role(SKey, RootRoleId, RoleId) ->
     case if_read(SKey, ddRole, RootRoleId) of
         [#ddRole{roles=[]}] ->          false;
         [#ddRole{roles=ChildRoles}] ->  if_has_child_role(SKey,  ChildRoles, RoleId);
-        [] ->                           %% ToDo: log missing role
-                                        false
+        [] ->                           if_missing_role(RootRoleId)
     end.
 
 if_has_child_role(_SKey, [], _RoleId) -> false;
@@ -224,8 +233,7 @@ if_has_permission(SKey, RootRoleId, PermissionList) when is_list(PermissionList)
                 false ->    if_has_child_permission(SKey,  ChildRoles, PermissionList)
             end;
         [] ->
-            %% ToDo: log missing role
-            false
+            if_missing_role(RootRoleId)
     end;
 if_has_permission(SKey, RootRoleId, PermissionId) ->
     %% search for single permission
@@ -240,8 +248,7 @@ if_has_permission(SKey, RootRoleId, PermissionId) ->
                 false ->    if_has_child_permission(SKey,  ChildRoles, PermissionId)
             end;
         [] ->
-             %% ToDo: log missing role
-            false
+            if_missing_role(RootRoleId)
     end.
 
 if_has_child_permission(_SKey, [], _Permission) -> false;
@@ -544,12 +551,25 @@ change_credentials(SKey, {pwdmd5,OldToken}, {pwdmd5,NewToken}) ->
 
 set_credentials(SKey, Name, {pwdmd5,NewToken}) ->
     SeCo = seco_authenticated(SKey),
-    Account = imem_account:get_by_name(SKey, Name),
-    find_re_hash(SeCo, Account, NewToken, ?PWD_HASH_LIST).
+    case have_permission(SKey, manage_accounts) of
+        true ->     Account = imem_account:get_by_name(SKey, Name),
+                    find_re_hash(SeCo, Account, NewToken, ?PWD_HASH_LIST); 
+        false ->    ?SecurityException({"Set credentials unauthorized",SKey})
+    end.
+
+set_login_time(SKey, AccountId) ->
+    case have_permission(SKey, manage_accounts) of
+        true ->
+            AccountDyn = case if_read(SKey,ddAccountDyn,AccountId) of
+                             [AccountDynRec] ->  AccountDynRec;
+                             [] -> #ddAccountDyn{id = AccountId}
+                         end,
+            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=erlang:now()});
+        false ->    ?SecurityException({"Set login time unauthorized",SKey})
+    end.
 
 logout(SKey) ->
     seco_delete(SKey, SKey).
-
 
 clone_seco(SKeyParent, Pid) ->
     SeCoParent = seco_authenticated(SKeyParent),

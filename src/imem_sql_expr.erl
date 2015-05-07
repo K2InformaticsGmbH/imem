@@ -112,6 +112,7 @@ bind_virtual(Ti,X,ScanSpec0) ->
 uses_bind(_,{const,_}) ->              false;
 uses_bind(Ti,#bind{tind=Ti}) -> true;
 uses_bind(Ti,#bind{tind=0,cind=0,btree=BTree}) -> uses_bind(Ti,BTree);
+uses_bind(Ti,[A|Rest]) -> case uses_bind(Ti,A) of true -> true; false -> uses_bind(Ti,Rest) end;
 uses_bind(Ti,{_,A}) -> uses_bind(Ti,A);
 uses_bind(Ti,{_,A,B}) -> uses_bind(Ti,A) orelse uses_bind(Ti,B);
 uses_bind(Ti,{_,A,B,C}) -> uses_bind(Ti,A) orelse uses_bind(Ti,B) orelse uses_bind(Ti,C);
@@ -190,6 +191,12 @@ bind_done({list,[A|Rest]}) ->
         false ->    false;
         true ->     bind_done({list,Rest})
     end;
+% bind_done([]) -> true;
+% bind_done([A|Rest]) ->
+%     case bind_done(A) of
+%         false ->    false;
+%         true ->     bind_done(Rest)
+%     end;
 bind_done({_,A}) -> bind_done(A);
 bind_done(#bind{tind=0,cind=0,btree=BTree}) -> bind_done(BTree);
 bind_done(#bind{}) -> false;
@@ -201,6 +208,14 @@ bind_done(_) -> true.
 % Unary eval rules
 bind_eval({_, ?nav}) ->             ?nav;
 % Binary eval rules
+bind_eval({list,L}) when is_list(L) ->
+    BTL = [ bind_eval(Ele) || Ele <- L], 
+    case lists:usort([bind_done(El)|| El <- BTL]) of
+        [false|_] ->    %% cannot simplify tree list here
+            {list,BTL};  
+        [true] ->     %% BTree evaluates to a list of values
+            BTL 
+    end;
 bind_eval({'or', true, _}) ->       true; 
 bind_eval({'or', _, true}) ->       true; 
 bind_eval({'or', false, false}) ->  false; 
@@ -248,14 +263,6 @@ bind_eval({'and', B, A} = G) ->
 bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav; 
 % Functions with 4 parameters
 bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav;
-bind_eval({list,L}) ->
-    BTL = [ bind_eval(Ele) || Ele <- L], 
-    case lists:usort([bind_done(El)|| El <- BTL]) of
-        [false|_] ->    %% cannot simplify tree list here
-            {list,BTL};  
-        [true] ->     %% BTree evaluates to a list of values
-            BTL 
-    end;
 bind_eval(BTree) ->
     case bind_done(BTree) of
         false ->    %% cannot simplify BTree here
@@ -817,6 +824,11 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
                     end
             end
     end;        
+expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) -> 
+    % #bind{type=list,btree=[expr(A,FullMap,#bind{type=term}) || A <- L]};
+    #bind{type=list,btree={list,[expr(A,FullMap,#bind{type=term}) || A <- L]}};
+expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) -> 
+    #bind{type=tuple,btree={list_to_tuple,{list,[expr(A,FullMap,#bind{type=term}) || A <- L]}}};
 expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) -> 
     expr({'fun',<<"is_regexp_like">>,[A,B]}, FullMap, BT); 
 expr({'||',A,B}, FullMap, _) -> 

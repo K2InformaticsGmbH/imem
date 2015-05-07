@@ -6,9 +6,9 @@
 -define( FilterFuns, 
             [ list, prefix_ul, safe, concat, is_nav, is_key 
             , is_member, is_like, is_regexp_like, to_name, to_text
-            , add_dt, add_ts, diff_dt, diff_ts
+            , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
-            , to_tuple, to_list, to_map, to_term, to_binterm, from_binterm
+            , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
             , json_to_list, json_arr_proj, json_obj_proj, json_value
             , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap
@@ -54,6 +54,7 @@
         , to_list/1
         , to_map/1
         , to_term/1
+        , to_pid/1
         , to_binterm/1
         , to_timestamp/1
         , to_datetime/1
@@ -141,7 +142,9 @@ unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
+        {match,["term"]}->                      #bind{type=term,default=?nav};
         {match,["binterm"]}->                   #bind{type=binterm,default=?nav};
+        {match,["pid"]}->                       #bind{type=pid,default=?nav};
         {match,["boolean"]}->                   #bind{type=boolean,default=?nav};
         {match,["decimal"]}->                   #bind{type=decimal,default=?nav};
         {match,["float"]}->                     #bind{type=float,default=?nav};
@@ -258,7 +261,7 @@ filter_fun(FTree) ->
 expr_fun({const, A}) when is_tuple(A) -> A;
 %% create a list
 expr_fun({list, L}) when is_list(L) -> 
-    [expr_fun(E) || E <- L];
+    list_fun(lists:reverse([expr_fun(E) || E <- L]),[]);
 %% Select field Expression header
 expr_fun(#bind{tind=0,cind=0,btree=BTree}) -> expr_fun(BTree);
 %% Comparison expressions
@@ -350,7 +353,7 @@ expr_fun({'safe', A}) ->
     safe_fun(A);
 expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_name';Op=='to_text';Op=='is_nav' ->
+expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr' ->
     unary_fun({Op, A});
@@ -392,6 +395,35 @@ safe_fun_final(A) ->
         false ->            A;        
         true ->             fun(X) -> try A(X) catch _:_ -> ?nav end end;       
         ABind ->            fun(X) -> try ?BoundVal(ABind,X) catch _:_ -> ?nav end end
+    end.
+
+% list_fun([],Acc,false) -> lists:reverse(Acc);
+% list_fun([],Acc,true) ->  fun(X) -> [case is_function(F) of true -> F(X); false -> F end || F <- lists:reverse(Acc)] end;
+% list_fun([A|Rest],Acc,false) -> 
+%     case bind_action(A) of 
+%         false ->        list_fun(Rest,[A|Acc],false);
+%         true ->         fun(X) -> list_fun(Rest,[A(X)|Acc],true) end;
+%         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
+%     end;
+% list_fun([A|Rest],Acc,true) -> 
+%     case bind_action(A) of 
+%         false ->        list_fun(Rest,[A|Acc],true);
+%         true ->         fun(X) -> list_fun(Rest,[A(X)|Acc],true) end;
+%         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
+%     end.
+
+list_fun([],Acc) -> Acc;
+list_fun([A|Rest],Acc) when is_list(Acc) -> 
+    case bind_action(A) of 
+        false ->        list_fun(Rest,[A|Acc]);
+        true ->         list_fun(Rest,fun(X) -> [A(X)|Acc] end);
+        ABind ->        list_fun(Rest,fun(X) -> [?BoundVal(ABind,X)|Acc] end)
+    end;
+list_fun([A|Rest],Acc) -> 
+    case bind_action(A) of 
+        false ->        list_fun(Rest,fun(X) -> [A|Acc(X)] end);
+        true ->         list_fun(Rest,fun(X) -> [A(X)|Acc(X)] end);
+        ABind ->        list_fun(Rest,fun(X) -> [?BoundVal(ABind,X)|Acc(X)] end)
     end.
 
 module_fun(Mod, {Op, {const,A}}) when is_tuple(A) ->
@@ -594,6 +626,9 @@ to_map(L) when is_list(L) -> maps:from_list(L).
 
 to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
 to_term(T) -> T.
+
+to_pid(T) when is_pid(T) -> T;
+to_pid(B) -> imem_datatype:io_to_pid(B).
 
 to_existing_atom(A) when is_atom(A) -> A;
 to_existing_atom(B) when is_binary(B) -> ?binary_to_existing_atom(B);
@@ -959,15 +994,15 @@ db_test_() ->
         fun teardown/1,
         {with, [
               fun test_without_sec/1
-            % , fun test_with_sec/1
+            , fun test_with_sec/1
         ]}
     }.
     
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
-% test_with_sec(_) ->
-%     test_with_or_without_sec(true).
+test_with_sec(_) ->
+    test_with_or_without_sec(true).
 
 test_with_or_without_sec(IsSec) ->
     try

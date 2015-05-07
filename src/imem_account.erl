@@ -32,14 +32,16 @@ if_read(_SeKey, Table, RowId) ->
 if_delete(_SeKey, Table, RowId) ->
     imem_meta:delete(Table, RowId).
 
-if_select(_SeKey, Table, MatchSpec) ->
-    imem_meta:select(Table, MatchSpec). 
+%% -- See similar Implementation in imem_account, imem_seco, imem_role -------------- 
 
-if_select_account_by_name(SeKey, Name) -> 
-    MatchHead = #ddAccount{name='$1', _='_'},
-    Guard = {'==', '$1', Name},
-    Result = '$_',
-    if_select(SeKey, ddAccount, [{MatchHead, [Guard], [Result]}]).
+if_dirty_index_read(_SeKey, Table, SecKey, Index) -> 
+    imem_meta:dirty_index_read(Table, SecKey, Index).
+
+if_select_account_by_name(_SeKey, <<"system">>) -> 
+    {if_read(_SeKey, ddAccount, system),true};
+if_select_account_by_name(_SeKey, Name) -> 
+    {if_dirty_index_read(_SeKey,ddAccount,Name, #ddAccount.name),true}.
+
 
 %% --Implementation ------------------------------------------------------------------
 

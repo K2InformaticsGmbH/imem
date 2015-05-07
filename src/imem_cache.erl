@@ -20,7 +20,11 @@ write(Key,Value) ->
     imem_meta:write(?CACHE_TABLE,#ddCache{ckey=Key,cvalue=Value}).
 
 clear_local(Key) ->
-    catch (imem_meta:delete(?CACHE_TABLE,Key)).
+    try
+        imem_meta:delete(?CACHE_TABLE,Key)
+    catch
+        throw:{'ClientError',_} -> ok
+    end.
 
 -spec clear(any()) -> ok | {error, [{node(),any()}]}.
 clear(Key) ->

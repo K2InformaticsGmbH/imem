@@ -51,6 +51,7 @@
 -export([ create_table/3
         , drop_table/1
         , create_index/2
+        , create_or_replace_index/2
         , drop_index/2
         , truncate_table/1
         , select/2
@@ -60,6 +61,7 @@
         , read/1
         , read/2
         , dirty_read/2
+        , dirty_index_read/3
         , read_hlk/2            %% read using hierarchical list key
         , fetch_start/5
         , write/2
@@ -261,8 +263,7 @@ is_readable_table(Table) ->
             _ ->        true
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  false;
-        _:Error ->                      ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  false
     end.  
 
 table_type(Table) ->
@@ -288,8 +289,7 @@ table_info(Table, InfoKey) ->
                 end
         end
     catch
-        _:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table});
-        _:Error ->                      ?SystemExceptionNoLogging(Error)
+        exit:{aborted,{no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist", Table})
     end.  
 
 table_record_name(Table) ->
@@ -309,9 +309,13 @@ check_table(Table) ->
     end.
 
 check_local_table_copy(Table) ->
-    case mnesia:table_info(Table, storage_type) of
-        unknown -> ?ClientErrorNoLogging({"This table does not reside locally", Table});
-        _ -> ok
+    try 
+        case mnesia:table_info(Table, storage_type) of
+            unknown -> ?ClientErrorNoLogging({"This table does not reside locally", Table});
+            _ -> ok
+        end
+    catch
+        exit:{aborted,{no_exists,_,_}} -> ?ClientErrorNoLogging({"Table does not exist", Table})
     end.
 
 check_table_columns(Table, ColumnNames) ->
@@ -393,30 +397,46 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
 
 drop_table(Table) when is_atom(Table) ->
     case spawn_sync_mfa(mnesia,delete_table,[Table]) of
-        ok ->                           true = ets:delete(?SNAP_ETS_TAB, Table),
-                                        ok;
-        {atomic,ok} ->                  true = ets:delete(?SNAP_ETS_TAB, Table),
-                                        ok;
-        {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        Error ->                        ?SystemExceptionNoLogging(Error)
+        ok ->                           
+            true = ets:delete(?SNAP_ETS_TAB, Table),
+            ok;
+        {atomic,ok} ->                  
+            true = ets:delete(?SNAP_ETS_TAB, Table),
+            ok;
+        {aborted,{no_exists,Table}} ->  
+            ?ClientErrorNoLogging({"Table does not exist",Table});
+        Error ->                        
+            ?SystemExceptionNoLogging(Error)
     end.
 
 create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-                                        ?ClientErrorNoLogging({"Table does not exist", Table});
-        {aborted, {already_exists, {Table,Column}}} ->
-                                        ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
-        Result ->                       return_atomic_ok(Result)
+            ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {already_exists, Table, _ }} ->
+            ?ClientErrorNoLogging({"Index already exists", {Table,Column}});
+        Result ->                       
+            return_atomic_ok(Result)
+    end.
+
+create_or_replace_index(Table, Column) when is_atom(Table) ->
+    case mnesia:add_table_index(Table, Column) of
+        {aborted, {no_exists, Table}} ->   
+            ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {already_exists, Table, _ }} ->   
+            ok;
+        Result ->
+            return_atomic_ok(Result)
     end.
 
 drop_index(Table, Column) when is_atom(Table) ->
     case mnesia:del_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
-                                        ?ClientErrorNoLogging({"Table does not exist", Table});
-        {aborted, {no_exists, {Table,Column}}} ->   
-                                        ?ClientErrorNoLogging({"Index does not exist", {Table,Column}});
-        Result ->                       return_atomic_ok(Result)
+            ?ClientErrorNoLogging({"Table does not exist", Table});
+        {aborted, {no_exists, Table, _ }} ->   
+            ?ClientErrorNoLogging({"Index does not exist", {Table,Column}});
+        Result ->                       
+            return_atomic_ok(Result)
     end.
 
 truncate_table(Table) when is_atom(Table) ->
@@ -460,7 +480,17 @@ dirty_read(Table, Key) when is_atom(Table) ->
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_read failure",Reason})
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_read failure",Reason})
+    end.
+
+dirty_index_read(Table, SecKey, Index) when is_atom(Table) ->
+    try
+        mnesia:dirty_index_read(Table, SecKey, Index)
+    catch
+        exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
+        exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
+        exit:{badarg,[Table,SecKey,Index]} -> ?ClientErrorNoLogging({"Index does not exist",{Table,Index}});
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_index_read failure",Reason})
     end.
 
 read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
@@ -487,7 +517,7 @@ dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        _:Reason ->                         ?SystemExceptionNoLogging({"Mnesia dirty_write failure",Reason})
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_write failure",Reason})
     end.
 
 write(Table, Row) when is_atom(Table), is_tuple(Row) ->
@@ -702,40 +732,40 @@ update_xt({Table,bag}, Item, Lock, Old, Old, Trigger, User) when is_atom(Table) 
             {Item,Old};
         Lock == none ->
             mnesia_table_write_access(write, [Table, Old, write]),
-            Trigger({}, Old, Table, User),
+            Trigger(?NoRec, Old, Table, User),
             {Item,Old};
         true ->
             ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item, Old}})
     end;
 update_xt({Table,bag}, Item, Lock, Old, New, Trigger, User) when is_atom(Table) ->
-    update_xt({Table,bag}, Item, Lock, Old, {}, Trigger, User),
-    update_xt({Table,bag}, Item, Lock, {}, New, Trigger, User);
+    update_xt({Table,bag}, Item, Lock, Old, ?NoRec, Trigger, User),
+    update_xt({Table,bag}, Item, Lock, ?NoRec, New, Trigger, User);
 
-update_xt({_Table,_}, _Item, _Lock, {}, {}, _, _) ->
+update_xt({_Table,_}, _Item, _Lock, ?NoRec, ?NoRec, _, _) ->
     ok;
-update_xt({Table,_}, Item, Lock, Old, {}, Trigger, User) when is_atom(Table), is_tuple(Old) ->
+update_xt({Table,_}, Item, Lock, Old, ?NoRec, Trigger, User) when is_atom(Table), is_tuple(Old) ->
     case mnesia:read(Table, element(?KeyIdx,Old)) of
         [Old] ->    
             mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
-            Trigger(Old, {}, Table, User),
-            {Item,{}};
+            Trigger(Old, ?NoRec, Table, User),
+            {Item,?NoRec};
         [] ->       
             case Lock of
-                none -> {Item,{}};
+                none -> {Item,?NoRec};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Missing key", {Item,Old}})
             end;
         [Current] ->  
             case Lock of
                 none -> mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
-                        Trigger(Current, {}, Table, User),
-                        {Item,{}};
+                        Trigger(Current, ?NoRec, Table, User),
+                        {Item,?NoRec};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Old,Current}}})
             end
     end;
-update_xt({Table,_}, Item, Lock, {}, New, Trigger, User) when is_atom(Table), is_tuple(New) ->
+update_xt({Table,_}, Item, Lock, ?NoRec, New, Trigger, User) when is_atom(Table), is_tuple(New) ->
     case mnesia:read(Table, element(?KeyIdx,New)) of
         [] ->       mnesia_table_write_access(write, [Table, New, write]),
-                    Trigger({}, New, Table, User),
+                    Trigger(?NoRec, New, Table, User),
                     {Item,New};
         [New] ->    Trigger(New, New, Table, User),
                     {Item,New};
@@ -754,7 +784,7 @@ update_xt({Table,_}, Item, Lock, Old, Old, Trigger, User) when is_atom(Table), i
         [] ->       
             case Lock of
                 none -> mnesia_table_write_access(write, [Table, Old, write]),
-                        Trigger({}, Old, Table, User),
+                        Trigger(?NoRec, Old, Table, User),
                         {Item,Old};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
             end;
@@ -782,7 +812,7 @@ update_xt({Table,_}, Item, Lock, Old, New, Trigger, User) when is_atom(Table), i
         {[],_} ->       
             case Lock of
                 none -> mnesia_table_write_access(write, [Table, New, write]),
-                        Trigger({}, New, Table, User),
+                        Trigger(?NoRec, New, Table, User),
                         {Item,New};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
             end;
@@ -1070,6 +1100,7 @@ table_operations(_) ->
         ClEr = 'ClientError',
         SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
+        Self = self(),
 
         ?LogDebug("---TEST---~p:test_mnesia", [?MODULE]),
 
@@ -1251,12 +1282,46 @@ table_operations(_) ->
 
         ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read_hlk(non_existing_table, [some_key,over_context])),
 
-        ?assertEqual(ok, drop_table(imem_table_123))
+        Key = [sum],
+        ?assertEqual(ok, write(imem_table_123, {imem_table_123, Key,0})),
+        [spawn(fun() -> Self ! {N,read_write_test(imem_table_123,Key,N)} end) || N <- lists:seq(1,10)],
+        ?LogDebug("success ~p", [read_write_spawned]),
+        ReadWriteResult = receive_results(10,[]),
+        ?assertEqual(10, length(ReadWriteResult)),
+        ?assertEqual([{imem_table_123,Key,55}], read(imem_table_123,Key)),
+        ?assertEqual([{atomic,ok}],lists:usort([R || {_,R} <- ReadWriteResult])),
+        ?LogDebug("success ~p~n", [bulk_read_write]),
+
+        ?assertEqual(ok, drop_table(imem_table_123)),
+        ?LogDebug("success ~p~n", [drop_table])
 
     catch
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
     end,
     ok.
+
+read_write_test(Tab, Key, N) ->
+    Upd = fun() ->
+        [{Tab, Key, Val}] = read(Tab, Key),
+        write(Tab, {Tab, Key, Val + N})
+    end,
+    transaction(Upd).
+
+receive_results(N,Acc) ->
+    receive 
+        Result ->
+            case N of 
+                1 ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    [Result|Acc]; 
+                _ ->    
+                    % ?LogDebug("Result ~p", [Result]),
+                    receive_results(N-1,[Result|Acc])
+            end
+    after 4000 ->   
+        ?LogDebug("Result timeout ~p", [4000]),
+        Acc
+    end.
 
 -endif.
