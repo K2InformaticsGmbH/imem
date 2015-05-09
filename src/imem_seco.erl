@@ -613,7 +613,7 @@ clone_seco(SKeyParent, Pid) ->
 sc_send_sms_token(To, Text, TokType, Expire, TokLen) ->
     sc_send_sms_token(
       ?GET_CONFIG(smsTokenValidationServiceUrl,[],"https://api.swisscom.com/v1/tokenvalidation"),
-      ?GET_CONFIG(smsTokenValidationClientId,[],"v7wdVzlNdGZtLUS7qYzVt20Ymfrr8S35"),
+      ?GET_CONFIG(smsTokenValidationClientId,[],"YOUR_CLIENT_ID_GOES_HERE"),
       To, Text, TokType, Expire, TokLen).
 sc_send_sms_token(Url, ClientId, To, Text, TokType, Expire, TokLen) ->
     Req = <<"{\"to\":",         To/binary,      ",",
