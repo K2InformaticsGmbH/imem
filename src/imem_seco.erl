@@ -56,6 +56,9 @@
         , have_permission/2
         ]).
 
+%% SMS APIs
+-export([ sc_send_sms_token/7, sc_send_sms_token/5 ]).
+
 %       returns a ref() of the monitor
 monitor(Pid) when is_pid(Pid) -> gen_server:call(?MODULE, {monitor, Pid}).
 
@@ -112,6 +115,7 @@ init(_Args) ->
         if_truncate_table(none,ddQuota@),
 
         process_flag(trap_exit, true),
+        ok = inets:start(), % for httpc use
         {ok,#state{}}    
     catch
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
@@ -139,10 +143,15 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
-terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);
-terminate({shutdown, _Term}, _State) -> ?Info("~p shutdown : ~p~n", [?MODULE, _Term]);
-terminate(Reason, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reason]).
+
+terminate(Reason, _State) ->
+    ok = inets:stop(),
+    case Reason of
+        normal -> ?Info("~p normal stop~n", [?MODULE]);
+        shutdown -> ?Info("~p shutdown~n", [?MODULE]);
+        {shutdown, _Term} -> ?Info("~p shutdown : ~p~n", [?MODULE, _Term]);
+        _ -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reason])
+    end.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -578,6 +587,52 @@ clone_seco(SKeyParent, Pid) ->
     if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     monitor(Pid),
     SKey.
+
+% @doc
+% curl --request POST \
+% --header "client_id:%YOUR_CLIENT_ID_GOES_HERE%" \
+% --header "Accept:application/json; charset=utf-8" \
+% --header "Content-Type:application/json; charset=utf-8" \
+% --data '  {
+%    "to":"+41791234567"
+%    "text":"Developer verification code: %TOKEN% \r\nThis token will expire in 60 seconds.",
+%    "tokenType":"SHORT_NUMERIC",
+%    "expireTime":"60",
+%    "tokenLength":8
+% }' https://api.swisscom.com/v1/tokenvalidation
+%%%-spec sc_send_sms_token(Url :: string(), ClientId :: string(), To :: string()) 
+
+%% httpc:request(post,
+%%  {"https://api.swisscom.com/v1/tokenvalidation",
+%%   [{"client_id","v7wdVzlNdGZtLUS7qYzVt20Ymfrr8S35"},
+%%    {"Accept","application/json; charset=utf-8"}],
+%%   "application/json; charset=utf-8",
+%% <<"{\"to\":\"+41794519635\",\"text\":\"From Erlang by bikram\",\"tokenType\":\"SHORT_NUMERIC\",\"expireTime\":\"60\",\"tokenLength\":8}">>},
+%% [{ssl,[{verify,0}]}], []).
+
+sc_send_sms_token(To, Text, TokType, Expire, TokLen) ->
+    sc_send_sms_token(
+      ?GET_CONFIG(smsTokenValidationServiceUrl,[],"https://api.swisscom.com/v1/tokenvalidation"),
+      ?GET_CONFIG(smsTokenValidationClientId,[],"v7wdVzlNdGZtLUS7qYzVt20Ymfrr8S35"),
+      To, Text, TokType, Expire, TokLen).
+sc_send_sms_token(Url, ClientId, To, Text, TokType, Expire, TokLen) ->
+    Req = <<"{\"to\":",         To/binary,      ",",
+            "\"text\":",        Text/binary,    ",",
+            "\"tokenType\":",   TokType/binary, ",",
+            "\"expireTime\":",  Expire/binary,  ",",
+            "\"tokenLength\":", TokLen/binary,
+            "}">>,
+    ?Info("Sending ~p", [Req]),
+    case httpc:request(
+           post, {Url, [{"client_id",ClientId},
+                        {"Accept","application/json; charset=utf-8"}],
+                  "application/json; charset=utf-8",
+                  Req}, [{ssl,[{verify,0}]}], [{full_result, false}]) of
+        {ok,{200,[]}} -> ok;
+        {error, Error} ->
+            ?Error("SMS send error : ~p", [Error]),
+            {error, send_failed}
+    end.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
