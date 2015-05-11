@@ -57,7 +57,8 @@
         ]).
 
 %% SMS APIs
--export([ sc_send_sms_token/7, sc_send_sms_token/5 ]).
+-export([sc_send_sms_token/8, sc_send_sms_token/5, sc_send_sms_token/1,
+         sc_verify_sms_token/4, sc_verify_sms_token/2]).
 
 %       returns a ref() of the monitor
 monitor(Pid) when is_pid(Pid) -> gen_server:call(?MODULE, {monitor, Pid}).
@@ -589,49 +590,88 @@ clone_seco(SKeyParent, Pid) ->
     SKey.
 
 % @doc
-% curl --request POST \
-% --header "client_id:%YOUR_CLIENT_ID_GOES_HERE%" \
-% --header "Accept:application/json; charset=utf-8" \
-% --header "Content-Type:application/json; charset=utf-8" \
-% --data '  {
-%    "to":"+41791234567"
-%    "text":"Developer verification code: %TOKEN% \r\nThis token will expire in 60 seconds.",
-%    "tokenType":"SHORT_NUMERIC",
-%    "expireTime":"60",
-%    "tokenLength":8
-% }' https://api.swisscom.com/v1/tokenvalidation
-%%%-spec sc_send_sms_token(Url :: string(), ClientId :: string(), To :: string()) 
-
-%% httpc:request(post,
-%%  {"https://api.swisscom.com/v1/tokenvalidation",
-%%   [{"client_id","v7wdVzlNdGZtLUS7qYzVt20Ymfrr8S35"},
-%%    {"Accept","application/json; charset=utf-8"}],
-%%   "application/json; charset=utf-8",
-%% <<"{\"to\":\"+41794519635\",\"text\":\"From Erlang by bikram\",\"tokenType\":\"SHORT_NUMERIC\",\"expireTime\":\"60\",\"tokenLength\":8}">>},
-%% [{ssl,[{verify,0}]}], []).
-
-sc_send_sms_token(To, Text, TokType, Expire, TokLen) ->
+sc_send_sms_token(To) ->
     sc_send_sms_token(
-      ?GET_CONFIG(smsTokenValidationServiceUrl,[],"https://api.swisscom.com/v1/tokenvalidation"),
+      To,
+      ?GET_CONFIG(smsTokenValidationText,[],
+                  <<"Imem verification code: %TOKEN% \r\n"
+                    "This token will expire in 60 seconds.">>),
+      ?GET_CONFIG(smsTokenValidationTokenType,[],<<"SHORT_NUMERIC">>),
+      ?GET_CONFIG(smsTokenValidationExpireTime,[],60),
+      ?GET_CONFIG(smsTokenValidationTokenLength,[],8)).
+sc_send_sms_token(To, Text, TokenType, ExpireTime, TokenLength) ->
+    sc_send_sms_token(
+      ?GET_CONFIG(smsTokenValidationServiceUrl,[],
+                  "https://api.swisscom.com/v1/tokenvalidation"),
       ?GET_CONFIG(smsTokenValidationClientId,[],"YOUR_CLIENT_ID_GOES_HERE"),
-      To, Text, TokType, Expire, TokLen).
-sc_send_sms_token(Url, ClientId, To, Text, TokType, Expire, TokLen) ->
-    Req = <<"{\"to\":",         To/binary,      ",",
-            "\"text\":",        Text/binary,    ",",
-            "\"tokenType\":",   TokType/binary, ",",
-            "\"expireTime\":",  Expire/binary,  ",",
-            "\"tokenLength\":", TokLen/binary,
-            "}">>,
+      To, Text, TokenType, ExpireTime, TokenLength,
+      ?GET_CONFIG(smsTokenValidationTraceId,[],"IMEM")).
+sc_send_sms_token(Url, ClientId, To, Text, TokenType, ExpireTime,
+                  TokenLength, TraceId)
+  when is_integer(ExpireTime), is_integer(TokenLength) ->
+    case lists:member(
+           TokenType, [<<"SHORT_NUMERIC">>, <<"SHORT_ALPHANUMERIC">>,
+                       <<"SHORT_SMALL_AND_CAPITAL">>, <<"LONG_CRYPTIC">>]) of
+        true -> ok;
+        _ ->
+            ?ClientError(
+               io_lib:format(
+                 "Invalid token type ~p, MUST be one of <<\"SHORT_NUMERIC\">>,"
+                 "<<\"SHORT_ALPHANUMERIC\">>, <<\"SHORT_SMALL_AND_CAPITAL\">>"
+                 " or <<\"LONG_CRYPTIC\">>", [TokenType]))
+    end,
+    ReqMap = #{to => To, text => Text, tokenType => TokenType,
+               expireTime => integer_to_binary(ExpireTime),
+               tokenLength => TokenLength},
+    Req = imem_json:encode(
+            if TraceId /= <<>> -> maps:put(traceId, TraceId, ReqMap);
+               true -> ReqMap end),
     ?Info("Sending ~p", [Req]),
     case httpc:request(
-           post, {Url, [{"client_id",ClientId},
-                        {"Accept","application/json; charset=utf-8"}],
+           post, {Url,
+                  [{"client_id",ClientId},
+                   {"Accept","application/json; charset=utf-8"}],
                   "application/json; charset=utf-8",
-                  Req}, [{ssl,[{verify,0}]}], [{full_result, false}]) of
+                  Req},
+           [{ssl,[{verify,0}]}],
+           [{full_result, false}]) of
         {ok,{200,[]}} -> ok;
+        {ok,{400,Body}} ->
+            ?ClientError(lists:flatten(io_lib:format("HTTP 400: ~s", [Body])));
+        {ok,{401,_}} -> ?ClientError("HTTP 401: Unauthorized");
+        {ok,{403,_}} -> ?ClientError("HTTP 403: Client IP not whitelisted");
+        {ok,{404,_}} -> ?ClientError("HTTP 404: Wrong URL or the given customer is"
+                                     " not found");
+        {ok,{500,Body}} ->
+            ?SystemException(lists:flatten(io_lib:format("HTTP 500: ~s", [Body])));
         {error, Error} ->
-            ?Error("SMS send error : ~p", [Error]),
-            {error, send_failed}
+            ?SystemException(Error)
+    end.
+
+sc_verify_sms_token(To, Token) ->
+    sc_verify_sms_token(
+      ?GET_CONFIG(smsTokenValidationServiceUrl,[],
+                  "https://api.swisscom.com/v1/tokenvalidation"),
+      ?GET_CONFIG(smsTokenValidationClientId,[],"YOUR_CLIENT_ID_GOES_HERE"),
+      To, Token).
+sc_verify_sms_token(Url, ClientId, To, Token) ->
+    case httpc:request(
+           get, {string:join([Url,To,Token],"/"),
+                  [{"client_id",ClientId},
+                   {"Accept","application/json; charset=utf-8"}]},
+           [{ssl,[{verify,0}]},{url_encode,false}],
+           [{full_result, false}]) of
+        {ok,{200,[]}} -> ok;
+        {ok,{400,Body}} ->
+            ?ClientError(lists:flatten(io_lib:format("HTTP 400: ~s", [Body])));
+        {ok,{401,_}} -> ?ClientError("HTTP 401: Unauthorized");
+        {ok,{403,_}} -> ?ClientError("HTTP 403: Client IP not whitelisted");
+        {ok,{404,_}} -> ?ClientError("HTTP 404: Wrong URL or the given customer is"
+                                     " not found");
+        {ok,{500,Body}} ->
+            ?SystemException(lists:flatten(io_lib:format("HTTP 500: ~s", [Body])));
+        {error, Error} ->
+            ?SystemException(Error)
     end.
 
 %% ----- TESTS ------------------------------------------------
