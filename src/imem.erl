@@ -10,13 +10,9 @@
 
 -include("imem.hrl").
 
--export([start/0
-        , stop/0
-        , start_test_writer/1
-        , stop_test_writer/0
-        , start_tcp/2
-        , stop_tcp/0
-        ]).
+-export([start/0, stop/0]).
+
+-export([start_test_writer/1, stop_test_writer/0, start_tcp/2, stop_tcp/0]).
 
 % application callbacks
 -export([start/2, stop/1]).
@@ -28,10 +24,10 @@
 start() ->
     application:load(sasl),
     application:set_env(sasl, sasl_error_logger, false),
-    application:start(sasl),
-    application:start(os_mon),
-    application:start(ranch),
-    application:start(jsx),
+    ok = application:start(sasl),
+    ok = application:start(os_mon),
+    ok = application:start(ranch),
+    ok = application:start(jsx),
     sqlparse:start(),
     ok = application:start(compiler),
     ok = application:start(syntax_tools),
@@ -51,10 +47,12 @@ start() ->
     ok = application:set_env(lager, error_logger_redirect, false),
     ok = application:start(lager),
     erlscrypt:start(),
+    ok = application:start(inets),
     application:start(?MODULE).
 
 stop() ->
     ok = application:stop(?MODULE),
+    ok = application:stop(inets),
     erlscrypt:stop(),
     ok = application:stop(lager),
     ok = application:unload(lager),
