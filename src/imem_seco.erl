@@ -133,8 +133,7 @@ init(_Args) ->
         if_truncate_table(none,ddQuota@),
 
         process_flag(trap_exit, true),
-        ok = inets:start(), % for httpc use
-        {ok,#state{}}    
+        {ok,#state{}}
     catch
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
     end.
@@ -163,7 +162,6 @@ handle_info(_Info, State) ->
 
 
 terminate(Reason, _State) ->
-    ok = inets:stop(),
     case Reason of
         normal -> ?Info("~p normal stop~n", [?MODULE]);
         shutdown -> ?Info("~p shutdown~n", [?MODULE]);
