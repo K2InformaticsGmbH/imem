@@ -113,7 +113,7 @@ end
     imem_meta:write( ddAccount
                    , #ddAccount{ id=__AcId
                                , name= <<"_test_admin_">>
-                               , fullName= <<"_test_admin_">>
+                               , fullName= <<"{\"MOBILE\":\"41794321750\"}">>
                                , credentials=[{pwdmd5,__Token}]
                                , lastPasswordChangeTime= calendar:local_time()
                                }
