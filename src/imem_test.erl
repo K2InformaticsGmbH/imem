@@ -215,7 +215,7 @@ test(_) ->
         ?assertEqual(false, imem_seco:has_permission(SeCo, AccountId, manage_bananas)), 
         ?LogDebug("success ~p~n", [has_permission]),
 
-        ?assertException(throw,{SeEx,{"Account is locked. Contact a system administrator",<<"test">>}}, imem_seco:authenticate(someSessionId, AccountName, AccountCredNew)), 
+        ?assertException(throw,{SeEx,"Account is locked. Contact a system administrator"}, imem_seco:authenticate(someSessionId, AccountName, AccountCredNew)), 
         ?LogDebug("success ~p~n", [is_locked]),
         ?assertEqual(ok, imem_account:unlock(SeCo, AccountId)),
         ?LogDebug("success ~p~n", [unlock]),

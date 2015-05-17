@@ -904,7 +904,7 @@ have_module_permission(SKey, Module, Operation) ->
 
 seco_authorized(SKey) -> 
     case imem_meta:read(ddSeCo@, SKey) of
-        [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> 
+        [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{pid=Pid}] ->      
             ?SecurityViolation({"Not logged in", {SKey,Pid}});

@@ -6,6 +6,8 @@
 -define(SALT_BYTES,32).
 -define(PWD_HASH,scrypt).                       %% target hash: pwdmd5,md4,md5,sha512,scrypt 
 -define(PWD_HASH_LIST,[scrypt,sha512,pwdmd5]).  %% allowed hash types
+-define(REQUIRE_PWDMD5,<<"fun(Factors,NetCtx) -> [pwdmd5] -- Factors end">>).
+-define(FULL_ACCESS,<<"fun(NetCtx) -> true end">>).
 
 -behavior(gen_server).
 
@@ -32,11 +34,13 @@
 
 % security context library interface
 -export([ drop_seco_tables/1
-        , create_credentials/1
-        , create_credentials/2
+        , create_credentials/2      % parameters: (Name,Password) or (pwdmd5,Password)
         ]).
 
--export([ authenticate/3
+-export([ authenticate/3            % deprecated
+        , auth_start/3
+        , auth_add_cred/2
+        , auth_abort/1
         , login/1
         , change_credentials/3
         , set_credentials/3
@@ -89,13 +93,22 @@ init(_Args) ->
         catch imem_meta:create_check_table(ddRole, RDef, [], system),
 
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
-        catch imem_meta:create_check_table(ddSeCo@, SDef, [{scope,local}, {local_content,true},{record_name,ddSeCo}], system),
+        case (catch imem_meta:table_columns(ddSeCo@)) of
+            L when L==element(1,SDef) ->    ok;     % field names in table match the new record
+            L when is_list(L) ->            imem_meta:drop_table(ddSeCo@);
+            _ ->                            ok      % table does not exist
+        end,
+
+        catch imem_meta:create_check_table(ddSeCo@, SDef
+              , [{scope,local}, {local_content,true},{record_name,ddSeCo}], system),
 
         PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
-        catch imem_meta:create_check_table(ddPerm@, PDef, [{scope,local}, {local_content,true},{record_name,ddPerm}], system),
+        catch imem_meta:create_check_table(ddPerm@, PDef
+              , [{scope,local}, {local_content,true},{record_name,ddPerm}], system),
 
         QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
-        catch imem_meta:create_check_table(ddQuota@, QDef, [{scope,local}, {local_content,true},{record_name,ddQuota}], system),
+        catch imem_meta:create_check_table(ddQuota@, QDef
+              , [{scope,local}, {local_content,true},{record_name,ddQuota}], system),
 
         case if_select_account_by_name(none, <<"system">>) of
             {[],true} ->  
@@ -271,16 +284,15 @@ if_has_child_permission(SKey, [RootRoleId|OtherRoles], Permission) ->
 
 %% --Implementation (exported helper functions) ----------------------------------------
 
-create_credentials(Password) ->
-    create_credentials(pwdmd5, Password).
-
-create_credentials(Type, Password) when is_list(Password) ->
-    create_credentials(Type, list_to_binary(Password));
-create_credentials(Type, Password) when is_integer(Password) ->
-    create_credentials(Type, list_to_binary(integer_to_list(Password)));
-create_credentials(pwdmd5, Password) ->
-    {pwdmd5, erlang:md5(Password)}.
-
+-spec create_credentials(binary()|pwdmd5, binary()) -> ddCredential().
+create_credentials(Name, Password) when is_binary(Name),is_binary(Password) ->
+    {pwdmd5, {Name,erlang:md5(Password)}};  % username/password credential for auth_start/3 and auth_add_credential/2
+create_credentials(pwdmd5, Password) when is_list(Password) ->
+    create_credentials(pwdmd5, list_to_binary(Password));     
+create_credentials(pwdmd5, Password) when is_integer(Password) ->
+    create_credentials(pwdmd5, list_to_binary(integer_to_list(Password)));    
+create_credentials(pwdmd5, Password) when is_binary(Password) ->
+    {pwdmd5, erlang:md5(Password)}.         % for use in authenticate/3 and in raw credentials in ddAccount
 
 cleanup_pid(Pid) ->
     MonitorPid =  whereis(?MODULE),
@@ -311,32 +323,47 @@ drop_seco_tables(SKey) ->
             ?SecurityException({"Drop seco tables unauthorized", SKey})
     end.
 
-seco_create(SessionId, Name, {AuthMethod,_}) -> 
-    SeCo = #ddSeCo{pid=self(), sessionId=SessionId, name=Name, authMethod=AuthMethod, authTime=erlang:now()},
+seco_create(AppId,SessionId) -> 
+    SessionCtx = #ddSessionCtx{appId=AppId, sessionId=SessionId},
+    SeCo = #ddSeCo{pid=self(), sessionCtx=SessionCtx, authTime=erlang:now()},
     SKey = erlang:phash2(SeCo), 
-    SeCo#ddSeCo{skey=SKey, state=unauthorized}.
+    SeCo#ddSeCo{skey=SKey}.
 
-seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AccountId) when Pid == self() -> 
-    if_write(SKey, ddSeCo@, SeCo#ddSeCo{accountId=AccountId}),
-    case if_select_seco_keys_by_pid(#ddSeCo{pid=self(),name= <<"register">>},Pid) of
+seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AuthState) when Pid == self() -> 
+    if_write(SKey, ddSeCo@, SeCo#ddSeCo{authState=AuthState}),
+    case if_select_seco_keys_by_pid(#ddSeCo{pid=self(),accountName= <<"register">>},Pid) of
         {[],true} ->    monitor(Pid);
         _ ->            ok
     end,
     SKey.    %% hash is returned back to caller
 
-seco_authenticated(SKey) -> 
+seco_unregister(#ddSeCo{skey=SKey, pid=Pid}) when Pid == self() -> 
+    catch if_delete(SKey, ddSeCo@, SKey).
+
+
+seco_existing(SKey) -> 
     case if_read(SKey, ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid} = SeCo] when Pid == self() -> 
             SeCo;
+        [] ->               
+            ?SecurityException({"Not logged in", SKey})
+    end.   
+
+seco_authenticated(SKey) -> 
+    case if_read(SKey, ddSeCo@, SKey) of
+        [#ddSeCo{pid=Pid, authState=authenticated} = SeCo] when Pid == self() -> 
+            SeCo;
+        [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
+            SeCo;
         [#ddSeCo{}] ->      
-            ?SecurityViolation({"Not logged in", SKey});
+            ?SecurityViolation({"Not logged in", SKey});    % Not authenticated
         [] ->               
             ?SecurityException({"Not logged in", SKey})
     end.   
 
 seco_authorized(SKey) -> 
     case if_read(SKey, ddSeCo@, SKey) of
-        [#ddSeCo{pid=Pid, state=authorized} = SeCo] when Pid == self() -> 
+        [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{}] ->      
             ?SecurityViolation({"Not logged in", SKey});
@@ -416,67 +443,122 @@ have_permission(SKey, Permission) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     if_has_permission(SKey, AccountId, Permission).
 
-authenticate(SessionId, Name, {pwdmd5,Token}) ->
-    LocalTime = calendar:local_time(),
-    #ddSeCo{skey=SKey} = SeCo = seco_create(SessionId, Name, {pwdmd5,Token}),
+
+-spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | {ddSeCoKey(),atom()}. 
+authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication
+    auth_start(imem, SessionId, {pwdmd5,{Name,Token}}).
+
+-spec auth_start(atom(), any(), ddCredential()) -> ddSeCoKey() | {ddSeCoKey(),atom()}. 
+auth_start(AppId, SessionId, Credential) ->                % access context / network parameters 
+    auth_step(seco_create(AppId, SessionId), Credential).
+
+-spec auth_add_cred(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | {ddSeCoKey(),atom()}. 
+auth_add_cred(SKey, Credential) ->
+    auth_step(seco_existing(SKey), Credential).
+
+-spec auth_abort(ddSeCoKey()) -> ok. 
+auth_abort(SKey) ->
+    seco_unregister(seco_existing(SKey)).
+
+auth_step(#ddSeCo{sessionCtx=SessionCtx}=SeCo, {access,NetworkCtx}) ->
+    AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS),
+    CacheKey = {?MODULE,accessCheckFun,AccessCheckFunStr},
+    AccessCheckFun = case imem_cache:read(CacheKey) of 
+        [] ->
+            case imem_datatype:io_to_fun(AccessCheckFunStr) of
+                ACF when is_function(ACF,1) ->
+                    imem_cache:write(CacheKey,ACF),
+                    ACF;
+                _ ->
+                    authenticate_fail(SeCo,{"Invalid accessCheckFun", AccessCheckFunStr}) 
+            end;    
+        [ACF] when is_function(ACF,1) -> ACF;
+        Err -> authenticate_fail(SeCo,{"Invalid accessCheckFun", Err})
+    end,
+    case AccessCheckFun(SessionCtx#ddSessionCtx.networkCtx) of
+        true -> ok;
+        _ ->    authenticate_fail(SeCo,{"Network access denied",NetworkCtx})
+    end,   
+    AuthFactors = [access|SeCo#ddSeCo.authFactors],
+    SessionCtx = (SeCo#ddSeCo.sessionCtx)#ddSessionCtx{networkCtx=NetworkCtx},
+    auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=SessionCtx});
+auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
+    #ddSeCo{skey=SKey,accountId=AccId, authFactors=AFs} = SeCo,   % may not yet exist in ddSeco@
     case if_select_account_by_name(SKey, Name) of
         {[#ddAccount{locked='true'}],true} ->
-            authenticate_fail(SeCo, locked, Name);
-        {[#ddAccount{id=AccountId} = Account],true} ->
-            AccountDyn = case if_read(SKey, ddAccountDyn, AccountId) of
-                [] ->   
-                    AD = #ddAccountDyn{id=AccountId},
-                    if_write(SKey, ddAccountDyn, AD),
-                    AD;
-                [#ddAccountDyn{lastFailureTime=LocalTime} = AD] ->
+            authenticate_fail(SeCo,"Account is locked. Contact a system administrator");
+        {[#ddAccount{id=AccountId} = Account],true} when AccId==AccountId; AccId==undefined ->
+            LocalTime = calendar:local_time(),
+            case if_read(SKey, ddAccountDyn, AccountId) of
+                [#ddAccountDyn{lastFailureTime=LocalTime}] ->
                     %% lie a bit, don't show a fast attacker that this attempt might have worked
                     if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
-                    authenticate_fail(SeCo, AD, Name);
-                [AD] -> AD
+                    authenticate_fail(SeCo,"Invalid account credentials. Please retry");
+                _ -> ok
             end,
-            ok = check_re_hash(SeCo, Account, AccountDyn, Name, Token, Token, ?PWD_HASH_LIST),
-            authenticate_succeed(SeCo, AccountId, AccountDyn, Name);
+            ok = check_re_hash(SeCo, Account, Token, Token, ?PWD_HASH_LIST),
+            auth_step_succeed(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5|AFs]});
         {[],true} ->
-            authenticate_fail(SeCo, nomatch, Name)
-    end.
+            authenticate_fail(SeCo,"Invalid account credentials. Please retry")
+    end;
+auth_step(SeCo, Credential) ->
+    authenticate_fail(SeCo,{"Invalid credential type",element(1,Credential)}).
 
-authenticate_fail(_,locked,Name) ->
-    ?SecurityException({"Account is locked. Contact a system administrator", Name});
-authenticate_fail(_,nomatch,Name) ->
-    ?SecurityException({"Invalid account credentials. Please retry", Name});
-authenticate_fail(SeCo, AD, Name) ->
-    SKey = SeCo#ddSeCo.skey,
-    LocalTime = calendar:local_time(),
-    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime}),
-    authenticate_fail(SKey, nomatch, Name).
+authenticate_fail(SeCo,ErrorTerm) ->
+    seco_unregister(SeCo),
+    ?SecurityException(ErrorTerm).
 
-authenticate_succeed(SeCo, AccountId, #ddAccountDyn{lastFailureTime=undefined}, _Name) ->
-    seco_register(SeCo, AccountId);   % return (hash) value to client
-authenticate_succeed(SeCo, AccountId, AD, _Name) ->
-    if_write(SeCo#ddSeCo.skey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=undefined}),
-    seco_register(SeCo, AccountId).   % return (hash) value to client
+auth_step_succeed(#ddSeCo{skey=SKey, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
+    AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5),
+    CacheKey = {?MODULE,authenticateRequireFun,AuthRequireFunStr},
+    AuthRequireFun = case imem_cache:read(CacheKey) of 
+        [] ->
+            case imem_datatype:io_to_fun(AuthRequireFunStr) of
+                CF when is_function(CF,2) ->
+                    imem_cache:write(CacheKey,CF),
+                    CF;
+                _ ->
+                    authenticate_fail(SeCo,{"Invalid authenticatonRequireFun", AuthRequireFunStr}) 
+            end;    
+        [AF] when is_function(AF,2) -> AF;
+        Err -> authenticate_fail(SeCo,{"Invalid authenticatonRequireFun", Err})
+    end,
+    case AuthRequireFun(AFs,SessionCtx#ddSessionCtx.networkCtx) of
+        [] ->   
+            case if_read(SKey, ddAccountDyn, AccountId) of
+                [] ->   
+                    AD = #ddAccountDyn{id=AccountId},
+                    if_write(SKey, ddAccountDyn, AD);   % create dynamic account record if missing
+                [#ddAccountDyn{lastFailureTime=undefined}] ->
+                    ok;
+                [#ddAccountDyn{} = AD] ->
+                    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=undefined})
+            end,
+            seco_register(SeCo, authenticated);   % return SKey (hash) value to client
+        OFs ->  
+            {seco_register(SeCo, undefined), OFs} % return Skey and list of more authentcation factors to try
+    end.       
 
-
-check_re_hash(SeCo, _Account, AccountDyn, Name, _OldToken, _NewToken, []) ->
-    authenticate_fail(SeCo, AccountDyn, Name);
-check_re_hash(SeCo, Account, AccountDyn, Name, OldToken, NewToken, [pwdmd5|Types]) ->
+check_re_hash(SeCo, _Account, _OldToken, _NewToken, []) ->
+    authenticate_fail(SeCo,"Invalid account credentials. Please retry");
+check_re_hash(SeCo, Account, OldToken, NewToken, [pwdmd5|Types]) ->
     case lists:member({pwdmd5,OldToken},Account#ddAccount.credentials) of
         true ->  
             re_hash(SeCo, {pwdmd5,OldToken}, OldToken, NewToken, Account);
         false ->
-            check_re_hash(SeCo, Account, AccountDyn, Name, OldToken, NewToken, Types)
+            check_re_hash(SeCo, Account, OldToken, NewToken, Types)
     end;
-check_re_hash(SeCo, Account, AccountDyn, Name, OldToken, NewToken, [Type|Types]) ->
+check_re_hash(SeCo, Account, OldToken, NewToken, [Type|Types]) ->
     case lists:keyfind(Type,1,Account#ddAccount.credentials) of
         {Type,{Salt,Hash}} ->
             case hash(Type,Salt,OldToken) of
                 Hash ->
                     re_hash(SeCo, {Type,{Salt,Hash}}, OldToken, NewToken, Account);
                 _ ->
-                    authenticate_fail(SeCo, AccountDyn, Name)
+                    authenticate_fail(SeCo,"Invalid account credentials. Please retry")
             end;
         false ->
-            check_re_hash(SeCo, Account, AccountDyn, Name, OldToken, NewToken, Types)
+            check_re_hash(SeCo, Account, OldToken, NewToken, Types)
     end.
 
 find_re_hash(SeCo, Account, NewToken, []) ->
@@ -519,23 +601,23 @@ hash(Type,Salt,Token) when is_atom(Type), is_binary(Salt), is_binary(Token) ->
     crypto:hash(Type,<<Salt/binary,Token/binary>>).
 
 login(SKey) ->
-    #ddSeCo{accountId=AccountId, authMethod=AuthenticationMethod} = SeCo = seco_authenticated(SKey),
+    #ddSeCo{accountId=AccountId, authFactors=AuthenticationFactors} = SeCo = seco_authenticated(SKey),
     LocalTime = calendar:local_time(),
     PwdExpireSecs = calendar:datetime_to_gregorian_seconds(LocalTime),
     PwdExpireDate = case ?GET_PASSWORD_LIFE_TIME(AccountId) of
-        infinity -> 0;
+        infinity -> 0;      % sorts in after any date tuple
         PVal ->     calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*PVal)
     end,
-    case {if_read(SKey, ddAccount, AccountId), AuthenticationMethod} of
-        {[#ddAccount{lastPasswordChangeTime=undefined}], pwdmd5} -> 
+    case {if_read(SKey, ddAccount, AccountId), lists:member(pwdmd5,AuthenticationFactors)} of
+        {[#ddAccount{lastPasswordChangeTime=undefined}], true} -> 
             logout(SKey),
             ?SecurityException({?PasswordChangeNeeded, AccountId});
-        {[#ddAccount{lastPasswordChangeTime=LastChange}], pwdmd5} when LastChange < PwdExpireDate -> 
+        {[#ddAccount{lastPasswordChangeTime=LastChange}], true} when LastChange < PwdExpireDate -> 
             logout(SKey),
             ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[_], _} ->
             [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
-            ok = seco_update(SeCo, SeCo#ddSeCo{state=authorized}),
+            ok = seco_update(SeCo, SeCo#ddSeCo{authState=authorized}),
             if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=LocalTime}),
             SKey;            
         {[], _} ->                    
@@ -549,18 +631,12 @@ change_credentials(SKey, {pwdmd5,Token}, {pwdmd5,Token}) ->
     ?SecurityException({"The same password cannot be re-used. Please retry", AccountId});
 change_credentials(SKey, {pwdmd5,OldToken}, {pwdmd5,NewToken}) ->
     #ddSeCo{accountId=AccountId} = SeCo = seco_authenticated(SKey),
-    [#ddAccount{name=Name}=Account] = if_read(SKey, ddAccount, AccountId),
-    [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
-    ok = check_re_hash(SeCo, Account, AccountDyn, Name, OldToken, NewToken, ?PWD_HASH_LIST),
+    [Account] = if_read(SKey, ddAccount, AccountId),
+    ok = check_re_hash(SeCo, Account, OldToken, NewToken, ?PWD_HASH_LIST),
     login(SKey).
-% change_credentials(SKey, {CredType,_}=OldCred, {CredType,_}=NewCred) ->
-%     #ddSeCo{accountId=AccountId} = seco_authenticated(SKey),
-%     [#ddAccount{credentials=CredList} = Account]= if_read(SKey, ddAccount, AccountId),
-%     if_write(SKey, ddAccount, Account#ddAccount{credentials=[NewCred|lists:delete(OldCred,CredList)]}),
-%     login(SKey).
 
 set_credentials(SKey, Name, {pwdmd5,NewToken}) ->
-    SeCo = seco_authenticated(SKey),
+    SeCo = seco_authorized(SKey),
     case have_permission(SKey, manage_accounts) of
         true ->     Account = imem_account:get_by_name(SKey, Name),
                     find_re_hash(SeCo, Account, NewToken, ?PWD_HASH_LIST); 
@@ -582,7 +658,7 @@ logout(SKey) ->
     seco_delete(SKey, SKey).
 
 clone_seco(SKeyParent, Pid) ->
-    SeCoParent = seco_authenticated(SKeyParent),
+    SeCoParent = seco_authorized(SKeyParent),
     SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
     SKey = erlang:phash2(SeCo), 
     if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),

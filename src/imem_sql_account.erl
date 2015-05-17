@@ -6,7 +6,7 @@
         ]).
 
 exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _StmtOpts, IsSec) ->
-    {pwdmd5, PasswordMd5} = imem_seco:create_credentials(Password),
+    {pwdmd5, PasswordMd5} = imem_seco:create_credentials(pwdmd5, Password),
     if_call_mfa(IsSec, admin_exec, [SKey, imem_account, create, [user, Name, Name, PasswordMd5]]),
     case lists:member({account,lock}, Opts) of 
         true -> if_call_mfa(IsSec, admin_exec, [SKey, imem_account, lock, [Name]]);
@@ -32,7 +32,7 @@ exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _StmtOpts, IsSec) ->
     end,
     case lists:keyfind('identified by', 1, Specs) of
         {'identified by', NewPassword} ->  
-            NewCredentials = imem_seco:create_credentials(NewPassword),
+            NewCredentials = imem_seco:create_credentials(pwdmd5, NewPassword),
             if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, set_credentials, [Name,NewCredentials]]);
         false -> ok
     end;

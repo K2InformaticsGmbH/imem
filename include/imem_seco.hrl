@@ -9,6 +9,7 @@
 -type ddPermission() :: atom() | tuple().       %% e.g. manage_accounts, {table,ddSeCo,select}
 -type ddQuota() :: {atom(),any()}.              %% e.g. {max_memory, 1000000000}
 -type ddSeCoKey() :: integer().                 %% security context key ('random' hash)
+-type ddAuthState() :: undefined | authenticated | authorized.
 
 -record(ddAccount,  %% imem cluster account (shared by application)
                     { id                        ::ddEntityId() 
@@ -42,18 +43,26 @@
        ). 
 -define(ddRole, [userid,list,list,list]).
 
--record(ddSeCo,     %% security context              
-                    { skey                      :: ddSeCoKey()        %% random hash value
-                    , pid                       :: any()              %% caller physical id
-                    , sessionId                 :: integer()          %% erlang:phash2({dderl_session, self()})
-                    , name                      :: ddIdentity()       %% account name
-                    , accountId                 :: ddEntityId()
-                    , authMethod                :: atom()             %% see ddCredential() 
-                    , authTime                  :: ddTimestamp()      %% (re)authentication timestamp erlang:now()
-                    , state                     :: any()              %% authentication state
+-record(ddSessionCtx,    %% session context              
+                    { appId                     :: atom()             %% imem | dderl | ...
+                    , sessionId                 :: any()              %% phash2({dderl_session, self()})
+                    , networkCtx                :: undefined | list() %% network parameter proplist
                     }     
        ). 
--define(ddSeCo, [integer,pid,integer,binstr,userid,atom,timestamp,term]).
+
+-record(ddSeCo,     %% security context              
+                    { skey                      :: ddSeCoKey()        %% random hash value
+                    , pid                       :: pid()              %% caller physical id
+                    , sessionCtx                :: #ddSessionCtx{}    %% {AppId, phash2({dderl_session, self()})}
+                    , accountName               :: ddIdentity()       %% account name
+                    , accountId                 :: ddEntityId()
+                    , authFactors=[]            :: [atom()]           %% checked auth factors see ddCredential() 
+                    , authTime                  :: ddTimestamp()      %% (re)authentication timestamp erlang:now()
+                    , authState                 :: ddAuthState()      %% authentication state
+                    , authOpts = []             :: list()             %% for proprietary extensions
+                    }     
+       ). 
+-define(ddSeCo, [integer,pid,tuple,binstr,userid,list,timestamp,atom,list]).
 
 -record(ddPerm,     %% acquired permission cache bag table             
                     { pkey                      :: {ddSeCoKey(), ddPermission()}  %% permission key
@@ -99,13 +108,13 @@ end
 
 -define(imem_test_admin_login, fun() -> 
     ?imem_test_admin_drop(),    
-    __Cred = imem_seco:create_credentials(crypto:rand_bytes(50)),
+    {pwdmd5,__Token} = imem_seco:create_credentials(pwdmd5,crypto:rand_bytes(50)),
     __AcId = imem_account:make_id(),
     imem_meta:write( ddAccount
                    , #ddAccount{ id=__AcId
                                , name= <<"_test_admin_">>
                                , fullName= <<"_test_admin_">>
-                               , credentials=[__Cred]
+                               , credentials=[{pwdmd5,__Token}]
                                , lastPasswordChangeTime= calendar:local_time()
                                }
                    ),
@@ -121,7 +130,10 @@ end
                                           ]
                             }
                    ),
-    imem_seco:login(imem_seco:authenticate(testAdminSessionId, <<"_test_admin_">>, __Cred))
+    % login with old style authentication
+    % imem_seco:login(imem_seco:authenticate(testAdminSessionId, <<"_test_admin_">>, {pwdmd5,__Token}))
+    % login with new style authentication
+    imem_seco:login(imem_seco:auth_start(imem, testAdminSessionId, {pwdmd5,{<<"_test_admin_">>,__Token}}))
 end 
 ).
 
