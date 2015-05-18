@@ -447,15 +447,15 @@ have_permission(SKey, Permission) ->
     if_has_permission(SKey, AccountId, Permission).
 
 
--spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
+-spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication
     auth_start(imem, SessionId, {pwdmd5,{Name,Token}}).
 
--spec auth_start(atom(), any(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
+-spec auth_start(atom(), any(), ddCredential()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 auth_start(AppId, SessionId, Credential) ->                % access context / network parameters 
     auth_step(seco_create(AppId, SessionId), Credential).
 
--spec auth_add_cred(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
+-spec auth_add_cred(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 auth_add_cred(SKey, Credential) ->
     auth_step(seco_existing(SKey), Credential).
 
@@ -463,7 +463,7 @@ auth_add_cred(SKey, Credential) ->
 auth_abort(SKey) ->
     seco_unregister(seco_existing(SKey)).
 
--spec auth_step(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
+-spec auth_step(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 auth_step(#ddSeCo{sessionCtx=SessionCtx}=SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
     AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS),
     CacheKey = {?MODULE,accessCheckFun,AccessCheckFunStr},
@@ -524,7 +524,7 @@ authenticate_fail(SeCo, ErrorTerm) ->
     seco_unregister(SeCo),
     ?SecurityException(ErrorTerm).
 
--spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
+-spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
     AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5),
     CacheKey = {?MODULE,authenticateRequireFun,AuthRequireFunStr},

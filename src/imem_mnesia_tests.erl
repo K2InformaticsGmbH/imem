@@ -30,7 +30,9 @@ teardown(_) ->
     case erlang:whereis(imem_sup) of
         undefined -> mnesia:stop();
         _ -> ok
-    end.
+    end,
+    imem:stop().
+
 
 imem_mnesia_test_() ->
     {timeout, ?TEST_TIMEOUT, {

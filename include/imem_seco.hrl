@@ -4,11 +4,22 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
--type ddIdentity() :: system | binary().        %% Account name
--type ddCredential() :: {atom(), any()}.        %% {pwdmd5, md5(password)} / {sha512,{Salt,Hash}} / {scrypt,{Salt,Hash}}
--type ddPermission() :: atom() | tuple().       %% e.g. manage_accounts, {table,ddSeCo,select}
--type ddQuota() :: {atom(),any()}.              %% e.g. {max_memory, 1000000000}
--type ddSeCoKey() :: integer().                 %% security context key ('random' hash)
+-type ddIdentity() :: system | binary().              % AccountName / Login user name
+-type ddCredential() :: {pwdmd5,binary()}             % {pwdmd5, md5(password)} in ddAccount.credentials for storing hash separate from name
+                      | {sha512,{binary(),binary()}}  % {sha512,{Salt,Hash}}    in ddAccount.credentials 
+                      | {scrypt,{binary(),binary()}}  % {scrypt,{Salt,Hash}}    in ddAccount.credentials 
+                      | {access,map()}                % {access,NetworkCtx}                   input to auth_start / auth_add_cred
+                      | {pwdmd5,{binary(),binary()}}  % {pwdmd5, {AccountName,md5(password)}  input to auth_start / auth_add_cred
+                      | {smsott,binary()}.            % {smsott,Token}                        input to auth_start / auth_add_cred 
+
+-type ddCredRequest() :: {pwdmd5,map()}               % {pwdmd5,#{}} | {smsott,#{accountName=>AccountName}} (any / fixed AccountName) 
+                       | {smsott,map()}               % {smsott,#{accountName=>AccountName,to=>To}}
+                       | {access,map()}               % {access,#{}} (request for all network parameters, maybe more selective requests later)
+                       | {saml,map()}.                % {saml,#{}}   (request for saml authenticate handshake, parameters TBD)
+
+-type ddPermission() :: atom() | tuple().             % e.g. manage_accounts, {table,ddSeCo,select}
+-type ddQuota() :: {atom(),any()}.                    % e.g. {max_memory, 1000000000}
+-type ddSeCoKey() :: integer().                       % security context key ('random' hash)
 -type ddAuthState() :: undefined | authenticated | authorized.
 
 -record(ddAccount,  %% imem cluster account (shared by application)
