@@ -99,7 +99,8 @@ init(_Args) ->
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
         case (catch imem_meta:table_columns(ddSeCo@)) of
             L when L==element(1,SDef) ->    ok;     % field names in table match the new record
-            L when is_list(L) ->            imem_meta:drop_table(ddSeCo@);
+            L when is_list(L) ->            ?Info("~p dropping old version of table ddSeCo@~n", [?MODULE]),
+                                            imem_meta:drop_table(ddSeCo@);
             _ ->                            ok      % table does not exist
         end,
 
@@ -446,15 +447,15 @@ have_permission(SKey, Permission) ->
     if_has_permission(SKey, AccountId, Permission).
 
 
--spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | {ddSeCoKey(),atom()}. 
+-spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
 authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication
     auth_start(imem, SessionId, {pwdmd5,{Name,Token}}).
 
--spec auth_start(atom(), any(), ddCredential()) -> ddSeCoKey() | {ddSeCoKey(),atom()}. 
+-spec auth_start(atom(), any(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
 auth_start(AppId, SessionId, Credential) ->                % access context / network parameters 
     auth_step(seco_create(AppId, SessionId), Credential).
 
--spec auth_add_cred(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | {ddSeCoKey(),atom()}. 
+-spec auth_add_cred(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
 auth_add_cred(SKey, Credential) ->
     auth_step(seco_existing(SKey), Credential).
 
@@ -462,7 +463,8 @@ auth_add_cred(SKey, Credential) ->
 auth_abort(SKey) ->
     seco_unregister(seco_existing(SKey)).
 
-auth_step(#ddSeCo{sessionCtx=SessionCtx}=SeCo, {access,NetworkCtx}) ->
+-spec auth_step(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
+auth_step(#ddSeCo{sessionCtx=SessionCtx}=SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
     AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS),
     CacheKey = {?MODULE,accessCheckFun,AccessCheckFunStr},
     AccessCheckFun = case imem_cache:read(CacheKey) of 
@@ -517,11 +519,13 @@ auth_step(SeCo, {smsott,Token}) ->
 auth_step(SeCo, Credential) ->
     authenticate_fail(SeCo,{"Invalid credential type",element(1,Credential)}).
 
-authenticate_fail(SeCo,ErrorTerm) ->
+-spec authenticate_fail(ddSeCoKey(), list() | tuple()) -> no_return(). 
+authenticate_fail(SeCo, ErrorTerm) ->
     seco_unregister(SeCo),
     ?SecurityException(ErrorTerm).
 
-auth_step_succeed(#ddSeCo{skey=SKey, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
+-spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredential()] | no_return(). 
+auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
     AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5),
     CacheKey = {?MODULE,authenticateRequireFun,AuthRequireFunStr},
     AuthRequireFun = case imem_cache:read(CacheKey) of 
@@ -554,22 +558,27 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountId=AccountId, sessionCtx=SessionCtx,
                     authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token");
                 To ->           
                     case (catch sc_send_sms_token(SessionCtx#ddSessionCtx.appId, To)) of
-                        ok ->           {seco_register(SeCo, undefined), [smsott]};     % request a SMS one time token
+                        ok ->           seco_register(SeCo, undefined), 
+                                        [{smsott,#{accountName=>AccountName,to=>To}}];     % request a SMS one time token
                         {error,Err2} -> authenticate_fail(SeCo,{"SMS one time token sending failed", Err2})
                     end
             end;
         [smsott|Rest] ->
             case sms_ott_mobile_phone(SKey, AccountId) of
                 undefined ->    
-                    {seco_register(SeCo, undefined), Rest};
+                    seco_register(SeCo, undefined), 
+                    [{A,#{accountName=>AccountName}} || A <- Rest];
                 To ->           
                     case (catch sc_send_sms_token(SessionCtx#ddSessionCtx.appId, To)) of
-                        ok ->       {seco_register(SeCo, undefined), [smsott|Rest]}; % request a SMS one time token
-                        _ ->        {seco_register(SeCo, undefined), Rest}
+                        ok ->       {seco_register(SeCo, undefined), 
+                                    [{smsott,#{accountName=>AccountName,to=>To}}|Rest]}; % request a SMS one time token
+                        _ ->        seco_register(SeCo, undefined), 
+                                    [{A,#{accountName=>AccountName}} || A <- Rest]
                     end
             end;
         OFs ->  
-            {seco_register(SeCo, undefined), OFs}   % return Skey and list of more authentcation factors to try
+            seco_register(SeCo, undefined), 
+            [{A,#{accountName=>AccountName}} || A <- OFs]   % return Skey and list of more authentcation factors to try
     end.       
 
 sms_ott_mobile_phone(SKey, AccountId) ->

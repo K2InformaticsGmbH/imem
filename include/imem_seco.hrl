@@ -16,7 +16,7 @@
                     , name                      ::ddIdentity()        %% unique login id (mutable)
                     , type='user'               ::atom()              %% user | driver | deamon | application
                     , credentials=[]            ::[ddCredential()]  
-                    , fullName                  ::binary()                    
+                    , fullName                  ::binary()            %% simple binary name or profile as json binary                    
                     , lastLoginTime             ::ddDatetime()        %% deprecated
                     , lastFailureTime           ::ddDatetime()        %% last locking time for now
                     , lastPasswordChangeTime    ::ddDatetime()        %% change time (undefined or too old  => must change it now and reconnect)
@@ -46,7 +46,7 @@
 -record(ddSessionCtx,    %% session context              
                     { appId                     :: atom()             %% imem | dderl | ...
                     , sessionId                 :: any()              %% phash2({dderl_session, self()})
-                    , networkCtx                :: undefined | list() %% network parameter proplist
+                    , networkCtx=#{}            :: map()              %% network parameters in a map
                     }     
        ). 
 
