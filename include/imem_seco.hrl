@@ -143,8 +143,10 @@ end
                    ),
     % login with old style authentication
     % imem_seco:login(imem_seco:authenticate(testAdminSessionId, <<"_test_admin_">>, {pwdmd5,__Token}))
+    
     % login with new style authentication
-    imem_seco:login(imem_seco:auth_start(imem, testAdminSessionId, {pwdmd5,{<<"_test_admin_">>,__Token}}))
+    {__SKey,[]} = imem_seco:auth_start(imem, testAdminSessionId, {pwdmd5,{<<"_test_admin_">>,__Token}}),
+    imem_seco:login(__SKey)
 end 
 ).
 
