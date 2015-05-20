@@ -446,7 +446,6 @@ have_permission(SKey, Permission) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     if_has_permission(SKey, AccountId, Permission).
 
-
 -spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication
     auth_start(imem, SessionId, {pwdmd5,{Name,Token}}).
@@ -464,7 +463,7 @@ auth_abort(SKey) ->
     seco_unregister(seco_existing(SKey)).
 
 -spec auth_step(ddSeCoKey(), ddCredential()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
-auth_step(#ddSeCo{sessionCtx=SessionCtx}=SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
+auth_step(#ddSeCo{skey = SKey, sessionCtx=SessionCtx, accountName=OldAccountName, accountId=OldAccountId}=SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
     AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS),
     CacheKey = {?MODULE,accessCheckFun,AccessCheckFunStr},
     AccessCheckFun = case imem_cache:read(CacheKey) of 
@@ -482,10 +481,30 @@ auth_step(#ddSeCo{sessionCtx=SessionCtx}=SeCo, {access,NetworkCtx}) when is_map(
     case AccessCheckFun(SessionCtx#ddSessionCtx.networkCtx) of
         true -> ok;
         _ ->    authenticate_fail(SeCo,{"Network access denied",NetworkCtx})
-    end,   
+    end,
+    {AccountName, AccountId} = case NetworkCtx of
+          #{http := #{headers := HttpHeaders}} ->
+              case {OldAccountName, proplists:get_value(<<"ntlm_authenticated_user">>, HttpHeaders, '$missing')} of
+                  {_, '$missing'} -> {OldAccountName, OldAccountId};
+                  {OldAccountName, NewAccountName}
+                    when OldAccountName == undefined; OldAccountName == NewAccountName ->
+                      case if_select_account_by_name(SKey, NewAccountName) of
+                          {[#ddAccount{locked='true'}],true} ->
+                              authenticate_fail(SeCo,"Account is locked. Contact a system administrator");
+                          {[#ddAccount{id=NewAccountId}],true} ->
+                              {NewAccountName, NewAccountId};
+                          {[],true} ->
+                              authenticate_fail(SeCo, {"Access denied for", NewAccountName})
+                      end;
+                  _ ->
+                      authenticate_fail(SeCo,"Account name conflict")
+              end;
+          _ ->
+              {OldAccountName, OldAccountId}
+    end,
     AuthFactors = [access|SeCo#ddSeCo.authFactors],
-    SessionCtx = (SeCo#ddSeCo.sessionCtx)#ddSessionCtx{networkCtx=NetworkCtx},
-    auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=SessionCtx});
+    NewSessionCtx = (SeCo#ddSeCo.sessionCtx)#ddSessionCtx{networkCtx=NetworkCtx},
+    auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=NewSessionCtx, accountName=AccountName, accountId=AccountId});
 auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
     #ddSeCo{skey=SKey,accountId=AccId, authFactors=AFs} = SeCo,   % may not yet exist in ddSeco@
     case if_select_account_by_name(SKey, Name) of

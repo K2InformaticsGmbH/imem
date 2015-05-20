@@ -42,6 +42,9 @@
         ]).
 
 -export([ authenticate/4
+        , auth_start/4
+        , auth_add_cred/2
+        , auth_abort/1
         , login/1
         , change_credentials/3
         , logout/1
@@ -127,6 +130,15 @@
 
 authenticate(_SKey, SessionId, Name, Credentials) ->
     imem_seco:authenticate(SessionId, Name, Credentials).
+
+auth_start(_Skey, AppId, SessionId, Credential) ->
+    imem_seco:auth_start(AppId, SessionId, Credential).
+
+auth_add_cred(SKey, Credential) ->
+    imem_seco:auth_add_cred(SKey, Credential).
+
+auth_abort(SKey) ->
+    imem_seco:auth_abort(SKey).
 
 login(SKey) ->
     imem_seco:login(SKey).
