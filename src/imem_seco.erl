@@ -455,10 +455,27 @@ have_permission(SKey, Permission) ->
     if_has_permission(SKey, AccountId, Permission).
 
 -spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | no_return(). 
-authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication
-    case auth_start(imem, SessionId, {pwdmd5,{Name,Token}}) of
-        {SKey,[]} ->            SKey;
-        {SKey,CredRequests} ->  authenticate_fail(seco_existing(SKey), {"Missing authenticatiopn factors",CredRequests})
+authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication, deprecated
+    #ddSeCo{skey=SKey} = SeCo = seco_create(imem, SessionId), 
+    case if_select_account_by_name(SKey, Name) of
+        {[#ddAccount{locked='true'}],true} ->
+            authenticate_fail(SeCo,"Account is locked. Contact a system administrator");
+        {[#ddAccount{id=AccountId} = Account],true} ->
+            LocalTime = calendar:local_time(),
+            case if_read(SKey, ddAccountDyn, AccountId) of
+                [] ->   
+                    AD = #ddAccountDyn{id=AccountId},
+                    if_write(SKey, ddAccountDyn, AD);   % create dynamic account record if missing
+                [#ddAccountDyn{lastFailureTime=LocalTime}] ->
+                    %% lie a bit, don't show a fast attacker that this attempt might have worked
+                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
+                    authenticate_fail(SeCo,"Invalid account credentials. Please retry");
+                _ -> ok
+            end,
+            ok = check_re_hash(SeCo, Account, Token, Token, ?PWD_HASH_LIST),
+            seco_register(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5]}, authenticated);     % return SKey only
+        {[],true} ->    
+            authenticate_fail(SeCo,"Invalid account credentials. Please retry")
     end.
 
 -spec auth_start(atom(), any(), ddCredential()) -> {ddSeCoKey(),[ddCredRequest()]} | no_return(). 
