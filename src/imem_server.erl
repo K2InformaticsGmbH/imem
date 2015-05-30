@@ -97,6 +97,7 @@ loop(Socket, Transport, Buf, Len) ->
                             loop(Socket, Transport, NewBuf, NewLen);
                         Term ->
                             if element(2, Term) =:= imem_sec ->
+                                ?TLog("mfa ~p", [Term]),
                                 mfa(Term, {Transport, Socket, element(1, Term)});
                             true ->
                                 send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
