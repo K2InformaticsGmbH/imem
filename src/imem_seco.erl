@@ -559,7 +559,8 @@ auth_step(SeCo, {smsott,Token}) ->
             case (catch sc_verify_sms_token(SessionCtx#ddSessionCtx.appId, To, Token)) of
                 ok ->
                     auth_step_succeed(SeCo#ddSeCo{authFactors=[smsott|AFs]});
-                _ ->
+                Error ->
+                    ?Error("Token validation failed ~p", [Error]),
                     case ?GET_CONFIG(smsTokenValidationRetry,[SessionCtx#ddSessionCtx.appId],true) of
                         true -> {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % re-ask for same token
                         _ ->    authenticate_fail(SeCo, "SMS one time token validation failed")
@@ -826,6 +827,10 @@ sc_send_sms_token(Url, ClientId, To, Text, TokenType, ExpireTime, TokenLength, T
             {error, {"Invalid token type", TokenType}}
     end.
 
+sc_verify_sms_token(AppId, To, Token) when is_binary(To) ->
+    sc_verify_sms_token(AppId, binary_to_list(To), Token);
+sc_verify_sms_token(AppId, To, Token) when is_integer(Token) ->
+    sc_verify_sms_token(AppId, To, integer_to_list(Token));
 sc_verify_sms_token(AppId, To, Token) ->
     sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId], "https://api.swisscom.com/v1/tokenvalidation")
                        , ?GET_CONFIG(smsTokenValidationClientId,[AppId], "RokAOeF59nkcFg2GtgxgOdZzosQW1MPQ")
