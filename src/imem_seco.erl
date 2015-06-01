@@ -8,7 +8,6 @@
 -define(PWD_HASH_LIST, [scrypt,sha512,pwdmd5]).  %% allowed hash types
 -define(REQUIRE_PWDMD5, <<"fun(Factors,NetCtx) -> [pwdmd5] -- Factors end">>).  % access | smsott | saml | pwdmd5
 -define(FULL_ACCESS, <<"fun(NetCtx) -> true end">>).
--define(SMS_TOKEN_TYPES, [<<"SHORT_NUMERIC">>, <<"SHORT_ALPHANUMERIC">>, <<"SHORT_SMALL_AND_CAPITAL">>, <<"LONG_CRYPTIC">>]).
 
 -behavior(gen_server).
 
@@ -58,14 +57,6 @@
 
 -export([ have_role/2
         , have_permission/2
-        ]).
-
-%% SMS APIs
--export([ sc_send_sms_token/2
-        , sc_send_sms_token/6
-        , sc_send_sms_token/8
-        , sc_verify_sms_token/3
-        , sc_verify_sms_token/4
         ]).
 
 %       returns a ref() of the monitor
@@ -556,7 +547,7 @@ auth_step(SeCo, {smsott,Token}) ->
         undefined ->    
             authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token");
         To ->           
-            case (catch sc_verify_sms_token(SessionCtx#ddSessionCtx.appId, To, Token)) of
+            case (catch imem_auth_smsott:verify_sms_token(SessionCtx#ddSessionCtx.appId, To, Token, {smsott, #{}})) of % TODO : smsott with parameters
                 ok ->
                     auth_step_succeed(SeCo#ddSeCo{authFactors=[smsott|AFs]});
                 Error ->
@@ -608,7 +599,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
                 undefined ->    
                     authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token");
                 To ->           
-                    case (catch sc_send_sms_token(SessionCtx#ddSessionCtx.appId, To)) of
+                    case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
                         ok ->           
                             {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % request a SMS one time token
                         {error,Err2} -> 
@@ -622,7 +613,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
             case sms_ott_mobile_phone(SKey, AccountId) of
                 undefined ->    {seco_register(SeCo),[{A,#{accountName=>AccountName}} || A <- Rest]};
                 To ->           
-                    case (catch sc_send_sms_token(SessionCtx#ddSessionCtx.appId, To)) of
+                    case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
                         ok ->   {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}|Rest]};   % request a SMS one time token
                         _ ->    {seco_register(SeCo),[{A,#{accountName=>AccountName}} || A <- Rest]}        % skip SMS one time token factor
                     end
@@ -775,90 +766,6 @@ clone_seco(SKeyParent, Pid) ->
     if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     monitor(Pid),
     SKey.
-
-% @doc
-sc_send_sms_token(AppId,To) ->
-    sc_send_sms_token( AppId
-                     , To
-                     , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 60 seconds.">>)
-                     , ?GET_CONFIG(smsTokenValidationTokenType,[AppId],<<"SHORT_NUMERIC">>)
-                     , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],60)
-                     , ?GET_CONFIG(smsTokenValidationTokenLength,[AppId],6)
-                     ).
-
-sc_send_sms_token(AppId, To, Text, TokenType, ExpireTime, TokenLength) ->
-    sc_send_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://api.swisscom.com/v1/tokenvalidation")
-                     , ?GET_CONFIG(smsTokenValidationClientId,[AppId],"RokAOeF59nkcFg2GtgxgOdZzosQW1MPQ")
-                     , To
-                     , Text
-                     , TokenType
-                     , ExpireTime
-                     , TokenLength
-                     , ?GET_CONFIG(smsTokenValidationTraceId,[AppId],"IMEM")
-                     ).
-
-sc_send_sms_token(Url, ClientId, To, Text, TokenType, ExpireTime, TokenLength, TraceId) when is_integer(ExpireTime), is_integer(TokenLength) ->
-    case lists:member(TokenType, ?SMS_TOKEN_TYPES) of
-        true -> 
-            ReqMap = #{to=>To, text=>Text, tokenType=>TokenType, expireTime=>integer_to_binary(ExpireTime), tokenLength=>TokenLength},
-            Req = imem_json:encode(if TraceId /= <<>> -> maps:put(traceId, TraceId, ReqMap); true -> ReqMap end),
-            ?Info("Sending sms token ~p", [Req]),
-            case httpc:request( post
-                              , { Url
-                                , [ {"client_id",ClientId}
-                                  , {"Accept","application/json; charset=utf-8"}
-                                  ]
-                                , "application/json; charset=utf-8"
-                                , Req
-                                }
-                              , [{ssl,[{verify,0}]}]
-                              , [{full_result, false}]
-                              ) of
-                {ok,{200,[]}} ->    ok;
-                {ok,{400,Body}} ->  {error, {"HTTP 400", Body}};
-                {ok,{401,_}} ->     {error, "HTTP 401: Unauthorized"};
-                {ok,{403,_}} ->     {error, "HTTP 403: Client IP not whitelisted"};
-                {ok,{404,_}} ->     {error, "HTTP 404: Wrong URL or the given customer not found"};
-                {ok,{500,Body}} ->  {error, {"HTTP 500", Body}};
-                {error, Error} ->   {error, Error};
-                Error ->            {error, Error}
-            end;
-        _ ->    
-            {error, {"Invalid token type", TokenType}}
-    end.
-
-sc_verify_sms_token(AppId, To, Token) when is_binary(To) ->
-    sc_verify_sms_token(AppId, binary_to_list(To), Token);
-sc_verify_sms_token(AppId, To, Token) when is_integer(Token) ->
-    sc_verify_sms_token(AppId, To, integer_to_list(Token));
-sc_verify_sms_token(AppId, To, Token) when is_binary(Token) ->
-    sc_verify_sms_token(AppId, To, binary_to_list(Token));
-sc_verify_sms_token(AppId, To, Token) ->
-    sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId], "https://api.swisscom.com/v1/tokenvalidation")
-                       , ?GET_CONFIG(smsTokenValidationClientId,[AppId], "RokAOeF59nkcFg2GtgxgOdZzosQW1MPQ")
-                       , To
-                       , Token
-                       ).
-
-sc_verify_sms_token(Url, ClientId, To, Token) ->
-    case httpc:request( get
-                      , { string:join([Url,To,Token],"/")
-                        , [ {"client_id",ClientId}
-                          , {"Accept","application/json; charset=utf-8"}
-                          ]
-                        }
-                      , [{ssl,[{verify,0}]},{url_encode,false}]
-                      , [{full_result, false}]
-                      ) of
-        {ok,{200,[]}} ->    ok;
-        {ok,{400,Body}} ->  {error, {"HTTP 400", Body}};
-        {ok,{401,_}} ->     {error, "HTTP 401: Unauthorized"};
-        {ok,{403,_}} ->     {error, "HTTP 403: Client IP not whitelisted"};
-        {ok,{404,_}} ->     {error, "HTTP 404: Wrong URL or the given customer not found"};
-        {ok,{500,Body}} ->  {error, {"HTTP 500", Body}};
-        {error, Error} ->   {error, Error};
-        Error ->            {error, Error}
-    end.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
