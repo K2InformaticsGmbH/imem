@@ -831,6 +831,8 @@ sc_verify_sms_token(AppId, To, Token) when is_binary(To) ->
     sc_verify_sms_token(AppId, binary_to_list(To), Token);
 sc_verify_sms_token(AppId, To, Token) when is_integer(Token) ->
     sc_verify_sms_token(AppId, To, integer_to_list(Token));
+sc_verify_sms_token(AppId, To, Token) when is_binary(Token) ->
+    sc_verify_sms_token(AppId, To, binary_to_list(Token));
 sc_verify_sms_token(AppId, To, Token) ->
     sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId], "https://api.swisscom.com/v1/tokenvalidation")
                        , ?GET_CONFIG(smsTokenValidationClientId,[AppId], "RokAOeF59nkcFg2GtgxgOdZzosQW1MPQ")
