@@ -498,7 +498,8 @@ auth_step(SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
         [ACF] when is_function(ACF,1) -> ACF;
         Err -> authenticate_fail(SeCo,{"Invalid accessCheckFun", Err})
     end,
-    {AccountName1, AccountId1} = case AccessCheckFun(SessionCtx#ddSessionCtx.networkCtx) of
+    NewSessionCtx = SessionCtx#ddSessionCtx{networkCtx=NetworkCtx},
+    {AccountName1, AccountId1} = case AccessCheckFun(NewSessionCtx#ddSessionCtx.networkCtx) of
         true ->         
             {AccountName0, AccountId0};                                         %% access granted
         false ->        
@@ -518,7 +519,6 @@ auth_step(SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
             authenticate_fail(SeCo,"Account name conflict")                      
     end,
     AuthFactors = [access|SeCo#ddSeCo.authFactors],
-    NewSessionCtx = (SeCo#ddSeCo.sessionCtx)#ddSessionCtx{networkCtx=NetworkCtx},
     auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=NewSessionCtx, accountName=AccountName1, accountId=AccountId1});
 auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
     #ddSeCo{skey=SKey, accountId=AccountId0, authFactors=AFs} = SeCo, % may not yet exist in ddSeco@
