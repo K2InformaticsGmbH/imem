@@ -110,6 +110,14 @@ init(_StartArgs) ->
             []
     end
     ++
+    % imem_client
+    case application:get_env(client_server) of
+        {ok, true} -> [?CHILD(imem_client, worker, [], ImemTimeout)];
+        _ ->
+            ?Info("~p client_server disabled~n", [?MODULE]),
+            []
+    end
+    ++
     % imem_seco
     case application:get_env(seco_server) of
         {ok, true} -> [?CHILD(imem_seco, worker, [], ImemTimeout)];

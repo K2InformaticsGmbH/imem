@@ -36,6 +36,7 @@
          {seco_server, true},
          {snap_server, true},
          {tcp_server, true},
+         {client_server, true},
          {tcp_ip, "0.0.0.0"},
          {tcp_port, 8124},
          {ssl, [{certfile,  "priv/cert/imem.crt"},
