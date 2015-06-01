@@ -59,7 +59,7 @@ when is_integer(ExpireTime), is_integer(TokenLength) ->
         true -> 
             ReqMap = #{to=>To, text=>Text, tokenType=>TokenType, expireTime=>integer_to_binary(ExpireTime), tokenLength=>TokenLength},
             Req = imem_json:encode(if TraceId /= <<>> -> maps:put(traceId, TraceId, ReqMap); true -> ReqMap end),
-            ?Info("Sending sms token ~p", [Req]),
+            ?Debug("Sending sms token ~p", [Req]),
             case httpc:request( post
                               , { Url
                                 , [ {"client_id",ClientId}
