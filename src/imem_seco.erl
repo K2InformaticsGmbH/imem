@@ -450,7 +450,7 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
     #ddSeCo{skey=SKey} = SeCo = seco_create(imem, SessionId), 
     case if_select_account_by_name(SKey, Name) of
         {[#ddAccount{locked='true'}],true} ->
-            authenticate_fail(SeCo,"Account is locked. Contact a system administrator");
+            authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
         {[#ddAccount{id=AccountId} = Account],true} ->
             LocalTime = calendar:local_time(),
             case if_read(SKey, ddAccountDyn, AccountId) of
@@ -460,13 +460,13 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
                 [#ddAccountDyn{lastFailureTime=LocalTime}] ->
                     %% lie a bit, don't show a fast attacker that this attempt might have worked
                     if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
-                    authenticate_fail(SeCo,"Invalid account credentials. Please retry");
+                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
                 _ -> ok
             end,
-            ok = check_re_hash(SeCo, Account, Token, Token, ?PWD_HASH_LIST),
+            ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             seco_register(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5]}, authenticated);     % return SKey only
         {[],true} ->    
-            authenticate_fail(SeCo,"Invalid account credentials. Please retry")
+            authenticate_fail(SeCo, "Invalid account credentials. Please retry", true)
     end.
 
 -spec auth_start(atom(), any(), ddCredential()) -> {ddSeCoKey(),[ddCredRequest()]} | no_return(). 
@@ -493,30 +493,30 @@ auth_step(SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
                     imem_cache:write(CacheKey,ACF),
                     ACF;
                 _ ->
-                    authenticate_fail(SeCo,{"Invalid accessCheckFun", AccessCheckFunStr}) 
+                    authenticate_fail(SeCo,{"Invalid accessCheckFun", AccessCheckFunStr}, true) 
             end;    
         [ACF] when is_function(ACF,1) -> ACF;
-        Err -> authenticate_fail(SeCo,{"Invalid accessCheckFun", Err})
+        Err -> authenticate_fail(SeCo,{"Invalid accessCheckFun", Err}, true)
     end,
     NewSessionCtx = SessionCtx#ddSessionCtx{networkCtx=NetworkCtx},
     {AccountName1, AccountId1} = case AccessCheckFun(NewSessionCtx#ddSessionCtx.networkCtx) of
         true ->         
             {AccountName0, AccountId0};                                         %% access granted
         false ->        
-            authenticate_fail(SeCo,{"Network access denied",NetworkCtx});       %% access denied
+            authenticate_fail(SeCo,{"Network access denied",NetworkCtx}, true); %% access denied
         AccountName0 -> 
             {AccountName0, AccountId0};                                         %% accountName confirmed by network
         Name when is_binary(Name), AccountName0 == undefined ->                 %% accountName defined by network
             case if_select_account_by_name(SKey, Name) of
               {[#ddAccount{locked='true'}],true} ->
-                  authenticate_fail(SeCo,"Account is locked. Contact a system administrator");
+                  authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
               {[#ddAccount{id=AccId}],true} ->
                   {Name, AccId};
               {[],true} ->
-                  authenticate_fail(SeCo, {"Access denied for", Name})
+                  authenticate_fail(SeCo, {"Access denied for", Name}, true)
             end;
         _ ->
-            authenticate_fail(SeCo,"Account name conflict")                      
+            authenticate_fail(SeCo, "Account name conflict", true)                      
     end,
     AuthFactors = [access|SeCo#ddSeCo.authFactors],
     auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=NewSessionCtx, accountName=AccountName1, accountId=AccountId1});
@@ -524,28 +524,28 @@ auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
     #ddSeCo{skey=SKey, accountId=AccountId0, authFactors=AFs} = SeCo, % may not yet exist in ddSeco@
     case if_select_account_by_name(SKey, Name) of
         {[#ddAccount{locked='true'}],true} ->
-            authenticate_fail(SeCo,"Account is locked. Contact a system administrator");
+            authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
         {[#ddAccount{id=AccountId1} = Account],true} when AccountId0==AccountId1; AccountId0==undefined ->
             LocalTime = calendar:local_time(),
             case if_read(SKey, ddAccountDyn, AccountId1) of
                 [#ddAccountDyn{lastFailureTime=LocalTime}] ->
                     %% lie a bit, don't show a fast attacker that this attempt might have worked
                     if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
-                    authenticate_fail(SeCo,"Invalid account credentials. Please retry");
+                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
                 _ -> ok
             end,
-            ok = check_re_hash(SeCo, Account, Token, Token, ?PWD_HASH_LIST),
+            ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             auth_step_succeed(SeCo#ddSeCo{accountName=Name, accountId=AccountId1, authFactors=[pwdmd5|AFs]});
         {[#ddAccount{}],true} -> 
-            authenticate_fail(SeCo,"Account name conflict");
+            authenticate_fail(SeCo, "Account name conflict", true);
         {[],true} ->
-            authenticate_fail(SeCo,"Invalid account credentials. Please retry")
+            authenticate_fail(SeCo, "Invalid account credentials. Please retry", true)
     end;
 auth_step(SeCo, {smsott,Token}) ->
     #ddSeCo{skey=SKey, sessionCtx=SessionCtx, accountName=AccountName, accountId=AccountId, authFactors=AFs} = SeCo,
     case sms_ott_mobile_phone(SKey, AccountId) of
         undefined ->    
-            authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token");
+            authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token", true);
         To ->           
             case (catch imem_auth_smsott:verify_sms_token(SessionCtx#ddSessionCtx.appId, To, Token, {smsott, #{}})) of % TODO : smsott with parameters
                 ok ->
@@ -554,16 +554,18 @@ auth_step(SeCo, {smsott,Token}) ->
                     ?Error("Token validation failed ~p", [Error]),
                     case ?GET_CONFIG(smsTokenValidationRetry,[SessionCtx#ddSessionCtx.appId],true) of
                         true -> {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % re-ask for same token
-                        _ ->    authenticate_fail(SeCo, "SMS one time token validation failed")
+                        _ ->    authenticate_fail(SeCo, "SMS one time token validation failed", true)
                     end
             end
     end;
 auth_step(SeCo, Credential) ->
-    authenticate_fail(SeCo,{"Invalid credential type",element(1,Credential)}).
+    authenticate_fail(SeCo,{"Invalid credential type",element(1,Credential)}, true).
 
--spec authenticate_fail(ddSeCoKey(), list() | tuple()) -> no_return(). 
-authenticate_fail(SeCo, ErrorTerm) ->
+-spec authenticate_fail(ddSeCoKey(), list() | tuple(), boolean()) -> no_return(). 
+authenticate_fail(SeCo, ErrorTerm, true) ->
     seco_unregister(SeCo),
+    ?SecurityException(ErrorTerm);
+authenticate_fail(_SeCo, ErrorTerm, false) ->
     ?SecurityException(ErrorTerm).
 
 -spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
@@ -577,10 +579,10 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
                     imem_cache:write(CacheKey,CF),
                     CF;
                 _ ->
-                    authenticate_fail(SeCo,{"Invalid authenticatonRequireFun", AuthRequireFunStr}) 
+                    authenticate_fail(SeCo,{"Invalid authenticatonRequireFun", AuthRequireFunStr}, true) 
             end;    
         [AF] when is_function(AF,2) -> AF;
-        Err1 -> authenticate_fail(SeCo,{"Invalid authenticatonRequireFun", Err1})
+        Err1 -> authenticate_fail(SeCo,{"Invalid authenticatonRequireFun", Err1}, true)
     end,
     case AuthRequireFun(AFs,SessionCtx#ddSessionCtx.networkCtx) of
         [] ->   
@@ -597,7 +599,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
         [smsott] ->
             case sms_ott_mobile_phone(SKey, AccountId) of
                 undefined ->    
-                    authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token");
+                    authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token", true);
                 To ->           
                     case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
                         ok ->           
@@ -605,7 +607,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
                         {error,Err2} -> 
                             case ?GET_CONFIG(smsTokenSendingErrorSkip,[SessionCtx#ddSessionCtx.appId],false) of
                                 true -> {seco_register(SeCo, authenticated),[]};   % authentication success, return {SKey,[]} 
-                                _ ->    authenticate_fail(SeCo,{"SMS one time token sending failed", Err2})
+                                _ ->    authenticate_fail(SeCo,{"SMS one time token sending failed", Err2}, true)
                             end
                     end
             end;
@@ -641,26 +643,26 @@ normalized_msisdn(B0) ->
         Rest3 ->               <<$+,Rest3/binary>>
     end.
 
-check_re_hash(SeCo, _Account, _OldToken, _NewToken, []) ->
-    authenticate_fail(SeCo,"Invalid account credentials. Please retry");
-check_re_hash(SeCo, Account, OldToken, NewToken, [pwdmd5|Types]) ->
+check_re_hash(SeCo, _Account, _OldToken, _NewToken, Unregister, []) ->
+    authenticate_fail(SeCo, "Invalid account credentials. Please retry", Unregister);
+check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, [pwdmd5|Types]) ->
     case lists:member({pwdmd5,OldToken},Account#ddAccount.credentials) of
         true ->  
             re_hash(SeCo, {pwdmd5,OldToken}, OldToken, NewToken, Account);
         false ->
-            check_re_hash(SeCo, Account, OldToken, NewToken, Types)
+            check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, Types)
     end;
-check_re_hash(SeCo, Account, OldToken, NewToken, [Type|Types]) ->
+check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, [Type|Types]) ->
     case lists:keyfind(Type,1,Account#ddAccount.credentials) of
         {Type,{Salt,Hash}} ->
             case hash(Type,Salt,OldToken) of
                 Hash ->
                     re_hash(SeCo, {Type,{Salt,Hash}}, OldToken, NewToken, Account);
                 _ ->
-                    authenticate_fail(SeCo,"Invalid account credentials. Please retry")
+                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", Unregister)
             end;
         false ->
-            check_re_hash(SeCo, Account, OldToken, NewToken, Types)
+            check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, Types)
     end.
 
 find_re_hash(SeCo, Account, NewToken, []) ->
@@ -734,7 +736,7 @@ change_credentials(SKey, {pwdmd5,Token}, {pwdmd5,Token}) ->
 change_credentials(SKey, {pwdmd5,OldToken}, {pwdmd5,NewToken}) ->
     #ddSeCo{accountId=AccountId} = SeCo = seco_authenticated(SKey),
     [Account] = if_read(SKey, ddAccount, AccountId),
-    ok = check_re_hash(SeCo, Account, OldToken, NewToken, ?PWD_HASH_LIST),
+    ok = check_re_hash(SeCo, Account, OldToken, NewToken, false, ?PWD_HASH_LIST),
     login(SKey).
 
 set_credentials(SKey, Name, {pwdmd5,NewToken}) ->
