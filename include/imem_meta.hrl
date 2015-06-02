@@ -17,6 +17,10 @@
         imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
        ).
 
+-define(PUT_CONFIG(__PName,__Context,__Default,_Remark),
+        imem_meta:put_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,__Context,__Default,_Remark)
+       ).
+   
 -define(SET_SEC_FUNS(__Funs),
         imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,secureFunctions},?MODULE,[node()],__Funs)
        ).
