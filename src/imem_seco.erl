@@ -7,6 +7,7 @@
 -define(PWD_HASH, scrypt).                       %% target hash: pwdmd5,md4,md5,sha512,scrypt 
 -define(PWD_HASH_LIST, [scrypt,sha512,pwdmd5]).  %% allowed hash types
 -define(REQUIRE_PWDMD5, <<"fun(Factors,NetCtx) -> [pwdmd5] -- Factors end">>).  % access | smsott | saml | pwdmd5
+-define(AUTH_SMS_TOKEN_RETRY_DELAY, 1000).
 -define(FULL_ACCESS, <<"fun(NetCtx) -> true end">>).
 
 -behavior(gen_server).
@@ -550,11 +551,18 @@ auth_step(SeCo, {smsott,Token}) ->
             case (catch imem_auth_smsott:verify_sms_token(SessionCtx#ddSessionCtx.appId, To, Token, {smsott, #{}})) of % TODO : smsott with parameters
                 ok ->
                     auth_step_succeed(SeCo#ddSeCo{authFactors=[smsott|AFs]});
-                Error ->
-                    ?Error("Token validation failed ~p", [Error]),
+                _ ->
                     case ?GET_CONFIG(smsTokenValidationRetry,[SessionCtx#ddSessionCtx.appId],true) of
-                        true -> {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % re-ask for same token
-                        _ ->    authenticate_fail(SeCo, "SMS one time token validation failed", true)
+                        true ->
+                            case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
+                                ok ->
+                                    timer:sleep(?AUTH_SMS_TOKEN_RETRY_DELAY),           
+                                    {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % re-ask for new token
+                                _ -> 
+                                    authenticate_fail(SeCo, "SMS one time token validation failed", true)
+                            end;
+                        _ ->
+                            authenticate_fail(SeCo, "SMS one time token validation failed", true)
                     end
             end
     end;

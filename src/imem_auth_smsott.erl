@@ -34,9 +34,9 @@ verify_sms_token(_AppId, _To, _Token, _DDCredRequest) ->
 sc_send_sms_token(AppId,To) ->
     sc_send_sms_token( AppId
                      , To
-                     , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 60 seconds.">>)
+                     , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 2 Minutes.">>)
                      , ?GET_CONFIG(smsTokenValidationTokenType,[AppId],<<"SHORT_NUMERIC">>)
-                     , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],60)
+                     , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],120)
                      , ?GET_CONFIG(smsTokenValidationTokenLength,[AppId],6)
                      , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))
                      ).
