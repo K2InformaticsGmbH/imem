@@ -956,15 +956,16 @@ send_reply_to_client(SockOrPid, Result) ->
     imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
-    {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,Table}),
+    PTN = imem_meta:physical_table_name(Table),
+    {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,PTN}),
     User = if_call_mfa(IsSec, meta_field_value, [SKey, user]),
-    TableInfo = {Schema,Table,TableType,list_to_tuple(DefRec),Trigger,User},
+    TableInfo = {Schema,PTN,TableType,list_to_tuple(DefRec),Trigger,User},
     %% transform a ChangeList   
         % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],               %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
         % [3,del,{?EmptyMR,{def,"5","'5'"}},"5"],               %% delete {def,"5","'5'"}
         % [4,upd,{?EmptyMR,{def,"12","'12'"}},"112"]            %% update {def,"12","'12'"} to {def,"112","'12'"}
-    %% into an UpdatePlan                                       {table} = {Schema,Table,Type}
+    %% into an UpdatePlan                                       {table} = {Schema,PTN,Type}
         % [1,{table},{def,"2","'2'"},{def,"2","'2'"}],          %% no operation on this line
         % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
