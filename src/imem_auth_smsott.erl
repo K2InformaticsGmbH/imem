@@ -17,18 +17,18 @@
         ]).
 
 -spec send_sms_token(atom(), binary(), ddCredRequest()) ->
-    ok | {error, any()}.
+    ok | no_return().
 send_sms_token(AppId, To, {smsott,Map}) when Map == #{} ->
     sc_send_sms_token(AppId, To);
 send_sms_token(_AppId, _To, _DDCredRequest) ->
-    ?ClientError("Unimplemented").
+    error("Unimplemented").
 
 -spec verify_sms_token(atom(), binary(), list() | integer() | binary(), ddCredRequest()) ->
-    ok | {error, any()}.
+    ok | no_return().
 verify_sms_token(AppId, To, Token, {smsott,Map}) when Map == #{} ->
     sc_verify_sms_token(AppId, To, Token);
 verify_sms_token(_AppId, _To, _Token, _DDCredRequest) ->
-    ?ClientError("Unimplemented").
+    error("Unimplemented").
 
 % @doc
 sc_send_sms_token(AppId,To) ->
@@ -72,16 +72,16 @@ when is_integer(ExpireTime), is_integer(TokenLength) ->
                               , [{full_result, false}]
                               , Profile) of
                 {ok,{200,[]}} ->    ok;
-                {ok,{400,Body}} ->  {error, {"HTTP 400", Body}};
-                {ok,{401,_}} ->     {error, "HTTP 401: Unauthorized"};
-                {ok,{403,_}} ->     {error, "HTTP 403: Client IP not whitelisted"};
-                {ok,{404,_}} ->     {error, "HTTP 404: Wrong URL or the given customer not found"};
-                {ok,{500,Body}} ->  {error, {"HTTP 500", Body}};
-                {error, Error} ->   {error, Error};
-                Error ->            {error, Error}
+                {ok,{400,Body}} ->  error({"HTTP 400", Body});
+                {ok,{401,_}} ->     error("HTTP 401: Unauthorized");
+                {ok,{403,_}} ->     error("HTTP 403: Client IP not whitelisted");
+                {ok,{404,_}} ->     error("HTTP 404: Wrong URL or the given customer not found");
+                {ok,{500,Body}} ->  error({"HTTP 500", Body});
+                {error, Error} ->   error(Error);
+                Error ->            error(Error)
             end;
         _ ->    
-            {error, {"Invalid token type", TokenType}}
+            error({"Invalid token type", TokenType})
     end.
 
 sc_verify_sms_token(AppId, To, Token) when is_binary(To) ->
@@ -109,12 +109,12 @@ sc_verify_sms_token(Url, ClientId, To, Token, Profile) ->
                       , [{full_result, false}]
                       , Profile) of
         {ok,{200,[]}} ->    ok;
-        {ok,{400,Body}} ->  {error, {"HTTP 400", Body}};
-        {ok,{401,_}} ->     {error, "HTTP 401: Unauthorized"};
-        {ok,{403,_}} ->     {error, "HTTP 403: Client IP not whitelisted"};
-        {ok,{404,_}} ->     {error, "HTTP 404: Wrong URL or the given customer not found"};
-        {ok,{500,Body}} ->  {error, {"HTTP 500", Body}};
-        {error, Error} ->   {error, Error};
-        Error ->            {error, Error}
+        {ok,{400,Body}} ->  error({"HTTP 400", Body});
+        {ok,{401,_}} ->     error("HTTP 401: Unauthorized");
+        {ok,{403,_}} ->     error("HTTP 403: Client IP not whitelisted");
+        {ok,{404,_}} ->     error("HTTP 404: Wrong URL or the given customer not found");
+        {ok,{500,Body}} ->  error({"HTTP 500", Body});
+        {error, Error} ->   error(Error);
+        Error ->            error(Error)
     end.
 

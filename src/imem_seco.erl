@@ -612,7 +612,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
                     case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
                         ok ->           
                             {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % request a SMS one time token
-                        {error,Err2} -> 
+                        {'EXIT',{Err2,_StackTrace}} ->
                             case ?GET_CONFIG(smsTokenSendingErrorSkip,[SessionCtx#ddSessionCtx.appId],false) of
                                 true -> {seco_register(SeCo, authenticated),[]};   % authentication success, return {SKey,[]} 
                                 _ ->    authenticate_fail(SeCo,{"SMS one time token sending failed", Err2}, true)
