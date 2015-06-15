@@ -406,13 +406,13 @@ io_to_db(_Item,_Old,_Type,_Len,_Prec,Def,false,?emptyIo) -> Def;
 io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_binary(Val);is_list(Val) ->
     try
         {DefAsStr,OldAsStr} = case Type of
-            binterm ->  { io_to_binstr(io_lib:format("~p", [Def]))
-                        , io_to_binstr(io_lib:format("~p", [term_to_binterm(Old)]))};
-            _ ->        { io_to_binstr(io_lib:format("~p", [Def]))
-                        , io_to_binstr(io_lib:format("~p", [Old]))}
+            binterm ->  { io_to_binstr(io_lib:format("~10000p", [Def]))
+                        , io_to_binstr(io_lib:format("~10000p", [term_to_binterm(Old)]))};
+            _ ->        { io_to_binstr(io_lib:format("~10000p", [Def]))
+                        , io_to_binstr(io_lib:format("~10000p", [Old]))}
         end,
-        % ?LogDebug("DefAsStr ~tp ~ts~n",[<<DefAsStr/binary,1>>,<<DefAsStr/binary,1>>]),
-        % ?LogDebug("OldAsStr ~tp ~ts~n",[<<OldAsStr/binary,1>>,<<OldAsStr/binary,1>>]),
+        % ?LogDebug("DefAsStr ~10000tp ~ts~n",[<<DefAsStr/binary,1>>,<<DefAsStr/binary,1>>]),
+        % ?LogDebug("OldAsStr ~10000tp ~ts~n",[<<OldAsStr/binary,1>>,<<OldAsStr/binary,1>>]),
         ValAsStr = io_to_binstr(io_lib:format("~ts", [Val])),
         % ?LogDebug("ValAsStr ~tp ~ts~n",[<<ValAsStr/binary,1>>,<<ValAsStr/binary,1>>]),
         if
@@ -1057,7 +1057,7 @@ io_to_term(Val) ->
         erl_value(Val)
     catch
         _:_ -> 
-            ?LogDebug("Cannot convert this to erlang term: ~p", [Val]),
+            ?LogDebug("Cannot convert this to erlang term: ~10000p", [Val]),
             ?ClientError({})
     end.
 
@@ -1181,7 +1181,7 @@ db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
             true -> term_to_io(Val)
         end
     catch
-        _:_ -> io_lib:format("~tp",[Val])
+        _:_ -> io_lib:format("~10000tp",[Val])
     end.
 
 atom_to_io(Val) ->
