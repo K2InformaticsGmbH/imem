@@ -359,9 +359,9 @@ seco_authenticated(SKey) ->
         [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{}] ->      
-            ?SecurityViolation({"Not logged in", SKey});    % Not authenticated
+            ?SecurityViolation({"Not authenticated", SKey});    % Not authenticated
         [] ->               
-            ?SecurityException({"Not logged in", SKey})
+            ?SecurityException({"Not authenticated", SKey})
     end.   
 
 seco_authorized(SKey) -> 
