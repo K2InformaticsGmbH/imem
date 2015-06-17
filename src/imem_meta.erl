@@ -959,12 +959,17 @@ create_or_replace_trigger(Table,TFunStr) when is_atom(Table) ->
     imem_datatype:io_to_fun(TFunStr,4),
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
-            Opts = lists:keydelete(trigger, 1, D#ddTable.opts) ++ [{trigger,TFunStr}],
-            Trans = fun() ->
-                write(ddTable, D#ddTable{opts=Opts}),                       
-                imem_cache:clear({?MODULE, trigger, schema(), Table})
-            end,
-            return_atomic_ok(transaction(Trans));
+            case lists:keysearch(trigger, 1, D#ddTable.opts) of
+                {value,{trigger,TFunStr}} ->  
+                    ok;
+                _ -> 
+                    Opts = lists:keydelete(trigger, 1, D#ddTable.opts) ++ [{trigger,TFunStr}],
+                    Trans = fun() ->
+                        write(ddTable, D#ddTable{opts=Opts}),                       
+                        imem_cache:clear({?MODULE, trigger, schema(), Table})
+                    end,
+                    return_atomic_ok(transaction(Trans))                
+            end; 
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
     end;   
