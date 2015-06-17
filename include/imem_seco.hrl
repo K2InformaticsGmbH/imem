@@ -3,6 +3,7 @@
 
 -include("imem.hrl").
 -include("imem_meta.hrl").
+-include("imem_exports.hrl").
 
 -type ddIdentity() :: system | binary().              % AccountName / Login user name
 -type ddCredential() :: {pwdmd5,binary()}             % {pwdmd5, md5(password)} in ddAccount.credentials for storing hash separate from name
@@ -95,8 +96,6 @@
 
 -define(SecurityException(Reason), ?THROW_EXCEPTION('SecurityException',Reason)).
 -define(SecurityViolation(Reason), ?THROW_EXCEPTION('SecurityViolation',Reason)).
-
--define(PasswordChangeNeeded, "Password expired. Please change it").
 
 % -define(imem_system_login, fun() -> 
 %     __MH = #ddAccount{name='$1', _='_'},
