@@ -722,10 +722,10 @@ login(SKey) ->
     end,
     case {if_read(SKey, ddAccount, AccountId), lists:member(pwdmd5,AuthenticationFactors)} of
         {[#ddAccount{lastPasswordChangeTime=undefined}], true} -> 
-            logout(SKey),
+            % logout(SKey),
             ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{lastPasswordChangeTime=LastChange}], true} when LastChange < PwdExpireDate -> 
-            logout(SKey),
+            % logout(SKey),
             ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[_], _} ->
             [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),

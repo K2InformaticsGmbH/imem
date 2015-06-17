@@ -117,7 +117,7 @@ test(_) ->
         ?assertEqual(SeCo1, imem_seco:change_credentials(SeCo1, UserCred, UserCredNew)),
         ?LogDebug("success ~p~n", [password_changed]), 
         ?assertException(throw, {SeEx,{"Select unauthorized",{ddSeCo@,SeCo1}}}, imem_sec:table_size(SeCo1, ddSeCo@)),
-        ?assertException(throw, {SeEx,{"Not logged in",SeCo0}}, imem_sec:table_size(SeCo0, ddSeCo@)),
+        ?assertExit({SeVi,{"Not logged in",SeCo0}}, imem_sec:table_size(SeCo0, ddSeCo@)),
         ?LogDebug("success ~p~n", [table_access_rejected_after_logout]),
         AllTablesUser = imem_sec:all_tables(SeCo1),
         ?assertEqual(false, lists:member(ddAccount,AllTablesUser)),
