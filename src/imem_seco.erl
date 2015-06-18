@@ -458,6 +458,10 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
                 [] ->   
                     AD = #ddAccountDyn{id=AccountId},
                     if_write(SKey, ddAccountDyn, AD);   % create dynamic account record if missing
+                [#ddAccountDyn{id=system, lastFailureTime=LocalTime}] ->
+                    %% lie a bit, don't show a fast attacker that this attempt might have worked
+                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime}),
+                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
                 [#ddAccountDyn{lastFailureTime=LocalTime}] ->
                     %% lie a bit, don't show a fast attacker that this attempt might have worked
                     if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
@@ -529,6 +533,10 @@ auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
         {[#ddAccount{id=AccountId1} = Account],true} when AccountId0==AccountId1; AccountId0==undefined ->
             LocalTime = calendar:local_time(),
             case if_read(SKey, ddAccountDyn, AccountId1) of
+                [#ddAccountDyn{id=system,lastFailureTime=LocalTime}] ->
+                    %% lie a bit, don't show a fast attacker that this attempt might have worked
+                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime}),
+                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
                 [#ddAccountDyn{lastFailureTime=LocalTime}] ->
                     %% lie a bit, don't show a fast attacker that this attempt might have worked
                     if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
@@ -716,25 +724,23 @@ login(SKey) ->
     #ddSeCo{accountId=AccountId, authFactors=AuthenticationFactors} = SeCo = seco_authenticated(SKey),
     LocalTime = calendar:local_time(),
     PwdExpireSecs = calendar:datetime_to_gregorian_seconds(LocalTime),
-    PwdExpireDate = case ?GET_PASSWORD_LIFE_TIME(AccountId) of
-        infinity -> 0;      % sorts in after any date tuple
-        PVal ->     calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*PVal)
+    PwdExpireDate = case {AccountId,?GET_PASSWORD_LIFE_TIME(AccountId)} of
+        {system,_} ->   0;
+        {_,infinity} -> 0;      % sorts in after any date tuple
+        {_,PVal} ->     calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*PVal)
     end,
     case {if_read(SKey, ddAccount, AccountId), lists:member(pwdmd5,AuthenticationFactors)} of
-        {[#ddAccount{lastPasswordChangeTime=undefined}], true} -> 
-            % logout(SKey),
+        {[#ddAccount{type='user',lastPasswordChangeTime=undefined}], true} -> 
             ?SecurityException({?PasswordChangeNeeded, AccountId});
-        {[#ddAccount{lastPasswordChangeTime=LastChange}], true} when LastChange < PwdExpireDate -> 
-            % logout(SKey),
+        {[#ddAccount{type='user',lastPasswordChangeTime=LastChange}], true} when LastChange < PwdExpireDate -> 
             ?SecurityException({?PasswordChangeNeeded, AccountId});
-        {[_], _} ->
+        {[#ddAccount{}], _} ->
             [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
             ok = seco_update(SeCo, SeCo#ddSeCo{authState=authorized}),
             if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=LocalTime}),
             SKey;            
         {[], _} ->                    
             logout(SKey),
-?Debug("~n----------------------~n~p~n----------------------~n", [erlang:get_stacktrace()]),
             ?SecurityException({"Invalid account credentials. Please retry", AccountId})
     end.
 
