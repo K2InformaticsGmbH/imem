@@ -1,6 +1,6 @@
 -module(imem_sec).
 
--define(SECO_TABLES,[ddTable,ddAccount,ddRole,ddSeCo@,ddPerm@,ddQuota@]).
+-define(SECO_TABLES,[ddTable,ddAccount,ddAccountDyn,ddRole,ddSeCo@,ddPerm@,ddQuota@]).
 -define(SECO_FIELDS,[<<"user">>,<<"username">>]).
 
 -include("imem_seco.hrl").
