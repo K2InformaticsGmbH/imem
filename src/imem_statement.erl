@@ -1709,7 +1709,7 @@ test_with_or_without_sec_part1(IsSec) ->
             ?LogDebug("12 tail rows received in single packets~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
             Result4e = receive_raw(),
-            ?LogDebug("reject received ~p~n", [Result4e]),
+            ?LogDebug("reject received ~n~p~n", [Result4e]),
             [{StmtRef4, {error, {ClEr,Reason4e}}}] = Result4e, 
             ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason4e),
             ?assertEqual(StmtRef4,SR4#stmtResult.stmtRef),
@@ -1882,7 +1882,7 @@ test_with_or_without_sec_part2(IsSec) ->
             List8a = receive_recs(SR8,true),
             ?assertEqual([{<<"11">>,<<"11">>},{<<"10">>,<<"10">>},{<<"3">>,<<"3">>},{<<"2">>,<<"2">>},{<<"1">>,<<"1">>}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
             Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{2,2,<<"asc">>}], [], IsSec),
-            ?LogDebug("Result8a ~p~n", [Result8a]),
+            ?LogDebug("Result8a ~n~p~n", [Result8a]),
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
@@ -1891,19 +1891,19 @@ test_with_or_without_sec_part2(IsSec) ->
 
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"$in$">>,<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
-            ?LogDebug("Sql8c ~p~n", [Sql8c]),
+            ?LogDebug("Sql8c ~n~p~n", [Sql8c]),
             Expected8c = "select col1 as c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
             {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
-            ?LogDebug("Sql8d ~p~n", [Sql8d]),
+            ?LogDebug("Sql8d ~n~p~n", [Sql8d]),
             Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(binary_to_list(Sql8d))),
 
             {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]},{2,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
-            ?LogDebug("Sql8e ~p~n", [Sql8e]),
+            ?LogDebug("Sql8e ~n~p~n", [Sql8e]),
             Expected8e = "select col2, col1 as c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8e, string:strip(binary_to_list(Sql8e))),
 
@@ -1919,7 +1919,7 @@ test_with_or_without_sec_part2(IsSec) ->
         % ?LogDebug("SortSpec9 ~p~n", [SR9#stmtResult.sortSpec]),
         try
             Result9 = filter_and_sort(SKey, SR9, {undefined,[]}, [], [1,3,2], IsSec),
-            ?LogDebug("Result9 ~p~n", [Result9]),
+            ?LogDebug("Result9 ~n~p~n", [Result9]),
             {ok, Sql9, _SF9} = Result9,
             Expected9 = "select qname, opts, columns from ddTable",
             ?assertEqual(Expected9, string:strip(binary_to_list(Sql9))),
@@ -1934,20 +1934,20 @@ test_with_or_without_sec_part2(IsSec) ->
             from def a, def b 
             where a.col1 = b.col1;"
         ),
-        ?LogDebug("StmtCols9a ~p~n", [SR9a#stmtResult.stmtCols]),
+        ?LogDebug("StmtCols9a ~n~p~n", [SR9a#stmtResult.stmtCols]),
         try
             Result9a = filter_and_sort(SKey, SR9a, {undefined,[]}, [{1,<<"asc">>},{3,<<"desc">>}], [1,3,2], IsSec),
             % ?LogDebug("Result9a ~p~n", [Result9a]),
             {ok, Sql9a, _SF9a} = Result9a,
             % ?LogDebug("Sql9a ~p~n", [Sql9a]),
-            Expected9a = "select a.col1, b.col1, a.col2 from def as a, def as b where a.col1 = b.col1 order by 1 asc, 3 desc",
+            Expected9a = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by 1 asc, 3 desc",
             ?assertEqual(Expected9a, string:strip(binary_to_list(Sql9a))),
 
             Result9b = filter_and_sort(SKey, SR9a, {undefined,[]}, [{3,2,<<"asc">>},{2,3,<<"desc">>}], [1,3,2], IsSec),
             % ?LogDebug("Result9b ~p~n", [Result9b]),
             {ok, Sql9b, _SF9b} = Result9b,
             % ?LogDebug("Sql9b ~p~n", [Sql9b]),
-            Expected9b = "select a.col1, b.col1, a.col2 from def as a, def as b where a.col1 = b.col1 order by b.col1 asc, a.col2 desc",
+            Expected9b = "select a.col1, b.col1, a.col2 from def a, def b where a.col1 = b.col1 order by b.col1 asc, a.col2 desc",
             ?assertEqual(Expected9b, string:strip(binary_to_list(Sql9b))),
 
             ?assertEqual(ok, fetch_close(SKey, SR9a, IsSec))

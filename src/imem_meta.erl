@@ -94,6 +94,7 @@
         , tables_starting_with/1
         , tables_ending_with/1
         , node_shard/0
+        , node_shards/0
         , qualified_table_name/1
         , qualified_new_table_name/1
         , physical_table_name/1
@@ -1426,8 +1427,8 @@ is_time_partitioned_table(Name) when is_atom(Name) ->
     is_time_partitioned_table(atom_to_list(Name));
 is_time_partitioned_table(Name) when is_list(Name) ->
     case parse_table_name(Name) of
-        [_,_,_,_,"",_,_] ->   false;
-        _ ->                true
+        [_,_,_,_,"",_,_] ->     false;
+        _ ->                    true
     end.
 
 is_schema_time_partitioned_table(Name) when is_atom(Name) ->
@@ -1541,9 +1542,15 @@ physical_table_name(TableAlias) when is_atom(TableAlias) ->
     end;
 physical_table_name(TableAlias) when is_list(TableAlias) ->
     case lists:reverse(TableAlias) of
-        [$@|_] ->       partitioned_table_name(TableAlias,erlang:now());    % node sharded, maybe time sharded
-        [$_,$@|_] ->    partitioned_table_name(TableAlias,erlang:now());    % time sharded only
-        _ ->            list_to_atom(TableAlias)
+        [$@|_] ->       
+            partitioned_table_name(TableAlias,erlang:now());    % node sharded alias, maybe time sharded
+        [$_,$@|_] ->    
+            partitioned_table_name(TableAlias,erlang:now());    % time sharded only
+        _ ->
+            case lists:member($@,TableAlias) of            
+                false ->    list_to_atom(TableAlias);           % simple table
+                true ->     partitioned_table_name(TableAlias,erlang:now())     % maybe node sharded alias
+            end
     end.
 
 % physical_table_name({_S,N,_A},Key) -> physical_table_name(N,Key);
@@ -1559,9 +1566,15 @@ physical_table_name(TableAlias,Key) when is_atom(TableAlias) ->
     end;
 physical_table_name(TableAlias,Key) when is_list(TableAlias) ->
     case lists:reverse(TableAlias) of
-        [$@|_] ->       partitioned_table_name(TableAlias,Key);    % node sharded, maybe time sharded
-        [$_,$@|_] ->    partitioned_table_name(TableAlias,Key);    % time sharded only
-        _ ->            list_to_atom(TableAlias)
+        [$@|_] ->       
+            partitioned_table_name(TableAlias,Key);    % node sharded, maybe time sharded
+        [$_,$@|_] ->    
+            partitioned_table_name(TableAlias,Key);    % time sharded only
+        _ ->
+            case lists:member($@,TableAlias) of            
+                false ->    list_to_atom(TableAlias);               % simple table
+                true ->     partitioned_table_name(TableAlias,Key)  % maybe node sharded alias
+            end
     end.
 
 physical_table_names({_S,N,_A}) -> physical_table_names(N);
@@ -1652,7 +1665,29 @@ partitioned_table_name_str(TableAlias,Key) when is_list(TableAlias) ->
                     TableAlias
             end;
         _ ->
-            TableAlias    
+            case string:tokens(TableAlias, "@") of 
+                [_] -> 
+                    TableAlias;     % simple table name
+                [N,S] ->
+                    case lists:member(S,node_shards()) of
+                        false ->    
+                            TableAlias;
+                        true ->
+                            [RN|_] = string:tokens(lists:reverse(N), "_"),
+                            PL = length(RN), 
+                            case catch list_to_integer(lists:reverse(RN)) of
+                                P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
+                                    % timestamp partitiond and node sharded table alias
+                                    {Mega,Sec,_} = Key,
+                                    PartitionEnd=integer_to_list(P*((1000000*Mega+Sec) div P) + P),
+                                    Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
+                                    {BaseName,_} = lists:split(length(N)-length(RN), N),
+                                    lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ S);
+                                _ ->
+                                    TableAlias      % physical node sharded table name
+                            end
+                    end
+            end
     end.
 
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(),Table};
@@ -1835,7 +1870,7 @@ node_shard() ->
             try 
                 node_shard_value(application:get_env(imem, node_shard_fun),node())
             catch
-                _:_ ->  ?Debug("bad config parameter ~p~n", [node_shard_fun]),
+                _:_ ->  ?Error("bad config parameter ~p~n", [node_shard_fun]),
                         "nohost"
             end;
         {ok,host_name} ->                host_name(node());    
@@ -1843,8 +1878,29 @@ node_shard() ->
         {ok,node_name} ->                node_name(node());    
         {ok,node_hash} ->                node_hash(node());    
         {ok,NA} when is_atom(NA) ->      atom_to_list(NA);
-        _Else ->    ?Debug("bad config parameter ~p ~p~n", [node_shard, _Else]),
+        _Else ->    ?Error("bad config parameter ~p ~p~n", [node_shard, _Else]),
                     node_hash(node())
+    end.
+
+node_shards() ->
+    DataNodes = [DN || {_,DN} <- data_nodes()],
+    case application:get_env(imem, node_shard) of
+        undefined ->         [node_hash(N1) || N1 <- DataNodes];    
+        {ok,node_shard_fun} ->  
+            try 
+                [node_shard_value(application:get_env(imem, node_shard_fun),N2) || N2 <- DataNodes]
+            catch
+                _:_ ->  ?Error("bad config parameter ~p~n", [node_shard_fun]),
+                        ["nohost"]
+            end;
+        {ok,host_name} ->   [host_name(N3) || N3 <- DataNodes];    
+        {ok,host_fqdn} ->   [host_fqdn(N4) || N4 <- DataNodes];    
+        {ok,node_name} ->   [node_name(N5) || N5 <- DataNodes];    
+        {ok,node_hash} ->   [node_hash(N6) || N6 <- DataNodes];    
+        {ok,O} when is_list(O);is_integer(O);is_atom(O) -> 
+                            [rpc:call(N7, imem_meta, node_shard, []) || N7 <- DataNodes];
+        _Else ->            ?Error("bad config parameter ~p ~p~n", [node_shard, _Else]),
+                            [node_hash(N8) || N8 <- DataNodes]
     end.
 
 node_shard_value({ok,FunStr},Node) ->
@@ -2923,6 +2979,7 @@ meta_operations(_) ->
         ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+        ?assertEqual([imem_meta:node_shard()], imem_meta:node_shards()),
 
         ?assertEqual(ok, check_table_columns(ddTable, record_info(fields, ddTable))),
 
@@ -3239,9 +3296,11 @@ meta_partitions(_) ->
         ?assertEqual(false,is_node_sharded_alias(tpTest1000)),
         ?assertEqual(false,is_node_sharded_alias(?TPTEST1)),
         ?assertEqual(false,is_node_sharded_alias(?TPTEST1)),
+
         
         LogTable = physical_table_name(?LOG_TABLE),
         ?assert(lists:member(LogTable,physical_table_names(?LOG_TABLE))),
+        ?assertEqual(LogTable,physical_table_name(atom_to_list(?LOG_TABLE) ++ node_shard())),
 
         ?assertEqual([],physical_table_names(?TPTEST0)),
 

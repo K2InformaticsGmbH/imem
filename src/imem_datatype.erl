@@ -1057,7 +1057,7 @@ io_to_term(Val) ->
         erl_value(Val)
     catch
         _:_ -> 
-            ?LogDebug("Cannot convert this to erlang term: ~10000p", [Val]),
+            % ?LogDebug("Cannot convert this to erlang term: ~10000p ~10000p", [Val,erlang:get_stacktrace()]),   %% TODO:enable to check code injection
             ?ClientError({})
     end.
 

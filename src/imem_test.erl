@@ -48,6 +48,7 @@ test(_) ->
         ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+        ?assertEqual([imem_meta:node_shard()], imem_meta:node_shards()),
 
         ?LogDebug("~p:test_database~n", [?MODULE]),
 

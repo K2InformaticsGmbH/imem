@@ -143,11 +143,11 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, normal}, State) ->
-    % ?Debug("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
+    ?Info("~p - received exit for monitored pid ~p ref ~p~n", [?MODULE, Pid, _Ref]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
-    ?Debug("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
+    ?Info("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info(_Info, State) ->

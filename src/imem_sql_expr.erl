@@ -765,26 +765,29 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
     case {imem_datatype:strip_squotes(PTree),BindTemplate} of
         {PTree,_} ->
             %% This is not a string, must be a name or a number
-            case (catch imem_datatype:io_to_term(PTree)) of
-                I when is_integer(I) ->  
-                    #bind{tind=0,cind=0,type=integer,readonly=true,btree=I};
+            case (catch list_to_float(binary_to_list(PTree))) of
                 V when is_float(V) -> 
                     #bind{tind=0,cind=0,type=float,readonly=true,btree=V};
                 _ ->
-                    {S,T,N} = binstr_to_qname3(PTree),
-                    case N of
-                        ?Star ->    
-                            #bind{schema=S,table=T,name=?Star};
+                    case (catch list_to_integer(binary_to_list(PTree))) of
+                        I when is_integer(I) ->  
+                            #bind{tind=0,cind=0,type=integer,readonly=true,btree=I};
                         _ ->
-                            case BindTemplate#bind.type of
-                                json -> 
-                                    case (catch field_map_lookup({S,T,N},FullMap)) of
-                                        #bind{} = B ->  B;              % binding for resolved relational name has priority 
-                                        _ ->            PTree           % leave json attribute name as binary
-                                    end;           
-                                _ ->    
-                                    field_map_lookup({S,T,N},FullMap)  %% N could be a table name here
-                            end 
+                            {S,T,N} = binstr_to_qname3(PTree),
+                            case N of
+                                ?Star ->    
+                                    #bind{schema=S,table=T,name=?Star};
+                                _ ->
+                                    case BindTemplate#bind.type of
+                                        json -> 
+                                            case (catch field_map_lookup({S,T,N},FullMap)) of
+                                                #bind{} = B ->  B;              % binding for resolved relational name has priority 
+                                                _ ->            PTree           % leave json attribute name as binary
+                                            end;           
+                                        _ ->    
+                                            field_map_lookup({S,T,N},FullMap)  %% N could be a table name here
+                                    end 
+                            end
                     end
             end;
         {B,Tbind} when Tbind==#bind{} ->    %% assume binstr, use to_<datatype>() to override
