@@ -92,7 +92,7 @@ init(_Args) ->
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
         case (catch imem_meta:table_columns(ddSeCo@)) of
             L when L==element(1,SDef) ->    ok;     % field names in table match the new record
-            L when is_list(L) ->            ?Info("~p dropping old version of table ddSeCo@~n", [?MODULE]),
+            L when is_list(L) ->            ?Info("dropping old version of table ddSeCo@", []),
                                             imem_meta:drop_table(ddSeCo@);
             _ ->                            ok      % table does not exist
         end,
@@ -133,50 +133,44 @@ init(_Args) ->
     end.
 
 handle_call({monitor, SKey, Pid}, _From, State) ->
-    case if_select_seco_keys_by_pid(SKey,Pid) of
-        {[],true} ->    % first registration for this pid, need to monitor
-            try
-                Ref = erlang:monitor(process, Pid),
-                ?Info("Monitoring ~p for SKey ~p returns ~p", [Pid, SKey, Ref]),
-                {reply, Ref, State}
-            catch 
-                Class:Reason -> 
-                    ?Warn("Monitoring ~p for SKey ~p failed with ~p:~p", [Pid, SKey, Class, Reason]),
-                    {reply, {error,Reason}, State}
-            end;
-        _ ->
-            ?Info("Monitoring ~p for SKey ~p already established", [Pid, SKey]),
-            {reply, ok, State}
+    try
+        Ref = erlang:monitor(process, Pid),
+        % ?Debug("monitoring ~p for SKey ~p returns ~p", [Pid, SKey, Ref]),
+        {reply, Ref, State}
+    catch 
+        Class:Reason -> 
+            ?Warn("monitoring ~p for SKey ~p failed with ~p:~p", [Pid, SKey, Class, Reason]),
+            {reply, {error,Reason}, State}
     end;
 handle_call(Request, From, State) ->
-    ?Warn("Received unsolited call request ~p from  ~p", [Request,From]),
+    ?Warn("received unsolited call request ~p from  ~p", [Request,From]),
     {reply, ok, State}.
 
 % handle_cast({stop, Reason}, State) ->
 %     {stop,{shutdown,Reason},State};
 handle_cast(Request, State) ->
-    ?Warn("Received unsolited cast request ~p", [Request]),
+    ?Warn("received unsolited cast request ~p", [Request]),
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, normal}, State) ->
-    ?Info("~p - received normal exit for monitored pid ~p ref ~p~n", [?MODULE, Pid, _Ref]),
+    % ?Debug("received normal exit for monitored pid ~p ref ~p~n", [?MODULE, Pid, _Ref]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
-    ?Info("~p - received unexpected exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
+    ?Info("received unexpected exit for monitored pid ~p ref ~p reason ~p~n", [Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info(Info, State) ->
-    ?Warn("Received unsolited info ~p", [Info]),
+    ?Warn("received unsolited info ~p", [Info]),
     {noreply, State}.
 
 
 terminate(Reason, _State) ->
     case Reason of
-        normal ->               ?Info("~p normal stop~n", [?MODULE]);
-        shutdown ->             ?Info("~p shutdown~n", [?MODULE]);
-        {shutdown, _Term} ->    ?Info("~p shutdown : ~p~n", [?MODULE, _Term]);
-        _ ->                    ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reason])
+        normal ->               ?Info("normal stop~n", []);
+        shutdown ->             ?Info("shutdown~n", []);
+        {shutdown, _Term} ->    ?Info("shutdown : ~p~n", [_Term]);
+        _ ->                    ?Error("stopping unexpectedly : ~p~n", [Reason])
     end.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -401,7 +395,7 @@ seco_delete(SKeyM, SKey) ->
     try 
         if_delete(SKeyM, ddSeCo@, SKey)
     catch
-        _Class:_Reason -> ?Debug("~p:seco_delete(~p) - exception ~p:~p~n", [?MODULE, SKey, _Class, _Reason])
+        _Class:_Reason -> ?Warn("seco_delete(~p) - exception ~p:~p", [SKey, _Class, _Reason])
     end.
 
 seco_perm_delete(_SKeyM, []) -> ok;
@@ -409,7 +403,7 @@ seco_perm_delete(SKeyM, [PKey|PKeys]) ->
     try
         if_delete(SKeyM, ddPerm@, PKey)
     catch
-        _Class:_Reason -> ?Debug("~p:seco_perm_delete(~p) - exception ~p:~p~n", [?MODULE, PKey, _Class, _Reason])
+        _Class:_Reason -> ?Warn("seco_perm_delete(~p) - exception ~p:~p", [PKey, _Class, _Reason])
     end,
     seco_perm_delete(SKeyM, PKeys).
 
@@ -787,8 +781,8 @@ clone_seco(SKeyParent, Pid) ->
     SeCoParent = seco_authorized(SKeyParent),
     SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
     SKey = erlang:phash2(SeCo), 
-    if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     monitor_pid(SKey,Pid),
+    if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     SKey.
 
 %% ----- TESTS ------------------------------------------------

@@ -609,19 +609,19 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             {noreply, State}
     end;
 handle_info({'DOWN', PMR, process, _Pid, normal}, #state{parmonref=PMR}=State) ->
-    ?Info("received normal exit from parent ~p ref ~p", [_Pid, PMR]),
+    % ?Debug("received normal exit from parent ~p ref ~p", [_Pid, PMR]),
     {stop, normal, State};
 handle_info({'DOWN', PMR, process, _Pid, Reason}, #state{parmonref=PMR}=State) ->
-    ?Info("received unexpected exit from parent ~p ref ~p reason ~p", [_Pid, PMR, Reason]),
+    ?Info("received unexpected exit info from parent ~p ref ~p reason ~p", [_Pid, PMR, Reason]),
     {stop, {shutdown,Reason}, State};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetchCtx=FetchCtx0}=State) ->
-    % ?Debug("received expected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
+    % ?Debug("received expected exit info from cursor process ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=undefined},   
     {noreply, State#state{fetchCtx=FetchCtx1}};
 handle_info({'DOWN', Ref, process, Pid, {aborted, {no_exists,{_TableName,_}}=Reason}}, State) ->
     handle_info({'DOWN', Ref, process, Pid, Reason}, State);
 handle_info({'DOWN', Ref, process, _Pid, {no_exists,{TableName,_}}=_Reason}, #state{reply=Sock,fetchCtx=#fetchCtx{monref=Ref}}=State) ->
-    ?Debug("received unexpected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, Ref, _Reason]),
+    ?Info("received unexpected exit info from cursor process ~p ref ~p reason ~p", [_Pid, Ref, _Reason]),
     send_reply_to_client(Sock, {error, {'ClientError', {"Table does not exist", TableName}}}),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(_Info, State) ->
