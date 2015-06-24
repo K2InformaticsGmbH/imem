@@ -145,6 +145,7 @@ handle_call({monitor, SKey, Pid}, _From, State) ->
                     {reply, {error,Reason}, State}
             end;
         _ ->
+            ?Info("Monitoring ~p for SKey ~p already established", [Pid, SKey]),
             {reply, ok, State}
     end;
 handle_call(Request, From, State) ->
