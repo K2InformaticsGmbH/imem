@@ -60,8 +60,21 @@
         , have_permission/2
         ]).
 
-%       returns a ref() of the monitor
-monitor(Pid) when is_pid(Pid) -> gen_server:call(?MODULE, {monitor, Pid}).
+monitor_pid(SKey,Pid) ->
+    case if_select_seco_keys_by_pid(SKey,Pid) of
+        {[],true} ->    % first registration for this pid, need to monitor
+            try
+                Ref = erlang:monitor(process, Pid),
+                ?Info("Monitoring ~p for SKey ~p returns ~p", [Pid, SKey, Ref]),
+                Ref
+            catch 
+                Class:Reason -> 
+                    ?Warn("Monitoring ~p for SKey ~p failed with ~p:~p", [Pid, SKey, Class, Reason]),
+                    {error,Reason}
+            end;
+        _ ->
+            ok
+    end.
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -134,32 +147,35 @@ init(_Args) ->
 % handle_call({monitor, Pid}, _From, State) ->
 %     ?Info("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
 %     {reply, erlang:monitor(process, Pid), State};
-handle_call(_Request, _From, State) ->
+handle_call(Request, From, State) ->
+    ?Warn("Received unsolited call request ~p from  ~p", [Request,From]),
     {reply, ok, State}.
 
 % handle_cast({stop, Reason}, State) ->
 %     {stop,{shutdown,Reason},State};
-handle_cast(_Request, State) ->
+handle_cast(Request, State) ->
+    ?Warn("Received unsolited cast request ~p", [Request]),
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, normal}, State) ->
-    ?Info("~p - received exit for monitored pid ~p ref ~p~n", [?MODULE, Pid, _Ref]),
+    ?Info("~p - received normal exit for monitored pid ~p ref ~p~n", [?MODULE, Pid, _Ref]),
     cleanup_pid(Pid),
     {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
-    ?Info("~p - received exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
+    ?Info("~p - received unexpected exit for monitored pid ~p ref ~p reason ~p~n", [?MODULE, Pid, _Ref, _Reason]),
     cleanup_pid(Pid),
     {noreply, State};
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    ?Warn("Received unsolited info ~p", [Info]),
     {noreply, State}.
 
 
 terminate(Reason, _State) ->
     case Reason of
-        normal -> ?Info("~p normal stop~n", [?MODULE]);
-        shutdown -> ?Info("~p shutdown~n", [?MODULE]);
-        {shutdown, _Term} -> ?Info("~p shutdown : ~p~n", [?MODULE, _Term]);
-        _ -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reason])
+        normal ->               ?Info("~p normal stop~n", [?MODULE]);
+        shutdown ->             ?Info("~p shutdown~n", [?MODULE]);
+        {shutdown, _Term} ->    ?Info("~p shutdown : ~p~n", [?MODULE, _Term]);
+        _ ->                    ?Error("~p stopping unexpectedly : ~p~n", [?MODULE, Reason])
     end.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -327,17 +343,7 @@ seco_create(AppId,SessionId) ->
 seco_register(SeCo) -> seco_register(SeCo,undefined).
 
 seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AuthState) when Pid == self() -> 
-    case if_select_seco_keys_by_pid(SKey,Pid) of
-        {[],true} ->    % first registration for this pid, need to monitor
-            try
-                _Ref = erlang:monitor(process, Pid),
-                ?Info("Monitoring ~p returns ~p", [Pid, _Ref])
-            catch 
-                Class:Reason -> ?Warn("Monitoring ~p failed with ~p:~p", [Pid, Class, Reason])
-            end;
-        _ ->
-            ok
-    end,
+    monitor_pid(SKey,Pid),
     if_write(SKey, ddSeCo@, SeCo#ddSeCo{authState=AuthState}),
     SKey.    %% security hash is returned back to caller
 
@@ -781,7 +787,7 @@ clone_seco(SKeyParent, Pid) ->
     SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
     SKey = erlang:phash2(SeCo), 
     if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
-    monitor(Pid),
+    monitor_pid(SKey,Pid),
     SKey.
 
 %% ----- TESTS ------------------------------------------------

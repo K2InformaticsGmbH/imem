@@ -54,6 +54,7 @@
 
 -record(state,                  %% state for statment process, including fetch subprocess
                     { statement
+                    , parmonref = undefined :: reference()  %% parent monitor reference (DOWN -> kill statement)
                     , isSec =false          :: boolean()
                     , seco=none             :: integer()
                     , fetchCtx=#fetchCtx{}         
@@ -181,9 +182,10 @@ close(SKey, #stmtResult{stmtRef=Pid}) ->
 close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
+
 init([Statement]) ->
     imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
-    {ok, #state{statement=Statement}}.
+    {ok, #state{statement=Statement, parmonref=erlang:monitor(process, self())}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
     {reply,ok,State#state{seco=SKey, isSec=true}};
@@ -606,6 +608,12 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             ?Debug("in unexpected state ~n~p~n", [State]),
             {noreply, State}
     end;
+handle_info({'DOWN', PMR, process, _Pid, normal}, #state{parmonref=PMR}=State) ->
+    ?Info("received normal exit from parent ~p ref ~p", [_Pid, PMR]),
+    {stop, normal, State};
+handle_info({'DOWN', PMR, process, _Pid, Reason}, #state{parmonref=PMR}=State) ->
+    ?Info("received unexpected exit from parent ~p ref ~p reason ~p", [_Pid, PMR, Reason]),
+    {stop, {shutdown,Reason}, State};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetchCtx=FetchCtx0}=State) ->
     % ?Debug("received expected exit info for monitored pid ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=undefined},   
