@@ -181,7 +181,9 @@ uses_filter(BTree,[Op|Ops]) ->
 
 %% pass value for bind variable, tuples T are returned as {const,T}
 bind_value({const,Tup}) when is_tuple(Tup) -> {const,Tup};    %% ToDo: Is this neccessary?
+bind_value(#bind{} = Tup) ->                  Tup;
 bind_value(Tup) when is_tuple(Tup) ->         {const,Tup};
+bind_value(List) when is_list(List) ->        lists:map(fun bind_value/1,List);
 bind_value(Other) ->                          Other.   
 
 %% Is this expression tree completely bound?

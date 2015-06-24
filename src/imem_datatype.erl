@@ -1340,7 +1340,7 @@ t2s(T) when is_list(T) ->
                 ,string:join([t2s(Te) || Te <- T], ",")
                 ,"]"]
     end;
-t2s(T) -> io_lib:format("~p", [T]).
+t2s(T) -> io_lib:format("~100000p", [T]).
 
 binterm_to_io(B) when is_binary(B) ->
     list_to_binary(t2s(sext:decode(B))).
