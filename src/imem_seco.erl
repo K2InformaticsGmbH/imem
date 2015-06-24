@@ -19,9 +19,9 @@
         ]).
 
 % gen_server interface (monitoring calling processes)
--export([ monitor/1
-        , cleanup_pid/1
-        ]).
+%-export([ monitor/1
+%        , cleanup_pid/1
+%        ]).
 
 % gen_server behavior callbacks
 -export([ init/1
@@ -131,9 +131,9 @@ init(_Args) ->
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
     end.
 
-handle_call({monitor, Pid}, _From, State) ->
-    %% ?Debug("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
-    {reply, erlang:monitor(process, Pid), State};
+% handle_call({monitor, Pid}, _From, State) ->
+%     ?Info("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
+%     {reply, erlang:monitor(process, Pid), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -324,21 +324,21 @@ seco_create(AppId,SessionId) ->
     SKey = erlang:phash2(SeCo), 
     SeCo#ddSeCo{skey=SKey}.
 
-seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo) when Pid == self() -> 
-    if_write(SKey, ddSeCo@, SeCo#ddSeCo{authState=undefined}),
-    case if_select_seco_keys_by_pid(SKey,Pid) of
-        {[],true} ->    monitor(Pid);               % may not be necessary
-        _ ->            ok
-    end,
-    SKey.    %% hash is returned back to caller
+seco_register(SeCo) -> seco_register(SeCo,undefined).
 
 seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AuthState) when Pid == self() -> 
-    if_write(SKey, ddSeCo@, SeCo#ddSeCo{authState=AuthState}),
     case if_select_seco_keys_by_pid(SKey,Pid) of
-        {[],true} ->    monitor(Pid);               % may not be necessary
-        _ ->            ok
+        {[],true} ->    % first registration for this pid, need to monitor
+            try
+                erlang:monitor(process, Pid)
+            catch 
+                Class:Reason -> ?Warn("Monitoring ~p failed with ~p:~p", [Pid, Class, Reason])
+            end;
+        _ ->
+            ok
     end,
-    SKey.    %% hash is returned back to caller
+    if_write(SKey, ddSeCo@, SeCo#ddSeCo{authState=AuthState}),
+    SKey.    %% security hash is returned back to caller
 
 seco_unregister(#ddSeCo{skey=SKey, pid=Pid}) when Pid == self() -> 
     catch if_delete(SKey, ddSeCo@, SKey).
