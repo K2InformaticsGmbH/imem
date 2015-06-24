@@ -60,21 +60,9 @@
         , have_permission/2
         ]).
 
-monitor_pid(SKey,Pid) ->
-    case if_select_seco_keys_by_pid(SKey,Pid) of
-        {[],true} ->    % first registration for this pid, need to monitor
-            try
-                Ref = erlang:monitor(process, Pid),
-                ?Info("Monitoring ~p for SKey ~p returns ~p", [Pid, SKey, Ref]),
-                Ref
-            catch 
-                Class:Reason -> 
-                    ?Warn("Monitoring ~p for SKey ~p failed with ~p:~p", [Pid, SKey, Class, Reason]),
-                    {error,Reason}
-            end;
-        _ ->
-            ok
-    end.
+
+monitor_pid(SKey,Pid) when is_pid(Pid) -> 
+    gen_server:call(?MODULE, {monitor,SKey,Pid}).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -144,9 +132,21 @@ init(_Args) ->
         _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}} 
     end.
 
-% handle_call({monitor, Pid}, _From, State) ->
-%     ?Info("~p - started monitoring pid ~p~n", [?MODULE, Pid]),
-%     {reply, erlang:monitor(process, Pid), State};
+handle_call({monitor, SKey, Pid}, _From, State) ->
+    case if_select_seco_keys_by_pid(SKey,Pid) of
+        {[],true} ->    % first registration for this pid, need to monitor
+            try
+                Ref = erlang:monitor(process, Pid),
+                ?Info("Monitoring ~p for SKey ~p returns ~p", [Pid, SKey, Ref]),
+                {reply, Ref, State}
+            catch 
+                Class:Reason -> 
+                    ?Warn("Monitoring ~p for SKey ~p failed with ~p:~p", [Pid, SKey, Class, Reason]),
+                    {reply, {error,Reason}, State}
+            end;
+        _ ->
+            {reply, ok, State}
+    end;
 handle_call(Request, From, State) ->
     ?Warn("Received unsolited call request ~p from  ~p", [Request,From]),
     {reply, ok, State}.
