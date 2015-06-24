@@ -330,7 +330,8 @@ seco_register(#ddSeCo{skey=SKey, pid=Pid}=SeCo, AuthState) when Pid == self() ->
     case if_select_seco_keys_by_pid(SKey,Pid) of
         {[],true} ->    % first registration for this pid, need to monitor
             try
-                erlang:monitor(process, Pid)
+                _Ref = erlang:monitor(process, Pid),
+                ?Info("Monitoring ~p returns ~p", [Pid, _Ref])
             catch 
                 Class:Reason -> ?Warn("Monitoring ~p failed with ~p:~p", [Pid, Class, Reason])
             end;
