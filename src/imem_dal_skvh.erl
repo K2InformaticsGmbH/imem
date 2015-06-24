@@ -91,6 +91,7 @@
         , audit_alias/1             %% (Channel)                    return audit alias as bisntr
         , create_table/4            %% (Name,[],Opts,Owner)         create empty table / audit table / history table (Name as binary or atom)
         , drop_table/1              %% (Name)
+        , channel_ctx/1             %% (Name)                       return #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}
         , create_check_channel/1    %% (Channel)                    create empty table / audit table / history table if necessary (Name as binary or atom)
         , create_check_channel/2    %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
         , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
@@ -303,23 +304,52 @@ audit_table_next(ATName,TransTime,CH) ->
 			audit_table_time({M+1,0,0},CH)
 	end.
 
-
-%% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
-%% creates these tables if not already existing 
-%% return atom names of the tables (StateTable and AuditTable)
-%% Channel: Binary string of channel name (preferrably upper case or camel case)
-%% returns:	provisioning record with table aliases to be used for data queries
-%% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_channel(binary()|atom()) -> #skvhCtx{}.
-create_check_channel(Channel) ->
-    create_check_channel(Channel, [audit,history]).
-
 is_row_type(map, R) when is_map(R) -> R;
 is_row_type(map, R) -> ?ClientError({"Bad datatype, expected map", R});
 is_row_type(list, R) when is_list(R) -> R;
 is_row_type(list, R) -> ?ClientError({"Bad datatype, expected list", R});
 is_row_type(binary, R) when is_binary(R) -> R;
 is_row_type(binary, R) -> ?ClientError({"Bad datatype, expected binary", R}).
+
+%% @doc Checks existence of interface tables for Channel 
+%% return atom names of the tables (MasterTable, AuditTable and HistoryTable if present)
+%% Channel: Binary string of channel name
+%% returns: provisioning record with table aliases to be used for data queries
+%% throws   ?ClientError
+-spec channel_ctx(binary()|atom()) -> #skvhCtx{}.
+channel_ctx(Channel) ->
+    Main = table_name(Channel),
+    Tab = try 
+        T = binary_to_existing_atom(Main,utf8),
+        imem_meta:check_local_table_copy(T),           %% throws if master table is not locally resident
+        T
+    catch
+        _:_ ->  ?ClientError({"Channel does not exist", Channel})
+    end,
+    Audit = try
+        A = list_to_existing_atom(?AUDIT(Channel)),
+        AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
+        imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
+        A
+    catch _:_ ->  undefined
+    end,    
+    Hist = try
+        H = list_to_existing_atom(?HIST(Channel)),
+        imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident
+        H
+    catch _:_ -> undefined
+    end,
+    #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
+
+%% @doc Checks existence of interface tables by checking existence of table name atoms in atom cache
+%% creates these tables if not already existing 
+%% return atom names of the tables (StateTable and AuditTable)
+%% Channel: Binary string of channel name (preferrably upper case or camel case)
+%% returns: provisioning record with table aliases to be used for data queries
+%% throws   ?ClientError, ?UnimplementedException, ?SystemException
+-spec create_check_channel(binary()|atom()) -> #skvhCtx{}.
+create_check_channel(Channel) ->
+    create_check_channel(Channel, [audit,history]).
 
 -spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> #skvhCtx{}.
 create_check_channel(Channel, Options) ->
@@ -620,7 +650,7 @@ skvh_cl_to_map(#skvhCL{time = Time, ovalue = OldValue, nvalue = NewValue, cuser 
 
 read(User, Channel, Item, KeyTable) when is_binary(Channel), is_binary(Item), is_binary(KeyTable) ->
 	Cmd = [read,User,Channel,Item,KeyTable],
-	read(Cmd, create_check_channel(Channel), Item, io_key_table_to_term_list(KeyTable), []).
+	read(Cmd, channel_ctx(Channel), Item, io_key_table_to_term_list(KeyTable), []).
 
 read(Cmd, _, Item, [], Acc)  -> project_result(Cmd, lists:reverse(Acc), Item);
 read(Cmd, SkvhCtx, Item, [Key|Keys], Acc)  ->
@@ -633,10 +663,10 @@ read(Cmd, SkvhCtx, Item, [Key|Keys], Acc)  ->
 
 write(User,Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 	Cmd = [write,User,Channel,KVTable],
-	write(User, Cmd, create_check_channel(Channel), io_kv_table_to_tuple_list(KVTable), []);
+	write(User, Cmd, channel_ctx(Channel), io_kv_table_to_tuple_list(KVTable), []);
 write(User,Channel, KVTuples) when is_binary(Channel), is_list(KVTuples) ->
 	Cmd = [write,User,Channel,KVTuples],
-	write(User, Cmd, create_check_channel(Channel), KVTuples, []).
+	write(User, Cmd, channel_ctx(Channel), KVTuples, []).
 
 write(_User, Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 write(User, Cmd, SkvhCtx, [{K,V}|KVPairs], Acc)  ->
@@ -645,7 +675,7 @@ write(User, Cmd, SkvhCtx, [{K,V}|KVPairs], Acc)  ->
 
 delete(User, Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 
 	Cmd = [delete,User,Channel,KeyTable],
-	delete(User, Cmd, create_check_channel(Channel), io_key_table_to_term_list(KeyTable), []).
+	delete(User, Cmd, channel_ctx(Channel), io_key_table_to_term_list(KeyTable), []).
 
 delete(_User, Cmd, _, [], Acc)  -> return_stringlist(Cmd, lists:reverse(Acc));
 delete(User, Cmd, SkvhCtx, [Key|Keys], Acc)  ->
@@ -792,7 +822,7 @@ match_val(V) -> V.
 
 readGT(User, Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1) ->
 	Cmd = [readGT, User, Channel, Item, CKey1, Limit],
-	readGT(User, Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
+	readGT(User, Cmd, channel_ctx(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
 
 readGT(_User, Cmd, SkvhCtx, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}], ['$_']},
@@ -800,7 +830,7 @@ readGT(_User, Cmd, SkvhCtx, Item, Key1, Limit) ->
 
 audit_readGT(User, Channel, Item, TS1, Limit)  when is_binary(Item), is_binary(TS1) ->
 	Cmd = [audit_readGT, User, Channel, Item, TS1, Limit],
-	audit_readGT(User, Cmd, create_check_channel(Channel), Item, imem_datatype:io_to_timestamp(TS1), io_to_integer(Limit)).
+	audit_readGT(User, Cmd, channel_ctx(Channel), Item, imem_datatype:io_to_timestamp(TS1), io_to_integer(Limit)).
 
 audit_readGT(_User, Cmd, SkvhCtx, Item, TS1, Limit) ->
 	MatchFunction = {?AUDIT_MATCHHEAD, [{'>', '$1', match_val(TS1)}], ['$_']},
@@ -821,7 +851,7 @@ audit_read_limited(Cmd, [TP|Partitions], Item, MatchFunction, Limit, Acc) ->
 
 readGE(User, Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1) ->
 	Cmd = [readGT, User, Channel, Item, CKey1, Limit],
-	readGE(User, Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
+	readGE(User, Cmd, channel_ctx(Channel), Item, io_key_to_term(CKey1), io_to_integer(Limit)).
 
 readGE(_User, Cmd, SkvhCtx, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}], ['$_']},
@@ -833,7 +863,7 @@ read_limited(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
 
 readGELT(User, Channel, Item, CKey1, CKey2, Limit) when is_binary(Item), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [readGELT, User, Channel, Item, CKey1, CKey2, Limit],
-	readGELT(User, Cmd, create_check_channel(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
+	readGELT(User, Cmd, channel_ctx(Channel), Item, io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
 readGELT(_User, Cmd, SkvhCtx, Item, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
@@ -849,7 +879,7 @@ read_with_limit(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
 
 deleteGELT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGELT, User, Channel, CKey1, CKey2, Limit],
-	deleteGELT(User, Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
+	deleteGELT(User, Cmd, channel_ctx(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
 deleteGELT(User, Cmd, SkvhCtx, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
@@ -857,7 +887,7 @@ deleteGELT(User, Cmd, SkvhCtx, Key1, Key2, Limit) ->
 
 deleteGTLT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGTLT, User, Channel, CKey1, CKey2, Limit],
-	deleteGTLT(User, Cmd, create_check_channel(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
+	deleteGTLT(User, Cmd, channel_ctx(Channel), io_key_to_term(CKey1), io_key_to_term(CKey2), io_to_integer(Limit)).
 
 deleteGTLT(User, Cmd, SkvhCtx, Key1, Key2, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
@@ -1040,9 +1070,10 @@ skvh_operations(_) ->
         KVa = <<"[1,a]",9,"123456">>,
         KVb = <<"[1,b]",9,"234567">>,
         KVc = <<"[1,c]",9,"345678">>,
-
 		K0 = <<"{<<\"0\">>,<<>>,<<>>}">>,
 
+        ?assertException(throw, {ClEr, {"Channel does not exist",<<"skvhTest">>}}, read(system, ?Channel, <<"kvpair">>, K0)), 
+        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
 		?assertEqual({ok,[]}, readGT(system, ?Channel, <<"khpair">>, <<"{<<\"0\">>,<<>>,<<>>}">>, <<"1000">>)),
 
@@ -1124,6 +1155,7 @@ skvh_operations(_) ->
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
+        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
 		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[]">>, <<"1">>)),
@@ -1152,6 +1184,7 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, ?Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
     	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
+        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
@@ -1191,7 +1224,7 @@ skvh_operations(_) ->
         MidleKey = ["1", "b", "1"],
         LastKey = ["1", "e"],
 
-        %% Read some data text interface to create the tables
+        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),
         ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
@@ -1382,7 +1415,7 @@ skvh_concurrency(_) ->
         ?assertEqual(TabCount, length(InitResult)),
         ?LogDebug("success ~p~n", [bulk_insert]),
 
-        [spawn(fun() -> Self ! {N,update_test(hd(?Channels),TestKey,N)} end) || N <- lists:seq(1,10)],
+        [spawn(fun() -> Self ! {N1,update_test(hd(?Channels),TestKey,N1)} end) || N1 <- lists:seq(1,10)],
         ?LogDebug("success ~p", [bulk_update_spawned]),
         UpdateResult = receive_results(10,[]),
         ?assertEqual(10, length(UpdateResult)),

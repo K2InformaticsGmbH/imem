@@ -1326,24 +1326,25 @@ boolean_to_io(T) ->
     list_to_binary(io_lib:format("~p",[T])).
 
 term_to_io(T) ->
-    %list_to_binary(io_lib:format("~w",[T])).
-    list_to_binary(t2s(T)).
-
-t2s(T) when is_tuple(T) ->
-    ["{"
-    ,string:join([t2s(Te) || Te <- tuple_to_list(T)], ",")
-    ,"}"];
-t2s(T) when is_list(T) ->
-    case io_lib:printable_list(T) of
-        true -> io_lib:format("~p", [T]);
-        _    -> ["["
-                ,string:join([t2s(Te) || Te <- T], ",")
-                ,"]"]
-    end;
-t2s(T) -> io_lib:format("~100000p", [T]).
+    list_to_binary(io_lib:format("~100000p",[T])).
+    %list_to_binary(t2s(T)).
 
 binterm_to_io(B) when is_binary(B) ->
-    list_to_binary(t2s(sext:decode(B))).
+    list_to_binary(io_lib:format("~100000p",[sext:decode(B)])).
+    %list_to_binary(t2s(sext:decode(B))).
+
+% t2s(T) when is_tuple(T) ->
+%     ["{"
+%     ,string:join([t2s(Te) || Te <- tuple_to_list(T)], ",")
+%     ,"}"];
+% t2s(T) when is_list(T) ->
+%     case io_lib:printable_list(T) of
+%         true -> io_lib:format("~p", [T]);
+%         _    -> ["["
+%                 ,string:join([t2s(Te) || Te <- T], ",")
+%                 ,"]"]
+%     end;
+% t2s(T) -> io_lib:format("~100000p", [T]).
 
 
 % escape_io(Str) when is_list(Str) ->
