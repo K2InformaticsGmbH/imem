@@ -67,9 +67,9 @@
 create_stmt(Statement, SKey, IsSec) ->
     case IsSec of
         false -> 
-            gen_server:start(?MODULE, [Statement], [{spawn_opt, [{fullsweep_after, 0}]}]);
+            gen_server:start(?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]);
         true ->
-            {ok, Pid} = gen_server:start(?MODULE, [Statement], []),            
+            {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),            
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
             {ok, Pid}
@@ -183,9 +183,9 @@ close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
 
-init([Statement]) ->
+init([Statement,ParentPid]) ->
     imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
-    {ok, #state{statement=Statement, parmonref=erlang:monitor(process, self())}}.
+    {ok, #state{statement=Statement, parmonref=erlang:monitor(process, ParentPid)}}.
 
 handle_call({set_seco, SKey}, _From, State) ->    
     {reply,ok,State#state{seco=SKey, isSec=true}};
@@ -625,7 +625,7 @@ handle_info({'DOWN', Ref, process, _Pid, {no_exists,{TableName,_}}=_Reason}, #st
     send_reply_to_client(Sock, {error, {'ClientError', {"Table does not exist", TableName}}}),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(_Info, State) ->
-    ?Debug("received unsolicited info ~p~nin state ~p~n", [_Info, State]),
+    ?Warn("received unsolicited info ~p ~nin state ~p~n", [_Info, State]),
     {noreply, State}.
 
 handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State)->
