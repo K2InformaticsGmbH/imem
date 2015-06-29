@@ -761,12 +761,13 @@ create_check_physical_table({Schema,TableAlias},ColumnInfos,Opts0,Owner) ->
                             catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner),
                             ok;
                         _ ->
-                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner), 
-                            ?SystemException({"Wrong table options",{TableAlias,Old}})
+                            catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner),
+                            Diff = (OldOpts -- NewOpts)  ++ (NewOpts -- OldOpts),
+                            ?SystemException({"Wrong table options",{TableAlias,Diff}})
                     end;        
                 [#ddTable{owner=Own}] ->
                     catch create_physical_table({Schema,TableAlias},ColumnInfos,Opts1,Owner),
-                    ?SystemException({"Wrong table owner",{TableAlias,Own}})        
+                    ?SystemException({"Wrong table owner",{TableAlias,[Own,Owner]}})        
             end;
         _ ->        
             ?UnimplementedException({"Create/check table in foreign schema",{Schema,TableAlias}})
@@ -2984,7 +2985,7 @@ meta_operations(_) ->
         ?assertEqual(ok, check_table_columns(ddTable, record_info(fields, ddTable))),
 
         ?assertEqual(ok, create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),
-        ?assertException(throw,{SyEx,{"Wrong table owner",{?LOG_TABLE,system}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], admin)),
+        ?assertException(throw,{SyEx,{"Wrong table owner",{?LOG_TABLE,[system,admin]}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], admin)),
         ?assertException(throw,{SyEx,{"Wrong table options",{?LOG_TABLE,_}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog1},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(?LOG_TABLE)),
 

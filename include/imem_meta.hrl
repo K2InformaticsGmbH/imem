@@ -263,7 +263,9 @@
 		__DbResult = {__Level, (catch imem_meta:write_log(__LogRec))},
 		case __DbResult of 
 			{warning, ok} ->	ok;
-			 _ ->				?EXCP_LOG(__LogRec)
+			{warning, _} ->		lager:warning("[_IMEM_] {~p,~p,~p} ~s~n~p~n~p",[__Module,__Function,__Line,__Message,__Fields,__ST]);
+			{error, _} ->		lager:error("[_IMEM_] {~p,~p,~p} ~s~n~p~n~p",[__Module,__Function,__Line,__Message,__Fields,__ST]);
+			_ ->				ok
 		end,
 		case __Ex of
 			'SecurityViolation' ->  exit({__Ex,_Reason});
