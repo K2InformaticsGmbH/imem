@@ -41,6 +41,7 @@
         , snap_err/2
         , do_snapshot/1
         , all_snap_tables/0
+        , all_local_time_partitioned_tables/0
         ]).
 
 -define(BKP_EXTN, ".bkp").
@@ -265,12 +266,12 @@ info({zip, [Z|ZipFiles]}, ContentFiles) ->
     info({zip, ZipFiles}, [{filename:absname(Z),CntFiles}|ContentFiles]).
 
 
-% take snapshot of all/some of the current in memory imem table
-take([all]) ->
+% take snapshot of all/some of the current in memory imem tables
+take([all]) ->                                      % standard snapshot tables (no local time partitioned tables)
     take({tabs, all_snap_tables()});
-
-% multiple tables as list of strings or regex strings
-take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
+take([local]) ->                                    % local time partitioned tables
+    take({tabs, all_local_time_partitioned_tables()});
+take({tabs, [_R|_] = RegExs}) when is_list(_R) ->   % multiple tables as list of strings or regex strings
     FilteredSnapReadTables = lists:filter(fun(T) -> imem_meta:is_readable_table(T) end, imem_meta:all_tables()),
     ?Debug("tables readable for snapshot ~p~n", [FilteredSnapReadTables]),
 
@@ -283,12 +284,9 @@ take({tabs, [_R|_] = RegExs}) when is_list(_R) ->
         []  -> {error, lists:flatten(io_lib:format(" ~p doesn't match any table in ~p~n", [RegExs, FilteredSnapReadTables]))};
         _   -> take({tabs, SelectedSnapTables})
     end;
-
-% single table as atom (internal use)
-take(Tab) when is_atom(Tab) -> take({tabs, [Tab]});
-
-% list of tables as atoms
-take({tabs, Tabs}) ->
+take(Tab) when is_atom(Tab) ->                      % single table as atom (internal use)
+    take({tabs, [Tab]});
+take({tabs, Tabs}) ->                               % list of tables as atoms
     lists:flatten([
         case take_chunked(Tab) of
             ok -> {ok, Tab};
@@ -447,6 +445,12 @@ all_snap_tables() ->
                     andalso not imem_meta:is_local_time_partitioned_table(T)
                 end, imem_meta:all_tables()).
 
+all_local_time_partitioned_tables() ->
+    lists:filter(fun(T) ->
+                    imem_meta:is_readable_table(T)
+                    andalso imem_meta:is_local_time_partitioned_table(T)
+                end, imem_meta:all_tables()).
+
 %% ----- PRIVATE APIS ------------------------------------------------
 
 close_file(Me, FHndl) ->
@@ -522,7 +526,10 @@ take_chunked(Tab) ->
     BackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_EXTN]),
     NewBackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_TMP_EXTN]),
     % truncates the file if already exists and writes the table props
-    TblPropBin = term_to_binary({prop, imem_if:table_info(Tab, user_properties)}),
+    TblPropBin = case imem_if:read(ddTable, {imem_meta:schema(),Tab}) of
+        [] ->           term_to_binary({prop, imem_if:table_info(Tab, user_properties)});
+        [DDTableRow] -> term_to_binary({prop, [DDTableRow]})
+    end,
     PayloadSize = byte_size(TblPropBin),
     ok = file:write_file(NewBackFile, << PayloadSize:32, TblPropBin/binary >>),
     Me = self(),
