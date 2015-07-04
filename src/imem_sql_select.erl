@@ -43,9 +43,9 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     end,
     % ?Info("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
-    % ?Info("MainSpec:~n~p~n", [MainSpec]),
+    ?Info("MainSpec:~n~p~n", [MainSpec]),
     JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
-    % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
+    ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
     % ?Info("ColMap1:~n~p~n", [ColMap1]),

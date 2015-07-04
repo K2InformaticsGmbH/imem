@@ -526,7 +526,7 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
-    % ?Info("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
+    ?Info("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
     % ?Info("received rows~n~p~n", [Rows0]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
@@ -760,39 +760,39 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     end.
 
 join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
-    % ?LogDebug("Virtual join scan spec unbound (~p)~n~p~n", [Ti,SSpec0]),
+    % ?Info("Virtual join scan spec unbound (~p)~n~p~n", [Ti,SSpec0]),
     {SSpec1,_TailSpec,FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
     [{_,[SGuard1],_}] = SSpec1,
-    % ?LogDebug("Virtual join table (~p) ~p~n", [Ti,Table]),
-    % ?LogDebug("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
-    % ?LogDebug("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
+    ?Info("Virtual join table (~p) ~p~n", [Ti,Table]),
+    ?Info("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
+    ?Info("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
     Recs = case SGuard1 of
         false ->
             [];
         true ->
             ?UnimplementedException({"Unsupported virtual join filter guard", true}); 
-        {is_member,Tag, '$_'} when is_atom(Tag) ->
+        {is_member,Tag, '$_'} when is_atom(Tag);is_record(Tag,bind) ->
             Items = element(?MainIdx,Rec),
-            % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+            ?Info("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
             Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
             [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {is_member,Tag, Items} when is_atom(Tag) ->
-            % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
+        {is_member,Tag, Items} when is_atom(Tag);is_record(Tag,bind) ->
+            ?Info("generate_virtual table ~p from~n~p~n", [Table,Items]),
             Virt = generate_virtual(Table,Items,MaxSize),
-            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
             [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {'and',{is_member,Tag, '$_'},_} when is_atom(Tag) ->
+        {'and',{is_member,Tag, '$_'},_} when is_atom(Tag);is_record(Tag,bind) ->
             Items = element(?MainIdx,Rec),
-            % ?Debug("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
+            ?Info("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
             Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
             [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {'and',{is_member,Tag, Items},_} when is_atom(Tag) ->
-            % ?Debug("generate_virtual table ~p from~n~p~n", [Table,Items]),
+        {'and',{is_member,Tag, Items},_} when is_atom(Tag);is_record(Tag,bind) ->
+            ?Info("generate_virtual table ~p from~n~p~n", [Table,Items]),
             Virt = generate_virtual(Table,Items,MaxSize),
-            % ?Debug("Generated virtual table ~p~n~p~n", [Table,Virt]),
+            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
             [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
         BadFG ->
             ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})

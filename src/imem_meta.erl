@@ -2173,9 +2173,9 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
-    % ?Debug("Virtual fetch start  : ~p ~p~n", [VTable,MatchSpec]),
+    ?Info("Virtual fetch start  : ~p ~p~n", [VTable,MatchSpec]),
     {Rows,true} = select(VTable, MatchSpec),
-    % ?Debug("Virtual fetch result  : ~p~n", [Rows]),
+    ?Info("Virtual fetch result  : ~p~n", [Rows]),
     spawn(
         fun() ->
             receive
@@ -2351,7 +2351,7 @@ select_virtual(Table, [{_,[],['$_']}]) ->
     {read(Table),true};                 %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
     Tag = element(2,MatchHead),
-    % ?Debug("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
+    % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case operand_match(Tag,Guard) of
         false ->                        read(Table);
         {'==',Tag,{element,N,Tup1}} ->  % ?Debug("Virtual Select Key : ~p~n", [element(N,Tup1)]),
@@ -2364,7 +2364,7 @@ select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
                                         read(Table,Val2);
         _ ->                            read(Table)
     end,
-    % ?Debug("Virtual Select Candidates  : ~p~n", [Candidates]),
+    % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
     MS = ets:match_spec_compile(MatchSpec),
     Result = ets:match_spec_run(Candidates,MS),
     % ?Debug("Virtual Select Result  : ~p~n", [Result]),    
