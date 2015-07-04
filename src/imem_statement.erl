@@ -526,8 +526,8 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
-    % ?LogDebug("received ~p rows~n", [length(Rows0)]),
-    % ?LogDebug("received rows~n~p~n", [Rows0]),
+    % ?Info("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
+    % ?Info("received rows~n~p~n", [Rows0]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
@@ -551,7 +551,7 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
             {R,false}        
     end,   
-    % ?LogDebug("Filtering ~p rows with filter ~p~n", [length(Rows1),FilterFun]),
+    % ?Info("Filtering ~p rows with filter ~p~n", [length(Rows1),FilterFun]),
     MR1 = case RowNum of
         undefined -> MR0;
         _ ->         setelement(?RownumIdx,MR0,RowNum)
@@ -718,8 +718,8 @@ join_rows(MetaAndMainRows, FetchCtx0, Stmt) ->
     #fetchCtx{blockSize=BlockSize, remaining=RemainingRowQuota}=FetchCtx0,
     JoinTables = tl(Stmt#statement.tables),  %% {Schema,Name,Alias} for each table to join
     JoinSpecs = Stmt#statement.joinSpecs,
-    % ?Debug("Join Tables: ~p~n", [Tables]),
-    % ?Debug("Join Specs: ~p~n", [JoinSpecs]),
+    % ?Info("Join Tables: ~p~n", [JoinTables]),
+    % ?Info("Join Specs: ~p~n", [JoinSpecs]),
     join_rows(MetaAndMainRows, BlockSize, RemainingRowQuota, JoinTables, JoinSpecs, []).
 
 join_rows([], _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
@@ -739,9 +739,12 @@ join_row(Recs0, BlockSize, Ti, [{_S,JoinTable}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
-    % ?Debug("Join ~p table ~p~n", [Ti,Table]),
-    % ?Debug("Rec used for join bind~n~p~n", [Rec]),
+    % ?Info("Join ~p table ~p~n", [Ti,Table]),
+    % ?Info("Rec used for join bind~n~p~n", [Rec]),
     {SSpec,_TailSpec,FilterFun} = imem_sql_expr:bind_scan(Ti,Rec,JoinSpec),
+    % ?Info("SSpec for join~n~p~n", [SSpec]),
+    % ?Info("TailSpec for join~n~p~n", [_TailSpec]),
+    % ?Info("FilterFun for join~n~p~n", [FilterFun]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
     case imem_meta:select(Table, SSpec, MaxSize) of
         {[], true} ->   [];
@@ -992,8 +995,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger, User}=TableInfo, ColMap, [[Ite
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {},Trigger, User],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % ?LogDebug("ColMap~n~p~n", [ColMap]),
-    % ?LogDebug("Values~n~p~n", [Values]),
+    % ?Info("ColMap~n~p~n", [ColMap]),
+    % ?Info("Values~n~p~n", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1075,8 +1078,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec,Trigger, User],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
-    % ?Debug("ColMap~n~p~n", [ColMap]),
-    % ?Debug("Values~n~p~n", [Values]),
+    % ?Info("ColMap~n~p~n", [ColMap]),
+    % ?Info("Values~n~p~n", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        
