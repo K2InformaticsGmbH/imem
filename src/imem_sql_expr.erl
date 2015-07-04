@@ -21,6 +21,10 @@
         , bind_tree/2
         ]).
 
+-export([ bind_table/3
+        , bind_tab/3
+        ]).
+
 -export([ main_spec/2
         , join_specs/3
         , sort_fun/3
@@ -55,7 +59,7 @@ bind_scan(Ti,X,ScanSpec0) ->
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [to_guard(STree1)], [Result]}],
             case Ti of
                 ?MainIdx -> {SSpec1,ets:match_spec_compile(SSpec1),FilterFun0};
@@ -64,10 +68,9 @@ bind_scan(Ti,X,ScanSpec0) ->
         {_,_} ->                     %% both filter funs needs to be evaluated
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             {STree2,FTree} = split_filter_from_guard(STree1),
-            % ?LogDebug("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
-            % ?LogDebug("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
+            % ?Info("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
+            % ?Info("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
             SSpec1 = [{SHead, [to_guard(STree2)], [Result]}],
             FilterFun1 = imem_sql_funs:filter_fun(FTree),
             case Ti of
@@ -180,25 +183,24 @@ uses_filter(BTree,[Op|Ops]) ->
     end.
 
 %% pass value for bind variable, tuples T are returned as {const,T}
-bind_value({const,Tup}) when is_tuple(Tup) -> {const,Tup};    %% ToDo: Is this neccessary?
+bind_value({const,Tup}) when is_tuple(Tup) -> {const,Tup};
 bind_value(#bind{} = Tup) ->                  Tup;
 bind_value(Tup) when is_tuple(Tup) ->         {const,Tup};
-bind_value(List) when is_list(List) ->        lists:map(fun bind_value/1,List);
 bind_value(Other) ->                          Other.   
 
 %% Is this expression tree completely bound?
-bind_done({list,[]}) -> true;
+bind_done({list,[]}) -> true;   % ToDo: may need to abandon concept of tagged lists and use plain lists instead
 bind_done({list,[A|Rest]}) ->
     case bind_done(A) of
         false ->    false;
         true ->     bind_done({list,Rest})
     end;
-% bind_done([]) -> true;
-% bind_done([A|Rest]) ->
-%     case bind_done(A) of
-%         false ->    false;
-%         true ->     bind_done(Rest)
-%     end;
+bind_done([]) -> true;
+bind_done([A|Rest]) ->
+    case bind_done(A) of
+        false ->    false;
+        true ->     bind_done(Rest)
+    end;
 bind_done({_,A}) -> bind_done(A);
 bind_done(#bind{tind=0,cind=0,btree=BTree}) -> bind_done(BTree);
 bind_done(#bind{}) -> false;
@@ -287,6 +289,7 @@ bind_fun(Value) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_table(integer(), tuple(), tuple()) -> tuple().
 bind_table(Ti, BTree, X) ->
+    % ?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
     case bind_tab(Ti, BTree, X) of
         ?nav ->     false;
         B ->        B
@@ -313,6 +316,7 @@ to_guard({Op,A}) ->             {Op,to_guard(A)}; %% unary functions and operato
 to_guard({Op,A,B}) ->           {Op,to_guard(A),to_guard(B)}; %% binary functions/op.
 to_guard({Op,A,B,C}) ->         {Op,to_guard(A),to_guard(B),to_guard(C)};
 to_guard({Op,A,B,C,D}) ->       {Op,to_guard(A),to_guard(B),to_guard(C),to_guard(D)};
+to_guard(L) when is_list(L) ->  [bind_value(I) || I <- L];  % means that lists must be constants in guards
 to_guard(A) ->                  A.
 
 %% @doc Binds all unbound variables in an expression tree in one pass.
@@ -369,7 +373,7 @@ prune_walk(Ti, {Op,A}) -> prune_eval({Op,prune_walk(Ti,A)});
 prune_walk(Ti, {Op,A,B}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B)});
 prune_walk(Ti, {Op,A,B,C}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B),prune_walk(Ti,C)});
 prune_walk(Ti, {Op,A,B,C,D}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B),prune_walk(Ti,C),prune_walk(Ti,D)});
-prune_walk(_ , BTree) -> BTree.
+prune_walk(_ , BTree) -> BTree. % ToDo: Maybe need to prune_walk lists too
 
 prune_eval({_,?Join}) -> ?Join;
 prune_eval({'and',?Join,?Join}) -> ?Join;
