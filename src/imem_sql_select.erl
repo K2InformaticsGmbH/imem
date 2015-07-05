@@ -14,26 +14,26 @@
 
 exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     {_, TableList} = lists:keyfind(from, 1, SelectSections),
-    % ?Debug("TableList: ~p~n", [TableList]),
+    % ?Info("TableList: ~p~n", [TableList]),
     Params = imem_sql:params_from_opts(Opts,ParseTree),
-    % ?LogDebug("Params: ~p~n", [Params]),
+    % ?Info("Params: ~p~n", [Params]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
     % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
     Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
-    % ?LogDebug("Tables: (~p)~n~p~n", [length(Tables),Tables]),
+    % ?Info("Tables: (~p)~n~p~n", [length(Tables),Tables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql_expr:column_map_columns([],FullMap);
         {_, ParsedFieldList} -> 
             imem_sql_expr:column_map_columns(ParsedFieldList, FullMap)
     end,
-    % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
-    % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
+    % ?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
+    % ?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
     % ?Info("Statement columns: ~n~p~n", [StmtCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
-    % ?LogDebug("WhereParseTree~n~p~n", [WPTree]),
+    % ?Info("WhereParseTree~n~p~n", [WPTree]),
     WBTree0 = case WPTree of
         ?EmptyWhere ->  
             true;
@@ -43,9 +43,9 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     end,
     % ?Info("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
-    ?Info("MainSpec:~n~p~n", [MainSpec]),
+    % ?Info("MainSpec:~n~p~n", [MainSpec]),
     JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
-    ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
+    % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
     % ?Info("ColMap1:~n~p~n", [ColMap1]),

@@ -51,8 +51,8 @@
 -spec bind_scan(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_scan(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
@@ -659,8 +659,8 @@ column_map_columns(Columns, FullMap) ->
 column_map_columns([#bind{schema=undefined,table=undefined,name=?Star}|Columns], FullMap, Acc) ->
     % Handle * column
     Cmaps = [ case  length([N || #bind{name=N} <- FullMap,N==Name]) of
-                1 -> Bind#bind{table=A,alias=Name,ptree=Name};
-                _ -> Bind#bind{table=A,alias=qname3_to_binstr({undefined,A,Name}),ptree=qname3_to_binstr({undefined,A,Name})}
+                1 -> binterm_arg_conv(Bind#bind{table=A,alias=Name,ptree=Name});
+                _ -> binterm_arg_conv(Bind#bind{table=A,alias=qname3_to_binstr({undefined,A,Name}),ptree=qname3_to_binstr({undefined,A,Name})})
               end
               || #bind{tind=Ti,name=Name,alias=A}=Bind <- FullMap,Ti/=?MetaIdx
             ],
@@ -670,7 +670,7 @@ column_map_columns([#bind{schema=undefined,name=?Star}=Cmap0|Columns], FullMap, 
     % Handle table.* column
     % ?LogDebug("column_map 2 ~p~n", [Cmap0]),
     S = ?atom_to_binary(imem_meta:schema()),
-    column_map_columns([Cmap0#bind{schema=S}|Columns], FullMap, Acc);
+    column_map_columns([binterm_arg_conv(Cmap0#bind{schema=S})|Columns], FullMap, Acc);
 column_map_columns([#bind{schema=Schema,table=Table,name=?Star}=_Cmap0|Columns], FullMap, Acc) ->
     % Handle schema.table.* column
     % ?LogDebug("column_map 3 ~p~n", [_Cmap0]),
@@ -679,8 +679,8 @@ column_map_columns([#bind{schema=Schema,table=Table,name=?Star}=_Cmap0|Columns],
         _ ->        Schema
     end,
     Cmaps = [ case  length([N || #bind{name=N} <- FullMap,N==Name]) of
-                1 -> Bind#bind{table=A,alias=Name,ptree=Name};
-                _ -> Bind#bind{table=A,alias=qname3_to_binstr({Prefix,A,Name}),ptree=qname3_to_binstr({Prefix,A,Name})}
+                1 -> binterm_arg_conv(Bind#bind{table=A,alias=Name,ptree=Name});
+                _ -> binterm_arg_conv(Bind#bind{table=A,alias=qname3_to_binstr({Prefix,A,Name}),ptree=qname3_to_binstr({Prefix,A,Name})})
               end
               || #bind{tind=Ti,schema=S,name=Name,alias=A}=Bind <- FullMap,Ti/=?MetaIdx,S==Schema,A==Table
             ],
@@ -744,17 +744,16 @@ field_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
             Bind = hd(Bmatch),
             Bind#bind{type=tuple,cind=0};       %% bind to whole table record
         true ->    
-            Bind = hd(Bmatch),     
-            case Bind of
-                #bind{type=binterm} ->  
-                    %% db field encoded as binary, must decode to term in where tree
-                    %% this conversion is removed for simple column expressions in column_map_lookup
-                    #bind{type=term,btree={from_binterm,Bind}};
-                _ ->    
-                    %% db field is not stored in encoded form, no transformation needed
-                    Bind
-            end
+            binterm_arg_conv(hd(Bmatch))
     end.
+
+binterm_arg_conv(#bind{type=binterm} = Bind) ->
+    %% db field encoded as binary, must be decoded to term in where tree
+    %% this conversion is removed for simple column expressions in column_map_lookup
+    Bind#bind{tind=0,cind=0,type=term,btree={from_binterm,Bind}};
+binterm_arg_conv(Bind) -> 
+    %% no transformation needed
+    Bind.    
 
 %% 
 %% @doc Convert a parse tree item (hierarchical tree of binstr names, atom operators and erlang values)
