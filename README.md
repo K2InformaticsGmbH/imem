@@ -1,4 +1,4 @@
-imem <a href="https://magnum.travis-ci.com/k2informatics/imem"><img src="https://magnum.travis-ci.com/k2informatics/imem.svg?token=jAKQYF1CVGmsnuguN6iU&branch=master" alt="Travis-CI"></a>
+imem <a href="https://magnum.travis-ci.com/k2informatics/imem"><img src="https://travis-ci.org/K2InformaticsGmbH/imem.svg" alt="Travis-CI"></a>
 ====
 
 Clustered in-memory database based on MNESIA with simple SQL layer.
