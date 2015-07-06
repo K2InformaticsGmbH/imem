@@ -1125,7 +1125,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [
                             end
                         end,     
                         {Cx,Pos,Fx};
-                    {from_binterm,#bind{tind=?MainIdx,cind=Cx,type=Type}=Bind1} ->
+                    {from_binterm,#bind{tind=?MainIdx,cind=Cx,type=Type}} ->
                         Fx = fun(X) -> 
                             ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value))
                         end,     
