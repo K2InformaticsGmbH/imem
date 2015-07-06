@@ -1125,6 +1125,11 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [
                             end
                         end,     
                         {Cx,Pos,Fx};
+                    {from_binterm,#bind{tind=?MainIdx,cind=Cx,type=Type}=Bind1} ->
+                        Fx = fun(X) -> 
+                            ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value))
+                        end,     
+                        {Cx,0,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
                 end;
             #bind{tind=0,cind=0} ->  
@@ -1138,7 +1143,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [
           || 
           {#bind{readonly=R}=CMap,Value} 
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
-        ]),    
+        ]),
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, update_recs(DefRec, InsertMap), Tab]),
     Action = [{S,Tab,Typ}, Item, {},  NewRec,Trigger, User],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
