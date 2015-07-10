@@ -208,25 +208,31 @@ like_compile(S) -> like_compile(S, <<>>).
 
 like_compile(_, ?nav) -> ?nav;
 like_compile(?nav, _) -> ?nav;
-like_compile(S, Esc) when is_list(S); is_binary(S)  -> re_compile(transform_like(S, Esc));
+like_compile(S, Esc) when is_list(S); is_binary(S) ->
+    re_compile(
+      list_to_binary(
+        ["^", trns_like(
+                re:replace(
+                  S,
+                  "([\\\\^$.\\[\\]|()?*+\\-{}])",
+                  "\\\\\\1",
+                  [global, {return, list}]),
+                case Esc of
+                    [C]     -> C;
+                    <<C:8>> -> C;
+                    _       -> '$none'
+                end),
+         "$"]));
 like_compile(_,_)     -> ?nav.
 
-transform_like(S, Esc) ->
-    E = if
-        Esc =:= "" ->       "";
-        Esc =:= <<>> ->     "";
-        is_list(Esc) ->     Esc;
-        is_binary(Esc) ->   binary_to_list(Esc);
-        true ->             ""
-    end,
-    Escape = if E =:= "" -> ""; true -> "["++E++"]" end,
-    NotEscape = if E =:= "" -> ""; true -> "(^|[^"++E++"])" end,
-    S0 = re:replace(S, "([\\\\^$.\\[\\]|()?*+\\-{}])", "\\\\\\1", [global, {return, binary}]),
-    S1 = re:replace(S0, NotEscape++"%", "\\1.*", [global, {return, binary}]),
-    S2 = re:replace(S1, NotEscape++"_", "\\1.", [global, {return, binary}]),
-    S3 = re:replace(S2, Escape++"%", "%", [global, {return, binary}]),
-    S4 = re:replace(S3, Escape++"_", "_", [global, {return, binary}]),
-    list_to_binary(["^",S4,"$"]).
+trns_like([],             _) -> [];
+trns_like([E,N      | R], E) -> [N     | trns_like(R,E)];
+trns_like([$%,$%,$_ | R], E) -> [$%,$. | trns_like(R,E)];
+trns_like([$%,$_    | R], E) -> [$_    | trns_like(R,E)];
+trns_like([$%,$%    | R], E) -> [$%    | trns_like(R,E)];
+trns_like([$%       | R], E) -> [$.,$* | trns_like(R,E)];
+trns_like([$_       | R], E) -> [$.    | trns_like(R,E)];
+trns_like([A        | R], E) -> [A     | trns_like(R,E)].
 
 re_match(?nav, _) -> ?nav;
 re_match(_, ?nav) -> ?nav;
