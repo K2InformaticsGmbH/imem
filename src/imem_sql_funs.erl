@@ -208,22 +208,23 @@ like_compile(S) -> like_compile(S, <<>>).
 
 like_compile(_, ?nav) -> ?nav;
 like_compile(?nav, _) -> ?nav;
-like_compile(S, Esc) when is_list(S); is_binary(S) ->
-    re_compile(
-      list_to_binary(
-        ["^", trns_like(
-                re:replace(
-                  S,
-                  "([\\\\^$.\\[\\]|()?*+\\-{}])",
-                  "\\\\\\1",
-                  [global, {return, list}]),
-                case Esc of
-                    [C]     -> C;
-                    <<C:8>> -> C;
-                    _       -> '$none'
-                end),
-         "$"]));
+like_compile(S, Esc) when is_list(S); is_binary(S) -> re_compile(transform_like(S, Esc));
 like_compile(_,_)     -> ?nav.
+
+transform_like(S, Esc) ->
+    list_to_binary(
+      ["^", trns_like(
+              re:replace(
+                S,
+                "([\\\\^$.\\[\\]|()?*+\\-{}])",
+                "\\\\\\1",
+                [global, {return, list}]),
+              case Esc of
+                  [C]     -> C;
+                  <<C:8>> -> C;
+                  _       -> '$none'
+              end),
+       "$"]).
 
 trns_like([],             _) -> [];
 trns_like([E,N      | R], E) -> [N     | trns_like(R,E)];
