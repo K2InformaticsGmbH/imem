@@ -17,7 +17,8 @@
 ck=imem
 
 unamestr=`uname`
-host=`hostname`
+#host=`hostname`
+host=127.0.0.1
 if [[ "$unamestr" == 'Linux' ]]; then
     exename=erl
 elif [[ "$unamestr" == 'Darwin' ]]; then
@@ -48,7 +49,7 @@ paths=$paths" $PWD/ebin"
 paths=$paths" $PWD/deps/*/ebin"
 
 # Node name
-node_name="-sname $node"
+node_name="-name $node"
 
 # Cookie
 cookie="-setcookie $ck"
