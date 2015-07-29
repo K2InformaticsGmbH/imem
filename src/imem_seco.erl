@@ -459,16 +459,11 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
             case if_read(SKey, ddAccountDyn, AccountId) of
                 [] ->   
                     AD = #ddAccountDyn{id=AccountId},
-                    if_write(SKey, ddAccountDyn, AD);   % create dynamic account record if missing
-                [#ddAccountDyn{id=system, lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show a fast attacker that this attempt might have worked
-                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime}),
-                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
+                    if_write(SKey, ddAccountDyn, AD);   % create missing dynamic account record
                 [#ddAccountDyn{lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show a fast attacker that this attempt might have worked
-                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
+                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
                     authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
-                _ -> ok
+                _ -> ok 
             end,
             ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             seco_register(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5]}, authenticated);     % return SKey only
@@ -535,13 +530,8 @@ auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
         {[#ddAccount{id=AccountId1} = Account],true} when AccountId0==AccountId1; AccountId0==undefined ->
             LocalTime = calendar:local_time(),
             case if_read(SKey, ddAccountDyn, AccountId1) of
-                [#ddAccountDyn{id=system,lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show a fast attacker that this attempt might have worked
-                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime}),
-                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
                 [#ddAccountDyn{lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show a fast attacker that this attempt might have worked
-                    if_write(SKey, ddAccount, Account#ddAccount{lastFailureTime=LocalTime,locked='true'}),
+                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
                     authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
                 _ -> ok
             end,
@@ -661,26 +651,36 @@ normalized_msisdn(B0) ->
         Rest3 ->               <<$+,Rest3/binary>>
     end.
 
-check_re_hash(SeCo, _Account, _OldToken, _NewToken, Unregister, []) ->
+check_re_hash(#ddSeCo{skey=SKey}=SeCo, #ddAccount{id=AccountId}=_Account, _OldToken, _NewToken, Unregister, []) ->
+    % no more credential types to check, credential check failed
+    LocalTime = calendar:local_time(),
+    case if_read(SKey, ddAccountDyn, AccountId) of
+        [] ->                                           % create missing dynamic account record   
+            if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId,lastFailureTime=LocalTime});
+        [#ddAccountDyn{lastFailureTime=LocalTime}] ->   % last error time already remembered 
+            ok;
+        [#ddAccountDyn{}=AD] ->                         % update last error time
+            if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime})
+    end,    
     authenticate_fail(SeCo, "Invalid account credentials. Please retry", Unregister);
 check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, [pwdmd5|Types]) ->
     case lists:member({pwdmd5,OldToken},Account#ddAccount.credentials) of
         true ->  
-            re_hash(SeCo, {pwdmd5,OldToken}, OldToken, NewToken, Account);
+            re_hash(SeCo, {pwdmd5,OldToken}, OldToken, NewToken, Account);              % succeed
         false ->
-            check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, Types)
+            check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, Types)         % continue
     end;
 check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, [Type|Types]) ->
     case lists:keyfind(Type,1,Account#ddAccount.credentials) of
         {Type,{Salt,Hash}} ->
             case hash(Type,Salt,OldToken) of
                 Hash ->
-                    re_hash(SeCo, {Type,{Salt,Hash}}, OldToken, NewToken, Account);
+                    re_hash(SeCo, {Type,{Salt,Hash}}, OldToken, NewToken, Account);     % succeed
                 _ ->
-                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", Unregister)
+                    check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, [])    % fail
             end;
         false ->
-            check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, Types)
+            check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, Types)         % continue
     end.
 
 find_re_hash(SeCo, Account, NewToken, []) ->
