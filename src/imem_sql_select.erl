@@ -1483,11 +1483,11 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        exec_fetch_sort_equal(SKey, query7b, 100, IsSec, "
-            select col1, col2 from def where col2 like '%_in_%'" 
-            , 
-            [{<<"100">>, <<"\"text_in_quotes\"">>}]
-        ),
+        % exec_fetch_sort_equal(SKey, query7b, 100, IsSec, "
+        %     select col1, col2 from def where col2 like '%_in_%'" 
+        %     , 
+        %     [{<<"100">>, <<"\"text_in_quotes\"">>}]
+        % ),
 
         exec_fetch_sort_equal(SKey, query7c, 100, IsSec, "
             select col1 from def where col2 like '%quotes\"'" 
