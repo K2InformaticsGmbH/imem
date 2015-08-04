@@ -369,7 +369,6 @@ create_check_channel(Channel, Options) ->
 	catch
         Class1:_ when Class1 =:= error; Class1 =:= throw ->
             TC = binary_to_atom(Main,utf8),
-            io:format("Type : ~p~n",[proplists:get_value(type, Options, binary)]),
             {NewCValue, NewTypes} = case proplists:get_value(type, Options, binary) of
                 binary ->
                     {<<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>,?skvhTable};
