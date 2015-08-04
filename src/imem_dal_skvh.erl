@@ -305,11 +305,17 @@ audit_table_next(ATName,TransTime,CH) ->
 	end.
 
 is_row_type(map, R) when is_map(R) -> R;
+is_row_type(map, R) when is_list(R) -> 
+    [if not is_map(H) -> 
+        ?ClientError({"Bad datatype, expected map", R});
+        true -> H
+     end || H <- R];
 is_row_type(map, R) -> ?ClientError({"Bad datatype, expected map", R});
 is_row_type(list, R) when is_list(R) -> R;
 is_row_type(list, R) -> ?ClientError({"Bad datatype, expected list", R});
 is_row_type(binary, R) when is_binary(R) -> R;
 is_row_type(binary, R) -> ?ClientError({"Bad datatype, expected binary", R}).
+
 
 %% @doc Checks existence of interface tables for Channel 
 %% return atom names of the tables (MasterTable, AuditTable and HistoryTable if present)
@@ -363,6 +369,7 @@ create_check_channel(Channel, Options) ->
 	catch
         Class1:_ when Class1 =:= error; Class1 =:= throw ->
             TC = binary_to_atom(Main,utf8),
+            io:format("Type : ~p~n",[proplists:get_value(type, Options, binary)]),
             {NewCValue, NewTypes} = case proplists:get_value(type, Options, binary) of
                 binary ->
                     {<<"fun(R) -> imem_dal_skvh:is_row_type(binary,R) end.">>,?skvhTable};
@@ -1218,6 +1225,7 @@ skvh_operations(_) ->
         Map3 = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"testNumber\": 100}">>, chash => <<"3MBW5">>},
         Map4 = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 250}">>, chash => <<"1RZ299">>},
         Map5 = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 300}">>, chash => <<"1DKGDA">>},
+        Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1DN1MP">>},
 
         %% Keys not in the table.
         FirstKey = [""],
@@ -1238,6 +1246,9 @@ skvh_operations(_) ->
 
         %% Test insert using encoded key
         ?assertEqual(Map3, insert(system, ?Channel, imem_datatype:term_to_binterm(maps:get(ckey, Map3)), maps:get(cvalue, Map3))),
+
+        %% Test insert using list of maps
+        ?assertEqual(Map6, insert(system, <<"mapChannel">>, imem_datatype:term_to_binterm(maps:get(ckey, Map6)), maps:get(cvalue, Map6))),
 
         %% Test insert using maps
         ?assertEqual([Map4, Map5], insert(system, ?Channel, [Map4#{chash := <<>>}, Map5#{chash := <<>>}])),
