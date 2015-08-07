@@ -33,6 +33,7 @@
         ]).
 
 -export([gen_iff_binterm_list_pattern/1      %% used to generate iff fun from key pattern
+        ,gen_iff_binterm_list_patterns/1
         ]).
 
 -export([preview/8      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) -> [{Strategy,Key,Value,Stu}]
@@ -235,6 +236,13 @@ gen_iff_binterm_list_pattern(__Pattern) when is_list(__Pattern) ->
 gen_iff_binterm_list_pattern(__Pattern) ->
     ?ClientError({"Expecting a list pattern with optional wildcards '_' and '*'",__Pattern}).
 
+gen_iff_binterm_list_patterns(Patterns) ->
+    fun({Key, _}) -> iff_binterm_list_patterns(Key, Patterns) end.
+
+iff_binterm_list_patterns(_Key, []) -> false;
+iff_binterm_list_patterns(Key, [Pattern | Patterns]) ->
+    imem_index:iff_list_pattern(imem_datatype:binterm_to_term(Key), Pattern) orelse
+        iff_binterm_list_patterns(Key, Patterns).
 
 %% ===================================================================
 %% Index preview (fast range/full match scan in single index)
