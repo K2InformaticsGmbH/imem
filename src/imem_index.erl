@@ -21,6 +21,8 @@
         ,vnf_lcase_ascii_ne/1       %% lower case ascci non-empty
         ,vnf_integer/1              %% accept integers (convert if necessary) return ?nav on failure 
         ,vnf_float/1                %% accept floats (convert if necessary) return ?nav on failure 
+        ,vnf_datetime/1             %% accept Date as string in JSON format converts to erlang datetime
+        ,vnf_datetime_ne/1          %% accept Date as string in JSON format converts to erlang datetime
         ]).
 
 %% ==================================================================
@@ -204,6 +206,14 @@ vnf_float(L) when is_list(L) ->
         F when is_float(F) ->   [F];
         _ ->                    [?nav]
     end.
+
+vnf_datetime(D) ->
+    imem_datatype:io_to_datetime(D).
+
+vnf_datetime_ne(<<"\"\"">>) -> [?nav]; 
+vnf_datetime_ne(<<>>) -> [?nav];
+vnf_datetime_ne(D) -> vnf_datetime(D). 
+
 
 
 %% ===================================================================

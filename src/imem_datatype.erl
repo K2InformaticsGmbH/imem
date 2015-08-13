@@ -741,8 +741,9 @@ io_to_datetime([${|_]=Val) ->
                 {{Y,M,D},{Hh,Mm,Ss}}
     end;
 io_to_datetime(Val0) ->
-    Val = re:replace(re:replace(Val0, "T", " ", [{return, list}]),
-                     "\.[0-9]*Z$", "", [{return, list}]),
+    Val = re:replace(re:replace(re:replace(Val0, "T", " ", [{return, list}]),
+                     "Z", "", [{return, list}]),"[.*][0-9]*$", "", [{return, list}]),
+
     try
         case re:run(lists:sublist(Val,5),"[\/\.\-]+",[{capture,all,list}]) of
             {match,["."]} ->
@@ -1670,6 +1671,7 @@ data_types(_) ->
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18880818 012359">>)),
         ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"880818 012359">>)),
         ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"1988-8-18T01:23:59.585Z">>)),
+        ?assertEqual({{1988,8,18},{1,23,59}}, io_to_datetime(<<"1988-8-18T01:23:59Z">>)),
         ?LogDebug("io_to_datetime success~n", []),
 
         ?assertEqual({1,23,59}, parse_time("01:23:59")),
