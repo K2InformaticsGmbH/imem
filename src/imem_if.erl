@@ -931,42 +931,17 @@ handle_info(check_epmd, State) ->
 handle_info(Info, State) ->
     case Info of
         {mnesia_system_event,{mnesia_overload,Details}} ->
-            % BulkSleepTime0 = get(mnesia_bulk_sleep_time),
-            % BulkSleepTime = trunc(1.1 * BulkSleepTime0),
-            % put(mnesia_bulk_sleep_time, BulkSleepTime),
-            ?Warn("Mnesia overload : ~p!",[Details]);
-
-% 
-% An example of crude rejoin from a partitioned cluster
-% by electing a node and restarting mnesia there
-%
-% needs to evaliuated before used (see TODO-s below)
-%
-%        {mnesia_system_event,{inconsistent_database,running_partitioned_network,RemoteNode}} ->
-%            if node() > RemoteNode ->
-%                ?Notice("PARTIONED NETWORK : ~p attepmting recovery!", [RemoteNode]);
-%            true ->
-%TODO : need more checks here before an unanimous discision can be made about a self mnesia restart
-%                % partioned network detected by lesser node
-%                % so trying to recover (election by node name atom comparison)
-%                ?Notice("PARTIONED NETWORK : ~p attepmting recovery!", [node()]),
-%TODO : stop all periodic access to any mnesia tables (e.g. imem_snap_loop, imem_monitor_loop etc)
-%                mnesia:unsubscribe(system),
-%                mnesia:stop(),
-%                mnesia:start(),
-%                mnesia:subscribe(system)
-%TODO : re/start all previously stopped periodic access to any mnesia tables (e.g. imem_snap_loop, imem_monitor_loop etc)
-%            end;
-
-        {mnesia_system_event,{_Event,_Node}} ->
-            ?Info("Mnesia event ~p from Node ~p!",[_Event, _Node]);
+            ?Warn("Mnesia overload : ~p!",[Details]),
+            {noreply, State};
+        {mnesia_system_event,{mnesia_down,Node}} ->
+            ?Error("Mnesia node down ~p!",[Node]),
+            mnesia_down_stop_if_not_testing(State);
+        {mnesia_system_event,{Event,Node}} ->
+            ?Info("Mnesia event ~p from Node ~p!",[Event, Node]),
+            {noreply, State};
         Error ->
-            ?Error("Mnesia error : ~p",[Error])
-    end,
-    case lists:keyfind(mnesia, 1, application:which_applications()) of
-        {mnesia,_,_} -> {noreply, State};
-        false ->
-            mnesia_down_stop_if_not_testing(State)
+            ?Error("Mnesia error : ~p",[Error]),
+            {noreply, State}
     end.
 
 -ifdef(TEST).
