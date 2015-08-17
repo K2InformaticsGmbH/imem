@@ -95,6 +95,7 @@
         , create_check_channel/1    %% (Channel)                    create empty table / audit table / history table if necessary (Name as binary or atom)
         , create_check_channel/2    %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
         , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
+        , write/4           %% (User, Channel, Key, Value)          resource may not exist, will be created, map of inserted row
         , insert/3          %% (User, Channel, MapList)             resources should not exist will be created, retrun list of maps with inserted rows
         , insert/4          %% (User, Channel, Key, Value)          resource should not exist will be created, return map with inserted row
         , update/3          %% (user, Channel, ChangeList)          update a list of resources, it will fail if the old value was modified by someone else
@@ -666,6 +667,12 @@ read(Cmd, SkvhCtx, Item, [Key|Keys], Acc)  ->
 	end,
 	read(Cmd, SkvhCtx, Item, Keys, [KVP|Acc]).
 	
+
+write(User,Channel,DecodedKey,Value) when is_binary(Channel) ->
+    Key = term_key_to_binterm(DecodedKey),
+    TableName = atom_table_name(Channel),
+    MergeResult = imem_meta:merge(TableName,#skvhTable{ckey=Key,cvalue=Value},User),
+    skvh_rec_to_map(MergeResult).
 
 write(User,Channel, KVTable) when is_binary(Channel), is_binary(KVTable) ->
 	Cmd = [write,User,Channel,KVTable],
