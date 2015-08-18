@@ -17,12 +17,12 @@
 %% value normalising funs
 %% ==================================================================
 -export([vnf_identity/1             %% identity transformation, no change of value
-        ,vnf_lcase_ascii/1          %% lower case ascci, allow empty strings
-        ,vnf_lcase_ascii_ne/1       %% lower case ascci non-empty
+        ,vnf_lcase_ascii/1          %% lower case ascii, allow empty strings
+        ,vnf_lcase_ascii_ne/1       %% lower case ascii non-empty
         ,vnf_integer/1              %% accept integers (convert if necessary) return ?nav on failure 
         ,vnf_float/1                %% accept floats (convert if necessary) return ?nav on failure 
         ,vnf_datetime/1             %% accept Date as string in JSON format converts to erlang datetime
-        ,vnf_datetime_ne/1          %% accept Date as string in JSON format converts to erlang datetime
+        ,vnf_datetime_ne/1          %% accept Date as a non-empty string in JSON format converts to erlang datetime
         ]).
 
 %% ==================================================================
@@ -213,7 +213,6 @@ vnf_datetime(D) ->
 vnf_datetime_ne(<<"\"\"">>) -> [?nav]; 
 vnf_datetime_ne(<<>>) -> [?nav];
 vnf_datetime_ne(D) -> vnf_datetime(D). 
-
 
 
 %% ===================================================================

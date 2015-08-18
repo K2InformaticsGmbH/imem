@@ -742,8 +742,7 @@ io_to_datetime([${|_]=Val) ->
     end;
 io_to_datetime(Val0) ->
     Val = re:replace(re:replace(Val0, "T", " ", [{return, list}]),
-                     "(\\.[0-9]*Z|Z)$", "", [{return, list}]),
-                     
+                     "(\\.[0-9]*Z|Z)$", "", [{return, list}]),                     
     try
         case re:run(lists:sublist(Val,5),"[\/\.\-]+",[{capture,all,list}]) of
             {match,["."]} ->
