@@ -24,3 +24,27 @@ Clustered in-memory database based on MNESIA with simple SQL layer.
 4. Compile this and you can hot load this file on the running node.
 5. Similar to step 3 make changes on [line 12 and 13 in imem_meta.hrl](https://github.com/K2InformaticsGmbH/imem/blob/master/include/imem_meta.hrl#L12-L13).
 6. Restart of the node is rquired after the changes to the hrl files and compiling the code.
+7. In dderl on table ddAlias change the row with qname as 
+
+  ```erlang
+  {sbsgui,ddLog_86400@} 
+  ```
+  to 
+  ```erlang
+  {sbsgui,ddLog_60@}
+  ```
+for partitioning the table every minute.
+8. In the same row also change the purge time in the opts column to 5 minutes by replacing
+
+  ```erlang
+  [{record_name,ddLog},{type,ordered_set},{purge_delay,430000}] 
+  ```
+  with 
+  ```erlang
+  [{record_name,ddLog},{type,ordered_set},{purge_delay,300}]
+  ```
+9. Do the same steps as 7 and 8 for rows with qname 
+
+  ```erlang
+  {sbsgui,ddMonitor_60@}
+  ```
