@@ -7,3 +7,20 @@ Clustered in-memory database based on MNESIA with simple SQL layer.
 * Support for application control by use of MNESIA data change notifications.
 * Logging mechanism for time partitioned tables with automatic data ageing.
 * Snapshot/restore functions giving limited persistance gurantees, useful for consistent cold starts.
+
+####For chaning the partition time of rolling tables
+
+1. partition time in the dderl tables are saved in seconds.So 86400 corresponds to a day
+2. On [line 14 in imem_proll.erl](https://github.com/K2InformaticsGmbH/imem/blob/master/src/imem_proll.erl#L14) change the value of GET_PROLL_CYCLE_WAIT to 1 sec that is replace 100000 to 1000.
+3. On [line 7 in imem_dal_skvh.erl](https://github.com/K2InformaticsGmbH/imem/blob/master/src/imem_dal_skvh.erl#L7) change the vlaue of AUDIT_SUFFIX to the partion time that you want to set. For example setting the partition time from day to a minute you have replace 
+  ```erlang
+  -define(AUDIT_SUFFIX,"Audit_86400@_").
+  ```
+  with
+  
+  ```erlang 
+  -define(AUDIT_SUFFIX,"Audit_60@_").
+  ```
+4. Compile this and you can hot load this file on the running node.
+5. Similar to step 3 make changes on [line 12 and 13 in imem_meta.hrl](https://github.com/K2InformaticsGmbH/imem/blob/master/include/imem_meta.hrl#L12-L13).
+6. Restart of the node is rquired after the changes to the hrl files and compiling the code.
