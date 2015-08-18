@@ -934,8 +934,14 @@ handle_info(Info, State) ->
             ?Warn("Mnesia overload : ~p!",[Details]),
             {noreply, State};
         {mnesia_system_event,{mnesia_down,Node}} ->
-            ?Error("Mnesia node down ~p!",[Node]),
-            mnesia_down_stop_if_not_testing(State);
+            case node() of 
+                Node -> 
+                    ?Error("Mnesia node down ~p!",[Node]),
+                    mnesia_down_stop_if_not_testing(State);
+                _ -> 
+                    ?Info("Mnesia node down ~p!", [Node]),
+                    {noreply, State}
+            end;
         {mnesia_system_event,{Event,Node}} ->
             ?Info("Mnesia event ~p from Node ~p!",[Event, Node]),
             {noreply, State};
