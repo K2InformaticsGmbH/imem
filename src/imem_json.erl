@@ -179,7 +179,9 @@ get(Key,DataObject) ->
 %% @doc Return value corresponding to key. If key not present, returns Default.
 -spec get(key(),data_object(),Default) -> value() | Default when Default :: term().
 get(Key,DataObject,Default) when is_list(DataObject) ->
-    proplists:get_value(Key,DataObject,Default);
+    get_deep(DataObject, Key, Default, []);
+% get(Key,DataObject,Default) when is_list(DataObject) ->
+%    proplists:get_value(Key,DataObject,Default);
 get(Key,DataObject,Default) when is_map(DataObject) ->
     case maps:find(Key,DataObject) of
         {ok,Value} -> Value;
@@ -187,6 +189,17 @@ get(Key,DataObject,Default) when is_map(DataObject) ->
     end;
 get(Key,DataObject,Default) ->
     ?MODULE:get(Key,decode(DataObject), Default).
+
+-spec get_deep(data_object(),key(),Default, list()) -> list() | Default when Default :: term().
+get_deep([], _, _, []) -> undefined;
+get_deep([], _, _, Acc) -> Acc;
+get_deep([Obj | Rest],Key,Default,Acc) when is_list(Obj) ->
+    case proplists:get_value(Key,Obj,Default) of
+        Default -> get_deep(Rest,Key,Default,Acc);
+        Value -> get_deep(Rest,Key,Default,Acc ++ [Value])
+    end;
+get_deep(Obj,Key,Default,_) ->
+    proplists:get_value(Key,Obj,Default).
 
 %% @doc Add a value to a IMEM Json data object
 %% Should Key already exist, old value will be replaced
@@ -267,7 +280,7 @@ eval(Tree,[{Name,Object}|_] = Binds)
         {error, Reason} -> {error, Reason};
         MatchedObject -> encode(MatchedObject)
     end;
-eval(Tree,Binds) ->    
+eval(Tree,Binds) ->
     case jpparse:foldbu(fun jpp_walk/3
                         , Binds
                         , Tree) of
@@ -275,6 +288,7 @@ eval(Tree,Binds) ->
         {error, Error} -> {error, Error};
         [{Tree, Object}|_] -> Object;
         Malformed -> {error, {malformed, Malformed}}
+
     end.
 
 -define(TRACE, Pt = Pt, Binds = Binds).
@@ -953,6 +967,8 @@ expand_inline(Root, _OldRoot, Binds) ->
 -define(TEST_PROP, [{<<"surname">>,<<"Doe">>},{<<"name">>,<<"John">>},
                     {<<"foo">>,<<"bar">>},{<<"earthling">>,true},
                     {<<"age">>,981},{<<"empty">>,null}]).
+-define(TEST_LIST_PROP, [[{<<"surname">>,<<"Doe">>},{<<"name">>,<<"John">>}],
+                    [{<<"surname">>,<<"Jabe">>},{<<"name">>,<<"John">>}]]).
 -define(TEST_JSON_LIST, <<"[{\"surname\":\"Doe\"},{\"surname\":\"Jane\"},"
                           "{\"surname\":\"DoeDoe\"}]">>).
 -define(TEST_LACON, <<"[[\"50\",\"LACON\",\"29\"],[\"95\",\"LACON\",\"08\""
@@ -1072,7 +1088,9 @@ get_test_() ->
         , {"map_custom_default"
            , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_MAP,test))}
         , {"json_custom_default"
-           , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}]}.
+           , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}
+        , {"list_prop_list"
+           , ?_assertEqual([<<"Doe">>,<<"Jabe">>], ?MODULE:get(<<"surname", ?TEST_LIST_PROP))}]}.
 
 keys_test_() ->
     Keys = [<<"surname">>,<<"name">>,<<"foo">>
