@@ -118,7 +118,7 @@
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
         , get_longest_prefix/4
-        , check_aging_audit_entry/3 %% (Channel, Key, TS1)    returns the records if there is any for the key after the timestamp TS1
+        , check_age_audit_entry/3 %% (Channel, Key, TS1)    returns the records if there is any for the key after the timestamp TS1
         ]).
 
 -export([build_aux_table_info/1,
@@ -1000,8 +1000,8 @@ debug(Cmd, Resp) ->
     			  , [hd(Cmd), tl(Cmd), Resp]
     			 ).
 
-%%aging function
-check_aging_audit_entry(Channel, Key, TS1) ->
+% age function
+check_age_audit_entry(Channel, Key, TS1) ->
     MatchFunction = {?AUDIT_MATCHHEAD, [{'andalso',{'>=', '$1', match_val(TS1)}, {'==', '$2', Key}}], ['$_']},
     AuditTable = list_to_atom(binary_to_list(audit_alias(Channel))),
     imem_meta:select(AuditTable, [MatchFunction]).
