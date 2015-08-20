@@ -1090,7 +1090,7 @@ get_test_() ->
         , {"json_custom_default"
            , ?_assertEqual(test, ?MODULE:get(<<"sme">>,?TEST_JSON,test))}
         , {"list_prop_list"
-           , ?_assertEqual([<<"Doe">>,<<"Jabe">>], ?MODULE:get(<<"surname", ?TEST_LIST_PROP))}]}.
+           , ?_assertEqual([<<"Doe">>,<<"Jabe">>], ?MODULE:get(<<"surname">>, ?TEST_LIST_PROP))}]}.
 
 keys_test_() ->
     Keys = [<<"surname">>,<<"name">>,<<"foo">>
