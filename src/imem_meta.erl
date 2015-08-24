@@ -2696,7 +2696,7 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
         false ->   
             Match = imem_json:eval(PT,Binds),
             case Match of
-                MV when is_binary(MV);is_number(MV) ->    
+                MV when is_binary(MV);is_number(MV);is_atom(MV) ->    
                     % ?LogDebug("Value from json ~p",[MV]),
                     % ?LogDebug("Vnf evaluates to ~p",[Vnf(MV)]),
                     % ?LogDebug("lists:flatten evaluates to ~p",[lists:flatten([Vnf(M1) || M1  <- [MV]])]),
@@ -2716,7 +2716,8 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
                 {error, {unbound, E3}} ->
                     ?SystemException({"Index error", {unbound, E3}});
                 {error, {malformed, E4}} ->
-                    ?SystemException({"Index error", {malformed, E4}})
+                    ?SystemException({"Index error", {malformed, E4}});
+                _NotSupported -> [] %% For non supported datatypes, i.e. Maps/ports/pids
             end;
         _ ->
             []  %% one or more bind variables are not values. Don't try to evaluate the json path.
