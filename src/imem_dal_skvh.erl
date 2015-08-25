@@ -645,15 +645,7 @@ skvh_rec_to_map(#skvhTable{ckey=EncodedKey, cvalue=CValue, chash=CHash}) ->
 skvh_audit_to_map(#skvhAudit{time = Time, ckey = EncodedKey, ovalue = OldValue,
                              nvalue = NewValue, cuser = User}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
-    #{time => Time, ckey => CKey, cuser => User,
-      ovalue => if is_binary(OldValue) ->
-                      imem_json:decode(OldValue, [return_maps]);
-                   true -> OldValue
-                end,
-      nvalue => if is_binary(NewValue) ->
-                      imem_json:decode(NewValue, [return_maps]);
-                   true -> NewValue
-                end}.
+    #{time => Time, ckey => CKey, cuser => User, ovalue => OldValue, nvalue => NewValue}.
 
 skvh_hist_to_map(#skvhHist{ckey = EncodedKey, cvhist = ChangeList}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
