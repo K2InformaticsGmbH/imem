@@ -111,8 +111,8 @@
         , readGE/4          %% (User, Channel, CKey1, Limit)        start with first key at or after CKey1, return Limit results or less as maps
         , readGE/5          %% (User, Channel, Item, CKey1, Limit)  start with first key at or after CKey1, return Limit results or less
         , audit_readGT/4    %% (User, Channel, TS1, Limit)          read audit info after Timestamp1, resturn a list of maps with Limit results or less
-        , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
+        , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
@@ -642,9 +642,10 @@ skvh_rec_to_map(#skvhTable{ckey=EncodedKey, cvalue=CValue, chash=CHash}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
     #{ckey => CKey, cvalue => CValue, chash => CHash}.
 
-skvh_audit_to_map(#skvhAudit{time = Time, ckey = EncodedKey, ovalue = OldValue, nvalue = NewValue, cuser = User}) ->
+skvh_audit_to_map(#skvhAudit{time = Time, ckey = EncodedKey, ovalue = OldValue,
+                             nvalue = NewValue, cuser = User}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
-    #{time => Time, ckey => CKey, ovalue => OldValue, nvalue => NewValue, cuser => User}.
+    #{time => Time, ckey => CKey, cuser => User, ovalue => OldValue, nvalue => NewValue}.
 
 skvh_hist_to_map(#skvhHist{ckey = EncodedKey, cvhist = ChangeList}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
@@ -842,6 +843,24 @@ readGT(_User, Cmd, SkvhCtx, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}], ['$_']},
 	read_limited(Cmd, SkvhCtx, Item, MatchFunction, Limit).
 
+audit_readGT(User, Channel, TimeStamp, Limit) when is_binary(Channel) ->
+    audit_readGT(User, atom_audit_alias(Channel), TimeStamp, Limit);
+audit_readGT(User, AuditAliasAtom, TimeStamp, Limit)
+  when is_binary(TimeStamp) ->
+    audit_readGT(User, AuditAliasAtom,
+                 imem_datatype:io_to_timestamp(TimeStamp), Limit);
+audit_readGT(User, AuditAliasAtom, TimeStamp, Limit)
+  when is_atom(AuditAliasAtom), is_tuple(TimeStamp) ->
+    audit_readGT(User, audit_partitions(AuditAliasAtom, TimeStamp), TimeStamp, Limit);
+audit_readGT(_User, AuditPartitions, TimeStamp, Limit)
+  when is_list(AuditPartitions), is_tuple(TimeStamp) ->
+    audit_part_readGT(
+      AuditPartitions,
+      {#skvhAudit{time = '$1', _ = '_'},
+       [{'>', '$1', match_val(TimeStamp)}],
+       ['$_']},
+      Limit).
+
 audit_readGT(User, Channel, Item, TS1, Limit)  when is_binary(Item), is_binary(TS1) ->
 	Cmd = [audit_readGT, User, Channel, Item, TS1, Limit],
 	audit_readGT(User, Cmd, channel_ctx(Channel), Item, imem_datatype:io_to_timestamp(TS1), io_to_integer(Limit)).
@@ -979,13 +998,6 @@ readGELT(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
         length(L) > Limit -> ?ClientError(?E117(Limit));
         true -> [skvh_rec_to_map(R) || R <- L ]
     end.
-audit_readGT(User, Channel, TS1, Limit) when is_binary(TS1) ->
-    audit_readGT(User, Channel, imem_datatype:io_to_timestamp(TS1), Limit);
-audit_readGT(_User, Channel, TS1, Limit) ->
-    TableName = atom_audit_alias(Channel),
-    Partitions = audit_partitions(TableName, TS1),
-    MatchFunction = {?AUDIT_MATCHHEAD, [{'>', '$1', match_val(TS1)}], ['$_']},
-    audit_part_readGT(Partitions, MatchFunction, Limit).
 
 audit_part_readGT([], _MatchFunction, _Limit) -> [];
 audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
