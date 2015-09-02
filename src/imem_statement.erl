@@ -970,7 +970,7 @@ update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
     PTN = imem_meta:physical_table_name(Table),
     {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,PTN}),
     User = if_call_mfa(IsSec, meta_field_value, [SKey, user]),
-    TableInfo = {Schema,PTN,TableType,list_to_tuple(DefRec),Trigger,User},
+    TableInfo = {Schema,PTN,TableType,list_to_tuple(DefRec),Trigger,User,[]},  % No trigger options supported for now
     %% transform a ChangeList   
         % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],               %% no operation on this line
         % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
@@ -988,13 +988,13 @@ update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
 -define(ins_repl(__X,__Cx,__New), setelement(__Cx,__X, __New)). 
 
 update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> Acc;
-update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger, User}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
-    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), element(?MainIdx,Recs),Trigger, User],     
+update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), element(?MainIdx,Recs), Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger, User}=TableInfo, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
-    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {},Trigger, User],     
+update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
     % ?Info("ColMap~n~p~n", [ColMap]),
     % ?Info("Values~n~p~n", [Values]),
     if  
@@ -1075,9 +1075,9 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [
         ]),    
     UpdatedRecs = update_recs(Recs, UpdateMap),
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
-    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec,Trigger, User],     
+    Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
     % ?Info("ColMap~n~p~n", [ColMap]),
     % ?Info("Values~n~p~n", [Values]),
     if  
@@ -1145,7 +1145,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User}=TableInfo, ColMap, [
           <- lists:zip(ColMap,Values), R==false, Value /= ?navio
         ]),
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, update_recs(DefRec, InsertMap), Tab]),
-    Action = [{S,Tab,Typ}, Item, {},  NewRec,Trigger, User],     
+    Action = [{S,Tab,Typ}, Item, {},  NewRec, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).

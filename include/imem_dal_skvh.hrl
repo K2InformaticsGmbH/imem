@@ -12,15 +12,21 @@
         end)(__Flags,__Opts)).
 -define(skvhTableTrigger(__Opts, __ExtraFun),
         list_to_binary(
-          ["fun(OldRec,NewRec,Table,User) ->\n"
+          ["fun(OldRec,NewRec,Table,User,TrOpts) ->\n"
            "    start_trigger",
            ?ADDIF([audit], __Opts,
            ",\n    {AuditTable,HistoryTable,TransTime,Channel}\n"
            "        = imem_dal_skvh:build_aux_table_info(Table),\n"
            "    AuditInfoList = imem_dal_skvh:audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec),\n"
-           "    ok = imem_dal_skvh:write_audit(AuditInfoList)"),
+           "    case lists:member(no_audit,TrOpts) of \n"
+           "        true ->  ok;\n"
+           "        false -> ok = imem_dal_skvh:write_audit(AuditInfoList)\n"
+           "    end"),
            ?ADDIF([audit, history], __Opts,
-           ",\n    ok = imem_dal_skvh:write_history(HistoryTable,AuditInfoList)"),
+           ",\n    case lists:member(no_history,TrOpts) of \n"
+           "        true ->  ok;\n"
+           "        false -> ok = imem_dal_skvh:write_history(HistoryTable,AuditInfoList)\n"
+           "    end"),
            (fun(_E) ->
                     if length(_E) == 0 -> "";
                        true -> ",\n    "++_E end

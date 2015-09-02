@@ -28,7 +28,8 @@
                             ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
                             ]).          
 
--define(ddTableTrigger,     <<"fun(__OR,__NR,__T,__U) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U) end.">> ).
+-define(DD_TRIGGER_ARITY,   5).
+-define(ddTableTrigger,     <<"fun(__OR,__NR,__T,__U,__O) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U,__O) end.">> ).
 -define(DD_ALIAS_OPTS,      [{trigger,?ddTableTrigger}]).          
 -define(DD_TABLE_OPTS,      [{trigger,?ddTableTrigger}]).
 -define(DD_CACHE_OPTS,      [{scope,local}
@@ -123,7 +124,7 @@
         , table_memory/1
         , table_record_name/1        
         , trigger_infos/1
-        , dictionary_trigger/4
+        , dictionary_trigger/5
         , check_table/1
         , check_local_table_copy/1
         , check_table_meta/2
@@ -189,14 +190,19 @@
         , select_sort/2
         , select_sort/3
         , modify/8          %% parameterized insert/update/merge/remove
+        , modify/9          %% parameterized insert/update/merge/remove with trigger options
         , insert/2          %% apply defaults, write row if key does not exist, apply trigger
         , insert/3          %% apply defaults, write row if key does not exist, apply trigger
+        , insert/4          %% apply defaults, write row if key does not exist, apply trigger with trigger options
         , update/2          %% apply defaults, write row if key exists, apply trigger (bags not supported)
         , update/3          %% apply defaults, write row if key exists, apply trigger (bags not supported)
+        , update/4          %% apply defaults, write row if key exists, apply trigger with trigger options (bags not supported) 
         , merge/2           %% apply defaults, write row, apply trigger (bags not supported)
         , merge/3           %% apply defaults, write row, apply trigger (bags not supported)
+        , merge/4           %% apply defaults, write row, apply trigger (bags not supported) with trigger options
         , remove/2          %% delete row if key exists (if bag row exists), apply trigger
         , remove/3          %% delete row if key exists (if bag row exists), apply trigger
+        , remove/4          %% delete row if key exists (if bag row exists), apply trigger with trigger options
         , write/2           %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
         , dirty_read/2
@@ -225,7 +231,7 @@
 
 -export([ fetch_start/5
         , update_tables/2
-        , update_index/5            %% (Old,New,Tab,User,IdxDef)   
+        , update_index/6            %% (Old,New,Tab,User,TrOpts,IdxDef)   
         , fill_index/2              %% (Table,IndexDefinition)
         , update_bound_counter/6
         , subscribe/1
@@ -476,7 +482,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 fail(Reason) ->
     throw(Reason).
 
-dictionary_trigger(OldRec,NewRec,T,_User) when T==ddTable; T==ddAlias ->
+dictionary_trigger(OldRec,NewRec,T,_User,_TrOpts) when T==ddTable; T==ddAlias ->
     %% clears cached trigger information when ddTable is 
     %% modified in GUI or with insert/update/merge/remove functions
     case {OldRec,NewRec} of
@@ -943,9 +949,18 @@ create_trigger(Table,TFunStr) when is_atom(Table) ->
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
             case lists:keysearch(trigger, 1, D#ddTable.opts) of
-                false ->            create_or_replace_trigger(Table,TFunStr);
-                {value,{_,TFunStr}} ->  ?ClientError({"Trigger already exists",{Table}});
-                {value,{_,Trig}} ->     ?ClientError({"Trigger already exists",{Table,Trig}})
+                false ->            
+                    create_or_replace_trigger(Table,TFunStr);
+                {value,{_,TFunStr}} ->  
+                    ?ClientError({"Trigger already exists",{Table}});
+                {value,{_,Trig}} ->     
+                    try 
+                        imem_datatype:io_to_fun(Trig,?DD_TRIGGER_ARITY),
+                        ?ClientError({"Trigger already exists",{Table,Trig}})
+                    catch 
+                        throw:{'ClientError',_} -> 
+                            ?Warn("migrating trigger on table ~p results in ~p", [Table,create_or_replace_trigger(Table,TFunStr)])
+                    end
             end;
         [] ->
             ?ClientError({"Table dictionary does not exist for",Table})
@@ -958,7 +973,7 @@ create_or_replace_trigger({Schema,Table},TFun) ->
         _ ->        ?UnimplementedException({"Create Trigger in foreign schema",{Schema,Table}})
     end;
 create_or_replace_trigger(Table,TFunStr) when is_atom(Table) ->
-    imem_datatype:io_to_fun(TFunStr,4),
+    imem_datatype:io_to_fun(TFunStr,?DD_TRIGGER_ARITY),
     case read(ddTable,{schema(), Table}) of
         [#ddTable{}=D] -> 
             case lists:keysearch(trigger, 1, D#ddTable.opts) of
@@ -1069,7 +1084,7 @@ fill_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) -
             ?ClientError({"Table does not exist",{Schema, Table}}); 
         [#ddTable{columns=ColumnInfos}] ->
             IdxPlan = compiled_index_plan(IndexDefinition,ColumnInfos),
-            FoldFun = fun(Row,_) -> imem_meta:update_index({},Row,Table,system,IdxPlan),ok end,
+            FoldFun = fun(Row,_) -> imem_meta:update_index({},Row,Table,system,[],IdxPlan),ok end,
             foldl(FoldFun, ok, Table)
     end.
 
@@ -1224,13 +1239,13 @@ truncate_partitioned_tables([TableName|TableNames], User) ->
     Trans = case imem_if:is_readable_table(IndexTable) of
         true -> 
             fun() ->
-                Trigger({},{},TableName,User),
+                Trigger({},{},TableName,User,[]),
                 imem_if:truncate_table(IndexTable),
                 imem_if:truncate_table(TableName)
             end;
         false ->
             fun() ->
-                Trigger({},{},TableName,User),
+                Trigger({},{},TableName,User,[]),
                 imem_if:truncate_table(TableName)
             end
     end,
@@ -1960,12 +1975,12 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
                     end,
                     Trigger = case {IdxPlan,lists:keyfind(trigger,1,Opts)} of
                         {#ddIdxPlan{def=[]},false} ->     %% no trigger actions needed
-                            fun(_Old,_New,_Tab,_User) -> ok end;
+                            fun(_Old,_New,_Tab,_User,_TrOpts) -> ok end;
                         {_,false} ->                %% only index maintenance trigger needed
-                            fun(Old,New,Tab,User) -> imem_meta:update_index(Old,New,Tab,User,IdxPlan) end;
+                            fun(Old,New,Tab,User,_TrOpts) -> imem_meta:update_index(Old,New,Tab,User,[],IdxPlan) end;
                         {_,{_,TFun}} ->             %% custom trigger and index maintenance needed
                             TriggerWithIndexing = trigger_with_indexing(TFun,<<"imem_meta:update_index">>,<<"IdxPlan">>),
-                            imem_datatype:io_to_fun(TriggerWithIndexing,undefined,[{'IdxPlan',IdxPlan}])
+                            imem_datatype:io_to_fun(TriggerWithIndexing,?DD_TRIGGER_ARITY,[{'IdxPlan',IdxPlan}])    % 
                     end,
                     Result = {TableType, DefRec, Trigger},
                     imem_cache:write(Key,Result),
@@ -2452,54 +2467,77 @@ dirty_write(TableAlias, Record) ->
     end. 
 
 insert(TableAlias, Row) ->
-    insert(TableAlias,Row,meta_field_value(user)).
+    insert(TableAlias,Row,meta_field_value(user),[]).
 
-insert({ddSysConf,TableAlias}, _Row, _User) ->
+insert(TableAlias, Row, TrOpts) when is_list(TrOpts) ->
+    insert(TableAlias, Row, meta_field_value(user), TrOpts);
+insert(TableAlias, Row, User) ->
+    insert(TableAlias, Row, User, []).
+
+insert({ddSysConf,TableAlias}, _Row, _User, _TrOpts) ->
     % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});
-insert({_Schema,TableAlias}, Row, User) ->
-    insert(TableAlias, Row, User);               %% ToDo: may depend on schema
-insert(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+insert({_Schema,TableAlias}, Row, User, TrOpts) ->
+    insert(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
+insert(TableAlias, Row, User, TrOpts) when is_atom(TableAlias), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(insert, TableType, TableAlias, DefRec, Trigger, {}, Row, User).
+    modify(insert, TableType, TableAlias, DefRec, Trigger, {}, Row, User, TrOpts).
 
 update(TableAlias, Row) ->
-    update(TableAlias, Row, meta_field_value(user)).
+    update(TableAlias, Row, meta_field_value(user), []).
 
-update({ddSysConf,TableAlias}, _Row, _User) ->
+update(TableAlias, Row, TrOpts) when is_list(TrOpts) ->
+    update(TableAlias, Row, meta_field_value(user), TrOpts);
+update(TableAlias, Row, User) ->
+    update(TableAlias, Row, User, []).
+
+update({ddSysConf,TableAlias}, _Row, _User, _TrOpts) ->
     % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});    
-update({_Schema,TableAlias}, Row, User) ->
-    update(TableAlias, Row, User);               %% ToDo: may depend on schema
-update(TableAlias, {ORow,NRow}, User) when is_atom(TableAlias), is_tuple(ORow), is_tuple(NRow) ->
+update({_Schema,TableAlias}, Row, User, TrOpts) ->
+    update(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
+update(TableAlias, {ORow,NRow}, User, TrOpts) when is_atom(TableAlias), is_tuple(ORow), is_tuple(NRow) ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(update, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User).
+    modify(update, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User, TrOpts).
 
 merge(TableAlias, Row) ->
-    merge(TableAlias, Row, meta_field_value(user)).
+    merge(TableAlias, Row, meta_field_value(user), []).
 
-merge({ddSysConf,TableAlias}, _Row, _User) ->
+merge(TableAlias, Row, TrOpts) when is_list(TrOpts) ->
+    merge(TableAlias, Row, meta_field_value(user), TrOpts);
+merge(TableAlias, Row, User) ->
+    merge(TableAlias, Row, User, []).
+
+merge({ddSysConf,TableAlias}, _Row, _User, _TrOpts) ->
     % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});    
-merge({_Schema,TableAlias}, Row, User) ->
-    merge(TableAlias, Row, User);                %% ToDo: may depend on schema
-merge(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+merge({_Schema,TableAlias}, Row, User, TrOpts) ->
+    merge(TableAlias, Row, User, TrOpts);                %% ToDo: may depend on schema
+merge(TableAlias, Row, User, TrOpts) when is_atom(TableAlias), is_tuple(Row) ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(merge, TableType, TableAlias, DefRec, Trigger, {}, Row, User).
+    modify(merge, TableType, TableAlias, DefRec, Trigger, {}, Row, User, TrOpts).
 
 remove(TableAlias, Row) ->
-    remove(TableAlias, Row, meta_field_value(user)).
+    remove(TableAlias, Row, meta_field_value(user), []).
 
-remove({ddSysConf,TableAlias}, _Row, _User) ->
+remove(TableAlias, Row, TrOpts) when is_list(TrOpts) ->
+    remove(TableAlias, Row, meta_field_value(user), TrOpts);
+remove(TableAlias, Row, User) ->
+    remove(TableAlias, Row, User, []).
+
+remove({ddSysConf,TableAlias}, _Row, _User, TrOpts) when is_list(TrOpts) ->
     % imem_if_sys_conf:delete(TableAlias, Row);    %% mapped to unconditional delete
     ?UnimplementedException({"Cannot delete from ddSysConf schema, use DDerl GUI instead",TableAlias});
-remove({_Schema,TableAlias}, Row, User) ->
-    remove(TableAlias, Row, User);               %% ToDo: may depend on schema
-remove(TableAlias, Row, User) when is_atom(TableAlias), is_tuple(Row) ->
+remove({_Schema,TableAlias}, Row, User, TrOpts) ->
+    remove(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
+remove(TableAlias, Row, User, TrOpts) when is_atom(TableAlias), is_tuple(Row), is_list(TrOpts)  ->
     {TableType, DefRec, Trigger} =  trigger_infos(TableAlias),
-    modify(remove, TableType, TableAlias, DefRec, Trigger, Row, {}, User).
+    modify(remove, TableType, TableAlias, DefRec, Trigger, Row, {}, User, TrOpts).
 
-modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when is_atom(TableAlias), is_tuple(ORow), is_tuple(NRow) ->
+modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) ->
+    modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User,[]).
+
+modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User, TrOpts) when is_atom(TableAlias), is_tuple(ORow), is_tuple(NRow), is_list(TrOpts)  ->
     {Key,Row} = case {ORow,NRow} of  %% Old Key / New Row Value if in doubt
         {{},{}} ->  ?ClientError({"Bad modify arguments, old and new rows are empty",Operation});
         {_,{}} ->   {element(?KeyIdx,ORow),ORow};
@@ -2516,11 +2554,11 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
                     {insert,bag,Bag} -> case lists:member(Row,Bag) of  
                                             true ->     ?ConcurrencyException({"Insert failed, object already exists", {PTN,Row}});
                                             false ->    write(PTN, Row),
-                                                        Trigger({},Row,PTN,User),
+                                                        Trigger({},Row,PTN,User,TrOpts),
                                                         Row
                                         end;
                     {insert,_,[]} ->    write(PTN, Row),
-                                        Trigger({},Row,TableAlias,User),
+                                        Trigger({},Row,TableAlias,User,TrOpts),
                                         Row;
                     {insert,_,[R]} ->   ?ConcurrencyException({"Insert failed, key already exists in", {PTN,R}});
                     {update,bag,_} ->   ?UnimplementedException({"Update is not supported on bag tables, use delete and insert", TableAlias});
@@ -2532,38 +2570,38 @@ modify(Operation, TableType, TableAlias, DefRec, Trigger, ORow, NRow, User) when
                                                     write(physical_table_name(TableAlias,element(?KeyIdx,Row)), Row),
                                                     delete(PTN,OK)
                                         end,
-                                        Trigger(ORow,Row,TableAlias,User),
+                                        Trigger(ORow,Row,TableAlias,User,TrOpts),
                                         Row;
                     {update,_,[R]}->    case record_match(R,ORow) of
                                             true -> 
                                                 write(PTN, Row),
-                                                Trigger(R,Row,TableAlias,User),
+                                                Trigger(R,Row,TableAlias,User,TrOpts),
                                                 Row;
                                             false ->   
                                                 ?ConcurrencyException({"Data is modified by someone else", {PTN,R}})
                                         end;
                     {merge,bag,_} ->    ?UnimplementedException({"Merge is not supported on bag tables, use delete and insert", TableAlias});
                     {merge,_,[]} ->     write(PTN, Row),
-                                        Trigger({},Row,TableAlias,User),
+                                        Trigger({},Row,TableAlias,User,TrOpts),
                                         Row;
                     {merge,_,[R]} ->    write(PTN, Row),
-                                        Trigger(R,Row,TableAlias,User),
+                                        Trigger(R,Row,TableAlias,User,TrOpts),
                                         Row;
                     {remove,bag,[]} ->  ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row}});
                     {remove,_,[]} ->    ?ConcurrencyException({"Remove failed, key does not exist", {PTN,Key}});
                     {remove,bag,Bag} -> case lists:member(Row,Bag) of  
                                             false ->    ?ConcurrencyException({"Remove failed, object does not exist", {PTN,Row}});
                                             true ->     delete_object(PTN, Row),
-                                                        Trigger(Row,{},PTN,User),
+                                                        Trigger(Row,{},PTN,User,TrOpts),
                                                         Row
                                         end;
                     {remove,_,[ORow]}-> delete(TableAlias, Key),
-                                        Trigger(ORow,{},TableAlias,User),
+                                        Trigger(ORow,{},TableAlias,User,TrOpts),
                                         ORow;
                     {remove,_,[R]}->    case record_match(R,ORow) of
                                             true -> 
                                                 delete(TableAlias, Key),
-                                                Trigger(R,{},TableAlias,User),
+                                                Trigger(R,{},TableAlias,User,TrOpts),
                                                 R;
                                             false ->   
                                                 ?ConcurrencyException({"Data is modified by someone else", {PTN,R}})
@@ -2627,9 +2665,9 @@ update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
     % log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
     update_tables(MySchema, UPlan, Lock, [update_table_name(MySchema, UEntry)|Acc]).
 
-update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New, Trig, User]) ->
+update_table_name(MySchema,[{MySchema,Tab,Type}, Item, Old, New, Trig, User, TrOpts]) ->
     case lists:member(?nav,tuple_to_list(New)) of
-        false ->    [{physical_table_name(Tab),Type}, Item, Old, New, Trig, User];
+        false ->    [{physical_table_name(Tab),Type}, Item, Old, New, Trig, User, TrOpts];
         true ->     ?ClientError({"Not null constraint violation", {Item, {Tab,New}}})
     end.
 
@@ -2645,28 +2683,28 @@ decode_json([Pos|Rest], Rec) ->
     % ?LogDebug("decode_json Decoded ~p",[Decoded]),
     decode_json(Rest, setelement(Pos,Rec,Decoded)).
 
-update_index(_,_,_,_,#ddIdxPlan{def=[]}) -> 
+update_index(_,_,_,_,_,#ddIdxPlan{def=[]}) -> 
     % ?LogDebug("update_index IdxPlan ~p",[#ddIdxPlan{def=[]}]),
     ok;   %% no index on this table
-update_index(Old,New,Table,User,IdxPlan) ->
+update_index(Old,New,Table,User,TrOpts,IdxPlan) ->
     % ?LogDebug("IdxPlan ~p",[IdxPlan]),
-    update_index(Old,New,Table,index_table(Table),User,IdxPlan).
+    update_index(Old,New,Table,index_table(Table),User,TrOpts,IdxPlan).
 
-update_index(Old,New,Table,IndexTable,User,IdxPlan) -> 
+update_index(Old,New,Table,IndexTable,User,TrOpts,IdxPlan) -> 
     OldJ = decode_json(IdxPlan#ddIdxPlan.jpos,Old),
     NewJ = decode_json(IdxPlan#ddIdxPlan.jpos,New),
-    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,IdxPlan#ddIdxPlan.def,[],[]). 
+    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,TrOpts,IdxPlan#ddIdxPlan.def,[],[]). 
 
-update_index(_Old,_New,_OldJ,_NewJ,_Table,IndexTable,_User,[],Removes,Inserts) ->
+update_index(_Old,_New,_OldJ,_NewJ,_Table,IndexTable,_User,_TrOpts,[],Removes,Inserts) ->
     % ?LogDebug("update index table/Old/New ~p~n~p~n~p",[_Table,_Old,_New]),
     % ?LogDebug("update index table/rem/ins ~p~n~p~n~p",[IndexTable,Removes,Inserts]),
     imem_index:remove(IndexTable,Removes),
     imem_index:insert(IndexTable,Inserts);
-update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,[#ddIdxDef{id=ID,type=Type,pl=PL,vnf=Vnf,iff=Iff}|Defs],Removes0,Inserts0) ->
+update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,TrOpts,[#ddIdxDef{id=ID,type=Type,pl=PL,vnf=Vnf,iff=Iff}|Defs],Removes0,Inserts0) ->
     Rem = lists:usort(index_items(Old,OldJ,Table,User,ID,Type,PL,Vnf,Iff,[])), 
     Ins = lists:usort(index_items(New,NewJ,Table,User,ID,Type,PL,Vnf,Iff,[])),
     %% ToDo: cancel Inserts against identical Removes
-    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,Defs,Removes0++Rem,Inserts0++Ins).
+    update_index(Old,New,OldJ,NewJ,Table,IndexTable,User,TrOpts,Defs,Removes0++Rem,Inserts0++Ins).
 
 index_items({},_,_,_,_,_,_,_,_,[]) -> [];
 index_items(_,_,_,_,_,_,[],_,_,Changes) -> Changes;
@@ -3160,7 +3198,7 @@ meta_operations(_) ->
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
         ?LogDebug("success ~p~n", [create_table_not_null]),
-        Trig = <<"fun(O,N,T,U) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U}],\"trigger\") end.">>,
+        Trig = <<"fun(O,N,T,U,TO) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U},{tropts,TO}],\"trigger\") end.">>,
         ?assertEqual(ok, create_or_replace_trigger(meta_table_3, Trig)),
         ?assertEqual(Trig, get_trigger(meta_table_3)),
 
@@ -3207,9 +3245,9 @@ meta_operations(_) ->
         ],
         U = unknown,
         {TT4,_DefRec,TrigFun} = trigger_infos(meta_table_3),
-        ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined},TrigFun,U]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined},TrigFun,U]], optimistic)),
-        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav},TrigFun,U]], optimistic)),
+        ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined},TrigFun,U,[]]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined},TrigFun,U,[]]], optimistic)),
+        ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav},TrigFun,U,[]]], optimistic)),
 
         ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
