@@ -3450,7 +3450,7 @@ meta_partitions(_) ->
         timer:sleep(1050),
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
         ?LogDebug("success ~p~n", [roll_partitioned_table]),
-        ?assertEqual(ok,drop_table(fakelog_1@)),
+        {timeout, 5, fun() -> ?assertEqual(ok,drop_table(fakelog_1@)) end},
         ?LogDebug("success ~p~n", [drop_table])
     catch
         Class:Reason ->     
