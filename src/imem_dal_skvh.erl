@@ -114,6 +114,7 @@
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
+        , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
@@ -801,23 +802,24 @@ update_priv(_User, _Channel, []) -> [];
 update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
     [update(User, Channel, NewRow) | update_priv(User, Channel, ChangeList)].
 
-remove(User, Channel, Rows) when is_list(Rows) ->
-    RemoveFun = fun() -> remove_list(User, Channel, Rows) end,
+remove(User, Channel, Rows) -> remove(User, Channel, Rows, []).
+remove(User, Channel, Rows, Opts) when is_list(Rows) ->
+    RemoveFun = fun() -> remove_list(User, Channel, Rows, Opts) end,
     imem_if:return_atomic_list(imem_meta:transaction(RemoveFun));
-remove(User, Channel, Row) ->
-    remove_single(User, Channel, Row).
+remove(User, Channel, Row, Opts) ->
+    remove_single(User, Channel, Row, Opts).
 
-remove_single(User, Channel, #{ckey := DecodedKey, cvalue := Value, chash := Hash}) ->
+remove_single(User, Channel, #{ckey := DecodedKey, cvalue := Value, chash := Hash}, Opts) ->
     Key = imem_datatype:term_to_binterm(DecodedKey),
     TableName = atom_table_name(Channel),
-    RemoveResult = imem_meta:remove(TableName, #skvhTable{ckey=Key, cvalue=Value, chash=Hash}, User),
+    RemoveResult = imem_meta:remove(TableName, #skvhTable{ckey=Key, cvalue=Value, chash=Hash}, User, Opts),
     #skvhTable{ckey=DeletedKey, cvalue=CValue, chash=CHash} = RemoveResult,
     CKey = imem_datatype:binterm_to_term(DeletedKey),
     #{ckey => CKey, cvalue => CValue, chash => CHash}.
 
-remove_list(_User, _Channel, []) -> [];
-remove_list(User, Channel, [#{} = Row | Rows]) ->
-    [remove_single(User, Channel, Row) | remove_list(User, Channel, Rows)].
+remove_list(_User, _Channel, [], _Opts) -> [];
+remove_list(User, Channel, [#{} = Row | Rows], Opts) ->
+    [remove_single(User, Channel, Row, Opts) | remove_list(User, Channel, Rows, Opts)].
 
 hist_read(_User, _Channel, []) -> [];
 hist_read(User, Channel, [DecodedKey | DecodedKeys]) ->
@@ -1461,8 +1463,10 @@ skvh_concurrency(_) ->
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
         [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
         ?LogDebug("success ~p", [bulk_drop_spawned]),
-        DropResult = receive_results(TabCount,[]),
-        ?assertEqual([ok], lists:usort([ R || {_,R} <- DropResult])),
+        DropResultFun = fun() ->
+                ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])]))
+            end,
+        {timeout, 10, DropResultFun},
         ?LogDebug("success ~p~n", [bulk_drop_tables])
     catch
         Class:Reason ->     
