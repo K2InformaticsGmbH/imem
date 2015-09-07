@@ -113,6 +113,7 @@
         , audit_readGT/4    %% (User, Channel, TS1, Limit)          read audit info after Timestamp1, resturn a list of maps with Limit results or less
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
+        , search_deleted/6  %% (User, Channel, Ckey1, Ckey2, Text, L)   from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
@@ -832,6 +833,46 @@ hist_read(User, Channel, [DecodedKey | DecodedKeys]) ->
             hist_read(User, Channel, DecodedKeys)
     end.
 
+-spec search_deleted(ddEntityId(), binary(), binary(), binary(), binary(), integer()) -> list().
+search_deleted(_User, Channel, Text, CKey1, CKey2, Limit) ->
+    Key1 = term_key_to_binterm(CKey1),
+    Key2 = term_key_to_binterm(CKey2),
+    [LText] = imem_index:vnf_lcase_ascii(Text),
+    HistTableName = atom_history_alias(Channel),
+    SearchFun = fun() -> find_deleted(HistTableName, imem_meta:next(HistTableName, Key1), Key2, LText, Limit) end,
+    imem_meta:return_atomic_list(imem_meta:transaction(SearchFun)).
+
+-spec find_deleted(atom(), binary(), binary(), binary(), integer()) -> list().
+find_deleted(Table, Key, EndKey, Text, Limit) ->
+    find_deleted(Table, Key, EndKey, Text, Limit, []).
+
+-spec find_deleted(atom(), binary(), binary(), binary(), integer(), list()) -> list().
+find_deleted(_Table, _Key, _EndKey, _Text, 0, Acc) -> Acc;
+find_deleted(_Table, Key , EndKey, _Text, _Limit, Acc) when Key > EndKey -> Acc;
+find_deleted(_Table, '$end_of_table' , _EndKey, _Text, _Limit, Acc)  -> Acc;
+find_deleted(Table, Key , EndKey, <<>>, Limit, Acc) ->
+    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
+        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
+            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
+        _ ->
+            {Limit, Acc}
+    end,
+    find_deleted(Table, imem_meta:next(Table, Key), EndKey, <<>>, NewLimit, NewAcc);
+find_deleted(Table, Key, EndKey, Text, Limit, Acc) ->
+    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
+        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
+            [LValue] = imem_index:vnf_lcase_ascii(Value),
+            case binary:match(LValue, Text) of
+                nomatch ->
+                    {Limit, Acc};
+                _ -> 
+                    {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]}
+            end;
+        _ ->
+            {Limit, Acc}
+    end,
+    find_deleted(Table, imem_meta:next(Table, Key), EndKey, Text, NewLimit, NewAcc).
+
 %% Data Access per key range
 
 match_val(T) when is_tuple(T) -> {const,T};
@@ -1399,6 +1440,19 @@ skvh_operations(_) ->
         HistResult = hist_reset_time(hist_read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
         ?assertEqual(3, length(HistResult)),
         ?assertEqual([History1, History2, History3], HistResult),
+
+        %% Search history for test
+        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3),5),
+        ?assertEqual(3, length(HistSearchResult1)),
+
+        %% Search for 150
+        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map3),5),
+        ?assertEqual(1, length(HistSearchResult2)),
+        ?assertEqual([{maps:get(ckey, Map3), maps:get(cvalue, Map3Upd)}], HistSearchResult2),
+
+        %% Search history for limit
+        HistSearchResult3 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3),2),
+        ?assertEqual(2, length(HistSearchResult3)),
 
         %% Using sext encoded Keys
         EncodedKeys = [imem_datatype:term_to_binterm(maps:get(ckey, Map1))
