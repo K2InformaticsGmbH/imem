@@ -151,7 +151,7 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
                 end
             end,
             do_snapshot(SnapFun),
-            ?Debug("again after ~p~n", [MCW]),
+            ?Debug("imem_snap_loop after GET_SNAPSHOT_CYCLE_WAIT ~p~n", [MCW]),
             SnapTimer = erlang:send_after(MCW, self(), imem_snap_loop),
             {noreply, State#state{snapFun=SnapFun,snapHash=SnapHash,snap_timer=SnapTimer}};
         _Other ->
@@ -362,12 +362,14 @@ restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {[],[],[]}).
 
 read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
+    ?Debug("backup file header read"),
     case file:read(FHndl, 4) of
         eof ->
-            ?Debug("backup file ~p restored~n", [SnapFile]),
+            ?Info("backup file ~p restored", [SnapFile]),
             file:close(FHndl),
             Opts;
         {ok, << Length:32 >>} ->
+            ?Debug("backup chunk size ~p", [Length]),
             case file:read(FHndl, Length) of
                 eof ->
                     ?Info("corrupted file ~p~n", [SnapFile]),
@@ -392,9 +394,7 @@ restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, 
         case P of
             #ddTable{} ->
                 _Res = (catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner)),
-                ?Debug("creating table ~p~n", [Tab]),
-                ?Debug(" with properties ~p~n result ~p~n", [P]),
-                ?Debug(" result ~p~n", [_Res]);
+                ?Debug("creating table ~p with properties ~p result ~p", [Tab, P, _Res]);
             _ -> ok
         end,
         mnesia:write_table_property(Tab,P)

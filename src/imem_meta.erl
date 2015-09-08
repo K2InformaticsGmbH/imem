@@ -518,16 +518,27 @@ is_system_table(Table) when is_binary(Table) ->
         _:_ -> false
     end.
 
+check_table({ddSysConf, _Table}) -> 
+    ok;
+check_table({Schema,Table}) ->
+    case schema() of
+        Schema -> check_table(Table);
+        _ ->        ?UnimplementedException({"Check table in foreign schema",{Schema,Table}})
+    end;
 check_table(Table) when is_atom(Table) ->
     imem_if:table_size(physical_table_name(Table)),
-    ok;
-check_table({ddSysConf, _Table}) -> ok.
+    ok.
 
 check_local_table_copy(Table) when is_atom(Table) ->
     imem_if:check_local_table_copy(physical_table_name(Table));
 check_local_table_copy({ddSysConf, _Table}) -> true.
 
 check_table_meta({ddSysConf, _}, _) -> ok;
+check_table_meta({Schema,Table}, Meta) ->
+    case schema() of
+        Schema -> check_table_meta(Table, Meta);
+        _ ->      ?UnimplementedException({"Check table meta in foreign schema",{Schema,Table}})
+    end;
 check_table_meta(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAlias) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
@@ -560,6 +571,11 @@ check_table_meta(TableAlias, ColumnNames) when is_atom(TableAlias) ->
     end.
 
 check_table_columns({ddSysConf, _}, _) -> ok;
+check_table_columns({Schema,Table}, Meta) ->
+    case schema() of
+        Schema -> check_table_columns(Table, Meta);
+        _ ->        ?UnimplementedException({"Check table columns in foreign schema",{Schema,Table}})
+    end;
 check_table_columns(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAlias) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfo = column_infos(Names, Types, Defaults),
