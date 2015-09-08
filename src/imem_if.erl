@@ -441,7 +441,6 @@ drop_index(Table, Column) when is_atom(Table) ->
 
 truncate_table(Table) when is_atom(Table) ->
     case spawn_sync_mfa(mnesia,clear_table,[Table]) of
-        ok ->                           ?TOUCH_SNAP(Table);
         {atomic,ok} ->                  ?TOUCH_SNAP(Table);
         {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Result ->                       return_atomic_ok(Result)
