@@ -130,7 +130,7 @@
          del_channel_trigger_hook/2,
          write_history/2]).
 
--export([expand_inline_key/3, expand_inline/3]).
+-export([expand_inline_key/3, expand_inline_key_map/3, expand_inline/3]).
 
 -export([skvh_rec_to_map/1, map_to_skvh_rec/1]).
 
@@ -211,6 +211,14 @@ expand_inline_key(User, Channel, Key) ->
     case read(User, Channel, [Key]) of
         [] -> [];
         [#{cvalue := Json}] -> expand_inline(User, Channel, Json)
+    end.
+
+-spec expand_inline_key_map(User :: any(), Channel :: binary(), Key :: any()) ->
+    Json :: map().
+expand_inline_key_map(User, Channel, Key) ->
+    case read(User, Channel, [Key]) of
+        [] -> [];
+        [#{cvalue := Json}] -> expand_inline(User, Channel, imem_json:decode(Json, [return_maps]))
     end.
 
 -spec expand_inline(User :: any(), Channel :: binary(), Json :: binary()) ->
