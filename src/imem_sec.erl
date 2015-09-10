@@ -71,9 +71,13 @@
         , select/3
         , select/4
         , insert/3
+        , insert/4
         , update/3
+        , update/4
         , merge/3
+        , merge/4
         , remove/3
+        , remove/4
         , write/3
         , dirty_write/3    
         , delete/3
@@ -608,26 +612,38 @@ apply_validators(SKey, DefRec, Rec, Table) ->
     end.
 
 insert(SKey, Table, Row) ->
+    insert(SKey, Table, Row, []).
+
+insert(SKey, Table, Row, TrOpts) ->
     case have_table_permission(SKey, Table, insert) of
-        true ->     imem_meta:insert(Table, Row, imem_seco:account_id(SKey)) ;
+        true ->     imem_meta:insert(Table, Row, imem_seco:account_id(SKey), TrOpts) ;
         false ->    ?SecurityException({"Insert unauthorized", {Table,SKey}})
     end.
 
 update(SKey, Table, Row) ->
+    update(SKey, Table, Row, []).
+
+update(SKey, Table, Row, TrOpts) ->
     case have_table_permission(SKey, Table, update) of
-        true ->     imem_meta:update(Table, Row, imem_seco:account_id(SKey)) ;
+        true ->     imem_meta:update(Table, Row, imem_seco:account_id(SKey), TrOpts) ;
         false ->    ?SecurityException({"Update unauthorized", {Table,SKey}})
     end.
 
 merge(SKey, Table, Row) ->
+    merge(SKey, Table, Row, []).
+
+merge(SKey, Table, Row, TrOpts) ->
     case have_table_permission(SKey, Table, update) of
-        true ->     imem_meta:merge(Table, Row, imem_seco:account_id(SKey)) ;
+        true ->     imem_meta:merge(Table, Row, imem_seco:account_id(SKey), TrOpts) ;
         false ->    ?SecurityException({"Merge (insert/update) unauthorized", {Table,SKey}})
     end.
 
 remove(SKey, Table, Row) ->
+    remove(SKey, Table, Row, []).
+
+remove(SKey, Table, Row, TrOpts) ->
     case have_table_permission(SKey, Table, delete) of
-        true ->     imem_meta:remove(Table, Row, imem_seco:account_id(SKey)) ;
+        true ->     imem_meta:remove(Table, Row, imem_seco:account_id(SKey), TrOpts) ;
         false ->    ?SecurityException({"Remove unauthorized (delete permission needed)", {Table,SKey}})
     end.
 
@@ -855,7 +871,7 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
     end.
 
 dal_exec(SKey, Module, Function, Params) ->
-    case re:run(atom_to_list(Module),"_dal_",[]) of
+    case re:run(atom_to_list(Module),"_dal_|_prov_",[]) of
         nomatch ->  ?SecurityException({"dal_exec attempted on wrong module", {Module,Function,Params,SKey}});
         _ ->        dal_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}])
     end.

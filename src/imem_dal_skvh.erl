@@ -111,14 +111,16 @@
         , readGE/4          %% (User, Channel, CKey1, Limit)        start with first key at or after CKey1, return Limit results or less as maps
         , readGE/5          %% (User, Channel, Item, CKey1, Limit)  start with first key at or after CKey1, return Limit results or less
         , audit_readGT/4    %% (User, Channel, TS1, Limit)          read audit info after Timestamp1, resturn a list of maps with Limit results or less
-        , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
+        , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
+        , search_deleted/6  %% (User, Channel, Ckey1, Ckey2, Text, L)   from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
+        , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
         , get_longest_prefix/4
-        , check_age_audit_entry/3 %% (Channel, Key, TS1)    returns the records if there is any for the key after the timestamp TS1
+        , check_age_audit_entry/4 %% (User, Channel, Key, TS1)    returns the records if there is any for the key after the timestamp TS1
         ]).
 
 -export([build_aux_table_info/1,
@@ -650,9 +652,10 @@ skvh_rec_to_map(#skvhTable{ckey=EncodedKey, cvalue=CValue, chash=CHash}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
     #{ckey => CKey, cvalue => CValue, chash => CHash}.
 
-skvh_audit_to_map(#skvhAudit{time = Time, ckey = EncodedKey, ovalue = OldValue, nvalue = NewValue, cuser = User}) ->
+skvh_audit_to_map(#skvhAudit{time = Time, ckey = EncodedKey, ovalue = OldValue,
+                             nvalue = NewValue, cuser = User}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
-    #{time => Time, ckey => CKey, ovalue => OldValue, nvalue => NewValue, cuser => User}.
+    #{time => Time, ckey => CKey, cuser => User, ovalue => OldValue, nvalue => NewValue}.
 
 skvh_hist_to_map(#skvhHist{ckey = EncodedKey, cvhist = ChangeList}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
@@ -808,23 +811,24 @@ update_priv(_User, _Channel, []) -> [];
 update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
     [update(User, Channel, NewRow) | update_priv(User, Channel, ChangeList)].
 
-remove(User, Channel, Rows) when is_list(Rows) ->
-    RemoveFun = fun() -> remove_list(User, Channel, Rows) end,
+remove(User, Channel, Rows) -> remove(User, Channel, Rows, []).
+remove(User, Channel, Rows, Opts) when is_list(Rows) ->
+    RemoveFun = fun() -> remove_list(User, Channel, Rows, Opts) end,
     imem_if:return_atomic_list(imem_meta:transaction(RemoveFun));
-remove(User, Channel, Row) ->
-    remove_single(User, Channel, Row).
+remove(User, Channel, Row, Opts) ->
+    remove_single(User, Channel, Row, Opts).
 
-remove_single(User, Channel, #{ckey := DecodedKey, cvalue := Value, chash := Hash}) ->
+remove_single(User, Channel, #{ckey := DecodedKey, cvalue := Value, chash := Hash}, Opts) ->
     Key = imem_datatype:term_to_binterm(DecodedKey),
     TableName = atom_table_name(Channel),
-    RemoveResult = imem_meta:remove(TableName, #skvhTable{ckey=Key, cvalue=Value, chash=Hash}, User),
+    RemoveResult = imem_meta:remove(TableName, #skvhTable{ckey=Key, cvalue=Value, chash=Hash}, User, Opts),
     #skvhTable{ckey=DeletedKey, cvalue=CValue, chash=CHash} = RemoveResult,
     CKey = imem_datatype:binterm_to_term(DeletedKey),
     #{ckey => CKey, cvalue => CValue, chash => CHash}.
 
-remove_list(_User, _Channel, []) -> [];
-remove_list(User, Channel, [#{} = Row | Rows]) ->
-    [remove_single(User, Channel, Row) | remove_list(User, Channel, Rows)].
+remove_list(_User, _Channel, [], _Opts) -> [];
+remove_list(User, Channel, [#{} = Row | Rows], Opts) ->
+    [remove_single(User, Channel, Row, Opts) | remove_list(User, Channel, Rows, Opts)].
 
 hist_read(_User, _Channel, []) -> [];
 hist_read(User, Channel, [DecodedKey | DecodedKeys]) ->
@@ -836,6 +840,46 @@ hist_read(User, Channel, [DecodedKey | DecodedKeys]) ->
         [] ->
             hist_read(User, Channel, DecodedKeys)
     end.
+
+-spec search_deleted(ddEntityId(), binary(), binary(), binary(), binary(), integer()) -> list().
+search_deleted(_User, Channel, Text, CKey1, CKey2, Limit) ->
+    Key1 = term_key_to_binterm(CKey1),
+    Key2 = term_key_to_binterm(CKey2),
+    [LText] = imem_index:vnf_lcase_ascii(Text),
+    HistTableName = atom_history_alias(Channel),
+    SearchFun = fun() -> find_deleted(HistTableName, imem_meta:next(HistTableName, Key1), Key2, LText, Limit) end,
+    imem_meta:return_atomic_list(imem_meta:transaction(SearchFun)).
+
+-spec find_deleted(atom(), binary(), binary(), binary(), integer()) -> list().
+find_deleted(Table, Key, EndKey, Text, Limit) ->
+    find_deleted(Table, Key, EndKey, Text, Limit, []).
+
+-spec find_deleted(atom(), binary(), binary(), binary(), integer(), list()) -> list().
+find_deleted(_Table, _Key, _EndKey, _Text, 0, Acc) -> Acc;
+find_deleted(_Table, Key , EndKey, _Text, _Limit, Acc) when Key > EndKey -> Acc;
+find_deleted(_Table, '$end_of_table' , _EndKey, _Text, _Limit, Acc)  -> Acc;
+find_deleted(Table, Key , EndKey, <<>>, Limit, Acc) ->
+    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
+        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
+            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
+        _ ->
+            {Limit, Acc}
+    end,
+    find_deleted(Table, imem_meta:next(Table, Key), EndKey, <<>>, NewLimit, NewAcc);
+find_deleted(Table, Key, EndKey, Text, Limit, Acc) ->
+    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
+        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
+            [LValue] = imem_index:vnf_lcase_ascii(Value),
+            case binary:match(LValue, Text) of
+                nomatch ->
+                    {Limit, Acc};
+                _ -> 
+                    {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]}
+            end;
+        _ ->
+            {Limit, Acc}
+    end,
+    find_deleted(Table, imem_meta:next(Table, Key), EndKey, Text, NewLimit, NewAcc).
 
 %% Data Access per key range
 
@@ -849,6 +893,24 @@ readGT(User, Channel, Item, CKey1, Limit)  when is_binary(Item), is_binary(CKey1
 readGT(_User, Cmd, SkvhCtx, Item, Key1, Limit) ->
 	MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key1)}], ['$_']},
 	read_limited(Cmd, SkvhCtx, Item, MatchFunction, Limit).
+
+audit_readGT(User, Channel, TimeStamp, Limit) when is_binary(Channel) ->
+    audit_readGT(User, atom_audit_alias(Channel), TimeStamp, Limit);
+audit_readGT(User, AuditAliasAtom, TimeStamp, Limit)
+  when is_binary(TimeStamp) ->
+    audit_readGT(User, AuditAliasAtom,
+                 imem_datatype:io_to_timestamp(TimeStamp), Limit);
+audit_readGT(User, AuditAliasAtom, TimeStamp, Limit)
+  when is_atom(AuditAliasAtom), is_tuple(TimeStamp) ->
+    audit_readGT(User, audit_partitions(AuditAliasAtom, TimeStamp), TimeStamp, Limit);
+audit_readGT(_User, AuditPartitions, TimeStamp, Limit)
+  when is_list(AuditPartitions), is_tuple(TimeStamp) ->
+    audit_part_readGT(
+      AuditPartitions,
+      {#skvhAudit{time = '$1', _ = '_'},
+       [{'>', '$1', match_val(TimeStamp)}],
+       ['$_']},
+      Limit).
 
 audit_readGT(User, Channel, Item, TS1, Limit)  when is_binary(Item), is_binary(TS1) ->
 	Cmd = [audit_readGT, User, Channel, Item, TS1, Limit],
@@ -987,13 +1049,6 @@ readGELT(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
         length(L) > Limit -> ?ClientError(?E117(Limit));
         true -> [skvh_rec_to_map(R) || R <- L ]
     end.
-audit_readGT(User, Channel, TS1, Limit) when is_binary(TS1) ->
-    audit_readGT(User, Channel, imem_datatype:io_to_timestamp(TS1), Limit);
-audit_readGT(_User, Channel, TS1, Limit) ->
-    TableName = atom_audit_alias(Channel),
-    Partitions = audit_partitions(TableName, TS1),
-    MatchFunction = {?AUDIT_MATCHHEAD, [{'>', '$1', match_val(TS1)}], ['$_']},
-    audit_part_readGT(Partitions, MatchFunction, Limit).
 
 audit_part_readGT([], _MatchFunction, _Limit) -> [];
 audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
@@ -1009,7 +1064,7 @@ debug(Cmd, Resp) ->
     			 ).
 
 % age function
-check_age_audit_entry(Channel, Key, TS1) ->
+check_age_audit_entry(_User, Channel, Key, TS1) ->
     MatchFunction = {?AUDIT_MATCHHEAD, [{'andalso',{'>=', '$1', match_val(TS1)}, {'==', '$2', Key}}], ['$_']},
     AuditTable = list_to_atom(binary_to_list(audit_alias(Channel))),
     imem_meta:select(AuditTable, [MatchFunction]).
@@ -1394,6 +1449,19 @@ skvh_operations(_) ->
         ?assertEqual(3, length(HistResult)),
         ?assertEqual([History1, History2, History3], HistResult),
 
+        %% Search history for test
+        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3),5),
+        ?assertEqual(3, length(HistSearchResult1)),
+
+        %% Search for 150
+        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map3),5),
+        ?assertEqual(1, length(HistSearchResult2)),
+        ?assertEqual([{maps:get(ckey, Map3), maps:get(cvalue, Map3Upd)}], HistSearchResult2),
+
+        %% Search history for limit
+        HistSearchResult3 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3),2),
+        ?assertEqual(2, length(HistSearchResult3)),
+
         %% Using sext encoded Keys
         EncodedKeys = [imem_datatype:term_to_binterm(maps:get(ckey, Map1))
                       ,imem_datatype:term_to_binterm(maps:get(ckey, Map2))
@@ -1457,8 +1525,10 @@ skvh_concurrency(_) ->
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
         [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
         ?LogDebug("success ~p", [bulk_drop_spawned]),
-        DropResult = receive_results(TabCount,[]),
-        ?assertEqual([ok], lists:usort([ R || {_,R} <- DropResult])),
+        DropResultFun = fun() ->
+                ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])]))
+            end,
+        {timeout, 10, DropResultFun},
         ?LogDebug("success ~p~n", [bulk_drop_tables])
     catch
         Class:Reason ->     

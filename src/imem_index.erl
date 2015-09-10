@@ -197,12 +197,12 @@ vnf_float(I) when is_integer(I) -> [1.0 * I];
 vnf_float(F) when is_float(F) -> [F];
 vnf_float(A) when is_atom(A) -> [?nav]; 
 vnf_float(B) when is_binary(B) -> 
-    case (catch imem_datatype:io_to_float(B)) of
+    case (catch imem_datatype:io_to_float(B, undefined)) of
         F when is_float(F) ->   [F];
         _ ->                    [?nav]
     end;
 vnf_float(L) when is_list(L) -> 
-    case (catch imem_datatype:io_to_float(L)) of
+    case (catch imem_datatype:io_to_float(L, undefined)) of
         F when is_float(F) ->   [F];
         _ ->                    [?nav]
     end.
