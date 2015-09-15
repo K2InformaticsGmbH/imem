@@ -113,7 +113,7 @@
         , audit_readGT/4    %% (User, Channel, TS1, Limit)          read audit info after Timestamp1, resturn a list of maps with Limit results or less
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
-        , search_deleted/5  %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
+        , search_deleted/6  %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
         , search_deleted_clients/6
         , search_deleted_objects/6
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
@@ -851,28 +851,38 @@ search_deleted_init(CKey1, CKey2, Text, Channel) ->
     HistTableName = atom_history_alias(Channel),
     [Key1, Key2, LText, HistTableName].
 
--spec search_deleted(ddEntityId(), binary(), binary(), binary(), binary()) -> list().
-search_deleted(_User, Channel, Text, CKey1, CKey2) ->
+-spec search_deleted(ddEntityId(), binary(), binary(), binary(), binary(), boolean()) -> list().
+search_deleted(_User, Channel, Text, CKey1, CKey2, DelStatus) ->
     [Key1, Key2, LText, HistTableName] = search_deleted_init(CKey1, CKey2, Text, Channel),
-    SearchFun = fun() -> find_deleted(HistTableName, imem_meta:next(HistTableName, Key1), Key2, LText) end,
+    SearchFun = fun() -> find_deleted(HistTableName, imem_meta:next(HistTableName, Key1), Key2, LText, DelStatus) end,
     imem_meta:return_atomic_list(imem_meta:transaction(SearchFun)).
 
--spec find_deleted(atom(), binary(), binary(), binary()) -> list().
-find_deleted(Table, Key, EndKey, Text) ->
-    find_deleted(Table, Key, EndKey, Text, []).
+-spec find_deleted(atom(), binary(), binary(), binary(), boolean()) -> list().
+find_deleted(Table, Key, EndKey, Text, DelStatus) ->
+    find_deleted(Table, Key, EndKey, Text, DelStatus, length(binterm_to_term_key(Key)) + 1, []).
 
--spec find_deleted(atom(), binary(), binary(), binary(), list()) -> list().
-find_deleted(_Table, Key , EndKey, _Text, Acc) when Key > EndKey -> Acc;
-find_deleted(_Table, '$end_of_table' , _EndKey, _Text, Acc)  -> Acc;
-find_deleted(Table, Key , EndKey, <<>>, Acc) ->
+-spec find_deleted(atom(), binary(), binary(), binary(), boolean(), integer(), list()) -> list().
+find_deleted(_Table, Key , EndKey, _Text, _DelStatus, _Len, Acc) when Key > EndKey -> Acc;
+find_deleted(_Table, '$end_of_table' , _EndKey, _Text, _DelStatus, _Len, Acc)  -> Acc;
+find_deleted(Table, Key , EndKey, <<>>, true, Len, Acc) ->
     NewAcc =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
             Acc ++ [{binterm_to_term_key(Key), Value}];
         _ ->
             Acc
     end,
-    find_deleted(Table, imem_meta:next(Table, Key), EndKey, <<>>, NewAcc);
-find_deleted(Table, Key, EndKey, Text, Acc) ->
+    NextKey = find_deleted_next(Table, imem_meta:next(Table, Key), EndKey, Len),
+    find_deleted(Table, NextKey, EndKey, <<>>, true, Len, NewAcc);
+find_deleted(Table, Key , EndKey, <<>>, false, Len, Acc) ->
+    NewAcc =  case imem_meta:read(Table, Key) of
+        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
+            Acc ++ [{binterm_to_term_key(Key), Value}];
+        _ ->
+            Acc
+    end,
+    NextKey = find_deleted_next(Table, imem_meta:next(Table, Key), EndKey, Len),
+    find_deleted(Table, NextKey, EndKey, <<>>, false, Len, NewAcc);
+find_deleted(Table, Key, EndKey, Text, true, Len, Acc) ->
     NewAcc =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
             [LValue] = imem_index:vnf_lcase_ascii(Value),
@@ -885,8 +895,31 @@ find_deleted(Table, Key, EndKey, Text, Acc) ->
         _ ->
             Acc
     end,
-    find_deleted(Table, imem_meta:next(Table, Key), EndKey, Text, NewAcc).
+    NextKey = find_deleted_next(Table, imem_meta:next(Table, Key), EndKey, Len),
+    find_deleted(Table, NextKey, EndKey, Text, true, Len, NewAcc);
+find_deleted(Table, Key, EndKey, Text, false, Len, Acc) ->
+    NewAcc =  case imem_meta:read(Table, Key) of
+        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
+            [LValue] = imem_index:vnf_lcase_ascii(Value),
+            case binary:match(LValue, Text) of
+                nomatch ->
+                    Acc;
+                _ -> 
+                    Acc ++ [{binterm_to_term_key(Key), Value}]
+            end;
+        _ ->
+            Acc
+    end,
+    NextKey = find_deleted_next(Table, imem_meta:next(Table, Key), EndKey, Len),
+    find_deleted(Table, NextKey, EndKey, Text, false, Len, NewAcc).
 
+find_deleted_next(_Table, '$end_of_table', _EndKey, _Len) -> '$end_of_table';
+find_deleted_next(_Table, Key, EndKey, _Len)  when Key > EndKey -> '$end_of_table';
+find_deleted_next(Table, KeyBin, EndKey, Len) -> 
+    case length(binterm_to_term_key(KeyBin)) of
+        N when N > Len -> find_deleted_next(Table, imem_meta:next(Table, KeyBin), EndKey, Len);
+        _ -> KeyBin
+    end.
 -spec search_deleted_clients(ddEntityId(), binary(), binary(), binary(), binary(), integer()) -> list().
 search_deleted_clients(_User, Channel, Text, CKey1, CKey2, Limit) ->
     [Key1, Key2, LText, HistTableName] = search_deleted_init(CKey1, CKey2, Text, Channel),
@@ -949,7 +982,7 @@ find_next_clients(Table, ClientKey, [_,_] = Key, KeyBin, EndKey) ->
         _ -> NextKey = imem_meta:next(Table, term_key_to_binterm(Key ++ <<255>>)),
             find_next_clients(Table, ClientKey, NextKey, EndKey)
     end;
-find_next_clients(Table, ClientKey , Key, KeyBin, EndKey) ->
+find_next_clients(Table, ClientKey , Key, _KeyBin, EndKey) ->
     NextKey = imem_meta:next(Table, term_key_to_binterm(lists:sublist(Key, 2) ++ <<255>>)),
     find_next_clients(Table, ClientKey, NextKey, EndKey).
 
@@ -1578,17 +1611,14 @@ skvh_operations(_) ->
         ?assertEqual([History1, History2, History3], HistResult),
 
         %% Search history for test
-        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3),5),
+        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3),false),
         ?assertEqual(3, length(HistSearchResult1)),
 
         %% Search for 150
-        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map3),5),
+        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map3),false),
         ?assertEqual(1, length(HistSearchResult2)),
         ?assertEqual([{maps:get(ckey, Map3), maps:get(cvalue, Map3Upd)}], HistSearchResult2),
 
-        %% Search history for limit
-        HistSearchResult3 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3),2),
-        ?assertEqual(2, length(HistSearchResult3)),
 
         %% Using sext encoded Keys
         EncodedKeys = [imem_datatype:term_to_binterm(maps:get(ckey, Map1))
