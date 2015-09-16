@@ -1308,9 +1308,14 @@ test_with_or_without_sec(IsSec) ->
             end
         ),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddViewTest;", 0, [{schema,imem}], IsSec)),
+        {timeout, 5, fun() -> 
+            ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddViewTest;", 0, [{schema,imem}], IsSec)),
+        end},
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddCmdTest;", 0, [{schema,imem}], IsSec)),
+        {timeout, 5, fun() -> 
+            ?assertEqual(ok, imem_sql:exec(SKey, "drop table ddCmdTest;", 0, [{schema,imem}], IsSec)),
+        end},
+
 
     %% sorting
 
@@ -1799,8 +1804,12 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, [{schema,imem}], IsSec)),
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema,imem}], IsSec)),
+        {timeout, 5, fun() -> 
+            ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, [{schema,imem}], IsSec))
+        end},
+        {timeout, 5, fun() -> 
+            ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema,imem}], IsSec)),
+        end},
 
         case IsSec of
             true ->     ?imem_logout(SKey);
