@@ -318,9 +318,12 @@ test(_) ->
         ?assertEqual({user_table_123,"AA","BB","CC"}, imem_sec:insert(SeCo4, user_table_123, {user_table_123,"AA","BB","CC"})),
         ?assertEqual(2, imem_sec:table_size(SeCo4, user_table_123)),
         ?LogDebug("success ~p~n", [insert_own_table]),
-        {timeout, 5, fun() -> ?assertEqual(ok, imem_sec:drop_table(SeCo4, user_table_123)) end},
+        {timeout, 5, fun() -> 
+            ?assertEqual(ok, imem_sec:drop_table(SeCo4, user_table_123)),
+            ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, imem_sec:table_size(SeCo4, user_table_123))
+         end},
         ?LogDebug("success ~p~n", [drop_own_table]),
-        ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, imem_sec:table_size(SeCo4, user_table_123)),    
+        % ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, imem_sec:table_size(SeCo4, user_table_123)),    
         ?assertEqual(ok, imem_role:grant_role(SeCo, AccountId, table_creator)),
         ?LogDebug("success ~p~n", [role_grant_tc_role]),      
         ?assertEqual(ok, imem_role:create(SeCo, #ddRole{id=test_role,roles=[],permissions=[perform_tests]})),
