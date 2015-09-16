@@ -116,8 +116,8 @@
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
         , hist_read_shallow/4 %% (User, Channel, Key, DelStatus)    return the shallow list of deleted objects
         , search_deleted/6  %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
-        , search_deleted_clients/6
-        , search_deleted_objects/6
+        , search_deleted_clients/6 %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted clients
+        , search_deleted_objects/6 %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted objects
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
