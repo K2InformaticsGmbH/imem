@@ -323,7 +323,6 @@ test(_) ->
             ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, imem_sec:table_size(SeCo4, user_table_123))
          end},
         ?LogDebug("success ~p~n", [drop_own_table]),
-        % ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, imem_sec:table_size(SeCo4, user_table_123)),    
         ?assertEqual(ok, imem_role:grant_role(SeCo, AccountId, table_creator)),
         ?LogDebug("success ~p~n", [role_grant_tc_role]),      
         ?assertEqual(ok, imem_role:create(SeCo, #ddRole{id=test_role,roles=[],permissions=[perform_tests]})),

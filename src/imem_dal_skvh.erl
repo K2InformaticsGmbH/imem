@@ -114,10 +114,10 @@
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
-        , hist_read_shallow/4 %% (User, Channel, Key, DelStatus)    return the shallow list of deleted objects
-        , search_deleted/6  %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
-        , search_deleted_clients/6 %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted clients
-        , search_deleted_objects/6 %% (User,s Channel, Ckey1, Ckey2, Text) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted objects
+        , hist_read_shallow/3 %% (User, Channel, Key)               return the shallow list of deleted objects
+        , search_deleted/6  %% (User,s Channel, Ckey1, Ckey2, Text, DelStatus) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
+        , search_deleted_clients/6 %% (User,s Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted clients
+        , search_deleted_objects/6 %% (User,s Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted objects
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
@@ -850,10 +850,10 @@ hist_read_deleted(User, Channel, DecodedKey) ->
 [#{cvhist := [#{ovalue := Value} |_]}] = hist_read(User, Channel, [DecodedKey]),
     Value.
 
--spec hist_read_shallow(ddEntityId(), binary(), term(), boolean()) -> list().
-hist_read_shallow(User, Channel, Key, DelStatus) ->
+-spec hist_read_shallow(ddEntityId(), binary(), term()) -> list().
+hist_read_shallow(User, Channel, Key) ->
     Len = length(Key) + 1,
-    Results = imem_dal_skvh:search_deleted(User, Channel, <<>>, Key, Key ++ <<255>>, DelStatus),
+    Results = search_deleted(User, Channel, <<>>, Key, Key ++ <<255>>, true),
     [R || {CKey, _} = R <- Results, length(CKey) == Len].
 
 -spec search_deleted_init(binary(), binary(), binary(), binary()) -> list().
@@ -900,13 +900,7 @@ find_deleted(Table, Key , EndKey, <<>>, false, Acc) ->
 find_deleted(Table, Key, EndKey, Text, true, Acc) ->
     NewAcc =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            [LValue] = imem_index:vnf_lcase_ascii(Value),
-            case binary:match(LValue, Text) of
-                nomatch ->
-                    Acc;
-                _ -> 
-                    Acc ++ [{binterm_to_term_key(Key), Value}]
-            end;
+            check_binary_match(Key, Value, Text, Acc);
         _ ->
             Acc
     end,
@@ -915,13 +909,7 @@ find_deleted(Table, Key, EndKey, Text, true, Acc) ->
 find_deleted(Table, Key, EndKey, Text, false, Acc) ->
     NewAcc =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
-            [LValue] = imem_index:vnf_lcase_ascii(Value),
-            case binary:match(LValue, Text) of
-                nomatch ->
-                    Acc;
-                _ -> 
-                    Acc ++ [{binterm_to_term_key(Key), Value}]
-            end;
+            check_binary_match(Key, Value, Text, Acc);
         _ ->
             Acc
     end,
@@ -943,6 +931,8 @@ find_deleted_clients(Table, ClientKey, Key , EndKey, <<>>, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
             {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
+        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
+            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
         _ ->
             {Limit, Acc}
     end,
@@ -950,21 +940,9 @@ find_deleted_clients(Table, ClientKey, Key , EndKey, <<>>, Limit, Acc) ->
 find_deleted_clients(Table, ClientKey, Key, EndKey, Text, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            [LValue] = imem_index:vnf_lcase_ascii(Value),
-            case binary:match(LValue, Text) of
-                nomatch ->
-                    {Limit, Acc};
-                _ -> 
-                    {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]}
-            end;
-        [#skvhHist{cvhist = [#skvhCL{ovalue = _Value, nvalue = NValue}| _]}] ->
-            [LNValue] = imem_index:vnf_lcase_ascii(NValue),
-            case binary:match(LNValue, Text) of
-                nomatch ->
-                    {Limit, Acc};
-                _ -> 
-                    {Limit - 1, Acc ++ [{binterm_to_term_key(Key), NValue}]}
-            end;
+            check_binary_match(Key, Value, Text, Acc, Limit);
+        [#skvhHist{cvhist = [#skvhCL{nvalue = NValue}| _]}] ->
+            check_binary_match(Key, NValue, Text, Acc, Limit);
         _ ->
             {Limit, Acc}
     end,
@@ -1022,19 +1000,23 @@ find_deleted_objects(Table, Key , EndKey, <<>>, Limit, Acc) ->
 find_deleted_objects(Table, Key, EndKey, Text, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            [LValue] = imem_index:vnf_lcase_ascii(Value),
-            case binary:match(LValue, Text) of
-                nomatch ->
-                    {Limit, Acc};
-                _ -> 
-                    {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]}
-            end;
+            {NLimit, NAcc} = check_binary_match(Key, Value, Text, Acc, Limit),
+            find_deleted_objects_deep(Table, Key, Text, NAcc, NLimit);
         _ ->
             {Limit, Acc}
     end,
     NKey = imem_meta:next(Table, Key),
     NextKey = find_next_objects(Table, NKey, EndKey),
     find_deleted_objects(Table, NextKey, EndKey, Text, NewLimit, NewAcc).
+
+find_deleted_objects_deep(Table, KeyBin, Text, Acc, Limit) ->
+    Key1 = binterm_to_term_key(KeyBin),
+    KeyBin2 = term_key_to_binterm(Key1 ++ <<255>>),
+    Results = find_deleted(Table, imem_meta:next(Table, KeyBin), KeyBin2, Text, false),
+    case length(Results) of
+        N when N > Limit -> {0, Acc ++ lists:sublist(Results, Limit)};
+        M -> {Limit -M, Acc ++ Results}
+    end.
 
 -spec find_next_objects(binary(), atom() | binary(), binary()) -> atom() | binary().
 find_next_objects(_Table, '$end_of_table', _EndKey) -> '$end_of_table';
@@ -1052,6 +1034,21 @@ find_next_objects(Table, [_,_] = Key, KeyBin, EndKey) ->
             find_next_objects(Table, NextKey, EndKey);
         _ -> 
             find_next_objects(Table, imem_meta:next(Table, KeyBin), EndKey)
+    end.
+
+-spec check_binary_match(binary(), binary(), binary(), list()) -> list().
+check_binary_match(Key, Value, Text, Acc) ->
+    {_, NewAcc} = check_binary_match(Key, Value, Text, Acc, 1),
+    NewAcc.
+
+-spec check_binary_match(binary(), binary(), binary(), list(), integer()) -> list().
+check_binary_match(Key, Value, Text, Acc, Limit) ->
+    [LValue] = imem_index:vnf_lcase_ascii(Value),
+    case binary:match(LValue, Text) of
+        nomatch ->
+            {Limit, Acc};
+        _ -> 
+            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]}
     end.
 
 %% Data Access per key range
