@@ -997,7 +997,9 @@ find_deleted_objects(Table, Key , EndKey, <<>>, Limit, Acc) ->
         _ ->
             {Limit, Acc}
     end,
-    find_deleted_objects(Table, imem_meta:next(Table, Key), EndKey, <<>>, NewLimit, NewAcc);
+    NKey = imem_meta:next(Table, Key),
+    NextKey = find_next_objects(Table, NKey, EndKey),
+    find_deleted_objects(Table, NextKey, EndKey, <<>>, NewLimit, NewAcc);
 find_deleted_objects(Table, Key, EndKey, Text, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
