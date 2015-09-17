@@ -115,9 +115,9 @@
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
         , hist_read_shallow/3 %% (User, Channel, Key)               return the shallow list of deleted objects
-        , search_deleted/6  %% (User,s Channel, Ckey1, Ckey2, Text, DelStatus) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
-        , search_deleted_clients/6 %% (User,s Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted clients
-        , search_deleted_objects/6 %% (User,s Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted objects
+        , search_deleted/6  %% (User, Channel, Ckey1, Ckey2, Text, DelStatus) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
+        , search_deleted_clients/6 %% (User, Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted clients
+        , search_deleted_objects/6 %% (User, Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted objects
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
@@ -992,7 +992,8 @@ find_deleted_objects(_Table, '$end_of_table' , _EndKey, _Text, _Limit, Acc) -> A
 find_deleted_objects(Table, Key , EndKey, <<>>, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
+            NAcc = Acc ++ [{binterm_to_term_key(Key), Value}],
+            find_deleted_objects_deep(Table, Key, <<>>, NAcc, Limit - 1);
         _ ->
             {Limit, Acc}
     end,
@@ -1472,6 +1473,9 @@ skvh_operations(_) ->
         Map4 = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 250}">>, chash => <<"1RZ299">>},
         Map5 = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 300}">>, chash => <<"1DKGDA">>},
         Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1DN1MP">>},
+        Map7 = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 150}">>, chash => <<"HJ3TK">>},
+        Map8 = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 250}">>, chash => <<"1M3DPR">>},
+        Map9 = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 350}">>, chash => <<"KKR3X">>},
 
         %% Keys not in the table.
         FirstKey = [""],
@@ -1518,6 +1522,8 @@ skvh_operations(_) ->
         Map1Upd = #{ckey => ["1"], cvalue => <<"{\"testKey\": \"newValue\"}">>, chash => <<"1HU42V">>},
         Map2Upd = #{ckey => ["1", "a"], cvalue => <<"{\"testKey\": \"a\", \"newNumber\": 10}">>, chash => <<"1Y22WI">>},
         Map3Upd = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"newNumber\": 150}">>, chash => <<"3MBW5">>},
+        Map4Upd = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 150}">>, chash => <<"1RZ299">>},
+        Map5Upd = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 400}">>, chash => <<"1DKGDA">>},
 
         BeforeUpdate = erlang:now(),
 
@@ -1530,6 +1536,7 @@ skvh_operations(_) ->
         ?assertEqual([maps:remove(chash,Map2Upd), maps:remove(chash,Map3Upd)]
                     , [maps:remove(chash,M) || M <- [Map2Done,Map3Done]]
                     ),
+
 
         %% Concurrency exception
         ?assertException(throw, {CoEx, {"Data is modified by someone else", _}}, update(system, ?Channel, Map1Upd)),
@@ -1600,6 +1607,12 @@ skvh_operations(_) ->
         Ex4 = {'ClientError',{"Data conversion format error",{timestamp,"1900-01-01",{"Cannot handle dates before 1970"}}}},
         ?assertException(throw, Ex4, audit_readGT(system, ?Channel, <<"1900-01-01">>, 100)),
 
+        %% Inserts for history search_deleted clients and objects
+        InsertResult = insert(system, ?Channel, [Map7, Map8, Map9]),
+        Map7Upd = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 400}">>, chash => <<"HJ3TK">>},
+        Map8Upd = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 555}">>, chash => <<"830WW">>},
+        Map9Upd = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 400}">>, chash => <<"KKR3X">>},
+
         %% Read History tests, time is reset to 0 for comparison but should be ordered from new to old.
         CL1 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1Upd), nvalue => undefined, cuser => system}
               ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1), nvalue => maps:get(cvalue, Map1Upd), cuser => system}
@@ -1613,21 +1626,37 @@ skvh_operations(_) ->
               ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map3), nvalue => maps:get(cvalue, Map3Upd), cuser => system}
               ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map3), cuser => system}],
         History3 = #{ckey => maps:get(ckey, Map3), cvhist => CL3},
+        CL4 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map4), nvalue => maps:get(cvalue, Map4Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map4), cuser => system}],
+        History4 = #{ckey => maps:get(ckey, Map4), cvhist => CL4},
+        CL5 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5Upd), nvalue => undefined, cuser => system}
+              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5), nvalue => maps:get(cvalue, Map5Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map5), cuser => system}],
+        History5 = #{ckey => maps:get(ckey, Map5), cvhist => CL5},
+        CL7 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map7), nvalue => maps:get(cvalue, Map7Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map7), cuser => system}],
+        History7 = #{ckey => maps:get(ckey, Map7), cvhist => CL7},
+        CL8 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8Upd), nvalue => undefined, cuser => system}
+              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8), nvalue => maps:get(cvalue, Map8Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map8), cuser => system}],
+        History8 = #{ckey => maps:get(ckey, Map8), cvhist => CL8},
+        CL9 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9Upd), nvalue => undefined, cuser => system}
+              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9), nvalue => maps:get(cvalue, Map9Upd), cuser => system}
+              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map9), cuser => system}],
+        History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
+
+        %% Updating objects for history test cases
+        [Map4Done, Map5Done, Map7Done, Map8Done, Map9Done] = update(system, ?Channel, [Map4Upd, Map5Upd, Map7Upd, Map8Upd, Map9Upd]),
+        ?assertEqual([maps:remove(chash,Map4Upd), maps:remove(chash,Map5Upd)]
+                    , [maps:remove(chash,M) || M <- [Map4Done, Map5Done]]
+                    ),
+
+        RemoveResult = remove(system, ?Channel, [Map8Done, Map9Done]),
 
         %% Read using a list of term keys.
         HistResult = hist_reset_time(hist_read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
         ?assertEqual(3, length(HistResult)),
         ?assertEqual([History1, History2, History3], HistResult),
-
-        %% Search history for test
-        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map3), true),
-        ?assertEqual(3, length(HistSearchResult1)),
-
-        %% Search for 150
-        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map3), true),
-        ?assertEqual(1, length(HistSearchResult2)),
-        ?assertEqual([{maps:get(ckey, Map3), maps:get(cvalue, Map3Upd)}], HistSearchResult2),
-
 
         %% Using sext encoded Keys
         EncodedKeys = [imem_datatype:term_to_binterm(maps:get(ckey, Map1))
@@ -1635,8 +1664,58 @@ skvh_operations(_) ->
                       ,imem_datatype:term_to_binterm(maps:get(ckey, Map3))],
 
         HistResultEnc = hist_reset_time(hist_read(system, ?Channel, EncodedKeys)),
-
         ?assertEqual([History1, History2, History3], HistResultEnc),
+
+        %% Search history for test for deleted objects
+        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map5), true),
+        ?assertEqual(4, length(HistSearchResult1)),
+
+        %% Search for 150 for deleted objects
+        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map5), true),
+        ?assertEqual(1, length(HistSearchResult2)),
+        ?assertEqual([{maps:get(ckey, Map3), maps:get(cvalue, Map3Upd)}], HistSearchResult2),
+
+        %% Search history for test for objects with deleted parents
+        HistSearchResult3 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map5), false),
+        ?assertEqual(3, length(HistSearchResult3)),
+
+        %% Search for 150 for for objects with deleted parents
+        HistSearchResult4 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map5), false),
+        ?assertEqual(1, length(HistSearchResult4)),
+        ?assertEqual([{maps:get(ckey, Map4), maps:get(cvalue, Map4Upd)}], HistSearchResult4),
+
+        %% Get the last value of a deleted object with key
+        ?assertEqual(maps:get(cvalue, Map1Upd), hist_read_deleted(system, ?Channel, maps:get(ckey, Map1))),
+
+        %% Shallow read of the deleted object
+        HistReadShallowResult = hist_read_shallow(system, ?Channel, maps:get(ckey, Map1)),
+        HistReadShallowExpected = [{maps:get(ckey, Map2Upd), maps:get(cvalue, Map2Upd)}, {maps:get(ckey, Map3Upd), maps:get(cvalue, Map3Upd)}],
+        ?assertEqual(2, length(HistReadShallowResult)),
+        ?assertEqual(HistReadShallowExpected, HistReadShallowResult),
+
+        %% Deleted search client with text
+        HistSearchClients1 = search_deleted_clients(system, ?Channel, <<"400">>,  maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
+        ?assertEqual(2, length(HistSearchClients1)),
+        ?assertEqual([{maps:get(ckey, Map7Upd), maps:get(cvalue, Map7Upd)}, {maps:get(ckey, Map9Upd), maps:get(cvalue, Map9Upd)}] , HistSearchClients1),
+        %% Deleted search client with empty text
+        HistSearchClients2 = search_deleted_clients(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
+        ?assertEqual(7, length(HistSearchClients2)),
+        %% Deleted search client with text limit test
+        HistSearchClients3 = search_deleted_clients(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 5),
+        ?assertEqual(5, length(HistSearchClients3)),
+
+        %% Deleted search object with text
+        HistSearchObjects1 = search_deleted_objects(system, ?Channel, <<"555">>,  maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
+        ?assertEqual(1, length(HistSearchObjects1)),
+        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects1),
+        %% Deleted search client with empty text
+        HistSearchObjects2 = search_deleted_objects(system, ?Channel, <<"test">>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 1),
+        ?assertEqual(1, length(HistSearchObjects2)),
+        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects2),
+        %% Deleted search object with empty limit
+        HistSearchObjects3 = search_deleted_objects(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
+        ?assertEqual(1, length(HistSearchObjects3)),
+        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects3),
 
         ?LogDebug("starting ~p", [drop_table123]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
@@ -1651,7 +1730,7 @@ skvh_operations(_) ->
         ?assertEqual(ok, drop_table(skvhTest)),
         ?LogDebug("success ~p~n", [drop_table])
  
-   catch
+    catch
         Class:Reason ->     
             timer:sleep(1000),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
