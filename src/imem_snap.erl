@@ -415,7 +415,7 @@ read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     end.
 
 restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, Opts) ->
-    ?Debug("restore properties ~p~n", [UserProperties]),
+    ?Info("restore properties of ~p~n", [Tab]),
     [begin
         P1 = case P of
             #ddTable{columns = Cols, opts = TOpts, owner = Owner} ->
@@ -444,7 +444,13 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
     imem_meta:transaction(fun() ->
         TableSize = imem_meta:table_size(Tab),
         TableType = imem_if:table_info(Tab, type),
-        lists:foldl(fun(Row, {I, E, A}) ->
+        lists:foldl(
+          fun(Row, {I, E, A}) ->
+            UpdatedRows = length(E) + length(A),
+            if (UpdatedRows > 0 andalso UpdatedRows rem 500 == 0) ->
+                   ?Info("restoring ~p updated ~p rows~n", [Tab, UpdatedRows]);
+               true -> ok
+            end,
             if (TableSize > 0) andalso (TableType =/= bag) ->
                 K = element(2, Row),
                 case imem_meta:read(Tab, K) of
@@ -472,7 +478,6 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
         {OldI, OldE, OldA},
         Rows)
     end),
-    ?Debug("chunk restored ~p~n", [{Tab, {length(NewI), length(NewE), length(NewA)}}]),
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {NewI, NewE, NewA}).
 
 all_snap_tables() ->
