@@ -63,8 +63,10 @@
         , purge_table/2
         , purge_table/3
         , truncate_table/2
-        , snapshot_table/2  %% dump local table to snapshot directory
-        , restore_table/2   %% replace local table by version in snapshot directory
+        , snapshot_table/2      %% dump local table to snapshot directory
+        , restore_table/2       %% replace local table by version in snapshot directory
+        , restore_table_as/2    %% replace/create local table from snapshot backup
+        , restore_table_as/3    %% replace/create local table from snapshot backup
         , read/2
         , read/3
         , read_hlk/3        %% read hierarchical list key
@@ -782,6 +784,19 @@ restore_table(SKey, Table) ->
             case have_table_permission(SKey, Table, import) of
                 true ->     imem_meta:restore_table(Table);
                 false ->    ?SecurityException({"Restore table unauthorized", {Table,SKey}})
+            end
+    end.
+
+restore_table_as(SKey, {Table, NewTable}) ->
+    restore_table_as(SKey, Table, NewTable).
+restore_table_as(SKey, Table, NewTable) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables]) of
+        true ->     
+            imem_meta:restore_table_as(Table, NewTable);
+        false ->
+            case have_table_permission(SKey, Table, import) of
+                true ->     imem_meta:restore_table_as(Table, NewTable);
+                false ->    ?SecurityException({"Restore table as unauthorized", {Table,NewTable,SKey}})
             end
     end.
 

@@ -16,6 +16,7 @@
 -export([ info/1
         , restore/4
         , restore/5
+        , restore_as/5
         , zip/1
         , take/1
         , restore_chunked/3
@@ -294,6 +295,7 @@ take({tabs, Tabs}) ->                               % list of tables as atoms
         end
     || Tab <- Tabs]).
 
+
 % snapshot restore interface
 %  - periodic snapshoting timer is paused during a restore operation
 restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
@@ -310,6 +312,30 @@ restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
     || Tab <- Tabs],
     erlang:whereis(?MODULE) ! imem_snap_loop,
     Res.
+
+% snapshot restore_as interface
+%  - periodic snapshoting timer is paused during a restore operation
+restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_atom(SrcTab) ->
+    restore_as(Op, atom_to_list(SrcTab), DstTab, Strategy, Simulate);
+restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_atom(DstTab) ->
+    restore_as(Op, SrcTab, atom_to_list(DstTab), Strategy, Simulate);
+restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_binary(DstTab) ->
+    restore_as(Op, SrcTab, binary_to_list(DstTab), Strategy, Simulate);
+restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
+    erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),    
+    DstSnapFile = filename:join([SnapDir, DstTab++?BKP_EXTN]),
+    SnapFile = case filelib:is_file(DstSnapFile) of
+                   true -> DstSnapFile;
+                   false -> filename:join([SnapDir, SrcTab++?BKP_EXTN])
+               end,
+    erlang:whereis(?MODULE) ! imem_snap_loop,
+    case restore_chunked(list_to_atom(DstTab), SnapFile, Strategy, Simulate) of
+        {L1,L2,L3} when is_list(L1), is_list(L2), is_list(L3) ->
+            ?Info("Restored table ~s as ~s from ~s", [SrcTab, DstTab, SnapFile]),
+            ok;
+        Error -> Error
+    end.
 
 restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
@@ -391,13 +417,23 @@ read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
 restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Debug("restore properties ~p~n", [UserProperties]),
     [begin
-        case P of
-            #ddTable{} ->
-                _Res = (catch imem_meta:create_check_table(Tab, P#ddTable.columns, P#ddTable.opts, P#ddTable.owner)),
-                ?Debug("creating table ~p with properties ~p result ~p", [Tab, P, _Res]);
-            _ -> ok
+        P1 = case P of
+            #ddTable{columns = Cols, opts = TOpts, owner = Owner} ->
+                NewOpts = case proplists:get_value(record_name, TOpts, enoent) of
+                              enoent ->
+                                  [{record_name,
+                                    list_to_atom(
+                                      filename:rootname(
+                                        filename:basename(SnapFile)))} | TOpts];
+                              _ -> TOpts
+                          end,
+                _Res = (catch imem_meta:create_check_table(Tab, Cols, NewOpts, Owner)),
+                P0 = P#ddTable{opts = NewOpts},
+                ?Debug("creating table ~p with properties ~p result ~p", [Tab, P0, _Res]),
+                P0;
+            _ -> P
         end,
-        mnesia:write_table_property(Tab,P)
+        mnesia:write_table_property(Tab,P1)
     end
     || P <- UserProperties],
     ?Debug("all user_properties restored for ~p~n", [Tab]),

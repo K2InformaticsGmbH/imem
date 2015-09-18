@@ -179,37 +179,38 @@
         , purge_table/2
         , truncate_table/1
         , truncate_table/2
-        , snapshot_table/1  %% dump local table to snapshot directory
-        , restore_table/1   %% replace local table by version in snapshot directory
-        , read/1            %% read whole table, only use for small tables 
-        , read/2            %% read by key
-        , read_hlk/2        %% read using hierarchical list key
-        , select/2          %% select without limit, only use for small result sets
-        , select_virtual/2  %% select virtual table without limit, only use for small result sets
-        , select/3          %% select with limit
+        , snapshot_table/1      %% dump local table to snapshot directory
+        , restore_table/1       %% replace local table by version in snapshot directory
+        , restore_table_as/2    %% replace/create local table by version in snapshot directory
+        , read/1                %% read whole table, only use for small tables 
+        , read/2                %% read by key
+        , read_hlk/2            %% read using hierarchical list key
+        , select/2              %% select without limit, only use for small result sets
+        , select_virtual/2      %% select virtual table without limit, only use for small result sets
+        , select/3              %% select with limit
         , select_sort/2
         , select_sort/3
-        , modify/8          %% parameterized insert/update/merge/remove
-        , modify/9          %% parameterized insert/update/merge/remove with trigger options
-        , insert/2          %% apply defaults, write row if key does not exist, apply trigger
-        , insert/3          %% apply defaults, write row if key does not exist, apply trigger
-        , insert/4          %% apply defaults, write row if key does not exist, apply trigger with trigger options
-        , update/2          %% apply defaults, write row if key exists, apply trigger (bags not supported)
-        , update/3          %% apply defaults, write row if key exists, apply trigger (bags not supported)
-        , update/4          %% apply defaults, write row if key exists, apply trigger with trigger options (bags not supported) 
-        , merge/2           %% apply defaults, write row, apply trigger (bags not supported)
-        , merge/3           %% apply defaults, write row, apply trigger (bags not supported)
-        , merge/4           %% apply defaults, write row, apply trigger (bags not supported) with trigger options
-        , remove/2          %% delete row if key exists (if bag row exists), apply trigger
-        , remove/3          %% delete row if key exists (if bag row exists), apply trigger
-        , remove/4          %% delete row if key exists (if bag row exists), apply trigger with trigger options
-        , write/2           %% write row for single key, no defaults applied, no trigger applied
+        , modify/8              %% parameterized insert/update/merge/remove
+        , modify/9              %% parameterized insert/update/merge/remove with trigger options
+        , insert/2              %% apply defaults, write row if key does not exist, apply trigger
+        , insert/3              %% apply defaults, write row if key does not exist, apply trigger
+        , insert/4              %% apply defaults, write row if key does not exist, apply trigger with trigger options
+        , update/2              %% apply defaults, write row if key exists, apply trigger (bags not supported)
+        , update/3              %% apply defaults, write row if key exists, apply trigger (bags not supported)
+        , update/4              %% apply defaults, write row if key exists, apply trigger with trigger options (bags not supported) 
+        , merge/2               %% apply defaults, write row, apply trigger (bags not supported)
+        , merge/3               %% apply defaults, write row, apply trigger (bags not supported)
+        , merge/4               %% apply defaults, write row, apply trigger (bags not supported) with trigger options
+        , remove/2              %% delete row if key exists (if bag row exists), apply trigger
+        , remove/3              %% delete row if key exists (if bag row exists), apply trigger
+        , remove/4              %% delete row if key exists (if bag row exists), apply trigger with trigger options
+        , write/2               %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
         , dirty_read/2
-        , dirty_index_read/3
+        , dirty_index_read/3    
         , dirty_write/2
-        , delete/2          %% delete row by key
-        , delete_object/2   %% delete single row in bag table 
+        , delete/2              %% delete row by key
+        , delete_object/2       %% delete single row in bag table 
         ]).
 
 -export([ update_prepare/3          %% stateless creation of update plan from change list
@@ -1294,7 +1295,7 @@ snapshot_partitioned_tables([TableName|TableNames]) ->
     snapshot_partitioned_tables(TableNames).
 
 restore_table({_Schema,Table,_Alias}) ->
-    restore_table({_Schema,Table});    
+    restore_table({_Schema,Table});
 restore_table({Schema,Table}) ->
     MySchema = schema(),
     case Schema of
@@ -1312,6 +1313,49 @@ restore_table(Alias) when is_atom(Alias) ->
     end;    
 restore_table(TableName) ->
     restore_table(qualified_table_name(TableName)).
+
+restore_table_as({_Schema,Table,_Alias}, NewTable) ->
+    restore_table_as({_Schema,Table}, NewTable);
+restore_table_as(Oldtable, {_Schema,Table,_Alias}) ->
+    restore_table_as(Oldtable, {_Schema,Table});
+restore_table_as({Schema,Table},{NewSchema,NewTable}) ->
+    MySchema = schema(),
+    case {Schema, NewSchema} of
+        {MySchema, MySchema} -> restore_table_as(Table, NewTable);
+        _ -> ?UnimplementedException({"Restore table as in foreign schema",{Schema,NewSchema,Table}})
+    end;
+restore_table_as(Alias, NewAlias) when is_atom(Alias) ->
+    log_to_db(debug,?MODULE,restore_table_as,[{table,Alias},{newTable,NewAlias}],"restore table as"),
+    case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
+        [] ->   ?ClientError({"Table does not exist",Alias});
+        [PTN] ->
+            NewPTN = case catch ?binary_to_existing_atom(NewAlias) of
+                          {'EXIT',_} -> NewAlias;
+                          {'ClientError',_} -> NewAlias;
+                          NewAliasAtom ->
+                              case lists:sort(simple_or_local_node_sharded_tables(NewAliasAtom)) of
+                                  [] -> NewAliasAtom;
+                                  [NPTN] -> NPTN;
+                                  NPTNs ->
+                                      ?ClientError({"Too many target tables", NPTNs})
+                              end
+                      end,
+            case imem_snap:restore_as(bkp,PTN,NewPTN,destroy,false) of
+                ok -> ok;
+                E -> ?SystemException({"Restore table as failed with",E})
+            end;
+        PTNs ->
+            ?ClientError({"Too many source tables", PTNs})
+    end;    
+restore_table_as(TableName,NewTableName) ->
+    MySchema = schema(),
+    MySchemaBin = atom_to_binary(MySchema, utf8),
+    case imem_sql_expr:binstr_to_qname2(NewTableName) of
+        {MySchemaBin, Table} ->
+            restore_table_as(qualified_table_name(TableName), {MySchema, Table});
+        {Schema, Table} ->
+            ?UnimplementedException({"Restore table as in foreign schema",{MySchema,Schema,Table}})
+    end.
 
 drop_table({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
     MySchema = schema(),
