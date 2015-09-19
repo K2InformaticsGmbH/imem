@@ -86,6 +86,9 @@
     || T <- Candidates],
     ok
 end.">>)).
+-define(GET_CLUSTER_SNAPSHOT,?GET_CONFIG(snapshotCluster,[],true)).
+-define(GET_CLUSTER_SNAPSHOT_TABLES,?GET_CONFIG(snapshotClusterTables,[],[ddAccount,ddRole,ddConfig])).
+-define(GET_CLUSTER_SNAPSHOT_INTERVAL,?GET_CONFIG(snapshotClusterInterval,[],1000)).
 
 -ifdef(TEST).
     start_snap_loop() -> ok.
@@ -96,6 +99,11 @@ end.">>)).
             erlang:whereis(?MODULE) ! imem_snap_loop
         end).
 -endif.
+
+fire_cluster_snap(Tables) ->
+    IntervalMs = ?GET_CLUSTER_SNAPSHOT_INTERVAL,
+    ?Info("starting ~p snapshot after ~pms", [Tables, IntervalMs]),
+    erlang:send_after(IntervalMs, ?MODULE, {cluster_snap, Tables}).
 
 
 %% ----- SERVER INTERFACE ------------------------------------------------
@@ -113,7 +121,6 @@ start_link(Params) ->
     end.
 
 init(_) ->
-    start_snap_loop(),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
     case filelib:is_dir(SnapDir) of
@@ -134,8 +141,39 @@ init(_) ->
     ?Info("snapshot directory ~s~n", [SnapshotDir]),
 
     process_flag(trap_exit, true),
+    start_snap_loop(),
+    fire_cluster_snap(?GET_CLUSTER_SNAPSHOT_TABLES),
     {ok,#state{snapdir = SnapshotDir}}.
 
+handle_info({cluster_snap, Tables}, State) ->
+    Self = self(),
+    case ?GET_CLUSTER_SNAPSHOT of
+        true ->
+            spawn(
+              fun() ->
+                      case Tables of
+                          [] ->
+                              fire_cluster_snap(?GET_CLUSTER_SNAPSHOT_TABLES);
+                          [T|Tabs] ->
+                              NextTabs
+                              = case catch imem_snap:take(T) of
+                                    [{ok,T}] ->
+                                        ?Info("snapshot ~p", [T]),
+                                        Tabs;
+                                    [{error,Error}] ->
+                                        ?Error("cluster_snap failed for ~p : ~p", [T, Error]),
+                                        Tabs++[T];
+                                    Error ->
+                                        ?Error("cluster_snap failed for ~p : ~p", [T, Error]),
+                                        Tabs++[T]
+                                end,
+                              erlang:send_after(1000, Self, {cluster_snap, NextTabs})
+                      end
+              end);
+        false ->
+            erlang:send_after(1000, Self, {cluster_snap, []})
+    end,
+    {noreply, State};
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
     case ?GET_SNAPSHOT_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
