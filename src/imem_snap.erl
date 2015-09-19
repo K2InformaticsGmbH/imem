@@ -88,7 +88,7 @@
 end.">>)).
 -define(GET_CLUSTER_SNAPSHOT,?GET_CONFIG(snapshotCluster,[],true)).
 -define(GET_CLUSTER_SNAPSHOT_TABLES,?GET_CONFIG(snapshotClusterTables,[],[ddAccount,ddRole,ddConfig])).
--define(GET_CLUSTER_SNAPSHOT_INTERVAL,?GET_CONFIG(snapshotClusterInterval,[],1000)).
+-define(GET_CLUSTER_SNAPSHOT_INTERVAL,?GET_CONFIG(snapshotClusterInterval,[],86400000)).
 
 -ifdef(TEST).
     start_snap_loop() -> ok.
