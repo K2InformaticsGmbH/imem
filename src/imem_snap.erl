@@ -416,11 +416,13 @@ read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
 
 restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Info("restore properties of ~p~n", [Tab]),
-    [begin
-        P1 = case P of
-            #ddTable{columns = Cols, opts = TOpts, owner = Owner} ->
-                NewOpts = case proplists:get_value(record_name, TOpts, enoent) of
-                              enoent ->
+    [mnesia:write_table_property(
+       Tab,
+       case P of
+           #ddTable{columns = Cols, opts = TabOpts, owner = Owner} ->
+               TOpts = proplists:delete(trigger, proplists:delete(index, TabOpts)),
+               NewOpts = case proplists:get_value(record_name, TOpts, enoent) of
+                             enoent ->
                                   [{record_name,
                                     list_to_atom(
                                       filename:rootname(
@@ -432,10 +434,7 @@ restore_chunk(Tab, {prop, UserProperties}, SnapFile, FHndl, Strategy, Simulate, 
                 ?Debug("creating table ~p with properties ~p result ~p", [Tab, P0, _Res]),
                 P0;
             _ -> P
-        end,
-        mnesia:write_table_property(Tab,P1)
-    end
-    || P <- UserProperties],
+       end) || P <- UserProperties],
     ?Debug("all user_properties restored for ~p~n", [Tab]),
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts);
 restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}) when is_list(Rows) ->
