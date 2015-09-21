@@ -88,7 +88,9 @@
 end.">>)).
 -define(GET_CLUSTER_SNAPSHOT,?GET_CONFIG(snapshotCluster,[],true)).
 -define(GET_CLUSTER_SNAPSHOT_TABLES,?GET_CONFIG(snapshotClusterTables,[],[ddAccount,ddRole,ddConfig])).
--define(GET_CLUSTER_SNAPSHOT_INTERVAL,?GET_CONFIG(snapshotClusterInterval,[],86400000)).
+-define(GET_CLUSTER_SNAPSHOT_TOD,?GET_CONFIG(snapshotClusterHourOfDay,[],19)).
+-define(CLUSTER_SNAP_CHECK_INTERVAL, 3600000).
+%-define(CLUSTER_SNAP_CHECK_INTERVAL, 40000).
 
 -ifdef(TEST).
     start_snap_loop() -> ok.
@@ -99,11 +101,6 @@ end.">>)).
             erlang:whereis(?MODULE) ! imem_snap_loop
         end).
 -endif.
-
-fire_cluster_snap(Tables) ->
-    IntervalMs = ?GET_CLUSTER_SNAPSHOT_INTERVAL,
-    ?Info("starting ~p snapshot after ~pms", [Tables, IntervalMs]),
-    erlang:send_after(IntervalMs, ?MODULE, {cluster_snap, Tables}).
 
 
 %% ----- SERVER INTERFACE ------------------------------------------------
@@ -142,36 +139,70 @@ init(_) ->
 
     process_flag(trap_exit, true),
     start_snap_loop(),
-    fire_cluster_snap(?GET_CLUSTER_SNAPSHOT_TABLES),
+    CST = ?GET_CLUSTER_SNAPSHOT_TABLES,
+    ?Info("starting ~p snapshot after ~pms",
+          [CST, ?CLUSTER_SNAP_CHECK_INTERVAL]),
+    erlang:send_after(?CLUSTER_SNAP_CHECK_INTERVAL, ?MODULE,
+                      {cluster_snap, CST, os:timestamp(),
+                       create_clean_dir("backup_snapshot_")}),
     {ok,#state{snapdir = SnapshotDir}}.
 
-handle_info({cluster_snap, Tables}, State) ->
-    Self = self(),
+create_clean_dir(Prefix) ->
+    {_,_,Us} = Now = os:timestamp(),
+    {{Y,M,D},{H,Mn,S}} = calendar:now_to_local_time(Now),
+    Sec = S + Us / 1000000,
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    Dir = lists:flatten(io_lib:format("~s~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Prefix,Y,M,D,H,Mn,Sec])),
+    BackupDir = filename:join(filename:absname(SnapDir), Dir),
+    case filelib:is_dir(BackupDir) of
+        true ->
+            lists:foreach(fun(F) ->
+                                  ok = file:delete(F)
+                          end, filelib:wildcard("*.*", BackupDir));
+        false ->
+            ?Info("creating dir ~s", [BackupDir]),
+            ok = file:make_dir(BackupDir)
+    end,
+    BackupDir.
+
+cluster_snap([], StartTime, _Dir) ->
+    CheckInterval = ?CLUSTER_SNAP_CHECK_INTERVAL
+    - if StartTime /= '$replace_with_timestamp' ->
+             PTime = timer:now_diff(os:timestamp(), StartTime) div 1000,
+             ?Info("snapshot took ~pms", [PTime]),
+             PTime;
+         true -> 0
+      end,
+    ClusterSnapTables = ?GET_CLUSTER_SNAPSHOT_TABLES,
+    ?Info("next snapshot of ~p after ~pms", [ClusterSnapTables, CheckInterval]),
+    erlang:send_after(
+      CheckInterval, ?MODULE,
+      {cluster_snap, ClusterSnapTables, os:timestamp(),
+       create_clean_dir("backup_snapshot_")});
+cluster_snap([T|Tabs], StartTime, Dir) ->
+    NextTabs = case catch take_chunked(T, Dir) of                   
+                   ok ->
+                       ?Info("snapshot ~p", [T]),
+                       Tabs;
+                   [{error,Error}] ->
+                       ?Error("cluster_snap failed for ~p : ~p", [T, Error]),
+                       Tabs++[T];
+                   Error ->
+                       ?Error("cluster_snap failed for ~p : ~p", [T, Error]),
+                       Tabs++[T]
+               end,
+    erlang:send_after(1000, ?MODULE, {cluster_snap, NextTabs, StartTime, Dir}).
+
+handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
     case ?GET_CLUSTER_SNAPSHOT of
         true ->
-            spawn(
-              fun() ->
-                      case Tables of
-                          [] ->
-                              fire_cluster_snap(?GET_CLUSTER_SNAPSHOT_TABLES);
-                          [T|Tabs] ->
-                              NextTabs
-                              = case catch imem_snap:take(T) of
-                                    [{ok,T}] ->
-                                        ?Info("snapshot ~p", [T]),
-                                        Tabs;
-                                    [{error,Error}] ->
-                                        ?Error("cluster_snap failed for ~p : ~p", [T, Error]),
-                                        Tabs++[T];
-                                    Error ->
-                                        ?Error("cluster_snap failed for ~p : ~p", [T, Error]),
-                                        Tabs++[T]
-                                end,
-                              erlang:send_after(1000, Self, {cluster_snap, NextTabs})
-                      end
-              end);
-        false ->
-            erlang:send_after(1000, Self, {cluster_snap, []})
+            ClusterSnapHour = ?GET_CLUSTER_SNAPSHOT_TOD,
+            case calendar:now_to_local_time(os:timestamp()) of
+                {{_,_,_},{ClusterSnapHour,_,_}} ->
+                    spawn(fun() -> cluster_snap(Tables, StartTime, Dir) end);
+                _ -> nop
+            end;
+        false -> erlang:send_after(1000, ?MODULE, {cluster_snap, [], '$replace_with_timestamp', '$no_dir'})
     end,
     {noreply, State};
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
@@ -601,6 +632,8 @@ take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
 
 take_chunked(Tab) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    take_chunked(Tab, SnapDir).
+take_chunked(Tab, SnapDir) ->
     BackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_EXTN]),
     NewBackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_TMP_EXTN]),
     % truncates the file if already exists and writes the table props
