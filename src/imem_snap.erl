@@ -88,9 +88,8 @@
 end.">>)).
 -define(GET_CLUSTER_SNAPSHOT,?GET_CONFIG(snapshotCluster,[],true)).
 -define(GET_CLUSTER_SNAPSHOT_TABLES,?GET_CONFIG(snapshotClusterTables,[],[ddAccount,ddRole,ddConfig])).
--define(GET_CLUSTER_SNAPSHOT_TOD,?GET_CONFIG(snapshotClusterHourOfDay,[],19)).
+-define(GET_CLUSTER_SNAPSHOT_TOD,?GET_CONFIG(snapshotClusterHourOfDay,[],14)).
 -define(CLUSTER_SNAP_CHECK_INTERVAL, 3600000).
-%-define(CLUSTER_SNAP_CHECK_INTERVAL, 40000).
 
 -ifdef(TEST).
     start_snap_loop() -> ok.
@@ -140,11 +139,8 @@ init(_) ->
     process_flag(trap_exit, true),
     start_snap_loop(),
     CST = ?GET_CLUSTER_SNAPSHOT_TABLES,
-    ?Info("starting ~p snapshot after ~pms",
-          [CST, ?CLUSTER_SNAP_CHECK_INTERVAL]),
-    erlang:send_after(?CLUSTER_SNAP_CHECK_INTERVAL, ?MODULE,
-                      {cluster_snap, CST, os:timestamp(),
-                       create_clean_dir("backup_snapshot_")}),
+    erlang:send_after(1000, ?MODULE, {cluster_snap, CST, os:timestamp(),
+                                      '$create_when_needed'}),
     {ok,#state{snapdir = SnapshotDir}}.
 
 create_clean_dir(Prefix) ->
@@ -165,21 +161,42 @@ create_clean_dir(Prefix) ->
     end,
     BackupDir.
 
-cluster_snap([], StartTime, _Dir) ->
+cluster_snap([], StartTime, Dir) ->
     CheckInterval = ?CLUSTER_SNAP_CHECK_INTERVAL
     - if StartTime /= '$replace_with_timestamp' ->
+             ZipFile = filename:join(filename:dirname(Dir), filename:basename(Dir)++".zip"),
+             ZipCandidates = [begin
+                                  {ok, Bin} = file:read_file(filename:join(Dir,F)),
+                                  {F, Bin}
+                              end || F <- filelib:wildcard("*.bkp", Dir)],
+             ?Debug("zip:zip(~p, ~p)", [ZipFile, ZipCandidates]),
+             case zip:zip(ZipFile, ZipCandidates) of
+                 {error, Reason} ->
+                     ?Error("cluster snapshot ~s failed reason : ~p", [ZipFile, Reason]);
+                 _ ->
+                     lists:foreach(
+                       fun(F) -> ok = file:delete(filename:join(Dir,F)) end,
+                       filelib:wildcard("*.*", Dir)),
+                     ok = file:del_dir(Dir),
+                     ?Info("cluster snapshot ~s", [ZipFile])
+             end,
              PTime = timer:now_diff(os:timestamp(), StartTime) div 1000,
              ?Info("snapshot took ~pms", [PTime]),
              PTime;
          true -> 0
       end,
     ClusterSnapTables = ?GET_CLUSTER_SNAPSHOT_TABLES,
-    ?Info("next snapshot of ~p after ~pms", [ClusterSnapTables, CheckInterval]),
+    ?Info("next snapshot of ~p after ~pms",
+          [ClusterSnapTables, CheckInterval]),
     erlang:send_after(
       CheckInterval, ?MODULE,
       {cluster_snap, ClusterSnapTables, os:timestamp(),
-       create_clean_dir("backup_snapshot_")});
-cluster_snap([T|Tabs], StartTime, Dir) ->
+       '$create_when_needed'});
+cluster_snap([T|Tabs], StartTime, MaybeDir) ->
+    Dir = if MaybeDir == '$create_when_needed' ->
+                 create_clean_dir("backup_snapshot_");
+             true -> MaybeDir
+          end,
     NextTabs = case catch take_chunked(T, Dir) of                   
                    ok ->
                        ?Info("snapshot ~p", [T]),
@@ -191,7 +208,7 @@ cluster_snap([T|Tabs], StartTime, Dir) ->
                        ?Error("cluster_snap failed for ~p : ~p", [T, Error]),
                        Tabs++[T]
                end,
-    erlang:send_after(1000, ?MODULE, {cluster_snap, NextTabs, StartTime, Dir}).
+    ?MODULE ! {cluster_snap, NextTabs, StartTime, Dir}.
 
 handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
     case ?GET_CLUSTER_SNAPSHOT of
@@ -199,6 +216,10 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
             ClusterSnapHour = ?GET_CLUSTER_SNAPSHOT_TOD,
             case calendar:now_to_local_time(os:timestamp()) of
                 {{_,_,_},{ClusterSnapHour,_,_}} ->
+                    if Dir == '$create_when_needed' ->
+                           ?Info("starting ~p cluster snapshot", [Tables]);
+                       true -> ok
+                    end,
                     spawn(fun() -> cluster_snap(Tables, StartTime, Dir) end);
                 _ -> nop
             end;
