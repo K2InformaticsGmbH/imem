@@ -11,6 +11,8 @@
 -include("imem.hrl").
 -include("imem_meta.hrl").
 
+-include_lib("kernel/include/file.hrl").
+
 %% HARD CODED CONFIGURATIONS
 
 -define(DDNODE_TIMEOUT,3000).       % RPC timeout for ddNode evaluation
@@ -671,6 +673,11 @@ column_info_items(_Info, Item) ->
 column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
+column_infos({_,snapshot}) ->
+    [#ddColumn{name = file, type = binstr},
+     #ddColumn{name = type, type = binstr},
+     #ddColumn{name = size, type = integer},
+     #ddColumn{name = lastModified, type = binstr}];
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
@@ -2244,6 +2251,8 @@ fetch_start(Pid, ddSchema, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSchema, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, snapshot, MatchSpec, BlockSize, Opts) ->
+    fetch_start_virtual(Pid, snapshot, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
@@ -2274,6 +2283,19 @@ read(ddSchema) ->
     [{ddSchema,{Schema,Node},[]} || {Schema,Node} <- data_nodes()];
 read(ddSize) ->
     [hd(read(ddSize,Name)) || Name <- all_tables()];
+read(snapshot) ->
+    {bkp, BkpInfo} = imem_snap:info(bkp),
+    {zip, ZipInfo} = imem_snap:info(zip),
+    [{snapshot,list_to_binary(N),<<"bkp">>,S,
+      imem_datatype:datetime_to_io(D)}
+     || {N,S,D} <- proplists:get_value(snaptables, BkpInfo)]
+    ++
+    [begin
+         {ok, #file_info{size=S, mtime=D}} = file:read_file_info(N),
+         {snapshot,
+          list_to_binary(filename:basename(N)),<<"zip">>,S,
+          imem_datatype:datetime_to_io(D)}
+     end || {N,_} <- ZipInfo];
 read(Table) ->
     imem_if:read(physical_table_name(Table)).
 
@@ -2399,6 +2421,8 @@ select(ddSchema, MatchSpec) ->
     select_virtual(ddSchema, MatchSpec);
 select(ddSize, MatchSpec) ->
     select_virtual(ddSize, MatchSpec);
+select(snapshot, MatchSpec) ->
+    select_virtual(snapshot, MatchSpec);
 select(Table, MatchSpec) ->
     imem_if:select(physical_table_name(Table), MatchSpec).
 
@@ -2415,6 +2439,8 @@ select(ddSchema, MatchSpec, _Limit) ->
     select_virtual(ddSchema, MatchSpec);
 select(ddSize, MatchSpec, _Limit) ->
     select_virtual(ddSize, MatchSpec);
+select(snapshot, MatchSpec, _Limit) ->
+    select_virtual(snapshot, MatchSpec);
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 
