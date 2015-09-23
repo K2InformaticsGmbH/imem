@@ -17,7 +17,7 @@
 
 -define(DDNODE_TIMEOUT,3000).       % RPC timeout for ddNode evaluation
 
--define(META_TABLES,[?CACHE_TABLE,?LOG_TABLE,?MONITOR_TABLE,?CONFIG_TABLE,dual,ddNode,ddSchema,ddSize,ddAlias,ddTable]).
+-define(META_TABLES,[?CACHE_TABLE,?LOG_TABLE,?MONITOR_TABLE,?CONFIG_TABLE,dual,ddNode,ddSnap,ddSchema,ddSize,ddAlias,ddTable]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
 
@@ -392,6 +392,7 @@ init(_Args) ->
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
         init_create_check_table(ddNode, {record_info(fields, ddNode),?ddNode,#ddNode{}}, [], system),    
+        init_create_check_table(ddSnap, {record_info(fields, ddSnap),?ddSnap,#ddSnap{}}, [], system),
         init_create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
         init_create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
         init_create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
@@ -673,11 +674,6 @@ column_info_items(_Info, Item) ->
 column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
-column_infos({_,snapshot}) ->
-    [#ddColumn{name = file, type = binstr},
-     #ddColumn{name = type, type = binstr},
-     #ddColumn{name = size, type = integer},
-     #ddColumn{name = lastModified, type = binstr}];
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
@@ -2143,6 +2139,7 @@ table_record_name({ddSysConf,Table}) ->
 table_record_name({_Schema,Table}) ->
     table_record_name(Table);   %% ToDo: may depend on schema
 table_record_name(ddNode)  -> ddNode;
+table_record_name(ddSnap)  -> ddSnap;
 table_record_name(ddSchema)  -> ddSchema;
 table_record_name(ddSize)  -> ddSize;
 table_record_name(Table) when is_atom(Table) ->
@@ -2160,6 +2157,7 @@ table_size({ddSysConf,_Table}) ->
     0;                                                  %% ToDo: implement there
 table_size({_Schema,Table}) ->  table_size(Table);      %% ToDo: may depend on schema
 table_size(ddNode) ->           length(read(ddNode));
+table_size(ddSnap) ->           imem_snap:snap_file_count();
 table_size(ddSchema) ->         length(read(ddSchema));
 table_size(ddSize) ->           1;
 table_size(Table) ->
@@ -2247,12 +2245,12 @@ fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddNode, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, ddSnap, MatchSpec, BlockSize, Opts) ->
+    fetch_start_virtual(Pid, ddSnap, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, ddSchema, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSchema, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, snapshot, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, snapshot, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
@@ -2279,23 +2277,20 @@ read({_Schema,Table}) ->
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) ->
     lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
-read(ddSchema) ->
-    [{ddSchema,{Schema,Node},[]} || {Schema,Node} <- data_nodes()];
-read(ddSize) ->
-    [hd(read(ddSize,Name)) || Name <- all_tables()];
-read(snapshot) ->
+read(ddSnap) ->
     {bkp, BkpInfo} = imem_snap:info(bkp),
-    {zip, ZipInfo} = imem_snap:info(zip),
-    [{snapshot,list_to_binary(N),<<"bkp">>,S,
-      imem_datatype:datetime_to_io(D)}
+    {zip, ZipInfo} = imem_snap:info(zip),    
+    [#ddSnap{file = list_to_binary(N), type = bkp, size = S, lastModified = D}
      || {N,S,D} <- proplists:get_value(snaptables, BkpInfo)]
     ++
     [begin
          {ok, #file_info{size=S, mtime=D}} = file:read_file_info(N),
-         {snapshot,
-          list_to_binary(filename:basename(N)),<<"zip">>,S,
-          imem_datatype:datetime_to_io(D)}
+         #ddSnap{file = list_to_binary(filename:basename(N)), type = zip, size = S, lastModified = D}
      end || {N,_} <- ZipInfo];
+read(ddSchema) ->
+    [{ddSchema,{Schema,Node},[]} || {Schema,Node} <- data_nodes()];
+read(ddSize) ->
+    [hd(read(ddSize,Name)) || Name <- all_tables()];
 read(Table) ->
     imem_if:read(physical_table_name(Table)).
 
@@ -2417,12 +2412,12 @@ select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(ddNode, MatchSpec) ->
     select_virtual(ddNode, MatchSpec);
+select(ddSnap, MatchSpec) ->
+    select_virtual(ddSnap, MatchSpec);
 select(ddSchema, MatchSpec) ->
     select_virtual(ddSchema, MatchSpec);
 select(ddSize, MatchSpec) ->
     select_virtual(ddSize, MatchSpec);
-select(snapshot, MatchSpec) ->
-    select_virtual(snapshot, MatchSpec);
 select(Table, MatchSpec) ->
     imem_if:select(physical_table_name(Table), MatchSpec).
 
@@ -2435,12 +2430,12 @@ select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(ddNode, MatchSpec, _Limit) ->
     select_virtual(ddNode, MatchSpec);
+select(ddSnap, MatchSpec, _Limit) ->
+    select_virtual(ddSnap, MatchSpec);
 select(ddSchema, MatchSpec, _Limit) ->
     select_virtual(ddSchema, MatchSpec);
 select(ddSize, MatchSpec, _Limit) ->
     select_virtual(ddSize, MatchSpec);
-select(snapshot, MatchSpec, _Limit) ->
-    select_virtual(snapshot, MatchSpec);
 select(Table, MatchSpec, Limit) ->
     imem_if:select(physical_table_name(Table), MatchSpec, Limit).
 

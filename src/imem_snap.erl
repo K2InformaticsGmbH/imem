@@ -21,6 +21,7 @@
         , take/1
         , restore_chunked/3
         , del_dirtree/1
+        , snap_file_count/0
         ]).
 
 % gen_server callbacks
@@ -300,7 +301,7 @@ zip({files, SnapFiles}) ->
     if ZipCandidates =:= [] -> ok;
         true ->
             {{Y,M,D}, {H,Mn,S}} = calendar:local_time(),
-            Sec = S + element(3, erlang:now()) / 1000000,
+            Sec = S + element(3, os:timestamp()) / 1000000,
             ZipFileName = re:replace(lists:flatten(["snapshot_"
                                          , io_lib:format("~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Y,M,D,H,Mn,Sec])
                                          , ".zip"
@@ -349,13 +350,16 @@ info(zip) ->
 
 info({zip, []}, ContentFiles) -> {zip, ContentFiles};
 info({zip, [Z|ZipFiles]}, ContentFiles) ->
-    {ok, CntFiles} = zip:foldl(fun(F, IF, _, Acc) ->
-                                   [{F, IF()} | Acc]
-                               end
-                               , []
-                               , Z),
-    info({zip, ZipFiles}, [{filename:absname(Z),CntFiles}|ContentFiles]).
-
+     info({zip, ZipFiles},
+          case zip:foldl(fun(F, IF, _, Acc) ->
+                                 [{F, IF()} | Acc]
+                         end, [], Z) of
+              {ok, CntFiles} ->
+                  [{filename:absname(Z),CntFiles}|ContentFiles];
+              {error, Error} ->
+                  ?Error("processing ~p: ~p", [Z, Error]),
+                  ContentFiles
+          end).
 
 % take snapshot of all/some of the current in memory imem tables
 take([all]) ->                                      % standard snapshot tables (no local time partitioned tables)
@@ -730,10 +734,15 @@ get_snap_properties(Tab) ->
         [Prop] ->   {Prop, Prop#snap_properties.last_write, Prop#snap_properties.last_snap}
     end.
 
-set_snap_properties(Prop) -> ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap= erlang:now()}).
+set_snap_properties(Prop) ->
+    ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap= os:timestamp()}).
 
 snap_log(_P,_A) -> ?Info(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
+
+snap_file_count() ->
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    length(filelib:wildcard("*.{bkp,zip}",SnapDir)).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

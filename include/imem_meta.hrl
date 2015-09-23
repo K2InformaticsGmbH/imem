@@ -127,6 +127,15 @@
 	   ).
 -define(ddNode, [atom,integer,timestamp,list]).
 
+-record(ddSnap,                             %% snapshot
+				  { file                    ::binary()                  %% snapshot file name
+				  , type                    ::bkp|zip                   %% snapshot file type
+				  , size                    ::integer()                 %% snapshot file size in bytes
+				  , lastModified            ::ddTimestamp()             %% erlang:now()
+				  }
+	   ).
+-define(ddSnap, [binstr,atom,integer,datetime]).
+
 -record(ddSchema,                           %% schema node    
 				  { schemaNode              ::tuple()                   %% {schema,node}
 				  , extra                   ::list()      
