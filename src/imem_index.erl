@@ -207,8 +207,12 @@ vnf_float(L) when is_list(L) ->
         _ ->                    [?nav]
     end.
 
-vnf_datetime(D) ->
-    imem_datatype:io_to_datetime(D).
+vnf_datetime(B) when is_binary(B) ->
+    try imem_datatype:io_to_datetime(B) of
+        D -> [D]
+    catch _T:_E -> [?nav]
+    end.
+            
 
 vnf_datetime_ne(<<"\"\"">>) -> [?nav]; 
 vnf_datetime_ne(<<>>) -> [?nav];
@@ -259,12 +263,17 @@ iff_binterm_list_patterns(Key, [Pattern | Patterns]) ->
 
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function()) -> list().
-preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd} = SearchTerm,Limit,Iff,_Vnf) when
-      is_integer(RangeStart), is_integer(RangeEnd) ->
-    preview_range(IndexTable, ID, Type, SearchTerm, Limit, Iff);
+preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vnf) ->
+    R = {Vnf(RangeStart), Vnf(RangeEnd)},
+    case {Vnf(RangeStart), Vnf(RangeEnd)} of
+        {[?nav], _} -> [];
+        {_, [?nav]} -> [];
+        {[NormStart], [NormEnd]} ->
+            preview_range(IndexTable, ID, Type, {NormStart, NormEnd}, Limit, Iff)
+    end;
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
     case Vnf(SearchTerm) of
-        ['$not_a_value'] -> [];
+        [?nav] -> [];
         [NormalizedTerm | _] ->
             case is_regexp_search(SearchStrategies, NormalizedTerm) of
                 true ->
