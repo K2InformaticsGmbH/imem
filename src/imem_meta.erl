@@ -882,7 +882,7 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
             DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts0, owner=Owner},
             try
                 imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
-                imem_if:write(ddTable, DDTableRow)
+                    imem_if:write(ddTable, DDTableRow)
             catch
                 throw:{'ClientError',{"Table already exists",TableName}} = Reason ->
                     case imem_if:read(ddTable, {MySchema,TableName}) of
@@ -3075,17 +3075,34 @@ teardown(_) ->
     catch drop_table(test_config),
     catch drop_table(fakelog_1@),
     catch drop_table(imem_table_123),
+    catch drop_table('"imem_table_123"'),
     ?imem_test_teardown.
 
-db_test_() ->
+db_1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
         {with, [
               fun meta_operations/1
-            , fun meta_partitions/1
-            , fun meta_concurrency/1
+        ]}}.    
+
+db_2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+              fun meta_partitions/1
+        ]}}.    
+
+db_3_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+              fun meta_concurrency/1
         ]}}.    
 
 meta_operations(_) ->
@@ -3543,20 +3560,21 @@ meta_partitions(_) ->
 
 
 meta_concurrency(_) ->
+    T_m_c = 'imem_table_123',
     try 
-        ?LogDebug("---TEST---~p:meta_concurrency~n", [?MODULE]),
-        ?assertEqual(ok, create_table(imem_table_123, [hlk,val], [])),
+        ?LogDebug("---TEST---~p:meta_concurrency", [?MODULE]),
+        ?assertEqual(ok, create_table(T_m_c, [hlk,val], [])),
         Self = self(),
         Key = [sum],
-        ?assertEqual(ok, write(imem_table_123, {imem_table_123, Key,0})),
-        [spawn(fun() -> Self ! {N,read_write_test(imem_table_123,Key,N)} end) || N <- lists:seq(1,10)],
+        ?assertEqual(ok, write(T_m_c, {T_m_c, Key,0})),
+        [spawn(fun() -> Self ! {N,read_write_test(T_m_c,Key,N)} end) || N <- lists:seq(1,10)],
         ?LogDebug("success ~p", [read_write_spawned]),
         ReadWriteResult = receive_results(10,[]),
         ?assertEqual(10, length(ReadWriteResult)),
-        ?assertEqual([{imem_table_123,Key,55}], read(imem_table_123,Key)),
+        ?assertEqual([{T_m_c,Key,55}], read(T_m_c,Key)),
         ?assertEqual([{atomic,ok}],lists:usort([R || {_,R} <- ReadWriteResult])),
         ?LogDebug("success ~p~n", [bulk_read_write]),
-        ?assertEqual(ok, drop_table(imem_table_123)),
+        ?assertEqual(ok, drop_table(T_m_c)),
         ?LogDebug("success ~p~n", [drop_table])
     catch
         Class:Reason ->     

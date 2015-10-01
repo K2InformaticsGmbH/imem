@@ -331,7 +331,6 @@ check_table_columns(Table, ColumnNames) ->
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
 create_table(Table, ColumnNames, Opts) ->
-    % ?LogDebug("imem_if create table ~p ~p",[Table,Opts]),
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
     if
@@ -363,6 +362,7 @@ create_cluster_table(Table,ColumnNames,Opts) when is_atom(Table) ->
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);
 create_table(Table, Opts) when is_atom(Table) ->
+    % ?LogDebug("imem_if create table ~p ~p",[Table,Opts]),
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
     case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
@@ -380,7 +380,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             ?ClientErrorNoLogging({"Table already exists", Table});
             %return_atomic_ok(mnesia:add_table_copy(Table, node(), ram_copies));
         Result ->
-            % ?Debug("create_table ~p for ~p~n", [Result, Table]),
+            % ?LogDebug("create_table ~p for ~p~n", [Result, Table]),
             wait_table_tries([Table], Conf),
             return_atomic_ok(Result)
     end.

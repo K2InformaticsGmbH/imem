@@ -25,7 +25,7 @@ create_table(SKey, Table, TOpts, [], IsSec, ColMap) ->
     % ?LogDebug("create_table ~p ~p", [Table,TOpts]),
     if_call_mfa(IsSec, 'create_table', [SKey, Table, lists:reverse(ColMap), TOpts]);        %% {Schema,Table} not converted to atom yet !!!
 create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) when is_binary(Name) ->
-    ?LogDebug("Create table column ~p of type ~p ~p~n",[Name,Type,COpts]),
+    % ?LogDebug("Create table column ~p of type ~p ~p~n",[Name,Type,COpts]),
     {T,L,P} = case Type of
         B when B==<<"decimal">>;B==<<"number">> ->          {decimal,38,0};
         {B,SLen} when B==<<"decimal">>;B==<<"number">> ->   {decimal,binary_to_integer(SLen),0};
@@ -106,7 +106,7 @@ db_test_() ->
         fun teardown/1,
         {with, [
               fun test_without_sec/1
-            , fun test_with_sec/1
+            % , fun test_with_sec/1
         ]}
     }.
     
@@ -162,12 +162,13 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
         TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
-        % ?LogDebug("TableDef: ~p~n", [TableDef]),
+        ?LogDebug("TableDef: ~p~n", [TableDef]),
 
         Sql40 = "create someType table def (col1 varchar2(10) not null, col2 integer);",
         ?assertException(throw, {ClEr,{"Unsupported table option",{type,<<"someType">>}}}, imem_sql:exec(SKey, Sql40, 0, imem, IsSec)),
         Sql41 = "create imem_meta table skvhTEST();",
         ?assertException(throw, {ClEr,{"Invalid module name for table type",{type,imem_meta}}}, imem_sql:exec(SKey, Sql41, 0, imem, IsSec)),
+        ?LogDebug("Sql41: ~p~n", [Sql41]),
 
         Sql97 = "drop table key_test;",
         ?LogDebug("Sql97: ~p~n", [Sql97]),
@@ -180,6 +181,7 @@ test_with_or_without_sec(IsSec) ->
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
+
     ok. 
 
 -endif.
