@@ -2486,7 +2486,7 @@ select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-write_log(Record) -> write(?LOG_TABLE, Record).
+write_log(Record) -> write(?LOG_TABLE, Record#ddLog{logTime=erlang:now()}).
 
 write({ddSysConf,TableAlias}, _Record) -> 
     % imem_if_sys_conf:write(TableAlias, Record);
@@ -2948,7 +2948,7 @@ sql_jp_bind(Sql) ->
     {Values :: list()} | no_return().
 sql_bind_jp_values(BindParamsMeta, JpPathBinds) ->
     [imem_json:eval(Jp, JpPathBinds) || {_,_,Jp} <- BindParamsMeta].
-    
+
 %% ----- DATA TYPES ---------------------------------------------
 
 

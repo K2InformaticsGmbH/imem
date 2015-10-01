@@ -263,13 +263,13 @@
 			is_list(__Head) -> list_to_binary(__Head);
 			true            -> <<"invalid exception head">>
 		end,
-		{_, {_,[_|__ST]}} = (catch erlang:now(1)),
+		{_, {_,[_|__ST]}} = (catch os:timestamp(1)),
 		{__Module,__Function,__Line} = imem_meta:failing_function(__ST),
-		__LogRec = #ddLog{logTime=erlang:now(),logLevel=__Level,pid=self()
-							,module=__Module,function=__Function,line=__Line
-							,node=node(),fields=[{ex,__Ex}|__Fields]
-							,message= __Message,stacktrace = __ST},
-		__DbResult = {__Level, (catch imem_meta:write_log(__LogRec))},
+		__LogRec = #ddLog{logLevel=__Level,pid=self()
+                          ,module=__Module,function=__Function,line=__Line
+						  ,node=node(),fields=[{ex,__Ex}|__Fields]
+						  ,message= __Message,stacktrace = __ST},
+		__DbResult = {fun() -> __Level end(), (catch imem_meta:write_log(__LogRec))},
 		case __DbResult of 
 			{warning, ok} ->	ok;
 			{warning, _} ->		lager:warning("[_IMEM_] {~p,~p,~p} ~s~n~p~n~p",[__Module,__Function,__Line,__Message,__Fields,__ST]);
