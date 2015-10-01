@@ -104,10 +104,10 @@
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
-                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:now()}),
+                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = os:timestamp()}),
                     ok;
                 [] ->
-                    __Now = erlang:now(),
+                    __Now = os:timestamp(),
                     true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now}),
                     ok
             end
@@ -150,17 +150,20 @@ return_atomic({aborted, {exit, {Exception, Reason}}}) -> exit({Exception, Reason
 return_atomic({aborted, Error}) ->          ?SystemExceptionNoLogging(Error);
 return_atomic(Other) ->                     Other.
 
+% init and store transaction time
+trans_time_init() ->
+    erlang:put(?TRANS_TIME_NAME,?TRANS_TIME).
 
 transaction(Function) when is_atom(Function) ->
     case mnesia:is_transaction() of
         false ->    F = fun() -> apply(mnesia, Function, []) end,
-                    ?TRANS_TIME_INIT,
+                    trans_time_init(),
                     mnesia:transaction(F);
         true ->     mnesia:Function()
     end;
 transaction(Fun) when is_function(Fun)->
     case mnesia:is_transaction() of
-        false ->    ?TRANS_TIME_INIT,
+        false ->    trans_time_init(),
                     mnesia:transaction(Fun);
         true ->     Fun()
     end.
@@ -168,13 +171,13 @@ transaction(Fun) when is_function(Fun)->
 transaction(Function, Args) when is_atom(Function)->
     case mnesia:is_transaction() of
         false ->    F = fun() -> apply(mnesia, Function, Args) end,
-                    ?TRANS_TIME_INIT,
+                    trans_time_init(),
                     mnesia:transaction(F);
         true ->     apply(mnesia, Function, Args)
     end;
 transaction(Fun, Args) when is_function(Fun)->
     case mnesia:is_transaction() of
-        false ->    ?TRANS_TIME_INIT,
+        false ->    trans_time_init(),
                     mnesia:transaction(Fun, Args);
         true ->     apply(Fun, Args)        
     end.
@@ -182,13 +185,13 @@ transaction(Fun, Args) when is_function(Fun)->
 transaction(Function, Args, Retries) when is_atom(Function)->
     case mnesia:is_transaction() of
         false ->    F = fun() -> apply(mnesia, Function, Args) end,
-                    ?TRANS_TIME_INIT,
+                    trans_time_init(),
                     mnesia:transaction(F, Retries);
         true ->     apply(mnesia, Function, Args)
     end;
 transaction(Fun, Args, Retries) when is_function(Fun)->
     case mnesia:is_transaction() of
-        false ->    ?TRANS_TIME_INIT,
+        false ->    trans_time_init(),
                     mnesia:transaction(Fun, Args, Retries);
         true ->     ?ClientErrorNoLogging({"Cannot specify retries in nested transaction"})
     end.
@@ -220,8 +223,8 @@ field_pick_mapped(Tup,Pointers) when is_tuple(Tup) ->
     catch list_to_tuple([E || P <- Pointers, {I,E} <- lists:zip(lists:seq(1,length(EL)),EL),P==I]);    
 field_pick_mapped(_,_) -> {}.
 
-meta_field_value(<<"systimestamp">>) -> erlang:now();
-meta_field_value(systimestamp) -> erlang:now();
+meta_field_value(<<"systimestamp">>) -> os:timestamp();
+meta_field_value(systimestamp) -> os:timestamp();
 meta_field_value(<<"user">>) -> <<"unknown">>;
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(<<"sysdate">>) -> calendar:local_time();
@@ -1019,7 +1022,7 @@ epmd_register() ->
                   end),
                 {error, not_running};
             {ok, RegisteredNodes} ->
-                {Node,{Ip,Port},Host} = imem_inet_tcp_dist:reg_info(),
+                {Node,{_Ip,Port},_Host} = imem_inet_tcp_dist:reg_info(),
                 NodeName = atom_to_list(Node),
                 case proplists:get_value(NodeName, RegisteredNodes) of
                     undefined ->

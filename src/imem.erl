@@ -83,7 +83,7 @@ start(_Type, StartArgs) ->
     % or started without CMs
     case application:get_env(start_time) of
         undefined ->
-            ok = application:set_env(?MODULE,start_time,{erlang:now(),node()});
+            ok = application:set_env(?MODULE,start_time,{os:timestamp(),node()});
         _ -> ok
     end,
 
