@@ -264,7 +264,6 @@ iff_binterm_list_patterns(Key, [Pattern | Patterns]) ->
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function()) -> list().
 preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vnf) ->
-    R = {Vnf(RangeStart), Vnf(RangeEnd)},
     case {Vnf(RangeStart), Vnf(RangeEnd)} of
         {[?nav], _} -> [];
         {_, [?nav]} -> [];
@@ -324,168 +323,158 @@ preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff) ->
         imem_if:transaction(fun() -> preview_regexp(IndexTable, ID, Type, Pattern, StartingStu, Limit, Iff) end),
     ResultRegexp.
 
-preview_regexp(_IndexTable, _ID, ivk, _Pattern, _Stu, 0, _Iff) -> [];
-preview_regexp(IndexTable, ID, ivk, Pattern, PrevStu, Limit, Iff) ->
+-spec preview_regexp_unique(atom(), integer(), term(), tuple(), integer(), function(), list()) -> list().
+preview_regexp_unique(_IndexTable, _ID, _Pattern, _PrevStu, 0, _Iff, Acc) -> Acc;
+preview_regexp_unique(IndexTable, ID, Pattern, PrevStu, Limit, Iff, Acc) ->
     case imem_if:next(IndexTable, PrevStu) of
-        '$end_of_table' -> [];
+        '$end_of_table' -> Acc;
         {ID, Value, Key} = Stu ->
             case imem_sql_funs:re_match(Pattern, Value) andalso Iff({Key, Value}) of
                 true ->
-                    [build_result_entry(Stu, re_match, Key, Value) |
-                     preview_regexp(IndexTable, ID, ivk, Pattern, Stu, Limit-1, Iff)];
+                    NewLimit = case lists:keyfind(Value, 3, Acc) of
+                        false -> Limit - 1;
+                        _ -> Limit
+                    end,
+                    NewAcc = [build_result_entry(Stu, re_match, Key, Value) | Acc],
+                    preview_regexp_unique(IndexTable, ID, Pattern, Stu, NewLimit, Iff, NewAcc);
                 false ->
-                    preview_regexp(IndexTable, ID, ivk, Pattern, Stu, Limit, Iff)
+                    preview_regexp_unique(IndexTable, ID, Pattern, Stu, Limit, Iff, Acc)
             end;
-        _ -> []
-    end;
+        _ -> Acc
+    end.
+
+preview_regexp(_IndexTable, _ID, _Type, _Pattern, _Stu, 0, _Iff) -> [];
+preview_regexp(IndexTable, ID, ivk, Pattern, PrevStu, Limit, Iff) ->
+    lists:reverse(preview_regexp_unique(IndexTable, ID, Pattern, PrevStu, Limit, Iff, []));
 preview_regexp(IndexTable, ID, iv_k, Pattern, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Key} = Entry] ->
             case imem_sql_funs:re_match(Pattern, Value) andalso Iff({Key, Value}) of
                 true ->
-                    Partial = [build_result_entry(Entry#ddIndex.stu, re_match, Key, Value)];
-                false -> Partial = []
+                    [build_result_entry(Entry#ddIndex.stu, re_match, Key, Value)];
+                false -> []
             end;
-        _ -> Partial = []
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, _NextValue} = NextStu ->
-                    Partial ++ preview_regexp(IndexTable, ID, iv_k, Pattern, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, _NextValue} = NextStu ->
+            Partial ++ preview_regexp(IndexTable, ID, iv_k, Pattern, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end;
 preview_regexp(IndexTable, ID, iv_kl, Pattern, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = KeyList} = Entry] ->
             case imem_sql_funs:re_match(Pattern, Value) of
                 true ->
-                    Partial = preview_expand_kl(re_match, Entry#ddIndex.stu, KeyList, Value, Limit, Iff);
-                false -> Partial = []
+                    preview_expand_kl(re_match, Entry#ddIndex.stu, KeyList, Value, Iff);
+                false -> []
             end;
         _ ->
-            Partial = []
+            []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, _NextValue} = NextStu ->
-                    Partial ++ preview_regexp(IndexTable, ID, iv_kl, Pattern, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, _NextValue} = NextStu ->
+            Partial ++ preview_regexp(IndexTable, ID, iv_kl, Pattern, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end;
+
 preview_regexp(IndexTable, ID, iv_h, Pattern, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
             case imem_sql_funs:re_match(Pattern, Value) of
                 true ->
-                    Partial = preview_expand_hash(re_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
-                false -> Partial = []
+                    preview_expand_hash(re_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Iff);
+                false -> []
             end;
-        _ ->
-            Partial = []
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, _NextValue} = NextStu ->
-                    Partial ++ preview_regexp(IndexTable, ID, iv_h, Pattern, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, _NextValue} = NextStu ->
+            Partial ++ preview_regexp(IndexTable, ID, iv_h, Pattern, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end.
 
--spec preview_range(atom(), integer(), atom(), {integer(), integer()}, integer(), function()) -> list().
+-spec preview_range(atom(), integer(), atom(), {term(), term()}, integer(), function()) -> list().
 preview_range(IndexTable, ID, Type, SearchTerm, Limit, Iff) ->
     StartingStu = create_starting_stu(Type, ID, range_match, SearchTerm),
     {atomic, ResultRange} =
         imem_if:transaction(fun() -> preview_range(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, Iff) end),
     ResultRange.
 
-preview_range(_IndexTable, _ID, ivk, _SearchTerm, _Stu, 0, _Iff) -> [];
-preview_range(IndexTable, ID, ivk, {RangeStart, RangeEnd} = SearchTerm, PrevStu, Limit, Iff) ->
+-spec preview_range_unique(atom(), integer(), term(), term(), tuple(), integer(), function(), list()) -> list().
+preview_range_unique(_IndexTable, _ID, _RangeStart, _RangeEnd, _PrevStu, 0, _Iff, Acc) -> Acc;
+preview_range_unique(IndexTable, ID, RangeStart, RangeEnd, PrevStu, Limit, Iff, Acc) ->
     case imem_if:next(IndexTable, PrevStu) of
-        '$end_of_table' -> [];
+        '$end_of_table' -> Acc;
         {ID, Value, Key} = Stu when Value >= RangeStart, Value =< RangeEnd ->
             case Iff({Key, Value}) of
                 true ->
-                    [build_result_entry(Stu, range_match, Key, Value) |
-                     preview_range(IndexTable, ID, ivk, SearchTerm, Stu, Limit-1, Iff)];
+                    NewLimit = case lists:keyfind(Value, 3, Acc) of
+                        false -> Limit -1;
+                        _ -> Limit
+                    end,
+                    NewAcc = [build_result_entry(Stu, range_match, Key, Value) | Acc],
+                    preview_range_unique(IndexTable, ID, RangeStart, RangeEnd, Stu, NewLimit, Iff, NewAcc);
                 false ->
-                    preview_range(IndexTable, ID, ivk, SearchTerm, Stu, Limit, Iff)
+                    preview_range_unique(IndexTable, ID, RangeStart, RangeEnd, Stu, Limit, Iff, Acc)
             end;
-        _ -> []
-    end;
+        _ -> Acc
+    end.
+
+preview_range(_IndexTable, _ID, _Type, _SearchTerm, _Stu, 0, _Iff) -> [];
+preview_range(IndexTable, ID, ivk, {RangeStart, RangeEnd}, PrevStu, Limit, Iff) ->
+    lists:reverse(preview_range_unique(IndexTable, ID, RangeStart, RangeEnd, PrevStu, Limit, Iff, []));
 preview_range(IndexTable, ID, iv_k, {RangeStart, RangeEnd} = SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Key} = Entry] ->
             case Iff({Key, Value}) of
                 true ->
-                    Partial = [build_result_entry(Entry#ddIndex.stu, range_match, Key, Value)];
-                false -> Partial = []
+                    [build_result_entry(Entry#ddIndex.stu, range_match, Key, Value)];
+                false -> []
             end;
-        _ -> Partial = []
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
-                    Partial ++ preview_range(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
+            Partial ++ preview_range(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end;
 preview_range(IndexTable, ID, iv_kl, {RangeStart,RangeEnd} = SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = KeyList} = Entry] ->
-            Partial = preview_expand_kl(range_match, Entry#ddIndex.stu, KeyList, Value, Limit, Iff);
-        _ ->
-            Partial = []
+            preview_expand_kl(range_match, Entry#ddIndex.stu, KeyList, Value, Iff);
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
-                    Partial ++ preview_range(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
+    ?Info("preview Range, limit ~p", [Limit]),
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
+            Partial ++ preview_range(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - 1, Iff);
+        _ ->
             Partial
     end;
 preview_range(IndexTable, ID, iv_h, {RangeStart, RangeEnd} = SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
-            Partial = preview_expand_hash(range_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
+            preview_expand_hash(range_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Iff);
         _ ->
-            Partial = []
+            []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
-                    Partial ++ preview_range(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
+            Partial ++ preview_range(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end.
 
 %% @doc Execute preview in the order defined by the list of searchstrategies.
 -spec preview_execute(atom(), integer(), atom(), list(), binary(), integer(), function(), atom()) -> list().
 preview_execute(_IndexTable, _ID, _Type, [], _SearchTerm, _Limit, _Iff, _PrevStrategy) -> [];
+preview_execute(_IndexTable, _ID, _Type, _Strategies, _Term, Limit, _Iff, _PrevStrategy) when Limit =< 0 -> [];
 preview_execute(IndexTable, ID, Type, [exact_match | SearchStrategies], SearchTerm, Limit, Iff, undefined) ->
     {atomic, ResultExact} =
         imem_if:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff) end),
@@ -509,20 +498,29 @@ preview_execute(IndexTable, ID, Type, [body_match | _SearchStrategies], SearchTe
     %% Body is the last since including head or exact will duplicate results.
     ResultBody.
 
-preview_exact(_IndexTable, _ID, _Type, _SearchTerm, _Key, 0, _Iff) -> [];
-preview_exact(IndexTable, ID, ivk, SearchTerm, Key, Limit, Iff) ->
+-spec preview_exact_unique(atom(), integer(), binary(), term(), integer(), function(), list()) -> list().
+preview_exact_unique(_IndexTable, _ID, _SearchTerm, _Key, 0, _Iff, Acc) -> Acc;
+preview_exact_unique(IndexTable, ID, SearchTerm, Key, Limit, Iff, Acc) ->
     case imem_if:next(IndexTable, {ID, SearchTerm, Key}) of
-        '$end_of_table' -> [];
+        '$end_of_table' -> Acc;
         {ID, SearchTerm, NextKey} = Stu ->
             case Iff({NextKey, SearchTerm}) of
                 true ->
-                    [build_result_entry(Stu, exact_match, NextKey, SearchTerm) |
-                     preview_exact(IndexTable, ID, ivk, SearchTerm, NextKey, Limit-1, Iff)];
+                    NewLimit = case lists:keyfind(SearchTerm, 3, Acc) of
+                        false -> Limit -1;
+                        _ -> Limit
+                    end,
+                    NewAcc = [build_result_entry(Stu, exact_match, NextKey, SearchTerm) | Acc],
+                    preview_exact_unique(IndexTable, ID, SearchTerm, NextKey, NewLimit, Iff, NewAcc);
                 false ->
-                    preview_exact(IndexTable, ID, ivk, SearchTerm, NextKey, Limit, Iff)
+                    preview_exact_unique(IndexTable, ID, SearchTerm, NextKey, Limit, Iff, Acc)
             end;
-        _ -> []
-    end;
+        _ -> Acc
+    end.
+
+preview_exact(_IndexTable, _ID, _Type, _SearchTerm, _Key, 0, _Iff) -> [];
+preview_exact(IndexTable, ID, ivk, SearchTerm, Key, Limit, Iff) ->
+    lists:reverse(preview_exact_unique(IndexTable, ID, SearchTerm, Key, Limit, Iff, []));
 preview_exact(IndexTable, ID, iv_k, SearchTerm, _Key, _Limit, Iff) ->
     case imem_if:read(IndexTable, {ID, SearchTerm}) of
         [#ddIndex{stu = {ID, SearchTerm}, lnk = Key} = Entry] ->
@@ -533,174 +531,155 @@ preview_exact(IndexTable, ID, iv_k, SearchTerm, _Key, _Limit, Iff) ->
             end;
         _ -> []
     end;
-preview_exact(IndexTable, ID, iv_kl, SearchTerm, _Key, Limit, Iff) ->
+preview_exact(IndexTable, ID, iv_kl, SearchTerm, _Key, _Limit, Iff) ->
     case imem_if:read(IndexTable, {ID, SearchTerm}) of
         [#ddIndex{stu = {ID, SearchTerm}, lnk = KeyList} = Entry] ->
-            preview_expand_kl(exact_match, Entry#ddIndex.stu, KeyList, SearchTerm, Limit, Iff);
+            preview_expand_kl(exact_match, Entry#ddIndex.stu, KeyList, SearchTerm, Iff);
         _ -> []
     end;
-preview_exact(IndexTable, ID, iv_h, SearchTerm, _Key, Limit, Iff) ->
+preview_exact(IndexTable, ID, iv_h, SearchTerm, _Key, _Limit, Iff) ->
     case imem_if:read(IndexTable, {ID, SearchTerm}) of
         [#ddIndex{stu = {ID, SearchTerm}, lnk = Hash}] ->
-            preview_expand_hash(exact_match, IndexTable, ID, Hash, SearchTerm, ?SMALLEST_TERM, Limit, Iff);
+            preview_expand_hash(exact_match, IndexTable, ID, Hash, SearchTerm, ?SMALLEST_TERM, Iff);
         _ -> []
+    end.
+
+-spec preview_head_unique(atom(), integer(), binary(), tuple(), integer(), function(), list()) -> list().
+preview_head_unique(_IndexTable, _ID, _SearchTerm, _PrevStu, 0, _Iff, Acc) -> Acc;
+preview_head_unique(IndexTable, ID, SearchTerm, PrevStu, Limit, Iff, Acc) ->
+    SizeSearch = size(SearchTerm),
+    case imem_if:next(IndexTable, PrevStu) of
+        '$end_of_table' -> Acc;
+        {ID, <<SearchTerm:SizeSearch/binary, _/binary>> = Value, Key} = Stu ->
+            case Iff({Key, Value}) of
+                true ->
+                    NewLimit = case lists:keyfind(Value, 3, Acc) of
+                        false -> Limit -1;
+                        _ -> Limit
+                    end,
+                    NewAcc = [build_result_entry(Stu, head_match, Key, Value) | Acc],
+                    preview_head_unique(IndexTable, ID, SearchTerm, Stu, NewLimit, Iff, NewAcc);
+                false ->
+                    preview_exact_unique(IndexTable, ID, SearchTerm, Stu, Limit, Iff, Acc)
+            end;
+        _ -> Acc
     end.
 
 preview_head(_IndexTable, _ID, _Type, _SearchTerm, _Stu, 0, _Iff) -> [];
 preview_head(IndexTable, ID, ivk, SearchTerm, PrevStu, Limit, Iff) ->
-    SizeSearch = size(SearchTerm),
-    case imem_if:next(IndexTable, PrevStu) of
-        '$end_of_table' -> [];
-        {ID, <<SearchTerm:SizeSearch/binary, _/binary>> = Value, Key} = Stu ->
-            case Iff({Key, Value}) of
-                true ->
-                    [build_result_entry(Stu, head_match, Key, Value) |
-                     preview_head(IndexTable, ID, ivk, SearchTerm, Stu, Limit-1, Iff)];
-                false ->
-                    preview_head(IndexTable, ID, ivk, SearchTerm, Stu, Limit, Iff)
-            end;
-        _ -> []
-    end;
+    lists:reverse(preview_head_unique(IndexTable, ID, SearchTerm, PrevStu, Limit, Iff, []));
 preview_head(IndexTable, ID, iv_k, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Key} = Entry] ->
             case Iff({Key, Value}) of
                 true ->
-                    Partial = [build_result_entry(Entry#ddIndex.stu, head_match, Key, Value)];
-                false -> Partial = []
+                    [build_result_entry(Entry#ddIndex.stu, head_match, Key, Value)];
+                false -> []
             end;
-        _ -> Partial = []
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            SizeSearch = size(SearchTerm),
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, <<SearchTerm:SizeSearch/binary, _/binary>>} = NextStu ->
-                    Partial ++ preview_head(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    SizeSearch = size(SearchTerm),
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, <<SearchTerm:SizeSearch/binary, _/binary>>} = NextStu ->
+            Partial ++ preview_head(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end;
 preview_head(IndexTable, ID, iv_kl, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = KeyList} = Entry] ->
-            Partial = preview_expand_kl(head_match, Entry#ddIndex.stu, KeyList, Value, Limit, Iff);
-        _ ->
-            Partial = []
+            preview_expand_kl(head_match, Entry#ddIndex.stu, KeyList, Value, Iff);
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            SizeSearch = size(SearchTerm),
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, <<SearchTerm:SizeSearch/binary, _/binary>>} = NextStu ->
-                    Partial ++ preview_head(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    SizeSearch = size(SearchTerm),
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, <<SearchTerm:SizeSearch/binary, _/binary>>} = NextStu ->
+            Partial ++ preview_head(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end;
 preview_head(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
-            Partial = preview_expand_hash(head_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
-        _ ->
-            Partial = []
+            preview_expand_hash(head_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Iff);
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            SizeSearch = size(SearchTerm),
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, <<SearchTerm:SizeSearch/binary, _/binary>>} = NextStu ->
-                    Partial ++ preview_head(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    SizeSearch = size(SearchTerm),
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, <<SearchTerm:SizeSearch/binary, _/binary>>} = NextStu ->
+            Partial ++ preview_head(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end.
 
-
-preview_body(_IndexTable, _ID, ivk, _SearchTerm, _Stu, 0, _Iff) -> [];
-preview_body(IndexTable, ID, ivk, SearchTerm, PrevStu, Limit, Iff) ->
+-spec preview_body_unique(atom(), integer(), binary(), tuple(), integer(), function(), list()) -> list().
+preview_body_unique(_IndexTable, _ID, _SearchTerm, _Stu, 0, _Iff, Acc) -> Acc;
+preview_body_unique(IndexTable, ID, SearchTerm, PrevStu, Limit, Iff, Acc) ->
     case imem_if:next(IndexTable, PrevStu) of
-        '$end_of_table' -> [];
+        '$end_of_table' -> Acc;
         {ID, Value, Key} = Stu ->
             case binary:match(Value, SearchTerm) =/= nomatch andalso Iff({Key, Value}) of
                 true ->
-                    [build_result_entry(Stu, body_match, Key, Value) |
-                     preview_body(IndexTable, ID, ivk, SearchTerm, Stu, Limit-1, Iff)];
+                    NewLimit = case lists:keyfind(Value, 3, Acc) of
+                        false -> Limit -1;
+                        _ ->  Limit
+                    end,
+                    NewAcc = [build_result_entry(Stu, body_match, Key, Value) | Acc],
+                    preview_body_unique(IndexTable, ID, SearchTerm, Stu, NewLimit, Iff, NewAcc);
                 false ->
-                    preview_body(IndexTable, ID, ivk, SearchTerm, Stu, Limit, Iff)
+                    preview_body_unique(IndexTable, ID, SearchTerm, Stu, Limit, Iff, Acc)
             end;
-        _ -> []
-    end;
+        _ -> Acc
+    end.
+
+
+preview_body(_IndexTable, _ID, _Type, _SearchTerm, _Stu, 0, _Iff) -> [];
+preview_body(IndexTable, ID, ivk, SearchTerm, PrevStu, Limit, Iff) ->
+    lists:reverse(preview_body_unique(IndexTable, ID, SearchTerm, PrevStu, Limit, Iff, []));
 preview_body(IndexTable, ID, iv_k, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Key} = Entry] ->
             case binary:match(Value, SearchTerm) =/= nomatch andalso Iff({Key, Value}) of
-                true ->
-                    Partial = [build_result_entry(Entry#ddIndex.stu, body_match, Key, Value)];
-                false -> Partial = []
+                true -> [build_result_entry(Entry#ddIndex.stu, body_match, Key, Value)];
+                false -> []
             end;
-        _ -> Partial = []
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, _NextValue} = NextStu ->
-                    Partial ++ preview_body(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, _NextValue} = NextStu ->
+            Partial ++ preview_body(IndexTable, ID, iv_k, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end;
 preview_body(IndexTable, ID, iv_kl, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = KeyList} = Entry] ->
             case binary:match(Value, SearchTerm) =/= nomatch of
-                true ->
-                    Partial = preview_expand_kl(body_match, Entry#ddIndex.stu, KeyList, Value, Limit, Iff);
-                false -> Partial = []
+                true -> preview_expand_kl(body_match, Entry#ddIndex.stu, KeyList, Value, Iff);
+                false -> []
             end;
-        _ ->
-            Partial = []
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, _NextValue} = NextStu ->
-                    Partial ++ preview_body(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, _NextValue} = NextStu ->
+            Partial ++ preview_body(IndexTable, ID, iv_kl, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end;
 preview_body(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
-    case imem_if:read(IndexTable, Stu) of
+    Partial = case imem_if:read(IndexTable, Stu) of
         [#ddIndex{stu = {ID, Value}, lnk = Hash}] ->
             case binary:match(Value, SearchTerm) =/= nomatch of
-                true ->
-                    Partial = preview_expand_hash(body_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Limit, Iff);
-                false -> Partial = []
+                true -> preview_expand_hash(body_match, IndexTable, ID, Hash, Value, ?SMALLEST_TERM, Iff);
+                false -> []
             end;
-        _ ->
-            Partial = []
+        _ -> []
     end,
-    if
-        length(Partial) < Limit ->
-            case imem_if:next(IndexTable, Stu) of
-                '$end_of_table' -> Partial;
-                {ID, _NextValue} = NextStu ->
-                    Partial ++ preview_body(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - length(Partial), Iff);
-                _ -> Partial
-            end;
-        true ->
-            Partial
+    case imem_if:next(IndexTable, Stu) of
+        '$end_of_table' -> Partial;
+        {ID, _NextValue} = NextStu ->
+            Partial ++ preview_body(IndexTable, ID, iv_h, SearchTerm, NextStu, Limit - 1, Iff);
+        _ -> Partial
     end.
 
 -spec create_starting_stu(atom(), integer(), atom(), binary()) -> tuple().
@@ -711,30 +690,28 @@ create_starting_stu(_Type, ID, head_match, SearchTerm)      -> {ID, SearchTerm};
 create_starting_stu(_Type, ID, range_match, {RangeStart, _})-> {ID, RangeStart};
 create_starting_stu(_Type, ID, _MatchType, _SearchTerm)     -> {ID, ?SMALLEST_TERM}.
 
--spec preview_expand_kl(atom(), tuple(), list(), list(), integer(), fun()) -> list().
-preview_expand_kl(_Type, _Stu, [], _SearchTerm, _Limit, _Iff) -> [];
-preview_expand_kl(_Type, _Stu, _KeyList, _SearchTerm, 0, _Iff) -> [];
-preview_expand_kl(Type, Stu, [Key | KeyList], SearchTerm, Limit, Iff) ->
+-spec preview_expand_kl(atom(), tuple(), list(), list(), fun()) -> list().
+preview_expand_kl(_Type, _Stu, [], _SearchTerm, _Iff) -> [];
+preview_expand_kl(Type, Stu, [Key | KeyList], SearchTerm, Iff) ->
     case Iff({Key, SearchTerm}) of
         true ->
             [build_result_entry(Stu, Type, Key, SearchTerm) |
-             preview_expand_kl(Type, Stu, KeyList, SearchTerm, Limit-1, Iff)];
+             preview_expand_kl(Type, Stu, KeyList, SearchTerm, Iff)];
         false ->
-            preview_expand_kl(Type, Stu, KeyList, SearchTerm, Limit, Iff)
+            preview_expand_kl(Type, Stu, KeyList, SearchTerm, Iff)
     end.
 
--spec preview_expand_hash(atom(), atom(), integer(), integer(), binary(), binary(), integer(), fun()) -> list().
-preview_expand_hash(_Type, _IdxTable, _ID, _Hash, _SearchTerm, _Key, 0, _Iff) -> [];
-preview_expand_hash(Type, IndexTable, ID, Hash, SearchTerm, Key, Limit, Iff) ->
+-spec preview_expand_hash(atom(), atom(), integer(), integer(), binary(), binary(), fun()) -> list().
+preview_expand_hash(Type, IndexTable, ID, Hash, SearchTerm, Key, Iff) ->
     case imem_if:next(IndexTable, {ID, Hash, Key}) of
         '$end_of_table' -> [];
         {ID, Hash, NextKey} = Stu->
             case Iff({NextKey, SearchTerm}) of
                 true ->
                     [build_result_entry(Stu, Type, NextKey, SearchTerm) |
-                     preview_expand_hash(Type, IndexTable, ID, Hash, SearchTerm, NextKey, Limit-1, Iff)];
+                     preview_expand_hash(Type, IndexTable, ID, Hash, SearchTerm, NextKey, Iff)];
                 false ->
-                    preview_expand_hash(Type, IndexTable, ID, Hash, SearchTerm, NextKey, Limit, Iff)
+                    preview_expand_hash(Type, IndexTable, ID, Hash, SearchTerm, NextKey, Iff)
             end;
         _ -> []
     end.
