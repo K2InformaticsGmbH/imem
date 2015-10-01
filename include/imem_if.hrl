@@ -12,9 +12,8 @@
 
 -define(NoRec, {}).                      %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
 
--define(TRANS_TIME,erlang:now()).                                   % Timestamp generator -> {Megas,Secs,Micros},  could be erlhlc:next_now/0)
+-define(TRANS_TIME, erlang:now()).                                  % Timestamp generator -> {Megas,Secs,Micros},  could be erlhlc:next_now/0)
 -define(TRANS_TIME_NAME,imem_if_transaction_time).                  % name of process variable for transaction time
--define(TRANS_TIME_INIT,erlang:put(?TRANS_TIME_NAME,?TRANS_TIME)).  % init and store transaction time
 -define(TRANS_TIME_PUT(__TT),erlang:put(?TRANS_TIME_NAME,__TT)).    % store updated transaction time
 -define(TRANS_TIME_GET,erlang:get(?TRANS_TIME_NAME)).               % retrieve stored transaction time
 

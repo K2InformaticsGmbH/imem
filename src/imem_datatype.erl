@@ -53,11 +53,11 @@
 
 -export([ offset_datetime/3
         , offset_timestamp/3
-        , musec_diff/1              %% UTC time difference in microseconds towards erlang:now()
+        , musec_diff/1              %% UTC time difference in microseconds towards os:timestamp()
         , musec_diff/2              %% UTC time difference in microseconds
-        , msec_diff/1               %% UTC time difference in milliseconds towards erlang:now()
+        , msec_diff/1               %% UTC time difference in milliseconds towards os:timestamp()
         , msec_diff/2               %% UTC time difference in milliseconds
-        , sec_diff/1                %% UTC time difference in milliseconds towards erlang:now()
+        , sec_diff/1                %% UTC time difference in milliseconds towards os:timestamp()
         , sec_diff/2                %% UTC time difference in milliseconds
         ]).
 
@@ -652,7 +652,7 @@ io_to_timestamp("systime",Prec) ->
 io_to_timestamp("sysdate",Prec) ->
     io_to_timestamp("now",Prec);
 io_to_timestamp("now",Prec) ->
-    {Megas,Secs,Micros} = erlang:now(),
+    {Megas,Secs,Micros} = os:timestamp(),
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
 io_to_timestamp([${|_]=Val,_Prec) ->
     case io_to_tuple(Val,3) of
@@ -1306,17 +1306,17 @@ offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
 offset_timestamp(OP, TS, Offset) ->
     ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
 
-musec_diff(TS1) -> musec_diff(TS1,erlang:now()).
+musec_diff(TS1) -> musec_diff(TS1,os:timestamp()).
 
 musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
     Micro2 - Micro1 + 1000000 *(Sec2 - Sec1) + 1000000000000 * (Mega2 - Mega1).
 
-msec_diff(TS1) -> msec_diff(TS1,erlang:now()).
+msec_diff(TS1) -> msec_diff(TS1,os:timestamp()).
 
 msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
     Micro2 div 1000 - Micro1 div 1000 + 1000 *(Sec2 - Sec1) + 1000000000 * (Mega2 - Mega1).
 
-sec_diff(TS1) -> sec_diff(TS1,erlang:now()).
+sec_diff(TS1) -> sec_diff(TS1,os:timestamp()).
 
 sec_diff({Mega1,Sec1,_},{Mega2,Sec2,_}) ->
     Sec2 - Sec1 + 1000000 * (Mega2 - Mega1).
@@ -1958,7 +1958,7 @@ data_types(_) ->
         ?assertEqual({{2000,1,28},{12,12,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/60.0)),
         ?assertEqual({{2000,1,28},{12,13,13}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/3600.0)),
 
-        ENow = erlang:now(),
+        ENow = os:timestamp(),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('+', ENow, 1.0),-1.0)),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0),1.0)),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.1),0.1)),
@@ -1992,7 +1992,7 @@ data_types(_) ->
         ?assertEqual(true, is_term_or_fun_text([1,2,3])),
         ?assertEqual(true, is_term_or_fun_text("fun")),
         ?assertEqual(true, is_term_or_fun_text("fun()-> ok end.")),
-        ?assertEqual(true, is_term_or_fun_text(<<"fun(X,Y)-> erlang:now() end.">>)),
+        ?assertEqual(true, is_term_or_fun_text(<<"fun(X,Y)-> os:timestamp() end.">>)),
         % TODO: Behavior inconsistant between erl_eval:exprs/2 and erl_eval:exprs/3,4
         %?assertEqual(false, is_term_or_fun_text(<<"fun()-> A end.">>)),
         ?assertEqual(true, is_term_or_fun_text("fun()-> A end")),

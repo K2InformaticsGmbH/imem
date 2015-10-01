@@ -190,7 +190,7 @@ init([Statement,ParentPid]) ->
 handle_call({set_seco, SKey}, _From, State) ->    
     {reply,ok,State#state{seco=SKey, isSec=true}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
-    STT = erlang:now(),
+    STT = os:timestamp(),
     {Reply, UpdatePlan1} = try
         {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.colMap, ChangeList)}
     catch
@@ -203,7 +203,7 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR}=FetchCtx0,
     % ?Debug("UpdateMetaRec ~p~n", [MR]),
-    STT = erlang:now(),
+    STT = os:timestamp(),
     Reply = try 
         % case FetchCtx0#fetchCtx.monref of
         %     undefined ->    ok;
@@ -243,7 +243,7 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
     imem_meta:log_slow_process(?MODULE,update_cursor_execute,STT,100,4000,[{table,hd(Stmt#statement.tables)},{rows,length(UpdatePlan)}]),    
     {reply, Reply, State};    
 handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From, #state{statement=Stmt}=State) ->
-    STT = erlang:now(),
+    STT = os:timestamp(),
     #statement{stmtParse={select,SelectSections}, colMap=ColMap, fullMap=FullMap} = Stmt,
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
     % ?LogDebug("SelectSections~n~p~n", [SelectSections]),

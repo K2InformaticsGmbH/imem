@@ -74,7 +74,7 @@ wait(Wait) when is_integer(Wait) ->
     gen_server:call(?MODULE, {wait, Wait}). 
 
 write_test_record(X,FX,OneOverX,Comment) ->
-    Record = #ddTest{ time=erlang:now()
+    Record = #ddTest{ time=os:timestamp()
                     , x=X
                     , fX=FX
                     , oneOverX=OneOverX
@@ -91,7 +91,7 @@ init(Wait) ->
     ?Debug("~p starting...~n", [?MODULE]),
     imem_meta:create_check_table(?ddTestName, {record_info(fields, ddTest),?ddTest, #ddTest{}}, [{type,ordered_set},{record_name,ddTest}], system),
     imem_test_writer:write_test_record(0,0,0.0,"fac start"),
-    random:seed(now()),
+    random:seed(os:timestamp()),
     erlang:send_after(Wait, self(), write_record),    
     ?Debug("~p started!~n", [?MODULE]),
     {ok,#state{wait=Wait}}.

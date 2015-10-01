@@ -331,7 +331,7 @@ drop_seco_tables(SKey) ->
 
 seco_create(AppId,SessionId) -> 
     SessionCtx = #ddSessionCtx{appId=AppId, sessionId=SessionId},
-    SeCo = #ddSeCo{pid=self(), sessionCtx=SessionCtx, authTime=erlang:now()},
+    SeCo = #ddSeCo{pid=self(), sessionCtx=SessionCtx, authTime=os:timestamp()},
     SKey = erlang:phash2(SeCo), 
     SeCo#ddSeCo{skey=SKey}.
 
@@ -770,7 +770,7 @@ set_login_time(SKey, AccountId) ->
                              [AccountDynRec] ->  AccountDynRec;
                              [] -> #ddAccountDyn{id = AccountId}
                          end,
-            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=erlang:now()});
+            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=os:timestamp()});
         false ->    ?SecurityException({"Set login time unauthorized",SKey})
     end.
 

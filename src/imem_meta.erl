@@ -1430,8 +1430,8 @@ purge_time_partitioned_table(TableAlias, Opts) ->
             ?ClientError({"Table to be purged does not exist",TableAlias});
         [TableName|_] ->
             KeepTime = case proplists:get_value(purge_delay, Opts) of
-                undefined ->    erlang:now();
-                Seconds ->      {Mega,Secs,Micro} = erlang:now(),
+                undefined ->    os:timestamp();
+                Seconds ->      {Mega,Secs,Micro} = os:timestamp(),
                                 {Mega,Secs-Seconds,Micro}
             end,
             KeepName = partitioned_table_name(TableAlias,KeepTime),
@@ -1593,7 +1593,7 @@ time_to_partition_expiry(Table) when is_list(Table) ->
         [_Schema,_Dot,_BaseName,_,"",_Aterate,_Shard] ->
             ?ClientError({"Not a time partitioned table",Table});     
         [_Schema,_Dot,_BaseName,"_",Number,_Aterate,_Shard] ->
-            {Mega,Secs,_} = erlang:now(),
+            {Mega,Secs,_} = os:timestamp(),
             list_to_integer(Number) - Mega * 1000000 - Secs
     end.
 
@@ -1622,13 +1622,13 @@ physical_table_name(TableAlias) when is_atom(TableAlias) ->
 physical_table_name(TableAlias) when is_list(TableAlias) ->
     case lists:reverse(TableAlias) of
         [$@|_] ->       
-            partitioned_table_name(TableAlias,erlang:now());    % node sharded alias, maybe time sharded
+            partitioned_table_name(TableAlias,os:timestamp());    % node sharded alias, maybe time sharded
         [$_,$@|_] ->    
-            partitioned_table_name(TableAlias,erlang:now());    % time sharded only
+            partitioned_table_name(TableAlias,os:timestamp());    % time sharded only
         _ ->
             case lists:member($@,TableAlias) of            
                 false ->    list_to_atom(TableAlias);           % simple table
-                true ->     partitioned_table_name(TableAlias,erlang:now())     % maybe node sharded alias
+                true ->     partitioned_table_name(TableAlias,os:timestamp())     % maybe node sharded alias
             end
     end.
 
@@ -2486,7 +2486,7 @@ select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-write_log(Record) -> write(?LOG_TABLE, Record).
+write_log(Record) -> write(?LOG_TABLE, Record#ddLog{logTime=erlang:now()}).
 
 write({ddSysConf,TableAlias}, _Record) -> 
     % imem_if_sys_conf:write(TableAlias, Record);
@@ -2948,7 +2948,7 @@ sql_jp_bind(Sql) ->
     {Values :: list()} | no_return().
 sql_bind_jp_values(BindParamsMeta, JpPathBinds) ->
     [imem_json:eval(Jp, JpPathBinds) || {_,_,Jp} <- BindParamsMeta].
-    
+
 %% ----- DATA TYPES ---------------------------------------------
 
 
@@ -3128,7 +3128,7 @@ meta_operations(_) ->
 
         ?assertEqual(ok, check_table(?CACHE_TABLE)),
 
-        Now = erlang:now(),
+        Now = os:timestamp(),
         LogCount1 = table_size(?LOG_TABLE),
         ?LogDebug("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
@@ -3449,7 +3449,7 @@ meta_partitions(_) ->
 
         TimePartTable0 = physical_table_name(?TPTEST0),
         ?LogDebug("TimePartTable ~p~n", [TimePartTable0]),
-        ?assertEqual(TimePartTable0, physical_table_name(?TPTEST0,erlang:now())),
+        ?assertEqual(TimePartTable0, physical_table_name(?TPTEST0,os:timestamp())),
         ?assertEqual(ok, create_check_table(?TPTEST0, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable0)),
         ?assertEqual(0, table_size(TimePartTable0)),
@@ -3465,14 +3465,14 @@ meta_partitions(_) ->
 
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- read(ddAlias)])),
 
-        LogRec = #ddLog{logTime= erlang:now(),logLevel=info,pid=self()
+        LogRec = #ddLog{logTime= os:timestamp(),logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_partitions,node=node()
                             ,fields=[],message= <<"some log message">>},
 
         ?assertEqual(ok, write(?TPTEST0, LogRec)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(?TPTEST0)),
-        {Megs,Secs,Mics} = erlang:now(),
+        {Megs,Secs,Mics} = os:timestamp(),
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRecF = LogRec#ddLog{logTime=Future},
@@ -3492,7 +3492,7 @@ meta_partitions(_) ->
 
         TimePartTable1 = physical_table_name(?TPTEST1),
         ?assertEqual(tpTest1_1999999998@_, TimePartTable1),
-        ?assertEqual(TimePartTable1, physical_table_name(?TPTEST1,erlang:now())),
+        ?assertEqual(TimePartTable1, physical_table_name(?TPTEST1,os:timestamp())),
         ?assertEqual(ok, create_check_table(?TPTEST1, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable1)),
         ?assertEqual([TimePartTable1],physical_table_names(?TPTEST1)),
@@ -3532,7 +3532,7 @@ meta_partitions(_) ->
         FL1 = length(physical_table_names(fakelog_1@)),
         ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL1,created]),
         ?assertEqual(1,FL1),
-        LogRec3 = #ddLog{logTime=erlang:now(),logLevel=debug,pid=self()
+        LogRec3 = #ddLog{logTime=os:timestamp(),logLevel=debug,pid=self()
                         ,module=?MODULE,function=test,node=node()
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
@@ -3541,7 +3541,7 @@ meta_partitions(_) ->
         FL2 = length(physical_table_names(fakelog_1@)),
         ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL2,written]), 
 
-        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:now()})), % one record to second partition
+        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=os:timestamp()})), % one record to second partition
         FL3 = length(physical_table_names(fakelog_1@)),
         ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
         ?assert(FL3 >= 3),
