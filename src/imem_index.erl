@@ -303,7 +303,7 @@ preview(_IndexTable,_ID,_Type,_SearchStrategies,_SearchTerm,_Limit,_Iff,_Vnf,_Co
 %% @doc check if the search term should be interpreted as a regular expression.
 -spec is_regexp_search(list(), term()) -> boolean().
 is_regexp_search(SearchStrategies, SearchTerm) when is_binary(SearchTerm) ->
-    case  binary:match(SearchTerm, [<<"*">>, <<"?">>,<<"_">>,<<"%">>]) of
+    case  binary:match(SearchTerm, [<<"*">>, <<"?">>]) of
         nomatch -> false;
         _ ->
             case lists:member(re_match, SearchStrategies) of
@@ -449,7 +449,6 @@ preview_range(IndexTable, ID, iv_kl, {RangeStart,RangeEnd} = SearchTerm, {ID, Va
             preview_expand_kl(range_match, Entry#ddIndex.stu, KeyList, Value, Iff);
         _ -> []
     end,
-    ?Info("preview Range, limit ~p", [Limit]),
     case imem_if:next(IndexTable, Stu) of
         '$end_of_table' -> Partial;
         {ID, NextValue} = NextStu when NextValue >= RangeStart, NextValue =< RangeEnd ->
@@ -825,7 +824,7 @@ add_filter_duplicated(head_match, SearchTerm, Iff) ->
 %%						]
 %%
 %% How it should work:
-%%    If input string contains wildcards or regexp-like characters (*?%_)
+%%    If input string contains wildcards or regexp-like characters (*?)
 %%		-> convert to regexp pattern, and perform only a regexp-match. Other result "sets" will be empty.
 %% 	  Else
 %%    	Should first execute headmatch.
