@@ -179,15 +179,15 @@ vnf_lcase_ascii_ne(<<>>) -> [?nav];
 vnf_lcase_ascii_ne(Text) -> vnf_lcase_ascii(Text).
 
 vnf_integer(I) when is_integer(I) -> [I];
-vnf_integer(F) when is_float(F) -> [round(F)];
+vnf_integer(F) when is_float(F) -> [?nav];
 vnf_integer(A) when is_atom(A) -> [?nav]; 
 vnf_integer(B) when is_binary(B) -> 
-    case (catch imem_datatype:io_to_integer(B)) of
+    case (catch binary_to_integer(B)) of
         I when is_integer(I) -> [I];
         _ ->                    [?nav]
     end;
 vnf_integer(L) when is_list(L) ->
-    case (catch imem_datatype:io_to_integer(L)) of
+    case (catch list_to_integer(L)) of
         I when is_integer(I) -> [I];
         _ ->                    [?nav]
     end.
