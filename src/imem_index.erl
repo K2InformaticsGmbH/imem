@@ -305,11 +305,7 @@ preview(_IndexTable,_ID,_Type,_SearchStrategies,_SearchTerm,_Limit,_Iff,_Vnf,_Co
 is_regexp_search(SearchStrategies, SearchTerm) when is_binary(SearchTerm) ->
     case  binary:match(SearchTerm, [<<"*">>, <<"?">>]) of
         nomatch -> false;
-        _ ->
-            case lists:member(re_match, SearchStrategies) of
-                true -> true;
-                false -> ?ClientError({"Wildcard search is not enabled",SearchTerm})
-            end
+        _ -> lists:member(re_match, SearchStrategies)
     end;
 is_regexp_search(_SearchStrategies, _SearchTerm) -> false.
 
