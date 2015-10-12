@@ -136,7 +136,7 @@ sc_send_sms_token(Url, {User, Password, XMLNs}, From, To, Text, TokenType,
                         "<tokenlength>",TokenLength,"</tokenlength>"
                     "</sendSmsToken>"]),
             Authorization = "Basic "++binary_to_list(base64:encode(User++":"++Password)),
-            ?Info("Sending sms token ~p to ~p", [Req, Url]),
+            ?Debug("Sending sms token ~p to ~p", [Req, Url]),
             case httpc:request(
                    post, {Url, [{"Authorization",Authorization},
                                 {"Accept","application/xml;charset=utf-8"}],
