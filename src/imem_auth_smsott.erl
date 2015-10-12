@@ -1,6 +1,7 @@
 -module(imem_auth_smsott).
 
 -include("imem_seco.hrl").
+-include_lib("xmerl/include/xmerl.hrl").
 
 -define(TOKEN_TYPES, [<<"SHORT_NUMERIC">>, <<"SHORT_ALPHANUMERIC">>, <<"SHORT_SMALL_AND_CAPITAL">>, <<"LONG_CRYPTIC">>]).
 
@@ -12,41 +13,51 @@
 -define(HTTP_PROFILE(__AppId), ?GET_CONFIG(smsTokenValidationHttpProfile, [__AppId], smsott)).
 -define(HTTP_OPTS(__AppId), ?GET_CONFIG(smsTokenValidationHttpOpts, [__AppId], [])).
 
--define(HTTP_SOAP_PROFILE(__AppId), ?GET_CONFIG(smsTokenValidationHttpSoapProfile, [__AppId], soapsmsott)).
--define(HTTP_SOAP_OPTS(__AppId), ?GET_CONFIG(smsTokenValidationHttpSoapOpts, [__AppId], [])).
-
 -export([ send_sms_token/3
-        , sc_soap_send_sms_token/2
         , verify_sms_token/4
         ]).
 
 -spec send_sms_token(atom(), binary(), ddCredRequest()) ->
     ok | no_return().
 send_sms_token(AppId, To, {smsott,Map}) when Map == #{} ->
-    sc_send_sms_token(AppId, To);
+    case ?GET_CONFIG(smsTokenMsgType, [AppId], xml) of
+        json -> sc_send_sms_token(AppId, To);
+        xml -> sc_soap_send_sms_token(AppId, To)
+    end;
 send_sms_token(_AppId, _To, _DDCredRequest) ->
     error("Unimplemented").
 
 -spec verify_sms_token(atom(), binary(), list() | integer() | binary(), ddCredRequest()) ->
     ok | no_return().
 verify_sms_token(AppId, To, Token, {smsott,Map}) when Map == #{} ->
-    sc_verify_sms_token(AppId, To, Token);
+    case ?GET_CONFIG(smsTokenMsgType, [AppId], xml) of
+        json -> sc_verify_sms_token(AppId, To, Token);
+        xml -> sc_soap_verify_sms_token(AppId, To, Token)
+    end;
 verify_sms_token(_AppId, _To, _Token, _DDCredRequest) ->
     error("Unimplemented").
 
 % @doc
-sc_soap_send_sms_token(AppId,To) ->
-    sc_send_sms_token( ?GET_CONFIG(smsTokenValidationSoapServiceUrl,[AppId],"https://host:port/sendSoapSmsToken")
-                     , ?GET_CONFIG(smsTokenSoapServiceParsms,[AppId],{"user","password","xmlns"})
-                     , ?GET_CONFIG(smsTokenSoapServiceFromMSISDN,[AppId],"+41790000000")
+sc_soap_send_sms_token(AppId, To) ->
+    sc_send_sms_token( ?GET_CONFIG(smsTokenSendServiceUrl,[AppId],"https://host:port/sendSmsToken")
+                     , ?GET_CONFIG(smsTokenServiceParams,[AppId],{"user","password","xmlns"})
+                     , ?GET_CONFIG(smsTokenFromMSISDN,[AppId],"+41790000000")
                      , To
                      , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 2 Minutes.">>)
                      , ?GET_CONFIG(smsTokenValidationTokenType,[AppId],<<"SHORT_NUMERIC">>)
                      , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],180)
                      , ?GET_CONFIG(smsTokenValidationTTL,[AppId],180)
                      , ?GET_CONFIG(smsTokenValidationTokenLength,[AppId],6)
-                     , imem_client:get_profile(httpc, ?HTTP_SOAP_PROFILE(AppId), ?HTTP_SOAP_OPTS(AppId))
+                     , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))
                      ).
+
+sc_soap_verify_sms_token(AppId, To, Token) ->
+    sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://host:port/validateSmsToken")
+                       , ?GET_CONFIG(smsTokenServiceParams,[AppId],{"user","password","xmlns"})
+                       , To
+                       , Token
+                       , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))
+                       ).
 
 sc_send_sms_token(AppId,To) ->
     sc_send_sms_token( AppId
@@ -101,6 +112,15 @@ when is_integer(ExpireTime), is_integer(TokenLength) ->
             error({"Invalid token type", TokenType})
     end.
 
+sc_send_sms_token(Url, Cred, From, To, Tex, TokTyp, TTES, TTLS, TL, P)
+when is_integer(TTES) ->
+    sc_send_sms_token(Url, Cred, From, To, Tex, TokTyp, integer_to_list(TTES), TTLS, TL, P);
+sc_send_sms_token(Url, Cred, From, To, Tex, TokTyp, TTES, TTLS, TL, P)
+when is_integer(TTLS) ->
+    sc_send_sms_token(Url, Cred, From, To, Tex, TokTyp, TTES, integer_to_list(TTLS), TL, P);
+sc_send_sms_token(Url, Cred, From, To, Tex, TokTyp, TTES, TTLS, TL, P)
+when is_integer(TL) ->
+    sc_send_sms_token(Url, Cred, From, To, Tex, TokTyp, TTES, TTLS, integer_to_list(TL), P);
 sc_send_sms_token(Url, {User, Password, XMLNs}, From, To, Text, TokenType,
                   TTESec, TTLSec, TokenLength, Profile) ->
     case lists:member(TokenType, ?TOKEN_TYPES) of
@@ -115,16 +135,18 @@ sc_send_sms_token(Url, {User, Password, XMLNs}, From, To, Text, TokenType,
                         "<timeToLiveSeconds>",TTLSec,"</timeToLiveSeconds>"
                         "<tokenlength>",TokenLength,"</tokenlength>"
                     "</sendSmsToken>"]),
-            ?Debug("Sending sms token ~p", [Req]),
             Authorization = "Basic "++binary_to_list(base64:encode(User++":"++Password)),
-            case httpc:request(post, {Url, [{"Authorization",Authorization}],
-                                      "application/xml;charset=UTF-8", Req},
-                               [{ssl,[{verify,0}]}], [{full_result, false}],
-                               Profile) of
-                {ok,{200,[]}} ->    ok;
-                {ok,{Other,Body}} ->  error({"HTTP", Other, Body});
-                {error, Error} ->   error(Error);
-                Error ->            error(Error)
+            ?Info("Sending sms token ~p to ~p", [Req, Url]),
+            case httpc:request(
+                   post, {Url, [{"Authorization",Authorization},
+                                {"Accept","application/xml;charset=utf-8"}],
+                          "application/xml;charset=UTF-8", Req},
+                   [{ssl,[{verify,0}]}], [{full_result, false}],
+                   Profile) of
+                {ok,{200,_Body}} ->     ok;
+                {ok,{Other,Body}} ->    error({"HTTP", Other, Body});
+                {error, Error} ->       error(Error);
+                Error ->                error(Error)
             end;
         _ ->
             error({"Invalid token type", TokenType})
@@ -144,6 +166,29 @@ sc_verify_sms_token(AppId, To, Token) ->
                        , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))
                        ).
 
+sc_verify_sms_token(Url, {User, Password, XMLNs}, To, Token, Profile) ->
+    Req = list_to_binary([
+            "<validateSmsToken xmlns=\"",XMLNs,"\">"
+                "<msisdn>",To,"</msisdn>"
+                "<validationToken>",Token,"</validationToken>"
+            "</validateSmsToken>"]),
+    Authorization = "Basic "++binary_to_list(base64:encode(User++":"++Password)),
+    ?Debug("Validate sms token ~p from ~p", [Req, Url]),
+    case httpc:request(post, {Url,
+                              [{"Authorization",Authorization},
+                               {"Accept","application/xml;charset=utf-8"}],
+                           "application/xml;charset=UTF-8", Req},
+                       [{ssl,[{verify,0}]}], [{full_result, false}],
+                       Profile) of
+        {ok,{200,Body}} ->
+            case parse_validate_resp(Body) of
+                ok -> ok;
+                Error -> error({"SOAP", Error})
+            end;
+        {ok,{Other,Body}} ->    error({"HTTP", Other, Body});
+        {error, Error} ->       error(Error);
+        Error ->                error(Error)
+    end;
 sc_verify_sms_token(Url, ClientId, To, Token, Profile) ->
     case httpc:request( get
                       , { string:join([Url,To,Token],"/")
@@ -164,3 +209,15 @@ sc_verify_sms_token(Url, ClientId, To, Token, Profile) ->
         Error ->            error(Error)
     end.
 
+parse_validate_resp(Resp) ->
+    case catch xmerl_scan:string(Resp) of
+        {#xmlElement{name=validationResult,
+                     content = [#xmlElement{name='ValidationResultType',
+                                            content = [#xmlText{value = "OK"}]}]}, _} -> ok;
+        {#xmlElement{name=validationResult,
+                     content = [#xmlElement{name='ValidationResultType',
+                                            content = [#xmlText{value = Other}]}]}, _} -> Other;
+        Other ->
+            ?Error("Parse ~p error ~p", [Resp, Other]),
+            Other
+    end.
