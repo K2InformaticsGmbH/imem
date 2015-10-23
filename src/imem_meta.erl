@@ -2255,9 +2255,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
-    ?Info("Virtual fetch start  : ~p ~p~n", [VTable,MatchSpec]),
     {Rows,true} = select(VTable, MatchSpec),
-    ?Info("Virtual fetch result  : ~p~n", [Rows]),
     spawn(
         fun() ->
             receive
