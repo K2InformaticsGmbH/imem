@@ -395,7 +395,8 @@ create_check_channel(Channel, Options) ->
                     {<<"fun(R) -> imem_dal_skvh:is_row_type(map,R) end.">>,
                         [lists:nth(1,?skvhTable), map | lists:nthtail(2, ?skvhTable)]}
                 end,
-            ok = imem_meta:create_check_table(
+            %% TODO: Check if we need to only catch in special cases
+            catch imem_meta:create_check_table(
                 TC, {record_info(fields,skvhTable),NewTypes,#skvhTable{cvalue=NewCValue}},
                 ?TABLE_OPTS, system),
             TC
@@ -431,6 +432,7 @@ create_check_channel(Channel, Options) ->
             end;
         true -> undefined
     end,
+    %% TODO: This will replace the trigger each time maybe versioning will be better
     imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
     #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
 
