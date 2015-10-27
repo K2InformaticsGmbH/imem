@@ -271,17 +271,7 @@ preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vn
             preview_range(IndexTable, ID, Type, {NormStart, NormEnd}, Limit, Iff)
     end;
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
-    case Vnf(SearchTerm) of
-        [?nav] -> [];
-        [NormalizedTerm | _] ->
-            case is_regexp_search(SearchStrategies, NormalizedTerm) of
-                true ->
-                    preview_regexp(IndexTable, ID, Type, NormalizedTerm, Limit, Iff);
-                false ->
-                    FilteredStrategies = [Strategy || Strategy <- SearchStrategies, Strategy =/= re_match],
-                    preview_execute(IndexTable, ID, Type, FilteredStrategies, NormalizedTerm, Limit, Iff, undefined)
-            end
-    end.
+    preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,<<>>).
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
     % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
@@ -290,9 +280,24 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
     % ].
 
 %% @doc Preview match scan into an index for finding first "best" matches
--spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function(),tuple()) -> list().
-preview(_IndexTable,_ID,_Type,_SearchStrategies,_SearchTerm,_Limit,_Iff,_Vnf,_Cont) ->
-    [].     %% ToDo: implement continuation search
+-spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function(),map() | tuple()) -> list().
+preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf, 
+    #{<<"match_info">> := Match}) ->
+    {_,_,_, FromStu} = binary_to_term(base64:decode(Match)),
+    preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu);
+preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu) ->
+    case Vnf(SearchTerm) of
+        [?nav] -> [];
+        [NormalizedTerm | _] ->
+            case is_regexp_search(SearchStrategies, NormalizedTerm) of
+                true ->
+                    preview_regexp_init(IndexTable, ID, Type, NormalizedTerm, Limit, Iff, FromStu);
+                false ->
+                    FilteredStrategies = [Strategy || Strategy <- SearchStrategies, Strategy =/= re_match],
+                    preview_execute(IndexTable, ID, Type, FilteredStrategies, NormalizedTerm, Limit, Iff, undefined, FromStu)
+            end
+    end.
+    %% ToDo: implement continuation search
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
     % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
@@ -309,9 +314,11 @@ is_regexp_search(SearchStrategies, SearchTerm) when is_binary(SearchTerm) ->
     end;
 is_regexp_search(_SearchStrategies, _SearchTerm) -> false.
 
--spec preview_regexp(atom(), integer(), atom(), term(), integer(), function()) -> list().
-preview_regexp(IndexTable, ID, Type, SearchTerm, Limit, Iff) ->
-    StartingStu = create_starting_stu(Type, ID, re_match, SearchTerm),
+-spec preview_regexp_init(atom(), integer(), atom(), term(), integer(), function(), tuple() | <<>>) -> list().
+preview_regexp_init(IndexTable, ID, Type, SearchTerm, Limit, Iff, FromStu) ->
+    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, re_match, SearchTerm);
+                     true -> FromStu
+    end,
     ReplacedStar = binary:replace(SearchTerm, [<<"*">>], <<"%">>, [global]),
     ReplacedMark = binary:replace(ReplacedStar, [<<"?">>], <<"_">>, [global]),
     Pattern = imem_sql_funs:like_compile(ReplacedMark),
@@ -467,26 +474,30 @@ preview_range(IndexTable, ID, iv_h, {RangeStart, RangeEnd} = SearchTerm, {ID, Va
     end.
 
 %% @doc Execute preview in the order defined by the list of searchstrategies.
--spec preview_execute(atom(), integer(), atom(), list(), binary(), integer(), function(), atom()) -> list().
-preview_execute(_IndexTable, _ID, _Type, [], _SearchTerm, _Limit, _Iff, _PrevStrategy) -> [];
-preview_execute(_IndexTable, _ID, _Type, _Strategies, _Term, Limit, _Iff, _PrevStrategy) when Limit =< 0 -> [];
-preview_execute(IndexTable, ID, Type, [exact_match | SearchStrategies], SearchTerm, Limit, Iff, undefined) ->
+-spec preview_execute(atom(), integer(), atom(), list(), binary(), integer(), function(), atom(), tuple()) -> list().
+preview_execute(_IndexTable, _ID, _Type, [], _SearchTerm, _Limit, _Iff, _PrevStrategy, _FromStu) -> [];
+preview_execute(_IndexTable, _ID, _Type, _Strategies, _Term, Limit, _Iff, _PrevStrategy, _FromStu) when Limit =< 0 -> [];
+preview_execute(IndexTable, ID, Type, [exact_match | SearchStrategies], SearchTerm, Limit, Iff, undefined, FromStu) ->
     {atomic, ResultExact} =
         imem_if:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff) end),
-    ResultExact ++ preview_execute(IndexTable, ID, Type, SearchStrategies, SearchTerm, Limit - length(ResultExact), Iff, exact_match);
-preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy) ->
-    StartingStu = create_starting_stu(Type, ID, head_match, SearchTerm),
+    ResultExact ++ preview_execute(IndexTable, ID, Type, SearchStrategies, SearchTerm, Limit - length(ResultExact), Iff, exact_match, FromStu);
+preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy, FromStu) ->
+    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, head_match, SearchTerm);
+                     true -> FromStu
+    end,
     IffAndNotAdded = add_filter_duplicated(PrevStrategy, SearchTerm, Iff),
     {atomic, ResultHead} =
         imem_if:transaction(fun() -> preview_head(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffAndNotAdded) end),
     case lists:member(body_match, SearchStrategies) of
         true ->
-            ResultHead ++ preview_execute(IndexTable, ID, Type, [body_match], SearchTerm, Limit - length(ResultHead), Iff, head_match);
+            ResultHead ++ preview_execute(IndexTable, ID, Type, [body_match], SearchTerm, Limit - length(ResultHead), Iff, head_match, FromStu);
         false ->
             ResultHead
     end;
-preview_execute(IndexTable, ID, Type, [body_match | _SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy) ->
-    StartingStu = create_starting_stu(Type, ID, body_match, SearchTerm),
+preview_execute(IndexTable, ID, Type, [body_match | _SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy, FromStu) ->
+    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, body_match, SearchTerm);
+                     true -> FromStu
+    end,
     IffNotAdded = add_filter_duplicated(PrevStrategy, SearchTerm, Iff),
     {atomic, ResultBody} =
         imem_if:transaction(fun() -> preview_body(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffNotAdded) end),
@@ -513,9 +524,16 @@ preview_exact_unique(IndexTable, ID, SearchTerm, Key, Limit, Iff, Acc) ->
         _ -> Acc
     end.
 
-preview_exact(_IndexTable, _ID, _Type, _SearchTerm, _Key, 0, _Iff) -> [];
-preview_exact(IndexTable, ID, ivk, SearchTerm, Key, Limit, Iff) ->
+preview_exact(IndexTable, ID, ivk, SearchTerm, Key, Limit, Iff, <<>>) ->
     lists:reverse(preview_exact_unique(IndexTable, ID, SearchTerm, Key, Limit, Iff, []));
+preview_exact(IndexTable, _ID, ivk, _SearchTerm, _Key, Limit, Iff, {ID, SearchTerm, Key}) ->
+    lists:reverse(preview_exact_unique(IndexTable, ID, SearchTerm, Key, Limit, Iff, []));
+preview_exact(IndexTable, ID, Type, SearchTerm, _Key, _Limit, Iff, <<>>) ->
+    preview_exact(IndexTable, ID, Type, SearchTerm, _Key, _Limit, Iff);
+preview_exact(IndexTable, _ID, Type, _SearchTerm, _Key, _Limit, Iff, {ID, SearchTerm}) ->
+    preview_exact(IndexTable, ID, Type, SearchTerm, _Key, _Limit, Iff).
+
+preview_exact(_IndexTable, _ID, _Type, _SearchTerm, _Key, 0, _Iff) -> [];
 preview_exact(IndexTable, ID, iv_k, SearchTerm, _Key, _Limit, Iff) ->
     case imem_if:read(IndexTable, {ID, SearchTerm}) of
         [#ddIndex{stu = {ID, SearchTerm}, lnk = Key} = Entry] ->
