@@ -263,13 +263,6 @@ iff_binterm_list_patterns(Key, [Pattern | Patterns]) ->
 
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function()) -> list().
-preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vnf) ->
-    case {Vnf(RangeStart), Vnf(RangeEnd)} of
-        {[?nav], _} -> [];
-        {_, [?nav]} -> [];
-        {[NormStart], [NormEnd]} ->
-            preview_range(IndexTable, ID, Type, {NormStart, NormEnd}, Limit, Iff)
-    end;
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
     preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,<<>>).
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
@@ -285,6 +278,13 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,
     #{<<"match_info">> := Match}) ->
     {_,_,_, FromStu} = binary_to_term(base64:decode(Match)),
     preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu);
+preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vnf, FromStu) ->
+    case {Vnf(RangeStart), Vnf(RangeEnd)} of
+        {[?nav], _} -> [];
+        {_, [?nav]} -> [];
+        {[NormStart], [NormEnd]} ->
+            preview_range_init(IndexTable, ID, Type, {NormStart, NormEnd}, Limit, Iff, FromStu)
+    end;
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu) ->
     case Vnf(SearchTerm) of
         [?nav] -> [];
@@ -400,9 +400,11 @@ preview_regexp(IndexTable, ID, iv_h, Pattern, {ID, Value} = Stu, Limit, Iff) ->
         _ -> Partial
     end.
 
--spec preview_range(atom(), integer(), atom(), {term(), term()}, integer(), function()) -> list().
-preview_range(IndexTable, ID, Type, SearchTerm, Limit, Iff) ->
-    StartingStu = create_starting_stu(Type, ID, range_match, SearchTerm),
+-spec preview_range_init(atom(), integer(), atom(), {term(), term()}, integer(), function(), tuple() | <<>>) -> list().
+preview_range_init(IndexTable, ID, Type, SearchTerm, Limit, Iff, FromStu) ->
+    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, range_match, SearchTerm);
+                     true -> FromStu
+                end,
     {atomic, ResultRange} =
         imem_if:transaction(fun() -> preview_range(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, Iff) end),
     ResultRange.
@@ -479,7 +481,7 @@ preview_execute(_IndexTable, _ID, _Type, [], _SearchTerm, _Limit, _Iff, _PrevStr
 preview_execute(_IndexTable, _ID, _Type, _Strategies, _Term, Limit, _Iff, _PrevStrategy, _FromStu) when Limit =< 0 -> [];
 preview_execute(IndexTable, ID, Type, [exact_match | SearchStrategies], SearchTerm, Limit, Iff, undefined, FromStu) ->
     {atomic, ResultExact} =
-        imem_if:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff) end),
+        imem_if:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff, FromStu) end),
     ResultExact ++ preview_execute(IndexTable, ID, Type, SearchStrategies, SearchTerm, Limit - length(ResultExact), Iff, exact_match, FromStu);
 preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy, FromStu) ->
     StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, head_match, SearchTerm);
@@ -531,7 +533,9 @@ preview_exact(IndexTable, _ID, ivk, _SearchTerm, _Key, Limit, Iff, {ID, SearchTe
 preview_exact(IndexTable, ID, Type, SearchTerm, _Key, _Limit, Iff, <<>>) ->
     preview_exact(IndexTable, ID, Type, SearchTerm, _Key, _Limit, Iff);
 preview_exact(IndexTable, _ID, Type, _SearchTerm, _Key, _Limit, Iff, {ID, SearchTerm}) ->
-    preview_exact(IndexTable, ID, Type, SearchTerm, _Key, _Limit, Iff).
+    preview_exact(IndexTable, ID, Type, SearchTerm, _Key, _Limit, Iff);
+preview_exact(_IndexTable, _ID, _Type, _SearchTerm, _Key, _Limit, _Iff, _FromStu) ->
+    [].
 
 preview_exact(_IndexTable, _ID, _Type, _SearchTerm, _Key, 0, _Iff) -> [];
 preview_exact(IndexTable, ID, iv_k, SearchTerm, _Key, _Limit, Iff) ->
