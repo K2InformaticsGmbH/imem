@@ -316,9 +316,7 @@ is_regexp_search(_SearchStrategies, _SearchTerm) -> false.
 
 -spec preview_regexp_init(atom(), integer(), atom(), term(), integer(), function(), tuple() | <<>>) -> list().
 preview_regexp_init(IndexTable, ID, Type, SearchTerm, Limit, Iff, FromStu) ->
-    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, re_match, SearchTerm);
-                     true -> FromStu
-    end,
+    StartingStu = create_starting_stu(Type, ID, re_match, SearchTerm, FromStu),
     ReplacedStar = binary:replace(SearchTerm, [<<"*">>], <<"%">>, [global]),
     ReplacedMark = binary:replace(ReplacedStar, [<<"?">>], <<"_">>, [global]),
     Pattern = imem_sql_funs:like_compile(ReplacedMark),
@@ -402,9 +400,7 @@ preview_regexp(IndexTable, ID, iv_h, Pattern, {ID, Value} = Stu, Limit, Iff) ->
 
 -spec preview_range_init(atom(), integer(), atom(), {term(), term()}, integer(), function(), tuple() | <<>>) -> list().
 preview_range_init(IndexTable, ID, Type, SearchTerm, Limit, Iff, FromStu) ->
-    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, range_match, SearchTerm);
-                     true -> FromStu
-                end,
+    StartingStu = create_starting_stu(Type, ID, range_match, SearchTerm, FromStu),
     {atomic, ResultRange} =
         imem_if:transaction(fun() -> preview_range(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, Iff) end),
     ResultRange.
@@ -484,9 +480,7 @@ preview_execute(IndexTable, ID, Type, [exact_match | SearchStrategies], SearchTe
         imem_if:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff, FromStu) end),
     ResultExact ++ preview_execute(IndexTable, ID, Type, SearchStrategies, SearchTerm, Limit - length(ResultExact), Iff, exact_match, FromStu);
 preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy, FromStu) ->
-    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, head_match, SearchTerm);
-                     true -> FromStu
-    end,
+    StartingStu = create_starting_stu(Type, ID, head_match, SearchTerm, FromStu),
     IffAndNotAdded = add_filter_duplicated(PrevStrategy, SearchTerm, Iff),
     {atomic, ResultHead} =
         imem_if:transaction(fun() -> preview_head(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffAndNotAdded) end),
@@ -497,9 +491,7 @@ preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTer
             ResultHead
     end;
 preview_execute(IndexTable, ID, Type, [body_match | _SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy, FromStu) ->
-    StartingStu = if FromStu == <<>> -> create_starting_stu(Type, ID, body_match, SearchTerm);
-                     true -> FromStu
-    end,
+    StartingStu = create_starting_stu(Type, ID, body_match, SearchTerm, FromStu),
     IffNotAdded = add_filter_duplicated(PrevStrategy, SearchTerm, Iff),
     {atomic, ResultBody} =
         imem_if:transaction(fun() -> preview_body(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffNotAdded) end),
@@ -699,13 +691,15 @@ preview_body(IndexTable, ID, iv_h, SearchTerm, {ID, Value} = Stu, Limit, Iff) ->
         _ -> Partial
     end.
 
--spec create_starting_stu(atom(), integer(), atom(), binary()) -> tuple().
-create_starting_stu(ivk, ID, head_match, SearchTerm)        -> {ID, SearchTerm, ?SMALLEST_TERM};
-create_starting_stu(ivk, ID, range_match, {RangeStart, _})  -> {ID, RangeStart, ?SMALLEST_TERM};
-create_starting_stu(ivk, ID, _MatchType, _SearchTerm)       -> {ID, ?SMALLEST_TERM, ?SMALLEST_TERM};
-create_starting_stu(_Type, ID, head_match, SearchTerm)      -> {ID, SearchTerm};
-create_starting_stu(_Type, ID, range_match, {RangeStart, _})-> {ID, RangeStart};
-create_starting_stu(_Type, ID, _MatchType, _SearchTerm)     -> {ID, ?SMALLEST_TERM}.
+-spec create_starting_stu(atom(), integer(), atom(), binary(), <<>> | tuple()) -> tuple().
+create_starting_stu(ivk, ID, head_match, SearchTerm, <<>>)        -> {ID, SearchTerm, ?SMALLEST_TERM};
+create_starting_stu(ivk, ID, range_match, {RangeStart, _}, <<>>)  -> {ID, RangeStart, ?SMALLEST_TERM};
+create_starting_stu(ivk, ID, _MatchType, _SearchTerm, <<>>)       -> {ID, ?SMALLEST_TERM, ?SMALLEST_TERM};
+create_starting_stu(_Type, ID, head_match, SearchTerm, <<>>)      -> {ID, SearchTerm};
+create_starting_stu(_Type, ID, range_match, {RangeStart, _}, <<>>)-> {ID, RangeStart};
+create_starting_stu(_Type, ID, _MatchType, _SearchTerm, <<>>)     -> {ID, ?SMALLEST_TERM};
+create_starting_stu(_Type, _ID, _MatchType, _SearchTerm, FromStu) -> FromStu.
+
 
 -spec preview_expand_kl(atom(), tuple(), list(), list(), fun()) -> list().
 preview_expand_kl(_Type, _Stu, [], _SearchTerm, _Iff) -> [];
