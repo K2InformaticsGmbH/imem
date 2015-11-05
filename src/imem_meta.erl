@@ -10,6 +10,7 @@
 
 -include("imem.hrl").
 -include("imem_meta.hrl").
+-include("imem_if_csv.hrl").
 
 -include_lib("kernel/include/file.hrl").
 
@@ -256,8 +257,6 @@
         , prev/2
         , foldl/3
         ]).
-
--export([ imem_if_csv_select/4]).
 
 -export([ simple_or_local_node_sharded_tables/1]).
 
@@ -679,7 +678,7 @@ column_names(Infos)->
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
 column_infos({?CSV_SCHEMA,FileName}) when is_binary(FileName) ->
-    [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv_column_names({?CSV_SCHEMA,FileName})];  %%ToDo: imem_if_csv:column_names
+    [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({?CSV_SCHEMA,FileName})];
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
     S= try 
         ?binary_to_existing_atom(Schema)
@@ -2238,7 +2237,7 @@ apply_validators([D|DefRec], Rec0, Table, User, N) ->
 fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
     imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, {?CSV_SCHEMA,FileName}, MatchSpec, BlockSize, Opts) ->
-    imem_if_csv_fetch_start(Pid, {?CSV_SCHEMA,FileName}, MatchSpec, BlockSize, Opts); %% ToDo: imem_if_csv:fetch_start() 
+    imem_if_csv:fetch_start(Pid, {?CSV_SCHEMA,FileName}, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
@@ -2251,104 +2250,6 @@ fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
-
-imem_if_csv_column_names({CsvSchema,FileName}) ->
-    UnquotedFN = imem_datatype:strip_dquotes(FileName),
-    case imem_if_csv_select({CsvSchema,UnquotedFN}, [], 100, read) of
-        '$end_of_table' ->  [<<"col1">>];
-         {Rows, _} ->       imem_if_csv_first_longest_line(Rows,[])
-    end.
-
-imem_if_csv_first_longest_line([],Acc) -> Acc;     
-imem_if_csv_first_longest_line([Row|Rows],Acc) ->
-    [_|R] = tuple_to_list(Row), 
-    if 
-        (length(R) > length(Acc)) ->    imem_if_csv_name_row(R);
-        true ->                         ok
-    end.
-
-imem_if_csv_name_row(Row) ->
-    L = length(Row),
-    case length(lists:usort(Row)) of
-        L ->
-            case lists:usort([imem_if_csv_is_name(R) || R <- Row]) of 
-                [true] ->   Row;
-                _ ->        imem_if_csv_name_default(L)
-            end;
-        _ ->
-            imem_if_csv_name_default(L)
-    end.
-
-imem_if_csv_is_name(Bin) -> true.
-
-
-imem_if_csv_name_default(N) ->
-    [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].
-
-imem_if_csv_fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
-    UnquotedFN = imem_datatype:strip_dquotes(FileName),
-    % ?LogDebug("UnquotedFN : ~p", [UnquotedFN]),
-    F =
-    fun(F,Contd0) ->
-        receive
-            abort ->
-                % ?Info("[~p] got abort on ~p~n", [Pid, FileName]),
-                ok;
-            next ->
-                case Contd0 of
-                        undefined ->
-                            % ?Info("[~p] got MatchSpec ~p for ~p limit ~p~n", [Pid,MatchSpec,FileName,BlockSize]),
-                            case imem_meta:imem_if_csv_select({Schema,UnquotedFN}, MatchSpec, BlockSize, read) of
-                                '$end_of_table' ->
-                                    % ?Info("[~p] got empty table~n", [Pid]),
-                                    Pid ! {row, [?sot,?eot]};
-                                {aborted, Reason} ->
-                                    exit(Reason);
-                                {Rows, Contd1} ->
-                                    % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
-                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
-                                    if  Eot ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?sot,?eot|Rows]};
-                                        true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?sot|Rows]},
-                                            F(F,Contd1)
-                                    end
-                            end;
-                        Contd0 ->
-                            % ?Info("[~p] got continuing fetch...~n", [Pid]),
-                            case imem_meta:imem_if_csv_select(Contd0) of
-                                '$end_of_table' ->
-                                    % ?Info("[~p] complete after ~n",[Pid,Contd0]),
-                                    Pid ! {row, ?eot};
-                                {aborted, Reason} ->
-                                    exit(Reason);
-                                {Rows, Contd1} ->
-                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
-                                    if  Eot ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?eot|Rows]};
-                                        true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, Rows},
-                                            F(F,Contd1)
-                                    end
-                            end
-                end
-        end
-    end,
-    spawn(fun() -> F(F,undefined) end).
-
-imem_if_csv_select({_CsvSchema,UnquotedFN}, _MatchSpec, _BlockSize, _LockType) ->
-    ?LogDebug("imem_if_csv_select UnquotedFN ~p",[UnquotedFN]),
-    {ok, Bin} = file:read_file(UnquotedFN),
-    case binary:split(Bin, [<<"\r\n">>],[global]) of 
-        [<<>>] ->
-            '$end_of_table';
-        Raw ->
-            {[list_to_tuple([?CSV_RECORD_NAME|binary:split(R, [<<"\t">>],[global])]) || R <- Raw],{'$end_of_table'}}
-    end.
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
     {Rows,true} = select(VTable, MatchSpec),

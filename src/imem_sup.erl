@@ -70,6 +70,9 @@ init(_StartArgs) ->
     % imem_if
     [?CHILD(imem_if, worker, [], ImemTimeout)]
     ++
+    % imem_if_csv
+    [?CHILD(imem_if_csv, worker, [], ImemTimeout)]
+    ++
     % imem_meta
     case application:get_env(meta_server) of
         {ok, true} -> [?CHILD(imem_meta, worker, [], ImemTimeout)];
