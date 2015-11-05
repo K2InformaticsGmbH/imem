@@ -150,6 +150,28 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
+        exec_fetch_sort_equal(SKey, query00a, 100, IsSec, "
+            select Col2 from csv$.\"C:\\Temp\\Test.txt\"
+            "
+            ,
+            [{<<"1">>}
+            ,{<<"2">>}
+            ,{<<"Col2">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query00b, 100, IsSec, "
+            select Col2, Col1 from csv$.\"C:\\Temp\\Test.txt\"
+            "
+            ,
+            [{<<"1">>,<<"A1">>}
+            ,{<<"2">>,<<"A2">>}
+            ,{<<"Col2">>,<<"Col1">>}
+            ]
+        ),
+
+        % ?assert(false),
+
         exec_fetch_sort_equal(SKey, query0g, 100, IsSec, "
             select list(1,to_atom('a')) from dual"
             ,

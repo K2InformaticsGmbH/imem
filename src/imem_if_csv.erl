@@ -66,12 +66,13 @@ column_names({CsvSchema,FileName}) ->
          {Rows, _} ->       first_longest_line(Rows,[])
     end.
 
-first_longest_line([],Acc) -> Acc;     
+first_longest_line([],Acc) ->           ?LogDebug("first_longest_line ~p",[Acc]), 
+                                        Acc;     
 first_longest_line([Row|Rows],Acc) ->
     [_|R] = tuple_to_list(Row), 
     if 
-        (length(R) > length(Acc)) ->    name_row(R);
-        true ->                         ok
+        (length(R) > length(Acc)) ->    first_longest_line(Rows,name_row(R));
+        true ->                         first_longest_line(Rows,Acc)
     end.
 
 name_row(Row) ->

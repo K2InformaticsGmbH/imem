@@ -3467,7 +3467,7 @@ meta_partitions(_) ->
         ?assertEqual(ok, write(?TPTEST0, LogRec)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(?TPTEST0)),
-        {Megs,Secs,Mics} = erlang:now()
+        {Megs,Secs,Mics} = erlang:now(),
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRecF = LogRec#ddLog{logTime=Future},
