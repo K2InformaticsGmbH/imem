@@ -87,7 +87,7 @@ name_row(Row) ->
             name_default(L)
     end.
 
-is_name(Name) when is_list(Bin); is_binary(Bin) ->
+is_name(Bin) when is_list(Bin); is_binary(Bin) ->
     case re:run(Bin, "^[A-Za-z][A-Za-z0-9_]*$", [global]) of
         nomatch -> false;
         _ -> true
@@ -152,7 +152,7 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
     spawn(fun() -> F(F,undefined) end).
 
 select({_CsvSchema,UnquotedFN}, _MatchSpec, _BlockSize, _LockType) ->
-    ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
+    % ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
     {ok, Bin} = file:read_file(UnquotedFN),
     case binary:split(Bin, [<<"\r\n">>],[global]) of 
         [<<>>] ->

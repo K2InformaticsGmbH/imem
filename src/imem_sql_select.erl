@@ -118,6 +118,7 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
+        CsvFileName = "CsvTestFileName123abc.txt",
 
         ?LogDebug("----------------------------------~n"),
         ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
@@ -140,9 +141,9 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
+        file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2">>),
         exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
-            select * from csv$.\"C:\\Temp\\Test.txt\"
-            "
+            select * from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
             ,
             [{<<"A1">>,<<"1">>}
             ,{<<"A2">>,<<"2">>}
@@ -150,18 +151,19 @@ test_with_or_without_sec(IsSec) ->
             ]
         ),
 
+        file:write_file(CsvFileName,<<"A\t\t\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
         exec_fetch_sort_equal(SKey, query00a, 100, IsSec, "
-            select Col2 from csv$.\"C:\\Temp\\Test.txt\"
-            "
+            select col2 from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
             ,
-            [{<<"1">>}
+            [{<<>>}
+            ,{<<"1">>}
             ,{<<"2">>}
             ,{<<"Col2">>}
             ]
         ),
 
         exec_fetch_sort_equal(SKey, query00b, 100, IsSec, "
-            select Col2, Col1 from csv$.\"C:\\Temp\\Test.txt\"
+            select col2, col1 from csv$.\"C:\\Temp\\Test.txt\"
             "
             ,
             [{<<"1">>,<<"A1">>}
