@@ -87,8 +87,11 @@ name_row(Row) ->
             name_default(L)
     end.
 
-is_name(Bin) -> true.
-
+is_name(Name) when is_list(Bin); is_binary(Bin) ->
+    case re:run(Bin, "^[A-Za-z][A-Za-z0-9_]*$", [global]) of
+        nomatch -> false;
+        _ -> true
+    end.
 
 name_default(N) ->
     [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].
