@@ -526,6 +526,11 @@ qname3_to_binstr({undefined,undefined,N}) when is_binary(N) -> N;
 qname3_to_binstr({undefined,T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]); 
 qname3_to_binstr({S,T,N}) when is_binary(S),is_binary(T),is_binary(N) -> list_to_binary([S,".",T,".",N]). 
 
+to_binstr(B) when is_binary(B) ->   B;
+to_binstr(I) when is_integer(I) -> list_to_binary(integer_to_list(I));
+to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
+to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
+to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
 %% @doc Projects by name one record field out of a list of column maps.
 %% Map:     list of bind items
@@ -622,17 +627,26 @@ column_map_table_fields([{undefined,T,A}|Tables], Ti, Acc) ->
     S = ?atom_to_binary(imem_meta:schema()),
     column_map_table_fields([{S,T,A}|Tables], Ti, Acc);
 column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
-    Cols = imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}),
-    case Ti of
-        ?MainIdx ->      
-            case imem_meta:is_virtual_table(?binary_to_atom(T)) of
-                true ->     ?ClientError({"Virtual table can only be joined", T});
-                false ->    ok
-            end;
-        _ -> ok
+    Cols = case S of
+        ?CSV_SCHEMA ->
+            case Ti of
+                ?MainIdx -> ok;
+                _ ->        ?ClientError({"A CSV table can only be the first table in a join", T})
+            end,
+            imem_meta:column_infos({S,T});
+        _ ->    
+            case Ti of
+                ?MainIdx ->      
+                    case imem_meta:is_virtual_table(?binary_to_atom(T)) of
+                        true ->     ?ClientError({"Virtual table can only be joined", T});
+                        false ->    ok
+                    end;
+                _ -> ok
+            end,
+            imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}) %% ToDo: avoid if possible
     end,
     Binds = [ #bind{schema=S,table=T,alias=A,tind=Ti,cind=Ci
-                   ,type=Type,len=Len,prec=P,name=?atom_to_binary(N)
+                   ,type=Type,len=Len,prec=P,name=to_binstr(N)
                    ,default=D,tag=list_to_atom(lists:flatten([$$,integer_to_list(Ti),integer_to_list(Ci)]))
                    } 
           || {Ci, #ddColumn{name=N,type=Type,len=Len,prec=P,default=D}} <- 

@@ -13,6 +13,9 @@
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
 -define(CACHE_TABLE,ddCache@).
 
+-define(CSV_SCHEMA,<<"csv$">>).
+-define(CSV_RECORD_NAME,csv_rec).
+
 -define(GET_CONFIG(__PName,__Context,__Default),
         imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
        ).

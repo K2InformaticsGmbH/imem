@@ -352,11 +352,12 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
             try 
                 get_select_permissions(IsSec,SKey, [Table|JTabs]),
+                % ?LogDebug("Select permission granted for : ~p", [Table]),
                 case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
                     TransPid when is_pid(TransPid) ->
                         MonitorRef = erlang:monitor(process, TransPid),
                         TransPid ! next,
-                        % ?Debug("fetch opts ~p~n", [Opts]),
+                        ?LogDebug("fetch opts ~p~n", [Opts]),
                         RecName = try imem_meta:table_record_name(Table)
                                   catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
                                   end,

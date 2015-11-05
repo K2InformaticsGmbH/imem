@@ -19,9 +19,9 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?Info("Params: ~p~n", [Params]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
-    % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
+    % ?LogDebug("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
     Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
-    % ?Info("Tables: (~p)~n~p~n", [length(Tables),Tables]),
+    % ?LogDebug("Tables: (~p)~n~p~n", [length(Tables),Tables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql_expr:column_map_columns([],FullMap);
@@ -29,9 +29,9 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
             imem_sql_expr:column_map_columns(ParsedFieldList, FullMap)
     end,
     % ?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
-    % ?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
+    % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
-    % ?Info("Statement columns: ~n~p~n", [StmtCols]),
+    % ?LogDebug("Statement columns: ~n~p~n", [StmtCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
     % ?Info("WhereParseTree~n~p~n", [WPTree]),
     WBTree0 = case WPTree of
@@ -139,6 +139,16 @@ test_with_or_without_sec(IsSec) ->
             true ->     ?imem_test_admin_login();
             false ->    none
         end,
+
+        exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
+            select * from csv$.\"C:\\Temp\\Test.txt\"
+            "
+            ,
+            [{<<"A1">>,<<"1">>}
+            ,{<<"A2">>,<<"2">>}
+            ,{<<"Col1">>,<<"Col2">>}
+            ]
+        ),
 
         exec_fetch_sort_equal(SKey, query0g, 100, IsSec, "
             select list(1,to_atom('a')) from dual"

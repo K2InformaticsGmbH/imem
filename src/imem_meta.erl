@@ -257,6 +257,8 @@
         , foldl/3
         ]).
 
+-export([ imem_if_csv_select/4]).
+
 -export([ simple_or_local_node_sharded_tables/1]).
 
 -export([ secure_apply/3]).
@@ -676,6 +678,8 @@ column_names(Infos)->
 
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
+column_infos({?CSV_SCHEMA,FileName}) when is_binary(FileName) ->
+    [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv_column_names({?CSV_SCHEMA,FileName})];  %%ToDo: imem_if_csv:column_names
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
     S= try 
         ?binary_to_existing_atom(Schema)
@@ -1778,6 +1782,8 @@ qualified_table_name({undefined,T}) when is_binary(T) ->
     catch
         _:_ -> ?ClientError({"Unknown Table name",T})
     end;
+qualified_table_name({?CSV_SCHEMA,T}) when is_binary(T) ->
+    {?CSV_SCHEMA,T};
 qualified_table_name({S,T}) when is_binary(S),is_binary(T) ->
     try
         {?binary_to_existing_atom(S),?binary_to_existing_atom(T)}
@@ -2127,42 +2133,32 @@ trigger_with_indexing(TFun,MF,Var) ->
             end
     end.
 
-table_type({ddSysConf,Table}) ->
-    imem_if_sys_conf:table_type(Table);
-table_type({_Schema,Table}) ->
-    table_type(Table);          %% ToDo: may depend on schema
-table_type(Table) when is_atom(Table) ->
-    imem_if:table_type(physical_table_name(Table)).
+table_type({ddSysConf,Table}) ->                imem_if_sys_conf:table_type(Table);
+table_type({_Schema,Table}) ->                  table_type(Table);                          %% ToDo: may depend on schema
+table_type(Table) when is_atom(Table) ->        imem_if:table_type(physical_table_name(Table)).
 
-table_record_name({ddSysConf,Table}) ->
-    imem_if_sys_conf:table_record_name(Table);   %% ToDo: may depend on schema
-table_record_name({_Schema,Table}) ->
-    table_record_name(Table);   %% ToDo: may depend on schema
-table_record_name(ddNode)  -> ddNode;
-table_record_name(ddSnap)  -> ddSnap;
-table_record_name(ddSchema)  -> ddSchema;
-table_record_name(ddSize)  -> ddSize;
-table_record_name(Table) when is_atom(Table) ->
-    imem_if:table_record_name(physical_table_name(Table)).
+table_record_name({ddSysConf,Table}) ->         imem_if_sys_conf:table_record_name(Table);  %% ToDo: may depend on schema
+table_record_name({?CSV_SCHEMA,_Table}) ->      ?CSV_RECORD_NAME;
+table_record_name({_Schema,Table}) ->           table_record_name(Table);                   %% ToDo: may depend on schema
+table_record_name(ddNode)  ->                   ddNode;
+table_record_name(ddSnap)  ->                   ddSnap;
+table_record_name(ddSchema)  ->                 ddSchema;
+table_record_name(ddSize)  ->                   ddSize;
+table_record_name(Table) when is_atom(Table) -> imem_if:table_record_name(physical_table_name(Table)).
 
-table_columns({ddSysConf,Table}) ->
-    imem_if_sys_conf:table_columns(Table);
-table_columns({_Schema,Table}) ->
-    table_columns(Table);       %% ToDo: may depend on schema
-table_columns(Table) ->
-    imem_if:table_columns(physical_table_name(Table)).
+table_columns({ddSysConf,Table}) ->             imem_if_sys_conf:table_columns(Table);
+table_columns({_Schema,Table}) ->               table_columns(Table);       %% ToDo: may depend on schema
+table_columns(Table) ->                         imem_if:table_columns(physical_table_name(Table)).
 
-table_size({ddSysConf,_Table}) ->
-    %% imem_if_sys_conf:table_size(Table);
-    0;                                                  %% ToDo: implement there
-table_size({_Schema,Table}) ->  table_size(Table);      %% ToDo: may depend on schema
-table_size(ddNode) ->           length(read(ddNode));
-table_size(ddSnap) ->           imem_snap:snap_file_count();
-table_size(ddSchema) ->         length(read(ddSchema));
-table_size(ddSize) ->           1;
-table_size(Table) ->
-    %% ToDo: sum should be returned for all local time partitions
-    imem_if:table_size(physical_table_name(Table)).
+table_size({ddSysConf,_Table}) ->               %% imem_if_sys_conf:table_size(Table);
+                                                0; %% ToDo: implement there
+table_size({_Schema,Table}) ->                  table_size(Table);      %% ToDo: may depend on schema
+table_size(ddNode) ->                           length(read(ddNode));
+table_size(ddSnap) ->                           imem_snap:snap_file_count();
+table_size(ddSchema) ->                         length(read(ddSchema));
+table_size(ddSize) ->                           1;
+table_size(Table) ->                            %% ToDo: sum should be returned for all local time partitions
+                                                imem_if:table_size(physical_table_name(Table)).
 
 table_memory({ddSysConf,_Table}) ->
     %% imem_if_sys_conf:table_memory(Table);
@@ -2241,6 +2237,8 @@ apply_validators([D|DefRec], Rec0, Table, User, N) ->
 
 fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
     imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, {?CSV_SCHEMA,FileName}, MatchSpec, BlockSize, Opts) ->
+    imem_if_csv_fetch_start(Pid, {?CSV_SCHEMA,FileName}, MatchSpec, BlockSize, Opts); %% ToDo: imem_if_csv:fetch_start() 
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
@@ -2253,6 +2251,104 @@ fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
+
+imem_if_csv_column_names({CsvSchema,FileName}) ->
+    UnquotedFN = imem_datatype:strip_dquotes(FileName),
+    case imem_if_csv_select({CsvSchema,UnquotedFN}, [], 100, read) of
+        '$end_of_table' ->  [<<"col1">>];
+         {Rows, _} ->       imem_if_csv_first_longest_line(Rows,[])
+    end.
+
+imem_if_csv_first_longest_line([],Acc) -> Acc;     
+imem_if_csv_first_longest_line([Row|Rows],Acc) ->
+    [_|R] = tuple_to_list(Row), 
+    if 
+        (length(R) > length(Acc)) ->    imem_if_csv_name_row(R);
+        true ->                         ok
+    end.
+
+imem_if_csv_name_row(Row) ->
+    L = length(Row),
+    case length(lists:usort(Row)) of
+        L ->
+            case lists:usort([imem_if_csv_is_name(R) || R <- Row]) of 
+                [true] ->   Row;
+                _ ->        imem_if_csv_name_default(L)
+            end;
+        _ ->
+            imem_if_csv_name_default(L)
+    end.
+
+imem_if_csv_is_name(Bin) -> true.
+
+
+imem_if_csv_name_default(N) ->
+    [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].
+
+imem_if_csv_fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
+    UnquotedFN = imem_datatype:strip_dquotes(FileName),
+    % ?LogDebug("UnquotedFN : ~p", [UnquotedFN]),
+    F =
+    fun(F,Contd0) ->
+        receive
+            abort ->
+                % ?Info("[~p] got abort on ~p~n", [Pid, FileName]),
+                ok;
+            next ->
+                case Contd0 of
+                        undefined ->
+                            % ?Info("[~p] got MatchSpec ~p for ~p limit ~p~n", [Pid,MatchSpec,FileName,BlockSize]),
+                            case imem_meta:imem_if_csv_select({Schema,UnquotedFN}, MatchSpec, BlockSize, read) of
+                                '$end_of_table' ->
+                                    % ?Info("[~p] got empty table~n", [Pid]),
+                                    Pid ! {row, [?sot,?eot]};
+                                {aborted, Reason} ->
+                                    exit(Reason);
+                                {Rows, Contd1} ->
+                                    % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
+                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
+                                    if  Eot ->
+                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
+                                            Pid ! {row, [?sot,?eot|Rows]};
+                                        true ->
+                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
+                                            Pid ! {row, [?sot|Rows]},
+                                            F(F,Contd1)
+                                    end
+                            end;
+                        Contd0 ->
+                            % ?Info("[~p] got continuing fetch...~n", [Pid]),
+                            case imem_meta:imem_if_csv_select(Contd0) of
+                                '$end_of_table' ->
+                                    % ?Info("[~p] complete after ~n",[Pid,Contd0]),
+                                    Pid ! {row, ?eot};
+                                {aborted, Reason} ->
+                                    exit(Reason);
+                                {Rows, Contd1} ->
+                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
+                                    if  Eot ->
+                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
+                                            Pid ! {row, [?eot|Rows]};
+                                        true ->
+                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
+                                            Pid ! {row, Rows},
+                                            F(F,Contd1)
+                                    end
+                            end
+                end
+        end
+    end,
+    spawn(fun() -> F(F,undefined) end).
+
+imem_if_csv_select({_CsvSchema,UnquotedFN}, _MatchSpec, _BlockSize, _LockType) ->
+    ?LogDebug("imem_if_csv_select UnquotedFN ~p",[UnquotedFN]),
+    {ok, Bin} = file:read_file(UnquotedFN),
+    case binary:split(Bin, [<<"\r\n">>],[global]) of 
+        [<<>>] ->
+            '$end_of_table';
+        Raw ->
+            {[list_to_tuple([?CSV_RECORD_NAME|binary:split(R, [<<"\t">>],[global])]) || R <- Raw],{'$end_of_table'}}
+    end.
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
     {Rows,true} = select(VTable, MatchSpec),
