@@ -1333,7 +1333,7 @@ test_with_or_without_sec_part1(IsSec) ->
 
         ?assertEqual(ok, fetch_close(SKey,SR00,IsSec)),
         ?assertEqual(ok, fetch_async(SKey,SR00,[],IsSec)),
-        [{<<"13">>,<<"169">>},{<<"15">>,<<"225">>}] = receive_tuples(SR00,true),
+        [{<<"13">>,<<"169">>},{<<"15">>,<<"225">>}] = lists:sort(receive_tuples(SR00,true)),
         ?assertEqual(ok, close(SKey, SR00)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table fun_test;", 0, [{schema,imem}], IsSec)),

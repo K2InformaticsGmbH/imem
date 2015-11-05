@@ -68,12 +68,13 @@ column_names({CsvSchema,FileName}) ->
          {Rows, _} ->       first_longest_line(Rows,[])
     end.
 
-first_longest_line([],Acc) -> Acc;     
+first_longest_line([],Acc) ->           ?LogDebug("first_longest_line ~p",[Acc]), 
+                                        Acc;     
 first_longest_line([Row|Rows],Acc) ->
     [_|R] = tuple_to_list(Row), 
     if 
-        (length(R) > length(Acc)) ->    name_row(R);
-        true ->                         ok
+        (length(R) > length(Acc)) ->    first_longest_line(Rows,name_row(R));
+        true ->                         first_longest_line(Rows,Acc)
     end.
 
 name_row(Row) ->
@@ -88,8 +89,11 @@ name_row(Row) ->
             name_default(L)
     end.
 
-is_name(Bin) -> true.
-
+is_name(Bin) when is_list(Bin); is_binary(Bin) ->
+    case re:run(Bin, "^[A-Za-z][A-Za-z0-9_]*$", [global]) of
+        nomatch -> false;
+        _ -> true
+    end.
 
 name_default(N) ->
     [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].

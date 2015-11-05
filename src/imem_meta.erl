@@ -3123,7 +3123,7 @@ meta_operations(_) ->
 
         ?assertEqual(ok, check_table(?CACHE_TABLE)),
 
-        Now = os:timestamp(),
+        Now = erlang:now(),
         LogCount1 = table_size(?LOG_TABLE),
         ?LogDebug("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
@@ -3460,14 +3460,14 @@ meta_partitions(_) ->
 
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- read(ddAlias)])),
 
-        LogRec = #ddLog{logTime= os:timestamp(),logLevel=info,pid=self()
+        LogRec = #ddLog{logTime= erlang:now(),logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_partitions,node=node()
                             ,fields=[],message= <<"some log message">>},
 
         ?assertEqual(ok, write(?TPTEST0, LogRec)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(?TPTEST0)),
-        {Megs,Secs,Mics} = os:timestamp(),
+        {Megs,Secs,Mics} = erlang:now(),
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRecF = LogRec#ddLog{logTime=Future},
@@ -3524,6 +3524,7 @@ meta_partitions(_) ->
         ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,0]),
 
         ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
+        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,1]),
         FL1 = length(physical_table_names(fakelog_1@)),
         ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL1,created]),
         ?assertEqual(1,FL1),
