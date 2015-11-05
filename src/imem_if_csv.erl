@@ -4,6 +4,7 @@
 -include("imem.hrl").
 -include("imem_if.hrl").
 -include("imem_if_csv.hrl").
+-include_lib("kernel/include/file.hrl").
 
 % gen_server
 -record(state, {}).
@@ -15,6 +16,7 @@
         , terminate/2
         , code_change/3
         , format_status/2
+        , read_blocks/3
         , start_link/1
         ]).
 
@@ -105,7 +107,7 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
                 case Contd0 of
                         undefined ->
                             % ?Info("[~p] got MatchSpec ~p for ~p limit ~p~n", [Pid,MatchSpec,FileName,BlockSize]),
-                            case imem_if_csv:select({Schema,UnquotedFN}, MatchSpec, BlockSize, read) of
+                            case select({Schema,UnquotedFN}, MatchSpec, BlockSize, read) of
                                 '$end_of_table' ->
                                     % ?Info("[~p] got empty table~n", [Pid]),
                                     Pid ! {row, [?sot,?eot]};
@@ -113,8 +115,7 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
                                     exit(Reason);
                                 {Rows, Contd1} ->
                                     % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
-                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
-                                    if  Eot ->
+                                    if  Contd1 == '$end_of_table' ->
                                             % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
                                             Pid ! {row, [?sot,?eot|Rows]};
                                         true ->
@@ -125,15 +126,14 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
                             end;
                         Contd0 ->
                             % ?Info("[~p] got continuing fetch...~n", [Pid]),
-                            case imem_if_csv:select(Contd0) of
+                            case select(Contd0) of
                                 '$end_of_table' ->
                                     % ?Info("[~p] complete after ~n",[Pid,Contd0]),
                                     Pid ! {row, ?eot};
                                 {aborted, Reason} ->
                                     exit(Reason);
                                 {Rows, Contd1} ->
-                                    Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
-                                    if  Eot ->
+                                        if  Contd1 == '$end_of_table' ->
                                             % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
                                             Pid ! {row, [?eot|Rows]};
                                         true ->
@@ -147,12 +147,35 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
     end,
     spawn(fun() -> F(F,undefined) end).
 
-select({_CsvSchema,UnquotedFN}, _MatchSpec, _BlockSize, _LockType) ->
+select({_CsvSchema,UnquotedFN}, _MatchSpec, BlockSize, _LockType) ->
     ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
-    {ok, Bin} = file:read_file(UnquotedFN),
-    case binary:split(Bin, [<<"\r\n">>],[global]) of 
-        [<<>>] ->
-            '$end_of_table';
-        Raw ->
-            {[list_to_tuple([?CSV_RECORD_NAME|binary:split(R, [<<"\t">>],[global])]) || R <- Raw],{'$end_of_table'}}
+    {ok, Io} = file:open(UnquotedFN, [raw, read, binary]),
+    read_blocks(Io, 0, BlockSize).
+
+select(#{io := Io, pos := Pos, blockSize := BlockSize}) ->
+    read_blocks(Io, Pos, BlockSize).
+
+read_blocks(Io, Pos, BlockSize) ->
+    read_blocks(Io, Pos, BlockSize, []).
+
+read_blocks(Io, Pos, BlockSize, Rows) ->
+    Offset = 4 * BlockSize, 
+    case file:pread(Io, Pos, Offset) of
+        {ok, Bin} -> 
+            io:format("file read : ~p~n", [Bin]),
+            AllLines = binary:split(Bin, [<<"\r\n">>],[global]),
+            io:format("All lines : ~p~n", [AllLines]),
+            NewPos = case binary:last(Bin) of
+                10 -> {Pos + Offset};
+                _ -> Pos +  Offset - size(lists:last(AllLines))
+            end,
+            Lines = lists:droplast(AllLines),
+            io:format("New Pos : ~p Lines : ~p~n", [NewPos, Lines]),
+            NewRows = Rows ++ [list_to_tuple([?CSV_RECORD_NAME|binary:split(R, [<<"\t">>],[global])]) || R <- Lines],
+            if 
+                length(NewRows) < BlockSize -> read_blocks(Io, NewPos, BlockSize, NewRows);
+                true -> {NewRows, {Io, NewPos}}
+            end;
+        eof -> {Rows, {'$end_of_table'}};
+        {error, einval} -> io:format("error reading the file."), {aborted, einval}
     end.
