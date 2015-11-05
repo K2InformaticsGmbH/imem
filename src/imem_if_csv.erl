@@ -16,11 +16,11 @@
         , terminate/2
         , code_change/3
         , format_status/2
-        , read_blocks/3
+        , read_blocks/4
         , start_link/1
         ]).
 
--export([select/4, column_names/1, fetch_start/5]).
+-export([select/5, column_names/1, fetch_start/6]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -63,7 +63,7 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 column_names({CsvSchema,FileName}) ->
     UnquotedFN = imem_datatype:strip_dquotes(FileName),
-    case select({CsvSchema,UnquotedFN}, [], 100, read) of
+    case select({CsvSchema,UnquotedFN}, [], 200, 100, read) of
         '$end_of_table' ->  [<<"col1">>];
          {Rows, _} ->       first_longest_line(Rows,[])
     end.
@@ -98,7 +98,7 @@ is_name(Bin) when is_list(Bin); is_binary(Bin) ->
 name_default(N) ->
     [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].
 
-fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
+fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, RowCount, Opts) ->
     UnquotedFN = imem_datatype:strip_dquotes(FileName),
     % ?LogDebug("UnquotedFN : ~p", [UnquotedFN]),
     F =
@@ -111,7 +111,7 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
                 case Contd0 of
                         undefined ->
                             % ?Info("[~p] got MatchSpec ~p for ~p limit ~p~n", [Pid,MatchSpec,FileName,BlockSize]),
-                            case select({Schema,UnquotedFN}, MatchSpec, BlockSize, read) of
+                            case select({Schema,UnquotedFN}, MatchSpec, BlockSize, RowCount, read) of
                                 '$end_of_table' ->
                                     % ?Info("[~p] got empty table~n", [Pid]),
                                     Pid ! {row, [?sot,?eot]};
@@ -151,35 +151,45 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, BlockSize, Opts) ->
     end,
     spawn(fun() -> F(F,undefined) end).
 
-select({_CsvSchema,UnquotedFN}, _MatchSpec, BlockSize, _LockType) ->
+select({_CsvSchema,UnquotedFN}, _MatchSpec, BlockSize, RowCount, _LockType) ->
     ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
     {ok, Io} = file:open(UnquotedFN, [raw, read, binary]),
-    read_blocks(Io, 0, BlockSize).
+    read_blocks(Io, 0, BlockSize, RowCount).
 
-select(#{io := Io, pos := Pos, blockSize := BlockSize}) ->
-    read_blocks(Io, Pos, BlockSize).
+select(#{io := Io, pos := Pos, blockSize := BlockSize, rowCount := RowCount}) ->
+    read_blocks(Io, Pos, BlockSize, RowCount).
 
-read_blocks(Io, Pos, BlockSize) ->
-    read_blocks(Io, Pos, BlockSize, []).
+read_blocks(Io, Pos, BlockSize, RowCount) ->
+    read_blocks(Io, Pos, BlockSize, RowCount, []).
 
-read_blocks(Io, Pos, BlockSize, Rows) ->
-    Offset = 4 * BlockSize, 
-    case file:pread(Io, Pos, Offset) of
+read_blocks(Io, Pos, BlockSize, RowCount, Rows) -> 
+    case file:pread(Io, Pos, BlockSize) of
         {ok, Bin} -> 
-            io:format("file read : ~p~n", [Bin]),
-            AllLines = binary:split(Bin, [<<"\r\n">>],[global]),
-            io:format("All lines : ~p~n", [AllLines]),
+            AllLines = binary:split(Bin, [<<"\n">>],[global]),
             NewPos = case binary:last(Bin) of
-                10 -> {Pos + Offset};
-                _ -> Pos +  Offset - size(lists:last(AllLines))
+                10 -> Pos + BlockSize;
+                _ -> Pos +  BlockSize - size(lists:last(AllLines))
             end,
             Lines = lists:droplast(AllLines),
-            io:format("New Pos : ~p Lines : ~p~n", [NewPos, Lines]),
-            NewRows = Rows ++ [list_to_tuple([?CSV_RECORD_NAME|binary:split(R, [<<"\t">>],[global])]) || R <- Lines],
+            NewRows = Rows ++ [begin  F = binary:replace(R, <<"\r">>, <<>>), 
+                list_to_tuple([?CSV_RECORD_NAME|binary:split(F, [<<"\t">>],[global])])
+                end || R <- Lines],
             if 
-                length(NewRows) < BlockSize -> read_blocks(Io, NewPos, BlockSize, NewRows);
-                true -> {NewRows, {Io, NewPos}}
+                length(NewRows) < RowCount -> read_blocks(Io, NewPos, RowCount, NewRows);
+                length(NewRows) > RowCount -> 
+                    RemovedRows = lists:sublist(NewRows, RowCount + 1, length(NewRows)),
+                    RemovedDataSize = lists:foldl(fun(A, Acc) ->
+                            Sum = lists:foldl(fun(B, Acc1) ->
+                                Acc1 + size(B) end, 0, tl(tuple_to_list(A))),
+                            Sum + Acc
+                        end, 0, RemovedRows),
+                    FinalPos = NewPos - (2 * length(RemovedRows)) - RemovedDataSize,
+                    {lists:sublist(NewRows, RowCount), create_file_handler(Io, FinalPos, BlockSize, RowCount)};
+                true -> {NewRows, create_file_handler(Io, NewPos, RowCount, RowCount)}
             end;
         eof -> {Rows, {'$end_of_table'}};
-        {error, einval} -> io:format("error reading the file."), {aborted, einval}
+        {_, einval} -> ?LogDebug("Error reading the file"), {aborted, einval}
     end.
+
+create_file_handler(Io, Pos, BlockSize, RowCount) ->
+    #{io => Io, pos => Pos, blockSize => BlockSize, rowCount => RowCount}.
