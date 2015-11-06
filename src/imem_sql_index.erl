@@ -180,7 +180,7 @@ test_with_or_without_sec(IsSec) ->
                          SKey
                          , "create table index_test (col1 integer, col2 binstr not null);"
                          , 0, imem, IsSec)),
-        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
+        [_] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         ?assertEqual(0, if_call_mfa(IsSec, table_size, [SKey, index_test])),
         TableData =
         [ <<"{\"NAME\":\"john0\", \"SURNAME\":\"doe0\", \"AGE\":24}">>

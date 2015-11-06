@@ -106,7 +106,7 @@ db_test_() ->
         fun teardown/1,
         {with, [
               fun test_without_sec/1
-            % , fun test_with_sec/1
+            , fun test_with_sec/1
         ]}
     }.
     

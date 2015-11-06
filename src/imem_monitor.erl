@@ -14,7 +14,7 @@
 
 -define(GET_MONITOR_CYCLE_WAIT,?GET_CONFIG(monitorCycleWait,[],10000)).
 -define(GET_MONITOR_EXTRA,?GET_CONFIG(monitorExtra,[],true)).
--define(GET_MONITOR_EXTRA_FUN,?GET_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,erlang:now()}] end.">>)).
+-define(GET_MONITOR_EXTRA_FUN,?GET_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,os:timestamp()}] end.">>)).
 -define(GET_MONITOR_DUMP,?GET_CONFIG(monitorDump,[],true)).
 -define(GET_MONITOR_DUMP_FUN,?GET_CONFIG(monitorDumpFun,[],<<"">>)).
 
@@ -128,7 +128,7 @@ write_monitor() -> write_monitor(undefined,undefined).
 
 write_monitor(ExtraFun,DumpFun) ->
     try  
-        Now = erlang:now(),
+        Now = os:timestamp(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
         Moni0 = #ddMonitor{ time=Now
                          , node = node()

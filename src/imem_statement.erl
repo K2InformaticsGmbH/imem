@@ -1252,33 +1252,61 @@ teardown(_SKey) ->
     ?imem_test_teardown.
 
 
-db_part1_test_() ->
+db_part11_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
      {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part1(false) end,
-       fun(_) -> test_with_or_without_sec_part1(true) end
-      ]}
+      [fun(_) -> test_with_or_without_sec_part1(false) end]}
     }.
 
-db_part2_test_() ->
+db_part12_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
      {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part2(false) end,
-       fun(_) -> test_with_or_without_sec_part2(true) end
-      ]}
+      [fun(_) -> test_with_or_without_sec_part2(false) end]}
+    }.
+
+db_part13_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,inorder,
+      [fun(_) -> test_with_or_without_sec_part3(false) end]}
+    }.
+
+db_part21_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,inorder,
+      [fun(_) -> test_with_or_without_sec_part1(true) end]}
+    }.
+
+db_part22_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,inorder,
+      [fun(_) -> test_with_or_without_sec_part2(true) end]}
+    }.
+
+db_part23_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,inorder,
+      [fun(_) -> test_with_or_without_sec_part3(true) end]}
     }.
 
 test_with_or_without_sec_part1(IsSec) ->
     try
-        ClEr = 'ClientError',
+        % ClEr = 'ClientError',
         % SeEx = 'SecurityException',
 
         ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p_part1 ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("---TEST---- ~p_part1 ----Security ~p", [?MODULE, IsSec]),
         ?LogDebug("----------------------------------~n"),
 
         ?LogDebug("schema ~p~n", [imem_meta:schema()]),
@@ -1475,7 +1503,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, [{schema,imem}], IsSec)),
         ?LogDebug("dropped table ~p~n", [tuple_test]),
 
-    %% test table def
+        %% test table def
 
         ?assertEqual(ok, imem_sql:exec(SKey, "
             create table def (
@@ -1637,7 +1665,41 @@ test_with_or_without_sec_part1(IsSec) ->
             ?assertEqual([], receive_raw())        
         after
             ?assertEqual(ok, close(SKey, SR3))
+        end
+
+    catch
+        Class:Reason ->  
+            timer:sleep(1000),
+            ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?assert( true == "all tests completed")
+    end,
+    ok. 
+
+
+test_with_or_without_sec_part2(IsSec) ->
+    try
+        ClEr = 'ClientError',
+        % SeEx = 'SecurityException',
+
+        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST---- ~p_part2 ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("----------------------------------~n"),
+
+        ?assertEqual([],receive_raw()),
+
+        SKey=case IsSec of
+            true ->     ?imem_test_admin_login();
+            false ->    none
         end,
+
+        catch imem_meta:drop_table(def),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "
+            create table def (
+                col1 varchar2(10), 
+                col2 integer
+            );"
+            , 0, [{schema,imem}], IsSec)),
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
         ?assertEqual(0,imem_meta:table_size(def)),
@@ -1845,13 +1907,13 @@ test_with_or_without_sec_part1(IsSec) ->
     end,
     ok. 
 
-test_with_or_without_sec_part2(IsSec) ->
+test_with_or_without_sec_part3(IsSec) ->
     try
-        ClEr = 'ClientError',
+        % ClEr = 'ClientError',
         % SeEx = 'SecurityException',
 
         ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p_part2 ----Security ~p", [?MODULE, IsSec]),
+        ?LogDebug("---TEST---- ~p_part3 ----Security ~p", [?MODULE, IsSec]),
         ?LogDebug("----------------------------------~n"),
 
         ?LogDebug("schema ~p~n", [imem_meta:schema()]),
