@@ -22,6 +22,115 @@
 
 -export([select/4, column_names/1, fetch_start/5]).
 
+-export([file_info/1]).
+
+-define(INFO_BYTES, 2 * 1024).
+file_info(File) ->
+    {ok, Io} = file:open(File, [raw, read, binary]),
+    {ok, Data} = file:pread(Io, 0, ?INFO_BYTES),
+    ok = file:close(Io),
+    ReLineEndsFun
+    = fun(D, Le) ->
+              case re:run(D, Le, [global]) of
+                  nomatch -> 0;
+                  {match, Les} -> length(Les)
+              end
+      end,
+    CRLFs = ReLineEndsFun(Data, "\r\n"),
+    LFs = ReLineEndsFun(Data, "\n"),
+    CRs = ReLineEndsFun(Data, "\r"),
+    LineSeperator = if
+        CRLFs == LFs andalso LFs == CRs -> <<"\r\n">>;
+        LFs > CRs -> <<"\n">>;
+        CRs > LFs -> <<"\r">>;
+        true -> <<"\r\n">>
+    end,
+    {match, [[DataTillLastLineSep]]}
+    = re:run(Data, <<".*", LineSeperator/binary>>,
+             [global, dotall, {capture, all, binary}]),
+    Rows = lists:reverse(
+             case lists:reverse(
+                    binary:split(DataTillLastLineSep, LineSeperator, [global])
+                   ) of
+                 [<<>>|RowsReversed] -> RowsReversed;
+                 RowsReversed -> RowsReversed
+             end),
+    SplitColsFun
+    = fun(Rws, S) ->
+              SplitRows = lists:foldl(
+                            fun(R, A) ->
+                                    A ++ [binary:split(R, S, [global])]
+                            end, [], Rws),
+              case lists:flatten(SplitRows) of
+                  Rws -> [];
+                  _ -> SplitRows
+              end
+      end,
+    RowsSplitByComma = SplitColsFun(Rows, <<",">>),
+    RowsSplitBySemiColon = SplitColsFun(Rows, <<";">>),
+    RowsSplitByTab = SplitColsFun(Rows, <<"\t">>),
+    ColumnLengthFun
+    = fun(Rws) ->
+              case lists:foldl(
+                     fun(R, Len) when is_integer(Len) ->
+                             RL = length(R),
+                             if RL >= Len -> RL;
+                                true -> false
+                             end;
+                        (_, Len) -> Len
+                     end, 0, Rws) of
+                  0 -> false;
+                  false -> false;
+                  L -> L
+              end
+      end,
+    {ColumnSeperator,ColumnLength,SelectRowSplit} =
+    case ColumnLengthFun(RowsSplitByTab) of
+        Len when is_integer(Len) -> {<<"\t">>, Len, RowsSplitByTab};
+        _ ->
+            case ColumnLengthFun(RowsSplitBySemiColon) of
+                Len when is_integer(Len) -> {<<";">>, Len, RowsSplitBySemiColon};
+                _ ->
+                    case ColumnLengthFun(RowsSplitByComma) of
+                        Len when is_integer(Len) -> {<<",">>, Len, RowsSplitByComma};
+                        _ -> error("unable to determine seperator")
+                    end
+            end
+    end,
+    Columns = case lists:foldl(
+                     fun(Rw, '$not_selected') ->
+                             case length(Rw) == ColumnLength andalso is_name_row(Rw) of
+                                 true -> Rw;
+                                 false -> '$not_selected'
+                             end;
+                        (_, Columns) -> Columns
+                     end, '$not_selected', SelectRowSplit) of
+                  '$not_selected' -> default_columns(ColumnLength);
+                  Clms -> Clms
+              end,
+    {ok, #{lineSeperator => LineSeperator, columnSeperator => ColumnSeperator,
+           columnLength => ColumnLength, columns => Columns}}.
+
+is_name_row(Row) ->
+    L = length(Row),
+    case length(lists:usort(Row)) of
+        L ->
+            case lists:usort([is_name(R) || R <- Row]) of 
+                [true] ->   true;
+                _ ->        false
+            end;
+        _ -> false
+    end.
+
+is_name(Bin) when is_list(Bin); is_binary(Bin) ->
+    case re:run(Bin, "^[A-Za-z][A-Za-z0-9_]*$", [global]) of
+        nomatch -> false;
+        _ -> true
+    end.
+
+default_columns(N) ->
+    [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].
+
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
     case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
@@ -61,42 +170,10 @@ code_change(_OldVsn, State, _Extra) ->
 format_status(_Opt, [_PDict, _State]) -> ok.
 
 
-column_names({CsvSchema,FileName}) ->
+column_names({_CsvSchema,FileName}) ->
     UnquotedFN = imem_datatype:strip_dquotes(FileName),
-    case select({CsvSchema,UnquotedFN}, [], 100, read) of
-        '$end_of_table' ->  [<<"col1">>];
-         {Rows, _} ->       first_longest_line(Rows,[])
-    end.
-
-first_longest_line([],Acc) ->           ?LogDebug("first_longest_line ~p",[Acc]), 
-                                        Acc;     
-first_longest_line([Row|Rows],Acc) ->
-    [_|R] = tuple_to_list(Row), 
-    if 
-        (length(R) > length(Acc)) ->    first_longest_line(Rows,name_row(R));
-        true ->                         first_longest_line(Rows,Acc)
-    end.
-
-name_row(Row) ->
-    L = length(Row),
-    case length(lists:usort(Row)) of
-        L ->
-            case lists:usort([is_name(R) || R <- Row]) of 
-                [true] ->   Row;
-                _ ->        name_default(L)
-            end;
-        _ ->
-            name_default(L)
-    end.
-
-is_name(Bin) when is_list(Bin); is_binary(Bin) ->
-    case re:run(Bin, "^[A-Za-z][A-Za-z0-9_]*$", [global]) of
-        nomatch -> false;
-        _ -> true
-    end.
-
-name_default(N) ->
-    [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].
+    #{columns := Columns} = file_info(UnquotedFN),
+    Columns.
 
 fetch_start(Pid, {Schema,FileName}, MatchSpec, RowCount, Opts) ->
     UnquotedFN = imem_datatype:strip_dquotes(FileName),
