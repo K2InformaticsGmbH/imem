@@ -77,8 +77,8 @@ file_info(File, _Opts) ->
                   '$not_selected' -> default_columns(ColumnLength);
                   Clms -> Clms
               end,
-    {ok, #{lineSeparator => LineSeperator, columnSeperator => ColumnSeperator,
-           columnCount => ColumnLength, columns => Columns}}.
+    #{lineSeparator => LineSeperator, columnSeperator => ColumnSeperator,
+      columnCount => ColumnLength, columns => Columns}.
 
 count_eol_seq(D, Le) ->
     case re:run(D, Le, [global]) of
