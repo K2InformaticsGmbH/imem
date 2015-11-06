@@ -148,8 +148,47 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        % CsvFileName = "CsvTestFileName123abc.txt",
-        % file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        CsvFileName = "CsvTestFileName123abc.txt",
+        file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
+        ?assertEqual(   {ok,   #{ columnLength => 2
+                                , columnSeperator => <<"\t">>
+                                , columns => [<<"Col1">>,<<"Col2">>]
+                                , lineSeperator => <<"\r\n">>}
+                        }
+                        , imem_if_csv:file_info(CsvFileName)),
+
+        file:write_file(CsvFileName,<<"A\t\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        ?assertEqual(   {ok,   #{ columnLength => 2
+                                , columnSeperator => <<"\t">>
+                                , columns => [<<"Col1">>,<<"Col2">>]
+                                , lineSeperator => <<"\r\n">>}
+                        }
+                        , imem_if_csv:file_info(CsvFileName)),
+
+        file:write_file(CsvFileName,<<"\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        ?assertEqual(   {ok,   #{ columnLength => 2
+                                , columnSeperator => <<"\t">>
+                                , columns => [<<"Col1">>,<<"Col2">>]
+                                , lineSeperator => <<"\r\n">>}
+                        }
+                        , imem_if_csv:file_info(CsvFileName)),
+
+        % file:write_file(CsvFileName,<<"1\t2\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        % ?assertEqual(   {ok,   #{ columnLength => 2
+        %                         , columnSeperator => <<"\t">>
+        %                         , columns => [<<"col1">>,<<"col2">>]
+        %                         , lineSeperator => <<"\r\n">>}
+        %                 }
+        %                 , imem_if_csv:file_info(CsvFileName)),
+
+        % file:write_file(CsvFileName,<<"1\t2\nCol1\tCol2\n\n">>),
+        % ?assertEqual(   {ok,   #{ columnLength => 1
+        %                         , columnSeperator => <<>>
+        %                         , columns => [<<"col1">>]
+        %                         , lineSeperator => <<"\n">>}
+        %                 }
+        %                 , imem_if_csv:file_info(CsvFileName)),
+
         % ?assertEqual(
         %     {[{csv_rec,<<"Col1">>,<<"Col2">>}
         %      ,{csv_rec,<<"A1">>,<<"1">>}
@@ -170,7 +209,6 @@ test_with_or_without_sec(IsSec) ->
         %     ]
         % ),
 
-        % file:write_file(CsvFileName,<<"A\t\t\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
         % exec_fetch_sort_equal(SKey, query00a, 100, IsSec, "
         %     select col2 from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
         %     ,
