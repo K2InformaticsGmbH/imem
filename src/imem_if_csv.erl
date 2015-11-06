@@ -32,18 +32,18 @@ file_info(File, _Opts) ->
     CRLFs = count_eol_seq(Data, "\r\n"),
     LFs = count_eol_seq(Data, "\n"),
     CRs = count_eol_seq(Data, "\r"),
-    LineSeperator = if
+    LineSeparator = if
         CRLFs == LFs andalso LFs == CRs -> <<"\r\n">>;
         LFs > CRs -> <<"\n">>;
         CRs > LFs -> <<"\r">>;
         true -> <<"\n">>
     end,
     {match, [[DataTillLastLineSep]]}
-    = re:run(Data, <<".*", LineSeperator/binary>>,
+    = re:run(Data, <<".*", LineSeparator/binary>>,
              [global, dotall, {capture, all, binary}]),
     Rows = lists:reverse(
              case lists:reverse(
-                    binary:split(DataTillLastLineSep, LineSeperator, [global])
+                    binary:split(DataTillLastLineSep, LineSeparator, [global])
                    ) of
                  [<<>>|RowsReversed] -> RowsReversed;
                  RowsReversed -> RowsReversed
@@ -51,7 +51,7 @@ file_info(File, _Opts) ->
     RowsSplitByComma = split_cols(Rows, <<",">>),
     RowsSplitBySemiColon = split_cols(Rows, <<";">>),
     RowsSplitByTab = split_cols(Rows, <<"\t">>),
-    {ColumnSeperator,ColumnLength,SelectRowSplit} =
+    {ColumnSeparator,ColumnLength,SelectRowSplit} =
     case column_length(RowsSplitByTab) of
         Len when is_integer(Len) -> {<<"\t">>, Len, RowsSplitByTab};
         _ ->
@@ -77,7 +77,7 @@ file_info(File, _Opts) ->
                   '$not_selected' -> default_columns(ColumnLength);
                   Clms -> Clms
               end,
-    #{lineSeparator => LineSeperator, columnSeperator => ColumnSeperator,
+    #{lineSeparator => LineSeparator, columnSeparator => ColumnSeparator,
       columnCount => ColumnLength, columns => Columns}.
 
 count_eol_seq(D, Le) ->
