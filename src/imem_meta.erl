@@ -3082,7 +3082,16 @@ db_1_test_() ->
               fun meta_operations/1
         ]}}.    
 
-db_2_test_() ->
+db_2a_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [
+              fun meta_preparations/1
+        ]}}.    
+
+db_2b_test_() ->
     {
         setup,
         fun setup/0,
@@ -3386,13 +3395,12 @@ meta_operations(_) ->
     end,
     ok.
 
-
-meta_partitions(_) ->
+meta_preparations(_) ->
     try 
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException', 
 
-        ?LogDebug("---TEST---~p:meta_partitions~n", [?MODULE]),
+        ?LogDebug("---TEST---~p:meta_preparations~n", [?MODULE]),
 
         ?assertEqual(["Schema",".","BaseName"   ,"_","01234","@","Node"],parse_table_name("Schema.BaseName_01234@Node")),
         ?assertEqual(["Schema",".","BaseName"   ,"" ,""     ,"" ,""    ],parse_table_name("Schema.BaseName")),
@@ -3428,8 +3436,22 @@ meta_partitions(_) ->
         ?assertEqual(false,is_node_sharded_alias(tpTest_1000)),
         ?assertEqual(false,is_node_sharded_alias(tpTest1000)),
         ?assertEqual(false,is_node_sharded_alias(?TPTEST1)),
-        ?assertEqual(false,is_node_sharded_alias(?TPTEST1)),
+        ?assertEqual(false,is_node_sharded_alias(?TPTEST1))
 
+    catch
+        Class:Reason ->     
+            timer:sleep(1000),
+            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            throw ({Class, Reason})
+    end,
+    ok.
+
+meta_partitions(_) ->
+    try 
+        ClEr = 'ClientError',
+        UiEx = 'UnimplementedException', 
+
+        ?LogDebug("---TEST---~p:meta_partitions~n", [?MODULE]),
         
         LogTable = physical_table_name(?LOG_TABLE),
         ?assert(lists:member(LogTable,physical_table_names(?LOG_TABLE))),
