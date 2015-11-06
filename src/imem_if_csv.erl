@@ -22,28 +22,21 @@
 
 -export([select/4, column_names/1, fetch_start/5]).
 
--export([file_info/1]).
+-export([file_info/2]).
 
--define(INFO_BYTES, 2 * 1024).
-file_info(File) ->
+file_info(File) -> file_info(File, []).
+file_info(File, _Opts) ->
     {ok, Io} = file:open(File, [raw, read, binary]),
     {ok, Data} = file:pread(Io, 0, ?INFO_BYTES),
     ok = file:close(Io),
-    ReLineEndsFun
-    = fun(D, Le) ->
-              case re:run(D, Le, [global]) of
-                  nomatch -> 0;
-                  {match, Les} -> length(Les)
-              end
-      end,
-    CRLFs = ReLineEndsFun(Data, "\r\n"),
-    LFs = ReLineEndsFun(Data, "\n"),
-    CRs = ReLineEndsFun(Data, "\r"),
+    CRLFs = count_eol_seq(Data, "\r\n"),
+    LFs = count_eol_seq(Data, "\n"),
+    CRs = count_eol_seq(Data, "\r"),
     LineSeperator = if
         CRLFs == LFs andalso LFs == CRs -> <<"\r\n">>;
         LFs > CRs -> <<"\n">>;
         CRs > LFs -> <<"\r">>;
-        true -> <<"\r\n">>
+        true -> <<"\n">>
     end,
     {match, [[DataTillLastLineSep]]}
     = re:run(Data, <<".*", LineSeperator/binary>>,
@@ -55,45 +48,21 @@ file_info(File) ->
                  [<<>>|RowsReversed] -> RowsReversed;
                  RowsReversed -> RowsReversed
              end),
-    SplitColsFun
-    = fun(Rws, S) ->
-              SplitRows = lists:foldl(
-                            fun(R, A) ->
-                                    A ++ [binary:split(R, S, [global])]
-                            end, [], Rws),
-              case lists:flatten(SplitRows) of
-                  Rws -> [];
-                  _ -> SplitRows
-              end
-      end,
-    RowsSplitByComma = SplitColsFun(Rows, <<",">>),
-    RowsSplitBySemiColon = SplitColsFun(Rows, <<";">>),
-    RowsSplitByTab = SplitColsFun(Rows, <<"\t">>),
-    ColumnLengthFun
-    = fun(Rws) ->
-              case lists:foldl(
-                     fun(R, Len) when is_integer(Len) ->
-                             RL = length(R),
-                             if RL >= Len -> RL;
-                                true -> false
-                             end;
-                        (_, Len) -> Len
-                     end, 0, Rws) of
-                  0 -> false;
-                  false -> false;
-                  L -> L
-              end
-      end,
+    RowsSplitByComma = split_cols(Rows, <<",">>),
+    RowsSplitBySemiColon = split_cols(Rows, <<";">>),
+    RowsSplitByTab = split_cols(Rows, <<"\t">>),
     {ColumnSeperator,ColumnLength,SelectRowSplit} =
-    case ColumnLengthFun(RowsSplitByTab) of
+    case column_length(RowsSplitByTab) of
         Len when is_integer(Len) -> {<<"\t">>, Len, RowsSplitByTab};
         _ ->
-            case ColumnLengthFun(RowsSplitBySemiColon) of
+            case column_length(RowsSplitBySemiColon) of
                 Len when is_integer(Len) -> {<<";">>, Len, RowsSplitBySemiColon};
                 _ ->
-                    case ColumnLengthFun(RowsSplitByComma) of
+                    case column_length(RowsSplitByComma) of
                         Len when is_integer(Len) -> {<<",">>, Len, RowsSplitByComma};
-                        _ -> error("unable to determine seperator")
+                        _ ->
+                            [Col] = default_columns(1),
+                            {<<>>, 1, [<<Col/binary, (lists:nth(1, Rows))/binary>>]}
                     end
             end
     end,
@@ -108,8 +77,39 @@ file_info(File) ->
                   '$not_selected' -> default_columns(ColumnLength);
                   Clms -> Clms
               end,
-    {ok, #{lineSeperator => LineSeperator, columnSeperator => ColumnSeperator,
-           columnLength => ColumnLength, columns => Columns}}.
+    {ok, #{lineSeparator => LineSeperator, columnSeperator => ColumnSeperator,
+           columnCount => ColumnLength, columns => Columns}}.
+
+count_eol_seq(D, Le) ->
+    case re:run(D, Le, [global]) of
+        nomatch -> 0;
+        {match, Les} -> length(Les)
+    end.
+
+split_cols(Rows, SplitWith) ->
+    SplitRows = lists:foldl(
+                  fun(Row, Acc) ->
+                          Acc ++ [binary:split(Row, SplitWith, [global])]
+                  end, [], Rows),
+    case lists:flatten(SplitRows) of
+        Rows -> [];
+        _ -> SplitRows
+    end.
+
+column_length(Rows) ->
+    case lists:foldl(
+           fun(R, Len) when is_integer(Len) ->
+                   RL = length(R),
+                   if RL >= Len -> RL;
+                      true -> false
+                   end;
+              (_, Len) -> Len
+           end, 0, Rows) of
+        0 -> false;
+        false -> false;
+        L -> L
+    end.
+
 
 is_name_row(Row) ->
     L = length(Row),
