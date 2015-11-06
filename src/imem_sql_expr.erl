@@ -1627,19 +1627,19 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, uses_filter({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, uses_filter({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
-        BTreeSample = 
-            {'>',{ bind,2,7,<<"imem">>,<<"ddAccount">>,<<"ddAccount">>,<<"lastLoginTime">>,
-                   datetime,undefined,undefined,undefined,false,undefined,undefined,undefined,'$27'}
-                ,{ bind,0,0,undefined,undefined,undefined,undefined,datetime,0,0,undefined,false,undefined,undefined
-                    , {add_dt, {bind,1,4,<<"imem">>,<<"meta">>,<<"meta">>,<<"sysdate">>,
-                                datetime,20,0,undefined,true,undefined,undefined,undefined,'$14'}
-                             , {'-', {bind,0,0,undefined,undefined,undefined,undefined,
-                                      float,0,0,undefined,true,undefined,undefined,1.1574074074074073e-5,[]}
-                               }
-                      }
-                    ,[]
-                }
-            },
+        % BTreeSample = 
+        %     {'>',{ bind,2,7,<<"imem">>,<<"ddAccount">>,<<"ddAccount">>,<<"lastLoginTime">>,
+        %            datetime,undefined,undefined,undefined,false,undefined,undefined,undefined,'$27'}
+        %         ,{ bind,0,0,undefined,undefined,undefined,undefined,datetime,0,0,undefined,false,undefined,undefined
+        %             , {add_dt, {bind,1,4,<<"imem">>,<<"meta">>,<<"meta">>,<<"sysdate">>,
+        %                         datetime,20,0,undefined,true,undefined,undefined,undefined,'$14'}
+        %                      , {'-', {bind,0,0,undefined,undefined,undefined,undefined,
+        %                               float,0,0,undefined,true,undefined,undefined,1.1574074074074073e-5,[]}
+        %                        }
+        %               }
+        %             ,[]
+        %         }
+        %     },
         % ?assertEqual(true, uses_bind(2,7,BTreeSample)),
         % ?assertEqual(false, uses_bind(2,6,BTreeSample)),
         % ?assertEqual(true, uses_bind(1,4,BTreeSample)),

@@ -321,7 +321,7 @@ test(_) ->
         {timeout, 5, fun() -> 
             ?assertEqual(ok, imem_sec:drop_table(SeCo4, user_table_123)),
             ?assertException(throw, {'ClientError',{"Table does not exist",user_table_123}}, imem_sec:table_size(SeCo4, user_table_123))
-         end},
+        end},
         ?LogDebug("success ~p~n", [drop_own_table]),
         ?assertEqual(ok, imem_role:grant_role(SeCo, AccountId, table_creator)),
         ?LogDebug("success ~p~n", [role_grant_tc_role]),      

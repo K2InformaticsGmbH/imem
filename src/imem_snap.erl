@@ -626,16 +626,12 @@ take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
             ?Debug("empty ~p~n",[Tab]),
             close_file(Me, FHndl);
         {row, [?sot,?eot|Rows]} ->
-            _NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
-            _NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p all, total ~p rows ~p bytes~n",[Tab, _NewRowCount, _NewByteCount]),
+            ?Debug("snap ~p all, total ~p rows ~p bytes~n",[Tab, RowCount+length(Rows), ByteCount+byte_size(RowsBin)]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?eot|Rows]} ->
-            _NewRowCount = RowCount+length(Rows),
             RowsBin = term_to_binary(Rows),
-            _NewByteCount = ByteCount+byte_size(RowsBin),
-            ?Debug("snap ~p last, total ~p rows ~p bytes~n",[Tab, _NewRowCount, _NewByteCount]),
+            ?Debug("snap ~p last, total ~p rows ~p bytes~n",[Tab, RowCount+length(Rows), ByteCount+byte_size(RowsBin)]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?sot|Rows]} ->
             NewRowCount = RowCount+length(Rows),

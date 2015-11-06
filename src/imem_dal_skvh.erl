@@ -1494,7 +1494,7 @@ skvh_operations(_) ->
 
         ?assertEqual([], read(system, ?Channel, [["1"]])),
 
-        BeforeInsert = erlang:now(),
+        BeforeInsert = imem_if:now(), %% os:timestamp(), % erlang:now(),
 
         ?assertEqual(Map1, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
         ?assertEqual(Map2, insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
@@ -1530,7 +1530,7 @@ skvh_operations(_) ->
         Map4Upd = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 150}">>, chash => <<"1RZ299">>},
         Map5Upd = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 400}">>, chash => <<"1DKGDA">>},
 
-        BeforeUpdate = erlang:now(),
+        BeforeUpdate = imem_if:now(), %% os:timestamp(), % erlang:now(),
 
         %% Update using single maps
         Map1Done = update(system, ?Channel, Map1Upd),
@@ -1567,7 +1567,7 @@ skvh_operations(_) ->
         ?assertEqual([Map4, Map5], readGELT(system, ?Channel, MidleKey, LastKey, 10)),
         ?assertEqual([], readGELT(system, ?Channel, LastKey, [LastKey | "1"], 10)),
 
-        BeforeRemove = erlang:now(),
+        BeforeRemove = imem_if:now(), %% os:timestamp(), % erlang:now(),
 
         %% Tests removing rows
         ?assertEqual(Map1Done, remove(system, ?Channel, Map1Done)),
@@ -1613,7 +1613,7 @@ skvh_operations(_) ->
         ?assertException(throw, Ex4, audit_readGT(system, ?Channel, <<"1900-01-01">>, 100)),
 
         %% Inserts for history search_deleted clients and objects
-        InsertResult = insert(system, ?Channel, [Map7, Map8, Map9]),
+        insert(system, ?Channel, [Map7, Map8, Map9]),
         Map7Upd = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 400}">>, chash => <<"HJ3TK">>},
         Map8Upd = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 555}">>, chash => <<"830WW">>},
         Map9Upd = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 400}">>, chash => <<"KKR3X">>},
@@ -1631,32 +1631,32 @@ skvh_operations(_) ->
               ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map3), nvalue => maps:get(cvalue, Map3Upd), cuser => system}
               ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map3), cuser => system}],
         History3 = #{ckey => maps:get(ckey, Map3), cvhist => CL3},
-        CL4 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map4), nvalue => maps:get(cvalue, Map4Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map4), cuser => system}],
-        History4 = #{ckey => maps:get(ckey, Map4), cvhist => CL4},
-        CL5 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5), nvalue => maps:get(cvalue, Map5Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map5), cuser => system}],
-        History5 = #{ckey => maps:get(ckey, Map5), cvhist => CL5},
-        CL7 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map7), nvalue => maps:get(cvalue, Map7Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map7), cuser => system}],
-        History7 = #{ckey => maps:get(ckey, Map7), cvhist => CL7},
-        CL8 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8), nvalue => maps:get(cvalue, Map8Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map8), cuser => system}],
-        History8 = #{ckey => maps:get(ckey, Map8), cvhist => CL8},
-        CL9 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9), nvalue => maps:get(cvalue, Map9Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map9), cuser => system}],
-        History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
+        % CL4 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map4), nvalue => maps:get(cvalue, Map4Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map4), cuser => system}],
+        % History4 = #{ckey => maps:get(ckey, Map4), cvhist => CL4},
+        % CL5 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5), nvalue => maps:get(cvalue, Map5Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map5), cuser => system}],
+        % History5 = #{ckey => maps:get(ckey, Map5), cvhist => CL5},
+        % CL7 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map7), nvalue => maps:get(cvalue, Map7Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map7), cuser => system}],
+        % History7 = #{ckey => maps:get(ckey, Map7), cvhist => CL7},
+        % CL8 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8), nvalue => maps:get(cvalue, Map8Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map8), cuser => system}],
+        % History8 = #{ckey => maps:get(ckey, Map8), cvhist => CL8},
+        % CL9 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9), nvalue => maps:get(cvalue, Map9Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map9), cuser => system}],
+        % History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
 
         %% Updating objects for history test cases
-        [Map4Done, Map5Done, Map7Done, Map8Done, Map9Done] = update(system, ?Channel, [Map4Upd, Map5Upd, Map7Upd, Map8Upd, Map9Upd]),
+        [Map4Done, Map5Done, _Map7Done, Map8Done, Map9Done] = update(system, ?Channel, [Map4Upd, Map5Upd, Map7Upd, Map8Upd, Map9Upd]),
         ?assertEqual([maps:remove(chash,Map4Upd), maps:remove(chash,Map5Upd)]
                     , [maps:remove(chash,M) || M <- [Map4Done, Map5Done]]
                     ),
 
-        RemoveResult = remove(system, ?Channel, [Map8Done, Map9Done]),
+        remove(system, ?Channel, [Map8Done, Map9Done]),
 
         %% Read using a list of term keys.
         HistResult = hist_reset_time(hist_read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
@@ -1745,7 +1745,7 @@ skvh_operations(_) ->
 
 skvh_concurrency(_) ->
     try
-        ClEr = 'ClientError',
+        % ClEr = 'ClientError',
         TestKey = ["sum"],
 
         ?LogDebug("---TEST---~p:skvh_concurrency~n", [?MODULE]),
@@ -1776,10 +1776,7 @@ skvh_concurrency(_) ->
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
         [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
         ?LogDebug("success ~p", [bulk_drop_spawned]),
-        DropResultFun = fun() ->
-                ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])]))
-            end,
-        {timeout, 10, DropResultFun},
+        {timeout, 10, fun() -> ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])])) end},
         ?LogDebug("success ~p~n", [bulk_drop_tables])
     catch
         Class:Reason ->     

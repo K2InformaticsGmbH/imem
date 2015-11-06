@@ -428,8 +428,8 @@ create_partitioned_table(TableAlias, TableName) when is_atom(TableName) ->
                     ok ->   ok;
                     {'ClientError',{"Table does not exist",TableName}} ->
                         create_nonexisting_partitioned_table(TableAlias,TableName);
-                    Res ->
-                        ?Info("Waiting for partitioned table ~p needed because of ~p", [TableName,Res]),
+                    _Res ->
+                        ?Info("Waiting for partitioned table ~p needed because of ~p", [TableName,_Res]),
                         case mnesia:wait_for_tables([TableName], 30000) of
                             ok ->   ok;   
                             Error ->            
@@ -1908,7 +1908,7 @@ when is_atom(Level)
     , is_list(Fields)
     , is_binary(Message)
     , is_list(StackTrace) ->
-    LogRec = #ddLog{logTime=erlang:now(),logLevel=Level,pid=self()
+    LogRec = #ddLog{logTime=imem_if:now(),logLevel=Level,pid=self()
                     ,module=Module,function=Function,line=Line,node=node()
                     ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
@@ -2481,7 +2481,7 @@ select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-write_log(Record) -> write(?LOG_TABLE, Record#ddLog{logTime=erlang:now()}).
+write_log(Record) -> write(?LOG_TABLE, Record#ddLog{logTime=imem_if:now()}).
 
 write({ddSysConf,TableAlias}, _Record) -> 
     % imem_if_sys_conf:write(TableAlias, Record);
@@ -3104,7 +3104,7 @@ meta_operations(_) ->
     try 
         ClEr = 'ClientError',
         SyEx = 'SystemException', 
-        UiEx = 'UnimplementedException', 
+        % UiEx = 'UnimplementedException', 
 
         ?LogDebug("---TEST---~p:meta_operations~n", [?MODULE]),
 
@@ -3123,7 +3123,7 @@ meta_operations(_) ->
 
         ?assertEqual(ok, check_table(?CACHE_TABLE)),
 
-        Now = erlang:now(),
+        Now = imem_if:now(),
         LogCount1 = table_size(?LOG_TABLE),
         ?LogDebug("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
@@ -3337,7 +3337,7 @@ meta_operations(_) ->
         {1,{meta_table_3,{{2000,1,1},{12,45,59}},undefined}}
         ],
         U = unknown,
-        {TT4,_DefRec,TrigFun} = trigger_infos(meta_table_3),
+        {_,_DefRec,TrigFun} = trigger_infos(meta_table_3),
         ?assertEqual(Keys4, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}},undefined},TrigFun,U,[]]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3, ?nav, undefined},TrigFun,U,[]]], optimistic)),
         ?assertException(throw, {ClEr,{"Not null constraint violation", {1,{meta_table_3,_}}}}, update_tables([[{imem,meta_table_3,set}, 1, {}, {meta_table_3,{{2000,01,01},{12,45,59}}, ?nav},TrigFun,U,[]]], optimistic)),
@@ -3460,14 +3460,14 @@ meta_partitions(_) ->
 
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- read(ddAlias)])),
 
-        LogRec = #ddLog{logTime= erlang:now(),logLevel=info,pid=self()
+        LogRec = #ddLog{logTime= imem_if:now(),logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_partitions,node=node()
                             ,fields=[],message= <<"some log message">>},
 
         ?assertEqual(ok, write(?TPTEST0, LogRec)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(?TPTEST0)),
-        {Megs,Secs,Mics} = erlang:now(),
+        {Megs,Secs,Mics} = imem_if:now(),
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRecF = LogRec#ddLog{logTime=Future},

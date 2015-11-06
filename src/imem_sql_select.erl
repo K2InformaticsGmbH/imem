@@ -87,6 +87,10 @@ if_call_mfa(IsSec,Fun,Args) ->
     end.
 
 setup() -> 
+    catch imem_meta:drop_table(member_test),
+    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(ddViewTest),
+    catch imem_meta:drop_table(ddCmdTest),
     ?imem_test_setup.
 
 teardown(_SKey) -> 
@@ -96,18 +100,22 @@ teardown(_SKey) ->
     catch imem_meta:drop_table(ddCmdTest),
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with,inorder,[
-              fun test_without_sec/1
-            % , fun test_with_sec/1
-        ]
-        }
+        {with,inorder,[fun test_without_sec/1]}
     }.
     
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with,inorder,[fun test_with_sec/1]}
+    }.
+
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
@@ -118,7 +126,6 @@ test_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
-        CsvFileName = "CsvTestFileName123abc.txt",
 
         ?LogDebug("----------------------------------~n"),
         ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
@@ -141,36 +148,48 @@ test_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2">>),
-        exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
-            select * from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
-            ,
-            [{<<"A1">>,<<"1">>}
-            ,{<<"A2">>,<<"2">>}
-            ,{<<"Col1">>,<<"Col2">>}
-            ]
-        ),
+        % CsvFileName = "CsvTestFileName123abc.txt",
+        % file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        % ?assertEqual(
+        %     {[{csv_rec,<<"Col1">>,<<"Col2">>}
+        %      ,{csv_rec,<<"A1">>,<<"1">>}
+        %      ,{csv_rec,<<"A2">>,<<"2">>}
+        %      ]
+        %     ,{'$end_of_table'}
+        %     }
+        % ,
+        %     imem_if_csv:select({?CSV_SCHEMA,imem_datatype:strip_dquotes(CsvFileName)}, [], 100, read)
+        % ),
 
-        file:write_file(CsvFileName,<<"A\t\t\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
-        exec_fetch_sort_equal(SKey, query00a, 100, IsSec, "
-            select col2 from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
-            ,
-            [{<<>>}
-            ,{<<"1">>}
-            ,{<<"2">>}
-            ,{<<"Col2">>}
-            ]
-        ),
+        % exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
+        %     select * from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
+        %     ,
+        %     [{<<"A1">>,<<"1">>}
+        %     ,{<<"A2">>,<<"2">>}
+        %     ,{<<"Col1">>,<<"Col2">>}
+        %     ]
+        % ),
 
-        exec_fetch_sort_equal(SKey, query00b, 100, IsSec, "
-            select col2, col1 from csv$.\"C:\\Temp\\Test.txt\"
-            "
-            ,
-            [{<<"1">>,<<"A1">>}
-            ,{<<"2">>,<<"A2">>}
-            ,{<<"Col2">>,<<"Col1">>}
-            ]
-        ),
+        % file:write_file(CsvFileName,<<"A\t\t\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        % exec_fetch_sort_equal(SKey, query00a, 100, IsSec, "
+        %     select col2 from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
+        %     ,
+        %     [{<<>>}
+        %     ,{<<"1">>}
+        %     ,{<<"2">>}
+        %     ,{<<"Col2">>}
+        %     ]
+        % ),
+
+        % exec_fetch_sort_equal(SKey, query00b, 100, IsSec, "
+        %     select col2, col1 from csv$.\"C:\\Temp\\Test.txt\"
+        %     "
+        %     ,
+        %     [{<<"1">>,<<"A1">>}
+        %     ,{<<"2">>,<<"A2">>}
+        %     ,{<<"Col2">>,<<"Col1">>}
+        %     ]
+        % ),
 
         % ?assert(false),
 

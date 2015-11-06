@@ -46,8 +46,8 @@ handle_cast(_Request, State) ->
     ?Info("Unknown cast ~p!", [_Request]),
     {noreply, State}.
 
-handle_info(Info, State) ->
-    ?Info("Unknown info ~p!", [Info]),
+handle_info(_Info, State) ->
+    ?Info("Unknown info ~p!", [_Info]),
     {noreply, State}.
 
 terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
@@ -98,7 +98,7 @@ is_name(Bin) when is_list(Bin); is_binary(Bin) ->
 name_default(N) ->
     [list_to_binary(lists:flatten("col",integer_to_list(I))) || I <- lists:seq(1, N)].
 
-fetch_start(Pid, {Schema,FileName}, MatchSpec, RowCount, Opts) ->
+fetch_start(Pid, {Schema,FileName}, MatchSpec, RowCount, _Opts) ->
     UnquotedFN = imem_datatype:strip_dquotes(FileName),
     % ?LogDebug("UnquotedFN : ~p", [UnquotedFN]),
     F =
@@ -152,7 +152,7 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, RowCount, Opts) ->
     spawn(fun() -> F(F,undefined) end).
 
 select({_CsvSchema,UnquotedFN}, _MatchSpec, RowCount, _LockType) ->
-    ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
+    % ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
     {ok, Io} = file:open(UnquotedFN, [raw, read, binary]),
     read_blocks(Io, 0, 100, RowCount).
 
@@ -166,11 +166,13 @@ read_blocks(Io, Pos, BlockSize, RowCount, Rows) ->
     case file:pread(Io, Pos, BlockSize) of
         {ok, Bin} -> 
             AllLines = binary:split(Bin, [<<"\n">>],[global]),
-            NewPos = case binary:last(Bin) of
-                10 -> Pos + BlockSize;
-                _ -> Pos +  BlockSize - size(lists:last(AllLines))
+            {Lines,NewPos} = case binary:last(Bin) of
+                10 ->   case lists:last(AllLines) of
+                            <<>> -> {lists:droplast(AllLines), Pos + BlockSize};
+                            _ ->    {AllLines, Pos + BlockSize}
+                        end;
+                _ ->    {lists:droplast(AllLines),Pos + BlockSize - size(lists:last(AllLines))}
             end,
-            Lines = lists:droplast(AllLines),
             NewRows = Rows ++ [begin  F = binary:replace(R, <<"\r">>, <<>>), 
                 list_to_tuple([?CSV_RECORD_NAME|binary:split(F, [<<"\t">>],[global])])
                 end || R <- Lines],

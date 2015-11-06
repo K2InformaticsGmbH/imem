@@ -86,6 +86,7 @@
         , get_vm_memory/0
         , spawn_sync_mfa/3
         , lock/2
+        , now/0
         ]).
 
 -export([ first/1
@@ -112,6 +113,8 @@
                     ok
             end
        ).
+
+now() -> erlang:now().
 
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
@@ -944,8 +947,8 @@ handle_info(Info, State) ->
                     ?Info("Mnesia node down ~p!", [Node]),
                     {noreply, State}
             end;
-        {mnesia_system_event,{Event,Node}} ->
-            ?Info("Mnesia event ~p from Node ~p!",[Event, Node]),
+        {mnesia_system_event,{_Event,_Node}} ->
+            ?Info("Mnesia event ~p from Node ~p!",[_Event, _Node]),
             {noreply, State};
         Error ->
             ?Error("Mnesia error : ~p",[Error]),
@@ -1081,7 +1084,7 @@ db_test_() ->
 table_operations(_) ->
     try
         ClEr = 'ClientError',
-        SyEx = 'SystemException',
+        % SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
         Self = self(),
 
