@@ -25,18 +25,27 @@
 -export([file_info/2]).
 
 file_info(File) -> file_info(File, []).
-file_info(File, _Opts) ->
+file_info(File, Opts) ->
     {ok, Io} = file:open(File, [raw, read, binary]),
     {ok, Data} = file:pread(Io, 0, ?INFO_BYTES),
     ok = file:close(Io),
     CRLFs = count_eol_seq(Data, "\r\n"),
     LFs = count_eol_seq(Data, "\n"),
     CRs = count_eol_seq(Data, "\r"),
-    LineSeparator = if
-        CRLFs == LFs andalso LFs == CRs -> <<"\r\n">>;
-        LFs > CRs -> <<"\n">>;
-        CRs > LFs -> <<"\r">>;
-        true -> <<"\n">>
+    LineSeparator
+    = case {CRLFs, LFs, CRs} of
+          {NL, NL, NL} -> <<"\r\n">>;
+          _ when LFs > CRs -> <<"\n">>;
+          _ when CRs > LFs -> <<"\r">>;
+          {0, 0, 0} ->
+              case proplists:is_defined(crlf, Opts) of
+                  true -> <<"\r\n">>;
+                  _ ->
+                      case proplists:is_defined(lf, Opts) of
+                          true -> <<"\n">>
+                      end
+              end;
+          _ -> <<"\n">>
     end,
     {match, [[DataTillLastLineSep]]}
     = re:run(Data, <<".*", LineSeparator/binary>>,
@@ -68,13 +77,18 @@ file_info(File, _Opts) ->
     end,
     Columns = case lists:foldl(
                      fun(Rw, '$not_selected') ->
-                             case length(Rw) == ColumnLength andalso is_name_row(Rw) of
-                                 true -> Rw;
-                                 false -> '$not_selected'
+                             if length(Rw) == ColumnLength ->
+                                    case is_name_row(Rw) of
+                                        true -> Rw;
+                                        false -> '$look_no_further'
+                                    end;
+                                true -> '$not_selected'
                              end;
                         (_, Columns) -> Columns
                      end, '$not_selected', SelectRowSplit) of
-                  '$not_selected' -> default_columns(ColumnLength);
+                  NotColumn when NotColumn == '$not_selected';
+                                 NotColumn == '$look_no_further' ->
+                      default_columns(ColumnLength);
                   Clms -> Clms
               end,
     #{lineSeparator => LineSeparator, columnSeparator => ColumnSeparator,
