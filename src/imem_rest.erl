@@ -21,19 +21,22 @@
 -record(state, {pid}).
 
 handle(Req, _Args) ->
-    %% Delegate to our handler function
     handle(Req#req.method, elli_request:path(Req), Req).
 
-handle('GET', [Channel], _Req) ->
-    {200, [], Channel};
+handle('GET', [Channel], Req) ->
+    io:format("Parse Args ~p~n", [parse_args(Req)]),
+    get_channel(Channel, parse_args(Req));
 
 handle('GET', [Channel, EnKey], _Req) ->
-	Key = decode(EnKey),
-    io:format("Deocdeode key : ~p~n", [Key]),
-    case imem_dal_skvh:read(system, Channel, [Key]) of
-        [] ->  {404, [], <<"Not Found">>};
-		[#{cvalue := Data}] -> 
-            {200, [{<<"Content-type">>, <<"application/json">>}], Data}
+	try decode(EnKey) of
+        Key ->
+            case imem_dal_skvh:read(system, Channel, [Key]) of
+                [] ->  {404, [], <<"Not Found">>};
+                [#{cvalue := Data}] ->
+                    {200, [{<<"Content-type">>, <<"application/json">>}], Data}
+            end
+    catch
+        _:_ -> {500, [], <<"Not a valid key">>}
     end;
 
 handle(_, _, _Req) ->
@@ -68,10 +71,54 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+get_channel(Channel, none) ->
+    try imem_meta:read(binary_to_atom(Channel, utf8)) of
+        Rows ->
+            Keys = [imem_datatype:binterm_to_io(K) || {_, K, _, _} <- Rows],
+            {200, [{<<"Content-type">>, <<"application/json">>}], Keys}
+    catch
+        E1:E2 ->
+            io:format("E1 : ~p E2 : ~p~n", [E1, E2]),
+            {500, [], <<"Channel does not exist">>}
+    end;
+get_channel(Channel, #{jp := JP, limit := Limit, keyGT := KeyGT,
+    keyLT := KeyLT}) ->
+    Rows = imem_dal_skvh:readGELT(system, Channel, KeyGT, KeyLT, Limit),
+    % Data = [lists:concat(["{\"key\":", Key, "\"value\": ", Value, "}"]) 
+    % || #{ckey := Key, cvalue := Value} <- Rows],
+    % {200, [{<<"Content-type">>, <<"application/json">>}], list_to_binary(["[", string:joing(Data, ","), "]"])}.
+    Data = [#{key => key_to_json(Key), value => imem_json:decode(Value)} 
+    || #{ckey := Key, cvalue := Value} <- Rows],
+    {200, [{<<"Content-type">>, <<"application/json">>}], imem_json:encode(Data)}.
+
+parse_args(Req) ->
+    case binary:match(elli_request:query_str(Req), 
+        [<<"limit">>, <<"jp">>, <<"keyGT">>, <<"keyLT">>]) of
+    nomatch -> none;
+    _ ->
+        JP = elli_request:get_arg_decoded(<<"jp">>, Req, {}),
+        Limit = binary_to_integer(elli_request:get_arg_decoded(<<"limit">>, 
+            Req, <<"999999999999">>)),
+        KeyGT = decode_key(elli_request:get_arg_decoded(<<"keyGT">>, Req, [])),
+        KeyLT = case elli_request:get_arg_decoded(<<"keyLT">>, Req, []) of
+            [] -> KeyGT ++ <<"255">>;
+            Key -> decode_key(Key)
+        end,
+        #{jp => JP, limit => Limit, keyGT => KeyGT, keyLT => KeyLT}
+    end.
+
 decode(Encoded) ->
-    key_from_json(imem_json:decode(
-        list_to_binary(http_uri:decode(binary_to_list(Encoded))))).
+    decode_key(
+        list_to_binary(http_uri:decode(binary_to_list(Encoded)))).
+
+decode_key([]) -> [];
+decode_key(EnKey) ->
+    key_from_json(imem_json:decode(EnKey)).
 
 key_from_json([]) -> [];
 key_from_json([B | Key]) when is_binary(B) -> [binary_to_list(B) | key_from_json(Key)];
 key_from_json([T | Key]) -> [T | key_from_json(Key)].
+
+key_to_json([]) -> [];
+key_to_json([L | Key]) when is_list(L) -> [list_to_binary(L) | key_to_json(Key)];
+key_to_json([T | Key]) -> [T | key_to_json(Key)].
