@@ -24,9 +24,15 @@ handle(Req, _Args) ->
     %% Delegate to our handler function
     handle(Req#req.method, elli_request:path(Req), Req).
 
-handle('GET', [Channel], _Req) ->
-	io:format("Got request for channel : ~p~n", [Channel]),
-	{200, [], Channel};
+handle('GET', [Channel], Req) ->
+	case elli_request:get_arg(<<"key">>, Req, undefined) of
+		undefined -> {200, [], Channel};
+		Key -> 
+			io:format("Got Key : ~p~n", [imem_json:decode(Key)]),
+			[#{cvalue := Data}] = imem_dal_skvh:read(system, Channel, 
+				[imem_json:decode(Key)]),
+			{200, [{<<"Content-type">>, <<"application/json">>}], Data}
+	end;
 
 handle(_, _, _Req) ->
     {404, [], <<"Not Found">>}.
