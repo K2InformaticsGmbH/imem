@@ -25,13 +25,15 @@ handle(Req, _Args) ->
     handle(Req#req.method, elli_request:path(Req), Req).
 
 handle('GET', [Channel], Req) ->
-	case elli_request:get_arg(<<"key">>, Req, undefined) of
+	case elli_request:get_arg_decoded(<<"key">>, Req, undefined) of
 		undefined -> {200, [], Channel};
 		Key -> 
-			io:format("Got Key : ~p~n", [imem_json:decode(Key)]),
-			[#{cvalue := Data}] = imem_dal_skvh:read(system, Channel, 
-				[imem_json:decode(Key)]),
-			{200, [{<<"Content-type">>, <<"application/json">>}], Data}
+            case imem_dal_skvh:read(system, Channel, 
+                [key_from_json(imem_json:decode(Key))]) of
+                [] ->  {404, [], <<"Not Found">>};
+    			[#{cvalue := Data}] -> 
+                    {200, [{<<"Content-type">>, <<"application/json">>}], Data}
+            end
 	end;
 
 handle(_, _, _Req) ->
@@ -65,3 +67,7 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+key_from_json([]) -> [];
+key_from_json([B | Key]) when is_binary(B) -> [binary_to_list(B) | key_from_json(Key)];
+key_from_json([T | Key]) -> [T | key_from_json(Key)].
