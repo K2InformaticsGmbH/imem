@@ -1370,6 +1370,7 @@ skvh_operations(_) ->
         ?assertEqual(6, length(Aud1)),
         {ok,Aud2} = audit_readGT(system, ?Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
+        timer:sleep(10), % windows wall clock may be 17ms behind
         {ok,Aud3} = audit_readGT(system, ?Channel,<<"kvpair">>, <<"now">>, 100),
         ?assertEqual(0, length(Aud3)),
         {ok,Aud4} = audit_readGT(system, ?Channel,<<"key">>, <<"2100-01-01">>, 100),
@@ -1476,7 +1477,8 @@ skvh_operations(_) ->
         Map3 = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"testNumber\": 100}">>, chash => <<"3MBW5">>},
         Map4 = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 250}">>, chash => <<"1RZ299">>},
         Map5 = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 300}">>, chash => <<"1DKGDA">>},
-        Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1DN1MP">>},
+        Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}],
+                 chash => <<"1404CV">>},
         Map7 = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 150}">>, chash => <<"HJ3TK">>},
         Map8 = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 250}">>, chash => <<"1M3DPR">>},
         Map9 = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 350}">>, chash => <<"KKR3X">>},
