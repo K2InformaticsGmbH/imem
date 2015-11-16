@@ -24,17 +24,17 @@ handle(Req, _Args) ->
     %% Delegate to our handler function
     handle(Req#req.method, elli_request:path(Req), Req).
 
-handle('GET', [Channel], Req) ->
-	case elli_request:get_arg_decoded(<<"key">>, Req, undefined) of
-		undefined -> {200, [], Channel};
-		Key -> 
-            case imem_dal_skvh:read(system, Channel, 
-                [key_from_json(imem_json:decode(Key))]) of
-                [] ->  {404, [], <<"Not Found">>};
-    			[#{cvalue := Data}] -> 
-                    {200, [{<<"Content-type">>, <<"application/json">>}], Data}
-            end
-	end;
+handle('GET', [Channel], _Req) ->
+    {200, [], Channel};
+
+handle('GET', [Channel, EnKey], _Req) ->
+	Key = decode(EnKey),
+    io:format("Deocdeode key : ~p~n", [Key]),
+    case imem_dal_skvh:read(system, Channel, [Key]) of
+        [] ->  {404, [], <<"Not Found">>};
+		[#{cvalue := Data}] -> 
+            {200, [{<<"Content-type">>, <<"application/json">>}], Data}
+    end;
 
 handle(_, _, _Req) ->
     {404, [], <<"Not Found">>}.
@@ -67,6 +67,10 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+decode(Encoded) ->
+    key_from_json(imem_json:decode(
+        list_to_binary(http_uri:decode(binary_to_list(Encoded))))).
 
 key_from_json([]) -> [];
 key_from_json([B | Key]) when is_binary(B) -> [binary_to_list(B) | key_from_json(Key)];
