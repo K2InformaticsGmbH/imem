@@ -132,6 +132,16 @@ init(_StartArgs) ->
         _ ->
             ?Info("~p snap_server disabled~n", [?MODULE]),
             []
+    end 
+    ++
+    %imem_rest
+    case application:get_env(imem_rest) of
+        {ok, true} -> 
+            {ok, RestPort} = application:get_env(rest_port),
+            [?CHILD(imem_rest, worker, RestPort, ImemTimeout)];
+        _ ->
+            ?Info("~p imem_rest_server disabled~n", [?MODULE]),
+            []
     end,
 
     {ok, {{one_for_one, 3, 10}, Children}}.

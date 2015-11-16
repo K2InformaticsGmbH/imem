@@ -48,8 +48,6 @@ start() ->
     ok = application:start(lager),
     erlscrypt:start(),
     ok = application:start(inets),
-    {ok, _Pid} = {ok, _Pid} = elli:start_link([{callback, imem_rest}, 
-                  {port, 8448}]),
     application:start(?MODULE).
 
 stop() ->
