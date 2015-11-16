@@ -369,11 +369,11 @@ channel_ctx(Channel) ->
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_channel(binary()|atom()) -> #skvhCtx{}.
+-spec create_check_channel(binary()|atom()) ->  ok | no_return().
 create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
--spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> #skvhCtx{}.
+-spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok | no_return().
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
     CreateAudit = proplists:get_value(audit, Options, false),
@@ -434,7 +434,7 @@ create_check_channel(Channel, Options) ->
     end,
     %% TODO: This will replace the trigger each time maybe versioning will be better
     imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
-    #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
+    ok.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
 create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
@@ -1298,9 +1298,9 @@ skvh_operations(_) ->
         ClEr = 'ClientError',
         ?LogDebug("---TEST---~p:skvh_operations~n", [?MODULE]),
 
-        ?assertMatch(#skvhCtx{mainAlias=mapChannel}, create_check_channel(<<"mapChannel">>,[{type,map}])),
-        ?assertMatch(#skvhCtx{mainAlias=lstChannel}, create_check_channel(<<"lstChannel">>,[{type,list}])),
-        ?assertMatch(#skvhCtx{mainAlias=binChannel}, create_check_channel(<<"binChannel">>,[{type,binary}])),
+        ?assertMatch(ok, create_check_channel(<<"mapChannel">>,[{type,map}])),
+        ?assertMatch(ok, create_check_channel(<<"lstChannel">>,[{type,list}])),
+        ?assertMatch(ok, create_check_channel(<<"binChannel">>,[{type,binary}])),
 
         ?assertMatch({ok, [_,_]}, write(system,<<"mapChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
         ?assertMatch({ok, [_,_]}, write(system,<<"lstChannel">>,[{1,[a]},{2,[b]}])),
@@ -1331,7 +1331,7 @@ skvh_operations(_) ->
 		K0 = <<"{<<\"0\">>,<<>>,<<>>}">>,
 
         ?assertException(throw, {ClEr, {"Channel does not exist",<<"skvhTest">>}}, read(system, ?Channel, <<"kvpair">>, K0)), 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
 		?assertEqual({ok,[]}, readGT(system, ?Channel, <<"khpair">>, <<"{<<\"0\">>,<<>>,<<>>}">>, <<"1000">>)),
 
@@ -1414,7 +1414,7 @@ skvh_operations(_) ->
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
 		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[]">>, <<"1">>)),
@@ -1443,7 +1443,7 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, ?Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
     	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
@@ -1488,7 +1488,7 @@ skvh_operations(_) ->
         MidleKey = ["1", "b", "1"],
         LastKey = ["1", "e"],
 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),
         ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
