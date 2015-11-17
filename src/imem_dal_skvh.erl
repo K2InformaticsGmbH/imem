@@ -1201,29 +1201,25 @@ audit_project_result(Cmd, L, <<"tkvuquintuple">>) ->
 %% raw data access for key range
 
 readGT(_User, Channel, DecodedKey, Limit) ->
-    TableName = atom_table_name(Channel),
     Key = term_key_to_binterm(DecodedKey),
     MatchFunction = {?MATCHHEAD, [{'>', '$1', match_val(Key)}], ['$_']},
-	{L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
-    [skvh_rec_to_map(R) || R <- L ].
+    exec_select(Channel, MatchFunction, Limit).
 
 readGE(_User, Channel, DecodedKey, Limit) ->
-    TableName = atom_table_name(Channel),
     Key = term_key_to_binterm(DecodedKey),
     MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key)}], ['$_']},
-	{L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
-    [skvh_rec_to_map(R) || R <- L ].
+    exec_select(Channel, MatchFunction, Limit).
 
 readGELT(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
-    TableName = atom_table_name(Channel),
     Key1 = term_key_to_binterm(DecodedKey1),
     Key2 = term_key_to_binterm(DecodedKey2),
 	MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
-    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit+1),
-    if
-        length(L) > Limit -> ?ClientError(?E117(Limit));
-        true -> [skvh_rec_to_map(R) || R <- L ]
-    end.
+    exec_select(Channel, MatchFunction, Limit).
+
+exec_select(Channel, MatchFunction, Limit) ->
+    TableName = atom_table_name(Channel),
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [skvh_rec_to_map(R) || R <- L ].
 
 audit_part_readGT([], _MatchFunction, _Limit) -> [];
 audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
