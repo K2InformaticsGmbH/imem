@@ -161,7 +161,7 @@ write_monitor(ExtraFun,DumpFun) ->
                 try 
                     DumpFun(Moni1)
                 catch
-                    _ : DumpError -> ?Error("cannot dump monitor ~p~n~p", DumpError)
+                    _ : DumpError -> ?Error("cannot dump monitor ~p", [DumpError])
                 end
         end
     catch

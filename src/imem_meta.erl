@@ -677,8 +677,8 @@ column_names(Infos)->
 
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
-column_infos({?CSV_SCHEMA,FileName}) when is_binary(FileName) ->
-    [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({?CSV_SCHEMA,FileName})];
+column_infos({?CSV_SCHEMA_PATTERN = S,FileName}) when is_binary(FileName) ->
+    [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({S,FileName})];
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
     S= try 
         ?binary_to_existing_atom(Schema)
@@ -1781,8 +1781,8 @@ qualified_table_name({undefined,T}) when is_binary(T) ->
     catch
         _:_ -> ?ClientError({"Unknown Table name",T})
     end;
-qualified_table_name({?CSV_SCHEMA,T}) when is_binary(T) ->
-    {?CSV_SCHEMA,T};
+qualified_table_name({?CSV_SCHEMA_PATTERN = S,T}) when is_binary(T) ->
+    {S,T};
 qualified_table_name({S,T}) when is_binary(S),is_binary(T) ->
     try
         {?binary_to_existing_atom(S),?binary_to_existing_atom(T)}
@@ -2137,7 +2137,7 @@ table_type({_Schema,Table}) ->                  table_type(Table);              
 table_type(Table) when is_atom(Table) ->        imem_if:table_type(physical_table_name(Table)).
 
 table_record_name({ddSysConf,Table}) ->         imem_if_sys_conf:table_record_name(Table);  %% ToDo: may depend on schema
-table_record_name({?CSV_SCHEMA,_Table}) ->      ?CSV_RECORD_NAME;
+table_record_name({?CSV_SCHEMA_PATTERN,_Table}) -> ?CSV_RECORD_NAME;
 table_record_name({_Schema,Table}) ->           table_record_name(Table);                   %% ToDo: may depend on schema
 table_record_name(ddNode)  ->                   ddNode;
 table_record_name(ddSnap)  ->                   ddSnap;
@@ -2236,8 +2236,8 @@ apply_validators([D|DefRec], Rec0, Table, User, N) ->
 
 fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
     imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, {?CSV_SCHEMA,FileName}, MatchSpec, BlockSize, Opts) ->
-    imem_if_csv:fetch_start(Pid, {?CSV_SCHEMA,FileName}, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts) ->
+    imem_if_csv:fetch_start(Pid, {S,FileName}, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
@@ -3389,7 +3389,7 @@ meta_operations(_) ->
         ?LogDebug("success ~p~n", [drop_tables])
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
@@ -3397,8 +3397,8 @@ meta_operations(_) ->
 
 meta_preparations(_) ->
     try 
-        ClEr = 'ClientError',
-        UiEx = 'UnimplementedException', 
+        % ClEr = 'ClientError',
+        % UiEx = 'UnimplementedException', 
 
         ?LogDebug("---TEST---~p:meta_preparations~n", [?MODULE]),
 
@@ -3440,7 +3440,7 @@ meta_preparations(_) ->
 
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
@@ -3570,7 +3570,7 @@ meta_partitions(_) ->
         ?LogDebug("success ~p~n", [drop_table])
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
@@ -3596,7 +3596,7 @@ meta_concurrency(_) ->
         ?LogDebug("success ~p~n", [drop_table])
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
@@ -3621,8 +3621,8 @@ receive_results(N,Acc) ->
                     % ?LogDebug("Result ~p", [Result]),
                     receive_results(N-1,[Result|Acc])
             end
-    after 4000 ->   
-        ?LogDebug("Result timeout ~p", [4000]),
+    after 1000 ->   
+        ?LogDebug("Result timeout ~p", [1000]),
         Acc
     end.
     

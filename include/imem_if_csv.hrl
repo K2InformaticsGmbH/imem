@@ -2,6 +2,7 @@
 -define(IMEM_IF_CSV_HRL, true).
 
 -define(CSV_RECORD_NAME,csv_rec).
--define(INFO_BYTES, 2 * 1024).
+-define(CSV_SCHEMA, <<"csv">>).
+-define(CSV_SCHEMA_PATTERN,<<"csv$",_CsvRest/binary>>).
 
 -endif.

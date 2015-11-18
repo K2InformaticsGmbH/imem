@@ -2,6 +2,7 @@
 -define(IMEM_META_HRL, true).
 
 -include("imem_if.hrl").
+-include("imem_if_csv.hrl").
 
 -define(ClientError(__Reason), ?THROW_EXCEPTION('ClientError',__Reason)).
 -define(SystemException(__Reason),  ?THROW_EXCEPTION('SystemException',__Reason)).
@@ -12,8 +13,6 @@
 -define(LOG_TABLE,ddLog_86400@).                    %% 86400 = 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
 -define(CACHE_TABLE,ddCache@).
-
--define(CSV_SCHEMA,<<"csv$">>).
 
 -define(GET_CONFIG(__PName,__Context,__Default),
         imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
