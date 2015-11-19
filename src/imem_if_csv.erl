@@ -7,7 +7,7 @@
 -include_lib("kernel/include/file.hrl").
 
 -define(CSV_INFO_BYTES, 2 * 1024).
--define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding])).
+-define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding, skip])).
 -define(ALL_CSV_SCHEMA_TOKENS, [ {<<"crlf">>,lineSeparator,<<"\r\n">>}
                                , {<<"lf">>,lineSeparator,<<"\n">>}
                                , {<<"tab">>,columnSeparator,<<"\t">>}
@@ -19,6 +19,7 @@
                                , {<<"utf8">>,encoding,utf8}
                                , {<<"ansi">>,encoding,ansi}
                                % , {<<"123">>,columnCount,123}  % specially treated
+                               % , {<<"skip123">>,skip,123}
                                ]).
 
 % gen_server
@@ -31,7 +32,7 @@
         , terminate/2
         , code_change/3
         , format_status/2
-        , read_blocks/5
+        , read_blocks/7
         , start_link/1
         ]).
 
@@ -64,7 +65,7 @@ file_info_col_sep(File, Opts, <<>>) ->
     file_info_col_sep(File, Opts, file_sample(File,Opts));
 file_info_col_sep(File, #{lineSeparator := LineSeparator} = Opts, BinData) ->
     Rows = binary:split(BinData, LineSeparator, [global]),
-    SepCounts = [{count_char_seq(BinData,Sep),Sep} || Sep <- [<<"\t">>,<<";">>,<<",">>]],
+    SepCounts = [{count_char_seq(BinData,Sep),Sep} || Sep <- [<<"\t">>,<<";">>,<<",">>,<<"|">>,<<":">>]],
     SepList = [S || {_,S} <- lists:reverse(lists:usort(SepCounts))],
     file_info_col_count(File, pick_col_separator(Rows, Opts, SepList), BinData).
 
@@ -182,17 +183,28 @@ file_sample(File,Opts) ->
 schema_to_opts(Schema) when is_binary(Schema) ->
     schema_to_opts( binary:split(Schema, <<"$">>, [global]) -- [?CSV_SCHEMA,<<>>], #{}).
 
-schema_to_opts([], Opts) -> Opts;
+schema_to_opts([], #{skip := _} = Opts) -> Opts;
+schema_to_opts([], Opts) -> Opts#{skip => 0};
 schema_to_opts([Token|Tokens], Opts) ->
     case (catch list_to_integer(binary_to_list(Token))) of
         N when is_integer(N) ->
             schema_to_opts(Tokens, Opts#{columnCount => N});
         _ ->
-            case lists:key_find(Token, 1, ?ALL_CSV_SCHEMA_TOKENS) of
-                {Token,Key,Value} ->  
-                    schema_to_opts(Tokens, Opts#{Key => Value});
+            case Token of
+                <<"skip",Skip/binary>> ->
+                    case (catch list_to_integer(binary_to_list(Skip))) of
+                        S when is_integer(S) ->
+                            schema_to_opts(Tokens, Opts#{skip => S});
+                        _ ->
+                            ?ClientErrorNoLogging({"Invalid CSV skip number",Token})
+                    end;
                 _ ->
-                    ?ClientErrorNoLogging({"Invalid CSV schema token",Token})
+                    case lists:key_find(Token, 1, ?ALL_CSV_SCHEMA_TOKENS) of
+                        {Token,Key,Value} ->  
+                            schema_to_opts(Tokens, Opts#{Key => Value});
+                        _ ->
+                            ?ClientErrorNoLogging({"Invalid CSV schema token",Token})
+                    end
             end
     end.
 
@@ -361,22 +373,23 @@ select({Schema,UnquotedFN}, _MatchSpec, RowLimit, _LockType) ->
     % ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
     {ok, Io} = file:open(UnquotedFN, [raw, read, binary]),
     CsvOpts = file_info(UnquotedFN, schema_to_opts(Schema)),
-    ?LogDebug("CSV Schema Opts : ~p", [CsvOpts]),    
-    read_blocks(Io, 0, ?CSV_INFO_BYTES, RowLimit, CsvOpts).
+    ?LogDebug("CSV Schema Opts : ~p", [CsvOpts]),
+    read_blocks(Io, UnquotedFN, 0, ?CSV_INFO_BYTES, RowLimit, 0, CsvOpts).
 
-select(#{io := Io, pos := Pos, blockSize := BlockSize, rowLimit := RowLimit, opts := CsvOpts}) ->
-    read_blocks(Io, Pos, BlockSize, RowLimit, CsvOpts).
+select(#{io := Io, file:= File, pos := Pos, blockSize := BlockSize, rowLimit := RowLimit, rowsSkipped := RowsSkipped, opts := CsvOpts}) ->
+    read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts).
 
-read_blocks(Io, Pos, BlockSize, RowLimit, CsvOpts) ->
-    read_blocks(Io, Pos, BlockSize, RowLimit, CsvOpts, []).
+read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
+    read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, []).
 
-read_blocks(Io, Pos, BlockSize, RowLimit, CsvOpts, Rows) -> 
+read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
     #{ lineSeparator := LineSeparator
      , columnSeparator := ColumnSeparator
      , columnCount := ColumnCount
      , columns := _Columns
      , header := _Header
      , encoding := _Encoding
+     , skip := Skip
      } = CsvOpts,
     LSL = byte_size(LineSeparator),
     case file:pread(Io, Pos, BlockSize) of
@@ -401,22 +414,32 @@ read_blocks(Io, Pos, BlockSize, RowLimit, CsvOpts, Rows) ->
                     _ ->
                         [P|[LineSize|lists:sublist(StrFields,ColumnCount)]]
                 end,
-                {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME|WithSizeFields])|Recs]}
+                {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME|[File|WithSizeFields]])|Recs]}
             end,
             {LastPos,RevRecs} = lists:foldl(RecFold,{Pos,[]},Lines),
+            RevRecsLength = length(RevRecs),
+            {AllRecs, RowsSkipped1} = if
+                (RowsSkipped == Skip) ->    
+                    {lists:reverse(RevRecs), RowsSkipped};
+                (RowsSkipped + RevRecsLength) =< Skip  ->   
+                    {[], Skip};
+                true ->   
+                    {_, R} = lists:split(Skip-RowsSkipped,lists:reverse(RevRecs)),
+                    {R, Skip}
+            end,
             Filter = fun(_Record) -> true end,                  % ToDo: add predicate filtering with compiled matchspec
-            AllNewRows = Rows ++ list:reverse(lists:filter(Filter, RevRecs)), % ToDo: adapt new BlockSize to situation
+            AllNewRows = Rows ++ lists:filter(Filter, AllRecs), % ToDo: adapt new BlockSize to situation
             if 
                 length(AllNewRows) < RowLimit -> 
                     NewPos = LastPos + element(3,hd(RevRecs)),
-                    read_blocks(Io, NewPos, BlockSize, RowLimit, CsvOpts, AllNewRows);
+                    read_blocks(Io, File, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts, AllNewRows);
                 length(AllNewRows) > RowLimit -> 
                     NewRows = Rows ++ lists:sublist(AllNewRows, RowLimit), 
                     NewPos = element(2,lists:nth(RowLimit+1,AllNewRows)),
-                    {NewRows, continuation(Io, NewPos, BlockSize, RowLimit, CsvOpts)};
+                    {NewRows, continuation(Io, File, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)};
                 true -> 
                     NewPos = LastPos + element(3,hd(RevRecs)),
-                    {AllNewRows, continuation(Io, NewPos, BlockSize, RowLimit, CsvOpts)}
+                    {AllNewRows, continuation(Io, File, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)}
             end;
         eof -> 
             file:close(Io),
@@ -427,8 +450,8 @@ read_blocks(Io, Pos, BlockSize, RowLimit, CsvOpts, Rows) ->
             {aborted, einval}
     end.
 
-continuation(Io, Pos, BlockSize, RowLimit, CsvOpts) ->
-    #{io => Io, pos => Pos, blockSize => BlockSize, rowLimit => RowLimit, opts => CsvOpts}.
+continuation(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
+    #{io => Io, file => File, pos => Pos, blockSize => BlockSize, rowLimit => RowLimit, rowsSkipped => RowsSkipped, opts => CsvOpts}.
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
