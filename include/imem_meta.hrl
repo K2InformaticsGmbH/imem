@@ -30,8 +30,31 @@
         imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],10000)
        ).
 
+-record(ddColumn,                           %% column definition    
+				  { name                    ::atom()
+				  , type = term             ::ddType()
+				  , len = undefined 	    ::integer()
+				  , prec = undefined        ::integer()
+				  , default = undefined     ::any()
+				  , opts = []               ::list()
+				  }
+		).
+
 -type ddEntityId() :: 	integer() | atom().
 -type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
+
+-type schema() :: atom()|binary().
+-type simpleTable() :: atom()|binary().
+-type qualifiedTable() :: {schema(),simpleTable()}.
+-type table() :: simpleTable()|qualifiedTable().
+
+-type columnName() :: atom()|binary().
+-type columnType() :: atom().
+-type columnDefault() :: any().
+-type columnList() :: [columnName()].
+-type typeList() :: [columnType()].
+-type defaultList() :: [columnDefault()].
+-type tableMeta() :: columnName()|{columnList(),typeList(),defaultList()}|[#ddColumn{}].
 
 -record(ddIdxDef, %% record definition for index definition              
 				  { id      :: integer()    %% index id within the table
@@ -73,16 +96,6 @@
 				  }     
 	   ). 
 -define(ddCache, [term,term,list]).
-
--record(ddColumn,                           %% column definition    
-				  { name                    ::atom()
-				  , type = term             ::ddType()
-				  , len = undefined 	      ::integer()
-				  , prec = undefined        ::integer()
-				  , default = undefined     ::any()
-				  , opts = []               ::list()
-				  }
-		).
 
 -record(ddAlias,                            %% table alias for partitioned tables
 				  { qname                   ::{atom(),atom()}   %% {Schema,TableAlias}
@@ -274,6 +287,7 @@
 		case __DbResult of 
 			{warning, ok} ->	ok;
 			{warning, _} ->		lager:warning("[_IMEM_] {~p,~p,~p} ~s~n~p~n~p",[__Module,__Function,__Line,__Message,__Fields,__ST]);
+			{error, ok} ->		ok;
 			{error, _} ->		lager:error("[_IMEM_] {~p,~p,~p} ~s~n~p~n~p",[__Module,__Function,__Line,__Message,__Fields,__ST]);
 			_ ->				ok
 		end,

@@ -1357,16 +1357,16 @@ skvh_operations(_) ->
         ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
         Dat = imem_meta:read(skvhTest),
-        ?LogDebug("TEST data ~n~p~n", [Dat]),
+        % ?LogDebug("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
-        ?LogDebug("audit trail~n~p~n", [Aud]),
+        % ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
         {ok,Aud1} = audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
-        ?LogDebug("audit trail~n~p~n", [Aud1]),
+        % ?LogDebug("audit trail~n~p~n", [Aud1]),
         ?assertEqual(6, length(Aud1)),
         {ok,Aud2} = audit_readGT(system, ?Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
@@ -1380,7 +1380,7 @@ skvh_operations(_) ->
         ?assertEqual(Aud1, Aud5),
 
         Hist = imem_meta:read(skvhTestHist),
-        ?LogDebug("audit trail~n~p~n", [Hist]),
+        % ?LogDebug("audit trail~n~p~n", [Hist]),
         ?assertEqual(3, length(Hist)),
 
         ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]">>)),
@@ -1409,7 +1409,7 @@ skvh_operations(_) ->
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
 				
-        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
+        % ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
@@ -1722,22 +1722,23 @@ skvh_operations(_) ->
         ?assertEqual(1, length(HistSearchObjects3)),
         ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects3),
 
-        ?LogDebug("starting ~p", [drop_table123]),
+        % ?LogDebug("starting ~p", [drop_table123]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
-        ?LogDebug("success drop ~p", [skvhTest]),
+        % ?LogDebug("success drop ~p", [skvhTest]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
+        % ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
-        ?LogDebug("success drop ~p", [skvhTestHist]),
+        % ?LogDebug("success drop ~p", [skvhTestHist]),
 
         ?assertEqual(ok, create_table(skvhTest,[],[],system)),
-        ?LogDebug("starting ~p", [drop_table]),
+        % ?LogDebug("starting ~p", [drop_table]),
         ?assertEqual(ok, drop_table(skvhTest)),
-        ?LogDebug("success ~p~n", [drop_table])
+        % ?LogDebug("success ~p~n", [drop_table]),
+        ok
  
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
@@ -1754,33 +1755,34 @@ skvh_concurrency(_) ->
         Self = self(),
         TabCount = length(?Channels),
         [spawn(fun() -> Self ! {Ch,create_table(Ch,[],[],system)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_create_spawned]),
+        % ?LogDebug("success ~p", [bulk_create_spawned]),
         CreateResult = receive_results(TabCount,[]),
         ?assertEqual(TabCount, length(CreateResult)),
         ?assertEqual([ok], lists:usort([ R || {_,R} <- CreateResult])),
-        ?LogDebug("success ~p~n", [bulk_create_tables]),
+        % ?LogDebug("success ~p~n", [bulk_create_tables]),
 
         [spawn(fun() -> Self ! {Ch,insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_insert_spawned]),
+        % ?LogDebug("success ~p", [bulk_insert_spawned]),
         InitResult = receive_results(TabCount,[]),
         ?assertEqual(TabCount, length(InitResult)),
-        ?LogDebug("success ~p~n", [bulk_insert]),
+        % ?LogDebug("success ~p~n", [bulk_insert]),
 
         [spawn(fun() -> Self ! {N1,update_test(hd(?Channels),TestKey,N1)} end) || N1 <- lists:seq(1,10)],
-        ?LogDebug("success ~p", [bulk_update_spawned]),
+        % ?LogDebug("success ~p", [bulk_update_spawned]),
         UpdateResult = receive_results(10,[]),
         ?assertEqual(10, length(UpdateResult)),
         ?assertMatch([{skvhTable,_,<<"55">>,_}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
-        ?LogDebug("success ~p~n", [bulk_update]),
+        % ?LogDebug("success ~p~n", [bulk_update]),
 
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
         [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_drop_spawned]),
+        % ?LogDebug("success ~p", [bulk_drop_spawned]),
         {timeout, 10, fun() -> ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])])) end},
-        ?LogDebug("success ~p~n", [bulk_drop_tables])
+        % ?LogDebug("success ~p~n", [bulk_drop_tables]),
+        ok
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,

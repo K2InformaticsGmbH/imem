@@ -262,8 +262,7 @@
 
 -export([ secure_apply/3]).
 
--spec secure_apply(Mod :: atom(), Fun :: atom(), Args :: list()) ->
-    any() | no_return.
+-spec secure_apply(Mod :: atom(), Fun :: atom(), Args :: list()) -> any() | no_return.
 secure_apply(Mod, Fun, Args) ->
     {ModFunList,true}
     = imem_if:select(?CONFIG_TABLE,
@@ -389,7 +388,6 @@ init(_Args) ->
         init_create_table(?CACHE_TABLE, {record_info(fields, ddCache), ?ddCache, #ddCache{}}, ?DD_CACHE_OPTS, system),  %% register in ddTable if not done yet
         init_create_table(ddAlias, {record_info(fields, ddAlias),?ddAlias,#ddAlias{}}, ?DD_ALIAS_OPTS, system),         %% register in ddTable if not done yet 
         catch check_table(ddTable),
-        catch check_table_columns(ddTable, record_info(fields, ddTable)),
         catch check_table_meta(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}),
 
         init_create_check_table(ddNode, {record_info(fields, ddNode),?ddNode,#ddNode{}}, [], system),    
@@ -538,6 +536,8 @@ check_local_table_copy(Table) when is_atom(Table) ->
     imem_if:check_local_table_copy(physical_table_name(Table));
 check_local_table_copy({ddSysConf, _Table}) -> true.
 
+
+-spec check_table_meta(atom()|binary()|{any(),any()}, list()|{list(),list(),tuple()}) -> ok | no_return.
 check_table_meta({ddSysConf, _}, _) -> ok;
 check_table_meta({Schema,Table}, Meta) ->
     case schema() of
@@ -547,70 +547,40 @@ check_table_meta({Schema,Table}, Meta) ->
 check_table_meta(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAlias) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
-    case imem_if:read(ddTable,{schema(), physical_table_name(TableAlias)}) of
-        [] ->   ?SystemException({"Missing table metadata",TableAlias}); 
-        [#ddTable{columns=ColumnInfos}] ->
-            CINames = column_info_items(ColumnInfos, name),
-            CITypes = column_info_items(ColumnInfos, type),
-            CIDefaults = column_info_items(ColumnInfos, default),
-            if
-                (CINames =:= Names) andalso (CITypes =:= Types) andalso (CIDefaults =:= Defaults) ->  
-                    ok;
-                true ->                 
-                    ?SystemException({"Record does not match table metadata",TableAlias})
-            end;
-        Else -> 
-            ?SystemException({"Column definition does not match table metadata",{TableAlias,Else}})    
+    PTN = physical_table_name(TableAlias),
+    case imem_if:read(ddTable,{schema(), PTN}) of
+        [] ->   ?SystemException({"Missing table metadata",PTN}); 
+        [#ddTable{columns=CI}] ->
+            case column_info_items(CI, name) of
+                Names ->    ok;
+                OldN ->     ?SystemException({"Column names do not match ddTable dictionary",{PTN,Names,OldN}})
+            end,
+            case column_info_items(ColumnInfos, type) of
+                Types ->    ok;
+                OldT ->     ?SystemException({"Column types do not match ddTable dictionary",{PTN,Types,OldT}})
+            end,
+            case column_info_items(ColumnInfos, default) of
+                Defaults -> ok;
+                OldD ->     ?SystemException({"Column defaults do not match ddTable dictionary",{PTN,Defaults,OldD}})
+            end
     end;  
-check_table_meta(TableAlias, ColumnNames) when is_atom(TableAlias) ->
-    case imem_if:read(ddTable,{schema(), physical_table_name(TableAlias)}) of
-        [] ->   ?SystemException({"Missing table metadata",TableAlias}); 
-        [#ddTable{columns=ColumnInfo}] ->
-            CINames = column_info_items(ColumnInfo, name),
-            if
-                CINames =:= ColumnNames ->  
-                    ok;
-                true ->                 
-                    ?SystemException({"Record field names do not match table metadata",TableAlias})
-            end          
+check_table_meta(TableAlias, [CI|_]=ColumnInfo) when is_atom(TableAlias), is_tuple(CI) ->
+    Names = column_info_items(ColumnInfo, name),
+    Types = column_info_items(ColumnInfo, type),
+    Defaults = column_info_items(ColumnInfo, default),
+    check_table_meta(TableAlias, {Names, Types, Defaults});
+check_table_meta(TableAlias, Names) when is_atom(TableAlias) ->
+    PTN = physical_table_name(TableAlias),
+    case imem_if:read(ddTable,{schema(), PTN}) of
+        [] ->   ?SystemException({"Missing table metadata",PTN}); 
+        [#ddTable{columns=CI}] ->
+            case column_info_items(CI, name) of
+                Names ->    ok;
+                OldN ->     ?SystemException({"Column names do not match ddTable dictionary",{PTN,Names,OldN}})
+            end
     end.
 
-check_table_columns({ddSysConf, _}, _) -> ok;
-check_table_columns({Schema,Table}, Meta) ->
-    case schema() of
-        Schema -> check_table_columns(Table, Meta);
-        _ ->        ?UnimplementedException({"Check table columns in foreign schema",{Schema,Table}})
-    end;
-check_table_columns(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAlias) ->
-    [_|Defaults] = tuple_to_list(DefaultRecord),
-    ColumnInfo = column_infos(Names, Types, Defaults),
-    TableColumns = table_columns(TableAlias),    
-    MetaInfo = column_infos(TableAlias),    
-    if
-        Names /= TableColumns ->
-            ?SystemException({"Column names do not match table structure",TableAlias});             
-        ColumnInfo /= MetaInfo ->
-            ?SystemException({"Column info does not match table metadata",TableAlias});
-        true ->     ok
-    end;
-check_table_columns(TableAlias, [CI|_]=ColumnInfo) when is_atom(TableAlias), is_tuple(CI) ->
-    ColumnNames = column_info_items(ColumnInfo, name),
-    TableColumns = table_columns(TableAlias),
-    MetaInfo = column_infos(TableAlias),    
-    if
-        ColumnNames /= TableColumns ->
-            ?SystemException({"Column info does not match table structure",TableAlias}) ;
-        ColumnInfo /= MetaInfo ->
-            ?SystemException({"Column info does not match table metadata",TableAlias});
-        true ->     ok                           
-    end;
-check_table_columns(TableAlias, ColumnNames) when is_atom(TableAlias) ->
-    TableColumns = table_columns(TableAlias),
-    if
-        ColumnNames /= TableColumns ->
-            ?SystemException({"Column info does not match table structure",TableAlias}) ;
-        true ->     ok                           
-    end.
+check_table_columns(Table, Meta) -> check_table_meta(Table, Meta).  % ToDo: deprecate
 
 drop_meta_tables() ->
     drop_meta_tables(?META_TABLES).
@@ -678,7 +648,8 @@ column_names(Infos)->
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
 column_infos({?CSV_SCHEMA_PATTERN = S,FileName}) when is_binary(FileName) ->
-    [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({S,FileName})];
+    [ #ddColumn{name=N,type=T,default=D} || {N,T,D} <- ?CSV_DEFAULT_INFO]
+     ++ [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({S,FileName})];
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
     S= try 
         ?binary_to_existing_atom(Schema)
@@ -762,7 +733,6 @@ create_check_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, 
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
     create_check_physical_table(TableAlias,ColumnInfos,Opts,Owner),
     check_table(TableAlias),
-    check_table_columns(TableAlias, ColumnNames),
     check_table_meta(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}).
 
 create_sys_conf(Path) ->
@@ -3115,15 +3085,15 @@ meta_operations(_) ->
         SyEx = 'SystemException', 
         % UiEx = 'UnimplementedException', 
 
-        ?LogDebug("---TEST---~p:meta_operations~n", [?MODULE]),
+        ?LogDebug("---TEST--- ~p:meta_operations~n", [?MODULE]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
         ?assertEqual([imem_meta:node_shard()], imem_meta:node_shards()),
 
-        ?assertEqual(ok, check_table_columns(ddTable, record_info(fields, ddTable))),
+        ?assertEqual(ok, check_table_meta(ddTable, record_info(fields, ddTable))),
 
         ?assertEqual(ok, create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),
         ?assertException(throw,{SyEx,{"Wrong table owner",{?LOG_TABLE,[system,admin]}}} ,create_check_table(?LOG_TABLE, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], admin)),
@@ -3134,17 +3104,17 @@ meta_operations(_) ->
 
         Now = imem_if:now(),
         LogCount1 = table_size(?LOG_TABLE),
-        ?LogDebug("ddLog@ count ~p~n", [LogCount1]),
+        % ?LogDebug("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
         LogRec0 = #ddLog{logTime=Now,logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_operations,node=node()
                             ,fields=Fields,message= <<"some log message">>},
         ?assertEqual(ok, write(?LOG_TABLE, LogRec0)),
         LogCount2 = table_size(?LOG_TABLE),
-        ?LogDebug("ddLog@ count ~p~n", [LogCount2]),
+        % ?LogDebug("ddLog@ count ~p~n", [LogCount2]),
         ?assert(LogCount2 > LogCount1),
-        Log1=read(?LOG_TABLE,Now),
-        ?LogDebug("ddLog@ content ~p~n", [Log1]),
+        _Log1=read(?LOG_TABLE,Now),
+        % ?LogDebug("ddLog@ content ~p~n", [_Log1]),
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],"Message")),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[])),        
         ?assertEqual(ok, log_to_db(info,?MODULE,test,[{test_3,value3},{test_4,value4}],[stupid_error_message,1])),        
@@ -3152,7 +3122,7 @@ meta_operations(_) ->
         LogCount2a = table_size(?LOG_TABLE),
         ?assert(LogCount2a >= LogCount2+4),
 
-        ?LogDebug("~p:test_database_operations~n", [?MODULE]),
+        % ?LogDebug("~p:test_database_operations~n", [?MODULE]),
         Types1 =    [ #ddColumn{name=a, type=string, len=10}     %% key
                     , #ddColumn{name=b1, type=binstr, len=20}    %% value 1
                     , #ddColumn{name=c1, type=string, len=30}    %% value 2
@@ -3176,7 +3146,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_1, Types1, [])),
         ?assertEqual(ok, create_index(meta_table_1, [])),
         ?assertEqual(ok, check_table(meta_table_1Idx)),
-        ?LogDebug("ddTable for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
+        % ?LogDebug("ddTable for meta_table_1~n~p~n", [read(ddTable,{schema(),meta_table_1})]),
         ?assertEqual(ok, drop_index(meta_table_1)),
         ?assertException(throw, {'ClientError',{"Table does not exist",meta_table_1Idx}}, check_table(meta_table_1Idx)),
         ?assertEqual(ok, create_index(meta_table_1, [])),
@@ -3270,7 +3240,7 @@ meta_operations(_) ->
         ?assertEqual({'ClientError',{"Table does not exist",meta_table_1Idx}}
                          , drop_index(meta_table_1)),
 
-        ?LogDebug("meta_table_1 ~n~p",[read(meta_table_1)]),
+        % ?LogDebug("meta_table_1 ~n~p",[read(meta_table_1)]),
 
         Idx4Def = #ddIdxDef{id=4,name= <<"integer index on b1">>,type=ivk,pl=[<<"c1">>],vnf = <<"fun imem_index:vnf_integer/1">>},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx4Def])),
@@ -3288,7 +3258,7 @@ meta_operations(_) ->
         Vnf5 = <<"fun(__X) -> case imem_index:vnf_integer(__X) of ['$not_a_value'] -> ['$not_a_value']; [__V] -> [2*__V] end end">>,
         Idx5Def = #ddIdxDef{id=5,name= <<"integer times 2 on b1">>,type=ivk,pl=[<<"c1">>],vnf = Vnf5},
         ?assertEqual(ok, create_or_replace_index(meta_table_1, [Idx5Def])),
-        ?LogDebug("meta_table_1Idx ~n~p",[read(meta_table_1Idx)]),
+        % ?LogDebug("meta_table_1Idx ~n~p",[read(meta_table_1Idx)]),
         IdxExpect5 = [{ddIndex,{5,2,"meta"},0}
                      ,{ddIndex,{5,4,"meta1"},0}
                      ,{ddIndex,{5,6,"json1"},0}
@@ -3299,7 +3269,7 @@ meta_operations(_) ->
         ?assertEqual(ok, create_table(meta_table_2, Types2, [])),
 
         ?assertEqual(ok, create_table(meta_table_3, {[a,?nav],[datetime,term],{meta_table_3,?nav,undefined}}, [])),
-        ?LogDebug("success ~p~n", [create_table_not_null]),
+        % ?LogDebug("success ~p~n", [create_table_not_null]),
         Trig = <<"fun(O,N,T,U,TO) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U},{tropts,TO}],\"trigger\") end.">>,
         ?assertEqual(ok, create_or_replace_trigger(meta_table_3, Trig)),
         ?assertEqual(Trig, get_trigger(meta_table_3)),
@@ -3320,7 +3290,7 @@ meta_operations(_) ->
         ?assertEqual(LogCount3+1, table_size(?LOG_TABLE)),  %% trigger inserted one line      
         ?assertException(throw, {ClEr,{"Not null constraint violation", {meta_table_3,_}}}, insert(meta_table_3, {meta_table_3,?nav,undefined})),
         ?assertEqual(LogCount3+2, table_size(?LOG_TABLE)),  %% error inserted one line
-        ?LogDebug("success ~p~n", [not_null_constraint]),
+        % ?LogDebug("success ~p~n", [not_null_constraint]),
         ?assertEqual({meta_table_3,{{2000,1,1},{12,45,55}},undefined}, update(meta_table_3, {{meta_table_3,{{2000,1,1},{12,45,55}},undefined},{meta_table_3,{{2000,01,01},{12,45,55}},?nav}})),
         ?assertEqual(1, table_size(meta_table_3)),
         ?assertEqual(LogCount3+3, table_size(?LOG_TABLE)),  %% trigger inserted one line 
@@ -3331,14 +3301,14 @@ meta_operations(_) ->
         ?assertEqual(1, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% trigger inserted one line 
         ?assertEqual(ok, drop_trigger(meta_table_3)),
-        ?LogDebug("meta_table_3 before update~n~p",[read(meta_table_3)]),
+        % ?LogDebug("meta_table_3 before update~n~p",[read(meta_table_3)]),
         Trans3 = fun() ->
             %% key update
             update(meta_table_3, {{meta_table_3,{{2000,01,01},{12,45,55}},undefined},{meta_table_3,{{2000,01,01},{12,45,56}},"alternative"}}),
             insert(meta_table_3, {meta_table_3,{{2000,01,01},{12,45,57}},?nav})         %% return last result only
         end,
         ?assertEqual({meta_table_3,{{2000,1,1},{12,45,57}},undefined}, return_atomic(transaction(Trans3))),
-        ?LogDebug("meta_table_3 after update~n~p",[read(meta_table_3)]),
+        % ?LogDebug("meta_table_3 after update~n~p",[read(meta_table_3)]),
         ?assertEqual(2, table_size(meta_table_3)),
         ?assertEqual(LogCount3+5, table_size(?LOG_TABLE)),  %% no trigger, no more log  
 
@@ -3354,12 +3324,12 @@ meta_operations(_) ->
         ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with("meta_table_"))),
         ?assertEqual([meta_table_1,meta_table_1Idx,meta_table_2,meta_table_3],lists:sort(tables_starting_with(meta_table_))),
 
-        DdNode0 = read(ddNode),
-        ?LogDebug("ddNode0 ~p~n", [DdNode0]),
-        DdNode1 = read(ddNode,node()),
-        ?LogDebug("ddNode1 ~p~n", [DdNode1]),
-        DdNode2 = select(ddNode,?MatchAllRecords),
-        ?LogDebug("ddNode2 ~p~n", [DdNode2]),
+        _DdNode0 = read(ddNode),
+        % ?LogDebug("ddNode0 ~p~n", [_DdNode0]),
+        _DdNode1 = read(ddNode,node()),
+        % ?LogDebug("ddNode1 ~p~n", [_DdNode1]),
+        _DdNode2 = select(ddNode,?MatchAllRecords),
+        % ?LogDebug("ddNode2 ~p~n", [_DdNode2]),
 
         Schema0 = [{ddSchema,{schema(),node()},[]}],
         ?assertEqual(Schema0, read(ddSchema)),
@@ -3379,14 +3349,15 @@ meta_operations(_) ->
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
         ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
         ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
-        ?LogDebug("success ~p~n", [get_config_hlk]),
+        % ?LogDebug("success ~p~n", [get_config_hlk]),
 
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
         ?assertEqual(ok, drop_table(test_config)),
 
-        ?LogDebug("success ~p~n", [drop_tables])
+        %?LogDebug("success ~p~n", [drop_tables]),
+        ok
     catch
         Class:Reason ->     
             timer:sleep(100),
@@ -3400,7 +3371,7 @@ meta_preparations(_) ->
         % ClEr = 'ClientError',
         % UiEx = 'UnimplementedException', 
 
-        ?LogDebug("---TEST---~p:meta_preparations~n", [?MODULE]),
+        ?LogDebug("---TEST--- ~p:meta_preparations~n", [?MODULE]),
 
         ?assertEqual(["Schema",".","BaseName"   ,"_","01234","@","Node"],parse_table_name("Schema.BaseName_01234@Node")),
         ?assertEqual(["Schema",".","BaseName"   ,"" ,""     ,"" ,""    ],parse_table_name("Schema.BaseName")),
@@ -3465,7 +3436,7 @@ meta_partitions(_) ->
         ?assertException(throw, {UiEx,{"Purge not supported on this table type",ddTable}}, purge_table(ddTable)),
 
         TimePartTable0 = physical_table_name(?TPTEST0),
-        ?LogDebug("TimePartTable ~p~n", [TimePartTable0]),
+        % ?LogDebug("TimePartTable ~p~n", [TimePartTable0]),
         ?assertEqual(TimePartTable0, physical_table_name(?TPTEST0,os:timestamp())),
         ?assertEqual(ok, create_check_table(?TPTEST0, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable0)),
@@ -3474,7 +3445,7 @@ meta_partitions(_) ->
         ?assertEqual(ok, create_check_table(?TPTEST0, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
 
         Alias0 = read(ddAlias),
-        ?LogDebug("Alias0 ~p~n", [[ element(2,A) || A <- Alias0]]),
+        % ?LogDebug("Alias0 ~p~n", [[ element(2,A) || A <- Alias0]]),
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- Alias0])),
 
 % FIXME: Currently failing in travis
@@ -3494,18 +3465,18 @@ meta_partitions(_) ->
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRecF = LogRec#ddLog{logTime=Future},
         ?assertEqual(ok, write(?TPTEST0, LogRecF)),
-        ?LogDebug("physical_table_names ~p~n", [physical_table_names(?TPTEST0)]),
+        % ?LogDebug("physical_table_names ~p~n", [physical_table_names(?TPTEST0)]),
         ?assertEqual(0, purge_table(?TPTEST0,[{purge_delay,10000}])),
         ?assertEqual(0, purge_table(?TPTEST0)),
         PurgeResult = purge_table(?TPTEST0,[{purge_delay,-3000}]),
-        ?LogDebug("PurgeResult ~p~n", [PurgeResult]),
+        % ?LogDebug("PurgeResult ~p~n", [PurgeResult]),
         ?assert(PurgeResult>0),
         ?assertEqual(0, purge_table(?TPTEST0)),
         ?assertEqual(ok, drop_table(?TPTEST0)),
         ?assertEqual([],physical_table_names(?TPTEST0)),
         Alias0a = read(ddAlias),
         ?assertEqual(false,lists:member({schema(),?TPTEST0},[element(2,A) || A <- Alias0a])),
-        ?LogDebug("success ~p~n", [?TPTEST0]),
+        % ?LogDebug("success ~p~n", [?TPTEST0]),
 
         TimePartTable1 = physical_table_name(?TPTEST1),
         ?assertEqual(tpTest1_1999999998@_, TimePartTable1),
@@ -3517,38 +3488,38 @@ meta_partitions(_) ->
         ?assertEqual(ok, create_check_table(?TPTEST1, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
 
         Alias1 = read(ddAlias),
-        ?LogDebug("Alias1 ~p~n", [[ element(2,A) || A <- Alias1]]),
+        % ?LogDebug("Alias1 ~p~n", [[ element(2,A) || A <- Alias1]]),
         ?assert(lists:member({schema(),?TPTEST1},[element(2,A) || A <- Alias1])),
 
         ?assertEqual(ok, write(?TPTEST1, LogRec)),
         ?assertEqual(1, table_size(TimePartTable1)),
         ?assertEqual(0, purge_table(?TPTEST1)),
         LogRecP = LogRec#ddLog{logTime={900,0,0}},  
-        ?LogDebug("Big Partition Tables before back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
+        % ?LogDebug("Big Partition Tables before back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
         % Error3 = {error,{'ClientError',{"Table already exists",tpTest1_1999999998@_}}},     % cannot create past partitions
         % ?assertException(throw,{'ClientError',{"Table partition cannot be created",{tpTest1_999999999@_,Error3}}},write(?TPTEST1, LogRecP)),
         ?assertEqual(ok, write(?TPTEST1, LogRecP)),
-        ?LogDebug("Big Partition Tables after back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
+        % ?LogDebug("Big Partition Tables after back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
         LogRecFF = LogRec#ddLog{logTime={2900,0,0}},  
         ?assertEqual(ok, write(?TPTEST1, LogRecFF)),
-        ?LogDebug("Big Partition Tables after forward-insert~n~p~n", [physical_table_names(?TPTEST1)]),
+        % ?LogDebug("Big Partition Tables after forward-insert~n~p~n", [physical_table_names(?TPTEST1)]),
         ?assertEqual(3,length(physical_table_names(?TPTEST1))),     % another partition created
         ?assert(purge_table(?TPTEST1) > 0),
         ?assertEqual(ok, drop_table(?TPTEST1)),
         Alias1a = read(ddAlias),
         ?assertEqual(false,lists:member({schema(),?TPTEST1},[element(2,A) || A <- Alias1a])),
         ?assertEqual([],physical_table_names(?TPTEST1)),
-        ?LogDebug("success ~p~n", [?TPTEST1]),
+        % ?LogDebug("success ~p~n", [?TPTEST1]),
 
         ?assertEqual( {error,{"Table template not found in ddAlias",dummy_table_name}}, create_partitioned_table_sync(dummy_table_name,dummy_table_name)),
 
         ?assertEqual([],physical_table_names(fakelog_1@)),
-        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,0]),
+        % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,0]),
 
         ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
-        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,1]),
+        % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,1]),
         FL1 = length(physical_table_names(fakelog_1@)),
-        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL1,created]),
+        % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL1,created]),
         ?assertEqual(1,FL1),
         LogRec3 = #ddLog{logTime=os:timestamp(),logLevel=debug,pid=self()
                         ,module=?MODULE,function=test,node=node()
@@ -3556,18 +3527,19 @@ meta_partitions(_) ->
                     },
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)), % one record to first partition
         timer:sleep(1050),
-        FL2 = length(physical_table_names(fakelog_1@)),
-        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL2,written]), 
+        _FL2 = length(physical_table_names(fakelog_1@)),
+        % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@, _FL2, written]), 
 
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=os:timestamp()})), % one record to second partition
         FL3 = length(physical_table_names(fakelog_1@)),
-        ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
+        % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
         ?assert(FL3 >= 3),
         timer:sleep(1050),
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
-        ?LogDebug("success ~p~n", [roll_partitioned_table]),
+        % ?LogDebug("success ~p~n", [roll_partitioned_table]),
         {timeout, 5, fun() -> ?assertEqual(ok,drop_table(fakelog_1@)) end},
-        ?LogDebug("success ~p~n", [drop_table])
+        % ?LogDebug("success ~p~n", [drop_table]),
+        ok
     catch
         Class:Reason ->     
             timer:sleep(100),
@@ -3580,20 +3552,21 @@ meta_partitions(_) ->
 meta_concurrency(_) ->
     T_m_c = 'imem_table_123',
     try 
-        ?LogDebug("---TEST---~p:meta_concurrency", [?MODULE]),
+        ?LogDebug("---TEST--- ~p:meta_concurrency", [?MODULE]),
         ?assertEqual(ok, create_table(T_m_c, [hlk,val], [])),
         Self = self(),
         Key = [sum],
         ?assertEqual(ok, write(T_m_c, {T_m_c, Key,0})),
         [spawn(fun() -> Self ! {N,read_write_test(T_m_c,Key,N)} end) || N <- lists:seq(1,10)],
-        ?LogDebug("success ~p", [read_write_spawned]),
+        % ?LogDebug("success ~p", [read_write_spawned]),
         ReadWriteResult = receive_results(10,[]),
         ?assertEqual(10, length(ReadWriteResult)),
         ?assertEqual([{T_m_c,Key,55}], read(T_m_c,Key)),
         ?assertEqual([{atomic,ok}],lists:usort([R || {_,R} <- ReadWriteResult])),
-        ?LogDebug("success ~p~n", [bulk_read_write]),
+        % ?LogDebug("success ~p~n", [bulk_read_write]),
         ?assertEqual(ok, drop_table(T_m_c)),
-        ?LogDebug("success ~p~n", [drop_table])
+        % ?LogDebug("success ~p~n", [drop_table]),
+        ok
     catch
         Class:Reason ->     
             timer:sleep(100),

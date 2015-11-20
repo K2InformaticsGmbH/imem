@@ -170,12 +170,12 @@ test_with_or_without_sec(IsSec) ->
         % ClEr = 'ClientError',
         % SyEx = 'SystemException',    %% difficult to test
         % SeEx = 'SecurityException',
-        ?LogDebug("----------------------------------~n"),
-        ?LogDebug("TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
+        % ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
+        % ?LogDebug("----------------------------------~n"),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -204,13 +204,13 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"ab'c">>, un_escape_sql(<<"ab''c">>)),
         ?assertEqual(<<"'ab'c'">>, un_escape_sql(<<"'ab''c'">>)),
 
-        ?LogDebug("---TEST---~p:test_mnesia~n", [?MODULE]),
+        % ?LogDebug("---TEST---~p:test_mnesia~n", [?MODULE]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?LogDebug("success ~p~n", [schema]),
+        % ?LogDebug("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        ?LogDebug("success ~p~n", [data_nodes]),
+        % ?LogDebug("success ~p~n", [data_nodes]),
 
-        ?LogDebug("~p:test_database_operations~n", [?MODULE]),
+        % ?LogDebug("~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
                     , #ddColumn{name=b1, type=char, len=1}    %% value 1
                     , #ddColumn{name=c1, type=char, len=1}    %% value 2
@@ -227,12 +227,12 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
-        ?LogDebug("success ~p~n", [create_tables]),
+        % ?LogDebug("success ~p~n", [create_tables]),
 
         ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
-        ?LogDebug("success ~p~n", [drop_tables]),
+        % ?LogDebug("success ~p~n", [drop_tables]),
 
         case IsSec of
             true -> ?imem_logout(SKey);

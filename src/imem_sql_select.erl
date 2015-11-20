@@ -78,7 +78,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
 -define(TEST_JSON(__N), begin __B = ?BINSTR(__N), <<"{\"name\":\"John",__B/binary,"\",\"age\":",__B/binary,",\"empty\":null}">> end).
 -define(TEST_JSON_LIST(__E), list_to_binary(lists:flatten([$[,[case NN of __E -> integer_to_list(NN); _ -> integer_to_list(NN) ++ [$,] end || NN <- lists:seq(1,__E)],$]]))).
 -define(TEST_JSON_STR_LIST(__E), list_to_binary(lists:flatten([$[,[case NN of __E -> [34,$a] ++ integer_to_list(NN) ++ [34]; _ -> [34,$a] ++ integer_to_list(NN) ++ [34,$,] end || NN <- lists:seq(1,__E)],$]]))).
-
+-define(DQFN(__BinFN), [$"|binary_to_list(__BinFN)] ++ [$"]). % wrap binary filename into double quotes as list
 
 if_call_mfa(IsSec,Fun,Args) ->
     case IsSec of
@@ -148,71 +148,82 @@ db2_with_sec(_) ->
 
 db1_with_or_without_sec(IsSec) ->
     try
-        ClEr = 'ClientError',
+        % ClEr = 'ClientError',
         SeEx = 'SecurityException',
 
-        ?LogDebug("----------------------------------~n"),
+        % ?LogDebug("----------------------------------~n"),
         ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
+        % ?LogDebug("----------------------------------~n"),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-
         ?assertEqual([],imem_statement:receive_raw()),
-
         ?assertEqual([imem], imem_datatype:field_value(tag,list,0,0,[],<<"[imem]">>)),
 
         timer:sleep(500),
-        LoginTime = calendar:local_time(),
+        _LoginTime = calendar:local_time(),
 
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
             false ->    none
         end,
 
-        % CsvFileName = "CsvTestFileName123abc.txt",
-        % file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
+        ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
 
-        % file:write_file(CsvFileName,<<"A\t\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
-
-        % file:write_file(CsvFileName,<<"\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        CsvFileName = <<"CsvTestFileName123abc.txt">>,
+        file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
  
-        % file:write_file(CsvFileName,<<"1\t2\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
- 
-        % file:write_file(CsvFileName,<<"1\t2\nCol1\tCol2\n\n">>),
- 
-        % exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
-        %     select * from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
-        %     ,
-        %     [{<<"A1">>,<<"1">>}
-        %     ,{<<"A2">>,<<"2">>}
-        %     ,{<<"Col1">>,<<"Col2">>}
-        %     ]
-        % ),
+        exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
+            select * from csv$." ++ ?DQFN(CsvFileName)  
+            ,
+            [ {CsvFileName,<<"0">>,<<"11">>,<<"Col1">>,<<"Col2">>}
+            , {CsvFileName,<<"11">>,<<"6">>,<<"A1">>,<<"1">>}
+            , {CsvFileName,<<"17">>,<<"6">>,<<"A2">>,<<"2">>}
+            ]
+        ),
 
-        % exec_fetch_sort_equal(SKey, query00a, 100, IsSec, "
-        %     select col2 from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
-        %     ,
-        %     [{<<>>}
-        %     ,{<<"1">>}
-        %     ,{<<"2">>}
-        %     ,{<<"Col2">>}
-        %     ]
-        % ),
+        exec_fetch_sort_equal(SKey, query01, 100, IsSec, "
+            select col1, col2 from csv$." ++ ?DQFN(CsvFileName)  
+            ,
+            [ {<<"Col1">>,<<"Col2">>}
+            , {<<"A1">>,<<"1">>}
+            , {<<"A2">>,<<"2">>}
+            ]
+        ),
 
-        % exec_fetch_sort_equal(SKey, query00b, 100, IsSec, "
-        %     select col2, col1 from csv$.\"C:\\Temp\\Test.txt\"
-        %     "
-        %     ,
-        %     [{<<"1">>,<<"A1">>}
-        %     ,{<<"2">>,<<"A2">>}
-        %     ,{<<"Col2">>,<<"Col1">>}
-        %     ]
-        % ),
+        exec_fetch_sort_equal(SKey, query02, 100, IsSec, "
+            select col1, col2 from csv$skip1." ++ ?DQFN(CsvFileName)  
+            ,
+            [ {<<"A1">>,<<"1">>}
+            , {<<"A2">>,<<"2">>}
+            ]
+        ),
 
-        % ?assert(false),
+        exec_fetch_sort_equal(SKey, query03, 100, IsSec, "
+            select col1, col2, col3 from csv$skip1$tab$3." ++ ?DQFN(CsvFileName)  
+            ,
+            [ {<<"A1">>,<<"1">>,<<>>}
+            , {<<"A2">>,<<"2">>,<<>>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query04, 100, IsSec, "
+            select * from csv$." ++ ?DQFN(CsvFileName) ++ " where col1 like 'A%'"  
+            ,
+            [ {CsvFileName,<<"11">>,<<"6">>,<<"A1">>,<<"1">>}
+            , {CsvFileName,<<"17">>,<<"6">>,<<"A2">>,<<"2">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query05, 100, IsSec, "
+            select * from csv$." ++ ?DQFN(CsvFileName) ++ " where bytes = 6"  
+            ,
+            [ {CsvFileName,<<"11">>,<<"6">>,<<"A1">>,<<"1">>}
+            , {CsvFileName,<<"17">>,<<"6">>,<<"A2">>,<<"2">>}
+            ]
+        ),
 
         exec_fetch_sort_equal(SKey, query0g, 100, IsSec, "
             select list(1,to_atom('a')) from dual"
@@ -238,7 +249,7 @@ db1_with_or_without_sec(IsSec) ->
             [{<<"{1,\"X\"}">>}]
         ),
 
-        QSTime = calendar:local_time(),
+        _QSTime = calendar:local_time(),
 
         R00 = exec_fetch_sort(SKey, query00, 100, IsSec, "
             select name, d.lastLoginTime 
@@ -246,18 +257,18 @@ db1_with_or_without_sec(IsSec) ->
             where d.lastLoginTime >= sysdate - 1.1574074074074073e-5
             and d.id = a.id"                    %% 1.0 * ?OneSecond
         ),
-        QETime = calendar:local_time(),
+        _QETime = calendar:local_time(),
         case IsSec of
             false -> 
                 ok;
                 % FIXME: Currently failing in Travis
                 %?assertEqual(0, length(R00));
             true ->
-                ?LogDebug("Login time: ~p~n", [LoginTime]),
-                ?LogDebug("Query start time: ~p~n", [QSTime]),
-                ?LogDebug("Query end time: ~p~n", [QETime]),
-                Accounts = imem_meta:read(ddAccount),
-                ?LogDebug("Accounts: ~p~n", [Accounts]),
+                % ?LogDebug("Login time: ~p~n", [_LoginTime]),
+                % ?LogDebug("Query start time: ~p~n", [_QSTime]),
+                % ?LogDebug("Query end time: ~p~n", [_QETime]),
+                _Accounts = imem_meta:read(ddAccount),
+                % ?LogDebug("Accounts: ~p~n", [_Accounts]),
                 ?assertEqual(1, length(R00))
         end,
 
@@ -281,7 +292,7 @@ db1_with_or_without_sec(IsSec) ->
             select * 
             from ddSysConf.\"imem.app.src\"" 
         ),
-        ?LogDebug("Rows from ddSysConf.\"imem.app.src\": ~p~n", [R9b]),
+        % ?LogDebug("Rows from ddSysConf.\"imem.app.src\":~n~p~n", [R9b]),
         ?assertEqual(5, length(R9b)),
         
     %% test table def
@@ -295,10 +306,9 @@ db1_with_or_without_sec(IsSec) ->
                 col5 tuple
             );", 0, [{schema,imem}], IsSec)),
 
-        ?LogDebug("Test json(3) :~n~p~n", [?TEST_JSON(3)]),
-
+        % ?LogDebug("Test json(3) :~n~p~n", [?TEST_JSON(3)]),
         ?assertEqual(ok, insert_json(SKey, 3, def, imem, IsSec)),
-        ?LogDebug("Test table def :~n~p~n", [imem_meta:read(def)]),
+        % ?LogDebug("Test table def :~n~p~n", [imem_meta:read(def)]),
 
         exec_fetch_sort_equal(SKey, query9a, 100, IsSec, "
             select col2 
@@ -373,7 +383,7 @@ db1_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "truncate table def;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(ok, insert_json_int_list(SKey, 5, def, imem, IsSec)),
         ?assertEqual(ok, insert_json_str_list(SKey, 2, def, imem, IsSec)),
-        ?LogDebug("Test table def :~n~p~n", [imem_meta:read(def)]),
+        % ?LogDebug("Test table def :~n~p~n", [imem_meta:read(def)]),
 
         exec_fetch_sort_equal(SKey, query10a, 100, IsSec, "
             select col2[] 
@@ -507,7 +517,7 @@ db1_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
 
         {L0, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords, 1000]),
-        ?LogDebug("Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
+        % ?LogDebug("Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0),hd(L0), '...', lists:last(L0)]),
         ?assertEqual(20, length(L0)),
 
         exec_fetch_sort_equal(SKey, query2c, 100, IsSec, "
@@ -1089,7 +1099,7 @@ db1_with_or_without_sec(IsSec) ->
 
     catch
         Class:Reason ->
-            timer:sleep(1000),  
+            timer:sleep(100),  
             ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             ?assert( true == "all tests completed")
     end,
@@ -1099,23 +1109,20 @@ db1_with_or_without_sec(IsSec) ->
 db2_with_or_without_sec(IsSec) ->
     try
         ClEr = 'ClientError',
-        SeEx = 'SecurityException',
+        % SeEx = 'SecurityException',
 
-        ?LogDebug("----------------------------------~n"),
+        % ?LogDebug("----------------------------------~n"),
         ?LogDebug("---TEST--- ~p ---- db2 Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
+        % ?LogDebug("----------------------------------~n"),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         ?assertEqual([],imem_statement:receive_raw()),
 
         ?assertEqual([imem], imem_datatype:field_value(tag,list,0,0,[],<<"[imem]">>)),
-
-        timer:sleep(500),
-        LoginTime = calendar:local_time(),
 
         SKey=case IsSec of
             true ->     ?imem_test_admin_login();
@@ -1160,7 +1167,7 @@ db2_with_or_without_sec(IsSec) ->
         ]),
 
         {L1, true} = if_call_mfa(IsSec,select,[SKey, member_test, ?MatchAllRecords, 1000]),
-        ?LogDebug("Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1),hd(L1), '...', lists:last(L1)]),
+        % ?LogDebug("Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1),hd(L1), '...', lists:last(L1)]),
         ?assertEqual(5, length(L1)),
 
     %% queries on meta table
@@ -1178,7 +1185,7 @@ db2_with_or_without_sec(IsSec) ->
         ?assertEqual(AllTableCount, length(L4)),
 
         {L5, true} = if_call_mfa(IsSec,select,[SKey, user_tables, ?MatchAllKeys]),
-        ?LogDebug("Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
+        % ?LogDebug("Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5),hd(L5), '...', lists:last(L5)]),   
         case IsSec of
             false ->    ?assertEqual(AllTableCount, length(L5));
             true ->     ?assertEqual(2, length(L5))
@@ -1588,7 +1595,7 @@ db2_with_or_without_sec(IsSec) ->
             where name = element(2,qname)"
         ),
         ?assertEqual(length(R5s),length(R5r)),
-        ?LogDebug("Full Result R5s: ~n~p~n", [R5s]),
+        % ?LogDebug("Full Result R5s: ~n~p~n", [R5s]),
 
         R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, "
             select to_name(qname), tte 
@@ -1982,9 +1989,9 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
     ]),
     insert_range(SKey, N-1, Table, Schema, IsSec).
 
-exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
-    ?LogDebug("~n", []),
-    ?LogDebug("~p : ~s~n", [Id,Sql]),
+exec_fetch_equal(SKey, _Id, BS, IsSec, Sql, Expected) ->
+    % ?LogDebug("~n", []),
+    % ?LogDebug("~p : ~s~n", [_Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -1992,13 +1999,13 @@ exec_fetch_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?LogDebug("Result:~n~p~n", [RT]),
+    % ?LogDebug("Result:~n~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
-exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
-    ?LogDebug("~n", []),
-    ?LogDebug("~p : ~s~n", [Id,Sql]),
+exec_fetch_sort_equal(SKey, _Id, BS, IsSec, Sql, Expected) ->
+    % ?LogDebug("~n", []),
+    % ?LogDebug("~p : ~s~n", [_Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -2007,12 +2014,12 @@ exec_fetch_sort_equal(SKey,Id, BS, IsSec, Sql, Expected) ->
     ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     RT = imem_statement:result_tuples(List,RowFun),
-    ?LogDebug("Result:~n~p~n", [RT]),
+    % ?LogDebug("Result:~n~p~n", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
-exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
-    ?LogDebug("~p : ~s~n", [Id,Sql]),
+exec_fetch_sort(SKey, _Id, BS, IsSec, Sql) ->
+    % ?LogDebug("~p : ~s~n", [_Id,Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
@@ -2022,9 +2029,11 @@ exec_fetch_sort(SKey,Id, BS, IsSec, Sql) ->
     RT = imem_statement:result_tuples(List,RowFun),
     if 
         length(RT) =< 3 ->
-            ?LogDebug("Result:~n~p~n", [RT]);
+            % ?LogDebug("Result:~n~p~n", [RT])
+            ok;
         true ->
-            ?LogDebug("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+            % ?LogDebug("Result: ~p items~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+            ok
     end,            
     RT.
 

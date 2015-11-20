@@ -38,7 +38,7 @@ exec(SKey, {'drop index', IndexName, TableName}=_ParseTree, _Stmt, _Opts, IsSec)
     end;    
 
 exec(SKey, {'create index',{},{},TableName,[],{},{}} = _ParseTree, _Stmt, _Opts, IsSec) ->
-    ?LogDebug("Re-Create external Index Parse Tree~n~p~n", [_ParseTree]),
+    % ?LogDebug("Re-Create external Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     MySchema = imem_meta:schema(),
     MySchemaName = ?atom_to_binary(MySchema),
@@ -58,7 +58,7 @@ exec(SKey, {'create index',{},{},TableName,[],{},{}} = _ParseTree, _Stmt, _Opts,
     end,
     if_call_mfa(IsSec, create_or_replace_index, [SKey, Table, ExistingIndexDefs]);
 exec(SKey, {'create index', {}, IndexName, TableName, [], {}, {}} = _ParseTree, _Stmt, _Opts, IsSec) ->
-    ?LogDebug("Create internal (MNESIA) Index Parse Tree~n~p~n", [_ParseTree]),
+    % ?LogDebug("Create internal (MNESIA) Index Parse Tree~n~p~n", [_ParseTree]),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
     {IndexSchema, Index} = imem_sql_expr:binstr_to_qname2(IndexName),
     if
@@ -81,7 +81,7 @@ exec(SKey, {'create index', {}, IndexName, TableName, [], {}, {}} = _ParseTree, 
 exec(SKey, {'create index', IndexType, IndexName, TableName
             , IndexDefn, NormWithFun, FilterWithFun} = _ParseTree
             , _Stmt, _Opts, IsSec) ->
-    ?LogDebug("Create Index Parse Tree~n~p~n", [_ParseTree]),
+    % ?LogDebug("Create Index Parse Tree~n~p~n", [_ParseTree]),
     MySchema = imem_meta:schema(),
     MySchemaName = ?atom_to_binary(MySchema),
     {TableSchema, Tbl} = imem_sql_expr:binstr_to_qname2(TableName),
@@ -165,8 +165,8 @@ test_with_or_without_sec(IsSec) ->
     try
         ?LogDebug("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -423,10 +423,8 @@ test_with_or_without_sec(IsSec) ->
 
 print_indices(IsSec, SKey, Schema, Table) ->
     [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {Schema,Table}]),
-    {value, {index, Indices}} =
-        lists:keysearch(index, 1, Meta#ddTable.opts),
-    ?LogDebug("~nIndices :~n"
-          "~s", [lists:flatten(
+    {value, {index, Indices}} = lists:keysearch(index, 1, Meta#ddTable.opts),
+    _Indices = lists:flatten(
                    [[" ", binary_to_list(I#ddIdxDef.name), " -> "
                      , string:join(
                          [binary_to_list(element(2, jpparse:string(Pl)))
@@ -434,7 +432,8 @@ print_indices(IsSec, SKey, Schema, Table) ->
                          , " | ")
                      , "\n"]
                     || I <- Indices]
-                  )]
-         ).
+                  ),
+    % ?LogDebug("~nIndices :~n ~s", [_Indices])
+    ok.
 
 -endif.

@@ -198,13 +198,13 @@ monitor_operations(_) ->
 
         ?assertEqual(ok, write_monitor()),
         MonRecs = imem_meta:read(?MONITOR_TABLE),
-        ?LogDebug("MonRecs count ~p~n", [length(MonRecs)]),
-        ?LogDebug("MonRecs last ~p~n", [lists:last(MonRecs)]),
+        % ?LogDebug("MonRecs count ~p~n", [length(MonRecs)]),
+        % ?LogDebug("MonRecs last ~p~n", [lists:last(MonRecs)]),
         % ?LogDebug("MonRecs[1] ~p~n", [hd(MonRecs)]),
         % ?LogDebug("MonRecs ~p~n", [MonRecs]),
         ?assert(length(MonRecs) > 0),
-
-        ?LogDebug("success ~p~n", [monitor])
+        %?LogDebug("success ~p~n", [monitor]),
+        ok
     catch
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})

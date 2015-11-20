@@ -772,8 +772,10 @@ db_test_() ->
 
 test_snapshot(SnapDir) ->
     ?LogDebug("---TEST--- snapshots ~p~n", [SnapDir]),
-    ?LogDebug("take snapshots :~n~p~n", [take(ddTable)]),
+    Take = take(ddTable),
+    % ?LogDebug("take snapshots :~n~p~n", [Take]),
     ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
-    ?LogDebug("snapshot tests completed!~n", []).
+    % ?LogDebug("snapshot tests completed!~n", []),
+    ok.
 
 -endif.

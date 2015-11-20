@@ -6,7 +6,7 @@
 -include("imem_if_csv.hrl").
 -include_lib("kernel/include/file.hrl").
 
--define(CSV_INFO_BYTES, 2 * 1024).
+-define(CSV_INFO_BYTES, 4 * 1024).
 -define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding, skip])).
 -define(ALL_CSV_SCHEMA_TOKENS, [ {<<"crlf">>,lineSeparator,<<"\r\n">>}
                                , {<<"lf">>,lineSeparator,<<"\n">>}
@@ -32,13 +32,14 @@
         , terminate/2
         , code_change/3
         , format_status/2
-        , read_blocks/7
         , start_link/1
         ]).
 
--export([select/4, column_names/1, fetch_start/5]).
-
--export([file_info/2]).
+-export([ file_info/1
+        , column_names/1
+        , select/4
+        , fetch_start/5
+        ]).
 
 file_info({Schema,File}) -> file_info(File, schema_to_opts(Schema));
 file_info(File) ->          file_info(File, #{}).
@@ -46,6 +47,7 @@ file_info(File) ->          file_info(File, #{}).
 file_info(File, Opts) -> file_info(File, Opts, <<>>).
 
 file_info(File, #{lineSeparator := _} = Opts, BinData) ->  
+
     file_info_col_sep(File, Opts, BinData);
 file_info(File, Opts, <<>>) ->
     file_info(File, Opts, file_sample(File,Opts));
@@ -85,10 +87,10 @@ pick_col_separator(_Rows, Opts, []) ->
 pick_col_separator(Rows, Opts, [Sep|Seps]) ->
     ColumnCount = case maps:is_key(columnCount,Opts) of
         true ->     
-            maps:value(columnCount,Opts);
+            maps:get(columnCount,Opts);
         false ->    
             case maps:is_key(columns,Opts) of
-                true ->     length(maps:value(columns,Opts));
+                true ->     length(maps:get(columns,Opts));
                 false ->    undefined
             end
     end,
@@ -168,7 +170,7 @@ file_sample(File,Opts) ->
             {ok, D1} = file:pread(Io, ?CSV_INFO_BYTES, ?CSV_INFO_BYTES),
             LS = case maps:is_key(lineSeparator,Opts) of
                 false ->    <<"\n">>;
-                true ->     maps:value(lineSeparator,Opts)
+                true ->     maps:get(lineSeparator,Opts)
             end,
             case binary:split(D1, LS, [global]) of
                 [<<>>] ->   D0;
@@ -183,8 +185,10 @@ file_sample(File,Opts) ->
 schema_to_opts(Schema) when is_binary(Schema) ->
     schema_to_opts( binary:split(Schema, <<"$">>, [global]) -- [?CSV_SCHEMA,<<>>], #{}).
 
-schema_to_opts([], #{skip := _} = Opts) -> Opts;
-schema_to_opts([], Opts) -> Opts#{skip => 0};
+schema_to_opts([], #{skip := _, header := _} = Opts) -> Opts;
+schema_to_opts([], #{skip := _} = Opts) -> Opts#{header => false};
+schema_to_opts([], #{header := _} = Opts) -> Opts#{skip => 0};
+schema_to_opts([], Opts) -> Opts#{skip => 0, header => false};
 schema_to_opts([Token|Tokens], Opts) ->
     case (catch list_to_integer(binary_to_list(Token))) of
         N when is_integer(N) ->
@@ -199,7 +203,7 @@ schema_to_opts([Token|Tokens], Opts) ->
                             ?ClientErrorNoLogging({"Invalid CSV skip number",Token})
                     end;
                 _ ->
-                    case lists:key_find(Token, 1, ?ALL_CSV_SCHEMA_TOKENS) of
+                    case lists:keyfind(Token, 1, ?ALL_CSV_SCHEMA_TOKENS) of
                         {Token,Key,Value} ->  
                             schema_to_opts(Tokens, Opts#{Key => Value});
                         _ ->
@@ -311,10 +315,9 @@ code_change(_OldVsn, State, _Extra) ->
 format_status(_Opt, [_PDict, _State]) -> ok.
 
 
-column_names({_CsvSchema,FileName}) ->
+column_names({Schema,FileName}) ->
     UnquotedFN = imem_datatype:strip_dquotes(FileName),
-    #{columns := Columns} = file_info(UnquotedFN),
-    Columns.
+    maps:get(columns,file_info(UnquotedFN, schema_to_opts(Schema))).
 
 fetch_start(Pid, {Schema,FileName}, MatchSpec, RowLimit, _CursorOpts) ->
     UnquotedFN = imem_datatype:strip_dquotes(FileName),
@@ -330,59 +333,50 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, RowLimit, _CursorOpts) ->
                         undefined ->
                             % ?Info("[~p] got MatchSpec ~p for ~p limit ~p~n", [Pid,MatchSpec,FileName,BlockSize]),
                             case select({Schema,UnquotedFN}, MatchSpec, RowLimit, read) of
-                                '$end_of_table' ->
-                                    % ?Info("[~p] got empty table~n", [Pid]),
-                                    Pid ! {row, [?sot,?eot]};
                                 {aborted, Reason} ->
                                     exit(Reason);
+                                {[],{'$end_of_table'}} ->
+                                    Pid ! {row, [?sot,?eot]};
+                                {Rows, {'$end_of_table'}} ->
+                                    Pid ! {row, [?sot,?eot|Rows]};
                                 {Rows, Contd1} ->
-                                    % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
-                                    if  Contd1 == '$end_of_table' ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?sot,?eot|Rows]};
-                                        true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?sot|Rows]},
-                                            F(F,Contd1)
-                                    end
+                                    Pid ! {row, [?sot|Rows]},
+                                    F(F,Contd1)
                             end;
                         Contd0 ->
                             % ?Info("[~p] got continuing fetch...~n", [Pid]),
                             case select(Contd0) of
-                                '$end_of_table' ->
-                                    % ?Info("[~p] complete after ~n",[Pid,Contd0]),
-                                    Pid ! {row, ?eot};
                                 {aborted, Reason} ->
                                     exit(Reason);
+                                {[],{'$end_of_table'}} ->
+                                    Pid ! {row, ?eot};
+                                {Rows, {'$end_of_table'}} ->
+                                    Pid ! {row, [?eot|Rows]};
                                 {Rows, Contd1} ->
-                                        if  Contd1 == '$end_of_table' ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?eot|Rows]};
-                                        true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, Rows},
-                                            F(F,Contd1)
-                                    end
+                                    Pid ! {row, Rows},
+                                    F(F,Contd1)
                             end
                 end
         end
     end,
     spawn(fun() -> F(F,undefined) end).
 
-select({Schema,UnquotedFN}, _MatchSpec, RowLimit, _LockType) ->
-    % ?LogDebug("select UnquotedFN ~p",[UnquotedFN]),
+select({Schema,UnquotedFN}, MatchSpec, RowLimit, _LockType) ->
+    % ?LogDebug("CSV select UnquotedFN ~p",[UnquotedFN]),
+    % ?LogDebug("CSV select Matchspec ~p",[MatchSpec]),
     {ok, Io} = file:open(UnquotedFN, [raw, read, binary]),
     CsvOpts = file_info(UnquotedFN, schema_to_opts(Schema)),
-    ?LogDebug("CSV Schema Opts : ~p", [CsvOpts]),
-    read_blocks(Io, UnquotedFN, 0, ?CSV_INFO_BYTES, RowLimit, 0, CsvOpts).
+    % ?LogDebug("CSV Schema Opts : ~p", [CsvOpts]),
+    CMS = ets:match_spec_compile(MatchSpec),
+    read_blocks(Io, UnquotedFN, CMS, 0, ?CSV_INFO_BYTES, RowLimit, 0, CsvOpts).
 
-select(#{io := Io, file:= File, pos := Pos, blockSize := BlockSize, rowLimit := RowLimit, rowsSkipped := RowsSkipped, opts := CsvOpts}) ->
-    read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts).
+select(#{io:=Io, file:=File, cms:=CMS, pos:=Pos, blockSize:=BlockSize, rowLimit:=RowLimit, rowsSkipped:=RowsSkipped, opts:=CsvOpts}) ->
+    read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts).
 
-read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
-    read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, []).
+read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
+    read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, []).
 
-read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
+read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
     #{ lineSeparator := LineSeparator
      , columnSeparator := ColumnSeparator
      , columnCount := ColumnCount
@@ -403,18 +397,33 @@ read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) ->
                 {false, _} ->   
                     AllLines  % eof after next read
             end,
-            RecFold = fun(Line,{P,Recs}) ->
-                StrFields = binary:split(Line, [ColumnSeparator],[global]),
-                LineSize = byte_size(Line)+LSL,
-                WithSizeFields = case length(StrFields) of
-                    ColumnCount ->
-                        [P|[LineSize|StrFields]];
-                    N when N < ColumnCount ->
-                        [P|[LineSize|StrFields]] ++ lists:duplicate(<<>>,ColumnCount-N);
-                    _ ->
-                        [P|[LineSize|lists:sublist(StrFields,ColumnCount)]]
-                end,
-                {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME|[File|WithSizeFields]])|Recs]}
+            RecFold = case ColumnSeparator of
+                <<>> when ColumnCount == 1 ->
+                    fun(Line,{P,Recs}) ->
+                        LineSize = byte_size(Line)+LSL,
+                        WithSizeFields = [P,LineSize,Line],
+                        {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME,File|WithSizeFields])|Recs]}
+                    end;
+                <<>> when ColumnCount > 1 ->
+                    fun(Line,{P,Recs}) ->
+                        LineSize = byte_size(Line)+LSL,
+                        WithSizeFields = [P,LineSize,Line] ++ lists:duplicate(ColumnCount-1,<<>>),
+                        {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME,File|WithSizeFields])|Recs]}
+                    end;
+                CS when is_binary(CS) ->
+                    fun(Line,{P,Recs}) ->
+                        StrFields = binary:split(Line, [CS],[global]),
+                        LineSize = byte_size(Line)+LSL,
+                        WithSizeFields = case length(StrFields) of
+                            ColumnCount ->
+                                [P|[LineSize|StrFields]];
+                            N when N < ColumnCount ->
+                                [P,LineSize|StrFields] ++ lists:duplicate(ColumnCount-N,<<>>);
+                            _ ->
+                                [P,LineSize|lists:sublist(StrFields,ColumnCount)]
+                        end,
+                        {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME,File|WithSizeFields])|Recs]}
+                    end
             end,
             {LastPos,RevRecs} = lists:foldl(RecFold,{Pos,[]},Lines),
             RevRecsLength = length(RevRecs),
@@ -427,19 +436,19 @@ read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) ->
                     {_, R} = lists:split(Skip-RowsSkipped,lists:reverse(RevRecs)),
                     {R, Skip}
             end,
-            Filter = fun(_Record) -> true end,                  % ToDo: add predicate filtering with compiled matchspec
-            AllNewRows = Rows ++ lists:filter(Filter, AllRecs), % ToDo: adapt new BlockSize to situation
+            AllNewRows = Rows ++ ets:match_spec_run(AllRecs,CMS),
             if 
+                % ToDo: adapt new BlockSize to situation
                 length(AllNewRows) < RowLimit -> 
                     NewPos = LastPos + element(3,hd(RevRecs)),
-                    read_blocks(Io, File, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts, AllNewRows);
+                    read_blocks(Io, File, CMS, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts, AllNewRows);
                 length(AllNewRows) > RowLimit -> 
                     NewRows = Rows ++ lists:sublist(AllNewRows, RowLimit), 
                     NewPos = element(2,lists:nth(RowLimit+1,AllNewRows)),
-                    {NewRows, continuation(Io, File, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)};
+                    {NewRows, continuation(Io, File, CMS, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)};
                 true -> 
                     NewPos = LastPos + element(3,hd(RevRecs)),
-                    {AllNewRows, continuation(Io, File, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)}
+                    {AllNewRows, continuation(Io, File, CMS, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)}
             end;
         eof -> 
             file:close(Io),
@@ -450,14 +459,17 @@ read_blocks(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) ->
             {aborted, einval}
     end.
 
-continuation(Io, File, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
-    #{io => Io, file => File, pos => Pos, blockSize => BlockSize, rowLimit => RowLimit, rowsSkipped => RowsSkipped, opts => CsvOpts}.
+continuation(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
+    #{io=>Io, file=>File, cms=>CMS, pos=>Pos, blockSize=>BlockSize, rowLimit=>RowLimit, rowsSkipped=>RowsSkipped, opts=>CsvOpts}.
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(MATCH_ALL_1_COL, [{{'_','$22','$23','$24','$25'},[true],['$_']}]).
+-define(MATCH_ALL_2_COLS, [{{'_','$22','$23','$24','$25','$26'},[true],['$_']}]).
+-define(MATCH_ALL_3_COLS, [{{'_','$22','$23','$24','$25','$26','$27'},[true],['$_']}]).
 
 setup() -> 
     ?imem_test_setup.
@@ -503,7 +515,8 @@ test_csv_1(_) ->
                      ,[<<"A2">>,<<"2">>]
                      ,[<<>>]
                      ]
-                     ,RowsSplitBySep1),
+                     ,RowsSplitBySep1
+                    ),
         ?assertEqual(2,column_count(RowsSplitBySep1)),
         SepCounts1 = [{count_char_seq(Bin1,Sep),Sep} || Sep <- [<<"\t">>,<<";">>,<<",">>]],
         ?assertEqual([{3,<<"\t">>},{0,<<";">>},{0,<<",">>}],SepCounts1),
@@ -516,21 +529,40 @@ test_csv_1(_) ->
                         , lineSeparator := <<"\r\n">>
                         , encoding := utf8
                         }
-                        , file_info(CsvFileName)),
+                        , file_info(CsvFileName)
+                    ),
 
         ?assertMatch(  #{ columnCount := 2
                         , columnSeparator := <<"\t">>
                         , columns := [<<"Col1">>,<<"Col2">>]
                         , lineSeparator := <<"\r\n">>
                         }
-                        , file_info(CsvFileName,#{header => true})),
+                        , file_info(CsvFileName,#{header => true})
+                    ),
 
         ?assertMatch(  #{ columnCount := 2
                         , columnSeparator := <<"\t">>
                         , columns := [<<"col1">>,<<"col2">>]
                         , lineSeparator := <<"\r\n">>
                         }
-                        , file_info(CsvFileName,#{header => false})),
+                        , file_info(CsvFileName,#{header => false})
+                    ),
+
+        ?assertMatch(  #{ columnCount := 1
+                        , columnSeparator := <<"\t">>
+                        , columns := [<<"col1">>]
+                        , lineSeparator := <<"\r\n">>
+                        }
+                        , file_info(CsvFileName,#{columnCount => 1, columnSeparator => <<"\t">>})
+                    ),
+
+        ?assertMatch(  #{ columnCount := 3
+                        , columnSeparator := <<"\t">>
+                        , columns := [<<"col1">>,<<"col2">>,<<"col3">>]
+                        , lineSeparator := <<"\r\n">>
+                        }
+                        , file_info(CsvFileName,#{columnCount => 3, columnSeparator => <<"\t">>})
+                    ),
 
         Bin2 = <<"A\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>,
         Rows2 = binary:split(Bin2, <<"\r\n">>, [global]),
@@ -540,7 +572,8 @@ test_csv_1(_) ->
                      ,[<<"A1">>,<<"1">>]
                      ,[<<"A2">>,<<"2">>]
                      ]
-                     ,RowsSplitBySep2),
+                     ,RowsSplitBySep2
+                    ),
         ?assertEqual(2,column_count(RowsSplitBySep2)),
         SepCounts2 = [{count_char_seq(Bin2,Sep),Sep} || Sep <- [<<"\t">>,<<";">>,<<",">>]],
         ?assertEqual([{3,<<"\t">>},{0,<<";">>},{0,<<",">>}],SepCounts2),
@@ -552,7 +585,8 @@ test_csv_1(_) ->
                         , lineSeparator := <<"\r\n">>
                         , encoding := utf8
                         }
-                        , imem_if_csv:file_info(CsvFileName,#{header => true})),
+                        , file_info(CsvFileName,#{header => true})
+                    ),
 
         file:write_file(CsvFileName,<<"\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
         ?assertMatch(  #{ columnCount := 2
@@ -560,7 +594,8 @@ test_csv_1(_) ->
                         , columns := [<<"Col1">>,<<"Col2">>]
                         , lineSeparator := <<"\r\n">>
                         }
-                        , imem_if_csv:file_info(CsvFileName,#{header => true})),
+                        , file_info(CsvFileName,#{header => true})
+                    ),
 
         file:write_file(CsvFileName,<<"1\t2\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
         ?assertMatch(  #{ columnCount := 2
@@ -568,7 +603,8 @@ test_csv_1(_) ->
                         , columns := [<<"col1">>,<<"col2">>]
                         , lineSeparator := <<"\r\n">>
                         }
-                        , imem_if_csv:file_info(CsvFileName,#{header => true})),
+                        , file_info(CsvFileName,#{header => true})
+                    ),
 
         file:write_file(CsvFileName,<<"1\t2\nCol1\tCol2\nCol1\n">>),
         ?assertMatch(  #{ columnCount := 1
@@ -576,49 +612,136 @@ test_csv_1(_) ->
                         , columns := [<<"col1">>]
                         , lineSeparator := <<"\n">>
                         }
-                        , imem_if_csv:file_info(CsvFileName,#{header => true})),
+                        , file_info(CsvFileName,#{header => true})
+                    ),
 
-        % ?assertEqual(
-        %     {[{csv_rec,<<"Col1">>,<<"Col2">>}
-        %      ,{csv_rec,<<"A1">>,<<"1">>}
-        %      ,{csv_rec,<<"A2">>,<<"2">>}
-        %      ]
-        %     ,{'$end_of_table'}
-        %     }
-        % ,
-        %     imem_if_csv:select({?CSV_SCHEMA,imem_datatype:strip_dquotes(CsvFileName)}, [], 100, read)
-        % ),
+        CsvFileName = "CsvTestFileName123abc.txt",
+        file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
+        ?assertEqual(   {[ {csv_rec,CsvFileName,0,11,<<"Col1">>,<<"Col2">>}
+                         , {csv_rec,CsvFileName,11,6,<<"A1">>,<<"1">>}
+                         , {csv_rec,CsvFileName,17,6,<<"A2">>,<<"2">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({?CSV_SCHEMA_DEFAULT,CsvFileName}, ?MATCH_ALL_2_COLS, 100, read)
+                    ),
 
-        % exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
-        %     select * from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
-        %     ,
-        %     [{<<"A1">>,<<"1">>}
-        %     ,{<<"A2">>,<<"2">>}
-        %     ,{<<"Col1">>,<<"Col2">>}
-        %     ]
-        % ),
+        ?assertEqual(   {[ {csv_rec,CsvFileName,0,11,<<"Col1">>}
+                         , {csv_rec,CsvFileName,11,6,<<"A1">>}
+                         , {csv_rec,CsvFileName,17,6,<<"A2">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({<<"csv$tab$1">>,CsvFileName}, ?MATCH_ALL_1_COL, 100, read)
+                    ),
+        file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
+        ?assertEqual(   {[ {csv_rec,CsvFileName,0,11,<<"Col1">>,<<"Col2">>,<<>>}
+                         , {csv_rec,CsvFileName,11,6,<<"A1">>,<<"1">>,<<>>}
+                         , {csv_rec,CsvFileName,17,6,<<"A2">>,<<"2">>,<<>>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({<<"csv$tab$3">>,CsvFileName}, ?MATCH_ALL_3_COLS, 100, read)
+                    ),
 
-        % exec_fetch_sort_equal(SKey, query00a, 100, IsSec, "
-        %     select col2 from csv$.\"" ++ CsvFileName ++ "\""   % \"C:\\Temp\\Test.txt\"
-        %     ,
-        %     [{<<>>}
-        %     ,{<<"1">>}
-        %     ,{<<"2">>}
-        %     ,{<<"Col2">>}
-        %     ]
-        % ),
+        file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
+        ?assertEqual(   {[ {csv_rec,CsvFileName,0,11,<<"Col1">>,<<"Col2">>}
+                         , {csv_rec,CsvFileName,11,6,<<"A1">>,<<"1">>}
+                         , {csv_rec,CsvFileName,17,6,<<"A2">>,<<"2">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({?CSV_SCHEMA_DEFAULT,CsvFileName}, ?MATCH_ALL_2_COLS, 100, read)
+                    ),
+        file:write_file(CsvFileName,<<"A\t\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>),
+        ?assertEqual(   {[ {csv_rec,CsvFileName,0,4,<<"A">>,<<>>}
+                         , {csv_rec,CsvFileName,4,11,<<"Col1">>,<<"Col2">>}
+                         , {csv_rec,CsvFileName,15,6,<<"A1">>,<<"1">>}
+                         , {csv_rec,CsvFileName,21,6,<<"A2">>,<<"2">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({?CSV_SCHEMA_DEFAULT,CsvFileName}, ?MATCH_ALL_2_COLS, 100, read)
+                    ),
 
-        % exec_fetch_sort_equal(SKey, query00b, 100, IsSec, "
-        %     select col2, col1 from csv$.\"C:\\Temp\\Test.txt\"
-        %     "
-        %     ,
-        %     [{<<"1">>,<<"A1">>}
-        %     ,{<<"2">>,<<"A2">>}
-        %     ,{<<"Col2">>,<<"Col1">>}
-        %     ]
-        % ),
+        file:write_file(CsvFileName,<<"A|\r\n\r\nCol1|Col2\r\nA1|1\r\nA2|2\r\n">>),
+        ?assertMatch(   {[ {csv_rec,CsvFileName,0,4,<<"A">>,<<>>}
+                         , {csv_rec,CsvFileName,_,2,<<>>,<<>>}
+                         , {csv_rec,CsvFileName,_,11,<<"Col1">>,<<"Col2">>}
+                         , {csv_rec,CsvFileName,_,6,<<"A1">>,<<"1">>}
+                         , {csv_rec,CsvFileName,_,6,<<"A2">>,<<"2">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({?CSV_SCHEMA_DEFAULT,CsvFileName}, ?MATCH_ALL_2_COLS, 100, read)
+                    ),
 
-        % ?assert(false),
+        file:write_file(CsvFileName,<<"A;\r\n\r\nCol1;Col2\r\nA1;1\r\nA2;2\r\n\r\n">>),
+        ?assertMatch(   {[ {csv_rec,CsvFileName,0,4,<<"A">>,<<>>}
+                         , {csv_rec,CsvFileName,_,2,<<>>,<<>>}
+                         , {csv_rec,CsvFileName,_,11,<<"Col1">>,<<"Col2">>}
+                         , {csv_rec,CsvFileName,_,6,<<"A1">>,<<"1">>}
+                         , {csv_rec,CsvFileName,_,6,<<"A2">>,<<"2">>}
+                         , {csv_rec,CsvFileName,_,2,<<>>,<<>>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({?CSV_SCHEMA_DEFAULT,CsvFileName}, ?MATCH_ALL_2_COLS, 100, read)
+                    ),
+
+        file:write_file(CsvFileName,<<"A;\n\r\nCol1;Col2\r\nA1;1\r\nA2;2">>),
+        ?assertMatch(   {[ {csv_rec,CsvFileName,0,3,<<"A;">>}
+                         , {csv_rec,CsvFileName,_,2,<<"\r">>}
+                         , {csv_rec,CsvFileName,_,11,<<"Col1;Col2\r">>}
+                         , {csv_rec,CsvFileName,_,6,<<"A1;1\r">>}
+                         , {csv_rec,CsvFileName,_,5,<<"A2;2">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({?CSV_SCHEMA_DEFAULT,CsvFileName}, ?MATCH_ALL_1_COL, 100, read)
+                    ),
+
+        file:write_file(CsvFileName,<<"1\n2\n3\n4\n5">>),
+        ?assertMatch(   {[ {csv_rec,CsvFileName,0,2,<<"1">>}
+                         , {csv_rec,CsvFileName,_,2,<<"2">>}
+                         , {csv_rec,CsvFileName,_,2,<<"3">>}
+                         , {csv_rec,CsvFileName,_,2,<<"4">>}
+                         , {csv_rec,CsvFileName,_,2,<<"5">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({?CSV_SCHEMA_DEFAULT,CsvFileName}, ?MATCH_ALL_1_COL, 100, read)
+                    ),
+        ?assertMatch(   {[ {csv_rec,CsvFileName,_,2,<<"3">>}
+                         , {csv_rec,CsvFileName,_,2,<<"4">>}
+                         , {csv_rec,CsvFileName,_,2,<<"5">>}
+                         ]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({<<"csv$skip2">>,CsvFileName}, ?MATCH_ALL_1_COL, 100, read)
+                    ),
+        ?assertMatch(   {[]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({<<"csv$skip5">>,CsvFileName}, ?MATCH_ALL_1_COL, 100, read)
+                    ),
+        ?assertMatch(   {[]
+                         ,
+                         {'$end_of_table'}
+                        }
+                        , select({<<"csv$skip6">>,CsvFileName}, ?MATCH_ALL_1_COL, 100, read)
+                    ),
         ok
     catch
         Class:Reason ->

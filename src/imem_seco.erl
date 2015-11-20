@@ -821,36 +821,36 @@ test(_) ->
         % SeVi = 'SecurityViolation',
         % SyEx = 'SystemException',          %% cannot easily test that
 
-        ?LogDebug("---TEST---~p~n", [?MODULE]),
+        ?LogDebug("---TEST--- ~p~n", [?MODULE]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?LogDebug("~p:test_database~n", [?MODULE]),
+        % ?LogDebug("~p:test_database~n", [?MODULE]),
 
         Seco0 = imem_meta:table_size(ddSeCo@),
         Perm0 = imem_meta:table_size(ddPerm@),
         ?assert(0 =< imem_meta:table_size(ddSeCo@)),
         ?assert(0 =< imem_meta:table_size(ddPerm@)),
-        ?LogDebug("success ~p~n", [minimum_table_sizes]),
+        % ?LogDebug("success ~p~n", [minimum_table_sizes]),
 
-        ?LogDebug("~p:test_admin_login~n", [?MODULE]),
+        % ?LogDebug("~p:test_admin_login~n", [?MODULE]),
 
         SeCoAdmin0=?imem_test_admin_login(),
-        ?LogDebug("success ~p~n", [test_admin_login]),
+        % ?LogDebug("success ~p~n", [test_admin_login]),
 
         Seco1 = imem_meta:table_size(ddSeCo@),
         Perm1 = imem_meta:table_size(ddPerm@),
         ?assertEqual(Seco0+1,Seco1),
         ?assertEqual(Perm0,Perm1),        
-        ?LogDebug("success ~p~n", [status1]),
+        % ?LogDebug("success ~p~n", [status1]),
         Seco2 = imem_sec:table_size(SeCoAdmin0, ddSeCo@),
         Perm2 = imem_sec:table_size(SeCoAdmin0, ddPerm@),
         ?assertEqual(Seco0+1,Seco2),
         ?assertEqual(Perm0+2,Perm2),        
-        ?LogDebug("success ~p~n", [status1]),
+        % ?LogDebug("success ~p~n", [status1]),
 
         imem_seco ! {'DOWN', simulated_reference, process, self(), simulated_exit},
         timer:sleep(2000),
@@ -858,16 +858,17 @@ test(_) ->
         Perm3 = imem_meta:table_size(ddPerm@),
         ?assertEqual(Seco0,Seco3),
         ?assertEqual(Perm0,Perm3),        
-        ?LogDebug("success ~p~n", [status2]),
+        % ?LogDebug("success ~p~n", [status2]),
 
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"+41794321750">>)),
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"+41 (0)79 432 17 50">>)),
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"4179-432-17-50">>)),
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"079 432 17 50">>)),
 
-        ?LogDebug("success ~p~n", [normalized_msisdn]),
+        % ?LogDebug("success ~p~n", [normalized_msisdn]),
 
-        ?LogDebug("~p:test_imem_seco~n", [?MODULE])
+        % ?LogDebug("~p:test_imem_seco~n", [?MODULE]),
+        ok
     catch
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})

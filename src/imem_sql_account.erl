@@ -246,15 +246,15 @@ test_with_or_without_sec(IsSec) ->
         % SeEx = 'SecurityException',
         ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
         ?assertEqual(ok, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
         UserId = imem_account:get_id_by_name(SKey,<<"test_user_1">>),
-        ?LogDebug("UserId ~p~n", [UserId]),
+        % ?LogDebug("UserId ~p~n", [UserId]),
         ?assertException(throw, {ClEr,{"Account already exists", <<"test_user_1">>}}, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
         ?assertException(throw, {UiEx,{"Unimplemented account delete option",[cascade]}}, imem_sql:exec(SKey, "DROP USER test_user_1 CASCADE;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),
