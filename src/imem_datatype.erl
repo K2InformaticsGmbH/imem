@@ -1537,8 +1537,7 @@ erl_value_test_() ->
           {"(fun() -> 1 + 2 end)()", 3},
           {"(fun() -> A end)()", 'ClientError'},
           {"os:cmd(\"pwd\")", 'SystemException'},
-          {"(fun() -> apply(filelib, ensure_dir, [\"pwd\"]) end)()",
-           'SystemException'},
+          {"(fun() -> apply(filelib, ensure_dir, [\"pwd\"]) end)()",'SystemException'},
           {"fun() -> os:cmd(\"pwd\") end", runtime}
          ]
      ]}.
@@ -1548,19 +1547,14 @@ db_test_() ->
         setup,
         fun() -> ok end,
         fun(_) -> ok end,
-        {with, [
-              fun data_types/1
-        ]}}.
+        {with, [fun data_types/1]}
+    }.
 
 data_types(_) ->
     try
+        ?LogDebug("---TEST---"),
+
         ClEr = 'ClientError',
-        %% SyEx = 'SystemException',    %% difficult to test
-
-        % ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, all]),
-        % ?LogDebug("----------------------------------~n"),
-
         ?assertEqual(<<"'Imem'">>, item1({'Imem',ddTable})),
         ?assertEqual(<<"'Imem'">>, item(1,{'Imem',ddTable})),
         ?assertEqual(<<"ddTable">>, item2({'Imem',ddTable})),

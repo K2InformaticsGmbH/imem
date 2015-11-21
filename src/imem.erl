@@ -69,7 +69,7 @@ stop() ->
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
     % it only helps to build up the cluster
-    ?Notice("---------------------------------------------------~n"),
+    % ?Notice("---------------------------------------------------~n"),
     ?Notice(" STARTING IMEM~n"),
     case application:get_env(erl_cluster_mgrs) of
         {ok, []} -> ?Info("cluster manager node(s) not defined!~n");
@@ -117,7 +117,7 @@ start(_Type, StartArgs) ->
            case imem_sup:start_link(StartArgs) of
                {ok, _} = Success ->
                    ?Notice(" IMEM STARTED~n"),
-                   ?Notice("---------------------------------------------------~n"),
+                   % ?Notice("---------------------------------------------------~n"),
                    Success;
                Error ->
                    ?Error(" IMEM FAILED TO START ~p~n", [Error]),

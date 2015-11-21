@@ -1099,13 +1099,14 @@ string_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun string_operations/1
-              , fun iff_functions/1
-        ]}}.    
+        {with,  [ fun string_operations/1
+                , fun iff_functions/1
+                ]
+        }
+    }.    
 
 iff_functions(_) ->
-    ?LogDebug("---TEST---~p:iff_functions~n", [?MODULE]),
+    ?LogDebug("---TEST--- ~p", [iff_functions]),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,3])),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,'_',3])),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,'_'])),
@@ -1125,7 +1126,7 @@ iff_functions(_) ->
 
 
 string_operations(_) ->
-    ?LogDebug("---TEST---~p:string_operations~n", [?MODULE]),
+    ?LogDebug("---TEST--- ~p", [string_operations]),
     ?assertEqual([<<"table">>], vnf_lcase_ascii(<<"täble"/utf8>>)),
     ?assertEqual([<<"tuble">>], vnf_lcase_ascii(<<"tüble"/utf8>>)).
 

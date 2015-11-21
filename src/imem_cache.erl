@@ -50,17 +50,12 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-                 fun test_without_sec/1
-        ]}
+        {with, [fun test_without_sec/1]}
     }.
     
 test_without_sec(_) -> 
     try
-        _ClEr = 'ClientError',
-        %% SyEx = 'SystemException',    %% difficult to test
-        % SeEx = 'SecurityException',
-        ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, false]),
+        ?LogDebug("---TEST---"),
 
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),

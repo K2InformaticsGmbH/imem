@@ -187,14 +187,12 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun monitor_operations/1
-        ]}}.    
+        {with, [fun monitor_operations/1]}
+    }.    
 
 monitor_operations(_) ->
     try 
-
-        ?LogDebug("---TEST---~p:test_monitor~n", [?MODULE]),
+        ?LogDebug("---TEST---"),
 
         ?assertEqual(ok, write_monitor()),
         MonRecs = imem_meta:read(?MONITOR_TABLE),

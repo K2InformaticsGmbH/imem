@@ -105,7 +105,7 @@ db1_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with,inorder,[fun db1_without_sec/1]}
+        {with,[fun db1_without_sec/1]}
     }.
     
 db1_sec_test_() ->
@@ -113,7 +113,7 @@ db1_sec_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with,inorder,[fun db1_with_sec/1]}
+        {with,[fun db1_with_sec/1]}
     }.
 
 db1_without_sec(_) -> 
@@ -128,7 +128,7 @@ db2_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with,inorder,[fun db2_without_sec/1]}
+        {with,[fun db2_without_sec/1]}
     }.
     
 db2_sec_test_() ->
@@ -136,7 +136,7 @@ db2_sec_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with,inorder,[fun db2_with_sec/1]}
+        {with,[fun db2_with_sec/1]}
     }.
 
 db2_without_sec(_) -> 
@@ -148,13 +148,9 @@ db2_with_sec(_) ->
 
 db1_with_or_without_sec(IsSec) ->
     try
-        % ClEr = 'ClientError',
+        ?LogDebug("---TEST--- ~p(~p)", [db1_with_or_without_sec, IsSec]),
+
         SeEx = 'SecurityException',
-
-        % ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        % ?LogDebug("----------------------------------~n"),
-
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
@@ -1108,13 +1104,9 @@ db1_with_or_without_sec(IsSec) ->
 
 db2_with_or_without_sec(IsSec) ->
     try
+        ?LogDebug("---TEST--- ~p(~p)", [db2_with_or_without_sec, IsSec]),
+
         ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
-
-        % ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p ---- db2 Security ~p", [?MODULE, IsSec]),
-        % ?LogDebug("----------------------------------~n"),
-
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),

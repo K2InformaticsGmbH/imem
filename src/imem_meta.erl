@@ -3048,45 +3048,39 @@ db_1_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun meta_operations/1
-        ]}}.    
+        {with, [fun meta_operations/1]}
+    }.    
 
 db_2a_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun meta_preparations/1
-        ]}}.    
+        {with, [fun meta_preparations/1]}
+    }.    
 
 db_2b_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun meta_partitions/1
-        ]}}.    
+        {with, [fun meta_partitions/1]}
+    }.    
 
 db_3_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun meta_concurrency/1
-        ]}}.    
+        {with, [fun meta_concurrency/1]}
+    }.    
 
 meta_operations(_) ->
     try 
+        ?LogDebug("---TEST--- ~p()", [meta_operations]),
+
         ClEr = 'ClientError',
         SyEx = 'SystemException', 
-        % UiEx = 'UnimplementedException', 
-
-        ?LogDebug("---TEST--- ~p:meta_operations~n", [?MODULE]),
-
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
@@ -3368,10 +3362,7 @@ meta_operations(_) ->
 
 meta_preparations(_) ->
     try 
-        % ClEr = 'ClientError',
-        % UiEx = 'UnimplementedException', 
-
-        ?LogDebug("---TEST--- ~p:meta_preparations~n", [?MODULE]),
+        ?LogDebug("---TEST--- ~p()", [meta_preparations]),
 
         ?assertEqual(["Schema",".","BaseName"   ,"_","01234","@","Node"],parse_table_name("Schema.BaseName_01234@Node")),
         ?assertEqual(["Schema",".","BaseName"   ,"" ,""     ,"" ,""    ],parse_table_name("Schema.BaseName")),
@@ -3419,11 +3410,11 @@ meta_preparations(_) ->
 
 meta_partitions(_) ->
     try 
+        ?LogDebug("---TEST--- ~p()", [meta_partitions]),
+        
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException', 
 
-        ?LogDebug("---TEST---~p:meta_partitions~n", [?MODULE]),
-        
         LogTable = physical_table_name(?LOG_TABLE),
         ?assert(lists:member(LogTable,physical_table_names(?LOG_TABLE))),
         ?assertEqual(LogTable,physical_table_name(atom_to_list(?LOG_TABLE) ++ node_shard())),
@@ -3550,9 +3541,11 @@ meta_partitions(_) ->
 
 
 meta_concurrency(_) ->
-    T_m_c = 'imem_table_123',
     try 
-        ?LogDebug("---TEST--- ~p:meta_concurrency", [?MODULE]),
+        ?LogDebug("---TEST--- ~p()", [meta_concurrency]),
+
+        T_m_c = 'imem_table_123',
+
         ?assertEqual(ok, create_table(T_m_c, [hlk,val], [])),
         Self = self(),
         Key = [sum],

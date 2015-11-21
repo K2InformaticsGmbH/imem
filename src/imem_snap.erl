@@ -766,13 +766,12 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun test_snapshot/1
-        ]}}.
+        {with, [fun test_snapshot/1]}
+    }.
 
 test_snapshot(SnapDir) ->
-    ?LogDebug("---TEST--- snapshots ~p~n", [SnapDir]),
-    Take = take(ddTable),
+    ?LogDebug("---TEST--- ~p(~p)", [test_snapshot,SnapDir]),
+    take(ddTable),
     % ?LogDebug("take snapshots :~n~p~n", [Take]),
     ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
     % ?LogDebug("snapshot tests completed!~n", []),

@@ -1256,58 +1256,47 @@ db_part11_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part1(false) end]}
+     {with,[fun(_) -> test_with_or_without_sec_part1(false) end]}
     }.
 
 db_part12_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part2(false) end]}
+     {with,[fun(_) -> test_with_or_without_sec_part2(false) end]}
     }.
 
 db_part13_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part3(false) end]}
+     {with,[fun(_) -> test_with_or_without_sec_part3(false) end]}
     }.
 
 db_part21_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part1(true) end]}
+     {with,[fun(_) -> test_with_or_without_sec_part1(true) end]}
     }.
 
 db_part22_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part2(true) end]}
+     {with,[fun(_) -> test_with_or_without_sec_part2(true) end]}
     }.
 
 db_part23_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part3(true) end]}
+     {with,[fun(_) -> test_with_or_without_sec_part3(true) end]}
     }.
 
 test_with_or_without_sec_part1(IsSec) ->
     try
-        % ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
-
-        % ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p_part1 ----Security ~p", [?MODULE, IsSec]),
-        % ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec_part1, IsSec]),
 
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
@@ -1678,12 +1667,9 @@ test_with_or_without_sec_part1(IsSec) ->
 
 test_with_or_without_sec_part2(IsSec) ->
     try
-        ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec_part2, IsSec]),
 
-        % ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p_part2 ----Security ~p", [?MODULE, IsSec]),
-        % ?LogDebug("----------------------------------~n"),
+        ClEr = 'ClientError',
 
         ?assertEqual([],receive_raw()),
 
@@ -1910,12 +1896,7 @@ test_with_or_without_sec_part2(IsSec) ->
 
 test_with_or_without_sec_part3(IsSec) ->
     try
-        % ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
-
-        % ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST---- ~p_part3 ----Security ~p", [?MODULE, IsSec]),
-        % ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec_part3, IsSec]),
 
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),

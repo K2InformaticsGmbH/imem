@@ -1056,21 +1056,17 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun test/1
-        ]}}.    
+        {with, [fun test/1]}
+    }.    
 
     
 test(_) ->
     try
+        ?LogDebug("---TEST---"),
+
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
         CoEx = 'ConcurrencyException',
-        % SeVi = 'SecurityViolation',
-        % SyEx = 'SystemException',          %% cannot easily test that
-
-        ?LogDebug("---TEST--- ~p:test_mnesia~n", [?MODULE]),
-
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),

@@ -808,20 +808,13 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun test/1
-        ]}}.    
+        {with, [fun test/1]}
+    }.    
 
     
 test(_) ->
     try
-        % ClEr = 'ClientError',
-        % CoEx = 'ConcurrencyException',
-        % SeEx = 'SecurityException',
-        % SeVi = 'SecurityViolation',
-        % SyEx = 'SystemException',          %% cannot easily test that
-
-        ?LogDebug("---TEST--- ~p~n", [?MODULE]),
+        ?LogDebug("---TEST---"),
 
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),

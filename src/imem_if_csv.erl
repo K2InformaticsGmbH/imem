@@ -482,19 +482,14 @@ csv1_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with,inorder,[fun test_csv_1/1]}
+        {with,[fun test_csv_1/1]}
     }.
     
 test_csv_1(_) ->
     try
-        % ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
+        ?LogDebug("---TEST---"),
 
-        ?LogDebug("----------------------------------"),
-        ?LogDebug("---TEST--- ~p ~p", [?MODULE, test_csv_1]),
-        ?LogDebug("----------------------------------"),
-
-        ?LogDebug("schema ~p", [imem_meta:schema()]),
+        % ?LogDebug("schema ~p", [imem_meta:schema()]),
         ?assertEqual([],imem_statement:receive_raw()),
 
         Bin1 = <<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>,

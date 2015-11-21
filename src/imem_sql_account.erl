@@ -231,9 +231,7 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun test_with_sec/1
-        ]}
+        {with, [fun test_with_sec/1]}
     }.
     
 test_with_sec(_) ->
@@ -241,11 +239,10 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
+
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException',
-        % SeEx = 'SecurityException',
-        ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
-
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),

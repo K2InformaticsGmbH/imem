@@ -890,8 +890,15 @@ start_link(Params) ->
 init(_) ->
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
     case disc_schema_nodes(SchemaName) of
-        [] -> ?Warn("no node found at ~p for schema ~p in erlang cluster ~p~n",
-                    [node(), SchemaName, erlang:get_cookie()]);
+        [] ->   
+            case node() of
+                nonode@nohost ->    
+                    ok;
+                _ ->                
+                    ?Warn ("no node found at ~p for schema ~p in erlang cluster ~p~n"
+                          , [node(), SchemaName, erlang:get_cookie()]
+                          )
+            end;
         [DiscSchemaNode|_] ->
             ?Info("adding ~p to schema ~p on ~p~n", [node(), SchemaName, DiscSchemaNode]),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config,
@@ -1071,24 +1078,21 @@ teardown(_) ->
     catch drop_table(imem_table_123),
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun table_operations/1
-            %%, fun test_create_account/1
-        ]}}.
+        {with, [fun table_operations/1]}
+    }.
 
 table_operations(_) ->
     try
+        ?LogDebug("---TEST---"),
+
         ClEr = 'ClientError',
-        % SyEx = 'SystemException',
         CoEx = 'ConcurrencyException',
         Self = self(),
-
-        ?LogDebug("---TEST---~p:test_mnesia", [?MODULE]),
 
         % ?LogDebug("schema ~p", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p", [imem_meta:data_nodes()]),

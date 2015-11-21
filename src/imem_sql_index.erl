@@ -144,15 +144,20 @@ teardown(_) ->
     catch imem_meta:drop_table(index_test),
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun test_without_sec/1
-            , fun test_with_sec/1
-        ]}
+        {with, [fun test_without_sec/1]}
+    }.
+
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [fun test_with_sec/1]}
     }.
 
 test_without_sec(_) ->
@@ -163,7 +168,7 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        ?LogDebug("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
 
         % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
         % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
