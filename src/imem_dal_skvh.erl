@@ -797,7 +797,7 @@ insert(User, Channel, DecodedKey, Value) ->
 
 insert(User, Channel, MapList) ->
     InsertFun = fun() -> insert_priv(User, Channel, MapList) end,
-    imem_if:return_atomic_list(imem_meta:transaction(InsertFun)).
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(InsertFun)).
 
 insert_priv(_User, _Channel, []) -> [];
 insert_priv(User, Channel, [#{ckey := DecodedKey, cvalue := Value} | MapList]) ->
@@ -811,7 +811,7 @@ update(User, Channel, RowMap) when is_map(RowMap) ->
     skvh_rec_to_map(UpdateResult);
 update(User, Channel, ChangeList) ->
     UpdateFun = fun() -> update_priv(User, Channel, ChangeList) end,
-    imem_if:return_atomic_list(imem_meta:transaction(UpdateFun)).
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(UpdateFun)).
 
 update_priv(_User, _Channel, []) -> [];
 update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
@@ -820,7 +820,7 @@ update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
 remove(User, Channel, Rows) -> remove(User, Channel, Rows, []).
 remove(User, Channel, Rows, Opts) when is_list(Rows) ->
     RemoveFun = fun() -> remove_list(User, Channel, Rows, Opts) end,
-    imem_if:return_atomic_list(imem_meta:transaction(RemoveFun));
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(RemoveFun));
 remove(User, Channel, Row, Opts) ->
     remove_single(User, Channel, Row, Opts).
 
@@ -1494,7 +1494,7 @@ skvh_operations(_) ->
 
         ?assertEqual([], read(system, ?Channel, [["1"]])),
 
-        BeforeInsert = imem_if:now(), %% os:timestamp(), % erlang:now(),
+        BeforeInsert = imem:now(), %% os:timestamp(), % erlang:now(),
 
         ?assertEqual(Map1, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
         ?assertEqual(Map2, insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
@@ -1530,7 +1530,7 @@ skvh_operations(_) ->
         Map4Upd = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 150}">>, chash => <<"1RZ299">>},
         Map5Upd = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 400}">>, chash => <<"1DKGDA">>},
 
-        BeforeUpdate = imem_if:now(), %% os:timestamp(), % erlang:now(),
+        BeforeUpdate = imem:now(), %% os:timestamp(), % erlang:now(),
 
         %% Update using single maps
         Map1Done = update(system, ?Channel, Map1Upd),
@@ -1567,7 +1567,7 @@ skvh_operations(_) ->
         ?assertEqual([Map4, Map5], readGELT(system, ?Channel, MidleKey, LastKey, 10)),
         ?assertEqual([], readGELT(system, ?Channel, LastKey, [LastKey | "1"], 10)),
 
-        BeforeRemove = imem_if:now(), %% os:timestamp(), % erlang:now(),
+        BeforeRemove = imem:now(), %% os:timestamp(), % erlang:now(),
 
         %% Tests removing rows
         ?assertEqual(Map1Done, remove(system, ?Channel, Map1Done)),

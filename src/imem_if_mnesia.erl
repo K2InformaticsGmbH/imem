@@ -1,4 +1,4 @@
--module(imem_if).
+-module(imem_if_mnesia).
 -behavior(gen_server).
 
 -include("imem.hrl").
@@ -82,11 +82,7 @@
         , return_atomic_list/1
         , return_atomic_ok/1
         , return_atomic/1
-        , get_os_memory/0
-        , get_vm_memory/0
-        , spawn_sync_mfa/3
         , lock/2
-        , now/0
         ]).
 
 -export([ first/1
@@ -113,8 +109,6 @@
                     ok
             end
        ).
-
-now() -> erlang:now().
 
 disc_schema_nodes(Schema) when is_atom(Schema) ->
     lists:flatten([lists:foldl(
@@ -368,7 +362,7 @@ create_cluster_table(Table,ColumnNames,Opts) when is_atom(Table) ->
 create_table(Table, Opts) when is_list(Table) ->
     create_table(list_to_atom(Table), Opts);
 create_table(Table, Opts) when is_atom(Table) ->
-    % ?LogDebug("imem_if create table ~p ~p",[Table,Opts]),
+    % ?LogDebug("imem_if_mnesia create table ~p ~p",[Table,Opts]),
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
     case mnesia:create_table(Table, Opts) of
         {aborted, {already_exists, Table}} ->
@@ -402,7 +396,7 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
     end.
 
 drop_table(Table) when is_atom(Table) ->
-    case spawn_sync_mfa(mnesia,delete_table,[Table]) of
+    case imem:spawn_sync_mfa(mnesia,delete_table,[Table]) of
         ok ->                           
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
@@ -446,20 +440,10 @@ drop_index(Table, Column) when is_atom(Table) ->
     end.
 
 truncate_table(Table) when is_atom(Table) ->
-    case spawn_sync_mfa(mnesia,clear_table,[Table]) of
+    case imem:spawn_sync_mfa(mnesia,clear_table,[Table]) of
         {atomic,ok} ->                  ?TOUCH_SNAP(Table);
         {aborted,{no_exists,Table}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Result ->                       return_atomic_ok(Result)
-    end.
-
-% An MFA interface that is executed in a spawned short-lived process
-% The result is synchronously collected and returned
-% Restricts binary memory leakage within the scope of this process
-spawn_sync_mfa(M,F,A) ->
-    Self = self(),
-    spawn(fun() -> Self ! (catch apply(M,F,A)) end),
-    receive Result -> Result
-    after 60000 -> {error, timeout}
     end.
 
 read(Table) when is_atom(Table) ->
@@ -973,36 +957,6 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 format_status(_Opt, [_PDict, _State]) -> ok.
-
--spec get_os_memory() -> {any(), integer(), integer()}.
-get_os_memory() ->
-    SysData = memsup:get_system_memory_data(),
-    FreeMem = lists:sum([M || {T, M} <- SysData, ((T =:= free_memory)
-                                                    orelse (T =:= buffered_memory)
-                                                    orelse (T =:= cached_memory))]),
-    TotalMemory = proplists:get_value(total_memory, memsup:get_system_memory_data()),
-    case os:type() of
-        {win32, _} = Win    -> {Win,        FreeMem,    TotalMemory};
-        {unix, _} = Unix    -> {Unix,       FreeMem,    TotalMemory};
-        Unknown             -> {Unknown,    FreeMem,    TotalMemory}
-    end.
-
--spec get_vm_memory() -> {any(),integer()}.
-get_vm_memory() ->    
-    case os:type() of
-        {win32, _} = Win ->
-            {Win
-            , list_to_integer(re:replace(os:cmd("wmic process where processid="++os:getpid()++" get workingsetsize | findstr /v \"WorkingSetSize\"")
-                                        ,"[[:space:]]*", "", [global, {return,list}]))
-            };
-        {unix, _} = Unix ->
-            {Unix
-            , erlang:round(element(3,imem_if:get_os_memory())
-                          * list_to_float(re:replace(os:cmd("ps -p "++os:getpid()++" -o pmem="),"[[:space:]]*", "", [global, {return,list}])) / 100)
-            };
-        Unknown ->
-		       {Unknown, 0}
-    end.
 
 % @doc reregisters an disconnected node back to epmd. Requires the node to be
 % initially started with '-proto_dist imem_inet_tcp' as command line option and

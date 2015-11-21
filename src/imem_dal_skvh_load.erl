@@ -34,18 +34,18 @@ init([Channel, CtrlTable, OutputTable]) ->
     catch imem_meta:drop_table(CtrlTable),
     ok = imem_meta:create_table(CtrlTable, {record_info(fields, loadControl),?loadControl,#loadControl{}}
                            , [{record_name,loadControl}], system),
-    ok = imem_if:write(CtrlTable, #loadControl{}),
-    ok = imem_if:write(CtrlTable, #loadControl{ operation = audit
+    ok = imem_if_mnesia:write(CtrlTable, #loadControl{}),
+    ok = imem_if_mnesia:write(CtrlTable, #loadControl{ operation = audit
                                               , keyregex = <<"01.01.1970 00:00:00">>}),
-    ok = imem_if:subscribe({table, CtrlTable, detailed}),
+    ok = imem_if_mnesia:subscribe({table, CtrlTable, detailed}),
     catch imem_meta:drop_table(OutputTable),
     ok = imem_meta:create_table(OutputTable, {record_info(fields, loadOutput),?loadOutput,#loadOutput{}}
                            , [{record_name,loadOutput}], system),
-    ok = imem_if:write(OutputTable, #loadOutput{}),
-    ok = imem_if:write(OutputTable, #loadOutput{operation = audit}),
+    ok = imem_if_mnesia:write(OutputTable, #loadOutput{}),
+    ok = imem_if_mnesia:write(OutputTable, #loadOutput{operation = audit}),
     Self = self(),
     F = fun(F) ->
-            catch imem_if:subscribe({table, schema}),
+            catch imem_if_mnesia:subscribe({table, schema}),
             receive
                 {mnesia_table_event,{delete,{schema,CtrlTable,_},_}} ->
                     Self ! {die,{table_dropped,CtrlTable}};
@@ -63,7 +63,7 @@ handle_cast(Msg, State) -> io:format(user, "Unknown handle_cast ~p~n", [Msg]), {
 handle_info({mnesia_table_event, {write, CtrlTable
         , #loadControl{state = getkeys, operation = channel, keyregex = KRegx, limit = Limit}, _, _}}
         , #state{ctrl_table = CtrlTable} = State) ->
-    {ok, _} = imem_if:unsubscribe({table, State#state.ctrl_table, detailed}),
+    {ok, _} = imem_if_mnesia:unsubscribe({table, State#state.ctrl_table, detailed}),
     Parent = self(),
     spawn(fun() ->
         keys_read_process(Parent, State#state.channel, KRegx, <<"-1.0e100">>, Limit)
@@ -132,12 +132,12 @@ handle_info({mnesia_table_event, {delete,Table,_,_,_}}, #state{ctrl_table = Tabl
     {noreply, State};
 
 handle_info(resubscribe, State) ->
-    ok = imem_if:subscribe({table, State#state.ctrl_table, detailed}),
+    ok = imem_if_mnesia:subscribe({table, State#state.ctrl_table, detailed}),
     {noreply, State};
 handle_info({keys, Keys}, #state{ltrc = LTRec} = State) ->
     NewLTRec = LTRec#loadOutput{keys = LTRec#loadOutput.keys ++ Keys
                               , keycounter = LTRec#loadOutput.keycounter + length(Keys)},
-    ok = imem_if:write(State#state.output_table, NewLTRec),
+    ok = imem_if_mnesia:write(State#state.output_table, NewLTRec),
     {noreply, State#state{ltrc = NewLTRec}};
 
 handle_info({read, Count, TDiffSec, Key, Value}, State) ->
@@ -146,7 +146,7 @@ handle_info({read, Count, TDiffSec, Key, Value}, State) ->
                                    , rate = Count / TDiffSec
                                    , lastItem = Key
                                    , lastValue = Value },
-    ok = imem_if:write(State#state.output_table, NewLTRec),
+    ok = imem_if_mnesia:write(State#state.output_table, NewLTRec),
     {noreply, State#state{ltrc = NewLTRec}};
 
 handle_info({read_audit, Count, TDiffSec, Value}, State) ->
@@ -156,7 +156,7 @@ handle_info({read_audit, Count, TDiffSec, Value}, State) ->
                                    , totalread = Count
                                    , rate = Count / TDiffSec
                                    , lastValue = Value },
-    ok = imem_if:write(State#state.output_table, NewLTRec),
+    ok = imem_if_mnesia:write(State#state.output_table, NewLTRec),
     {noreply, State#state{ltra = NewLTRec}};
 
 handle_info({die, Reason}, State) ->

@@ -536,7 +536,7 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
     {atomic, {NewI, NewE, NewA}} =
     imem_meta:transaction(fun() ->
         TableSize = imem_meta:table_size(Tab),
-        TableType = imem_if:table_info(Tab, type),
+        TableType = imem_if_mnesia:table_info(Tab, type),
         lists:foldl(
           fun(Row, {I, E, A}) ->
             UpdatedRows = length(E) + length(A),
@@ -658,8 +658,8 @@ take_chunked(Tab, SnapDir) ->
     BackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_EXTN]),
     NewBackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_TMP_EXTN]),
     % truncates the file if already exists and writes the table props
-    TblPropBin = case imem_if:read(ddTable, {imem_meta:schema(),Tab}) of
-        [] ->           term_to_binary({prop, imem_if:table_info(Tab, user_properties)});
+    TblPropBin = case imem_if_mnesia:read(ddTable, {imem_meta:schema(),Tab}) of
+        [] ->           term_to_binary({prop, imem_if_mnesia:table_info(Tab, user_properties)});
         [DDTableRow] -> term_to_binary({prop, [DDTableRow]})
     end,
     PayloadSize = byte_size(TblPropBin),
@@ -670,7 +670,7 @@ take_chunked(Tab, SnapDir) ->
             0 -> imem_meta:table_memory(Tab);
             Sz -> imem_meta:table_memory(Tab) / Sz
         end,
-        ChunkSize = lists:min([erlang:round((element(2,imem_if:get_os_memory()) / 2)
+        ChunkSize = lists:min([erlang:round((element(2,imem:get_os_memory()) / 2)
                                  / AvgRowSize)
                     , ?GET_SNAPSHOT_CHUNK_MAX_SIZE]),
         ?Debug("[~p] snapshoting ~p of ~p rows ~p bytes~n", [self(), Tab, imem_meta:table_size(Tab)
@@ -678,7 +678,7 @@ take_chunked(Tab, SnapDir) ->
         {ok, FHndl} = file:open(NewBackFile, [append, raw
                             , {delayed_write, erlang:round(ChunkSize * AvgRowSize)
                               , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]),
-        FetchFunPid = imem_if:fetch_start(self(), Tab, [{'$1', [], ['$1']}], ChunkSize, []),
+        FetchFunPid = imem_if_mnesia:fetch_start(self(), Tab, [{'$1', [], ['$1']}], ChunkSize, []),
         take_fun(Me,Tab,FetchFunPid,0,0,FHndl)
     end),
     receive
