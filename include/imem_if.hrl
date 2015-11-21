@@ -30,7 +30,7 @@
     -define(EXCP_LOG(__Warn),lager:warning("~p",[__Warn])).
 -endif. %TEST
 
--define(FP(__RecList, __Pattern), imem_if:field_pick(__RecList,__Pattern)).
+-define(FP(__RecList, __Pattern), imem_if_mnesia:field_pick(__RecList,__Pattern)).
 
 -define(ClientErrorNoLogging(__Reason), throw({'ClientError',__Reason})).
 -define(SystemExceptionNoLogging(__Reason), throw({'SystemException',__Reason})).
