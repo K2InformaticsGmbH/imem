@@ -6,6 +6,4 @@ notifications:
     - chatterjee@bluewin.ch
     - shamis.shukoor@bluewin.ch
 otp_release:
-# - 18.0
-# - 17.5
-  - 17.4
+  - 18.0
