@@ -265,7 +265,7 @@
 -spec secure_apply(Mod :: atom(), Fun :: atom(), Args :: list()) -> any() | no_return.
 secure_apply(Mod, Fun, Args) ->
     {ModFunList,true}
-    = imem_if:select(?CONFIG_TABLE,
+    = imem_if_mnesia:select(?CONFIG_TABLE,
                      [{#ddConfig{hkl=[{'_','$1',secureFunctions}|'_'],
                                  val='$2',_='_'},[],[{{'$1','$2'}}]}]),
     case lists:foldl(fun({M,Funs}, {false, undefined}) when M == Mod ->
@@ -419,7 +419,7 @@ create_partitioned_table_sync(TableAlias,TableName) when is_atom(TableAlias), is
 
 create_partitioned_table(TableAlias, TableName) when is_atom(TableName) ->
     try 
-        case imem_if:read(ddTable,{schema(), TableName}) of
+        case imem_if_mnesia:read(ddTable,{schema(), TableName}) of
             [#ddTable{}] ->
                 % Table seems to exist, may need to load it
                 case catch(check_table(TableName)) of
@@ -447,7 +447,7 @@ create_partitioned_table(TableAlias, TableName) when is_atom(TableName) ->
 
 create_nonexisting_partitioned_table(TableAlias, TableName) ->
     % find out ColumnsInfos, Opts, Owner from ddAlias
-    case imem_if:read(ddAlias,{schema(), TableAlias}) of
+    case imem_if_mnesia:read(ddAlias,{schema(), TableAlias}) of
         [] ->
             ?Error("Table template not found in ddAlias~p", [TableAlias]),   
             {error, {"Table template not found in ddAlias", TableAlias}}; 
@@ -498,7 +498,7 @@ dictionary_trigger(OldRec,NewRec,T,_User,_TrOpts) when T==ddTable; T==ddAlias ->
             {S,TO} = element(2,OldRec),
             %% ToDo: check for changed index definition
             %% ToDo: rebuild index table if index definition changed
-            imem_if:write_table_property_in_transaction(TO,NewRec),
+            imem_if_mnesia:write_table_property_in_transaction(TO,NewRec),
             imem_cache:clear({?MODULE, trigger, S, TO})
     end.
 
@@ -511,7 +511,7 @@ is_system_table({_,Table}) ->
 is_system_table(Table) when is_atom(Table) ->
     case lists:member(Table,?META_TABLES) of
         true ->     true;
-        false ->    imem_if:is_system_table(Table)
+        false ->    imem_if_mnesia:is_system_table(Table)
     end;
 is_system_table(Table) when is_binary(Table) ->
     try
@@ -529,11 +529,11 @@ check_table({Schema,Table}) ->
         _ ->        ?UnimplementedException({"Check table in foreign schema",{Schema,Table}})
     end;
 check_table(Table) when is_atom(Table) ->
-    imem_if:table_size(physical_table_name(Table)),
+    imem_if_mnesia:table_size(physical_table_name(Table)),
     ok.
 
 check_local_table_copy(Table) when is_atom(Table) ->
-    imem_if:check_local_table_copy(physical_table_name(Table));
+    imem_if_mnesia:check_local_table_copy(physical_table_name(Table));
 check_local_table_copy({ddSysConf, _Table}) -> true.
 
 
@@ -548,7 +548,7 @@ check_table_meta(TableAlias, {Names, Types, DefaultRecord}) when is_atom(TableAl
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(Names, Types, Defaults),
     PTN = physical_table_name(TableAlias),
-    case imem_if:read(ddTable,{schema(), PTN}) of
+    case imem_if_mnesia:read(ddTable,{schema(), PTN}) of
         [] ->   ?SystemException({"Missing table metadata",PTN}); 
         [#ddTable{columns=CI}] ->
             case column_info_items(CI, name) of
@@ -571,7 +571,7 @@ check_table_meta(TableAlias, [CI|_]=ColumnInfo) when is_atom(TableAlias), is_tup
     check_table_meta(TableAlias, {Names, Types, Defaults});
 check_table_meta(TableAlias, Names) when is_atom(TableAlias) ->
     PTN = physical_table_name(TableAlias),
-    case imem_if:read(ddTable,{schema(), PTN}) of
+    case imem_if_mnesia:read(ddTable,{schema(), PTN}) of
         [] ->   ?SystemException({"Missing table metadata",PTN}); 
         [#ddTable{columns=CI}] ->
             case column_info_items(CI, name) of
@@ -623,7 +623,7 @@ meta_field_value(username) ->       <<"unknown">>;
 meta_field_value(<<"user">>) ->     unknown; 
 meta_field_value(user) ->           unknown; 
 meta_field_value(Name) ->
-    imem_if:meta_field_value(Name). 
+    imem_if_mnesia:meta_field_value(Name). 
 
 column_info_items(Info, name) ->
     [C#ddColumn.name || C <- Info];
@@ -669,7 +669,7 @@ column_infos({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
             ,#ddColumn{name=itemkey, type=binstr, len=0, prec=0, default=undefined}
             ];
         false ->
-            case imem_if:read(ddTable,{Schema, physical_table_name(TableAlias)}) of
+            case imem_if_mnesia:read(ddTable,{Schema, physical_table_name(TableAlias)}) of
                 [] ->                       ?ClientError({"Table does not exist",{Schema,TableAlias}}); 
                 [#ddTable{columns=CI}] ->   CI
             end
@@ -842,24 +842,24 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
     case TableName of
         TA when TA==ddAlias;TA==?CACHE_TABLE ->  
             DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts0, owner=Owner},
-            case (catch imem_if:read(ddTable, {MySchema,TableName})) of
+            case (catch imem_if_mnesia:read(ddTable, {MySchema,TableName})) of
                 [] ->   
-                    imem_if:write(ddTable, DDTableRow),
-                    catch (imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]));    % ddTable meta data is missing
+                    imem_if_mnesia:write(ddTable, DDTableRow),
+                    catch (imem_if_mnesia:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]));    % ddTable meta data is missing
                 _ ->    
-                    imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}])                                      % entry exists or ddTable does not exists yet
+                    imem_if_mnesia:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}])                                      % entry exists or ddTable does not exists yet
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, TableName});
         TableAlias ->
             %% not a sharded table
             DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts0, owner=Owner},
             try
-                imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
-                    imem_if:write(ddTable, DDTableRow)
+                imem_if_mnesia:create_table(TableName, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
+                    imem_if_mnesia:write(ddTable, DDTableRow)
             catch
                 throw:{'ClientError',{"Table already exists",TableName}} = Reason ->
-                    case imem_if:read(ddTable, {MySchema,TableName}) of
-                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data was missing
+                    case imem_if_mnesia:read(ddTable, {MySchema,TableName}) of
+                        [] ->   imem_if_mnesia:write(ddTable, DDTableRow); % ddTable meta data was missing
                         _ ->    ok
                     end,
                     throw(Reason)
@@ -868,13 +868,13 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
         _ ->
             %% Sharded table, check if ddAlias parameters match (if alias record already exists)
             [_,_,B,_,_,_,_] = parse_table_name(TableAlias), %% [Schema,".",Name,"_",Period,"@",Node]
-            Opts = case imem_if:read(ddAlias,{MySchema,TableAlias}) of
+            Opts = case imem_if_mnesia:read(ddAlias,{MySchema,TableAlias}) of
                 [#ddAlias{columns=ColInfos, opts=Opts1, owner=Owner}] ->
                     Opts1;  %% ddAlias options override the given values for new partitions
                 [#ddAlias{}] ->
                     ?ClientError({"Create table fails because columns or owner do not match with ddAlias",TableAlias});
                 [] ->
-                    case [ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if:read(ddAlias),S==MySchema] of
+                    case [ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if_mnesia:read(ddAlias),S==MySchema] of
                         [] ->           
                             ok;
                         ParsedTNs ->    
@@ -891,17 +891,17 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
             DDAliasRow = #ddAlias{qname={MySchema,TableAlias}, columns=ColInfos, opts=Opts, owner=Owner},
             DDTableRow = #ddTable{qname={MySchema,TableName}, columns=ColInfos, opts=Opts, owner=Owner},
             try        
-                imem_if:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
-                imem_if:write(ddTable, DDTableRow),
-                imem_if:write(ddAlias, DDAliasRow)
+                imem_if_mnesia:create_table(TableName, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+                imem_if_mnesia:write(ddTable, DDTableRow),
+                imem_if_mnesia:write(ddAlias, DDAliasRow)
             catch
                 throw:{'ClientError',{"Table already exists",TableName}} = Reason ->
-                    case imem_if:read(ddTable, {MySchema,TableName}) of
-                        [] ->   imem_if:write(ddTable, DDTableRow); % ddTable meta data was missing
+                    case imem_if_mnesia:read(ddTable, {MySchema,TableName}) of
+                        [] ->   imem_if_mnesia:write(ddTable, DDTableRow); % ddTable meta data was missing
                         _ ->    ok
                     end,
-                    case imem_if:read(ddAlias, {MySchema,TableAlias}) of
-                        [] ->   imem_if:write(ddAlias, DDAliasRow); % ddAlias meta data was missing
+                    case imem_if_mnesia:read(ddAlias, {MySchema,TableAlias}) of
+                        [] ->   imem_if_mnesia:write(ddAlias, DDAliasRow); % ddAlias meta data was missing
                         _ ->    ok
                     end,
                     throw(Reason)
@@ -912,7 +912,7 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
 
 create_table_sys_conf(TableName, ColumnInfos, Opts, Owner) ->
     DDTableRow = #ddTable{qname={ddSysConf,TableName}, columns=ColumnInfos, opts=Opts, owner=Owner},
-    return_atomic_ok(imem_if:write(ddTable, DDTableRow)).
+    return_atomic_ok(imem_if_mnesia:write(ddTable, DDTableRow)).
 
 
 get_trigger({Schema,Table}) ->
@@ -1004,7 +1004,7 @@ create_index({Schema,Table},IndexDefinition) ->
     end;
 create_index(Table,ColName) when is_atom(Table),is_atom(ColName) ->
     case read(ddTable,{schema(), Table}) of
-        [#ddTable{}=_D] ->  imem_if:create_index(Table,ColName);
+        [#ddTable{}=_D] ->  imem_if_mnesia:create_index(Table,ColName);
         [] ->               ?ClientError({"Table dictionary does not exist for",Table})
     end;
 create_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
@@ -1035,7 +1035,7 @@ create_or_replace_index({Schema,Table},IndexDefinition)  ->
     end;
 create_or_replace_index(Table,ColName) when is_atom(Table),is_atom(ColName) ->
     case read(ddTable,{schema(), Table}) of
-        [#ddTable{}=_D] ->  imem_if:create_or_replace_index(Table,ColName);
+        [#ddTable{}=_D] ->  imem_if_mnesia:create_or_replace_index(Table,ColName);
         [] ->               ?ClientError({"Table dictionary does not exist for",Table})
     end;
 create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
@@ -1050,7 +1050,7 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
                         lock({table, Table}, write),
                         write(ddTable, D#ddTable{opts=Opts}),                       
                         imem_cache:clear({?MODULE, trigger, Schema, Table}),
-                        imem_if:truncate_table(IndexTable),
+                        imem_if_mnesia:truncate_table(IndexTable),
                         fill_index(Table,IndexDefinition)
                     end,
                     return_atomic_ok(transaction(Trans));
@@ -1072,7 +1072,7 @@ create_or_replace_index(Table,IndexDefinition) when is_atom(Table),is_list(Index
 %% Fill external index for a table with data
 fill_index(Table,IndexDefinition) when is_atom(Table),is_list(IndexDefinition) ->
     Schema = schema(),
-    case imem_if:read(ddTable,{Schema, Table}) of
+    case imem_if_mnesia:read(ddTable,{Schema, Table}) of
         [] ->
             ?ClientError({"Table does not exist",{Schema, Table}}); 
         [#ddTable{columns=ColumnInfos}] ->
@@ -1091,7 +1091,7 @@ drop_index({Schema,Table}, Index) ->
     end;
 drop_index(Table, ColName) when is_atom(Table), is_atom(ColName) ->
     case read(ddTable,{schema(), Table}) of
-        [#ddTable{}=_D] ->  imem_if:drop_index(Table,ColName);
+        [#ddTable{}=_D] ->  imem_if_mnesia:drop_index(Table,ColName);
         [] ->               ?ClientError({"Table dictionary does not exist for",Table})
     end;
 drop_index(Table, Index) when is_atom(Table) ->
@@ -1229,17 +1229,17 @@ truncate_partitioned_tables([],_) -> ok;
 truncate_partitioned_tables([TableName|TableNames], User) ->
     {_, _, Trigger} =  trigger_infos(TableName),
     IndexTable = index_table(TableName),
-    Trans = case imem_if:is_readable_table(IndexTable) of
+    Trans = case imem_if_mnesia:is_readable_table(IndexTable) of
         true -> 
             fun() ->
                 Trigger({},{},TableName,User,[]),
-                imem_if:truncate_table(IndexTable),
-                imem_if:truncate_table(TableName)
+                imem_if_mnesia:truncate_table(IndexTable),
+                imem_if_mnesia:truncate_table(TableName)
             end;
         false ->
             fun() ->
                 Trigger({},{},TableName,User,[]),
-                imem_if:truncate_table(TableName)
+                imem_if_mnesia:truncate_table(TableName)
             end
     end,
     return_atomic_ok(transaction(Trans)),
@@ -1356,7 +1356,7 @@ drop_system_table(TableAlias) when is_atom(TableAlias) ->
 drop_tables_and_infos(TableName,[TableName]) ->
     drop_table_and_info(TableName);
 drop_tables_and_infos(TableAlias, TableList) -> 
-     imem_if:delete(ddAlias, {schema(),TableAlias}),
+     imem_if_mnesia:delete(ddAlias, {schema(),TableAlias}),
      drop_partitions_and_infos(TableList).
 
 drop_partitions_and_infos([]) -> ok;
@@ -1366,15 +1366,15 @@ drop_partitions_and_infos([TableName|TableNames]) ->
 
 drop_table_and_info(TableName) ->
     try
-        imem_if:drop_table(TableName),
+        imem_if_mnesia:drop_table(TableName),
         case TableName of
             ddTable ->  ok;
             ddAlias ->  ok;
-            _ ->        imem_if:delete(ddTable, {schema(),TableName})
+            _ ->        imem_if_mnesia:delete(ddTable, {schema(),TableName})
         end
     catch
         throw:{'ClientError',{"Table does not exist",Table}} ->
-            catch imem_if:delete(ddTable, {schema(),TableName}),
+            catch imem_if_mnesia:delete(ddTable, {schema(),TableName}),
             throw({'ClientError',{"Table does not exist",Table}})
     end.       
 
@@ -1823,19 +1823,19 @@ compile_fun(String) when is_list(String) ->
     end.
 
 schema() ->
-    imem_if:schema().
+    imem_if_mnesia:schema().
 
 schema(Node) ->
-    imem_if:schema(Node).
+    imem_if_mnesia:schema(Node).
 
 system_id() ->
-    imem_if:system_id().
+    imem_if_mnesia:system_id().
 
 add_attribute(A, Opts) -> 
-    imem_if:add_attribute(A, Opts).
+    imem_if_mnesia:add_attribute(A, Opts).
 
 update_opts(T, Opts) ->
-    imem_if:update_opts(T, Opts).
+    imem_if_mnesia:update_opts(T, Opts).
 
 failing_function([]) -> 
     {undefined,undefined, 0};
@@ -1878,7 +1878,7 @@ when is_atom(Level)
     , is_list(Fields)
     , is_binary(Message)
     , is_list(StackTrace) ->
-    LogRec = #ddLog{logTime=imem_if:now(),logLevel=Level,pid=self()
+    LogRec = #ddLog{logTime=imem:now(),logLevel=Level,pid=self()
                     ,module=Module,function=Function,line=Line,node=node()
                     ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
@@ -1896,19 +1896,19 @@ log_slow_process(Module,Function,STT,LimitWarning,LimitError,Fields) ->
 %% imem_if but security context added --- META INFORMATION ------
 
 data_nodes() ->
-    imem_if:data_nodes().
+    imem_if_mnesia:data_nodes().
 
 all_tables() ->
-    imem_if:all_tables().
+    imem_if_mnesia:all_tables().
 
 all_aliases() ->
     MySchema = schema(),
-    [A || #ddAlias{qname={S,A}} <- imem_if:read(ddAlias),S==MySchema].
+    [A || #ddAlias{qname={S,A}} <- imem_if_mnesia:read(ddAlias),S==MySchema].
 
 is_readable_table({_Schema,Table}) ->
     is_readable_table(Table);   %% ToDo: may depend on schema
 is_readable_table(Table) ->
-    imem_if:is_readable_table(Table).
+    imem_if_mnesia:is_readable_table(Table).
 
 is_virtual_table({_Schema,Table}) ->
     is_virtual_table(Table);   %% ToDo: may depend on schema
@@ -1994,7 +1994,7 @@ trigger_infos({Schema,Table}) when is_atom(Schema),is_atom(Table) ->
     Key = {?MODULE,trigger,Schema,Table},
     case imem_cache:read(Key) of 
         [] ->
-            case imem_if:read(ddTable,{Schema, Table}) of
+            case imem_if_mnesia:read(ddTable,{Schema, Table}) of
                 [] ->
                     ?ClientError({"Table does not exist",{Schema, Table}}); 
                 [#ddTable{columns=ColumnInfos,opts=Opts}] ->
@@ -2104,7 +2104,7 @@ trigger_with_indexing(TFun,MF,Var) ->
 
 table_type({ddSysConf,Table}) ->                imem_if_sys_conf:table_type(Table);
 table_type({_Schema,Table}) ->                  table_type(Table);                          %% ToDo: may depend on schema
-table_type(Table) when is_atom(Table) ->        imem_if:table_type(physical_table_name(Table)).
+table_type(Table) when is_atom(Table) ->        imem_if_mnesia:table_type(physical_table_name(Table)).
 
 table_record_name({ddSysConf,Table}) ->         imem_if_sys_conf:table_record_name(Table);  %% ToDo: may depend on schema
 table_record_name({?CSV_SCHEMA_PATTERN,_Table}) -> ?CSV_RECORD_NAME;
@@ -2113,11 +2113,11 @@ table_record_name(ddNode)  ->                   ddNode;
 table_record_name(ddSnap)  ->                   ddSnap;
 table_record_name(ddSchema)  ->                 ddSchema;
 table_record_name(ddSize)  ->                   ddSize;
-table_record_name(Table) when is_atom(Table) -> imem_if:table_record_name(physical_table_name(Table)).
+table_record_name(Table) when is_atom(Table) -> imem_if_mnesia:table_record_name(physical_table_name(Table)).
 
 table_columns({ddSysConf,Table}) ->             imem_if_sys_conf:table_columns(Table);
 table_columns({_Schema,Table}) ->               table_columns(Table);       %% ToDo: may depend on schema
-table_columns(Table) ->                         imem_if:table_columns(physical_table_name(Table)).
+table_columns(Table) ->                         imem_if_mnesia:table_columns(physical_table_name(Table)).
 
 table_size({ddSysConf,_Table}) ->               %% imem_if_sys_conf:table_size(Table);
                                                 0; %% ToDo: implement there
@@ -2127,7 +2127,7 @@ table_size(ddSnap) ->                           imem_snap:snap_file_count();
 table_size(ddSchema) ->                         length(read(ddSchema));
 table_size(ddSize) ->                           1;
 table_size(Table) ->                            %% ToDo: sum should be returned for all local time partitions
-                                                imem_if:table_size(physical_table_name(Table)).
+                                                imem_if_mnesia:table_size(physical_table_name(Table)).
 
 table_memory({ddSysConf,_Table}) ->
     %% imem_if_sys_conf:table_memory(Table);
@@ -2136,7 +2136,7 @@ table_memory({_Schema,Table}) ->
     table_memory(Table);                                %% ToDo: may depend on schema
 table_memory(Table) ->
     %% ToDo: sum should be returned for all local time partitions
-    imem_if:table_memory(physical_table_name(Table)).
+    imem_if_mnesia:table_memory(physical_table_name(Table)).
 
 exec(Statement, BlockSize, Schema) ->
     imem_sql:exec(none, Statement, BlockSize, Schema, false).   
@@ -2219,7 +2219,7 @@ fetch_start(Pid, ddSchema, MatchSpec, BlockSize, Opts) ->
 fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
     fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
-    imem_if:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
+    imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
     {Rows,true} = select(VTable, MatchSpec),
@@ -2257,7 +2257,7 @@ read(ddSchema) ->
 read(ddSize) ->
     [hd(read(ddSize,Name)) || Name <- all_tables()];
 read(Table) ->
-    imem_if:read(physical_table_name(Table)).
+    imem_if_mnesia:read(physical_table_name(Table)).
 
 read({ddSysConf,Table}, _Key) -> 
     % imem_if_sys_conf:read(physical_table_name(Table),Key);
@@ -2304,24 +2304,24 @@ read(ddSize,Table) ->
             end
     end;            
 read(Table, Key) -> 
-    imem_if:read(physical_table_name(Table), Key).
+    imem_if_mnesia:read(physical_table_name(Table), Key).
 
 dirty_read({ddSysConf,Table}, Key) -> read({ddSysConf,Table}, Key);
 dirty_read({_Schema,Table}, Key) ->   dirty_read(Table, Key);
 dirty_read(ddNode,Node) ->  read(ddNode,Node); 
 dirty_read(ddSchema,Key) -> read(ddSchema,Key);
 dirty_read(ddSize,Table) -> read(ddSize,Table);
-dirty_read(Table, Key) ->   imem_if:dirty_read(physical_table_name(Table), Key).
+dirty_read(Table, Key) ->   imem_if_mnesia:dirty_read(physical_table_name(Table), Key).
 
 dirty_index_read({_Schema,Table}, SecKey,Index) -> 
     dirty_index_read(Table, SecKey, Index);
 dirty_index_read(Table, SecKey, Index) ->   
-    imem_if:dirty_index_read(physical_table_name(Table), SecKey, Index).
+    imem_if_mnesia:dirty_index_read(physical_table_name(Table), SecKey, Index).
 
 read_hlk({_Schema,Table}, HListKey) -> 
     read_hlk(Table, HListKey);
 read_hlk(Table,HListKey) ->
-    imem_if:read_hlk(Table,HListKey).
+    imem_if_mnesia:read_hlk(Table,HListKey).
 
 get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
     get_config_hlk(Table, Key, Owner, Context, Default);
@@ -2384,7 +2384,7 @@ select(ddSchema, MatchSpec) ->
 select(ddSize, MatchSpec) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec) ->
-    imem_if:select(physical_table_name(Table), MatchSpec).
+    imem_if_mnesia:select(physical_table_name(Table), MatchSpec).
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
@@ -2402,7 +2402,7 @@ select(ddSchema, MatchSpec, _Limit) ->
 select(ddSize, MatchSpec, _Limit) ->
     select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec, Limit) ->
-    imem_if:select(physical_table_name(Table), MatchSpec, Limit).
+    imem_if_mnesia:select(physical_table_name(Table), MatchSpec, Limit).
 
 select_virtual(_Table, [{_,[false],['$_']}]) ->
     {[],true};
@@ -2451,7 +2451,7 @@ select_sort(Table, MatchSpec, Limit) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-write_log(Record) -> write(?LOG_TABLE, Record#ddLog{logTime=imem_if:now()}).
+write_log(Record) -> write(?LOG_TABLE, Record#ddLog{logTime=imem:now()}).
 
 write({ddSysConf,TableAlias}, _Record) -> 
     % imem_if_sys_conf:write(TableAlias, Record);
@@ -2462,7 +2462,7 @@ write(TableAlias, Record) ->
     % log_to_db(debug,?MODULE,write,[{table,TableAlias},{rec,Record}],"write"), 
     PTN = physical_table_name(TableAlias,element(?KeyIdx,Record)),
     try
-        imem_if:write(PTN, Record)
+        imem_if_mnesia:write(PTN, Record)
     catch
         throw:{'ClientError',{"Table does not exist",T}} ->
             % ToDo: instruct imem_meta gen_server to create the table
@@ -2470,7 +2470,7 @@ write(TableAlias, Record) ->
                 true ->
                     case create_partitioned_table_sync(TableAlias,PTN) of
                         ok ->   
-                            imem_if:write(PTN, Record);
+                            imem_if_mnesia:write(PTN, Record);
                         {error,recursive_call} ->
                             ok; %% cannot create a new partition now, skip logging to database
                         E ->
@@ -2490,14 +2490,14 @@ dirty_write(TableAlias, Record) ->
     % log_to_db(debug,?MODULE,dirty_write,[{table,TableAlias},{rec,Record}],"dirty_write"), 
     PTN = physical_table_name(TableAlias,element(?KeyIdx,Record)),
     try
-        imem_if:dirty_write(PTN, Record)
+        imem_if_mnesia:dirty_write(PTN, Record)
     catch
         throw:{'ClientError',{"Table does not exist",T}} ->
             case is_time_partitioned_alias(TableAlias) of
                 true ->
                     case create_partitioned_table_sync(TableAlias,PTN) of
                         ok ->   
-                            imem_if:dirty_write(PTN, Record);
+                            imem_if_mnesia:dirty_write(PTN, Record);
                         {error,recursive_call} ->
                             ok; %% cannot create a new partition now, skip logging to database
                         E ->
@@ -2672,28 +2672,28 @@ list_match(_,_) -> false.
 delete({_Schema,TableAlias}, Key) ->
     delete(TableAlias, Key);             %% ToDo: may depend on schema
 delete(TableAlias, Key) ->
-    imem_if:delete(physical_table_name(TableAlias,Key), Key).
+    imem_if_mnesia:delete(physical_table_name(TableAlias,Key), Key).
 
 delete_object({_Schema,TableAlias}, Row) ->
     delete_object(TableAlias, Row);             %% ToDo: may depend on schema
 delete_object(TableAlias, Row) ->
-    imem_if:delete_object(physical_table_name(TableAlias,element(?KeyIdx,Row)), Row).
+    imem_if_mnesia:delete_object(physical_table_name(TableAlias,element(?KeyIdx,Row)), Row).
 
 subscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
     log_to_db(debug,?MODULE,subscribe,[{ec,{table, PTN, Mode}}],"subscribe to mnesia"),
-    imem_if:subscribe({table, PTN, Mode});
+    imem_if_mnesia:subscribe({table, PTN, Mode});
 subscribe(EventCategory) ->
     log_to_db(debug,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
-    imem_if:subscribe(EventCategory).
+    imem_if_mnesia:subscribe(EventCategory).
 
 unsubscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
-    Result = imem_if:unsubscribe({table, PTN, Mode}),
+    Result = imem_if_mnesia:unsubscribe({table, PTN, Mode}),
     log_to_db(debug,?MODULE,unsubscribe,[{ec,{table, PTN, Mode}}],"unsubscribe from mnesia"),
     Result;
 unsubscribe(EventCategory) ->
-    Result = imem_if:unsubscribe(EventCategory),
+    Result = imem_if_mnesia:unsubscribe(EventCategory),
     log_to_db(debug,?MODULE,unsubscribe,[{ec,EventCategory}],"unsubscribe from mnesia"),
     Result.
 
@@ -2701,12 +2701,12 @@ update_tables([[{Schema,_,_}|_]|_] = UpdatePlan, Lock) ->
     update_tables(Schema, UpdatePlan, Lock, []).
 
 update_bound_counter(TableAlias, Field, Key, Incr, LimitMin, LimitMax) ->
-    imem_if:update_bound_counter(physical_table_name(TableAlias), Field, Key, Incr, LimitMin, LimitMax).
+    imem_if_mnesia:update_bound_counter(physical_table_name(TableAlias), Field, Key, Incr, LimitMin, LimitMax).
 
 update_tables(ddSysConf, [], Lock, Acc) ->
     imem_if_sys_conf:update_tables(Acc, Lock);  
 update_tables(_MySchema, [], Lock, Acc) ->
-    imem_if:update_tables(Acc, Lock);  
+    imem_if_mnesia:update_tables(Acc, Lock);  
 update_tables(MySchema, [UEntry|UPlan], Lock, Acc) ->
     % log_to_db(debug,?MODULE,update_tables,[{lock,Lock}],io_lib:format("~p",[UEntry])),
     update_tables(MySchema, UPlan, Lock, [update_table_name(MySchema, UEntry)|Acc]).
@@ -2811,36 +2811,36 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
     index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch).
 
 transaction(Function) ->
-    imem_if:transaction(Function).
+    imem_if_mnesia:transaction(Function).
 
 transaction(Function, Args) ->
-    imem_if:transaction(Function, Args).
+    imem_if_mnesia:transaction(Function, Args).
 
 transaction(Function, Args, Retries) ->
-    imem_if:transaction(Function, Args, Retries).
+    imem_if_mnesia:transaction(Function, Args, Retries).
 
 return_atomic_list(Result) ->
-    imem_if:return_atomic_list(Result). 
+    imem_if_mnesia:return_atomic_list(Result). 
 
 return_atomic_ok(Result) -> 
-    imem_if:return_atomic_ok(Result).
+    imem_if_mnesia:return_atomic_ok(Result).
 
 return_atomic(Result) -> 
-    imem_if:return_atomic(Result).
+    imem_if_mnesia:return_atomic(Result).
 
-first(Table) ->     imem_if:first(Table).
+first(Table) ->     imem_if_mnesia:first(Table).
 
-next(Table,Key) ->  imem_if:next(Table,Key).
+next(Table,Key) ->  imem_if_mnesia:next(Table,Key).
 
-last(Table) ->      imem_if:last(Table).
+last(Table) ->      imem_if_mnesia:last(Table).
 
-prev(Table,Key) ->  imem_if:prev(Table,Key).
+prev(Table,Key) ->  imem_if_mnesia:prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->  
-    imem_if:foldl(FoldFun, InputAcc, Table).
+    imem_if_mnesia:foldl(FoldFun, InputAcc, Table).
 
 lock(LockItem, LockKind) -> 
-    imem_if:lock(LockItem, LockKind).
+    imem_if_mnesia:lock(LockItem, LockKind).
 
 get_tables_count() ->
     {ok, MaxEtsNoTables} = application:get_env(max_ets_tables),
@@ -3096,7 +3096,7 @@ meta_operations(_) ->
 
         ?assertEqual(ok, check_table(?CACHE_TABLE)),
 
-        Now = imem_if:now(),
+        Now = imem:now(),
         LogCount1 = table_size(?LOG_TABLE),
         % ?LogDebug("ddLog@ count ~p~n", [LogCount1]),
         Fields=[{test_criterium_1,value1},{test_criterium_2,value2}],
@@ -3444,14 +3444,14 @@ meta_partitions(_) ->
 
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- read(ddAlias)])),
 
-        LogRec = #ddLog{logTime= imem_if:now(),logLevel=info,pid=self()
+        LogRec = #ddLog{logTime= imem:now(),logLevel=info,pid=self()
                             ,module=?MODULE,function=meta_partitions,node=node()
                             ,fields=[],message= <<"some log message">>},
 
         ?assertEqual(ok, write(?TPTEST0, LogRec)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(?TPTEST0)),
-        {Megs,Secs,Mics} = imem_if:now(),
+        {Megs,Secs,Mics} = imem:now(),
         FutureSecs = Megs*1000000 + Secs + 2000,
         Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
         LogRecF = LogRec#ddLog{logTime=Future},

@@ -12,7 +12,7 @@
 
 -define(NoRec, {}).                      %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
 
--define(TRANS_TIME, imem_if:now()).                                  % Timestamp generator -> {Megas,Secs,Micros},  could be erlhlc:next_now/0)
+-define(TRANS_TIME, imem:now()).                                    % Timestamp generator -> {Megas,Secs,Micros},  could be erlhlc:next_now/0)
 -define(TRANS_TIME_NAME,imem_if_transaction_time).                  % name of process variable for transaction time
 -define(TRANS_TIME_PUT(__TT),erlang:put(?TRANS_TIME_NAME,__TT)).    % store updated transaction time
 -define(TRANS_TIME_GET,erlang:get(?TRANS_TIME_NAME)).               % retrieve stored transaction time
@@ -30,7 +30,7 @@
     -define(EXCP_LOG(__Warn),lager:warning("~p",[__Warn])).
 -endif. %TEST
 
--define(FP(__RecList, __Pattern), imem_if:field_pick(__RecList,__Pattern)).
+-define(FP(__RecList, __Pattern), imem_if_mnesia:field_pick(__RecList,__Pattern)).
 
 -define(ClientErrorNoLogging(__Reason), throw({'ClientError',__Reason})).
 -define(SystemExceptionNoLogging(__Reason), throw({'SystemException',__Reason})).

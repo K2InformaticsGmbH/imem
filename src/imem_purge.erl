@@ -20,7 +20,7 @@
 			 lists:nth(3, imem_meta:parse_table_name(T)),
              T}
 			|| T <- PartTables]),
-    {Os, FreeMemory, TotalMemory} = imem_if:get_os_memory(),
+    {Os, FreeMemory, TotalMemory} = imem:get_os_memory(),
 	MemFreePerCent = FreeMemory / TotalMemory * 100,
 	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
 	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
@@ -182,7 +182,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
 handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#state{purgeList=[Tab|Rest]}) ->
     % process one purge candidate
     ?Debug("Purge try table ~p~n",[Tab]), 
-    case imem_if:read(ddTable,{imem_meta:schema(), Tab}) of
+    case imem_if_mnesia:read(ddTable,{imem_meta:schema(), Tab}) of
         [] ->   
             ?Debug("Table deleted before it could be purged ~p~n",[Tab]); 
         [#ddTable{opts=Opts}] ->

@@ -96,7 +96,7 @@ handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
     end;
 handle_info({roll_partitioned_tables,ProllCycleWait,ProllItemWait}, State=#state{prollList=[{TableAlias,TableName}|Rest]}) ->
     % process one proll candidate
-    NextWait = case imem_if:read(ddAlias,{imem_meta:schema(), TableAlias}) of
+    NextWait = case imem_if_mnesia:read(ddAlias,{imem_meta:schema(), TableAlias}) of
         [] ->   
             ?Info("TableAlias ~p deleted before partition ~p could be rolled",[TableAlias,TableName]),
             ProllItemWait; 
