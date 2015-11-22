@@ -546,7 +546,7 @@ test_csv_1(_) ->
         SepCounts1 = [{count_char_seq(Bin1,Sep),Sep} || Sep <- [<<"\t">>,<<";">>,<<",">>]],
         ?assertEqual([{3,<<"\t">>},{0,<<";">>},{0,<<",">>}],SepCounts1),
 
-        CsvFileName = "CsvTestFileName123abc.txt",
+        CsvFileName = <<"CsvTestFileName123abc.txt">>,
         file:write_file(CsvFileName,Bin1),
         ?assertMatch(  #{ columnCount := 2
                         , columnSeparator := <<"\t">>
@@ -640,7 +640,6 @@ test_csv_1(_) ->
                         , file_info(CsvFileName,#{header => true})
                     ),
 
-        CsvFileName = "CsvTestFileName123abc.txt",
         file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
         ?assertEqual(   {[ {csv_rec,CsvFileName,0,11,<<"Col1">>,<<"Col2">>}
                          , {csv_rec,CsvFileName,11,6,<<"A1">>,<<"1">>}
