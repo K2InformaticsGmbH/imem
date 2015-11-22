@@ -36,22 +36,22 @@
         ]).
 
 -export([ file_info/1
+        , file_list/1
         , column_names/1
         , select/4
         , fetch_start/5
         ]).
 
-file_info({Schema,File}) -> file_info(File, schema_to_opts(Schema));
-file_info(File) ->          file_info(File, #{}).
+file_info({Schema,FilePattern}) ->  file_info(FilePattern, schema_to_opts(Schema));
+file_info(FilePattern) ->           file_info(FilePattern, #{}).
 
-file_info(File, Opts) -> file_info(File, Opts, <<>>).
+file_info(FilePattern, Opts) ->     file_info(FilePattern, Opts, <<>>).
 
-file_info(File, #{lineSeparator := _} = Opts, BinData) ->  
-
-    file_info_col_sep(File, Opts, BinData);
-file_info(File, Opts, <<>>) ->
-    file_info(File, Opts, file_sample(File,Opts));
-file_info(File, Opts, BinData) ->
+file_info(FilePattern, #{lineSeparator := _} = Opts, BinData) ->  
+    file_info_col_sep(FilePattern, Opts, BinData);
+file_info(FilePattern, Opts, <<>>) ->
+    file_info(FilePattern, Opts, file_sample(FilePattern,Opts));
+file_info(FilePattern, Opts, BinData) ->
     CRLFs = count_char_seq(BinData, "\r\n"),
     LFs = count_char_seq(BinData, "\n"),
     LineSeparator = if
@@ -59,17 +59,17 @@ file_info(File, Opts, BinData) ->
         CRLFs == LFs -> <<"\r\n">>;
         true ->         <<"\n">>
     end,
-    file_info_col_sep(File, Opts#{lineSeparator => LineSeparator}, BinData).
+    file_info_col_sep(FilePattern, Opts#{lineSeparator => LineSeparator}, BinData).
 
-file_info_col_sep(File, #{columnSeparator := _} = Opts, BinData) ->
-    file_info_col_count(File, Opts, BinData);
-file_info_col_sep(File, Opts, <<>>) ->
-    file_info_col_sep(File, Opts, file_sample(File,Opts));
-file_info_col_sep(File, #{lineSeparator := LineSeparator} = Opts, BinData) ->
+file_info_col_sep(FilePattern, #{columnSeparator := _} = Opts, BinData) ->
+    file_info_col_count(FilePattern, Opts, BinData);
+file_info_col_sep(FilePattern, Opts, <<>>) ->
+    file_info_col_sep(FilePattern, Opts, file_sample(FilePattern,Opts));
+file_info_col_sep(FilePattern, #{lineSeparator := LineSeparator} = Opts, BinData) ->
     Rows = binary:split(BinData, LineSeparator, [global]),
     SepCounts = [{count_char_seq(BinData,Sep),Sep} || Sep <- [<<"\t">>,<<";">>,<<",">>,<<"|">>,<<":">>]],
     SepList = [S || {_,S} <- lists:reverse(lists:usort(SepCounts))],
-    file_info_col_count(File, pick_col_separator(Rows, Opts, SepList), BinData).
+    file_info_col_count(FilePattern, pick_col_separator(Rows, Opts, SepList), BinData).
 
 pick_col_separator(_Rows, #{columns := Cols} = Opts, []) ->
     Opts#{ columnSeparator => <<>>
@@ -108,11 +108,11 @@ pick_col_separator(Rows, Opts, [Sep|Seps]) ->
             pick_col_separator(Rows,Opts,Seps)
     end.
 
-file_info_col_count(File, #{columnCount := _} = Opts, BinData) ->
-    file_info_col_names(File, Opts, BinData);
-file_info_col_count(File, Opts, <<>>) ->
-    file_info_col_names(File, Opts, file_sample(File,Opts));
-file_info_col_count(File, #{ lineSeparator := LineSeparator
+file_info_col_count(FilePattern, #{columnCount := _} = Opts, BinData) ->
+    file_info_col_names(FilePattern, Opts, BinData);
+file_info_col_count(FilePattern, Opts, <<>>) ->
+    file_info_col_names(FilePattern, Opts, file_sample(FilePattern,Opts));
+file_info_col_count(FilePattern, #{ lineSeparator := LineSeparator
                            , columnSeparator := ColumnSeparator} = Opts, BinData) ->
     Rows = binary:split(BinData, LineSeparator, [global]),
     RowsSplitBySep = split_cols(Rows, ColumnSeparator),
@@ -120,13 +120,13 @@ file_info_col_count(File, #{ lineSeparator := LineSeparator
         false ->                    Opts#{columnCount => 1};    
         CC when is_integer(CC)  ->  Opts#{columnCount => CC}
     end,
-    file_info_col_names(File, NewOpts, BinData).
+    file_info_col_names(FilePattern, NewOpts, BinData).
 
-file_info_col_names(File, #{columns := _} = Opts, BinData) ->
-    file_info_encoding(File, Opts, BinData);
-file_info_col_names(File, Opts, <<>>) ->
-    file_info_col_names(File, Opts, file_sample(File,Opts));
-file_info_col_names(File, #{ header := true
+file_info_col_names(FilePattern, #{columns := _} = Opts, BinData) ->
+    file_info_encoding(FilePattern, Opts, BinData);
+file_info_col_names(FilePattern, Opts, <<>>) ->
+    file_info_col_names(FilePattern, Opts, file_sample(FilePattern,Opts));
+file_info_col_names(FilePattern, #{ header := true
                            , lineSeparator := LineSeparator
                            , columnSeparator := ColumnSeparator
                            , columnCount := ColumnCount} = Opts, BinData) ->
@@ -150,20 +150,32 @@ file_info_col_names(File, #{ header := true
             Clms ->     
                 Clms
         end,
-    file_info_encoding(File, Opts#{columns => Columns},BinData);
-file_info_col_names(File, #{columnCount := ColumnCount} = Opts, BinData) ->
-    file_info_encoding(File, Opts#{columns => default_columns(ColumnCount)}, BinData).
+    file_info_encoding(FilePattern, Opts#{columns => Columns},BinData);
+file_info_col_names(FilePattern, #{columnCount := ColumnCount} = Opts, BinData) ->
+    file_info_encoding(FilePattern, Opts#{columns => default_columns(ColumnCount)}, BinData).
 
-file_info_encoding(_File, #{encoding := _} = Opts, _BinData) ->
+file_info_encoding(_FilePattern, #{encoding := _} = Opts, _BinData) ->
     Opts;
-file_info_encoding(File, Opts, <<>>) ->
-    file_info_encoding(File, Opts, file_sample(File,Opts));
-file_info_encoding(_File, Opts, _BinData) ->
+file_info_encoding(FilePattern, Opts, <<>>) ->
+    file_info_encoding(FilePattern, Opts, file_sample(FilePattern,Opts));
+file_info_encoding(_FilePattern, Opts, _BinData) ->
     Opts#{encoding => utf8}.        % ToDo: guess encoding
 
+file_list(FilePattern) when is_binary(FilePattern) ->
+    file_list(binary_to_list(FilePattern));
+file_list(FilePattern) when is_list(FilePattern) ->
+    IsFile = fun(_Name) -> not filelib:is_dir(_Name) end,
+    [list_to_binary(FN) || FN <- lists:filter(IsFile,filelib:wildcard(FilePattern))].
 
-file_sample(File,Opts) ->
-    {ok, Io} = file:open(File, [raw, read, binary]),
+file_sample(FilePattern, Opts) ->
+    file_sample(FilePattern, Opts, file_list(imem_datatype:strip_dquotes(FilePattern))).
+
+file_sample(FilePattern, _Opts, []) ->
+    ?ClientErrorNoLogging({"No files matching name pattern", FilePattern});
+file_sample(FilePattern, Opts, Files) ->
+    file_sample(FilePattern, Opts, Files, file:open(hd(Files), [raw, read, binary])).
+
+file_sample(_FilePattern, Opts, _Files, {ok, Io}) ->
     {ok, D0} = file:pread(Io, 0, ?CSV_INFO_BYTES),
     Data = case byte_size(D0) of
         ?CSV_INFO_BYTES ->  
@@ -180,7 +192,9 @@ file_sample(File,Opts) ->
             D0            
     end,
     ok = file:close(Io),
-    Data.
+    Data;
+file_sample(FilePattern,_Opts,_Files,Error) ->
+    ?ClientErrorNoLogging({"Error opening CSV file", {FilePattern,Error}}).
 
 schema_to_opts(Schema) when is_binary(Schema) ->
     schema_to_opts( binary:split(Schema, <<"$">>, [global]) -- [?CSV_SCHEMA,<<>>], #{}).
@@ -315,12 +329,11 @@ code_change(_OldVsn, State, _Extra) ->
 format_status(_Opt, [_PDict, _State]) -> ok.
 
 
-column_names({Schema,FileName}) ->
-    UnquotedFN = imem_datatype:strip_dquotes(FileName),
-    maps:get(columns,file_info(UnquotedFN, schema_to_opts(Schema))).
+column_names({Schema,FilePattern}) ->
+    maps:get(columns,file_info(FilePattern, schema_to_opts(Schema))).
 
-fetch_start(Pid, {Schema,FileName}, MatchSpec, RowLimit, _CursorOpts) ->
-    UnquotedFN = imem_datatype:strip_dquotes(FileName),
+fetch_start(Pid, {Schema,FilePattern}, MatchSpec, RowLimit, _CursorOpts) ->
+    UnquotedFN = imem_datatype:strip_dquotes(FilePattern),
     % ?LogDebug("CSV UnquotedFN : ~p", [UnquotedFN]),
     F =
     fun(F,Contd0) ->
@@ -361,22 +374,27 @@ fetch_start(Pid, {Schema,FileName}, MatchSpec, RowLimit, _CursorOpts) ->
     end,
     spawn(fun() -> F(F,undefined) end).
 
-select({Schema,UnquotedFN}, MatchSpec, RowLimit, _LockType) ->
-    % ?LogDebug("CSV select UnquotedFN ~p",[UnquotedFN]),
+select({Schema,FilePattern}, MatchSpec, RowLimit, LockType) ->
+    select({Schema,FilePattern}, MatchSpec, RowLimit, LockType, file_list(imem_datatype:strip_dquotes(FilePattern))).
+
+select({_Schema,FilePattern}, _MatchSpec, _RowLimit, _LockType, []) ->
+    ?ClientErrorNoLogging({"No files matching name pattern", FilePattern});
+select({Schema,_FilePattern}, MatchSpec, RowLimit, _LockType, Files) ->
+    % ?LogDebug("CSV select FilePattern ~p",[FilePattern]),
     % ?LogDebug("CSV select Matchspec ~p",[MatchSpec]),
-    {ok, Io} = file:open(UnquotedFN, [raw, read, binary]),
-    CsvOpts = file_info(UnquotedFN, schema_to_opts(Schema)),
+    CsvOpts = file_info(hd(Files), schema_to_opts(Schema)),
     % ?LogDebug("CSV Schema Opts : ~p", [CsvOpts]),
+    {ok, Io} = file:open(hd(Files), [raw, read, binary]),
     CMS = ets:match_spec_compile(MatchSpec),
-    read_blocks(Io, UnquotedFN, CMS, 0, ?CSV_INFO_BYTES, RowLimit, 0, CsvOpts).
+    read_blocks(Io, Files, CMS, 0, ?CSV_INFO_BYTES, RowLimit, 0, CsvOpts).
 
-select(#{io:=Io, file:=File, cms:=CMS, pos:=Pos, blockSize:=BlockSize, rowLimit:=RowLimit, rowsSkipped:=RowsSkipped, opts:=CsvOpts}) ->
-    read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts).
+select(#{io:=Io, files:=Files, cms:=CMS, pos:=Pos, blockSize:=BlockSize, rowLimit:=RowLimit, rowsSkipped:=RowsSkipped, opts:=CsvOpts}) ->
+    read_blocks(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts).
 
-read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
-    read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, []).
+read_blocks(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
+    read_blocks(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, []).
 
-read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
+read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
     #{ lineSeparator := LineSeparator
      , columnSeparator := ColumnSeparator
      , columnCount := ColumnCount
@@ -386,16 +404,19 @@ read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows)
      , skip := Skip
      } = CsvOpts,
     LSL = byte_size(LineSeparator),
+    LastFile = (Files == []),
     case file:pread(Io, Pos, BlockSize) of
         {ok, Bin} -> 
             AllLines = binary:split(Bin, [LineSeparator],[global]),
-            Lines = case {binary_ends_with(Bin,LineSeparator), byte_size(Bin)} of
+            {Lines,FileRead} = case {binary_ends_with(Bin,LineSeparator), byte_size(Bin)} of
+                {true,BlockSize} -> 
+                    {lists:droplast(AllLines),false};   % drop trailing empty split
                 {true,_} -> 
-                    lists:droplast(AllLines);
+                    {lists:droplast(AllLines),true};    % drop trailing empty split
                 {false, BlockSize} ->
-                    lists:droplast(AllLines);
+                    {lists:droplast(AllLines),false};   % drop possibly incomplete row
                 {false, _} ->   
-                    AllLines  % eof after next read
+                    {AllLines,true}                     % eof expected
             end,
             RecFold = case ColumnSeparator of
                 <<>> when ColumnCount == 1 ->
@@ -425,42 +446,51 @@ read_blocks(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows)
                         {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME,File|WithSizeFields])|Recs]}
                     end
             end,
-            {LastPos,RevRecs} = lists:foldl(RecFold,{Pos,[]},Lines),
+            {NextPos,RevRecs} = lists:foldl(RecFold,{Pos,[]},Lines),
             RevRecsLength = length(RevRecs),
             {AllRecs, RowsSkipped1} = if
-                (RowsSkipped == Skip) ->    
+                (RowsSkipped == Skip) ->                    % skipping completed in previous block
                     {lists:reverse(RevRecs), RowsSkipped};
-                (RowsSkipped + RevRecsLength) =< Skip  ->   
-                    {[], Skip};
-                true ->   
+                (RowsSkipped + RevRecsLength) =< Skip  ->   % whole block result must be skipped
+                    {[], RowsSkipped + RevRecsLength};
+                true ->                                     % skipping complete in this block
                     {_, R} = lists:split(Skip-RowsSkipped,lists:reverse(RevRecs)),
                     {R, Skip}
             end,
             AllNewRows = Rows ++ ets:match_spec_run(AllRecs,CMS),
+            AllNewRowsCount = length(AllNewRows),
             if 
-                % ToDo: adapt new BlockSize to situation
-                length(AllNewRows) < RowLimit -> 
-                    NewPos = LastPos + element(3,hd(RevRecs)),
-                    read_blocks(Io, File, CMS, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts, AllNewRows);
-                length(AllNewRows) > RowLimit -> 
-                    NewRows = Rows ++ lists:sublist(AllNewRows, RowLimit), 
-                    NewPos = element(2,lists:nth(RowLimit+1,AllNewRows)),
-                    {NewRows, continuation(Io, File, CMS, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)};
-                true -> 
-                    NewPos = LastPos + element(3,hd(RevRecs)),
-                    {AllNewRows, continuation(Io, File, CMS, NewPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)}
+                (AllNewRowsCount =< RowLimit) and FileRead and LastFile ->    % last file read completely
+                    file:close(Io),
+                    {AllNewRows, {'$end_of_table'}};
+                (AllNewRowsCount < RowLimit) ->                                 % next block may add more rows
+                    % ToDo: maybe increase BlockSize 
+                    read_blocks(Io, [File|Files], CMS, NextPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts, AllNewRows);
+                (AllNewRowsCount > RowLimit) ->      % too many rows read, clip and re-read from next result row
+                    % ToDo: maybe decrease BlockSize
+                    ClippedRows = lists:sublist(AllNewRows, RowLimit),
+                    ClippedPos = element(?CSV_IDX_OFFET,lists:nth(RowLimit+1,AllNewRows)),
+                    {ClippedRows, continuation(Io, [File|Files], CMS, ClippedPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)};
+                (AllNewRowsCount == RowLimit) ->                        % this file or next files may contain more data 
+                    {AllNewRows, continuation(Io, [File|Files], CMS, NextPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)}
             end;
         eof -> 
             file:close(Io),
-            {Rows, {'$end_of_table'}};
+            case LastFile of 
+                true ->       
+                    {Rows, {'$end_of_table'}};
+                false ->   
+                    {ok, IoN} = file:open(hd(Files), [raw, read, binary]),  % open next file
+                    read_blocks(IoN, Files, CMS, 0, BlockSize, RowLimit, 0, CsvOpts, Rows)
+            end;
         {_, einval} -> 
             file:close(Io), 
-            ?LogDebug("Error reading the file"), 
+            ?LogDebug("Error reading the file ~p at position ~p",[[File|Files],Pos]), 
             {aborted, einval}
     end.
 
-continuation(Io, File, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
-    #{io=>Io, file=>File, cms=>CMS, pos=>Pos, blockSize=>BlockSize, rowLimit=>RowLimit, rowsSkipped=>RowsSkipped, opts=>CsvOpts}.
+continuation(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
+    #{io=>Io, files=>Files, cms=>CMS, pos=>Pos, blockSize=>BlockSize, rowLimit=>RowLimit, rowsSkipped=>RowsSkipped, opts=>CsvOpts}.
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).

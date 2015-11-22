@@ -11,19 +11,31 @@
 -include("imem.hrl").
 
 % shell start/stop helper
--export([start/0, stop/0]).
+-export([ start/0
+        , stop/0
+        ]).
 
 % test interface
--export([start_test_writer/1, stop_test_writer/0]).
+-export([ start_test_writer/1
+        , stop_test_writer/0]
+        ).
 
 % TCP server control interface
--export([start_tcp/2, stop_tcp/0]).
+-export([ start_tcp/2
+        , stop_tcp/0
+        ]).
 
 % application callbacks
--export([start/2, stop/1]).
+-export([ start/2
+        , stop/1
+        ]).
 
 % library functions
--export([now/0, get_os_memory/0, spawn_sync_mfa/3]).
+-export([ now/0
+        , get_os_memory/0
+        , get_vm_memory/0
+        , spawn_sync_mfa/3
+        ]).
 
 
 %% ====================================================================

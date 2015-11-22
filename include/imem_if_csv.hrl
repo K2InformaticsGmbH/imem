@@ -10,4 +10,8 @@
 						  , {<<"offset">>,integer,0}
 						  , {<<"bytes">>,integer,0}
 						  ]).
+-define(CSV_IDX_FILE, 2).
+-define(CSV_IDX_OFFET, 3).
+-define(CSV_IDX_BYTES, 4).
+
 -endif.
