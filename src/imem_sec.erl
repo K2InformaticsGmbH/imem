@@ -718,9 +718,28 @@ fetch_start(SKey, Pid, all_tables, MatchSpec, BlockSize, Opts) ->
     imem_meta:fetch_start(Pid, all_tables, MatchSpec, BlockSize, Opts);  %% {select_filter_all(SKey, RList, []), true};
 fetch_start(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
     seco_authorized(SKey),
+    Schema = imem_meta:schema(),
+    case Table of
+        {Schema,_} ->   fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts);    % local schema select
+        {_,_} ->        fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts);   % ddSysConf / csv$ superuser select
+        _ ->            fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts)     % local schema select
+    end.
+
+fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
     case have_table_permission(SKey, Table, select) of
         true -> imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
         _ ->    ?SecurityException({"Select unauthorized", {Table,SKey}})  
+    end.
+
+fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables, select_os_files]) of
+        true -> 
+            imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
+        _ ->    
+            case have_table_permission(SKey, Table, select) of
+                true -> imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
+                _ ->    ?SecurityException({"System select unauthorized", {Table,SKey}})  
+            end
     end.
 
 fetch_close(SKey, Pid) ->
