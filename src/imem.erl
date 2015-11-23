@@ -35,6 +35,7 @@
         , get_os_memory/0
         , get_vm_memory/0
         , spawn_sync_mfa/3
+        , priv_dir/0
         ]).
 
 
@@ -397,4 +398,14 @@ spawn_sync_mfa(M,F,A) ->
     spawn(fun() -> Self ! (catch apply(M,F,A)) end),
     receive Result -> Result
     after 60000 -> {error, timeout}
+    end.
+
+priv_dir() ->
+    case code:priv_dir(?MODULE) of
+        {error, bad_name} ->
+            filename:join(
+              filename:dirname(
+                filename:dirname(
+                  code:which(?MODULE))), "priv");
+        D -> D
     end.
