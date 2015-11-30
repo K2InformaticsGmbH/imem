@@ -10,12 +10,32 @@
 
 -include("imem.hrl").
 
--export([start/0, stop/0]).
+% shell start/stop helper
+-export([ start/0
+        , stop/0
+        ]).
 
--export([start_test_writer/1, stop_test_writer/0, start_tcp/2, stop_tcp/0]).
+% test interface
+-export([ start_test_writer/1
+        , stop_test_writer/0]
+        ).
+
+% TCP server control interface
+-export([ start_tcp/2
+        , stop_tcp/0
+        ]).
 
 % application callbacks
--export([start/2, stop/1]).
+-export([ start/2
+        , stop/1
+        ]).
+
+% library functions
+-export([ now/0
+        , get_os_memory/0
+        , get_vm_memory/0
+        , spawn_sync_mfa/3
+        ]).
 
 
 %% ====================================================================
@@ -69,7 +89,7 @@ stop() ->
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
     % it only helps to build up the cluster
-    ?Notice("---------------------------------------------------~n"),
+    % ?Notice("---------------------------------------------------~n"),
     ?Notice(" STARTING IMEM~n"),
     case application:get_env(erl_cluster_mgrs) of
         {ok, []} -> ?Info("cluster manager node(s) not defined!~n");
@@ -117,7 +137,7 @@ start(_Type, StartArgs) ->
            case imem_sup:start_link(StartArgs) of
                {ok, _} = Success ->
                    ?Notice(" IMEM STARTED~n"),
-                   ?Notice("---------------------------------------------------~n"),
+                   % ?Notice("---------------------------------------------------~n"),
                    Success;
                Error ->
                    ?Error(" IMEM FAILED TO START ~p~n", [Error]),
@@ -332,3 +352,49 @@ stop_test_writer() ->
     ok = supervisor:terminate_child(imem_sup, imem_test_writer),
     ok = supervisor:delete_child(imem_sup, imem_test_writer),
     [?Info("imem process ~p started pid ~p~n", [_Mod, _Pid]) || {_Mod,_Pid,_,_} <- supervisor:which_children(imem_sup)].
+
+
+now() ->
+    erlang:now().
+
+
+-spec get_os_memory() -> {any(), integer(), integer()}.
+get_os_memory() ->
+    SysData = memsup:get_system_memory_data(),
+    FreeMem = lists:sum([M || {T, M} <- SysData, ((T =:= free_memory)
+                                                    orelse (T =:= buffered_memory)
+                                                    orelse (T =:= cached_memory))]),
+    TotalMemory = proplists:get_value(total_memory, memsup:get_system_memory_data()),
+    case os:type() of
+        {win32, _} = Win    -> {Win,        FreeMem,    TotalMemory};
+        {unix, _} = Unix    -> {Unix,       FreeMem,    TotalMemory};
+        Unknown             -> {Unknown,    FreeMem,    TotalMemory}
+    end.
+
+-spec get_vm_memory() -> {any(),integer()}.
+get_vm_memory() ->    
+    case os:type() of
+        {win32, _} = Win ->
+            {Win
+            , list_to_integer(re:replace(os:cmd("wmic process where processid="++os:getpid()++" get workingsetsize | findstr /v \"WorkingSetSize\"")
+                                        ,"[[:space:]]*", "", [global, {return,list}]))
+            };
+        {unix, _} = Unix ->
+            {Unix
+            , erlang:round(element(3,get_os_memory())
+                          * list_to_float(re:replace(os:cmd("ps -p "++os:getpid()++" -o pmem="),"[[:space:]]*", "", [global, {return,list}])) / 100)
+            };
+        Unknown ->
+		       {Unknown, 0}
+    end.
+
+
+% An MFA interface that is executed in a spawned short-lived process
+% The result is synchronously collected and returned
+% Restricts binary memory leakage within the scope of this process
+spawn_sync_mfa(M,F,A) ->
+    Self = self(),
+    spawn(fun() -> Self ! (catch apply(M,F,A)) end),
+    receive Result -> Result
+    after 60000 -> {error, timeout}
+    end.

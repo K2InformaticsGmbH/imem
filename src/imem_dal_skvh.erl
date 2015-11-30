@@ -369,11 +369,11 @@ channel_ctx(Channel) ->
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_channel(binary()|atom()) -> #skvhCtx{}.
+-spec create_check_channel(binary()|atom()) ->  ok | no_return().
 create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
--spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> #skvhCtx{}.
+-spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok | no_return().
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
     CreateAudit = proplists:get_value(audit, Options, false),
@@ -401,7 +401,7 @@ create_check_channel(Channel, Options) ->
                 ?TABLE_OPTS, system),
             TC
     end,
-    Audit = if 
+    if 
         CreateAudit ->
             try
                 A = list_to_existing_atom(?AUDIT(Channel)),
@@ -417,7 +417,7 @@ create_check_channel(Channel, Options) ->
             end;
         true -> undefined
     end,    
-    Hist = if 
+    if 
         CreateAudit andalso CreateHistory ->
             try
                 H = list_to_existing_atom(?HIST(Channel)),
@@ -434,7 +434,7 @@ create_check_channel(Channel, Options) ->
     end,
     %% TODO: This will replace the trigger each time maybe versioning will be better
     imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
-    #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
+    ok.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
 create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
@@ -797,7 +797,7 @@ insert(User, Channel, DecodedKey, Value) ->
 
 insert(User, Channel, MapList) ->
     InsertFun = fun() -> insert_priv(User, Channel, MapList) end,
-    imem_if:return_atomic_list(imem_meta:transaction(InsertFun)).
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(InsertFun)).
 
 insert_priv(_User, _Channel, []) -> [];
 insert_priv(User, Channel, [#{ckey := DecodedKey, cvalue := Value} | MapList]) ->
@@ -811,7 +811,7 @@ update(User, Channel, RowMap) when is_map(RowMap) ->
     skvh_rec_to_map(UpdateResult);
 update(User, Channel, ChangeList) ->
     UpdateFun = fun() -> update_priv(User, Channel, ChangeList) end,
-    imem_if:return_atomic_list(imem_meta:transaction(UpdateFun)).
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(UpdateFun)).
 
 update_priv(_User, _Channel, []) -> [];
 update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
@@ -820,7 +820,7 @@ update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
 remove(User, Channel, Rows) -> remove(User, Channel, Rows, []).
 remove(User, Channel, Rows, Opts) when is_list(Rows) ->
     RemoveFun = fun() -> remove_list(User, Channel, Rows, Opts) end,
-    imem_if:return_atomic_list(imem_meta:transaction(RemoveFun));
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(RemoveFun));
 remove(User, Channel, Row, Opts) ->
     remove_single(User, Channel, Row, Opts).
 
@@ -1279,15 +1279,21 @@ teardown(_) ->
     catch imem_meta:drop_table(skvhTestHist),
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun skvh_operations/1,
-              fun skvh_concurrency/1
-        ]}}.    
+        {with, [fun skvh_operations/1]}
+    }.    
+
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [fun skvh_concurrency/1]}
+    }.    
 
 hist_reset_time([]) -> [];
 hist_reset_time([#{cvhist := CList} = Hist | Rest]) ->
@@ -1295,12 +1301,13 @@ hist_reset_time([#{cvhist := CList} = Hist | Rest]) ->
 
 skvh_operations(_) ->
     try
-        ClEr = 'ClientError',
-        ?LogDebug("---TEST---~p:skvh_operations~n", [?MODULE]),
+        ?LogDebug("---TEST---~p()", [skvh_operations]),
 
-        ?assertMatch(#skvhCtx{mainAlias=mapChannel}, create_check_channel(<<"mapChannel">>,[{type,map}])),
-        ?assertMatch(#skvhCtx{mainAlias=lstChannel}, create_check_channel(<<"lstChannel">>,[{type,list}])),
-        ?assertMatch(#skvhCtx{mainAlias=binChannel}, create_check_channel(<<"binChannel">>,[{type,binary}])),
+        ClEr = 'ClientError',
+
+        ?assertMatch(ok, create_check_channel(<<"mapChannel">>,[{type,map}])),
+        ?assertMatch(ok, create_check_channel(<<"lstChannel">>,[{type,list}])),
+        ?assertMatch(ok, create_check_channel(<<"binChannel">>,[{type,binary}])),
 
         ?assertMatch({ok, [_,_]}, write(system,<<"mapChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
         ?assertMatch({ok, [_,_]}, write(system,<<"lstChannel">>,[{1,[a]},{2,[b]}])),
@@ -1331,7 +1338,7 @@ skvh_operations(_) ->
 		K0 = <<"{<<\"0\">>,<<>>,<<>>}">>,
 
         ?assertException(throw, {ClEr, {"Channel does not exist",<<"skvhTest">>}}, read(system, ?Channel, <<"kvpair">>, K0)), 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
 		?assertEqual({ok,[]}, readGT(system, ?Channel, <<"khpair">>, <<"{<<\"0\">>,<<>>,<<>>}">>, <<"1000">>)),
 
@@ -1357,19 +1364,20 @@ skvh_operations(_) ->
         ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
         Dat = imem_meta:read(skvhTest),
-        ?LogDebug("TEST data ~n~p~n", [Dat]),
+        % ?LogDebug("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
-        ?LogDebug("audit trail~n~p~n", [Aud]),
+        % ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
         {ok,Aud1} = audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
-        ?LogDebug("audit trail~n~p~n", [Aud1]),
+        % ?LogDebug("audit trail~n~p~n", [Aud1]),
         ?assertEqual(6, length(Aud1)),
         {ok,Aud2} = audit_readGT(system, ?Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
+        timer:sleep(10), % windows wall clock may be 17ms behind
         {ok,Aud3} = audit_readGT(system, ?Channel,<<"kvpair">>, <<"now">>, 100),
         ?assertEqual(0, length(Aud3)),
         {ok,Aud4} = audit_readGT(system, ?Channel,<<"key">>, <<"2100-01-01">>, 100),
@@ -1380,7 +1388,7 @@ skvh_operations(_) ->
         ?assertEqual(Aud1, Aud5),
 
         Hist = imem_meta:read(skvhTestHist),
-        ?LogDebug("audit trail~n~p~n", [Hist]),
+        % ?LogDebug("audit trail~n~p~n", [Hist]),
         ?assertEqual(3, length(Hist)),
 
         ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]">>)),
@@ -1409,11 +1417,11 @@ skvh_operations(_) ->
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
 				
-        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
+        % ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
 		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[]">>, <<"1">>)),
@@ -1442,7 +1450,7 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, ?Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
     	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
@@ -1476,7 +1484,7 @@ skvh_operations(_) ->
         Map3 = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"testNumber\": 100}">>, chash => <<"3MBW5">>},
         Map4 = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 250}">>, chash => <<"1RZ299">>},
         Map5 = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 300}">>, chash => <<"1DKGDA">>},
-        Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1DN1MP">>},
+        Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1404CV">>},  % 1DN1MP
         Map7 = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 150}">>, chash => <<"HJ3TK">>},
         Map8 = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 250}">>, chash => <<"1M3DPR">>},
         Map9 = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 350}">>, chash => <<"KKR3X">>},
@@ -1486,14 +1494,14 @@ skvh_operations(_) ->
         MidleKey = ["1", "b", "1"],
         LastKey = ["1", "e"],
 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),
         ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
 
         ?assertEqual([], read(system, ?Channel, [["1"]])),
 
-        BeforeInsert = erlang:now(),
+        BeforeInsert = imem:now(), %% os:timestamp(), % erlang:now(),
 
         ?assertEqual(Map1, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
         ?assertEqual(Map2, insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
@@ -1529,7 +1537,7 @@ skvh_operations(_) ->
         Map4Upd = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 150}">>, chash => <<"1RZ299">>},
         Map5Upd = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 400}">>, chash => <<"1DKGDA">>},
 
-        BeforeUpdate = erlang:now(),
+        BeforeUpdate = imem:now(), %% os:timestamp(), % erlang:now(),
 
         %% Update using single maps
         Map1Done = update(system, ?Channel, Map1Upd),
@@ -1566,7 +1574,7 @@ skvh_operations(_) ->
         ?assertEqual([Map4, Map5], readGELT(system, ?Channel, MidleKey, LastKey, 10)),
         ?assertEqual([], readGELT(system, ?Channel, LastKey, [LastKey | "1"], 10)),
 
-        BeforeRemove = erlang:now(),
+        BeforeRemove = imem:now(), %% os:timestamp(), % erlang:now(),
 
         %% Tests removing rows
         ?assertEqual(Map1Done, remove(system, ?Channel, Map1Done)),
@@ -1604,7 +1612,7 @@ skvh_operations(_) ->
         ResultAuditRemoves = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, ?Channel, BeforeRemove, 3)],
         ?assertEqual([AuditRemove1, AuditRemove2, AuditRemove3], ResultAuditRemoves),
 
-        ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),
+        % ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),   % may not work with os:timestamp()
         ?assertEqual([], audit_readGT(system, ?Channel, <<"2100-01-01">>, 100)),
         ?assertEqual(11, length(audit_readGT(system, ?Channel, <<"1970-01-01">>, 100))),
 
@@ -1612,7 +1620,7 @@ skvh_operations(_) ->
         ?assertException(throw, Ex4, audit_readGT(system, ?Channel, <<"1900-01-01">>, 100)),
 
         %% Inserts for history search_deleted clients and objects
-        InsertResult = insert(system, ?Channel, [Map7, Map8, Map9]),
+        insert(system, ?Channel, [Map7, Map8, Map9]),
         Map7Upd = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 400}">>, chash => <<"HJ3TK">>},
         Map8Upd = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 555}">>, chash => <<"830WW">>},
         Map9Upd = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 400}">>, chash => <<"KKR3X">>},
@@ -1630,32 +1638,32 @@ skvh_operations(_) ->
               ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map3), nvalue => maps:get(cvalue, Map3Upd), cuser => system}
               ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map3), cuser => system}],
         History3 = #{ckey => maps:get(ckey, Map3), cvhist => CL3},
-        CL4 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map4), nvalue => maps:get(cvalue, Map4Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map4), cuser => system}],
-        History4 = #{ckey => maps:get(ckey, Map4), cvhist => CL4},
-        CL5 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5), nvalue => maps:get(cvalue, Map5Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map5), cuser => system}],
-        History5 = #{ckey => maps:get(ckey, Map5), cvhist => CL5},
-        CL7 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map7), nvalue => maps:get(cvalue, Map7Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map7), cuser => system}],
-        History7 = #{ckey => maps:get(ckey, Map7), cvhist => CL7},
-        CL8 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8), nvalue => maps:get(cvalue, Map8Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map8), cuser => system}],
-        History8 = #{ckey => maps:get(ckey, Map8), cvhist => CL8},
-        CL9 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9), nvalue => maps:get(cvalue, Map9Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map9), cuser => system}],
-        History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
+        % CL4 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map4), nvalue => maps:get(cvalue, Map4Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map4), cuser => system}],
+        % History4 = #{ckey => maps:get(ckey, Map4), cvhist => CL4},
+        % CL5 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5), nvalue => maps:get(cvalue, Map5Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map5), cuser => system}],
+        % History5 = #{ckey => maps:get(ckey, Map5), cvhist => CL5},
+        % CL7 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map7), nvalue => maps:get(cvalue, Map7Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map7), cuser => system}],
+        % History7 = #{ckey => maps:get(ckey, Map7), cvhist => CL7},
+        % CL8 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8), nvalue => maps:get(cvalue, Map8Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map8), cuser => system}],
+        % History8 = #{ckey => maps:get(ckey, Map8), cvhist => CL8},
+        % CL9 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9), nvalue => maps:get(cvalue, Map9Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map9), cuser => system}],
+        % History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
 
         %% Updating objects for history test cases
-        [Map4Done, Map5Done, Map7Done, Map8Done, Map9Done] = update(system, ?Channel, [Map4Upd, Map5Upd, Map7Upd, Map8Upd, Map9Upd]),
+        [Map4Done, Map5Done, _Map7Done, Map8Done, Map9Done] = update(system, ?Channel, [Map4Upd, Map5Upd, Map7Upd, Map8Upd, Map9Upd]),
         ?assertEqual([maps:remove(chash,Map4Upd), maps:remove(chash,Map5Upd)]
                     , [maps:remove(chash,M) || M <- [Map4Done, Map5Done]]
                     ),
 
-        RemoveResult = remove(system, ?Channel, [Map8Done, Map9Done]),
+        remove(system, ?Channel, [Map8Done, Map9Done]),
 
         %% Read using a list of term keys.
         HistResult = hist_reset_time(hist_read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
@@ -1721,22 +1729,23 @@ skvh_operations(_) ->
         ?assertEqual(1, length(HistSearchObjects3)),
         ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects3),
 
-        ?LogDebug("starting ~p", [drop_table123]),
+        % ?LogDebug("starting ~p", [drop_table123]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
-        ?LogDebug("success drop ~p", [skvhTest]),
+        % ?LogDebug("success drop ~p", [skvhTest]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
+        % ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
-        ?LogDebug("success drop ~p", [skvhTestHist]),
+        % ?LogDebug("success drop ~p", [skvhTestHist]),
 
         ?assertEqual(ok, create_table(skvhTest,[],[],system)),
-        ?LogDebug("starting ~p", [drop_table]),
+        % ?LogDebug("starting ~p", [drop_table]),
         ?assertEqual(ok, drop_table(skvhTest)),
-        ?LogDebug("success ~p~n", [drop_table])
+        % ?LogDebug("success ~p~n", [drop_table]),
+        ok
  
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
@@ -1744,45 +1753,41 @@ skvh_operations(_) ->
 
 skvh_concurrency(_) ->
     try
-        ClEr = 'ClientError',
+        ?LogDebug("---TEST---~p()", [skvh_concurrency]),
+
         TestKey = ["sum"],
-
-        ?LogDebug("---TEST---~p:skvh_concurrency~n", [?MODULE]),
-
         % CreateResult = [create_table(Ch,[],[],system) || Ch <- ?Channels],  % serialized version
         Self = self(),
         TabCount = length(?Channels),
         [spawn(fun() -> Self ! {Ch,create_table(Ch,[],[],system)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_create_spawned]),
+        % ?LogDebug("success ~p", [bulk_create_spawned]),
         CreateResult = receive_results(TabCount,[]),
         ?assertEqual(TabCount, length(CreateResult)),
         ?assertEqual([ok], lists:usort([ R || {_,R} <- CreateResult])),
-        ?LogDebug("success ~p~n", [bulk_create_tables]),
+        % ?LogDebug("success ~p~n", [bulk_create_tables]),
 
         [spawn(fun() -> Self ! {Ch,insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_insert_spawned]),
+        % ?LogDebug("success ~p", [bulk_insert_spawned]),
         InitResult = receive_results(TabCount,[]),
         ?assertEqual(TabCount, length(InitResult)),
-        ?LogDebug("success ~p~n", [bulk_insert]),
+        % ?LogDebug("success ~p~n", [bulk_insert]),
 
         [spawn(fun() -> Self ! {N1,update_test(hd(?Channels),TestKey,N1)} end) || N1 <- lists:seq(1,10)],
-        ?LogDebug("success ~p", [bulk_update_spawned]),
+        % ?LogDebug("success ~p", [bulk_update_spawned]),
         UpdateResult = receive_results(10,[]),
         ?assertEqual(10, length(UpdateResult)),
         ?assertMatch([{skvhTable,_,<<"55">>,_}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
-        ?LogDebug("success ~p~n", [bulk_update]),
+        % ?LogDebug("success ~p~n", [bulk_update]),
 
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
         [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_drop_spawned]),
-        DropResultFun = fun() ->
-                ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])]))
-            end,
-        {timeout, 10, DropResultFun},
-        ?LogDebug("success ~p~n", [bulk_drop_tables])
+        % ?LogDebug("success ~p", [bulk_drop_spawned]),
+        {timeout, 10, fun() -> ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])])) end},
+        % ?LogDebug("success ~p~n", [bulk_drop_tables]),
+        ok
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,

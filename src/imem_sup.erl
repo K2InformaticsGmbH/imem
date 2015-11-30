@@ -67,8 +67,11 @@ init(_StartArgs) ->
     ?Info("~p starting children with timeout ~p~n", [?MODULE, ImemTimeout]),
 
     Children =
-    % imem_if
-    [?CHILD(imem_if, worker, [], ImemTimeout)]
+    % imem_if_mnesia
+    [?CHILD(imem_if_mnesia, worker, [], ImemTimeout)]
+    ++
+    % imem_if_csv
+    [?CHILD(imem_if_csv, worker, [], ImemTimeout)]
     ++
     % imem_meta
     case application:get_env(meta_server) of

@@ -14,7 +14,7 @@
 
 -define(GET_MONITOR_CYCLE_WAIT,?GET_CONFIG(monitorCycleWait,[],10000)).
 -define(GET_MONITOR_EXTRA,?GET_CONFIG(monitorExtra,[],true)).
--define(GET_MONITOR_EXTRA_FUN,?GET_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,erlang:now()}] end.">>)).
+-define(GET_MONITOR_EXTRA_FUN,?GET_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,os:timestamp()}] end.">>)).
 -define(GET_MONITOR_DUMP,?GET_CONFIG(monitorDump,[],true)).
 -define(GET_MONITOR_DUMP_FUN,?GET_CONFIG(monitorDumpFun,[],<<"">>)).
 
@@ -128,7 +128,7 @@ write_monitor() -> write_monitor(undefined,undefined).
 
 write_monitor(ExtraFun,DumpFun) ->
     try  
-        Now = erlang:now(),
+        Now = os:timestamp(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
         Moni0 = #ddMonitor{ time=Now
                          , node = node()
@@ -161,7 +161,7 @@ write_monitor(ExtraFun,DumpFun) ->
                 try 
                     DumpFun(Moni1)
                 catch
-                    _ : DumpError -> ?Error("cannot dump monitor ~p~n~p", DumpError)
+                    _ : DumpError -> ?Error("cannot dump monitor ~p", [DumpError])
                 end
         end
     catch
@@ -187,24 +187,22 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun monitor_operations/1
-        ]}}.    
+        {with, [fun monitor_operations/1]}
+    }.    
 
 monitor_operations(_) ->
     try 
-
-        ?LogDebug("---TEST---~p:test_monitor~n", [?MODULE]),
+        ?LogDebug("---TEST---"),
 
         ?assertEqual(ok, write_monitor()),
         MonRecs = imem_meta:read(?MONITOR_TABLE),
-        ?LogDebug("MonRecs count ~p~n", [length(MonRecs)]),
-        ?LogDebug("MonRecs last ~p~n", [lists:last(MonRecs)]),
+        % ?LogDebug("MonRecs count ~p~n", [length(MonRecs)]),
+        % ?LogDebug("MonRecs last ~p~n", [lists:last(MonRecs)]),
         % ?LogDebug("MonRecs[1] ~p~n", [hd(MonRecs)]),
         % ?LogDebug("MonRecs ~p~n", [MonRecs]),
         ?assert(length(MonRecs) > 0),
-
-        ?LogDebug("success ~p~n", [monitor])
+        %?LogDebug("success ~p~n", [monitor]),
+        ok
     catch
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})

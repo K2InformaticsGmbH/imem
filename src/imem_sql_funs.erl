@@ -994,17 +994,22 @@ setup() ->
 teardown(_) ->
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun test_without_sec/1
-            , fun test_with_sec/1
-        ]}
+        {with, [fun test_without_sec/1]}
     }.
     
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [fun test_with_sec/1]}
+    }.
+
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
@@ -1013,12 +1018,7 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        % ClEr = 'ClientError',
-        % SyEx = 'SystemException',    %% difficult to test
-        % SeEx = 'SecurityException',
-        ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
 
         ?assertEqual(<<"Imem.ddTable">>, to_name({'Imem',ddTable})),
         ?assertEqual(<<"imem.ddTable">>, to_name({'imem',ddTable})),
@@ -1047,10 +1047,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
         ?assertEqual(<<"^.m_th.$">>, transform_like(<<"_m@_th_">>, <<"@">>)),
         ?assertEqual(<<"^.*m%th.*$">>, transform_like(<<"%m@%th%">>, <<"@">>)),
-        ?LogDebug("success ~p~n", [transform_like]),
+        % ?LogDebug("success ~p~n", [transform_like]),
 
     %% Regular Expressions
-        ?LogDebug("testing regular expressions: ~p~n", ["like_compile"]),
+        % ?LogDebug("testing regular expressions: ~p~n", ["like_compile"]),
         RE1 = like_compile("abc_123%@@"),
         ?assertEqual(true,re_match(RE1,<<"abc_123jhhsdhjhj@@">>)),         
         ?assertEqual(true,re_match(RE1,<<"abc_123@@">>)),         
@@ -1159,7 +1159,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, expr_fun({'is_like', <<"12345">>, "%7__"})),
         ?assertEqual(33, expr_fun({'*',{'+',10,1},3})),
         ?assertEqual(10, expr_fun({'abs',{'-',10,20}})),
-        ?LogDebug("success ~p~n", ["expr_fun constants"]),
+        % ?LogDebug("success ~p~n", ["expr_fun constants"]),
 
         X1 = {{1,2,3},{2,2,2}},
         B1a = #bind{tag='$1',tind=1,cind=2},    % = 2

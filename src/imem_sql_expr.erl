@@ -526,6 +526,11 @@ qname3_to_binstr({undefined,undefined,N}) when is_binary(N) -> N;
 qname3_to_binstr({undefined,T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]); 
 qname3_to_binstr({S,T,N}) when is_binary(S),is_binary(T),is_binary(N) -> list_to_binary([S,".",T,".",N]). 
 
+to_binstr(B) when is_binary(B) ->   B;
+to_binstr(I) when is_integer(I) -> list_to_binary(integer_to_list(I));
+to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
+to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
+to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
 %% @doc Projects by name one record field out of a list of column maps.
 %% Map:     list of bind items
@@ -622,17 +627,26 @@ column_map_table_fields([{undefined,T,A}|Tables], Ti, Acc) ->
     S = ?atom_to_binary(imem_meta:schema()),
     column_map_table_fields([{S,T,A}|Tables], Ti, Acc);
 column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
-    Cols = imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}),
-    case Ti of
-        ?MainIdx ->      
-            case imem_meta:is_virtual_table(?binary_to_atom(T)) of
-                true ->     ?ClientError({"Virtual table can only be joined", T});
-                false ->    ok
-            end;
-        _ -> ok
+    Cols = case S of
+        ?CSV_SCHEMA_PATTERN ->
+            case Ti of
+                ?MainIdx -> ok;
+                _ ->        ?ClientError({"A CSV table can only be the first table in a join", T})
+            end,
+            imem_meta:column_infos({S,T});
+        _ ->    
+            case Ti of
+                ?MainIdx ->      
+                    case imem_meta:is_virtual_table(?binary_to_atom(T)) of
+                        true ->     ?ClientError({"Virtual table can only be joined", T});
+                        false ->    ok
+                    end;
+                _ -> ok
+            end,
+            imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}) %% ToDo: avoid if possible
     end,
     Binds = [ #bind{schema=S,table=T,alias=A,tind=Ti,cind=Ci
-                   ,type=Type,len=Len,prec=P,name=?atom_to_binary(N)
+                   ,type=Type,len=Len,prec=P,name=to_binstr(N)
                    ,default=D,tag=list_to_atom(lists:flatten([$$,integer_to_list(Ti),integer_to_list(Ci)]))
                    } 
           || {Ci, #ddColumn{name=N,type=Type,len=Len,prec=P,default=D}} <- 
@@ -1567,28 +1581,35 @@ teardown(_) ->
     catch imem_meta:drop_table(meta_table_1), 
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun test_without_sec/1
-        ]}
+        {with, [fun test_without_sec/1]}
     }.
     
+% db2_test_() ->
+%     {
+%         setup,
+%         fun setup/0,
+%         fun teardown/1,
+%         {with, [fun test_with_sec/1]}
+%     }.
+
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
+% test_with_sec(_) -> 
+%     test_with_or_without_sec(true).  % ToDo: create table needs login etc. May not be worth it.
+
 test_with_or_without_sec(IsSec) ->
     try
-        ClEr = 'ClientError',
-        ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ClEr = 'ClientError',
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1602,9 +1623,9 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"schema.table.field">>, qname3_to_binstr(binstr_to_qname3(<<"schema.table.field">>))),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?LogDebug("success ~p~n", [schema]),
+        % ?LogDebug("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        ?LogDebug("success ~p~n", [data_nodes]),
+        % ?LogDebug("success ~p~n", [data_nodes]),
 
     %% uses_filter
         ?assertEqual(true, uses_filter({'is_member', {'+','$2',1}, '$3'})),
@@ -1613,19 +1634,19 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, uses_filter({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, uses_filter({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
-        BTreeSample = 
-            {'>',{ bind,2,7,<<"imem">>,<<"ddAccount">>,<<"ddAccount">>,<<"lastLoginTime">>,
-                   datetime,undefined,undefined,undefined,false,undefined,undefined,undefined,'$27'}
-                ,{ bind,0,0,undefined,undefined,undefined,undefined,datetime,0,0,undefined,false,undefined,undefined
-                    , {add_dt, {bind,1,4,<<"imem">>,<<"meta">>,<<"meta">>,<<"sysdate">>,
-                                datetime,20,0,undefined,true,undefined,undefined,undefined,'$14'}
-                             , {'-', {bind,0,0,undefined,undefined,undefined,undefined,
-                                      float,0,0,undefined,true,undefined,undefined,1.1574074074074073e-5,[]}
-                               }
-                      }
-                    ,[]
-                }
-            },
+        % BTreeSample = 
+        %     {'>',{ bind,2,7,<<"imem">>,<<"ddAccount">>,<<"ddAccount">>,<<"lastLoginTime">>,
+        %            datetime,undefined,undefined,undefined,false,undefined,undefined,undefined,'$27'}
+        %         ,{ bind,0,0,undefined,undefined,undefined,undefined,datetime,0,0,undefined,false,undefined,undefined
+        %             , {add_dt, {bind,1,4,<<"imem">>,<<"meta">>,<<"meta">>,<<"sysdate">>,
+        %                         datetime,20,0,undefined,true,undefined,undefined,undefined,'$14'}
+        %                      , {'-', {bind,0,0,undefined,undefined,undefined,undefined,
+        %                               float,0,0,undefined,true,undefined,undefined,1.1574074074074073e-5,[]}
+        %                        }
+        %               }
+        %             ,[]
+        %         }
+        %     },
         % ?assertEqual(true, uses_bind(2,7,BTreeSample)),
         % ?assertEqual(false, uses_bind(2,6,BTreeSample)),
         % ?assertEqual(true, uses_bind(1,4,BTreeSample)),
@@ -1645,7 +1666,7 @@ test_with_or_without_sec(IsSec) ->
                         },
         ?assertEqual(ColMapExpected, bind_subtree_const(ColMapSample)),
 
-        ?LogDebug("~p:test_database_operations~n", [?MODULE]),
+        % ?LogDebug("~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
                     , #ddColumn{name=b1, type=char, len=1}    %% value 1
                     , #ddColumn{name=c1, type=char, len=1}    %% value 2
@@ -1662,7 +1683,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, imem_sql:exec(anySKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),    
-        ?LogDebug("success ~p~n", [create_tables]),
+        % ?LogDebug("success ~p~n", [create_tables]),
 
         Table1 =    <<"imem.meta_table_1">>,
         Table2 =    <<"meta_table_2">>,
@@ -1673,38 +1694,38 @@ test_with_or_without_sec(IsSec) ->
         Alias2 =    {as, <<"imem.meta_table_1">>, <<"alias2">>},
 
         ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, column_map_tables([Table1,TableX,Table3],[],[])),
-        ?LogDebug("success ~p~n", [table_no_exists]),
+        % ?LogDebug("success ~p~n", [table_no_exists]),
 
         FullMap0 =  column_map_tables([],imem_meta:meta_field_list(),[]),
-        ?LogDebug("FullMap0~n~p~n", [FullMap0]),
+        % ?LogDebug("FullMap0~n~p~n", [FullMap0]),
         MetaFieldCount = length(imem_meta:meta_field_list()),
         ?assertEqual(MetaFieldCount, length(FullMap0)),
 
         FullMap1 = column_map_tables([Table1],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+3, length(FullMap1)),
-        ?LogDebug("success ~p~n", [full_map_1]),
+        % ?LogDebug("success ~p~n", [full_map_1]),
 
         FullMap13 = column_map_tables([Table1,Table3],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+6, length(FullMap13)),
-        ?LogDebug("success ~p~n", [full_map_13]),
+        % ?LogDebug("success ~p~n", [full_map_13]),
 
         FullMap123 = column_map_tables([Table1,Table2,Table3],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+8, length(FullMap123)),
-        ?LogDebug("success ~p~n", [full_map_123]),
+        % ?LogDebug("success ~p~n", [full_map_123]),
 
         AliasMap1 = column_map_tables([Alias1],imem_meta:meta_field_list(),[]),
-        ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
+        % ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
         ?assertEqual(MetaFieldCount+3, length(AliasMap1)),
-        ?LogDebug("success ~p~n", [alias_map_1]),
+        % ?LogDebug("success ~p~n", [alias_map_1]),
 
         AliasMap123 = column_map_tables([Alias1,Alias2,Table3],imem_meta:meta_field_list(),[]),    
         %% select from 
         %%            meta_table_1 as alias1        (a char, b1 char    , c1 char)
         %%          , imem.meta_table1 as alias2    (a char, b1 char    , c1 char)
         %%          , meta_table_3                  (a char, b3 integer , c1 char)
-        ?LogDebug("AliasMap123~n~p~n", [AliasMap123]),
+        % ?LogDebug("AliasMap123~n~p~n", [AliasMap123]),
         ?assertEqual(MetaFieldCount+9, length(AliasMap123)),
-        ?LogDebug("success ~p~n", [alias_map_123]),
+        % ?LogDebug("success ~p~n", [alias_map_123]),
 
         % ColsE1=     [ #bind{tag="A1", schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>}
         %             , #bind{tag="A2", name= <<"x">>}
@@ -1716,7 +1737,7 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown field or table name", <<"x">>}}, column_map_columns(ColsE1,FullMap1)),
-        ?LogDebug("success ~p~n", [unknown_column_name_1]),
+        % ?LogDebug("success ~p~n", [unknown_column_name_1]),
 
         % ColsE2=     [ #bind{tag="A1", schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>}
         %             , #bind{tag="A2", table= <<"meta_table_x">>, name= <<"b1">>}
@@ -1728,7 +1749,7 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown field or table name", <<"meta_table_x.b1">>}}, column_map_columns(ColsE2,FullMap1)),
-        ?LogDebug("success ~p~n", [unknown_column_name_2]),
+        % ?LogDebug("success ~p~n", [unknown_column_name_2]),
 
         % ColsF =     [ {as, <<"imem.meta_table_1.a">>, <<"a">>}
         %             , {as, <<"meta_table_1.b1">>, <<"b1">>}
@@ -1741,57 +1762,57 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Ambiguous field or table name", <<"a">>}}, column_map_columns([<<"a">>],FullMap13)),
-        ?LogDebug("success ~p~n", [columns_ambiguous_a]),
+        % ?LogDebug("success ~p~n", [columns_ambiguous_a]),
 
         ?assertException(throw, {ClEr,{"Ambiguous field or table name", <<"c1">>}}, column_map_columns(ColsA,FullMap13)),
-        ?LogDebug("success ~p~n", [columns_ambiguous_c1]),
+        % ?LogDebug("success ~p~n", [columns_ambiguous_c1]),
 
         ?assertEqual(3, length(column_map_columns(ColsA,FullMap1))),
-        ?LogDebug("success ~p~n", [columns_A]),
+        % ?LogDebug("success ~p~n", [columns_A]),
 
         ?assertEqual(6, length(column_map_columns([<<"*">>],FullMap13))),
-        ?LogDebug("success ~p~n", [columns_13_join]),
+        % ?LogDebug("success ~p~n", [columns_13_join]),
 
         Cmap3 = column_map_columns([<<"*">>], FullMap123),
         % ?LogDebug("ColMap3 ~p~n", [Cmap3]),        
         ?assertEqual(8, length(Cmap3)),
         ?assertEqual(lists:sort(Cmap3), Cmap3),
-        ?LogDebug("success ~p~n", [columns_123_join]),
+        % ?LogDebug("success ~p~n", [columns_123_join]),
 
 
-        ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
+        % ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
 
         Abind1 = column_map_columns([<<"*">>],AliasMap1),
-        ?LogDebug("AliasBind1~n~p~n", [Abind1]),        
+        % ?LogDebug("AliasBind1~n~p~n", [Abind1]),        
 
         Abind2 = column_map_columns([<<"alias1.*">>],AliasMap1),
-        ?LogDebug("AliasBind2~n~p~n", [Abind2]),        
+        % ?LogDebug("AliasBind2~n~p~n", [Abind2]),        
         ?assertEqual(Abind1, Abind2),
 
         Abind3 = column_map_columns([<<"imem.alias1.*">>],AliasMap1),
-        ?LogDebug("AliasBind3~n~p~n", [Abind3]),        
+        % ?LogDebug("AliasBind3~n~p~n", [Abind3]),        
         ?assertEqual(Abind1, Abind3),
 
         ?assertEqual(3, length(Abind1)),
-        ?LogDebug("success ~p~n", [alias_1]),
+        % ?LogDebug("success ~p~n", [alias_1]),
 
         ?assertEqual(9, length(column_map_columns([<<"*">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [alias_113_join]),
+        % ?LogDebug("success ~p~n", [alias_113_join]),
 
         ?assertEqual(3, length(column_map_columns([<<"meta_table_3.*">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [columns_113_star1]),
+        % ?LogDebug("success ~p~n", [columns_113_star1]),
 
         ?assertEqual(4, length(column_map_columns([<<"alias1.*">>,<<"meta_table_3.a">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [columns_alias_1]),
+        % ?LogDebug("success ~p~n", [columns_alias_1]),
 
         ?assertEqual(2, length(column_map_columns([<<"alias1.a">>,<<"alias2.a">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [columns_alias_2]),
+        % ?LogDebug("success ~p~n", [columns_alias_2]),
 
         ?assertEqual(2, length(column_map_columns([<<"alias1.a">>,<<"sysdate">>],AliasMap1))),
-        ?LogDebug("success ~p~n", [sysdate]),
+        % ?LogDebug("success ~p~n", [sysdate]),
 
         ?assertException(throw, {ClEr,{"Unknown field or table name",  <<"any.sysdate">>}}, column_map_columns([<<"alias1.a">>,<<"any.sysdate">>],AliasMap1)),
-        ?LogDebug("success ~p~n", [sysdate_reject]),
+        % ?LogDebug("success ~p~n", [sysdate_reject]),
 
         ColsFS =    [ #bind{tag="A", tind=1, cind=1, schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>, type=integer, alias= <<"a">>}
                     , #bind{tag="B", tind=1, cind=2, table= <<"meta_table_1">>, name= <<"b1">>, type=string, alias= <<"b1">>}
@@ -1815,7 +1836,7 @@ test_with_or_without_sec(IsSec) ->
         CB2a = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'22''2'">>]}},
         ?assertEqual({'and',{'and',CA1,CB2a},{wt}}, filter_spec_where({'and',[FA1,FB2a]}, ColsFS, {wt})),
 
-        ?LogDebug("success ~p~n", [filter_spec_where]),
+        % ?LogDebug("success ~p~n", [filter_spec_where]),
 
         ?assertEqual([], sort_spec_order([], ColsFS, ColsFS)),
         SA = {1,1,<<"desc">>},
@@ -1835,13 +1856,13 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([OC,OA], sort_spec_order([SC,OA], ColsFS, ColsFS)),
         ?assertEqual([OB,OC,OA], sort_spec_order([OB,OC,OA], ColsFS, ColsFS)),
 
-        ?LogDebug("success ~p~n", [sort_spec_order]),
+        % ?LogDebug("success ~p~n", [sort_spec_order]),
 
 
         ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
-        ?LogDebug("success ~p~n", [drop_tables]),
+        % ?LogDebug("success ~p~n", [drop_tables]),
 
         case IsSec of
             true -> ?imem_logout(anySKey);
