@@ -400,7 +400,7 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpt
      , columnCount := ColumnCount
      , columns := _Columns
      , header := _Header
-     , encoding := _Encoding
+     , encoding := Encoding
      , skip := Skip
      } = CsvOpts,
     LSL = byte_size(LineSeparator),
@@ -422,18 +422,18 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpt
                 <<>> when ColumnCount == 1 ->
                     fun(Line,{P,Recs}) ->
                         LineSize = byte_size(Line)+LSL,
-                        WithSizeFields = [P,LineSize,Line],
+                        WithSizeFields = [P,LineSize,change_encoding(Line, Encoding, utf8)],
                         {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME,File|WithSizeFields])|Recs]}
                     end;
                 <<>> when ColumnCount > 1 ->
                     fun(Line,{P,Recs}) ->
                         LineSize = byte_size(Line)+LSL,
-                        WithSizeFields = [P,LineSize,Line] ++ lists:duplicate(ColumnCount-1,<<>>),
+                        WithSizeFields = [P,LineSize,change_encoding(Line, Encoding, utf8)] ++ lists:duplicate(ColumnCount-1,<<>>),
                         {P + LineSize, [list_to_tuple([?CSV_RECORD_NAME,File|WithSizeFields])|Recs]}
                     end;
                 CS when is_binary(CS) ->
                     fun(Line,{P,Recs}) ->
-                        StrFields = binary:split(Line, [CS],[global]),
+                        StrFields = [change_encoding(L, Encoding, utf8) || L <- binary:split(Line, [CS],[global])],
                         LineSize = byte_size(Line)+LSL,
                         WithSizeFields = case length(StrFields) of
                             ColumnCount ->
@@ -491,6 +491,19 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpt
 
 continuation(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
     #{io=>Io, files=>Files, cms=>CMS, pos=>Pos, blockSize=>BlockSize, rowLimit=>RowLimit, rowsSkipped=>RowsSkipped, opts=>CsvOpts}.
+
+change_encoding(Data, From, From) ->
+    Data;
+change_encoding(Data, From, To) ->
+    case unicode:characters_to_binary(Data, From, To) of
+        {incomplete,Encoded, Rest} ->
+            Encoded ++ change_encoding(Rest, From, To);
+        {error, _, _} ->
+            ?Error("Error wile enoding from  ~p to ~p", [From, To]),
+            error("Error while changing encoding");
+        List ->
+            List
+    end.
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
