@@ -3,6 +3,14 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.0 (Release Date 07.12.2015)
+=======================================
+
+* CSV file read
+* Major backward incompatible DB schema changes
+* Lot of bug fixes
+
+
 Version 1.2.3 (Release Date 04.09.2013)
 =======================================
 
