@@ -3,12 +3,16 @@
 
 #include "erl_nif.h"
 
+#include "Windows.h"
+
 static ERL_NIF_TERM now(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     argc = argc; // for unused variable warning
 
-    printf("Print from NIF\n");
-    return enif_make_atom(env, "ok");
+    FILETIME tm;
+    GetSystemTimePreciseAsFileTime(&tm);
+
+    return enif_make_atom(env, "ok1");
 }
 
 int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM load_info)
