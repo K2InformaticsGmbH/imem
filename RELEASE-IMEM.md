@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.1 (Release Date 10.12.2015)
+=======================================
+
+* Added support for continuation to imem_index preview
+
+
 Version 1.4.0 (Release Date 07.12.2015)
 =======================================
 
