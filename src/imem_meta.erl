@@ -93,6 +93,7 @@
         , host_name/1
         , node_name/1
         , node_hash/1
+        , nodes/0
         , all_aliases/0
         , all_tables/0
         , tables_starting_with/1
@@ -1987,6 +1988,9 @@ node_name(Node) when is_atom(Node) ->
 node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
 
+nodes() ->
+    erlang:nodes().
+
 -spec trigger_infos(atom()|{atom(),atom()}) -> {TableType :: atom(), DefaultRecord :: tuple(), TriggerFun :: function()}.
 trigger_infos(Table) when is_atom(Table) ->
     trigger_infos({schema(),Table});
@@ -2241,7 +2245,7 @@ read({ddSysConf,_Table}) ->
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) ->
-    lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
+    lists:flatten([read(ddNode,Node) || Node <- [node()|erlang:nodes()]]);
 read(ddSnap) ->
     {bkp, BkpInfo} = imem_snap:info(bkp),
     {zip, ZipInfo} = imem_snap:info(zip),    
