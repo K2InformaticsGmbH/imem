@@ -770,7 +770,7 @@ set_login_time(SKey, AccountId) ->
                              [AccountDynRec] ->  AccountDynRec;
                              [] -> #ddAccountDyn{id = AccountId}
                          end,
-            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=os:timestamp()});
+            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=calendar:local_time()});
         false ->    ?SecurityException({"Set login time unauthorized",SKey})
     end.
 
