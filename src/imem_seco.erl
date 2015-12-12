@@ -9,6 +9,8 @@
 -define(REQUIRE_PWDMD5, <<"fun(Factors,NetCtx) -> [pwdmd5] -- Factors end">>).  % access | smsott | saml | pwdmd5
 -define(AUTH_SMS_TOKEN_RETRY_DELAY, 1000).
 -define(FULL_ACCESS, <<"fun(NetCtx) -> true end">>).
+-define(PASSWORD_LOCK_TIME, ?GET_CONFIG(passwordLockTime,[],900)).
+-define(PASSWORD_LOCK_COUNT, ?GET_CONFIG(passwordLockCount,[],5)).
 
 -behavior(gen_server).
 
@@ -448,6 +450,32 @@ have_permission(SKey, Permission) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     if_has_permission(SKey, AccountId, Permission).
 
+fail_or_clear_password_lock(#ddSeCo{skey=SKey} = SeCo, AccountId) ->
+    case if_read(SKey, ddAccountDyn, AccountId) of
+        [] ->          % create default for missing dynamic account record
+            if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId});
+        [#ddAccountDyn{lastFailureTime=undefined}] ->
+            ok;
+        [#ddAccountDyn{lastFailureTime=LastFailureTuple}=AD] ->
+            FailureCount = failure_count(LastFailureTuple),
+            {{FY,FM,FD},{FHr,FMin,FSec}} = failure_datetime(LastFailureTuple),
+            {{LY,LM,LD},{LHr,LMin,LSec}} = calendar:local_time(),
+            UnlockSecs = 86400*(366*FY + 31*FM + FD) + 3600*FHr + 60*FMin + FSec + ?PASSWORD_LOCK_TIME,
+            EffectiveSecs = 86400*(366*LY + 31*LM + LD) + 3600*LHr + 60*LMin + LSec,  % no need for monotony
+            PLC = ?PASSWORD_LOCK_COUNT,
+            if 
+                EffectiveSecs > UnlockSecs ->
+                    %% clear the password lock because user waited long enough
+                    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=undefined});
+                FailureCount > PLC ->
+                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
+                    authenticate_fail(SeCo, "Your account is temporarily locked. Try again in a few minutes.", true);
+                true ->
+                    %% user has not used up his password attempts, grant one more
+                    ok
+            end
+    end.
+
 -spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | no_return(). 
 authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication, deprecated
     #ddSeCo{skey=SKey} = SeCo = seco_create(imem, SessionId), 
@@ -455,15 +483,14 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
         {[#ddAccount{locked='true'}],true} ->
             authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
         {[#ddAccount{id=AccountId} = Account],true} ->
-            LocalTime = calendar:local_time(),
             case if_read(SKey, ddAccountDyn, AccountId) of
-                [] ->   
+                [] ->                                               % create missing dynamic account record
                     AD = #ddAccountDyn{id=AccountId},
-                    if_write(SKey, ddAccountDyn, AD);   % create missing dynamic account record
-                [#ddAccountDyn{lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
-                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
-                _ -> ok 
+                    if_write(SKey, ddAccountDyn, AD);               
+                [#ddAccountDyn{lastFailureTime=undefined}] ->       % never had a failure before
+                    ok;
+                [AD] ->
+                    fail_or_clear_password_lock(SeCo, AD)
             end,
             ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             seco_register(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5]}, authenticated);     % return SKey only
@@ -528,13 +555,7 @@ auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
         {[#ddAccount{locked='true'}],true} ->
             authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
         {[#ddAccount{id=AccountId1} = Account],true} when AccountId0==AccountId1; AccountId0==undefined ->
-            LocalTime = calendar:local_time(),
-            case if_read(SKey, ddAccountDyn, AccountId1) of
-                [#ddAccountDyn{lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
-                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
-                _ -> ok
-            end,
+            ok = fail_or_clear_password_lock(SeCo, AccountId1),
             ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             auth_step_succeed(SeCo#ddSeCo{accountName=Name, accountId=AccountId1, authFactors=[pwdmd5|AFs]});
         {[#ddAccount{}],true} -> 
@@ -651,16 +672,23 @@ normalized_msisdn(B0) ->
         Rest3 ->               <<$+,Rest3/binary>>
     end.
 
+failure_count(undefined) -> 0;
+failure_count({{_,_,_},{_,_,SF}}) -> SF rem 10. % Failure count is packed into last second digit of a datetime tuple
+
+failure_datetime(undefined) -> undefined;
+failure_datetime({{Y,M,D},{Hr,Mi,Ss}}) -> {{Y,M,D},{Hr,Mi,Ss div 10}}.
+
+failure_tuple({{Y,M,D},{Hr,Mi,Ss}},undefined) -> {{Y,M,D},{Hr,Mi,(Ss div 10) + 1}};      % first failure (last digit in seconds)
+failure_tuple({{Y,M,D},{Hr,Mi,Ss}},{{_,_,_},{_,_,SF}}) -> {{Y,M,D},{Hr,Mi, 10 * (Ss div 10) + (SF+1) rem 10}}.    % next failure
+
 check_re_hash(#ddSeCo{skey=SKey}=SeCo, #ddAccount{id=AccountId}=_Account, _OldToken, _NewToken, Unregister, []) ->
     % no more credential types to check, credential check failed
     LocalTime = calendar:local_time(),
     case if_read(SKey, ddAccountDyn, AccountId) of
         [] ->                                           % create missing dynamic account record   
-            if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId,lastFailureTime=LocalTime});
-        [#ddAccountDyn{lastFailureTime=LocalTime}] ->   % last error time already remembered 
-            ok;
-        [#ddAccountDyn{}=AD] ->                         % update last error time
-            if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime})
+            if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId,lastFailureTime=failure_tuple(LocalTime,undefined)});
+        [#ddAccountDyn{lastFailureTime=LFT}=AD] ->                         % update last error time
+            if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=failure_tuple(LocalTime,LFT)})
     end,    
     authenticate_fail(SeCo, "Invalid account credentials. Please retry", Unregister);
 check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, [pwdmd5|Types]) ->
