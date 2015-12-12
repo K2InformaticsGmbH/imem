@@ -676,9 +676,9 @@ failure_count(undefined) -> 0;
 failure_count({{_,_,_},{_,_,SF}}) -> SF rem 10. % Failure count is packed into last second digit of a datetime tuple
 
 failure_datetime(undefined) -> undefined;
-failure_datetime({{Y,M,D},{Hr,Mi,Ss}}) -> {{Y,M,D},{Hr,Mi,Ss div 10}}.
+failure_datetime({{Y,M,D},{Hr,Mi,Ss}}) -> {{Y,M,D},{Hr,Mi,10*(Ss div 10)}}.
 
-failure_tuple({{Y,M,D},{Hr,Mi,Ss}},undefined) -> {{Y,M,D},{Hr,Mi,(Ss div 10) + 1}};      % first failure (last digit in seconds)
+failure_tuple({{Y,M,D},{Hr,Mi,Ss}},undefined) -> {{Y,M,D},{Hr,Mi,10*(Ss div 10) + 1}};      % first failure (last digit in seconds)
 failure_tuple({{Y,M,D},{Hr,Mi,Ss}},{{_,_,_},{_,_,SF}}) -> {{Y,M,D},{Hr,Mi, 10 * (Ss div 10) + (SF+1) rem 10}}.    % next failure
 
 check_re_hash(#ddSeCo{skey=SKey}=SeCo, #ddAccount{id=AccountId}=_Account, _OldToken, _NewToken, Unregister, []) ->
