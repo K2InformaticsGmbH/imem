@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.2 (Release Date 12.12.2015)
+=======================================
+
+* adding temporary lock to authentication
+* fix modulo calculation in failure tuple
+
 Version 1.4.1 (Release Date 10.12.2015)
 =======================================
 
