@@ -1989,7 +1989,14 @@ node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
 
 nodes() ->
-    erlang:nodes().
+    lists:filter(
+      fun(Node) ->
+              case rpc:call(Node, erlang, system_info, [version], 1000) of
+                  {badrpc, _} -> false;
+                  _ -> true
+              end
+      end, erlang:nodes()).
+
 
 -spec trigger_infos(atom()|{atom(),atom()}) -> {TableType :: atom(), DefaultRecord :: tuple(), TriggerFun :: function()}.
 trigger_infos(Table) when is_atom(Table) ->

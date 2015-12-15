@@ -241,8 +241,12 @@ schema() ->
 
 schema(Node) ->
     %% schema identifier of remote imem node in the same erlang cluster
-    [Schema|_] = re:split(filename:basename(rpc:call(Node, mnesia, system_info, [directory])), "[.]", [{return, list}]),
-    list_to_atom(Schema).
+    case rpc:call(Node, mnesia, system_info, [directory], 1000) of
+        {badrpc, _} = Error -> Error;
+        MnesiaDirectory ->
+            [Schema|_] = re:split(filename:basename(MnesiaDirectory), "[.]", [{return, list}]),
+            list_to_atom(Schema)
+    end.
 
 system_id() ->
     lists:flatten(atom_to_list(schema()) ++ "@",atom_to_list(node())).
@@ -251,7 +255,15 @@ add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
-data_nodes() -> [{schema(N),N} || N <- mnesia:system_info(running_db_nodes)].
+data_nodes() ->
+    data_nodes(mnesia:system_info(running_db_nodes), []).
+data_nodes([], Acc) -> lists:reverse(Acc);
+data_nodes([Node|Nodes], Acc) ->
+    case schema(Node) of
+        {badrpc, _} -> data_nodes(Nodes, Acc);
+        Schema ->
+            data_nodes(Nodes, [{Schema, Node} | Acc])
+    end.
 
 all_tables() ->
     lists:delete(schema, mnesia:system_info(tables)).
