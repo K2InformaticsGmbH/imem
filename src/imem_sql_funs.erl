@@ -13,6 +13,7 @@
             , json_to_list, json_arr_proj, json_obj_proj, json_value
             , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
+            , mfa
             ]).
 
 -export([ filter_funs/0
@@ -25,6 +26,10 @@
         , binary_fun_bind_type1/1
         , binary_fun_bind_type2/1
         , binary_fun_result_type/1
+        , ternary_fun_bind_type1/1
+        , ternary_fun_bind_type2/1
+        , ternary_fun_bind_type3/1
+        , ternary_fun_result_type/1
         , ternary_not/1
         , ternary_and/2
         , ternary_or/2
@@ -195,6 +200,21 @@ binary_fun_result_type("json_arr_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_value") ->         #bind{type=json,default=[]};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
+
+
+ternary_fun_bind_type1(B) when is_binary(B) ->  ternary_fun_bind_type1(binary_to_list(B));
+ternary_fun_bind_type1("mfa") ->                #bind{type=atom,default=?nav};
+ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
+
+ternary_fun_bind_type2(B) when is_binary(B) ->  ternary_fun_bind_type2(binary_to_list(B));
+ternary_fun_bind_type2("mfa") ->                #bind{type=atom,default=?nav};
+ternary_fun_bind_type2(_) ->                    #bind{type=term,default=?nav}.
+
+ternary_fun_bind_type3(B) when is_binary(B) ->  ternary_fun_bind_type3(binary_to_list(B));
+ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
+
+ternary_fun_result_type(B) when is_binary(B) -> ternary_fun_result_type(binary_to_list(B));
+ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
 
 re_compile(?nav) -> ?nav;
 re_compile(S) when is_list(S);is_binary(S) ->
@@ -380,7 +400,7 @@ expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_valu
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
 %% Ternary custom filters
-expr_fun({Op, A, B, C}) when Op=='remap' ->
+expr_fun({Op, A, B, C}) when Op=='remap';Op=='mfa' ->
     ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
@@ -941,7 +961,7 @@ ternary_fun({Op, A, B, C}) ->
     ternary_fun_final( {Op, FA, FB, FC});
 ternary_fun(Value) -> Value.
 
-ternary_fun_final({Op, A, B, C}) when Op=='remap' ->
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa' ->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;

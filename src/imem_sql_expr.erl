@@ -901,6 +901,26 @@ expr({'fun',Fname,[A,B]}, FullMap, _) ->
     catch
         _:_ -> ?UnimplementedException({"Unsupported binary sql function", Fname})
     end;
+expr({'fun',Fname,[A,B,C]}, FullMap, _) -> 
+    CMapA = case imem_sql_funs:ternary_fun_bind_type1(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
+        BA ->           expr(A,FullMap,BA)
+    end,
+    CMapB = case imem_sql_funs:ternary_fun_bind_type2(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
+        BB ->           expr(B,FullMap,BB)
+    end,
+    CMapC = case imem_sql_funs:ternary_fun_bind_type3(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
+        CC ->           expr(C,FullMap,CC)
+    end,
+    try 
+        Func = binary_to_existing_atom(Fname,utf8),
+        #bind{type=Type} = imem_sql_funs:ternary_fun_result_type(Fname),
+        #bind{type=Type,btree={Func,CMapA,CMapB,CMapC}}
+    catch
+        _:_ -> ?UnimplementedException({"Unsupported ternary sql function", Fname})
+    end;
 expr({'#',<<"keys">>,A}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
     #bind{type=json,btree={'#keys',CMapA}};
