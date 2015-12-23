@@ -89,6 +89,7 @@
         , json_arr_proj/2
         , json_obj_proj/2
         , json_value/2
+        , mfa/3
         ]).
 
 
@@ -1002,6 +1003,9 @@ remap(Val,From,To) ->
         Val == From ->  To;
         true ->         Val
     end.
+
+mfa(Module,Function,Args) ->  apply(Module,Function,Args). 
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
