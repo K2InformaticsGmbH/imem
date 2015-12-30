@@ -635,14 +635,14 @@ column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
             end,
             imem_meta:column_infos({S,T});
         _ ->    
-            case Ti of
-                ?MainIdx ->      
-                    case imem_meta:is_virtual_table(?binary_to_atom(T)) of
-                        true ->     ?ClientError({"Virtual table can only be joined", T});
-                        false ->    ok
-                    end;
-                _ -> ok
-            end,
+            % case Ti of
+            %     ?MainIdx ->      
+            %         case imem_meta:is_virtual_table(?binary_to_atom(T)) of
+            %             true ->     ?ClientError({"Virtual table can only be joined", T});
+            %             false ->    ok
+            %         end;
+            %     _ -> ok
+            % end,
             imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}) %% ToDo: avoid if possible
     end,
     Binds = [ #bind{schema=S,table=T,alias=A,tind=Ti,cind=Ci

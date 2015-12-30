@@ -168,6 +168,22 @@ db1_with_or_without_sec(IsSec) ->
 
         ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
 
+        exec_fetch_sort_equal(SKey, query3k, 100, IsSec, "
+            select item 
+            from integer 
+            where item >=1 and item <= 3"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
+        % exec_fetch_sort_equal(SKey, query3l, 100, IsSec, "
+        %     select item 
+        %     from integer 
+        %     where is_member(item, to_list('[1,2,3]'))"
+        %     ,
+        %     [{<<"1">>},{<<"2">>},{<<"3">>}]
+        % ),
+
         CsvFileName = <<"CsvTestFileName123abc.txt">>,
         file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
  
@@ -1241,6 +1257,7 @@ db2_with_or_without_sec(IsSec) ->
         R1c = exec_fetch_sort(SKey, query1c, 100, IsSec, "
             select systimestamp from dual"
         ),
+        % ?LogDebug("systimestamp ~p",[element(1,hd(R1c))]),
         ?assertEqual(26, size(element(1,hd(R1c)))),
 
         R1d = exec_fetch_sort(SKey, query1d, 100, IsSec, "
@@ -1363,12 +1380,17 @@ db2_with_or_without_sec(IsSec) ->
 
     %% joins with virtual (datatype) tables
 
-        ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"integer">>}}, 
+        % ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"integer">>}}, 
+        ?assertException(throw,{ClEr,{"Table does not exist",integer}},
             exec_fetch_sort(SKey, query3a1, 100, IsSec, "select item from integer")
         ),
 
-        ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"ddSize">>}}, 
-            exec_fetch_sort(SKey, query3a2, 100, IsSec, "select name from ddSize")
+        %?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"ddSize">>}}, 
+        exec_fetch_sort_equal(SKey, query3a2, 100, IsSec, "
+            select name from ddSize where name like 'ddAcc%'"
+        ,   [{<<"ddAccount">>}
+            ,{<<"ddAccountDyn">>}
+            ]
         ),
 
         R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, "

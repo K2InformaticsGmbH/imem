@@ -21,6 +21,7 @@
 -define(META_TABLES,[?CACHE_TABLE,?LOG_TABLE,?MONITOR_TABLE,?CONFIG_TABLE,dual,ddNode,ddSnap,ddSchema,ddSize,ddAlias,ddTable]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
+-define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit,[],1000)).
 
 -define(CONFIG_TABLE_OPTS,  [{record_name,ddConfig}
                             ,{type,ordered_set}
@@ -190,7 +191,7 @@
         , read/2                %% read by key
         , read_hlk/2            %% read using hierarchical list key
         , select/2              %% select without limit, only use for small result sets
-        , select_virtual/2      %% select virtual table without limit, only use for small result sets
+        , select_virtual/3      %% select virtual table without limit, only use for small result sets
         , select/3              %% select with limit
         , select_sort/2
         , select_sort/3
@@ -2221,19 +2222,15 @@ fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts)
     imem_if_csv:fetch_start(Pid, {S,FileName}, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
-fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddNode, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, ddSnap, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddSnap, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, ddSchema, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddSchema, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer -> 
+    fetch_start_virtual(Pid, Tab, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
 fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
-    {Rows,true} = select(VTable, MatchSpec),
+    Limit = ?VIRTUAL_TABLE_ROW_LIMIT,
+    {Rows,true} = select(VTable, MatchSpec, Limit),
     spawn(
         fun() ->
             receive
@@ -2386,14 +2383,6 @@ select({ddSysConf,Table}, _MatchSpec) ->
     ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
-select(ddNode, MatchSpec) ->
-    select_virtual(ddNode, MatchSpec);
-select(ddSnap, MatchSpec) ->
-    select_virtual(ddSnap, MatchSpec);
-select(ddSchema, MatchSpec) ->
-    select_virtual(ddSchema, MatchSpec);
-select(ddSize, MatchSpec) ->
-    select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec).
 
@@ -2404,24 +2393,30 @@ select({ddSysConf,Table}, _MatchSpec, _Limit) ->
     ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
-select(ddNode, MatchSpec, _Limit) ->
-    select_virtual(ddNode, MatchSpec);
-select(ddSnap, MatchSpec, _Limit) ->
-    select_virtual(ddSnap, MatchSpec);
-select(ddSchema, MatchSpec, _Limit) ->
-    select_virtual(ddSchema, MatchSpec);
-select(ddSize, MatchSpec, _Limit) ->
-    select_virtual(ddSize, MatchSpec);
+select(Tab, MatchSpec, Limit) when
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer ->
+    select_virtual(Tab, MatchSpec,Limit);
 select(Table, MatchSpec, Limit) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec, Limit).
 
-select_virtual(_Table, [{_,[false],['$_']}]) ->
+select_integer_range(Min,Max,Limit) ->
+    {[{integer,I} || I <- lists:seq(Min,erlang:min(Max,Min+Limit-1))],true}.
+
+select_virtual(_Table, [{_,[false],['$_']}],_Limit) ->
     {[],true};
-select_virtual(Table, [{_,[true],['$_']}]) ->
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>=','$22',Min},{'=<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min,Max,Limit);
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>','$22',Min},{'=<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min+1,Max,Limit);
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>=','$22',Min},{'<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min,Max-1,Limit);
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>','$22',Min},{'<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min+1,Max-1,Limit);
+select_virtual(Table, [{_,[true],['$_']}],_Limit) ->
     {read(Table),true};                 %% used in select * from virtual_table
-select_virtual(Table, [{_,[],['$_']}]) ->
+select_virtual(Table, [{_,[],['$_']}],_Limit) ->
     {read(Table),true};                 %% used in select * from virtual_table
-select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
+select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec,_Limit) ->
     Tag = element(2,MatchHead),
     % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case operand_match(Tag,Guard) of
@@ -3338,7 +3333,7 @@ meta_operations(_) ->
 
         Schema0 = [{ddSchema,{schema(),node()},[]}],
         ?assertEqual(Schema0, read(ddSchema)),
-        ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords)),
+        ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords,1000)),
 
         ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
         ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
