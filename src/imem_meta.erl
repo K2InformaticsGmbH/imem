@@ -236,6 +236,7 @@
         ]).
 
 -export([ fetch_start/5
+        , fetch_start_virtual/6
         , update_tables/2
         , update_index/6            %% (Old,New,Tab,User,TrOpts,IdxDef)   
         , fill_index/2              %% (Table,IndexDefinition)
@@ -2125,7 +2126,11 @@ table_record_name(ddNode)  ->                   ddNode;
 table_record_name(ddSnap)  ->                   ddSnap;
 table_record_name(ddSchema)  ->                 ddSchema;
 table_record_name(ddSize)  ->                   ddSize;
-table_record_name(Table) when is_atom(Table) -> imem_if_mnesia:table_record_name(physical_table_name(Table)).
+table_record_name(Table) when is_atom(Table) ->
+    case is_virtual_table(Table) of
+        true ->     Table; 
+        false ->    imem_if_mnesia:table_record_name(physical_table_name(Table))
+    end.
 
 table_columns({ddSysConf,Table}) ->             imem_if_sys_conf:table_columns(Table);
 table_columns({_Schema,Table}) ->               table_columns(Table);       %% ToDo: may depend on schema
@@ -2223,13 +2228,15 @@ fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts)
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer -> 
-    fetch_start_virtual(Pid, Tab, MatchSpec, BlockSize, Opts);
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize -> 
+    fetch_start_calculated(Pid, Tab, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
-fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
+fetch_start_calculated(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
     Limit = ?VIRTUAL_TABLE_ROW_LIMIT,
+    ?LogDebug("fetch_start_calculated matchspec ~n~p",[MatchSpec]),
+    % ?LogDebug("fetch_start_calculated limit ~n~p",[Limit]),
     {Rows,true} = select(VTable, MatchSpec, Limit),
     spawn(
         fun() ->
@@ -2239,6 +2246,19 @@ fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
             end
         end
     ).
+
+fetch_start_virtual(Pid, _Table, Rows, _BlockSize, _Limit, _Opts) ->
+    % ?LogDebug("fetch_start_virtual table rows ~p:~n~p",[Table, Rows]),
+    % ?LogDebug("fetch_start_virtual limit = ~p",[_Limit]),
+    spawn(
+        fun() ->
+            receive
+                abort ->    ok;
+                next ->     Pid ! {row, [?sot,?eot|Rows]}
+            end
+        end
+    ).
+
 
 close(Pid) ->
     imem_statement:close(none, Pid).

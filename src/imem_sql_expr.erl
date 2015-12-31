@@ -88,8 +88,8 @@ bind_scan(Ti,X,ScanSpec0) ->
 -spec bind_virtual(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_virtual(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
@@ -142,6 +142,9 @@ rownum_match({_,L,R}) ->                case rownum_match(L) of
                                         end;    
 rownum_match(_) ->                      false.
 
+%% Does expression tree contain operators which can generate data?
+uses_generator(STree) -> uses_operator('is_member',STree).
+
 %% Does expression tree contain given operator Op?
 uses_operator(_, {const,_}) ->              false;
 uses_operator(Op,#bind{tind=0,cind=0,btree=BTree}) ->   uses_operator(Op,BTree);
@@ -165,7 +168,6 @@ uses_operand(V,{_,A,B}) ->          uses_operand(V,A) orelse uses_operand(V,B);
 uses_operand(V,{_,A,B,C}) ->        uses_operand(V,A) orelse uses_operand(V,B) orelse uses_operand(V,C);
 uses_operand(V,{_,A,B,C,D}) ->      uses_operand(V,A) orelse uses_operand(V,B) orelse uses_operand(V,C) orelse uses_operand(V,D);
 uses_operand(_,_) ->                false.
-
 
 %% Does guard contain any of the filter operators?
 %% ToDo: bad tuple tolerance for element/2 (add element to function category?)
@@ -445,8 +447,8 @@ scan_spec(Ti,STree0,FullMap) ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     % ?LogDebug("STree0 (~p)~n~p~n", [Ti,to_guard(STree0)]),
-    case {uses_bind(Ti-1,STree0),uses_filter(STree0)} of
-        {false,true} ->     
+    case {uses_generator(STree0),uses_bind(Ti-1,STree0),uses_filter(STree0)} of
+        {false,false,true} ->     
             %% we can do the split upfront here and pre-calculate SSpec, TailSpec and FilterFun
             {STree1,FTree} = split_filter_from_guard(STree0),
             % ?LogDebug("STree1 after split (~p)~n~p~n", [Ti,to_guard(STree1)]),
@@ -455,16 +457,20 @@ scan_spec(Ti,STree0,FullMap) ->
             TailSpec = if Ti==?MainIdx -> ets:match_spec_compile(SSpec); true -> true end,
             FilterFun = imem_sql_funs:filter_fun(FTree),  %% TODO: Use bind tree and implicit binding
             #scanSpec{sspec=SSpec,stree=true,tailSpec=TailSpec,ftree=true,filterFun=FilterFun,limit=Limit}; 
-        {true,true} ->     
+        {true,false,true} ->     
+            %% we need a generator function, depending on meta binds at fetch time, cannot precalculate 
+            SSpec = [{MatchHead, [undefined], ['$_']}],       %% will be split and reworked at fetch time
+            #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit}; 
+        {_,true,true} ->     
             %% we may  need a filter function, depending on meta binds at fetch time
             SSpec = [{MatchHead, [undefined], ['$_']}],       %% will be split and reworked at fetch time
             #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit}; 
-        {false,false} ->
+        {_,false,false} ->
             %% we don't need filters and pre-calculate SSpec, TailSpec and FilterFun
             SSpec = [{MatchHead, [to_guard(STree0)], ['$_']}],
             TailSpec = if Ti==?MainIdx -> ets:match_spec_compile(SSpec); true -> true end,
             #scanSpec{sspec=SSpec,stree=true,tailSpec=TailSpec,ftree=true,filterFun=true,limit=Limit};
-        {true,false} ->
+        {_,true,false} ->
             %% we cannot bind upfront but we know to get away without filters after bind
             SSpec = [{MatchHead, [undefined], ['$_']}],
             #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=true,filterFun=true,limit=Limit}

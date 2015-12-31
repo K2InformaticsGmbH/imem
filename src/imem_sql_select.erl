@@ -43,12 +43,12 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     end,
     % ?Info("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
-    % ?Info("MainSpec:~n~p~n", [MainSpec]),
+    % ?LogDebug("MainSpec:~n~p", [MainSpec]),
     JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
     % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
-    % ?Info("ColMap1:~n~p~n", [ColMap1]),
+    % ?LogDebug("ColMap1:~n~p", [ColMap1]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap1);
         str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
@@ -122,7 +122,6 @@ db1_without_sec(_) ->
 db1_with_sec(_) ->
     db1_with_or_without_sec(true).
 
-
 db2_test_() ->
     {
         setup,
@@ -168,21 +167,14 @@ db1_with_or_without_sec(IsSec) ->
 
         ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
 
-        exec_fetch_sort_equal(SKey, query3k, 100, IsSec, "
-            select item 
-            from integer 
-            where item >=1 and item <= 3"
-            ,
-            [{<<"1">>},{<<"2">>},{<<"3">>}]
-        ),
-
-        % exec_fetch_sort_equal(SKey, query3l, 100, IsSec, "
+        % exec_fetch_sort_equal(SKey, query3p, 100, IsSec, "
         %     select item 
         %     from integer 
         %     where is_member(item, to_list('[1,2,3]'))"
         %     ,
         %     [{<<"1">>},{<<"2">>},{<<"3">>}]
         % ),
+
 
         CsvFileName = <<"CsvTestFileName123abc.txt">>,
         file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
@@ -684,6 +676,69 @@ db1_with_or_without_sec(IsSec) ->
             where element(2,col5) = to_atom('nonode@anotherhost')"
             ,
             []
+        ),
+
+        exec_fetch_sort_equal(SKey, query3k, 100, IsSec, "
+            select item 
+            from integer 
+            where item >=1 and item <= 3"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3l, 100, IsSec, "
+            select first.item, second.item, first.item * second.item as product 
+            from integer first, integer second
+            where first.item >=1 and first.item <= 3 
+            and second.item > 4 and second.item < 7" 
+            ,
+            [{<<"1">>,<<"5">>,<<"5">>}
+            ,{<<"1">>,<<"6">>,<<"6">>}
+            ,{<<"2">>,<<"5">>,<<"10">>}
+            ,{<<"2">>,<<"6">>,<<"12">>}
+            ,{<<"3">>,<<"5">>,<<"15">>}
+            ,{<<"3">>,<<"6">>,<<"18">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3m, 100, IsSec, "
+            select first.item, second.item, first.item * second.item as product 
+            from integer first, integer second
+            where first.item >=1 and first.item <= 3 
+            and second.item > first.item and second.item < 5" 
+            ,
+            [{<<"1">>,<<"2">>,<<"2">>}
+            ,{<<"1">>,<<"3">>,<<"3">>}
+            ,{<<"1">>,<<"4">>,<<"4">>}
+            ,{<<"2">>,<<"3">>,<<"6">>}
+            ,{<<"2">>,<<"4">>,<<"8">>}
+            ,{<<"3">>,<<"4">>,<<"12">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3n, 100, IsSec, "
+            select item 
+            from dual,integer 
+            where is_member(item, to_list('[1,2,3]'))"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3o, 100, IsSec, "
+            select item 
+            from integer 
+            where is_member(item, to_list('[1,2,3]'))"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3p, 100, IsSec, "
+            select item 
+            from dual,atom 
+            where is_member(item, mfa('imem_sql_funs','filter_funs','[]'))
+            and item like 'list%'"
+            ,
+            [{<<"list">>},{<<"list_to_tuple">>}]
         ),
 
         %% self joins 
@@ -1381,16 +1436,12 @@ db2_with_or_without_sec(IsSec) ->
     %% joins with virtual (datatype) tables
 
         % ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"integer">>}}, 
-        ?assertException(throw,{ClEr,{"Table does not exist",integer}},
+        ?assertException(throw,{ClEr,{"Invalid virtual filter guard",true}},
             exec_fetch_sort(SKey, query3a1, 100, IsSec, "select item from integer")
         ),
 
-        %?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"ddSize">>}}, 
-        exec_fetch_sort_equal(SKey, query3a2, 100, IsSec, "
-            select name from ddSize where name like 'ddAcc%'"
-        ,   [{<<"ddAccount">>}
-            ,{<<"ddAccountDyn">>}
-            ]
+        ?assertException(throw,{ClEr,{"Invalid virtual filter guard",true}}, 
+            exec_fetch_sort(SKey, query3a2, 100, IsSec, "select name from ddSize where name like 'ddAcc%'")
         ),
 
         R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, "

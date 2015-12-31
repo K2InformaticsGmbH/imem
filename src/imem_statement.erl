@@ -104,10 +104,10 @@ fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
                 ?Debug("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?ClientError(Reason);            
-            {_, {Pid,{error, {'ClientError', Reason}}}} ->
-                ?Debug("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
+            {_, {Pid,{error, {'UnimplementedException', Reason}}}} ->
+                ?Debug("fetch_recs exception ~p ~p~n", ['UnimplementedException', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
-                ?ClientError(Reason);
+                ?UnimplementedException(Reason);
             Error ->
                 ?Debug("fetch_recs bad async receive~n~p~n", [Error]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
@@ -314,31 +314,15 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % ?LogDebug("fetch_recs_async called with Stmt~n~p~n", [Stmt]),
     #statement{tables=[Table|JTabs], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
-    Params1 = case lists:keyfind(params, 1, Opts) of
-        false ->    Params0;    %% from statement exec, only used on first fetch
-        {_, P} ->   P           %% from fetch_recs, only used on first fetch
-    end,
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
-        {true,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
-            RowNum = case MetaFields of
-                [<<"rownum">>|_] -> 1;
-                _ ->                undefined
-            end, 
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
-            % ?LogDebug("Meta Rec: ~p~n", [MR]),
-            % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
-            {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
-            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
-            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
+        {Skip,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
+            Params1 = case lists:keyfind(params, 1, Opts) of
+                false ->    Params0;    %% from statement exec, only used on first fetch
+                {_, P} ->   P           %% from fetch_recs, only used on first fetch
+            end,
             RecName = try imem_meta:table_record_name(Table)
-                      catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
-                      end,
-            FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
-                                 ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
-                                 ,opts=Opts,tailSpec=TailSpec
-                                 ,filter=FilterFun,recName=RecName},
-            handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkip}); 
-        {false,undefined} ->     %% {SkipFetch, Pid} = {false, uninitialized} -> initialize fetch
+                catch {'ClientError', {"Table does not exist", _}} -> undefined
+            end,
             RowNum = case MetaFields of
                 [<<"rownum">>|_] -> 1;
                 _ ->                undefined
@@ -346,40 +330,64 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
-            {SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
-            % ?LogDebug("Scan Spec after meta bind:~n~p~n", [SSpec]),
-            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
-            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-            try 
-                get_select_permissions(IsSec,SKey, [Table|JTabs]),
-                % ?LogDebug("Select permission granted for : ~p", [Table]),
-                case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
-                    TransPid when is_pid(TransPid) ->
-                        MonitorRef = erlang:monitor(process, TransPid),
-                        TransPid ! next,
-                        % ?LogDebug("fetch opts ~p~n", [Opts]),
-                        RecName = try imem_meta:table_record_name(Table)
-                                  catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
-                                  end,
-                        FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
-                                              ,metarec=MR,blockSize=BlockSize
-                                              ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
-                                              ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
-                                              ,recName=RecName},
-                        {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
-                    Error ->
-                        send_reply_to_client(Sock, {error, {"Cannot spawn async fetch process", Error}}),
-                        FetchAborted1 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
-                        {noreply, State#state{reply=Sock,fetchCtx=FetchAborted1}}
-                end
-            catch
-                _:Err ->
-                    send_reply_to_client(Sock, {error, Err}),
-                    FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
-                    {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
+            case Skip of
+                true ->
+                    {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+                    % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
+                    % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
+                    FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
+                                         ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
+                                         ,opts=Opts,tailSpec=TailSpec
+                                         ,filter=FilterFun,recName=RecName},
+                    handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkip}); 
+                false ->
+                    try 
+                        {TailSpec,FilterFun,FetchStartResult} = case imem_meta:is_virtual_table(Table) of 
+                            false ->    
+                                {SS,TS,FF} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+                                % ?LogDebug("Scan Spec after meta bind:~n~p", [SS]),
+                                % ?LogDebug("Tail Spec after meta bind:~n~p", [TailSpec]),
+                                % ?LogDebug("Filter Fun after meta bind:~n~p", [FilterFun]),
+                                {TS,FF,if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SS, BlockSize, Opts])};
+                            true ->     
+                                {[{_,[SGuard],_}],TS,FF} = imem_sql_expr:bind_virtual(?MainIdx,{MR},MainSpec),
+                                % ?LogDebug("Virtual Scan SGuard after meta bind:~n~p", [SGuard]),
+                                % ?LogDebug("Virtual Tail Spec after meta bind:~n~p", [TailSpec]),
+                                % ?LogDebug("Virtual Filter Fun after meta bind:~n~p", [FilterFun]),
+                                Rows = [{RecName,I,K} ||{I,K} <- generate_virtual_data(RecName,{MR},SGuard,RowNum)],
+                                % ?LogDebug("Generated virtual scan data ~p~n~p", [Table,Virt]),
+                                {TS,FF,if_call_mfa(IsSec, fetch_start_virtual, [SKey, self(), Table, Rows, BlockSize, RowNum, Opts])}
+                        end,
+                        get_select_permissions(IsSec,SKey, [Table|JTabs]),
+                        % ?LogDebug("Select permission granted for : ~p", [Table]),
+                        case FetchStartResult of
+                            TransPid when is_pid(TransPid) ->
+                                MonitorRef = erlang:monitor(process, TransPid),
+                                TransPid ! next,
+                                % ?LogDebug("fetch opts ~p~n", [Opts]),
+                                RecName = try imem_meta:table_record_name(Table)
+                                          catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
+                                          end,
+                                FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
+                                                      ,metarec=MR,blockSize=BlockSize
+                                                      ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
+                                                      ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
+                                                      ,recName=RecName},
+                                {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
+                            Error ->
+                                send_reply_to_client(Sock, {error, {"Cannot spawn async fetch process", Error}}),
+                                FetchAborted1 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                                {noreply, State#state{reply=Sock,fetchCtx=FetchAborted1}}
+                        end
+                    catch
+                        _:Err ->
+                            send_reply_to_client(Sock, {error, Err}),
+                            FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                            {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
+                    end
             end;
         {true,_Pid} ->          %% skip ongoing fetch (and possibly go to tail_mode)
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -388,7 +396,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -671,9 +679,14 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 get_select_permissions(false, _, _) -> true;
 get_select_permissions(true, _, []) -> true;
 get_select_permissions(true, SKey, [Table|JTabs]) ->
-    case imem_sec:have_table_permission(SKey, Table, select) of
-        false ->   ?SecurityException({"Select unauthorized", {Table,SKey}});
-        true ->    get_select_permissions(true, SKey, JTabs)
+    case imem_meta:is_virtual_table(Table) of
+        true ->     
+            get_select_permissions(true, SKey, JTabs);
+        false ->
+            case imem_sec:have_table_permission(SKey, Table, select) of
+                false ->   ?SecurityException({"Select unauthorized", {Table,SKey}});
+                true ->    get_select_permissions(true, SKey, JTabs)
+        end
     end.
 
 unsubscribe(Stmt) ->
@@ -764,45 +777,58 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     % ?Info("Virtual join scan spec unbound (~p)~n~p~n", [Ti,SSpec0]),
     {SSpec1,_TailSpec,FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
     [{_,[SGuard1],_}] = SSpec1,
-    ?Info("Virtual join table (~p) ~p~n", [Ti,Table]),
-    ?Info("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
-    ?Info("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
+    % ?LogDebug("Virtual join table (~p) ~p~n", [Ti,Table]),
+    % ?LogDebug("Virtual join spec (~p) ~p~n", [Ti,JoinSpec]),
+    % ?LogDebug("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
+    % ?LogDebug("Virtual join scan spec (~p)~n~p~n", [Ti,SSpec1]),
+    % ?LogDebug("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
-    Recs = case SGuard1 of
-        false ->
-            [];
-        true ->
-            ?UnimplementedException({"Unsupported virtual join filter guard", true}); 
-        {is_member,Tag, '$_'} when is_atom(Tag);is_record(Tag,bind) ->
-            Items = element(?MainIdx,Rec),
-            ?Info("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
-            Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {is_member,Tag, Items} when is_atom(Tag);is_record(Tag,bind) ->
-            ?Info("generate_virtual table ~p from~n~p~n", [Table,Items]),
-            Virt = generate_virtual(Table,Items,MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {'and',{is_member,Tag, '$_'},_} when is_atom(Tag);is_record(Tag,bind) ->
-            Items = element(?MainIdx,Rec),
-            ?Info("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
-            Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {'and',{is_member,Tag, Items},_} when is_atom(Tag);is_record(Tag,bind) ->
-            ?Info("generate_virtual table ~p from~n~p~n", [Table,Items]),
-            Virt = generate_virtual(Table,Items,MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        BadFG ->
-            ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
-    end,
+    Virt = generate_virtual_data(Table,Rec,SGuard1,MaxSize),
+    % ?LogDebug("Generated virtual data ~p~n~p", [Table,Virt]),
+    Recs = [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt],
+    % ?LogDebug("Generated records ~p~n~p", [Table,Recs]),
     case FilterFun of
         true ->     Recs;
         false ->    [];
         Filter ->   lists:filter(Filter,Recs)
     end.
+
+generate_virtual_data(_Table,_Rec,false,_MaxSize) -> 
+    [];
+generate_virtual_data(boolean,_Rec,true,_MaxSize) ->
+    [{false,<<"false">>},{true,<<"true">>}];
+generate_virtual_data(_Table,_Rec,true,_MaxSize) ->
+    ?ClientError({"Invalid virtual filter guard", true});
+generate_virtual_data(Table,Rec,{is_member,Tag,'$_'},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+    Items = element(?MainIdx,Rec),
+    generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
+generate_virtual_data(Table,Rec,{'and',{is_member,Tag,'$_'},_},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+    Items = element(?MainIdx,Rec), 
+    generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
+generate_virtual_data(Table,Rec,{'and',{'and',{is_member,Tag,'$_'},_},_},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+    Items = element(?MainIdx,Rec), 
+    generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
+generate_virtual_data(Table,_Rec,{is_member,Tag, Items},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+    generate_virtual(Table,Items,MaxSize);
+generate_virtual_data(Table,_Rec,{'and',{is_member,Tag, Items},_},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+    generate_virtual(Table,Items,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min,Max,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min+1,Max,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min,Max-1,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>',Tag,Min},{'<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min+1,Max-1,MaxSize);
+generate_virtual_data(integer,_Rec,SGuard,_MaxSize) ->
+    ?UnimplementedException({"Unsupported virtual integer bound filter guard",SGuard});
+generate_virtual_data(Table,_Rec,SGuard,_MaxSize) ->
+    ?UnimplementedException({"Unsupported virtual join bound filter guard",{Table,SGuard}}).
+
+generate_virtual_integers(Min,Max,MaxSize) when (Max>=Min),(MaxSize>Max-Min) ->
+    [{I,imem_datatype:integer_to_io(I)} || I <- lists:seq(Min,Max)];
+generate_virtual_integers(Min,Max,_MaxSize) ->
+    ?UnimplementedException({"Unsupported virtual integer table size", Max-Min+1}).
 
 generate_virtual(Table, {list,Items}, MaxSize)  ->
     generate_virtual(Table, Items, MaxSize);

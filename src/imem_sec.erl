@@ -105,6 +105,7 @@
         ]).
 
 -export([ fetch_start/6
+        , fetch_start_virtual/7
         , update_tables/3           %% update (first) table and return updated keys 
         ]).
 
@@ -740,6 +741,14 @@ fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
                 true -> imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
                 _ ->    ?SecurityException({"System select unauthorized", {Table,SKey}})  
             end
+    end.
+
+fetch_start_virtual(SKey, Pid, Table, Rows, BlockSize, Limit, Opts) ->
+    seco_authorized(SKey),
+    Schema = imem_meta:schema(),
+    case Table of
+        {Schema,_} ->   imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
+        _ ->            ?SecurityException({"Select virtual in foreign schema unauthorized", {Table,SKey}}) 
     end.
 
 fetch_close(SKey, Pid) ->
