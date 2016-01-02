@@ -812,6 +812,8 @@ generate_virtual_data(Table,_Rec,{is_member,Tag, Items},MaxSize) when is_atom(Ta
     generate_virtual(Table,Items,MaxSize);
 generate_virtual_data(Table,_Rec,{'and',{is_member,Tag, Items},_},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
     generate_virtual(Table,Items,MaxSize);
+generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+    generate_virtual(Table,Val,MaxSize);
 generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
     generate_virtual_integers(Min,Max,MaxSize);
 generate_virtual_data(integer,_Rec,{'and',{'>',Tag,Min},{'=<',Tag,Max}},MaxSize) ->

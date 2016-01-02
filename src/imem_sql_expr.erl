@@ -336,7 +336,7 @@ bind_t({Op,A}, X) ->             bind_eval({Op,bind_t(A,X)});
 bind_t({Op,A,B}, X) ->           bind_eval({Op,bind_t(A,X),bind_t(B,X)});
 bind_t({Op,A,B,C}, X) ->         bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X)});
 bind_t({Op,A,B,C,D}, X) ->       bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X),bind_t(D,X)});
-bind_t(A, _) ->                  bind_value(A).
+bind_t(A, _) ->                  bind_value(A). % TODO: may need to bind lists here too
 
 
 %% @doc Reforms the select field expression tree by evaluating

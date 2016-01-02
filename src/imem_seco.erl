@@ -55,7 +55,9 @@
         ]).
 
 -export([ has_role/3
+        , has_role/2
         , has_permission/3
+        , has_permission/2
         ]).
 
 -export([ have_role/2
@@ -207,7 +209,7 @@ if_dirty_index_read(_SeKey, Table, SecKey, Index) ->
     imem_meta:dirty_index_read(Table, SecKey, Index).
 
 if_select_account_by_name(_SeKey, <<"system">>) -> 
-    {if_read(_SeKey, ddAccount, system),true};
+    {if_read(ddAccount, system),true};
 if_select_account_by_name(_SeKey, Name) -> 
     {if_dirty_index_read(_SeKey,ddAccount,Name, #ddAccount.name),true}.
 
@@ -222,7 +224,7 @@ if_truncate_table(_SKey, Table) ->
 if_write(_SKey, Table, Record) -> 
     imem_meta:write(Table, Record).
 
-if_read(_SKey, Table, Key) -> 
+if_read(Table, Key) -> 
     imem_meta:read(Table, Key).
 
 if_delete(_SKey, Table, RowId) ->
@@ -233,27 +235,27 @@ if_missing_role(RoleId) when is_atom(RoleId) ->
     false;
 if_missing_role(_) -> false.
 
-if_has_role(_SKey, _RootRoleId, _RootRoleId) ->
+has_role(_RootRoleId, _RootRoleId) ->
     true;
-if_has_role(SKey, RootRoleId, RoleId) ->
-    case if_read(SKey, ddRole, RootRoleId) of
+has_role(RootRoleId, RoleId) ->
+    case if_read(ddRole, RootRoleId) of
         [#ddRole{roles=[]}] ->          false;
-        [#ddRole{roles=ChildRoles}] ->  if_has_child_role(SKey,  ChildRoles, RoleId);
+        [#ddRole{roles=ChildRoles}] ->  if_has_child_role(ChildRoles, RoleId);
         [] ->                           if_missing_role(RootRoleId)
     end.
 
-if_has_child_role(_SKey, [], _RoleId) -> false;
-if_has_child_role(SKey, [RootRoleId|OtherRoles], RoleId) ->
-    case if_has_role(SKey, RootRoleId, RoleId) of
+if_has_child_role([], _RoleId) -> false;
+if_has_child_role([RootRoleId|OtherRoles], RoleId) ->
+    case has_role(RootRoleId, RoleId) of
         true ->                         true;
-        false ->                        if_has_child_role(SKey, OtherRoles, RoleId)
+        false ->                        if_has_child_role(OtherRoles, RoleId)
     end.
 
-if_has_permission(_SKey, _RootRoleId, []) ->
+has_permission(_RootRoleId, []) ->
     false;
-if_has_permission(SKey, RootRoleId, PermissionList) when is_list(PermissionList)->
+has_permission(RootRoleId, PermissionList) when is_list(PermissionList)->
     %% search for first match in list of permissions
-    case if_read(SKey, ddRole, RootRoleId) of
+    case if_read(ddRole, RootRoleId) of
         [#ddRole{permissions=[],roles=[]}] ->     
             false;
         [#ddRole{permissions=Permissions, roles=[]}] -> 
@@ -261,14 +263,14 @@ if_has_permission(SKey, RootRoleId, PermissionList) when is_list(PermissionList)
         [#ddRole{permissions=Permissions, roles=ChildRoles}] ->
             case list_member(PermissionList, Permissions) of
                 true ->     true;
-                false ->    if_has_child_permission(SKey,  ChildRoles, PermissionList)
+                false ->    if_has_child_permission(ChildRoles, PermissionList)
             end;
         [] ->
             if_missing_role(RootRoleId)
     end;
-if_has_permission(SKey, RootRoleId, PermissionId) ->
+has_permission(RootRoleId, PermissionId) ->
     %% search for single permission
-    case if_read(SKey, ddRole, RootRoleId) of
+    case if_read(ddRole, RootRoleId) of
         [#ddRole{permissions=[],roles=[]}] ->     
             false;
         [#ddRole{permissions=Permissions, roles=[]}] -> 
@@ -276,17 +278,17 @@ if_has_permission(SKey, RootRoleId, PermissionId) ->
         [#ddRole{permissions=Permissions, roles=ChildRoles}] ->
             case lists:member(PermissionId, Permissions) of
                 true ->     true;
-                false ->    if_has_child_permission(SKey,  ChildRoles, PermissionId)
+                false ->    if_has_child_permission(ChildRoles, PermissionId)
             end;
         [] ->
             if_missing_role(RootRoleId)
     end.
 
-if_has_child_permission(_SKey, [], _Permission) -> false;
-if_has_child_permission(SKey, [RootRoleId|OtherRoles], Permission) ->
-    case if_has_permission(SKey, RootRoleId, Permission) of
+if_has_child_permission([], _Permission) -> false;
+if_has_child_permission([RootRoleId|OtherRoles], Permission) ->
+    case has_permission(RootRoleId, Permission) of
         true ->     true;
-        false ->    if_has_child_permission(SKey, OtherRoles, Permission)
+        false ->    if_has_child_permission(OtherRoles, Permission)
     end.
 
 
@@ -349,7 +351,7 @@ seco_unregister(#ddSeCo{skey=SKey, pid=Pid}) when Pid == self() ->
 
 
 seco_existing(SKey) -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid} = SeCo] when Pid == self() -> 
             SeCo;
         [] ->               
@@ -357,7 +359,7 @@ seco_existing(SKey) ->
     end.   
 
 seco_authenticated(SKey) -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid, authState=authenticated} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
@@ -369,7 +371,7 @@ seco_authenticated(SKey) ->
     end.   
 
 seco_authorized(SKey) -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{}] ->      
@@ -379,7 +381,7 @@ seco_authorized(SKey) ->
     end.   
 
 seco_update(#ddSeCo{skey=SKey,pid=Pid}=SeCo, #ddSeCo{skey=SKey,pid=Pid}=SeCoNew) when Pid == self() -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [] ->       ?SecurityException({"Not logged in", SKey});
         [SeCo] ->   if_write(SKey, ddSeCo@, SeCoNew);
         [_] ->      ?SecurityException({"Security context is modified by someone else", SKey})
@@ -415,7 +417,7 @@ account_id(SKey) ->
 
 account_name(SKey) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    case if_read(SKey, ddAccount, AccountId) of
+    case if_read(ddAccount, AccountId) of
         [#ddAccount{name=Name}] ->  Name;
         [] ->                       ?ClientError({"Account does not exist", AccountId})
     end.
@@ -423,10 +425,10 @@ account_name(SKey) ->
 has_role(SKey, RootRoleId, RoleId) ->
     case have_permission(SKey, read_accounts) of
         true ->
-            if_has_role(SKey, RootRoleId, RoleId);
+            has_role(RootRoleId, RoleId);
         false ->     
             case have_permission(SKey, manage_accounts) of
-                true ->     if_has_role(SKey, RootRoleId, RoleId); 
+                true ->     has_role(RootRoleId, RoleId); 
                 false ->    ?SecurityException({"Has role unauthorized",SKey})
             end
     end.
@@ -434,24 +436,24 @@ has_role(SKey, RootRoleId, RoleId) ->
 has_permission(SKey, RootRoleId, Permission) ->
     case have_permission(SKey, read_accounts) of
         true ->     
-            if_has_permission(SKey, RootRoleId, Permission); 
+            has_permission(RootRoleId, Permission); 
         false ->    
             case have_permission(SKey, manage_accounts) of
-                true ->     if_has_permission(SKey, RootRoleId, Permission); 
+                true ->     has_permission(RootRoleId, Permission); 
                 false ->    ?SecurityException({"Has permission unauthorized",SKey})
             end
     end.
 
 have_role(SKey, RoleId) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    if_has_role(SKey, AccountId, RoleId).
+    has_role(AccountId, RoleId).
 
 have_permission(SKey, Permission) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    if_has_permission(SKey, AccountId, Permission).
+    has_permission(AccountId, Permission).
 
 fail_or_clear_password_lock(#ddSeCo{skey=SKey} = SeCo, AccountId) ->
-    case if_read(SKey, ddAccountDyn, AccountId) of
+    case if_read(ddAccountDyn, AccountId) of
         [] ->          % create default for missing dynamic account record
             if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId});
         [#ddAccountDyn{lastFailureTime=undefined}] ->
@@ -483,7 +485,7 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
         {[#ddAccount{locked='true'}],true} ->
             authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
         {[#ddAccount{id=AccountId} = Account],true} ->
-            case if_read(SKey, ddAccountDyn, AccountId) of
+            case if_read(ddAccountDyn, AccountId) of
                 [] ->                                               % create missing dynamic account record
                     AD = #ddAccountDyn{id=AccountId},
                     if_write(SKey, ddAccountDyn, AD);               
@@ -564,8 +566,8 @@ auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
             authenticate_fail(SeCo, "Invalid account credentials. Please retry", true)
     end;
 auth_step(SeCo, {smsott,Token}) ->
-    #ddSeCo{skey=SKey, sessionCtx=SessionCtx, accountName=AccountName, accountId=AccountId, authFactors=AFs} = SeCo,
-    case sms_ott_mobile_phone(SKey, AccountId) of
+    #ddSeCo{sessionCtx=SessionCtx, accountName=AccountName, accountId=AccountId, authFactors=AFs} = SeCo,
+    case sms_ott_mobile_phone(AccountId) of
         undefined ->    
             authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token", true);
         To ->           
@@ -615,7 +617,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
     end,
     case AuthRequireFun(AFs,SessionCtx#ddSessionCtx.networkCtx) of
         [] ->   
-            case if_read(SKey, ddAccountDyn, AccountId) of
+            case if_read(ddAccountDyn, AccountId) of
                 [] ->   
                     AD = #ddAccountDyn{id=AccountId},
                     if_write(SKey, ddAccountDyn, AD);   % create dynamic account record if missing
@@ -626,7 +628,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
             end,
             {seco_register(SeCo, authenticated),[]};   % authentication success, return {SKey,[]} 
         [smsott] ->
-            case sms_ott_mobile_phone(SKey, AccountId) of
+            case sms_ott_mobile_phone(AccountId) of
                 undefined ->    
                     authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token", true);
                 To ->           
@@ -641,7 +643,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
                     end
             end;
         [smsott|Rest] ->
-            case sms_ott_mobile_phone(SKey, AccountId) of
+            case sms_ott_mobile_phone(AccountId) of
                 undefined ->    {seco_register(SeCo),[{A,#{accountName=>AccountName}} || A <- Rest]};
                 To ->           
                     case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
@@ -652,8 +654,8 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
         OFs ->  {seco_register(SeCo),[{A,#{accountName=>AccountName}} || A <- OFs]}   % ask for remaining factors to try
     end.       
 
-sms_ott_mobile_phone(SKey, AccountId) ->
-    case if_read(SKey, ddAccount, AccountId) of
+sms_ott_mobile_phone(AccountId) ->
+    case if_read(ddAccount, AccountId) of
         [] ->                           
             undefined;
         [#ddAccount{fullName=FN}] ->    
@@ -684,7 +686,7 @@ failure_tuple({{Y,M,D},{Hr,Mi,Ss}},{{_,_,_},{_,_,SF}}) -> {{Y,M,D},{Hr,Mi, 10 * 
 check_re_hash(#ddSeCo{skey=SKey}=SeCo, #ddAccount{id=AccountId}=_Account, _OldToken, _NewToken, Unregister, []) ->
     % no more credential types to check, credential check failed
     LocalTime = calendar:local_time(),
-    case if_read(SKey, ddAccountDyn, AccountId) of
+    case if_read(ddAccountDyn, AccountId) of
         [] ->                                           % create missing dynamic account record   
             if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId,lastFailureTime=failure_tuple(LocalTime,undefined)});
         [#ddAccountDyn{lastFailureTime=LFT}=AD] ->                         % update last error time
@@ -759,13 +761,13 @@ login(SKey) ->
         {_,infinity} -> 0;      % sorts in after any date tuple
         {_,PVal} ->     calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*PVal)
     end,
-    case {if_read(SKey, ddAccount, AccountId), lists:member(pwdmd5,AuthenticationFactors)} of
+    case {if_read(ddAccount, AccountId), lists:member(pwdmd5,AuthenticationFactors)} of
         {[#ddAccount{type='user',lastPasswordChangeTime=undefined}], true} -> 
             ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{type='user',lastPasswordChangeTime=LastChange}], true} when LastChange < PwdExpireDate -> 
             ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{}], _} ->
-            [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
+            [AccountDyn] = if_read(ddAccountDyn,AccountId),
             ok = seco_update(SeCo, SeCo#ddSeCo{authState=authorized}),
             if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=LocalTime}),
             SKey;            
@@ -779,7 +781,7 @@ change_credentials(SKey, {pwdmd5,Token}, {pwdmd5,Token}) ->
     ?SecurityException({"The same password cannot be re-used. Please retry", AccountId});
 change_credentials(SKey, {pwdmd5,OldToken}, {pwdmd5,NewToken}) ->
     #ddSeCo{accountId=AccountId} = SeCo = seco_authenticated(SKey),
-    [Account] = if_read(SKey, ddAccount, AccountId),
+    [Account] = if_read(ddAccount, AccountId),
     ok = check_re_hash(SeCo, Account, OldToken, NewToken, false, ?PWD_HASH_LIST),
     login(SKey).
 
@@ -794,7 +796,7 @@ set_credentials(SKey, Name, {pwdmd5,NewToken}) ->
 set_login_time(SKey, AccountId) ->
     case have_permission(SKey, manage_accounts) of
         true ->
-            AccountDyn = case if_read(SKey,ddAccountDyn,AccountId) of
+            AccountDyn = case if_read(ddAccountDyn,AccountId) of
                              [AccountDynRec] ->  AccountDynRec;
                              [] -> #ddAccountDyn{id = AccountId}
                          end,
