@@ -17,7 +17,6 @@
 -define(TRANS_TIME_PUT(__TT),erlang:put(?TRANS_TIME_NAME,__TT)).    % store updated transaction time
 -define(TRANS_TIME_GET,erlang:get(?TRANS_TIME_NAME)).               % retrieve stored transaction time
 
-
 -define(MatchAllRecords,[{'$1', [], ['$_']}]).
 -define(MatchAllKeys,[{'$1', [], [{element,2,'$1'}]}]).
 

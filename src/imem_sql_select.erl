@@ -732,14 +732,31 @@ db1_with_or_without_sec(IsSec) ->
             [{<<"1">>},{<<"2">>},{<<"3">>}]
         ),
 
-        exec_fetch_sort_equal(SKey, query3p, 100, IsSec, "
-            select item 
-            from dual,atom 
-            where is_member(item, mfa('imem_sql_funs','filter_funs','[]'))
-            and item like 'list%'"
-            ,
-            [{<<"list">>},{<<"list_to_tuple">>}]
-        ),
+        Sql3p1 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_sql_funs','filter_funs','[]'))
+                    and item like 'list%'",
+        case IsSec of
+            true ->
+                ?imem_test_admin_grant({eval_mfa,imem_sql_funs,filter_funs}),
+                ?assert(imem_seco:have_permission(SKey, {eval_mfa,imem_sql_funs,filter_funs})),
+                exec_fetch_sort_equal(SKey, query3p1, 100, IsSec, Sql3p1
+                    ,
+                    [{<<"list">>},{<<"list_to_tuple">>}]
+                ),
+                Sql3p2 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_meta','schema','[]'))
+                    and item like 'list%'",
+                ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
+                ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_}}},
+                    exec_fetch_sort(SKey, query3p2, 100, IsSec, Sql3p2)
+                );
+            false ->    
+                ?assertException(throw,{'SecurityException',{"Not logged in",undefined}},
+                    exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
+                )
+        end,
 
         %% self joins 
 

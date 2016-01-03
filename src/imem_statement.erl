@@ -69,9 +69,10 @@ create_stmt(Statement, SKey, IsSec) ->
         false -> 
             gen_server:start(?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]);
         true ->
-            {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),            
+            {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
+            ?IMEM_SKEY_PUT(SKey), % store SKey in session process (external to imem), may be needed to authorize statement creation functions
             {ok, Pid}
     end.
 
@@ -187,7 +188,7 @@ init([Statement,ParentPid]) ->
     imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
     {ok, #state{statement=Statement, parmonref=erlang:monitor(process, ParentPid)}}.
 
-handle_call({set_seco, SKey}, _From, State) ->    
+handle_call({set_seco, SKey}, _From, State) ->
     {reply,ok,State#state{seco=SKey, isSec=true}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
     STT = os:timestamp(),
