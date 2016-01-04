@@ -2235,7 +2235,7 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
 
 fetch_start_calculated(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
     Limit = ?VIRTUAL_TABLE_ROW_LIMIT,
-    ?LogDebug("fetch_start_calculated matchspec ~n~p",[MatchSpec]),
+    % ?LogDebug("fetch_start_calculated matchspec ~n~p",[MatchSpec]),
     % ?LogDebug("fetch_start_calculated limit ~n~p",[Limit]),
     {Rows,true} = select(VTable, MatchSpec, Limit),
     spawn(

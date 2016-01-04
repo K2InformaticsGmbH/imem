@@ -73,6 +73,7 @@ create_stmt(Statement, SKey, IsSec) ->
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
             ?IMEM_SKEY_PUT(SKey), % store external SKey in session process (external to imem), may be needed to authorize statement creation functions
+            ?LogDebug("Putting SKey ~p to process dict of client session ~p",[SKey,self()]),
             {ok, Pid}
     end.
 
@@ -190,6 +191,7 @@ init([Statement,ParentPid]) ->
 
 handle_call({set_seco, SKey}, _From, State) ->
     ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
+    ?LogDebug("Putting SKey ~p to process dict of statement ~p",[SKey,self()]),
     {reply,ok,State#state{seco=SKey, isSec=true}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
     STT = os:timestamp(),
@@ -317,7 +319,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     #statement{tables=[Table|JTabs], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
-        {Skip,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
+        {Skip,undefined} ->      %% {SkipFetch, Pid} = {true|false, uninitialized} -> skip fetch
             Params1 = case lists:keyfind(params, 1, Opts) of
                 false ->    Params0;    %% from statement exec, only used on first fetch
                 {_, P} ->   P           %% from fetch_recs, only used on first fetch

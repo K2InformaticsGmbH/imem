@@ -33,7 +33,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
     % ?LogDebug("Statement columns: ~n~p~n", [StmtCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
-    % ?Info("WhereParseTree~n~p~n", [WPTree]),
+    % ?LogDebug("WhereParseTree~n~p", [WPTree]),
     WBTree0 = case WPTree of
         ?EmptyWhere ->  
             true;
@@ -41,7 +41,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
             #bind{btree=WBT} = imem_sql_expr:expr(WPTree, FullMap, #bind{type=boolean,default=true}),
             WBT
     end,
-    % ?Info("WhereBindTree0~n~p~n", [WBTree0]),
+    % ?LogDebug("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
     % ?LogDebug("MainSpec:~n~p", [MainSpec]),
     JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
@@ -108,41 +108,41 @@ db1_test_() ->
         {with,[fun db1_without_sec/1]}
     }.
     
-db1_sec_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with,[fun db1_with_sec/1]}
-    }.
-
 db1_without_sec(_) -> 
     db1_with_or_without_sec(false).
 
-db1_with_sec(_) ->
-    db1_with_or_without_sec(true).
+% db1_sec_test_() ->
+%     {
+%         setup,
+%         fun setup/0,
+%         fun teardown/1,
+%         {with,[fun db1_with_sec/1]}
+%     }.
 
-db2_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with,[fun db2_without_sec/1]}
-    }.
+% db1_with_sec(_) ->
+%     db1_with_or_without_sec(true).
+
+% db2_test_() ->
+%     {
+%         setup,
+%         fun setup/0,
+%         fun teardown/1,
+%         {with,[fun db2_without_sec/1]}
+%     }.
     
-db2_sec_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with,[fun db2_with_sec/1]}
-    }.
+% db2_sec_test_() ->
+%     {
+%         setup,
+%         fun setup/0,
+%         fun teardown/1,
+%         {with,[fun db2_with_sec/1]}
+%     }.
 
-db2_without_sec(_) -> 
-    db2_with_or_without_sec(false).
+% db2_without_sec(_) -> 
+%     db2_with_or_without_sec(false).
 
-db2_with_sec(_) ->
-    db2_with_or_without_sec(true).
+% db2_with_sec(_) ->
+%     db2_with_or_without_sec(true).
 
 
 db1_with_or_without_sec(IsSec) ->
@@ -167,14 +167,44 @@ db1_with_or_without_sec(IsSec) ->
 
         ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
 
-        % exec_fetch_sort_equal(SKey, query3p, 100, IsSec, "
-        %     select item 
-        %     from integer 
-        %     where is_member(item, to_list('[1,2,3]'))"
-        %     ,
-        %     [{<<"1">>},{<<"2">>},{<<"3">>}]
-        % ),
 
+        Sql3p1 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_sql_funs','filter_funs','[]'))
+                    and item like 'list%'",
+        case IsSec of
+            true ->
+                ?imem_test_admin_grant({eval_mfa,imem_sql_funs,filter_funs}),
+                ?assert(imem_seco:have_permission(SKey, {eval_mfa,imem_sql_funs,filter_funs})),
+                exec_fetch_sort_equal(SKey, query3p1, 100, IsSec, Sql3p1
+                    ,
+                    [{<<"list">>},{<<"list_to_tuple">>}]
+                ),
+                exec_fetch_sort_equal(SKey, query3p2, 100, IsSec, "
+                    select item, hd(mfa('imem_sql_funs', 'filter_funs', '[]')) 
+                    from atom where item = to_atom('filter_funs')"
+                    ,
+                    [{<<"filter_funs">>,<<"list">>}]
+                ),
+                exec_fetch_sort_equal(SKey, query3p3, 100, IsSec, "
+                    select item, hd(mfa('imem_sql_funs', item, '[]')) 
+                    from atom where item = to_atom('filter_funs')"
+                    ,
+                    [{<<"filter_funs">>,<<"list">>}]
+                ),
+                Sql3p4 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_meta','schema','[]'))
+                    and item like 'list%'",
+                ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
+                ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_}}},
+                    exec_fetch_sort(SKey, query3p4, 100, IsSec, Sql3p4)
+                );
+            false ->    
+                ?assertException(throw,{'SecurityException',{"Not logged in",undefined}},
+                    exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
+                )
+        end,
 
         CsvFileName = <<"CsvTestFileName123abc.txt">>,
         file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
@@ -732,31 +762,51 @@ db1_with_or_without_sec(IsSec) ->
             [{<<"1">>},{<<"2">>},{<<"3">>}]
         ),
 
-        Sql3p1 = "select item 
-                    from dual,atom 
-                    where is_member(item, mfa('imem_sql_funs','filter_funs','[]'))
-                    and item like 'list%'",
-        case IsSec of
-            true ->
-                ?imem_test_admin_grant({eval_mfa,imem_sql_funs,filter_funs}),
-                ?assert(imem_seco:have_permission(SKey, {eval_mfa,imem_sql_funs,filter_funs})),
-                exec_fetch_sort_equal(SKey, query3p1, 100, IsSec, Sql3p1
-                    ,
-                    [{<<"list">>},{<<"list_to_tuple">>}]
-                ),
-                Sql3p2 = "select item 
-                    from dual,atom 
-                    where is_member(item, mfa('imem_meta','schema','[]'))
-                    and item like 'list%'",
-                ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
-                ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_}}},
-                    exec_fetch_sort(SKey, query3p2, 100, IsSec, Sql3p2)
-                );
-            false ->    
-                ?assertException(throw,{'SecurityException',{"Not logged in",undefined}},
-                    exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
-                )
-        end,
+
+
+
+        exec_fetch_sort_equal(SKey, query3q, 100, IsSec, "
+            select item from atom where is_member(item, list(to_atom('a')))"
+            ,
+            [
+                 {<<"a">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3r, 100, IsSec, "
+            select item from atom where is_member(item, list(to_atom('a'),to_atom('b')))"
+            ,
+            [
+                 {<<"a">>}
+                ,{<<"b">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3s, 100, IsSec, "
+            select item from term where is_member(item, list(1))"
+            ,
+            [
+                 {<<"1">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3t, 100, IsSec, "
+            select item from term where is_member(item, list(to_atom('a'),1,2.5))"
+            ,
+            [
+                 {<<"1">>}
+                ,{<<"2.5">>}
+                ,{<<"a">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3u, 100, IsSec, "
+            select item 
+            from integer 
+            where is_member(item, to_list('[1,2,3]'))"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
 
         %% self joins 
 

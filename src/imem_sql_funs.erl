@@ -440,7 +440,19 @@ safe_fun_final(A) ->
 %         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
 %     end.
 
-list_fun([],Acc) -> Acc;
+list_fun([],Acc) ->     Acc;
+list_fun([A],Acc) when is_list(Acc) -> 
+    case bind_action(A) of 
+        false ->        [A|Acc];
+        true ->         fun(X) -> [A(X)|Acc] end;
+        ABind ->        fun(X) -> [?BoundVal(ABind,X)|Acc] end
+    end;
+list_fun([A],Acc) -> 
+    case bind_action(A) of 
+        false ->        fun(X) -> [A|Acc(X)] end;
+        true ->         fun(X) -> [A(X)|Acc(X)] end;
+        ABind ->        fun(X) -> [?BoundVal(ABind,X)|Acc(X)] end
+    end;
 list_fun([A|Rest],Acc) when is_list(Acc) -> 
     case bind_action(A) of 
         false ->        list_fun(Rest,[A|Acc]);
@@ -1007,7 +1019,7 @@ remap(Val,From,To) ->
 mfa(Module,Function,Args) ->
     case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Module,Function}) of
         true ->     apply(Module,Function,Args);
-        false ->    ?SecurityException({"Function evaluation unauthorized",{Module,Function,?IMEM_SKEY_GET}})
+        false ->    ?SecurityException({"Function evaluation unauthorized",{Module,Function,?IMEM_SKEY_GET,self()}})
     end. 
 
 %% TESTS ------------------------------------------------------------------

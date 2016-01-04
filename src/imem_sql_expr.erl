@@ -360,7 +360,11 @@ bind_subtree_const(BTree) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec prune_tree(integer(), binary()|tuple()) -> list().
 prune_tree(Ti, WBTree) ->
-    case prune_eval(prune_walk(Ti, WBTree)) of
+    Res1 = prune_walk(Ti, WBTree),
+    % ?LogDebug("Prune walk result ~p",[Res1]),
+    Res2 = prune_eval(Res1),
+    % ?LogDebug("Prune eval result ~p",[Res2]),
+    case Res2 of
         ?nav ->     ?ClientError({"Cannot evaluate pruned where clause", {Ti,WBTree}});
         ?Join ->    true;
         Tree ->     Tree
@@ -370,11 +374,13 @@ prune_walk(_ , {const,T}) when is_tuple(T) -> {const,T};
 prune_walk(Ti, #bind{tind=T}) when T>Ti -> ?Join;
 prune_walk(Ti, #bind{tind=0,cind=0,btree=BTree}) -> prune_eval(prune_walk(Ti, BTree));
 prune_walk(_ , #bind{}=Bind) -> Bind;
+prune_walk(Ti, {list,L}) -> prune_walk(Ti,L);
 prune_walk(_ , {Op}) -> prune_eval({Op});
 prune_walk(Ti, {Op,A}) -> prune_eval({Op,prune_walk(Ti,A)});
 prune_walk(Ti, {Op,A,B}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B)});
 prune_walk(Ti, {Op,A,B,C}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B),prune_walk(Ti,C)});
 prune_walk(Ti, {Op,A,B,C,D}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B),prune_walk(Ti,C),prune_walk(Ti,D)});
+prune_walk(Ti, L) when is_list(L) -> [prune_walk(Ti,I) || I <- L];
 prune_walk(_ , BTree) -> BTree. % ToDo: Maybe need to prune_walk lists too
 
 prune_eval({_,?Join}) -> ?Join;
@@ -397,7 +403,7 @@ main_spec(?EmptyWhere, FullMap) ->
     scan_spec(?MainIdx, true, FullMap);
 main_spec(WBTree, FullMap) ->
     PrunedTree = prune_tree(?MainIdx, WBTree),
-    % ?LogDebug("Pruned where tree for main scan~n~p~n",[to_guard(PrunedTree)]),
+    % ?LogDebug("Pruned where tree for main scan~n~p",[to_guard(PrunedTree)]),
     scan_spec(?MainIdx, PrunedTree, FullMap).
 
 %% @doc Reforms the where clause bind tree for the whole select into
@@ -828,6 +834,11 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
     end;
 expr({param,Name}, FullMap, _) when is_binary(Name) -> 
     field_map_lookup({undefined,?ParamTab,Name},FullMap);
+expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) -> 
+    % #bind{type=list,btree=[expr(A,FullMap,#bind{type=term}) || A <- L]};
+    #bind{type=list,btree={list,[expr(A,FullMap,#bind{type=term}) || A <- L]}};
+expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) -> 
+    #bind{type=tuple,btree={list_to_tuple,{list,[expr(A,FullMap,#bind{type=term}) || A <- L]}}};
 expr({'fun',Fname,[A]}=PTree, FullMap, _) -> 
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
@@ -852,11 +863,6 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
                     end
             end
     end;        
-expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) -> 
-    % #bind{type=list,btree=[expr(A,FullMap,#bind{type=term}) || A <- L]};
-    #bind{type=list,btree={list,[expr(A,FullMap,#bind{type=term}) || A <- L]}};
-expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) -> 
-    #bind{type=tuple,btree={list_to_tuple,{list,[expr(A,FullMap,#bind{type=term}) || A <- L]}}};
 expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) -> 
     expr({'fun',<<"is_regexp_like">>,[A,B]}, FullMap, BT); 
 expr({'||',A,B}, FullMap, _) -> 
@@ -1046,6 +1052,9 @@ expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op==
     #bind{type=boolean,btree=BTree};
 expr({'in', ?nav, {list,_}}, _FullMap, _) -> ?nav;
 expr({'in', _, {list,[]}}, _FullMap, _) -> false;
+expr({'in', A, {list,[B]}}, FullMap, _) ->
+    CMapA = expr({'=', A, B}, FullMap, #bind{}),
+    #bind{type=boolean,btree=CMapA};
 expr({'in', A, {list,[B|Rest]}}, FullMap, _) ->
     CMapA = expr({'=', A, B}, FullMap, #bind{}),
     CMapR = expr({'in', A, {list,Rest}}, FullMap, #bind{}),
