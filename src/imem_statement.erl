@@ -72,7 +72,7 @@ create_stmt(Statement, SKey, IsSec) ->
             {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
-            ?IMEM_SKEY_PUT(SKey), % store SKey in session process (external to imem), may be needed to authorize statement creation functions
+            ?IMEM_SKEY_PUT(SKey), % store external SKey in session process (external to imem), may be needed to authorize statement creation functions
             {ok, Pid}
     end.
 
@@ -189,6 +189,7 @@ init([Statement,ParentPid]) ->
     {ok, #state{statement=Statement, parmonref=erlang:monitor(process, ParentPid)}}.
 
 handle_call({set_seco, SKey}, _From, State) ->
+    ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
     {reply,ok,State#state{seco=SKey, isSec=true}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
     STT = os:timestamp(),
