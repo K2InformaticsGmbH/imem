@@ -134,6 +134,7 @@ sc_send_sms_token(Url, {User, Password, XMLNs}, From, To, Text, TokenType,
                         "<timeToExpiredSeconds>",TTESec,"</timeToExpiredSeconds>"
                         "<timeToLiveSeconds>",TTLSec,"</timeToLiveSeconds>"
                         "<tokenlength>",TokenLength,"</tokenlength>"
+                        "<oneTime>true</oneTime>"
                     "</sendSmsToken>"]),
             Authorization = "Basic "++binary_to_list(base64:encode(User++":"++Password)),
             ?Debug("Sending sms token ~p to ~p", [Req, Url]),
