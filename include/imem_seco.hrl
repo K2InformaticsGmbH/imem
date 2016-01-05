@@ -153,16 +153,14 @@ end
 end 
 ).
 
--define(imem_test_admin_grant(__Perm),
-  begin
+-define(imem_test_admin_grant, fun(__Perm) ->
     [#ddAccount{id=__AcId}] = imem_meta:dirty_index_read(ddAccount, <<"_test_admin_">>, #ddAccount.name),
     [#ddRole{permissions=__Perms0} = __Role0] = imem_meta:read(ddRole,__AcId),
     imem_meta:write(ddRole, __Role0#ddRole{permissions=lists:usort([__Perm|__Perms0])})
   end 
 ).
 
--define(imem_test_admin_revoke(__Perm),
-  begin
+-define(imem_test_admin_revoke, fun(__Perm) ->
     [#ddAccount{id=__AcId}] = imem_meta:dirty_index_read(ddAccount, <<"_test_admin_">>, #ddAccount.name),
     [#ddRole{permissions=__Perms0} = __Role0] = imem_meta:read(ddRole,__AcId),
     imem_meta:write(ddRole, __Role0#ddRole{permissions=lists:delete(__Perm,__Perms0)})

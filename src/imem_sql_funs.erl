@@ -1016,11 +1016,15 @@ remap(Val,From,To) ->
         true ->         Val
     end.
 
-mfa(Module,Function,Args) ->
-    case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Module,Function}) of
-        true ->     apply(Module,Function,Args);
-        false ->    ?SecurityException({"Function evaluation unauthorized",{Module,Function,?IMEM_SKEY_GET,self()}})
-    end. 
+% mfa(Module,Function,Args) ->
+%     case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Module,Function}) of
+%         true ->     
+%             apply(Module,Function,Args);
+%         false ->    
+%             ?SecurityException({"Function evaluation unauthorized",{Module,Function,?IMEM_SKEY_GET,self()}})
+%     end;
+mfa(Module,Function,Args) -> 
+    apply(Module,Function,Args). % ToDo: Check permissions after moving statment creation into imem_statement process
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
