@@ -71,7 +71,7 @@ sc_send_sms_token(AppId,To) ->
 
 sc_send_sms_token(AppId, To, Text, TokenType, ExpireTime, TokenLength, Profile) ->
     sc_send_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://api.swisscom.com/v1/tokenvalidation")
-                     , ?GET_CONFIG(smsTokenValidationClientId,[AppId],"RokAOeF59nkcFg2GtgxgOdZzosQW1MPQ")
+                     , ?GET_CONFIG(smsTokenValidationClientId,[AppId],"DEVELOPER-CLIENT-ID")
                      , To
                      , Text
                      , TokenType
