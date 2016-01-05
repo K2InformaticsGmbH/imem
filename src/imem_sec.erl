@@ -745,7 +745,7 @@ fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
 
 fetch_start_virtual(SKey, Pid, Table, Rows, BlockSize, Limit, Opts) ->
     seco_authorized(SKey),
-    ?LogDebug("imem_sec:fetch_start_virtual ~p",[self()]),
+    % ?LogDebug("imem_sec:fetch_start_virtual ~p",[self()]),
     Schema = imem_meta:schema(),
     case Table of
         {Schema,_} ->   imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
