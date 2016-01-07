@@ -1262,6 +1262,8 @@ setup() ->
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
@@ -1278,6 +1280,8 @@ teardown(_) ->
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
@@ -1329,6 +1333,15 @@ skvh_operations(_) ->
                          write(system,<<"binChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
         ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}},
                          write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
+
+        ?assertMatch(ok, create_check_channel(<<"noOptsChannel">>,[])),
+        ?assertMatch(ok, create_check_channel(<<"noHistoryHChannel">>,[audit])),
+
+        ?assertEqual(#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}, write(system,<<"noOptsChannel">>,test, <<"{\"a\":\"a\"}">>)),
+        ?assertEqual(#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}, write(system,<<"noHistoryHChannel">>,test, <<"{\"a\":\"a\"}">>)),
+
+        ?assertEqual([#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}], read(system,<<"noOptsChannel">>, [test])),
+        ?assertEqual([#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}], read(system,<<"noHistoryHChannel">>, [test])),
 
         ?assertEqual(<<"skvhTest">>, table_name(?Channel)),
 
