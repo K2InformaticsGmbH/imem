@@ -461,13 +461,11 @@ drop_table(Channel) when is_binary(Channel) ->
 
 build_aux_table_info(Table) ->
 	["","",Channel,"","","",""] = imem_meta:parse_table_name(Table),
-    HistoryTable = try ?HIST_FROM_STR(Channel) of
-        H -> [H]
-    catch
-        _:_ -> []
-    end,
+    HistoryTable = try ?HIST_FROM_STR(Channel) of H -> H
+                   catch _:_ -> '$no_history'
+                   end,
 	{AuditTable,TransTime} = audit_table_time(Channel),
-    {[AuditTable|HistoryTable],TransTime,Channel}.
+    {AuditTable,HistoryTable,TransTime,Channel}.
 
 % truncate table
 audit_info(User,_Channel,AuditTable,TransTime,{},{}) ->
