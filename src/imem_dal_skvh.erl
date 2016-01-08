@@ -127,7 +127,6 @@
         ]).
 
 -export([build_aux_table_info/1,
-         skvh_trigger/2,
          audit_info/6,
          write_audit/1,
          audit_recs_time/1,
@@ -433,7 +432,7 @@ create_check_channel(Channel, Options) ->
         true -> undefined
     end,
     %% TODO: This will replace the trigger each time maybe versioning will be better
-    imem_meta:create_or_replace_trigger(Tab, skvh_trigger(Options, "")),
+    imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, "")),
     ok.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
@@ -444,7 +443,7 @@ create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger([audit,history],"")),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
 
@@ -453,7 +452,7 @@ add_if(F, Opts, Code) ->
         true -> Code;
         false -> ""
     end.
-skvh_trigger(Opts, ExtraFun) ->
+skvh_trigger_fun_str(Opts, ExtraFun) ->
     list_to_binary(
       ["fun(OldRec,NewRec,Table,User,TrOpts) ->\n"
        "    start_trigger",
