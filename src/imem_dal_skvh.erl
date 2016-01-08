@@ -66,6 +66,14 @@
        ).
 -define(skvhTable,  [binterm,binstr,binstr]).
 
+-define(ADDIF(__Flags,__Opts,__Code),
+        (fun(_F,_O) ->
+            case lists:member(_F,_O) of
+                 true -> __Code;
+                 false -> ""
+            end
+         end)(__Flags,__Opts)).
+
 % -define(E100,{100,"Invalid key"}).
 % -define(E101,{101,"Duplicate key"}).
 -define(E102(__Term),{102,"Invalid key value pair",__Term}).
@@ -128,6 +136,7 @@
         ]).
 
 -export([build_aux_table_info/1,
+         skvh_trigger/2,
          audit_info/6,
          write_audit/1,
          audit_recs_time/1,
@@ -433,7 +442,7 @@ create_check_channel(Channel, Options) ->
         true -> undefined
     end,
     %% TODO: This will replace the trigger each time maybe versioning will be better
-    imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
+    imem_meta:create_or_replace_trigger(Tab, skvh_trigger(Options, "")),
     ok.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
@@ -444,9 +453,34 @@ create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), ?skvhTableTrigger([audit,history],"")),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
+
+skvh_trigger(__Opts, __ExtraFun) ->
+    list_to_binary(
+      ["fun(OldRec,NewRec,Table,User,TrOpts) ->\n"
+       "    start_trigger",
+       ?ADDIF(audit, __Opts,
+       ",\n    {AuditTable,HistoryTable,TransTime,Channel}\n"
+       "        = imem_dal_skvh:build_aux_table_info(Table),\n"
+       "    AuditInfoList = imem_dal_skvh:audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec),\n"
+       "    case lists:member(no_audit,TrOpts) of \n"
+       "        true ->  ok;\n"
+       "        false -> ok = imem_dal_skvh:write_audit(AuditInfoList)\n"
+       "    end"),
+       ?ADDIF(history, __Opts,
+       ",\n    case lists:member(no_history,TrOpts) of \n"
+       "        true ->  ok;\n"
+       "        false -> ok = imem_dal_skvh:write_history(HistoryTable,AuditInfoList)\n"
+       "    end"),
+       (fun(_E) ->
+                if length(_E) == 0 -> "";
+                   true -> ",\n    "++_E end
+        end)(__ExtraFun),
+       "\n    %extend_code_start"
+       "\n    %extend_code_end"
+       "\nend."]).
 
 -spec drop_table(binary()|atom()) -> ok.
 drop_table(Name) when is_atom(Name) ->
