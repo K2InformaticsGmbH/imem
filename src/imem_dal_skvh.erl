@@ -2,7 +2,6 @@
 
 -include("imem.hrl").
 -include("imem_meta.hrl").
--include("imem_dal_skvh.hrl").
 
 -define(AUDIT_SUFFIX,"Audit_86400@_").
 -define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
