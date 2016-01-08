@@ -15,11 +15,26 @@
 -define(CACHE_TABLE,ddCache@).
 
 -define(GET_CONFIG(__PName,__Context,__Default),
-        imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,lists:flatten([__Context,node()]),__Default)
+        imem_meta:get_config_hlk(
+          ?CONFIG_TABLE, {element(2,application:get_application(?MODULE)),?MODULE,__PName},
+          ?MODULE,lists:flatten([__Context,node()]),__Default)
+       ).
+-define(GET_CONFIG(__PName,__Context,__Default,__Documentation),
+        imem_meta:get_config_hlk(
+          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
+          ?MODULE,lists:flatten([__Context,node()]),__Default,__Documentation)
        ).
 
--define(PUT_CONFIG(__PName,__Context,__Default,_Remark),
-        imem_meta:put_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},?MODULE,__Context,__Default,_Remark)
+
+-define(PUT_CONFIG(__PName,__Context,__Default,__Remark),
+        imem_meta:put_config_hlk(
+          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
+          ?MODULE,__Context,__Default,__Remark)
+       ).
+-define(PUT_CONFIG(__PName,__Context,__Default,__Remark,__Documentation),
+        imem_meta:put_config_hlk(
+          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
+          ?MODULE,__Context,__Default,__Remark,__Documentation)
        ).
    
 -define(SET_SEC_FUNS(__Funs),

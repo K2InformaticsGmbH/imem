@@ -152,7 +152,9 @@
         , log_slow_process/6
         , failing_function/1
         , get_config_hlk/5
+        , get_config_hlk/6
         , put_config_hlk/6
+        , put_config_hlk/7
         , admin_exec/3
         ]).
 
@@ -2351,6 +2353,9 @@ read_hlk({_Schema,Table}, HListKey) ->
 read_hlk(Table,HListKey) ->
     imem_if_mnesia:read_hlk(Table,HListKey).
 
+
+get_config_hlk(Table, Key, Owner, Context, Default, _Documentation) ->
+    get_config_hlk(Table, Key, Owner, Context, Default).
 get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
     get_config_hlk(Table, Key, Owner, Context, Default);
 get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list(Context), is_atom(Owner) ->
@@ -2393,6 +2398,8 @@ get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list
             Default
     end.
 
+put_config_hlk(Table, Key, Owner, Context, Value, Remark, _Documentation) ->
+    put_config_hlk(Table, Key, Owner, Context, Value, Remark).
 put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
     put_config_hlk(Table, Key, Owner, Context, Value, Remark);
 put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
