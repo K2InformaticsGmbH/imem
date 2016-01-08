@@ -65,14 +65,6 @@
        ).
 -define(skvhTable,  [binterm,binstr,binstr]).
 
--define(ADDIF(__Flags,__Opts,__Code),
-        (fun(_F,_O) ->
-            case lists:member(_F,_O) of
-                 true -> __Code;
-                 false -> ""
-            end
-         end)(__Flags,__Opts)).
-
 % -define(E100,{100,"Invalid key"}).
 % -define(E101,{101,"Duplicate key"}).
 -define(E102(__Term),{102,"Invalid key value pair",__Term}).
@@ -456,11 +448,16 @@ create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
 
-skvh_trigger(__Opts, __ExtraFun) ->
+add_if(F, Opts, Code) ->
+    case lists:member(F,Opts) of
+        true -> Code;
+        false -> ""
+    end.
+skvh_trigger(Opts, ExtraFun) ->
     list_to_binary(
       ["fun(OldRec,NewRec,Table,User,TrOpts) ->\n"
        "    start_trigger",
-       ?ADDIF(audit, __Opts,
+       add_if(audit, Opts,
        ",\n    {AuditTable,HistoryTable,TransTime,Channel}\n"
        "        = imem_dal_skvh:build_aux_table_info(Table),\n"
        "    AuditInfoList = imem_dal_skvh:audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec),\n"
@@ -468,15 +465,13 @@ skvh_trigger(__Opts, __ExtraFun) ->
        "        true ->  ok;\n"
        "        false -> ok = imem_dal_skvh:write_audit(AuditInfoList)\n"
        "    end"),
-       ?ADDIF(history, __Opts,
+       add_if(history, Opts,
        ",\n    case lists:member(no_history,TrOpts) of \n"
        "        true ->  ok;\n"
        "        false -> ok = imem_dal_skvh:write_history(HistoryTable,AuditInfoList)\n"
        "    end"),
-       (fun(_E) ->
-                if length(_E) == 0 -> "";
-                   true -> ",\n    "++_E end
-        end)(__ExtraFun),
+       if length(ExtraFun) == 0 -> "";
+          true -> ",\n    "++ExtraFun end,
        "\n    %extend_code_start"
        "\n    %extend_code_end"
        "\nend."]).
