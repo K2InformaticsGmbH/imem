@@ -9,7 +9,6 @@
 -define(rawTypeIo,binary).
 -define(emptyIo,<<>>).
 
-
 -define(SAFE_ERLANG_FUNCTIONS,['==','/=','=<','>','>=','>','=:=','=/=',
                                '+','-','*','/','++','--','bnot','band','bor',
                                'bxor','bsl','bsr','abs','div','rem',
