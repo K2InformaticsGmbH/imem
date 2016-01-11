@@ -2,7 +2,6 @@
 
 -include("imem.hrl").
 -include("imem_meta.hrl").
--include("imem_dal_skvh.hrl").
 
 -define(AUDIT_SUFFIX,"Audit_86400@_").
 -define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
@@ -433,7 +432,7 @@ create_check_channel(Channel, Options) ->
         true -> undefined
     end,
     %% TODO: This will replace the trigger each time maybe versioning will be better
-    imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
+    imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, "")),
     ok.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
@@ -444,9 +443,37 @@ create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), ?skvhTableTrigger([audit,history],"")),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
+
+add_if(F, Opts, Code) ->
+    case lists:member(F,Opts) of
+        true -> Code;
+        false -> ""
+    end.
+skvh_trigger_fun_str(Opts, ExtraFun) ->
+    list_to_binary(
+      ["fun(OldRec,NewRec,Table,User,TrOpts) ->\n"
+       "    start_trigger",
+       add_if(audit, Opts,
+       ",\n    {AuditTable,HistoryTable,TransTime,Channel}\n"
+       "        = imem_dal_skvh:build_aux_table_info(Table),\n"
+       "    AuditInfoList = imem_dal_skvh:audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec),\n"
+       "    case lists:member(no_audit,TrOpts) of \n"
+       "        true ->  ok;\n"
+       "        false -> ok = imem_dal_skvh:write_audit(AuditInfoList)\n"
+       "    end"),
+       add_if(history, Opts,
+       ",\n    case lists:member(no_history,TrOpts) of \n"
+       "        true ->  ok;\n"
+       "        false -> ok = imem_dal_skvh:write_history(HistoryTable,AuditInfoList)\n"
+       "    end"),
+       if length(ExtraFun) == 0 -> "";
+          true -> ",\n    "++ExtraFun end,
+       "\n    %extend_code_start"
+       "\n    %extend_code_end"
+       "\nend."]).
 
 -spec drop_table(binary()|atom()) -> ok.
 drop_table(Name) when is_atom(Name) ->
@@ -461,7 +488,9 @@ drop_table(Channel) when is_binary(Channel) ->
 
 build_aux_table_info(Table) ->
 	["","",Channel,"","","",""] = imem_meta:parse_table_name(Table),
-	HistoryTable = ?HIST_FROM_STR(Channel),
+    HistoryTable = try ?HIST_FROM_STR(Channel) of H -> H
+                   catch _:_ -> '$no_history'
+                   end,
 	{AuditTable,TransTime} = audit_table_time(Channel),
     {AuditTable,HistoryTable,TransTime,Channel}.
 
@@ -1258,6 +1287,8 @@ setup() ->
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
@@ -1274,6 +1305,8 @@ teardown(_) ->
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
@@ -1325,6 +1358,15 @@ skvh_operations(_) ->
                          write(system,<<"binChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
         ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}},
                          write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
+
+        ?assertMatch(ok, create_check_channel(<<"noOptsChannel">>,[])),
+        ?assertMatch(ok, create_check_channel(<<"noHistoryHChannel">>,[audit])),
+
+        ?assertEqual(#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}, write(system,<<"noOptsChannel">>,test, <<"{\"a\":\"a\"}">>)),
+        ?assertEqual(#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}, write(system,<<"noHistoryHChannel">>,test, <<"{\"a\":\"a\"}">>)),
+
+        ?assertEqual([#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}], read(system,<<"noOptsChannel">>, [test])),
+        ?assertEqual([#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}], read(system,<<"noHistoryHChannel">>, [test])),
 
         ?assertEqual(<<"skvhTest">>, table_name(?Channel)),
 
