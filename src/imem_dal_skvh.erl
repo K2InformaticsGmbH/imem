@@ -124,6 +124,7 @@
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
         , get_longest_prefix/4
         , check_age_audit_entry/4 %% (User, Channel, Key, TS1)    returns the records if there is any for the key after the timestamp TS1
+        , audit_write_noop/3 %% (User, Channel, Key) creates an entry in audit table for channel wehere nvalue and ovalue are the same
         ]).
 
 -export([build_aux_table_info/1,
@@ -530,6 +531,22 @@ audit_recs_time(A) when is_record(A, skvhAudit) -> A#skvhAudit.time;
 audit_recs_time({_,A}) when is_record(A, skvhAudit) -> A#skvhAudit.time;
 audit_recs_time([A|Rest]) -> [audit_recs_time(A)|audit_recs_time(Rest)];
 audit_recs_time([]) -> [].
+
+audit_write_noop(User, Channel, Key) ->
+    case read(User, Channel, [Key]) of
+        [] -> no_op;
+        [#{cvalue := Value}] ->
+            AuditNoop = fun() ->
+                {AuditTable, TransTime} = audit_table_time(
+                    binary_to_list(Channel)),
+                SkvhRec = #skvhTable{ckey = imem_datatype:term_to_binterm(Key),
+                                      cvalue = Value},
+                AuditInfo = audit_info(User,Channel,AuditTable,TransTime,
+                    SkvhRec,SkvhRec),
+                write_audit(AuditInfo)
+            end,
+            imem_meta:return_atomic(imem_meta:transaction(AuditNoop))
+    end.
 
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
