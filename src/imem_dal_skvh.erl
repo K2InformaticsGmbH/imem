@@ -114,6 +114,7 @@
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
         , hist_read_shallow/3 %% (User, Channel, Key)               return the shallow list of deleted objects
+        , prune_history/2   %% (User, Channel) keeps the last non noop history states and cverifies history state exists for all the keys
         , search_deleted/6  %% (User, Channel, Ckey1, Ckey2, Text, DelStatus) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
         , search_deleted_clients/6 %% (User, Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted clients
         , search_deleted_objects/6 %% (User, Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted objects
@@ -903,6 +904,35 @@ hist_read_shallow(User, Channel, Key) ->
     Len = length(Key) + 1,
     Results = search_deleted(User, Channel, <<>>, Key, Key ++ <<255>>, true),
     [R || {CKey, _} = R <- Results, length(CKey) == Len].
+
+-spec prune_history(ddEntityId(), binary()) -> list().
+prune_history(User, Channel) ->
+    Time = os:timestamp(),
+    HistoryTable = ?HIST_FROM_STR(binary_to_list(Channel)),
+    PruneFun = fun(#{ckey := Key, cvalue := Value}, _) ->
+        EKey = imem_datatype:term_to_binterm(Key),
+        {HistTime, OValue, NValue, CUser} = case 
+            hist_read(User, Channel, [Key]) of
+            [] ->
+                {Time, undefined, Value, User};
+            [#{cvhist := Hist}] ->
+                    prune_cvhist(Hist, Value, Time, User)
+        end,
+        imem_meta:write(HistoryTable, 
+            #skvhHist{ckey=EKey, cvhist=[#skvhCL{time=HistTime, ovalue=OValue,
+                                                 nvalue=NValue, cuser=CUser}]})
+    end,
+    foldl(User, PruneFun, [], Channel).
+
+-spec prune_cvhist(list(), binary(), tuple(), ddEntityId()) -> tuple().
+prune_cvhist([], Value, Time, User) -> {Time, undefined, Value, User};
+prune_cvhist([#{nvalue := V, ovalue := V}|Rest], Value, Time, User) ->
+    prune_cvhist(Rest, Value, Time, User);
+prune_cvhist([#{nvalue := NVal, ovalue := OVal, time := HistTime, 
+                       cuser := CUser} | _], NVal, _, _) ->
+    {HistTime, OVal, NVal, CUser};
+prune_cvhist([#{nvalue := NVal}| _], Value, Time, User) ->
+    {Time, NVal, Value, User}.
 
 -spec search_deleted_init(binary(), binary(), binary(), binary()) -> list().
 search_deleted_init(CKey1, CKey2, Text, Channel) ->
