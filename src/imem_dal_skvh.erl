@@ -1503,6 +1503,26 @@ skvh_operations(_) ->
 		?assertEqual({ok,[<<"1W8TVA">>]}, write(system, ?Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
 		?assertEqual({ok,[<<"22D5ZL">>]}, write(system, ?Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
 
+        %% audit_write_noop test
+        write(system, ?Channel, [1, k], <<"{\"a\":\"a\"}">>),
+        Time = erlang:now(),
+        ok = audit_write_noop(system, ?Channel, [1,k]),
+        AudNoop = audit_readGT(system, ?Channel, Time, 10),
+        ?assertEqual(1, length(AudNoop)),
+        ?assertMatch([#{nvalue := V, ovalue := V}], AudNoop),
+
+        %% prune_history test
+        [#{cvhist := Hist1}] = hist_read(system, ?Channel, [[1,k]]),
+        %% noop history created
+        write(system, ?Channel, [1, k], <<"{\"a\":\"a\"}">>),
+        ?assertEqual(1, length(Hist1)),
+        [#{cvhist := Hist2}] = hist_read(system, ?Channel, [[1,k]]),
+        ?assertEqual(2, length(Hist2)),
+        prune_history(system, ?Channel),
+        [#{cvhist := Hist3}] = hist_read(system, ?Channel, [[1,k]]),
+        ?assertEqual(1, length(Hist3)),
+        ?assertMatch([#{ovalue := undefined, nvalue := <<"{\"a\":\"a\"}">>}], Hist3),
+
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
 				
