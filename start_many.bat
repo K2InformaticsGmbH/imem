@@ -17,7 +17,7 @@ REM limitations under the License.
 REM Starts depending on the input parameter at least 2 nodes.
 
 REM Input parameter number of nodes
-SET "param=%1"
+SET param=%1
 
 REM Input parameter number of nodes must be an number
 IF DEFINED param (
