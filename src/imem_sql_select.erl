@@ -14,6 +14,8 @@
 
 exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ToDo: spawn imem_statement here and execute in its own security context (compile & run from same process)
+    ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
+    % ?LogDebug("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
     {_, TableList} = lists:keyfind(from, 1, SelectSections),
     % ?Info("TableList: ~p~n", [TableList]),
     Params = imem_sql:params_from_opts(Opts,ParseTree),
@@ -202,22 +204,25 @@ db1_with_or_without_sec(IsSec) ->
                     from atom where item = to_atom('filter_funs')"
                     ,
                     [{<<"filter_funs">>,<<"list">>}]
+                ),
+                % ?assertException(throw,{'UnimplementedException',{"Unsupported filter function", {mfa,imem_sql_funs,_,_}}},
+                %     exec_fetch_sort(SKey, query3p3, 100, IsSec, "
+                %         select item, hd(mfa('imem_sql_funs', item, '[]')) 
+                %         from atom where item = to_atom('filter_funs')" )
+                % ),
+                Sql3p4 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_meta','schema','[]'))
+                    and item like 'list%'",
+                ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
+                ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_,_}}},
+                    exec_fetch_sort(SKey, query3p4, 100, IsSec, Sql3p4)
                 )
-                % , % ToDo: test if mfa security is implemented
-                % Sql3p4 = "select item 
-                %     from dual,atom 
-                %     where is_member(item, mfa('imem_meta','schema','[]'))
-                %     and item like 'list%'",
-                % ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
-                % ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_}}},
-                %     exec_fetch_sort(SKey, query3p4, 100, IsSec, Sql3p4)
-                % )
                 ;
             false ->
-                % ToDo: test if mfa security is implemented
-                % ?assertException(throw,{'SecurityException',{"Not logged in",undefined}},
-                %     exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
-                % ),
+                ?assertException(throw,{'SecurityException',{"Not logged in",_}},
+                    exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
+                ),
                 ok
         end,
 

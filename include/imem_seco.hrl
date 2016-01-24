@@ -97,6 +97,7 @@
 -define(IMEM_SKEY_NAME,imem_skey).                                    % security key name in process context
 -define(IMEM_SKEY_PUT(__SKey),erlang:put(?IMEM_SKEY_NAME,__SKey)).    % store security key in process dict
 -define(IMEM_SKEY_GET,erlang:get(?IMEM_SKEY_NAME)).                   % retrieve security key from process dict
+-define(IMEM_SKEY_GET_FUN,fun() -> erlang:get(?IMEM_SKEY_NAME) end).  % retrieve security key from process dict
 
 -define(SecurityException(Reason), ?THROW_EXCEPTION('SecurityException',Reason)).
 -define(SecurityViolation(Reason), ?THROW_EXCEPTION('SecurityViolation',Reason)).

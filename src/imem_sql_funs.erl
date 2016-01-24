@@ -974,7 +974,18 @@ ternary_fun({Op, A, B, C}) ->
     ternary_fun_final( {Op, FA, FB, FC});
 ternary_fun(Value) -> Value.
 
-ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa' ->
+ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
+    % ?LogDebug("Permission query ~p ~p ~p ~p",[Mod, Func, Args,?IMEM_SKEY_GET]),
+    case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Mod,Func}) of
+        true ->     ok;   
+        false ->    ?SecurityException({"Function evaluation unauthorized",{Mod,Func,?IMEM_SKEY_GET,self()}})
+    end,
+    case bind_action(Args) of 
+        false ->  apply(Mod,Func,Args);        
+        true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
+        CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
+    end;
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa'->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
@@ -1007,8 +1018,7 @@ ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa' ->
         {ABind,BBind,CBind} ->  fun(X) -> Cb=?BoundVal(CBind,X),Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end
     end;
 ternary_fun_final(BTree) ->
-    ?UnimplementedException({"Unsupported filter function",{BTree}}).
-
+    ?UnimplementedException({"Unsupported filter function",BTree}).
 
 remap(Val,From,To) ->
     if 
@@ -1016,15 +1026,13 @@ remap(Val,From,To) ->
         true ->         Val
     end.
 
-% mfa(Module,Function,Args) ->
-%     case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Module,Function}) of
-%         true ->     
-%             apply(Module,Function,Args);
-%         false ->    
-%             ?SecurityException({"Function evaluation unauthorized",{Module,Function,?IMEM_SKEY_GET,self()}})
-%     end;
-mfa(Module,Function,Args) -> 
-    apply(Module,Function,Args). % ToDo: Check permissions after moving statment creation into imem_statement process
+mfa(Mod,Func,Args) ->
+    SKey = imem_sec:have_permission(?IMEM_SKEY_GET_FUN(),{eval_mfa,Mod,Func}),
+    case SKey of
+        true ->     apply(Mod,Func,Args);   
+        false ->    ?SecurityException({"Function evaluation unauthorized",{Mod,Func,SKey,self()}})
+    end.
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).

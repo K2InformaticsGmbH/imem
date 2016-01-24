@@ -915,7 +915,7 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
     end.
 
 dal_exec(SKey, Module, Function, Params) ->
-    case re:run(atom_to_list(Module),"_dal_|_prov_",[]) of
+    case re:run(atom_to_list(Module),"_dal_|_prov_|_prov$|_dal$") of
         nomatch ->  ?SecurityException({"dal_exec attempted on wrong module", {Module,Function,Params,SKey}});
         _ ->        dal_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}])
     end.
