@@ -802,13 +802,14 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         {type,?MODULE} ->                                                 % module defined table
                 ?ClientError({"Invalid module name for table type",{type,?MODULE}});
         {type,M} ->                                                 % module defined table
-                case lists:member(M,erlang:loaded()) of
-                    true -> case lists:member({create_table,4},M:module_info(exports)) of
-                                true ->     M;
-                                false ->    ?ClientError({"Bad module name for table type",{type,M}})
-                            end;
-                    false ->
-                        ?ClientError({"Unknown module name for table type",{type,M}})
+                case catch M:module_info(exports) of
+                    {'EXIT',_} ->
+                        ?ClientError({"Unknown module name for table type",{type,M}});
+                    Exports -> 
+                        case lists:member({create_table,4},Exports) of
+                            true ->     M;
+                            false ->    ?ClientError({"Bad module name for table type",{type,M}})
+                        end
                 end
     end,
     case {TypeMod,length(ColInfos)} of

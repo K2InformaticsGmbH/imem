@@ -1112,6 +1112,10 @@ expr_math(Op, CMapA, CMapB, BT) ->
             #bind{type=float,btree={Op,CMapA,CMapB}};
         {_,float,_,_} ->
             #bind{type=float,btree={Op,CMapA,CMapB}};
+        {list,_,_,_} ->
+            #bind{type=list,btree={Op,CMapA,CMapB}};
+        {map,_,_,_} ->
+            #bind{type=map,btree={Op,CMapA,CMapB}};
         {_,_,_,_} ->
             #bind{type=number,btree={Op,CMapA,CMapB}}
     end.
