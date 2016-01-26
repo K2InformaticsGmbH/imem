@@ -3,6 +3,13 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.4 (Release Date 26.01.2016)
+=======================================
+
+* Added is_val support for sql
+* Corrected to_map function
+
+
 Version 1.4.3 (Release Date 19.01.2016)
 =======================================
 
