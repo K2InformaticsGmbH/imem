@@ -4,14 +4,14 @@
 -include("imem_sql.hrl").
 
 -define( FilterFuns, 
-            [ list, prefix_ul, safe, concat, is_nav, is_key 
+            [ list, prefix_ul, safe, concat, is_nav, is_val, is_key 
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
             , json_to_list, json_arr_proj, json_obj_proj, json_value
-            , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap
+            , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap, phash2
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa
             ]).
@@ -38,6 +38,7 @@
         , mod_op_3/5
         , math_plus/1
         , math_minus/1
+        , is_val/1
         , is_nav/1
         , is_key/2
         ]).
@@ -124,6 +125,7 @@ unary_fun_bind_type("map_size") ->              #bind{type=map,default= #{}};
 unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
 unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
+unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
@@ -145,6 +147,7 @@ unary_fun_result_type("from_decimal") ->        #bind{type=float,default=?nav};
 unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
 unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
+unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
@@ -174,6 +177,7 @@ binary_fun_bind_type1("from_decimal") ->        #bind{type=decimal,default=?nav}
 binary_fun_bind_type1("json_arr_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_value") ->          #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("phash2") ->              #bind{type=term,default=?nav};
 binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_bind_type2(B) when is_binary(B) ->   binary_fun_bind_type2(binary_to_list(B));
@@ -187,6 +191,7 @@ binary_fun_bind_type2("from_decimal") ->        #bind{type=integer,default=0};
 binary_fun_bind_type2("json_arr_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_value") ->          #bind{type=json,default=[]};
+binary_fun_bind_type2("phash2") ->              #bind{type=integer,default=27};
 binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_result_type(B) when is_binary(B) ->  binary_fun_result_type(binary_to_list(B));
@@ -200,6 +205,7 @@ binary_fun_result_type("from_decimal") ->       #bind{type=float,default=?nav};
 binary_fun_result_type("json_arr_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_value") ->         #bind{type=json,default=[]};
+binary_fun_result_type("phash2") ->             #bind{type=integer,default=0};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 
 
@@ -381,11 +387,11 @@ expr_fun({'safe', A}) ->
     safe_fun(A);
 expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav' ->
+expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav';Op=='is_val' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr' ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='from_binterm';Op=='prefix_ul' ->
+expr_fun({Op, A}) when Op=='from_binterm';Op=='prefix_ul';Op=='phash2' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op=='json_to_list'->
     unary_json_fun({Op, A});
@@ -542,7 +548,11 @@ math_minus(_) ->                    ?nav.
 
 -define(MathOpBlockBinary(__Op,__A,__B), 
         case __Op of
-            _ when (is_number(__A)==false);(is_number(__B)==false) -> ?nav;
+            '+'  when is_list(__A), is_list(__B) ->                     (__A ++ __B);
+            '+'  when is_map(__A), is_map(__B) ->                       maps:merge(__A,__B);
+            '-'  when is_list(__A), is_list(__B) ->                     (__A -- __B);
+            '-'  when is_map(__A), is_list(__B) ->                      maps:without(__B,__A);
+            _ when (is_number(__A)==false);(is_number(__B)==false) ->   ?nav;
             '+'  ->      (__A + __B);
             '-'  ->      (__A - __B);
             '*'  ->      (__A * __B);
@@ -606,6 +616,12 @@ unary_fun({Op, A}) ->
     unary_fun_final( {Op, expr_fun(A)});
 unary_fun(Value) -> Value.
 
+unary_fun_final({'is_val', A}) -> 
+    case bind_action(A) of 
+        false ->        is_val(A);
+        true ->         fun(X) -> Ab=A(X),is_val(Ab) end;
+        ABind ->        fun(X) -> Ab=?BoundVal(ABind,X),is_val(Ab) end
+    end;
 unary_fun_final({'is_nav', A}) -> 
     case bind_action(A) of 
         false ->        is_nav(A);
@@ -622,6 +638,8 @@ unary_fun_final({Op, A}) ->
 is_nav(?nav) -> true;
 is_nav(_) -> false.
 
+is_val(?nav) -> false;
+is_val(_) -> true.
 
 to_atom(A) when is_atom(A) -> A;
 to_atom(B) when is_binary(B) -> ?binary_to_atom(B);
@@ -660,9 +678,15 @@ to_list(B) when is_binary(B) -> imem_datatype:io_to_list(B,0);
 to_list(M) when is_map(M) -> imem_maps:to_list(M);
 to_list(L) when is_list(L) -> L.
 
-to_map(B) when is_binary(B) -> imem_datatype:io_to_map(B);
-to_map(M) when is_map(M) -> M;
-to_map(L) when is_list(L) -> maps:from_list(L).
+to_map(M) when is_map(M) ->     M;
+to_map(L) when is_list(L) ->    maps:from_list(L);
+to_map(B) when is_binary(B) ->  
+    case catch imem_datatype:io_to_map(B) of        
+        M when is_map(M) -> 
+            M;
+        _ ->                
+            imem_json:decode(B, [return_maps])
+    end.
 
 to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
 to_term(T) -> T.
@@ -974,7 +998,18 @@ ternary_fun({Op, A, B, C}) ->
     ternary_fun_final( {Op, FA, FB, FC});
 ternary_fun(Value) -> Value.
 
-ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa' ->
+ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
+    % ?LogDebug("Permission query ~p ~p ~p ~p",[Mod, Func, Args,?IMEM_SKEY_GET]),
+    case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Mod,Func}) of
+        true ->     ok;   
+        false ->    ?SecurityException({"Function evaluation unauthorized",{Mod,Func,?IMEM_SKEY_GET,self()}})
+    end,
+    case bind_action(Args) of 
+        false ->  apply(Mod,Func,Args);        
+        true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
+        CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
+    end;
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa'->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
@@ -1007,8 +1042,7 @@ ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa' ->
         {ABind,BBind,CBind} ->  fun(X) -> Cb=?BoundVal(CBind,X),Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end
     end;
 ternary_fun_final(BTree) ->
-    ?UnimplementedException({"Unsupported filter function",{BTree}}).
-
+    ?UnimplementedException({"Unsupported filter function",BTree}).
 
 remap(Val,From,To) ->
     if 
@@ -1016,15 +1050,13 @@ remap(Val,From,To) ->
         true ->         Val
     end.
 
-% mfa(Module,Function,Args) ->
-%     case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Module,Function}) of
-%         true ->     
-%             apply(Module,Function,Args);
-%         false ->    
-%             ?SecurityException({"Function evaluation unauthorized",{Module,Function,?IMEM_SKEY_GET,self()}})
-%     end;
-mfa(Module,Function,Args) -> 
-    apply(Module,Function,Args). % ToDo: Check permissions after moving statment creation into imem_statement process
+mfa(Mod,Func,Args) ->
+    SKey = imem_sec:have_permission(?IMEM_SKEY_GET_FUN(),{eval_mfa,Mod,Func}),
+    case SKey of
+        true ->     apply(Mod,Func,Args);   
+        false ->    ?SecurityException({"Function evaluation unauthorized",{Mod,Func,SKey,self()}})
+    end.
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).

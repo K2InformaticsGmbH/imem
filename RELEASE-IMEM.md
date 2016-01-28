@@ -3,11 +3,27 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.4 (Release Date 26.01.2016)
+=======================================
+
+* Added is_val support for sql
+* Corrected to_map function
+
+
+Version 1.4.3 (Release Date 19.01.2016)
+=======================================
+
+* Added support for functions (mfa) using sql
+* Improved generators for primitive data types
+* Added complexity check for "alter user password" sql
+
+
 Version 1.4.2 (Release Date 12.12.2015)
 =======================================
 
 * adding temporary lock to authentication
 * fix modulo calculation in failure tuple
+
 
 Version 1.4.1 (Release Date 10.12.2015)
 =======================================
