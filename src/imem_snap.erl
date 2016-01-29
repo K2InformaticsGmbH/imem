@@ -479,7 +479,7 @@ restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
         -> catch imem_meta:truncate_table(Tab);
         true -> ok
     end,
-    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {[],[],[]}).
+    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {0,0,0}).
 
 read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Debug("backup file header read"),
@@ -539,7 +539,7 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
         TableType = imem_if_mnesia:table_info(Tab, type),
         lists:foldl(
           fun(Row, {I, E, A}) ->
-            UpdatedRows = length(E) + length(A),
+            UpdatedRows = E + A,
             if (UpdatedRows > 0 andalso UpdatedRows rem 500 == 0) ->
                    ?Info("restoring ~p updated ~p rows~n", [Tab, UpdatedRows]);
                true -> ok
@@ -548,24 +548,24 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
                 K = element(2, Row),
                 case imem_meta:read(Tab, K) of
                     [Row] ->    % found identical existing row
-                            {[Row|I], E, A};
-                    [RowN] ->   % existing row with different content,
+                            {I+1, E, A};
+                    [_] ->   % existing row with different content,
                         case Strategy of
                             replace ->
                                 if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                                {I, [{Row,RowN}|E], A};
+                                {I, E+1, A};
                             destroy ->
                                 if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                                {I, E, [Row|A]};
+                                {I, E, A+1};
                             _ -> {I, E, A}
                         end;
                     [] -> % row not found, appending
                         if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                        {I, E, [Row|A]}
+                        {I, E, A+1}
                 end;
             true ->
                 if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                {I, E, [Row|A]}
+                {I, E, A+1}
             end
         end,
         {OldI, OldE, OldA},
