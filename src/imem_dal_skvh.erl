@@ -338,13 +338,14 @@ is_row_type(binary, R) -> ?ClientError({"Bad datatype, expected binary", R}).
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError
 -spec channel_ctx(binary()|atom()) -> #skvhCtx{}.
-channel_ctx(Channel) ->
+channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
     Main = table_name(Channel),
     Tab = try 
         T = binary_to_existing_atom(Main,utf8),
         imem_meta:check_local_table_copy(T),           %% throws if master table is not locally resident
         T
     catch
+        throw:Throw -> throw(Throw);
         _:_ ->  ?ClientError({"Channel does not exist", Channel})
     end,
     Audit = try
