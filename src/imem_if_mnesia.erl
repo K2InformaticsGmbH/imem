@@ -885,20 +885,23 @@ start_link(Params) ->
 
 init(_) ->
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
+    {ok, ClusterManagers} = application:get_env(erl_cluster_mgrs),
     case disc_schema_nodes(SchemaName) of
         [] ->   
             case node() of
                 nonode@nohost ->    
                     ok;
                 _ ->                
-                    ?Warn ("no node found at ~p for schema ~p in erlang cluster ~p~n"
-                          , [node(), SchemaName, erlang:get_cookie()]
-                          )
+                    ?Warn ("no node found at ~p for schema ~p cluster ~p~n",
+                           [node(), SchemaName, erlang:get_cookie()]),
+                    {ok, _} = mnesia:change_config(
+                                extra_db_nodes, [node() | ClusterManagers])
             end;
         [DiscSchemaNode|_] ->
-            ?Info("adding ~p to schema ~p on ~p~n", [node(), SchemaName, DiscSchemaNode]),
+            ?Info("adding ~p to schema ~p on ~p~n",
+                  [node(), SchemaName, DiscSchemaNode]),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config,
-                               [extra_db_nodes, [node()]])
+                               [extra_db_nodes, [node() | ClusterManagers]])
     end,
     {ok, NodeType} = application:get_env(mnesia_node_type),
     ?Info("mnesia node type is '~p'~n", [NodeType]),
