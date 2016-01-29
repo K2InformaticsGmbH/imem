@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.5 (Release Date 29.01.2016)
+=======================================
+* Fixed bug searching delete objects
+
+
 Version 1.4.4 (Release Date 26.01.2016)
 =======================================
 

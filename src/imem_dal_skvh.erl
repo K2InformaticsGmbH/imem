@@ -338,13 +338,14 @@ is_row_type(binary, R) -> ?ClientError({"Bad datatype, expected binary", R}).
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError
 -spec channel_ctx(binary()|atom()) -> #skvhCtx{}.
-channel_ctx(Channel) ->
+channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
     Main = table_name(Channel),
     Tab = try 
         T = binary_to_existing_atom(Main,utf8),
         imem_meta:check_local_table_copy(T),           %% throws if master table is not locally resident
         T
     catch
+        throw:Throw -> throw(Throw);
         _:_ ->  ?ClientError({"Channel does not exist", Channel})
     end,
     Audit = try
@@ -962,8 +963,6 @@ find_deleted_clients(Table, ClientKey, Key , EndKey, <<>>, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
             {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
-        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
-            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
         _ ->
             {Limit, Acc}
     end,
@@ -972,8 +971,6 @@ find_deleted_clients(Table, ClientKey, Key, EndKey, Text, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
             check_binary_match(Key, Value, Text, Acc, Limit);
-        [#skvhHist{cvhist = [#skvhCL{nvalue = NValue}| _]}] ->
-            check_binary_match(Key, NValue, Text, Acc, Limit);
         _ ->
             {Limit, Acc}
     end,
