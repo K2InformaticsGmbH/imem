@@ -963,8 +963,6 @@ find_deleted_clients(Table, ClientKey, Key , EndKey, <<>>, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
             {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
-        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
-            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
         _ ->
             {Limit, Acc}
     end,
@@ -973,8 +971,6 @@ find_deleted_clients(Table, ClientKey, Key, EndKey, Text, Limit, Acc) ->
     {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
         [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
             check_binary_match(Key, Value, Text, Acc, Limit);
-        [#skvhHist{cvhist = [#skvhCL{nvalue = NValue}| _]}] ->
-            check_binary_match(Key, NValue, Text, Acc, Limit);
         _ ->
             {Limit, Acc}
     end,
