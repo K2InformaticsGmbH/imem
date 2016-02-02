@@ -15,6 +15,7 @@
                                , {<<"colon">>,columnSeparator,<<":">>}
                                , {<<"pipe">>,columnSeparator,<<"|">>}
                                , {<<"semicolon">>,columnSeparator,<<";">>}
+                               , {<<"space">>,columnSeparator,<<" ">>}
                                , {<<"header">>,header,true}
                                , {<<"utf8">>,encoding,utf8}
                                , {<<"ansi">>,encoding,ansi}
