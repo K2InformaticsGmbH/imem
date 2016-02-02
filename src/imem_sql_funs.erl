@@ -10,7 +10,7 @@
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
-            , json_to_list, json_arr_proj, json_obj_proj, json_value
+            , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value
             , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap, phash2
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa
@@ -54,6 +54,7 @@
         , to_number/1
         , to_string/1
         , to_binstr/1
+        , to_json/1
         , to_atom/1
         , to_existing_atom/1
         , to_tuple/1
@@ -97,6 +98,7 @@
 filter_funs() -> ?FilterFuns.
 
 unary_fun_bind_type(B) when is_binary(B) ->     unary_fun_bind_type(binary_to_list(B));
+unary_fun_bind_type("to_json") ->               #bind{type=json,default=?nav};
 unary_fun_bind_type([$t,$o,$_|_]) ->            #bind{type=binstr,default= <<>>};
 unary_fun_bind_type([$#,_]) ->                  #bind{type=json,default= <<>>};     % #key(s), #value(s) for now
 unary_fun_bind_type("is_integer") ->            #bind{type=integer,default=?nav};
@@ -148,6 +150,7 @@ unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
 unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
+unary_fun_result_type("to_json") ->             #bind{type=binstr,default=?nav};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
@@ -389,7 +392,7 @@ expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='to_
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav';Op=='is_val' ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr' ->
+expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr';Op=='to_json' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='from_binterm';Op=='prefix_ul';Op=='phash2' ->
     unary_fun({Op, A});
@@ -690,6 +693,11 @@ to_map(B) when is_binary(B) ->
 
 to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
 to_term(T) -> T.
+
+to_json(B) when is_binary(B) -> 
+    imem_json:encode(imem_json:decode(B, [return_maps]));
+to_json(M) -> 
+    imem_json:encode(M).
 
 to_pid(T) when is_pid(T) -> T;
 to_pid(B) -> imem_datatype:io_to_pid(B).
