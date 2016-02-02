@@ -52,7 +52,8 @@ find([{call,_,{remote,_,{atom,_,imem_meta},{atom,_,get_config_hlk}},
                 [Doc] -> [ast2term(Doc)];
                 _ -> []
             end]) | Acc]);
-find([C|Comps], Acc) when is_atom(C); is_integer(C) -> find(Comps, Acc);
+find([C|Comps], Acc) when is_atom(C); is_integer(C); is_float(C) ->
+    find(Comps, Acc);
 find([C|Comps], Acc) -> find(Comps, find(C, Acc));
 find(C, Acc) when is_tuple(C) -> find(tuple_to_list(C), Acc).
 
