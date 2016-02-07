@@ -3,6 +3,13 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.6 (Release Date 05.02.2016)
+=======================================
+* Improved snapshot restore efficiency
+* Added to_json as sql function
+* Fixed bug in imem_doc_config
+
+
 Version 1.4.5 (Release Date 29.01.2016)
 =======================================
 * Fixed bug searching delete objects

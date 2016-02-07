@@ -37,6 +37,7 @@
         ]).
 
 -export([ file_info/1
+        , file_info/3
         , file_list/1
         , column_names/1
         , select/4
