@@ -299,6 +299,8 @@ expr_fun({const, A}) when is_tuple(A) -> A;
 %% create a list
 expr_fun({list, L}) when is_list(L) -> 
     list_fun(lists:reverse([expr_fun(E) || E <- L]),[]);
+expr_fun(L) when is_list(L) -> 
+    list_fun(lists:reverse([expr_fun(E) || E <- L]),[]);
 %% Select field Expression header
 expr_fun(#bind{tind=0,cind=0,btree=BTree}) -> expr_fun(BTree);
 %% Comparison expressions

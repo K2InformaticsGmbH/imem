@@ -94,6 +94,9 @@ setup() ->
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
+    catch imem_meta:drop_table(skvhSqlTest),
+    catch imem_meta:drop_table(skvhSqlTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhSqlTestHist),
     ?imem_test_setup.
 
 teardown(_SKey) -> 
@@ -101,6 +104,9 @@ teardown(_SKey) ->
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
+    catch imem_meta:drop_table(skvhSqlTest),
+    catch imem_meta:drop_table(skvhSqlTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhSqlTestHist),        
     ?imem_test_teardown.
 
 db1_test_() ->
@@ -170,6 +176,20 @@ db1_with_or_without_sec(IsSec) ->
 
         ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
 
+        ?assertEqual(ok, imem_dal_skvh:create_check_channel(<<"skvhSqlTest">>)),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,100],<<"100">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,200],<<"200">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,300],<<"300">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,400],<<"400">>),
+
+        Sql3q1 = "select cvalue
+                    from integer, skvhSqlTest
+                    where item = 300 
+                    and ckey = list(123,item)",
+        exec_fetch_sort_equal(SKey, query3q1, 100, IsSec, Sql3q1
+            ,
+            [{<<"300">>}]
+        ),
 
         Sql3p1 = "select item 
                     from dual,atom 
