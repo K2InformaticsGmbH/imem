@@ -491,8 +491,8 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
                     if_write(SKey, ddAccountDyn, AD);               
                 [#ddAccountDyn{lastFailureTime=undefined}] ->       % never had a failure before
                     ok;
-                [AD] ->
-                    fail_or_clear_password_lock(SeCo, AD)
+                [#ddAccountDyn{id=AccountId}] ->
+                    fail_or_clear_password_lock(SeCo, AccountId)
             end,
             ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             seco_register(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5]}, authenticated);     % return SKey only
