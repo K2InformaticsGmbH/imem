@@ -3551,7 +3551,7 @@ meta_partitions(_) ->
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)), % one record to first partition
-        timer:sleep(1050),
+        timer:sleep(920),   % was 1050
         _FL2 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@, _FL2, written]), 
 
@@ -3559,7 +3559,7 @@ meta_partitions(_) ->
         FL3 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
         ?assert(FL3 >= 3),
-        timer:sleep(1050),
+        timer:sleep(920),   % was 1050
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
         % ?LogDebug("success ~p~n", [roll_partitioned_table]),
         {timeout, 5, fun() -> ?assertEqual(ok,drop_table(fakelog_1@)) end},
