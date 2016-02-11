@@ -3,6 +3,20 @@
 
 -export([get_apps/1, get_app/1, get_mods/1, get_mod/1]).
 
+-export([get_apps_kc/1]).
+
+get_apps_kc(Apps) ->
+    maps:fold(
+      fun(_, Mods, Acc) ->
+              maps:fold(
+                fun(_, Configs,IAcc) ->
+                        lists:foldl(
+                          fun({K,_}, IIAcc) -> [{K,<<>>}|IIAcc];
+                             ({K,_,C}, IIAcc) -> [{K,list_to_binary(C)}|IIAcc]
+                          end, IAcc, Configs)
+                end, Acc, Mods)
+      end, [], get_apps(Apps)).
+
 get_apps(Apps) -> get_apps(Apps, #{}).
 get_apps([], Confs) -> Confs;
 get_apps([App|Apps], Confs) ->
