@@ -680,7 +680,7 @@ to_tuple(B) when is_binary(B) -> imem_datatype:io_to_tuple(B,0);
 to_tuple(T) when is_tuple(T) -> T.
 
 to_list(B) when is_binary(B) -> imem_datatype:io_to_list(B,0);
-to_list(M) when is_map(M) -> imem_maps:to_list(M);
+to_list(M) when is_map(M) -> maps:to_list(M);
 to_list(L) when is_list(L) -> L.
 
 to_map(M) when is_map(M) ->     M;
