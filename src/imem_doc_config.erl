@@ -60,12 +60,14 @@ find([{call,_,{remote,_,{atom,_,imem_meta},{atom,_,get_config_hlk}},
        [_,Key,_,_,Default|Rest]} | Comps], Acc) ->
     find(
       Comps,
-      [list_to_tuple(
-         [ast2term(Key), ast2term(Default)
-          | case Rest of
-                [Doc] -> [ast2term(Doc)];
-                _ -> []
-            end]) | Acc]);
+      lists:usort(
+        [list_to_tuple(
+           [ast2term(Key), ast2term(Default)
+            | case Rest of
+                  [Doc] -> [ast2term(Doc)];
+                  _ -> []
+              end]) | Acc]
+       ));
 find([C|Comps], Acc) when is_atom(C); is_integer(C); is_float(C) ->
     find(Comps, Acc);
 find([C|Comps], Acc) -> find(Comps, find(C, Acc));
