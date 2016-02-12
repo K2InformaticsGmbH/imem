@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.7 (Release Date 12.02.2016)
+=======================================
+* Fix imem_if_csv for large lines.
+* Fixed bug in authentication failure handling
+
+
 Version 1.4.6 (Release Date 05.02.2016)
 =======================================
 * Improved snapshot restore efficiency
