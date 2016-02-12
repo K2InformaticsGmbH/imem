@@ -497,37 +497,44 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSk
     end.
 
 read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator) ->
-    read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator,[]).
+    read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator,0, []).
 
-read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator, Acc) ->
-    {ok, D} = file:pread(Io, Pos, BlockSize),
-    case {byte_size(D),byte_size(LineSeparator)} of
-        {0,_} ->
-            list_to_binary(lists:reverse(Acc));
-        {BlockSize,1} when Acc == [] ->  
-            case binary:match(D, LineSeparator) of
-                nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, [D]);
-                _ ->        {ok, D}
+read_line_or_more(_Io, _Pos, _BlockSize, MaxLineSize, _LineSeparator, TotalBytes, _Acc) when TotalBytes > MaxLineSize ->
+    ?Error("Maximum csv line size exceeded ~p", [MaxLineSize]),
+    {aborted, einval};
+read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator, TotalBytes, Acc) ->
+    case file:pread(Io, Pos, BlockSize) of
+        {ok, D} ->
+            case {byte_size(D),byte_size(LineSeparator)} of
+                {0,_} ->
+                    list_to_binary(lists:reverse(Acc));
+                {BlockSize,1} when Acc == [] ->  
+                    case binary:match(D, LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, byte_size(D), [D]);
+                        _ ->        {ok, D}
+                    end;
+                {BlockSize,1} ->  
+                    case binary:match(D, LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, TotalBytes + byte_size(D), [D|Acc]);
+                        _ ->        {ok, list_to_binary(lists:reverse([D|Acc]))}
+                    end;
+                {BlockSize,_} when Acc == [] ->  
+                    case binary:match(D, LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, byte_size(D), [D]);
+                        _ ->        {ok, D}
+                    end;
+                {BlockSize,_} ->  
+                    case binary:match(list_to_binary(lists:reverse([D|Acc])), LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, TotalBytes + byte_size(D), [D|Acc]);
+                        _ ->        {ok, list_to_binary(lists:reverse([D|Acc]))}
+                    end;
+                {_,_} when Acc == [] ->
+                    {ok, D};
+                {_,_} ->
+                    {ok, list_to_binary(lists:reverse([D|Acc]))}
             end;
-        {BlockSize,1} ->  
-            case binary:match(D, LineSeparator) of
-                nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, [D|Acc]);
-                _ ->        {ok, list_to_binary(lists:reverse([D|Acc]))}
-            end;
-        {BlockSize,_} when Acc == [] ->  
-            case binary:match(D, LineSeparator) of
-                nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, [D]);
-                _ ->        {ok, D}
-            end;
-        {BlockSize,_} ->  
-            case binary:match(list_to_binary(lists:reverse([D|Acc])), LineSeparator) of
-                nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, [D|Acc]);
-                _ ->        {ok, list_to_binary(lists:reverse([D|Acc]))}
-            end;
-        {_,_} when Acc == [] ->
-            {ok, D};
-        {_,_} ->
-            {ok, list_to_binary(lists:reverse([D|Acc]))}
+        Error ->
+            Error
     end.
 
 continuation(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts) ->
