@@ -299,6 +299,18 @@ db1_with_or_without_sec(IsSec) ->
             ]
         ),
 
+        CsvFileNameLong = <<"CsvTestFileNameLong123abc.txt">>,
+        BigField = binary:copy(<<"Test">>, 1500),
+        file:write_file(CsvFileNameLong,<<"Col1\tCol2\r\nA1\t1\r\n",BigField/binary,"\t2\r\n">>),
+
+        exec_fetch_sort_equal(SKey, query06, 100, IsSec, "
+            select col1, col2, col3 from csv$skip1$tab$3." ++ ?DQFN(CsvFileNameLong)  
+            ,
+            [ {<<"A1">>,<<"1">>,<<>>}
+            , {BigField,<<"2">>,<<>>}
+            ]
+        ),
+
         exec_fetch_sort_equal(SKey, query0g, 100, IsSec, "
             select list(1,to_atom('a')) from dual"
             ,
