@@ -14,7 +14,7 @@
                                'bxor','bsl','bsr','abs','div','rem',
                                'min','max','float','now','date','element',
                                'size','bit_size','byte_size','binary_part',
-                               'phash2','md5','throw','hd','tl']).
+                               'phash2','md5','throw','hd','tl','setelement','round']).
 -define(UNSAFE_ERLANG_FUNCTIONS,['list_to_atom','binary_to_atom','list_to_pid','binary_to_term','is_pid','is_port','is_process_alive']).
 
 -define(ROWFUN_EXTENSIONS,[{<<"nodef">>,1}

@@ -1329,7 +1329,7 @@ restore_table_as(Alias, NewAlias) when is_atom(Alias) ->
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
         [PTN] ->
-            NewPTN = case catch ?binary_to_existing_atom(NewAlias) of
+            NewPTN = case catch ?binary_to_atom(NewAlias) of    % _existing
                           {'EXIT',_} -> NewAlias;
                           {'ClientError',_} -> NewAlias;
                           NewAliasAtom ->

@@ -427,8 +427,8 @@ restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
                end,
     erlang:whereis(?MODULE) ! imem_snap_loop,
     case restore_chunked(list_to_atom(DstTab), SnapFile, Strategy, Simulate) of
-        {L1,L2,L3} when is_list(L1), is_list(L2), is_list(L3) ->
-            ?Info("Restored table ~s as ~s from ~s", [SrcTab, DstTab, SnapFile]),
+        {L1,L2,L3} ->
+            ?Info("Restored table ~s as ~s from ~s with result ~p", [SrcTab, DstTab, SnapFile, {L1,L2,L3}]),
             ok;
         Error -> Error
     end.
