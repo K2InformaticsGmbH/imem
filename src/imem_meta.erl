@@ -57,6 +57,15 @@
 
 -define(PartEndDigits,10).  % Number of digits representing the partition end (seconds since epoch) in partition names
 
+-define(GET_SNAP_NAME_TRANS(__TABLE),
+        ?GET_CONFIG(snapNameTrans,[__TABLE], <<"fun(N) -> atom_to_list(N) end">> , "Name translation for snapshot files, '.bkp' added")
+       ).
+-define(GET_SNAP_PROP_TRANS(__TABLE),
+        ?GET_CONFIG(snapPropTrans,[__TABLE], <<"fun(P) -> P end">> , "Table property translation for snapshot files")
+       ).
+-define(GET_SNAP_ROW_TRANS(__TABLE),
+        ?GET_CONFIG(snapRowTrans,[__TABLE], <<"fun(R) -> R end">> , "Row translation for snapshot files")
+       ).
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
@@ -1262,19 +1271,28 @@ snapshot_table({Schema,Table}) ->
 snapshot_table(Alias) when is_atom(Alias) ->
     log_to_db(debug,?MODULE,snapshot_table,[{table,Alias}],"snapshot table"),
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
-        [] ->   ?ClientError({"Table does not exist",Alias});
-        PTNs -> case lists:usort([check_table(T) || T <- PTNs]) of
-                    [ok] -> snapshot_partitioned_tables(PTNs);
-                    _ ->    ?ClientError({"Table does not exist",Alias})
-                end
+        [] ->   
+            ?ClientError({"Table does not exist",Alias});
+        PTNs -> 
+            case lists:usort([check_table(T) || T <- PTNs]) of
+                [ok] -> 
+                    snapshot_partitioned_tables(
+                          imem_datatype:io_to_fun(?GET_SNAP_NAME_TRANS(Alias),1)
+                        , imem_datatype:io_to_fun(?GET_SNAP_PROP_TRANS(Alias),1)
+                        , imem_datatype:io_to_fun(?GET_SNAP_ROW_TRANS(Alias),1)            
+                        , PTNs
+                    );
+                _ ->    
+                    ?ClientError({"Table does not exist",Alias})
+            end
     end;
 snapshot_table(TableName) ->
     snapshot_table(qualified_table_name(TableName)).
 
-snapshot_partitioned_tables([]) -> ok;
-snapshot_partitioned_tables([TableName|TableNames]) ->
-    imem_snap:take(TableName),
-    snapshot_partitioned_tables(TableNames).
+snapshot_partitioned_tables(_,_,_,[]) -> ok;
+snapshot_partitioned_tables(NTrans,PTrans,RTrans,[TableName|TableNames]) ->
+    imem_snap:take(#{table=>TableName,nTrans=>NTrans, pTrans=>PTrans, rTrans=>RTrans}),
+    snapshot_partitioned_tables(NTrans,PTrans,RTrans,TableNames).
 
 restore_table({_Schema,Table,_Alias}) ->
     restore_table({_Schema,Table});
