@@ -266,9 +266,13 @@
         ]).
 
 -export([ first/1
+        , dirty_first/1
         , next/2
+        , dirty_next/2
         , last/1
+        , dirty_last/1
         , prev/2
+        , dirty_prev/2
         , foldl/3
         ]).
 
@@ -2880,13 +2884,21 @@ return_atomic_ok(Result) ->
 return_atomic(Result) -> 
     imem_if_mnesia:return_atomic(Result).
 
-first(Table) ->     imem_if_mnesia:first(Table).
+first(Table) ->             imem_if_mnesia:first(Table).
 
-next(Table,Key) ->  imem_if_mnesia:next(Table,Key).
+dirty_first(Table) ->       imem_if_mnesia:dirty_first(Table).
 
-last(Table) ->      imem_if_mnesia:last(Table).
+next(Table,Key) ->          imem_if_mnesia:next(Table,Key).
 
-prev(Table,Key) ->  imem_if_mnesia:prev(Table,Key).
+dirty_next(Table,Key) ->    imem_if_mnesia:dirty_next(Table,Key).
+
+last(Table) ->              imem_if_mnesia:last(Table).
+
+dirty_last(Table) ->        imem_if_mnesia:dirty_last(Table).
+
+prev(Table,Key) ->          imem_if_mnesia:prev(Table,Key).
+
+dirty_prev(Table,Key) ->    imem_if_mnesia:dirty_prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->  
     imem_if_mnesia:foldl(FoldFun, InputAcc, Table).

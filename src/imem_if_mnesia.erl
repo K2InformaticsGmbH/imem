@@ -86,9 +86,13 @@
         ]).
 
 -export([ first/1
+        , dirty_first/1
         , next/2
+        , dirty_next/2
         , last/1
+        , dirty_last/1
         , prev/2
+        , dirty_prev/2
         , foldl/3
         ]).
 
@@ -856,13 +860,21 @@ unsubscribe(system)                 -> mnesia:unsubscribe(system);
 unsubscribe(EventCategory) ->
     ?ClientErrorNoLogging({"Unsupported event category unsubscription", EventCategory}).
 
-first(Table) ->     mnesia:first(Table).
+first(Table) ->             mnesia:first(Table).
 
-next(Table,Key) ->  mnesia:next(Table,Key).
+dirty_first(Table) ->       mnesia:dirty_first(Table).
 
-last(Table) ->      mnesia:last(Table).
+next(Table,Key) ->          mnesia:next(Table,Key).
 
-prev(Table,Key) ->  mnesia:prev(Table,Key).
+dirty_next(Table,Key) ->    mnesia:dirty_next(Table,Key).
+
+last(Table) ->              mnesia:last(Table).
+
+dirty_last(Table) ->        mnesia:dirty_last(Table).
+
+prev(Table,Key) ->          mnesia:prev(Table,Key).
+
+dirty_prev(Table,Key) ->    mnesia:dirty_prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->
     return_atomic(transaction(fun mnesia:foldl/3, [FoldFun, InputAcc, Table])).

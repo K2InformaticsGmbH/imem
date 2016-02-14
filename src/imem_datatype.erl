@@ -1149,10 +1149,12 @@ nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
     apply(io_lib, Fun, Args);
 nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index;Fun==dictionary_trigger ->
     apply(imem_meta, Fun, Args);
+nonLocalHFun({imem_snap, Fun}, Args) when Fun==string_pattern;Fun==string_random;Fun==integer_random;Fun==float_random ->
+    apply(imem_snap, Fun, Args);                % TODO: move to imem_domain and allow all exported funs there
 nonLocalHFun({imem_dal_skvh, Fun}, Args) ->
-    apply(imem_dal_skvh, Fun, Args);   % TODO: restrict to subset of functions
+    apply(imem_dal_skvh, Fun, Args);            % TODO: restrict to subset of functions
 nonLocalHFun({imem_index, Fun}, Args) ->
-    apply(imem_index, Fun, Args);   % TODO: restrict to subset of functions
+    apply(imem_index, Fun, Args);               % TODO: restrict to subset of functions
 nonLocalHFun({Mod, Fun}, Args) ->
     apply(imem_meta, secure_apply, [Mod, Fun, Args]).
 
