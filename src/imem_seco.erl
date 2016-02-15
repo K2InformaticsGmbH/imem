@@ -122,7 +122,7 @@ init(_Args) ->
                     AccountDyn = #ddAccountDyn{id=system},
                     if_write(none, ddAccount, Account),                    
                     if_write(none, ddAccountDyn, AccountDyn),                    
-                    if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
+                    if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables,{dderl,con,local,use}]});
             _ ->    ok
         end,
         % imem_meta:fail({"Fail in imem_seco:init on purpose"}),        
