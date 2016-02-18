@@ -3,9 +3,16 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.8 (Release Date 18.02.2016)
+=======================================
+* Removed search deleted from imem_dal_skvh
+* Fixed bug in imem_snap
+* Added imem_domain gen_server for translation functions
+
+
 Version 1.4.7 (Release Date 12.02.2016)
 =======================================
-* Fix imem_if_csv for large lines.
+* Fix imem_if_csv for large lines
 * Fixed bug in authentication failure handling
 
 
