@@ -1328,10 +1328,7 @@ skvh_operations(_) ->
         Map4 = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 250}">>, chash => <<"1RZ299">>},
         Map5 = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 300}">>, chash => <<"1DKGDA">>},
         Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1404CV">>},  % 1DN1MP
-        Map7 = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 150}">>, chash => <<"HJ3TK">>},
-        Map8 = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 250}">>, chash => <<"1M3DPR">>},
-        Map9 = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 350}">>, chash => <<"KKR3X">>},
-
+    
         %% Keys not in the table.
         FirstKey = [""],
         MidleKey = ["1", "b", "1"],
@@ -1462,12 +1459,6 @@ skvh_operations(_) ->
         Ex4 = {'ClientError',{"Data conversion format error",{timestamp,"1900-01-01",{"Cannot handle dates before 1970"}}}},
         ?assertException(throw, Ex4, audit_readGT(system, ?Channel, <<"1900-01-01">>, 100)),
 
-        %% Inserts for history search_deleted clients and objects
-        insert(system, ?Channel, [Map7, Map8, Map9]),
-        Map7Upd = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 400}">>, chash => <<"HJ3TK">>},
-        Map8Upd = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 555}">>, chash => <<"830WW">>},
-        Map9Upd = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 400}">>, chash => <<"KKR3X">>},
-
         %% Read History tests, time is reset to 0 for comparison but should be ordered from new to old.
         CL1 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1Upd), nvalue => undefined, cuser => system}
               ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1), nvalue => maps:get(cvalue, Map1Upd), cuser => system}
@@ -1501,12 +1492,10 @@ skvh_operations(_) ->
         % History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
 
         %% Updating objects for history test cases
-        [Map4Done, Map5Done, _Map7Done, Map8Done, Map9Done] = update(system, ?Channel, [Map4Upd, Map5Upd, Map7Upd, Map8Upd, Map9Upd]),
+        [Map4Done, Map5Done] = update(system, ?Channel, [Map4Upd, Map5Upd]),
         ?assertEqual([maps:remove(chash,Map4Upd), maps:remove(chash,Map5Upd)]
                     , [maps:remove(chash,M) || M <- [Map4Done, Map5Done]]
                     ),
-
-        remove(system, ?Channel, [Map8Done, Map9Done]),
 
         %% Read using a list of term keys.
         HistResult = hist_reset_time(hist_read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
@@ -1521,63 +1510,8 @@ skvh_operations(_) ->
         HistResultEnc = hist_reset_time(hist_read(system, ?Channel, EncodedKeys)),
         ?assertEqual([History1, History2, History3], HistResultEnc),
 
-        %% Search history for test for deleted objects
-        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map5), true),
-        ?assertEqual(4, length(HistSearchResult1)),
-
-        %% Search for 150 for deleted objects
-        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map5), true),
-        ?assertEqual(1, length(HistSearchResult2)),
-        ?assertEqual([{maps:get(ckey, Map3), maps:get(cvalue, Map3Upd)}], HistSearchResult2),
-
-        %% Search history for test for objects with deleted parents
-        HistSearchResult3 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map5), false),
-        ?assertEqual(3, length(HistSearchResult3)),
-
-        %% Search for 150 for for objects with deleted parents
-        HistSearchResult4 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map5), false),
-        ?assertEqual(1, length(HistSearchResult4)),
-        ?assertEqual([{maps:get(ckey, Map4), maps:get(cvalue, Map4Upd)}], HistSearchResult4),
-
         %% Get the last value of a deleted object with key
         ?assertEqual(maps:get(cvalue, Map1Upd), hist_read_deleted(system, ?Channel, maps:get(ckey, Map1))),
-
-        %% Shallow read of the deleted object
-        HistReadShallowResult = hist_read_shallow(system, ?Channel, maps:get(ckey, Map1)),
-        HistReadShallowExpected = [{maps:get(ckey, Map2Upd), maps:get(cvalue, Map2Upd)}, {maps:get(ckey, Map3Upd), maps:get(cvalue, Map3Upd)}],
-        ?assertEqual(2, length(HistReadShallowResult)),
-        ?assertEqual(HistReadShallowExpected, HistReadShallowResult),
-
-        %% Deleted search client with text
-        HistSearchClients1 = search_deleted_clients(system, ?Channel, <<"400">>,  maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        %% TODO - REVISIT
-        %% ?assertEqual(2, length(HistSearchClients1)), -- was
-        %% ?assertEqual([{maps:get(ckey, Map7Upd), maps:get(cvalue, Map7Upd)}, {maps:get(ckey, Map9Upd), maps:get(cvalue, Map9Upd)}] , HistSearchClients1),
-        ?assertEqual(1, length(HistSearchClients1)),
-        ?assertEqual([{maps:get(ckey, Map9Upd), maps:get(cvalue, Map9Upd)}] , HistSearchClients1),
-        %% Deleted search client with empty text
-        HistSearchClients2 = search_deleted_clients(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        %% TODO - REVISIT
-        %% ?assertEqual(7, length(HistSearchClients2)), -- was
-        ?assertEqual(4, length(HistSearchClients2)),
-        %% Deleted search client with text limit test
-        HistSearchClients3 = search_deleted_clients(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 5),
-        %% TODO - REVISIT
-        %% ?assertEqual(5, length(HistSearchClients3)), -- was
-        ?assertEqual(4, length(HistSearchClients3)),
-
-        %% Deleted search object with text
-        HistSearchObjects1 = search_deleted_objects(system, ?Channel, <<"555">>,  maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        ?assertEqual(1, length(HistSearchObjects1)),
-        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects1),
-        %% Deleted search client with empty text
-        HistSearchObjects2 = search_deleted_objects(system, ?Channel, <<"test">>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 1),
-        ?assertEqual(1, length(HistSearchObjects2)),
-        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects2),
-        %% Deleted search object with empty limit
-        HistSearchObjects3 = search_deleted_objects(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        ?assertEqual(1, length(HistSearchObjects3)),
-        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects3),
 
         % ?LogDebug("starting ~p", [drop_table123]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
