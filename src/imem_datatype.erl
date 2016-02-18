@@ -16,6 +16,7 @@
                                'size','bit_size','byte_size','binary_part',
                                'phash2','md5','throw','hd','tl','setelement','round']).
 -define(UNSAFE_ERLANG_FUNCTIONS,['list_to_atom','binary_to_atom','list_to_pid','binary_to_term','is_pid','is_port','is_process_alive']).
+-define(UNSAFE_SERVER_FUNCTIONS,[start,start_link,init,handle_info,handle_call,handle_cast,terminate,code_change]).
 
 -define(ROWFUN_EXTENSIONS,[{<<"nodef">>,1}
                           ,{<<"item1">>,1},{<<"item2">>,1},{<<"item3">>,1},{<<"item4">>,1}
@@ -1149,14 +1150,21 @@ nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
     apply(io_lib, Fun, Args);
 nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index;Fun==dictionary_trigger ->
     apply(imem_meta, Fun, Args);
-nonLocalHFun({imem_snap, Fun}, Args) when Fun==string_pattern;Fun==string_random;Fun==integer_random;Fun==float_random ->
-    apply(imem_snap, Fun, Args);                % TODO: move to imem_domain and allow all exported funs there
+nonLocalHFun({imem_domain, Fun}, Args) ->
+    nonLocalServerFun({imem_domain, Fun}, Args);
 nonLocalHFun({imem_dal_skvh, Fun}, Args) ->
     apply(imem_dal_skvh, Fun, Args);            % TODO: restrict to subset of functions
 nonLocalHFun({imem_index, Fun}, Args) ->
     apply(imem_index, Fun, Args);               % TODO: restrict to subset of functions
 nonLocalHFun({Mod, Fun}, Args) ->
     apply(imem_meta, secure_apply, [Mod, Fun, Args]).
+
+nonLocalServerFun({Mod, Fun}, Args) ->
+    case lists:member(Fun,?UNSAFE_SERVER_FUNCTIONS) of
+        true ->     ?SecurityException({restricted, {Mod, Fun}});
+        false ->    apply(Mod, Fun, Args)
+    end.
+
 
 %% ----- CAST Data from DB to string ------------------
 

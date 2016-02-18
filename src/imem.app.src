@@ -34,6 +34,7 @@
          {proll_server, true},
          {purge_server, true},
          {seco_server, true},
+         {domain_server, true},
          {snap_server, true},
          {tcp_server, true},
          {client_server, true},
