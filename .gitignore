@@ -11,5 +11,3 @@ deps
 snapshot/
 .rebar/
 priv/*.dll
-/imem.iml
-/.idea
