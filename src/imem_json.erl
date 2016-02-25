@@ -747,7 +747,6 @@ diff([{A,AV}|R1], [{B,BV}|R2], Acc) when A < B ->  diff(R1, [{B,BV}|R2], [{A,[{<
 diff([{A,AV}|R1], [{_,null}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, Acc);  % missing equals null
 diff([{A,AV}|R1], [{B,BV}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, [{B,[{<<"v1">>,null},{<<"v2">>,BV}]} | Acc]).
 
-
 %% - 
 %% - %% @doc creates a diff data object between the first (old) and second (new) provided data
 %% - %% objects. null values are ignored. Resulting data object will have 5 root keys, each containg
