@@ -10,7 +10,7 @@
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
-            , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value
+            , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff
             , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap, phash2
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa
@@ -91,6 +91,7 @@
         , json_arr_proj/2
         , json_obj_proj/2
         , json_value/2
+        , json_diff/2
         , mfa/3
         ]).
 
@@ -180,6 +181,7 @@ binary_fun_bind_type1("from_decimal") ->        #bind{type=decimal,default=?nav}
 binary_fun_bind_type1("json_arr_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_value") ->          #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("json_diff") ->           #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("phash2") ->              #bind{type=term,default=?nav};
 binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
 
@@ -194,6 +196,7 @@ binary_fun_bind_type2("from_decimal") ->        #bind{type=integer,default=0};
 binary_fun_bind_type2("json_arr_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_value") ->          #bind{type=json,default=[]};
+binary_fun_bind_type2("json_diff") ->           #bind{type=json,default=?nav};
 binary_fun_bind_type2("phash2") ->              #bind{type=integer,default=27};
 binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
 
@@ -208,6 +211,7 @@ binary_fun_result_type("from_decimal") ->       #bind{type=float,default=?nav};
 binary_fun_result_type("json_arr_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_value") ->         #bind{type=json,default=[]};
+binary_fun_result_type("json_diff") ->          #bind{type=json,default=[]};
 binary_fun_result_type("phash2") ->             #bind{type=integer,default=0};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 
@@ -407,7 +411,7 @@ expr_fun({Op, A, B}) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts' ->
     binary_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value' ->
+expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff' ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
@@ -850,7 +854,7 @@ binary_fun_final({'is_regexp_like', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='is_key' ->
+binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff';Op=='is_key' ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -936,6 +940,8 @@ json_value(A, [#{}|_]=L) when is_binary(A) ->       % pick value of attribute A 
 json_value(_Name, _PL)  ->    
     % ?Info("JSON attribute ~p not found in ~p",[_Name,_PL]),
     ?nav.
+
+json_diff(A, B) -> imem_json:diff(A, B).
 
 safe_value(Name,M) when is_map(M) -> 
     case maps:find(Name, M) of
