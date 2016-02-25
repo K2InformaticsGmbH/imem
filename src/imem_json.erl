@@ -742,9 +742,9 @@ diff([{A,AV}|R1], [], Acc) ->  diff(R1, [], [{A,[{<<"v1">>,AV},{<<"v2">>,null}]}
 diff([], [{_,null}|R2], Acc) ->  diff([], R2, Acc);                               % missing equals null
 diff([], [{B,BV}|R2], Acc) ->  diff([], R2, [{B,[{<<"v1">>,null},{<<"v2">>,BV}]} | Acc]);
 diff([{A,AV}|R1], [{A,BV}|R2], Acc) ->  diff(R1, R2, [{A,[{<<"v1">>,AV},{<<"v2">>,BV}]} | Acc]);
-diff([{_,null}|R1], [{B,BV}|R2], Acc) when A < B ->  diff(R1, [{B,BV}|R2], Acc);  % missing equals null
+diff([{A,null}|R1], [{B,BV}|R2], Acc) when A < B ->  diff(R1, [{B,BV}|R2], Acc);  % missing equals null
 diff([{A,AV}|R1], [{B,BV}|R2], Acc) when A < B ->  diff(R1, [{B,BV}|R2], [{A,[{<<"v1">>,AV},{<<"v2">>,null}]} | Acc]);
-diff([{A,AV}|R1], [{_,null}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, Acc);  % missing equals null
+diff([{A,AV}|R1], [{B,null}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, Acc);  % missing equals null
 diff([{A,AV}|R1], [{B,BV}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, [{B,[{<<"v1">>,null},{<<"v2">>,BV}]} | Acc]).
 
 %% - 
