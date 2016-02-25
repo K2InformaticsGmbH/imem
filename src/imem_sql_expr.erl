@@ -31,6 +31,7 @@
         ]).
 
 -export([ binstr_to_qname2/1
+        , to_guard/1
         ]).
 
 %% @doc Reforms the main scan specification for the select statement 
@@ -79,26 +80,27 @@ bind_scan(Ti,X,ScanSpec0) ->
 -spec bind_virtual(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_virtual(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?LogDebug("STree before virtual scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?LogDebug("FTree before virtual scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [STree1], [Result]}],   % to_guard(STree1)
             {SSpec1,TailSpec0,FilterFun0};
         {_,_} ->                                    %% filter fun needs to be evaluated
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("SGuard after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             %% TODO: splitting into generator conditions and filter conditions
             %% For now, we assume that we only have generator conditions which define
             %% the raw virtual rows (e.g. is_member() or item >=1 and item <=10) 
             SSpec1 = [{SHead, [STree1], [Result]}],             % was [to_guard(STree1)]
             FilterFun1 = imem_sql_funs:filter_fun(STree1),
+            % ?LogDebug("FilterFun 1 ~p", [FilterFun1]),
             {SSpec1,TailSpec0,FilterFun1}
     end.
 
@@ -258,12 +260,12 @@ bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav;
 bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav;
 bind_eval(BTree) ->
     case bind_done(BTree) of
-        false ->    %% cannot simplify BTree here
-            BTree;  
-        true ->     %% BTree evaluates to a value
-            bind_fun(imem_sql_funs:expr_fun(BTree))
+        false ->    BTree;                                      %% cannot simplify BTree here
+        true ->     bind_fun(imem_sql_funs:expr_fun(BTree))     %% BTree evaluates to a value
     end.
 
+bind_fun(L) when is_list(L) ->
+    [bind_fun(I) || I <- L]; 
 bind_fun(BTF) when is_function(BTF) -> 
     bind_value(BTF(anything));
 bind_fun(Value) -> 
@@ -353,6 +355,7 @@ bind_subtree_const(BTree) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec prune_tree(integer(), binary()|tuple()) -> list().
 prune_tree(Ti, WBTree) ->
+    % ?LogDebug("Prune walk call ~p",[WBTree]),
     Res1 = prune_walk(Ti, WBTree),
     % ?LogDebug("Prune walk result ~p",[Res1]),
     Res2 = prune_eval(Res1),

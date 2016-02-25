@@ -174,6 +174,22 @@ db1_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
+        exec_fetch_sort_equal(SKey, query3w, 100, IsSec, "
+            select item
+            from tuple
+            where is_member(item,to_list('[{a,b},{c,d}]'))"
+            ,
+            [{<<"{a,b}">>},{<<"{c,d}">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3v, 100, IsSec, "
+            select item 
+            from tuple 
+            where item = to_tuple('{a,b}')"
+            ,
+            [{<<"{a,b}">>}]
+        ),
+
         ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
 
         ?assertEqual(ok, imem_dal_skvh:create_check_channel(<<"skvhSqlTest">>)),
@@ -714,10 +730,10 @@ db1_with_or_without_sec(IsSec) ->
             [{<<"100">>,<<"{'Atom100',100}">>}]
         ),
 
-        exec_fetch_equal(SKey, query3a, 100, IsSec, 
-            "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)", 
-            [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
-        ),
+        % exec_fetch_equal(SKey, query3a, 100, IsSec, 
+        %     "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)", 
+        %     [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
+        % ),
 
         % R3b = exec_fetch_sort(SKey, query3b, 100, IsSec, 
         %     "select col3, item from def, integer where is_member(item,to_atom('$_')) and col1 <> 100"
@@ -859,6 +875,7 @@ db1_with_or_without_sec(IsSec) ->
             ,
             [{<<"1">>},{<<"2">>},{<<"3">>}]
         ),
+
 
         %% self joins 
 

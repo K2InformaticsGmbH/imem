@@ -348,16 +348,18 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                             false ->    
                                 {SS,TS,FF} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
                                 % ?LogDebug("Scan Spec after meta bind:~n~p", [SS]),
-                                % ?LogDebug("Tail Spec after meta bind:~n~p", [TailSpec]),
-                                % ?LogDebug("Filter Fun after meta bind:~n~p", [FilterFun]),
+                                % ?LogDebug("Tail Spec after meta bind:~n~p", [TS]),
+                                % ?LogDebug("Filter Fun after meta bind:~n~p", [FF]),
                                 {TS,FF,if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SS, BlockSize, Opts])};
                             true ->     
-                                {[{_,[SGuard],_}],TS,FF} = imem_sql_expr:bind_virtual(?MainIdx,{MR},MainSpec),
+                                {[{_,[SG],_}],TS,FF} = imem_sql_expr:bind_virtual(?MainIdx,{MR},MainSpec),
+                                % ?LogDebug("Virtual Tail Spec after meta bind:~n~p", [TS]),
+                                % ?LogDebug("Virtual Filter Fun after meta bind:~n~p", [FF]),
+                                % ?LogDebug("Virtual Scan SGuard after meta bind:~n~p", [SG]),
+                                SGuard = imem_sql_expr:to_guard(SG),
                                 % ?LogDebug("Virtual Scan SGuard after meta bind:~n~p", [SGuard]),
-                                % ?LogDebug("Virtual Tail Spec after meta bind:~n~p", [TailSpec]),
-                                % ?LogDebug("Virtual Filter Fun after meta bind:~n~p", [FilterFun]),
                                 Rows = [{RecName,I,K} ||{I,K} <- generate_virtual_data(RecName,{MR},SGuard,RowNum)],
-                                % ?LogDebug("Generated virtual scan data ~p~n~p", [Table,Virt]),
+                                % ?LogDebug("Generated virtual scan data ~p~n~p", [Table,Rows]),
                                 {TS,FF,if_call_mfa(IsSec, fetch_start_virtual, [SKey, self(), Table, Rows, BlockSize, RowNum, Opts])}
                         end,
                         get_select_permissions(IsSec,SKey, [Table|JTabs]),
@@ -537,8 +539,8 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
-    % ?Info("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
-    % ?Info("received rows~n~p~n", [Rows0]),
+    % ?LogDebug("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
+    % ?LogDebug("received rows~n~p~n", [Rows0]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
@@ -760,7 +762,7 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     {SSpec,_TailSpec,FilterFun} = imem_sql_expr:bind_scan(Ti,Rec,JoinSpec),
     % ?LogDebug("SSpec for join~n~p~n", [SSpec]),
     % ?LogDebug("TailSpec for join~n~p~n", [_TailSpec]),
-    %  ?LogDebug("FilterFun for join~n~p~n", [FilterFun]),
+    % ?LogDebug("FilterFun for join~n~p~n", [FilterFun]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
     case imem_meta:select(Table, SSpec, MaxSize) of
         {[], true} ->   [];
@@ -777,7 +779,6 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     end.
 
 join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
-    % ?Info("Virtual join scan spec unbound (~p)~n~p~n", [Ti,SSpec0]),
     {SSpec1,_TailSpec,FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
     [{_,[SGuard1],_}] = SSpec1,
     % ?LogDebug("Virtual join table (~p) ~p~n", [Ti,Table]),
@@ -786,7 +787,7 @@ join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     % ?LogDebug("Virtual join scan spec (~p)~n~p~n", [Ti,SSpec1]),
     % ?LogDebug("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
-    Virt = generate_virtual_data(Table,Rec,SGuard1,MaxSize),
+    Virt = generate_virtual_data(Table,Rec,imem_sql_expr:to_guard(SGuard1),MaxSize),
     % ?LogDebug("Generated virtual data ~p~n~p", [Table,Virt]),
     Recs = [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt],
     % ?LogDebug("Generated records ~p~n~p", [Table,Recs]),
@@ -802,20 +803,22 @@ generate_virtual_data(boolean,_Rec,true,_MaxSize) ->
     [{false,<<"false">>},{true,<<"true">>}];
 generate_virtual_data(_Table,_Rec,true,_MaxSize) ->
     ?ClientError({"Invalid virtual filter guard", true});
-generate_virtual_data(Table,Rec,{is_member,Tag,'$_'},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+generate_virtual_data(Table,Rec,{is_member,Tag,'$_'},MaxSize) when is_atom(Tag) ->
     Items = element(?MainIdx,Rec),
     generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
-generate_virtual_data(Table,Rec,{'and',{is_member,Tag,'$_'},_},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+generate_virtual_data(Table,Rec,{'and',{is_member,Tag,'$_'},_},MaxSize) when is_atom(Tag) ->
     Items = element(?MainIdx,Rec), 
     generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
-generate_virtual_data(Table,Rec,{'and',{'and',{is_member,Tag,'$_'},_},_},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+generate_virtual_data(Table,Rec,{'and',{'and',{is_member,Tag,'$_'},_},_},MaxSize) when is_atom(Tag) ->
     Items = element(?MainIdx,Rec), 
     generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
-generate_virtual_data(Table,_Rec,{is_member,Tag, Items},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+generate_virtual_data(Table,_Rec,{is_member,Tag, Items},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,Items,MaxSize);
-generate_virtual_data(Table,_Rec,{'and',{is_member,Tag, Items},_},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+generate_virtual_data(Table,_Rec,{'and',{is_member,Tag, Items},_},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,Items,MaxSize);
-generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag);is_record(Tag,bind) ->
+generate_virtual_data(tuple,_Rec,{'==',Tag,{const,Val}},MaxSize) when is_atom(Tag),is_tuple(Val) ->
+    generate_virtual(tuple,{const,Val},MaxSize);
+generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,Val,MaxSize);
 generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
     generate_virtual_integers(Min,Max,MaxSize);
@@ -835,12 +838,13 @@ generate_virtual_integers(Min,Max,MaxSize) when (Max>=Min),(MaxSize>Max-Min) ->
 generate_virtual_integers(Min,Max,_MaxSize) ->
     ?UnimplementedException({"Unsupported virtual integer table size", Max-Min+1}).
 
-generate_virtual(Table, {list,Items}, MaxSize)  ->
+generate_virtual(list=Table, {list,Items}, MaxSize)  ->
     generate_virtual(Table, Items, MaxSize);
-generate_virtual(Table, {const,Items}, MaxSize) when is_tuple(Items) ->
-    generate_virtual(Table, tuple_to_list(Items), MaxSize);
-generate_virtual(Table, Items, MaxSize) when is_tuple(Items) ->
-    generate_virtual(Table, tuple_to_list(Items), MaxSize);
+% generate_virtual(Table, {const,Items}, MaxSize) when is_tuple(Items) ->
+%     generate_virtual(Table, tuple_to_list(Items), MaxSize);
+
+generate_virtual(tuple, {const,I}, _) when is_tuple(I) ->
+    [{I,imem_datatype:term_to_io(I)}];
 
 generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
@@ -946,9 +950,9 @@ generate_virtual(timestamp, _, _) -> [];
 
 generate_virtual(tuple=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
-    Pred = fun(X) -> is_tuple(X) end,
-    [{I,imem_datatype:tuple_to_io(I)} || I <- lists:filter(Pred,Items)];
-generate_virtual(tuple, I, _) when is_tuple(I)-> [{I,imem_datatype:tuple_to_io(I)}];
+    Pred = fun({const,X}) -> is_tuple(X); (_) -> false end,
+    [{I,imem_datatype:term_to_io(I)} || {const,I} <- lists:filter(Pred,Items)];
+generate_virtual(tuple, I, _) when is_tuple(I)-> [{I,imem_datatype:term_to_io(I)}];
 generate_virtual(tuple, _, _) -> [];
 
 generate_virtual(pid=Table, Items, MaxSize) when is_list(Items) ->
