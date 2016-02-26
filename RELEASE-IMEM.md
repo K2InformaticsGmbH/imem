@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.9 (Release Date 26.02.2016)
+=======================================
+* Added json_diff to the sql layer
+
+
 Version 1.4.8 (Release Date 18.02.2016)
 =======================================
 * Removed search deleted from imem_dal_skvh
