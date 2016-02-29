@@ -718,8 +718,12 @@ expand_inline(Root, _OldRoot, Binds) ->
 -spec diff(data_object(), data_object()) -> data_object().
 diff(Data1, Data2) when is_list(Data1), is_list(Data2) ->
     diff(lists:sort(Data1), lists:sort(Data2),[]);
+diff(Data1, undefined) when is_list(Data1) ->
+    diff(lists:sort(Data1), []);
 diff(Data1, Data2) when is_map(Data1), is_map(Data2) ->
     maps:from_list(diff(maps:to_list(Data1), maps:to_list(Data2)));
+diff(Data1, undefined) when is_map(Data1) ->
+    maps:from_list(diff(maps:to_list(Data1), []));
 diff(Data1, Data2) when is_map(Data1), is_list(Data2) ->
     maps:from_list(diff(maps:to_list(Data1), Data2));
 diff(Data1, Data2) when is_map(Data1), is_binary(Data2) ->
@@ -730,10 +734,19 @@ diff(Data1, Data2) when is_list(Data1), is_binary(Data2) ->
     diff(Data1,decode(Data2));
 diff(Data1, Data2) when is_binary(Data1), is_binary(Data2) ->
     encode(diff(decode(Data1), decode(Data2)));
+diff(Data1, undefined) when is_binary(Data1) ->
+    encode(diff(decode(Data1), []));
 diff(Data1, Data2) when is_binary(Data1), is_list(Data2) ->
     encode(diff(decode(Data1), Data2));
 diff(Data1, Data2) when is_binary(Data1), is_map(Data2) ->
-    encode(diff(decode(Data1), maps:to_list(Data2))).
+    encode(diff(decode(Data1), maps:to_list(Data2)));
+diff(undefined, Data2) when is_list(Data2) ->
+    diff([], lists:sort(Data2),[]);
+diff(undefined, Data2) when is_map(Data2) ->
+    maps:from_list(diff([], maps:to_list(Data2)));
+diff(undefined, Data2) when is_binary(Data2) ->
+    encode(diff([], decode(Data2)));
+diff(undefined, undefined) -> [].
 
 diff([], [], Acc) -> lists:reverse(Acc);
 diff([A|R1], [A|R2], Acc) ->  diff(R1,R2,Acc);
