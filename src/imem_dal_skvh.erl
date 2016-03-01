@@ -106,6 +106,10 @@
         , read/4            %% (User, Channel, Item, KeyTable)      return empty Arraylist if none of these resources exists
         , readGELT/5        %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, result as map, fails if more than L rows
         , readGELT/6        %% (User, Channel, Item, CKey1, CKey2, L)   from key at or after CKey1 to last key before CKey2, fails if more than L rows
+        , readGELTKeys/4    %% (User, Channel, CKey1, CKey2)        from key at or after CKey1 to last key before CKey2, list of keys
+        , readGELTKeys/5    %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of keys
+        , readGELTNoError/4 %% (User, Channel, CKey1, CKey2)        from key at or after CKey1 to last key before CKey2, list of skvhmaps
+        , readGELTNoError/5 %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of skvhmaps
         , readGT/4          %% (User, Channel, CKey1, L)            start with first key after CKey1, return result as list of maps of lenght L or less
         , readGT/5          %% (User, Channel, Item, CKey1, Limit)  start with first key after CKey1, return Limit results or less
         , readGE/4          %% (User, Channel, CKey1, Limit)        start with first key at or after CKey1, return Limit results or less as maps
@@ -376,6 +380,8 @@ create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
 -spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok | no_return().
+create_check_channel(UserId, Channel) when UserId == system ->
+    create_check_channel(Channel);
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
     CreateAudit = proplists:get_value(audit, Options, false),
@@ -1044,6 +1050,17 @@ readGE(_User, Channel, DecodedKey, Limit) ->
 	{L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
     [skvh_rec_to_map(R) || R <- L ].
 
+readGELTNoError(_User, Channel, DecodedKey1, DecodedKey2) ->
+    readGELTNoError(_User, Channel, DecodedKey1, DecodedKey2, 0).
+
+readGELTNoError(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key1 = term_key_to_binterm(DecodedKey1),
+    Key2 = term_key_to_binterm(DecodedKey2),
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [skvh_rec_to_map(R) || R <- L ].
+
 readGELT(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
     TableName = atom_table_name(Channel),
     Key1 = term_key_to_binterm(DecodedKey1),
@@ -1054,6 +1071,17 @@ readGELT(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
         length(L) > Limit -> ?ClientError(?E117(Limit));
         true -> [skvh_rec_to_map(R) || R <- L ]
     end.
+
+readGELTKeys(User, Channel, DecodedKey1, DecodedKey2) ->
+    readGELTKeys(User, Channel, DecodedKey1, DecodedKey2, 0).
+
+readGELTKeys(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key1 = term_key_to_binterm(DecodedKey1),
+    Key2 = term_key_to_binterm(DecodedKey2),
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [binterm_to_term_key(R) || R <- L].
 
 audit_part_readGT([], _MatchFunction, _Limit) -> [];
 audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
