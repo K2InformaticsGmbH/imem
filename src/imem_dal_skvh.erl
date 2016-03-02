@@ -107,6 +107,7 @@
         , readGELT/5        %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, result as map, fails if more than L rows
         , readGELT/6        %% (User, Channel, Item, CKey1, CKey2, L)   from key at or after CKey1 to last key before CKey2, fails if more than L rows
         , readGELTKeys/5    %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of keys
+        , readGELTHashes/5  %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of {key, hash}
         , readGELTNoError/5 %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of skvhmaps
         , readGT/4          %% (User, Channel, CKey1, L)            start with first key after CKey1, return result as list of maps of lenght L or less
         , readGT/5          %% (User, Channel, Item, CKey1, Limit)  start with first key after CKey1, return Limit results or less
@@ -1074,6 +1075,14 @@ readGELTKeys(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
     MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
     {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
     [binterm_to_term_key(R) || R <- L].
+
+readGELTHashes(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key1 = term_key_to_binterm(DecodedKey1),
+    Key2 = term_key_to_binterm(DecodedKey2),
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [{binterm_to_term_key(Key), Hash} || #skvhTable{ckey=Key, chash=Hash} <- L].
 
 audit_part_readGT([], _MatchFunction, _Limit) -> [];
 audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
