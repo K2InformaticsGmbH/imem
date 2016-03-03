@@ -227,6 +227,7 @@
         , dirty_write/2
         , delete/2              %% delete row by key
         , delete_object/2       %% delete single row in bag table 
+        , abort/1               %% abort transaction with a message
         ]).
 
 -export([ update_prepare/3          %% stateless creation of update plan from change list
@@ -1849,6 +1850,9 @@ compile_fun(String) when is_list(String) ->
             ?Error("Compiling script function ~p results in ~p",[String,Reason]), 
             undefined
     end.
+
+abort(Reason) ->
+    imem_if_mnesia:abort(Reason).
 
 schema() ->
     imem_if_mnesia:schema().

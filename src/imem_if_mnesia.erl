@@ -83,6 +83,7 @@
         , return_atomic_ok/1
         , return_atomic/1
         , lock/2
+        , abort/1
         ]).
 
 -export([ first/1
@@ -150,6 +151,8 @@ return_atomic({aborted, {throw,{Exception, Reason}}}) -> throw({Exception, Reaso
 return_atomic({aborted, {exit, {Exception, Reason}}}) -> exit({Exception, Reason});
 return_atomic({aborted, Error}) ->          ?SystemExceptionNoLogging(Error);
 return_atomic(Other) ->                     Other.
+
+abort(Reason) -> mnesia:abort(Reason).
 
 % init and store transaction time
 trans_time_init() ->
