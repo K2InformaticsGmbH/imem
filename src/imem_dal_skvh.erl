@@ -379,7 +379,7 @@ channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
 -spec create_check_skvh(ddEntityId(),binary()|atom()) -> ok | no_return().
 create_check_skvh(UserId, Channel) ->
     %% TODO : Possible future validation, Ignored for now
-    create_check_skvh(UserId, Channel, []).
+    create_check_skvh(UserId, Channel, [audit,history]).
 
 -spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok | no_return().
 create_check_skvh(_UserId, Channel, Options) ->
