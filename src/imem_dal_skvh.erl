@@ -94,6 +94,8 @@
         , channel_ctx/1             %% (Name)                       return #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}
         , create_check_channel/1    %% (Channel)                    create empty table / audit table / history table if necessary (Name as binary or atom)
         , create_check_channel/2    %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
+        , create_check_skvh/2       %% (User, Channel)              create empty table / audit table / history table if necessary (Name as binary or atom)
+        , create_check_skvh/3       %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
         , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
         , write/4           %% (User, Channel, Key, Value)          resource may not exist, will be created, map of inserted row
         , insert/3          %% (User, Channel, MapList)             resources should not exist will be created, retrun list of maps with inserted rows
@@ -108,7 +110,7 @@
         , readGELT/6        %% (User, Channel, Item, CKey1, CKey2, L)   from key at or after CKey1 to last key before CKey2, fails if more than L rows
         , readGELTKeys/5    %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of keys
         , readGELTHashes/5  %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of {key, hash}
-        , readGELTNoError/5 %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of skvhmaps
+        , readGELTMap/5     %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of skvhmaps
         , readGT/4          %% (User, Channel, CKey1, L)            start with first key after CKey1, return result as list of maps of lenght L or less
         , readGT/5          %% (User, Channel, Item, CKey1, Limit)  start with first key after CKey1, return Limit results or less
         , readGE/4          %% (User, Channel, CKey1, Limit)        start with first key at or after CKey1, return Limit results or less as maps
@@ -374,13 +376,20 @@ channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
+-spec create_check_skvh(ddEntityId(),binary()|atom()) -> ok | no_return().
+create_check_skvh(UserId, Channel) ->
+    %% TODO : Possible future validation, Ignored for now
+    create_check_skvh(UserId, Channel, []).
+
+-spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok | no_return().
+create_check_skvh(_UserId, Channel, Options) ->
+    create_check_channel(Channel, Options).
+
 -spec create_check_channel(binary()|atom()) ->  ok | no_return().
 create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
 -spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok | no_return().
-create_check_channel(UserId, Channel) when UserId == system ->
-    create_check_channel(Channel);
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
     CreateAudit = proplists:get_value(audit, Options, false),
@@ -1049,7 +1058,7 @@ readGE(_User, Channel, DecodedKey, Limit) ->
 	{L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
     [skvh_rec_to_map(R) || R <- L ].
 
-readGELTNoError(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+readGELTMap(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
     TableName = atom_table_name(Channel),
     Key1 = term_key_to_binterm(DecodedKey1),
     Key2 = term_key_to_binterm(DecodedKey2),
@@ -1080,9 +1089,9 @@ readGELTHashes(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
     TableName = atom_table_name(Channel),
     Key1 = term_key_to_binterm(DecodedKey1),
     Key2 = term_key_to_binterm(DecodedKey2),
-    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], [{{'$1','$3'}}]},
     {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
-    [{binterm_to_term_key(Key), Hash} || #skvhTable{ckey=Key, chash=Hash} <- L].
+    [{binterm_to_term_key(Key), Hash} || {Key, Hash} <- L].
 
 audit_part_readGT([], _MatchFunction, _Limit) -> [];
 audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
