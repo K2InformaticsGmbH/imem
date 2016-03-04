@@ -10,7 +10,7 @@
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
-            , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff
+            , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff, md5
             , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap, phash2
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa
@@ -343,7 +343,7 @@ expr_fun({Op, A}) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_
     module_fun('erlang', {Op, A});
 expr_fun({Op, A}) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
     module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
+expr_fun({Op, A}) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple';Op=='md5' ->
     module_fun('erlang', {Op, A});
 expr_fun({Op, A, B}) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
     module_fun('erlang', {Op, A, B});
