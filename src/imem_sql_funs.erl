@@ -129,6 +129,7 @@ unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav
 unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
+unary_fun_bind_type("md5") ->                   #bind{type=binstr,default= <<>>};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
@@ -151,6 +152,7 @@ unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
 unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
+unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>};
 unary_fun_result_type("to_json") ->             #bind{type=binstr,default=?nav};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
