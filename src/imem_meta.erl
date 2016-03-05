@@ -97,7 +97,6 @@
 
 -export([ schema/0
         , schema/1
-        , system_id/0
         , data_nodes/0
         , host_fqdn/1
         , host_name/1
@@ -141,20 +140,15 @@
         , dictionary_trigger/5
         , check_table/1
         , check_local_table_copy/1
-        , check_table_meta/2
-        , check_table_columns/2
         , meta_field_list/0        
         , meta_field/1
         , meta_field_info/1
         , meta_field_value/1
         , column_infos/1
         , from_column_infos/1
-        , column_info_items/2
         ]).
 
--export([ add_attribute/2
-        , update_opts/2
-        , compile_fun/1
+-export([ compile_fun/1
         , log_to_db/5
         , log_to_db/6
         , log_to_db/7
@@ -598,8 +592,6 @@ check_table_meta(TableAlias, Names) when is_atom(TableAlias) ->
                 OldN ->     ?SystemException({"Column names do not match ddTable dictionary",{PTN,Names,OldN}})
             end
     end.
-
-check_table_columns(Table, Meta) -> check_table_meta(Table, Meta).  % ToDo: deprecate
 
 drop_meta_tables() ->
     drop_meta_tables(?META_TABLES).
@@ -1859,15 +1851,6 @@ schema() ->
 
 schema(Node) ->
     imem_if_mnesia:schema(Node).
-
-system_id() ->
-    imem_if_mnesia:system_id().
-
-add_attribute(A, Opts) -> 
-    imem_if_mnesia:add_attribute(A, Opts).
-
-update_opts(T, Opts) ->
-    imem_if_mnesia:update_opts(T, Opts).
 
 failing_function([]) -> 
     {undefined,undefined, 0};

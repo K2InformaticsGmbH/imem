@@ -7,36 +7,26 @@
 
 -export([ schema/1
         , schema/2
-        , system_id/1
         , data_nodes/1
         , all_tables/1
         , is_readable_table/2
         , tables_starting_with/2
-        , node_shard/1
         , physical_table_name/2
         , physical_table_names/2
         , table_type/2
         , table_columns/2
         , table_size/2
         , table_record_name/2
-        , check_table/2
-        , check_table_meta/3
-        , check_table_columns/3
         , is_system_table/2
         , meta_field_list/1                
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
-        , column_infos/2
-        , column_info_items/3        
-        , column_map/3
         , subscribe/2
         , unsubscribe/2
         ]).
 
--export([ update_opts/3
-        , add_attribute/3
-        , get_config_hlk/5  %% get single config value and put default if not found
+-export([ get_config_hlk/5  %% get single config value and put default if not found
         , put_config_hlk/6  %% put single config value with remark
         ]).
 
@@ -108,21 +98,6 @@
         , update_tables/3           %% update (first) table and return updated keys 
         ]).
 
--export([ transaction/2
-        , transaction/3
-        , transaction/4
-        , return_atomic_list/2
-        , return_atomic_ok/2
-        , return_atomic/2
-        ]).
-
--export([ first/2
-        , next/3
-        , last/2
-        , prev/3
-        , foldl/4
-        ]).
-
 -export([ have_table_permission/3   %% includes table ownership and readonly
         , have_module_permission/3  
         , have_permission/2    
@@ -172,10 +147,6 @@ if_is_system_table(SKey,Table) when is_binary(Table) ->
         _:_ -> false
     end.
 
-add_attribute(_SKey, A, Opts) ->                imem_meta:add_attribute(A, Opts).
-
-update_opts(_SKey, T, Opts) ->                  imem_meta:update_opts(T, Opts).
-
 %% imem_if but security context added --- META INFORMATION ------
 
 schema(SKey) ->
@@ -185,9 +156,6 @@ schema(SKey) ->
 schema(SKey, Node) ->
     seco_authorized(SKey),
     imem_meta:schema(Node).
-
-system_id(_Skey) ->
-    imem_meta:system_id().
 
 is_system_table(SKey, Table) ->
     seco_authorized(SKey),    
@@ -212,15 +180,6 @@ meta_field_value(SKey, user) ->              imem_seco:account_id(SKey);
 meta_field_value(SKey, <<"username">>) ->    imem_seco:account_name(SKey);
 meta_field_value(SKey, username) ->          imem_seco:account_name(SKey);
 meta_field_value(_SKey, Name) ->             imem_meta:meta_field_value(Name).
-
-column_map(_SKey, Tables, Columns) ->
-    imem_sql:column_map(Tables, Columns).
-
-column_infos(_SKey, Table) ->
-    imem_meta:column_infos(Table).
-
-column_info_items(_SKey, Info, Item) ->
-    imem_meta:column_info_items(Info, Item).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),
@@ -258,9 +217,6 @@ atoms_starting_with(Prefix,[A|Atoms],Acc) ->
         false ->    atoms_starting_with(Prefix,Atoms,Acc)
     end.
 
-node_shard(_SKey) ->
-    imem_meta:node_shard().
-
 table_type(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_type(Table);
@@ -297,15 +253,6 @@ table_size(SKey, Table) ->
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
-check_table(_SKey, Table) ->
-    imem_meta:check_table(Table).
-
-check_table_meta(_SKey, Table, ColumnNames) ->
-    imem_meta:check_table_meta(Table, ColumnNames).
-
-check_table_columns(_SKey, Table, ColumnInfo) ->
-    imem_meta:check_table_columns(Table, ColumnInfo).
-
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
@@ -320,33 +267,6 @@ unsubscribe(_SKey, EventCategory) ->
 update_tables(_SKey, UpdatePlan, Lock) ->
     %% ToDo: Plan must be checked against permissions
     imem_meta:update_tables(UpdatePlan, Lock).
-
-transaction(_SKey, Function) ->
-    imem_meta:transaction(Function).
-
-transaction(_SKey, Function, Args) ->
-    imem_meta:transaction(Function, Args).
-
-transaction(_SKey, Function, Args, Retries) ->
-    imem_meta:transaction(Function, Args, Retries).
-
-return_atomic_list(_SKey, Result) ->
-    imem_meta:return_atomic_list(Result). 
-
-return_atomic_ok(_SKey, Result) -> 
-    imem_meta:return_atomic_ok(Result).
-
-return_atomic(_SKey, Result) -> 
-    imem_meta:return_atomic(Result).
-
-first(_SKey, Table)                 -> imem_meta:first(Table).
-next(_SKey, Table,Key)              -> imem_meta:next(Table,Key).
-last(_SKey, Table)                  -> imem_meta:last(Table).
-prev(_SKey, Table,Key)              -> imem_meta:prev(Table,Key).
-foldl(_SKey,FoldFun,InputAcc,Table) -> imem_meta:foldl(FoldFun,InputAcc,Table).
-
-%% imem_if but security context added --- DATA DEFINITIONimem_meta--
-
 
 create_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),

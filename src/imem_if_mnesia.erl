@@ -25,7 +25,6 @@
 
 -export([ schema/0
         , schema/1
-        , system_id/0
         , data_nodes/0
         , all_tables/0
         , is_readable_table/1
@@ -37,15 +36,10 @@
         , table_record_name/1        
         , check_table/1
         , check_local_table_copy/1
-        , check_table_columns/2
         , is_system_table/1
         , meta_field_value/1
         , subscribe/1
         , unsubscribe/1
-        ]).
-
--export([ add_attribute/2
-        , update_opts/2
         ]).
 
 -export([ create_table/3
@@ -255,9 +249,6 @@ schema(Node) ->
             list_to_atom(Schema)
     end.
 
-system_id() ->
-    lists:flatten(atom_to_list(schema()) ++ "@",atom_to_list(node())).
-
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
@@ -336,16 +327,6 @@ check_local_table_copy(Table) ->
     catch
         exit:{aborted,{no_exists,_,_}} -> ?ClientErrorNoLogging({"Table does not exist", Table})
     end.
-
-check_table_columns(Table, ColumnNames) ->
-    TableColumns = table_columns(Table),
-    if
-        ColumnNames =:= TableColumns ->
-            ok;
-        true ->
-            ?SystemExceptionNoLogging({"Column names do not match table structure",Table})
-    end.
-
 
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
