@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.11 (Release Date 05.03.2016)
+=======================================
+* Fixed some security vulnerabilities
+* Moved JSON Path documentation to Wiki
+* Added map interface to skvh
+
 Version 1.4.10 (Release Date 01.03.2016)
 =======================================
 * json_diff bug fixes
