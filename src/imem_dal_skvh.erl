@@ -797,11 +797,11 @@ read_shallow_single(Channel, TableName, CurrentKey, EndKey, KeyLen) ->
         '$end_of_table' -> [];
         NextKey when NextKey >= EndKey -> [];
         NextKey ->
-            [#skvhTable{ckey=EncodedKey} = Row] = imem_meta:read(TableName, NextKey),
-            CKey = imem_datatype:binterm_to_term(EncodedKey),
-            case length(CKey) =:= KeyLen of
+            case length(imem_datatype:binterm_to_term(NextKey)) =:= KeyLen of
                 false -> read_shallow_single(Channel, TableName, NextKey, EndKey, KeyLen);
-                true -> [skvh_rec_to_map(Row) | 
+                true ->
+                    [Row] = imem_meta:read(TableName, NextKey),
+                    [skvh_rec_to_map(Row) | 
                          read_shallow_single(Channel, TableName, NextKey, EndKey, KeyLen)]
             end
     end.
