@@ -14,8 +14,9 @@
                                'bxor','bsl','bsr','abs','div','rem',
                                'min','max','float','now','date','element',
                                'size','bit_size','byte_size','binary_part',
-                               'phash2','md5','throw','hd','tl']).
+                               'phash2','md5','throw','hd','tl','setelement','round']).
 -define(UNSAFE_ERLANG_FUNCTIONS,['list_to_atom','binary_to_atom','list_to_pid','binary_to_term','is_pid','is_port','is_process_alive']).
+-define(UNSAFE_SERVER_FUNCTIONS,[start,start_link,init,handle_info,handle_call,handle_cast,terminate,code_change]).
 
 -define(ROWFUN_EXTENSIONS,[{<<"nodef">>,1}
                           ,{<<"item1">>,1},{<<"item2">>,1},{<<"item3">>,1},{<<"item4">>,1}
@@ -445,9 +446,9 @@ io_to_db(Item,Old,Type,Len,Prec,Def,false,Val) when is_binary(Val);is_list(Val) 
             true ->                     io_to_term(Val)
         end
     catch
-        _:{'UnimplementedException',_} ->       ?ClientError({"Unimplemented data type conversion",{Item,{Type,Val}}});
-        _:{'ClientError', {Text, Reason}} ->    ?ClientError({Text, {Item,Reason}});
-        _:_ ->                                  ?ClientError({"Data conversion format error",{Item,{Type,Val}}})
+        _:{'UnimplementedException',_} ->       ?ClientErrorNoLogging({"Unimplemented data type conversion",{Item,{Type,Val}}});
+        _:{'ClientError', {Text, Reason}} ->    ?ClientErrorNoLogging({Text, {Item,Reason}});
+        _:_ ->                                  ?ClientErrorNoLogging({"Data conversion format error",{Item,{Type,Val}}})
     end.
 
 add_squotes(<<>>) -> <<"''">>;
@@ -553,7 +554,7 @@ io_to_integer(Val,Len,Prec) ->
     Value = case io_to_term(Val) of
         V when is_integer(V) -> V;
         V when is_float(V) ->   erlang:round(V);
-        _ ->                    ?ClientError({"Data conversion format error",{integer,Len,Prec,Val}})
+        _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
     end,
     Result = if
         Prec == undefined ->    Value;
@@ -563,7 +564,7 @@ io_to_integer(Val,Len,Prec) ->
     RLen = length(integer_to_list(Result)),
     if
         Len == undefined ->     Result;
-        RLen > Len ->           ?ClientError({"Data conversion format error",{integer,Len,Prec,Val}});
+        RLen > Len ->           ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}});
         true ->                 Result
     end.
 
@@ -571,7 +572,7 @@ io_to_float(Val,Prec) ->
     Value = case io_to_term(Val) of
         V when is_float(V) ->   V;
         V when is_integer(V) -> float(V);
-        _ ->                    ?ClientError({"Data conversion format error",{float,Prec,Val}})
+        _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{float,Prec,Val}})
     end,
     if
         Prec == undefined ->    Value;
@@ -586,17 +587,17 @@ io_to_binary(Val,Len) when is_binary(Val) ->
     L = binary:last(Val),
     if
         (F < $0) orelse (F > $F) ->
-            ?ClientError({"Invalid hex string starts with",{binary,[F]}});
+            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[F]}});
         (F > $9) andalso (F < $A) ->
-            ?ClientError({"Invalid hex string starts with",{binary,[F]}});
+            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[F]}});
         (L < $0) orelse (L > $F) ->
-            ?ClientError({"Invalid hex string starts with",{binary,[L]}});
+            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[L]}});
         (L > $9) andalso (L < $A) ->
-            ?ClientError({"Invalid hex string starts with",{binary,[L]}});
+            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[L]}});
         (Len /= undefined) andalso (S > Len+Len) ->
-            ?ClientError({"Binary data is too long",{binary,Len}});
+            ?ClientErrorNoLogging({"Binary data is too long",{binary,Len}});
         (S rem 2) == 1 ->
-            ?ClientError({"Hex string must have even number of characters",{binary,S}});
+            ?ClientErrorNoLogging({"Hex string must have even number of characters",{binary,S}});
         true ->
             hexstr_to_bin(Val)
     end;
@@ -606,13 +607,13 @@ io_to_binary(Val,Len) when is_list(Val) ->
     LastOK = lists:member(lists:last(Val),"0123456789ABCDEF"),
     if
         (FirstOK == false) ->
-            ?ClientError({"Invalid hex string starts with",{binary,[hd(Val)]}});
+            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[hd(Val)]}});
         (LastOK == false) ->
-            ?ClientError({"Invalid hex string ends with",{binary,[lists:last(Val)]}});
+            ?ClientErrorNoLogging({"Invalid hex string ends with",{binary,[lists:last(Val)]}});
         (Len /= undefined) andalso (L > Len+Len) ->
-            ?ClientError({"Binary data is too long",{binary,Len}});
+            ?ClientErrorNoLogging({"Binary data is too long",{binary,Len}});
         (L rem 2) == 1 ->
-            ?ClientError({"Hex string must have even number of characters",{binary,L}});
+            ?ClientErrorNoLogging({"Hex string must have even number of characters",{binary,L}});
         true ->
             hexstr_to_bin(Val)
     end.
@@ -704,8 +705,8 @@ io_to_timestamp(Val0,6) ->
         {Meg,Sec, 0} = utc_seconds_to_now(local_datetime_to_utc_seconds({Date, Time})),
         {Meg,Sec,round(1000000*Micro)}
     catch
-        _:{'ClientError',Reason} -> ?ClientError({"Data conversion format error",{timestamp,Val,Reason}});
-        _:Reason ->  ?ClientError({"Data conversion format error",{timestamp,Val,Reason}})
+        _:{'ClientError',Reason} -> ?ClientErrorNoLogging({"Data conversion format error",{timestamp,Val,Reason}});
+        _:Reason ->  ?ClientErrorNoLogging({"Data conversion format error",{timestamp,Val,Reason}})
     end;
 io_to_timestamp(Val,Prec) when Prec == 0 ->
     {Megas,Secs,Micros} = io_to_timestamp(Val,6),
@@ -773,32 +774,32 @@ io_to_datetime(Val0) ->
                 end
         end
     catch
-        _:_ ->  ?ClientError({"Data conversion format error",{datetime,Val}})
+        _:_ ->  ?ClientErrorNoLogging({"Data conversion format error",{datetime,Val}})
     end.
 
 parse_date_eu(Val) ->
     case string:tokens(Val, ".") of
         [Day,Month,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
-        _ ->                    ?ClientError({"parse_date_eu",Val})
+        _ ->                    ?ClientErrorNoLogging({"parse_date_eu",Val})
     end.
 
 parse_date_us(Val) ->
     case string:tokens(Val, "/") of
         [Month,Day,Year] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
-        _ ->                    ?ClientError({"parse_date_us",Val})
+        _ ->                    ?ClientErrorNoLogging({"parse_date_us",Val})
     end.
 
 parse_date_int(Val) ->
     case string:tokens(Val, "-") of
         [Year,Month,Day] ->     validate_date({parse_year(Year),parse_month(Month),parse_day(Day)});
-        _ ->                    ?ClientError({"parse_date_int",Val})
+        _ ->                    ?ClientErrorNoLogging({"parse_date_int",Val})
     end.
 
 parse_date_raw(Val) ->
     case length(Val) of
         8 ->    validate_date({parse_year(lists:sublist(Val,1,4)),parse_month(lists:sublist(Val,5,2)),parse_day(lists:sublist(Val,7,2))});
         6 ->    validate_date({parse_year(lists:sublist(Val,1,2)),parse_month(lists:sublist(Val,3,2)),parse_day(lists:sublist(Val,5,2))});
-        _ ->    ?ClientError({"parse_date_raw",Val})
+        _ ->    ?ClientErrorNoLogging({"parse_date_raw",Val})
     end.
 
 parse_year(Val) ->
@@ -809,21 +810,21 @@ parse_year(Val) ->
                    Year2 < 50 ->    2000+Year2;
                    true ->          1900+Year2
                 end;
-        _ ->    ?ClientError({"parse_year",Val})
+        _ ->    ?ClientErrorNoLogging({"parse_year",Val})
     end.
 
 parse_month(Val) ->
     case length(Val) of
         1 ->                    list_to_integer(Val);
         2 ->                    list_to_integer(Val);
-        _ ->                    ?ClientError({"parse_month",Val})
+        _ ->                    ?ClientErrorNoLogging({"parse_month",Val})
     end.
 
 parse_day(Val) ->
     case length(Val) of
         1 ->                    list_to_integer(Val);
         2 ->                    list_to_integer(Val);
-        _ ->                    ?ClientError({"parse_day",Val})
+        _ ->                    ?ClientErrorNoLogging({"parse_day",Val})
     end.
 
 parse_time(Val) ->
@@ -836,7 +837,7 @@ parse_time(Val) ->
                 4 ->    {parse_hour(lists:sublist(Val,1,2)),parse_minute(lists:sublist(Val,3,2)),0};
                 2 ->    {parse_hour(lists:sublist(Val,1,2)),0,0};
                 0 ->    {0,0,0};
-                _ ->    ?ClientError({"parse_time",Val})
+                _ ->    ?ClientErrorNoLogging({"parse_time",Val})
             end
     end.
 
@@ -844,21 +845,21 @@ parse_hour(Val) ->
     H = list_to_integer(Val),
     if
         H >= 0 andalso H < 25 ->    H;
-        true ->                     ?ClientError({"parse_hour",Val})
+        true ->                     ?ClientErrorNoLogging({"parse_hour",Val})
     end.
 
 parse_minute(Val) ->
     M = list_to_integer(Val),
     if
         M >= 0 andalso M < 60 ->    M;
-        true ->                     ?ClientError({"parse_minute",Val})
+        true ->                     ?ClientErrorNoLogging({"parse_minute",Val})
     end.
 
 parse_second(Val) ->
     S = list_to_integer(Val),
     if
         S >= 0 andalso S < 60 ->    S;
-        true ->                     ?ClientError({"parse_second",Val})
+        true ->                     ?ClientErrorNoLogging({"parse_second",Val})
     end.
 
 parse_micro(Val) ->
@@ -874,7 +875,7 @@ utc_seconds_to_now(SecondsUtc) ->
     {Seconds1970 div 1000000, Seconds1970 rem 1000000, 0}.
 
 local_datetime_to_utc_seconds({{Year,_,_}, _}) when Year < 1970 ->
-    ?ClientError({"Cannot handle dates before 1970"});
+    ?ClientErrorNoLogging({"Cannot handle dates before 1970"});
 local_datetime_to_utc_seconds({Date, Time}) ->
 %%  DateTime1900 = calendar:datetime_to_gregorian_seconds({{1900, 01, 01}, {00, 00, 00}}),
 %%  calendar:datetime_to_gregorian_seconds({Date, Time}) - DateTime1900.
@@ -888,7 +889,7 @@ local_datetime_to_utc_seconds({Date, Time}) ->
 validate_date(Date) ->
     case calendar:valid_date(Date) of
         true ->     Date;
-        false ->    ?ClientError({"validate_date",Date})
+        false ->    ?ClientErrorNoLogging({"validate_date",Date})
     end.
 
 io_to_ipaddr(Val) ->
@@ -905,7 +906,7 @@ io_to_ipaddr([${|_]=Val,Len) ->
                 if
                     Len==undefined ->   {A,B,C,D};
                     Len==4 ->           {A,B,C,D};
-                    true ->             ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
+                    true ->             ?ClientErrorNoLogging({"Data conversion format error",{ipaddr,Len,Val}})
                 end;
         {A,B,C,D,E,F,G,H} when
             is_integer(A), is_integer(B), is_integer(C), is_integer(D),
@@ -913,23 +914,23 @@ io_to_ipaddr([${|_]=Val,Len) ->
                 if
                     Len==undefined ->   {A,B,C,D,E,F,G,H};
                     Len==8 ->           {A,B,C,D,E,F,G,H};
-                    true ->             ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
+                    true ->             ?ClientErrorNoLogging({"Data conversion format error",{ipaddr,Len,Val}})
                 end;
-        _ -> ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
+        _ -> ?ClientErrorNoLogging({"Data conversion format error",{ipaddr,Len,Val}})
     end;
 io_to_ipaddr(Val,Len) ->
     Result = try
         {ok,Ip} = inet_parse:address(Val),
         Ip
     catch
-        _:_ -> ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
+        _:_ -> ?ClientErrorNoLogging({"Data conversion format error",{ipaddr,Len,Val}})
     end,
     RLen = size(Result),
     if
         Len == undefined andalso RLen == 4 ->   Result;
         Len == undefined andalso RLen == 8 ->   Result;
         RLen == Len ->                          Result;
-        true ->                                 ?ClientError({"Data conversion format error",{ipaddr,Len,Val}})
+        true ->                                 ?ClientErrorNoLogging({"Data conversion format error",{ipaddr,Len,Val}})
     end.
 
 io_to_decimal(Val,Len,Prec) when is_binary(Val) ->
@@ -962,11 +963,11 @@ io_to_decimal(Val,Len,Prec) ->
             end,
             if
                 Len == undefined         ->  Result;
-                ResultLength > Len       ->  ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}});
+                ResultLength > Len       ->  ?ClientErrorNoLogging({"Data conversion format error",{decimal,Len,Prec,Val}});
                 true                     ->  Result
             end;
         _NotInteger ->
-            ?ClientError({"Data conversion format error",{decimal,Len,Prec,Val}})
+            ?ClientErrorNoLogging({"Data conversion format error",{decimal,Len,Prec,Val}})
     end.
 
 
@@ -993,7 +994,7 @@ io_to_binstr(Val,Len) ->
         Len == undefined ->     Bin;
         Len == 0 ->             Bin;
         size(Bin) =< Len  ->    Bin;
-        true ->                 ?ClientError({"String is too long",{Val,Len}})
+        true ->                 ?ClientErrorNoLogging({"String is too long",{Val,Len}})
     end.
 
 io_to_string(Bin) ->
@@ -1001,7 +1002,7 @@ io_to_string(Bin) ->
 
 io_to_string(Bin,Len) when is_binary(Bin) ->
     case strip_dquotes(Bin) of
-        Bin ->  ?ClientError({"Missing double quotes for list string format",{Bin,Len}});
+        Bin ->  ?ClientErrorNoLogging({"Missing double quotes for list string format",{Bin,Len}});
         B ->
             List = case unicode:characters_to_list(B, utf8) of
                 L when is_list(L) ->
@@ -1013,7 +1014,7 @@ io_to_string(Bin,Len) when is_binary(Bin) ->
                 Len == undefined ->     List;
                 Len == 0 ->             List;
                 length(List) =< Len  -> List;
-                true ->                 ?ClientError({"String is too long",{B,Len}})
+                true ->                 ?ClientErrorNoLogging({"String is too long",{B,Len}})
             end
     end.
 
@@ -1024,16 +1025,16 @@ io_to_list(Val,Len) ->
                 Len == undefined -> V;
                 Len == 0 ->         V;
                 length(V) == Len -> V;
-                true ->             ?ClientError({"Data conversion format error",{list,Len,Val}})
+                true ->             ?ClientErrorNoLogging({"Data conversion format error",{list,Len,Val}})
             end;
         _ ->
-            ?ClientError({"Data conversion format error",{list,Len,Val}})
+            ?ClientErrorNoLogging({"Data conversion format error",{list,Len,Val}})
     end.
 
 io_to_map(Val) ->
     case io_to_term(Val) of
         V when is_map(V) -> V;
-        _ -> ?ClientError({"Data conversion format error",{map,Val}})
+        _ -> ?ClientErrorNoLogging({"Data conversion format error",{map,Val}})
     end.
 
 io_to_tuple(Val,Len) ->
@@ -1043,17 +1044,17 @@ io_to_tuple(Val,Len) ->
                 Len == undefined -> V;
                 Len == 0 ->         V;
                 size(V) == Len ->   V;
-                true ->             ?ClientError({"Data conversion format error",{tuple,Len,Val}})
+                true ->             ?ClientErrorNoLogging({"Data conversion format error",{tuple,Len,Val}})
             end;
         _ ->
-            ?ClientError({"Data conversion format error",{tuple,Len,Val}})
+            ?ClientErrorNoLogging({"Data conversion format error",{tuple,Len,Val}})
     end.
 
 io_to_boolean(Val) ->
     case io_to_term(Val) of
         V when is_boolean(V) ->     V;
         _ ->
-            ?ClientError({"Data conversion format error",{boolean,Val}})
+            ?ClientErrorNoLogging({"Data conversion format error",{boolean,Val}})
     end.
 
 io_to_term(Val) ->
@@ -1062,14 +1063,14 @@ io_to_term(Val) ->
     catch
         _:_ -> 
             % ?LogDebug("Cannot convert this to erlang term: ~10000p ~10000p", [Val,erlang:get_stacktrace()]),   %% TODO:enable to check code injection
-            ?ClientError({})
+            ?ClientErrorNoLogging({})
     end.
 
 io_to_binterm(Val) ->
     try
         sext:encode(erl_value(Val))
     catch
-        _:_ -> ?ClientError({})
+        _:_ -> ?ClientErrorNoLogging({})
     end.
 
 io_to_fun(Str) ->
@@ -1078,7 +1079,7 @@ io_to_fun(Str) ->
         is_function(Fun) ->
             Fun;
         true ->
-            ?ClientError({"Data conversion format error",{'fun',Str}})
+            ?ClientErrorNoLogging({"Data conversion format error",{'fun',Str}})
     end.
 
 io_to_fun(Str,Len) ->
@@ -1087,7 +1088,7 @@ io_to_fun(Str,Len) ->
         Len == undefined ->     Fun;
         is_function(Fun,Len) -> Fun;
         true ->
-            ?ClientError({"Data conversion format error",{'fun',Len,Str}})
+            ?ClientErrorNoLogging({"Data conversion format error",{'fun',Len,Str}})
     end.
 
 io_to_fun(Str,Len,Bindings) ->
@@ -1096,7 +1097,7 @@ io_to_fun(Str,Len,Bindings) ->
         Len == undefined ->     Fun;
         is_function(Fun,Len) -> Fun;
         true ->
-            ?ClientError({"Data conversion format error",{'fun',Len,Str,Bindings}})
+            ?ClientErrorNoLogging({"Data conversion format error",{'fun',Len,Str,Bindings}})
     end.
 
 erl_value(String) when is_binary(String) -> erl_value(binary_to_list(String),[]);
@@ -1116,7 +1117,7 @@ erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
         {value,Value,_} -> Value;
         {Ex, Exception} when Ex == 'SystemException'; Ex == 'SecurityException' ->
             ?SecurityException({"Potentially harmful code", Exception});
-        {'EXIT', Error} -> ?ClientError({"Term compile error", Error})
+        {'EXIT', Error} -> ?ClientErrorNoLogging({"Term compile error", Error})
     end.
 
 % @doc callback function used as 'Non-local Function Handler' in
@@ -1149,12 +1150,21 @@ nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
     apply(io_lib, Fun, Args);
 nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index;Fun==dictionary_trigger ->
     apply(imem_meta, Fun, Args);
+nonLocalHFun({imem_domain, Fun}, Args) ->
+    nonLocalServerFun({imem_domain, Fun}, Args);
 nonLocalHFun({imem_dal_skvh, Fun}, Args) ->
-    apply(imem_dal_skvh, Fun, Args);   % TODO: restrict to subset of functions
+    apply(imem_dal_skvh, Fun, Args);            % TODO: restrict to subset of functions
 nonLocalHFun({imem_index, Fun}, Args) ->
-    apply(imem_index, Fun, Args);   % TODO: restrict to subset of functions
+    apply(imem_index, Fun, Args);               % TODO: restrict to subset of functions
 nonLocalHFun({Mod, Fun}, Args) ->
     apply(imem_meta, secure_apply, [Mod, Fun, Args]).
+
+nonLocalServerFun({Mod, Fun}, Args) ->
+    case lists:member(Fun,?UNSAFE_SERVER_FUNCTIONS) of
+        true ->     ?SecurityException({restricted, {Mod, Fun}});
+        false ->    apply(Mod, Fun, Args)
+    end.
+
 
 %% ----- CAST Data from DB to string ------------------
 
@@ -1209,7 +1219,7 @@ datetime_to_io({{Year,Month,Day},{Hour,Min,Sec}},us) ->
     list_to_binary(io_lib:format("~2.10.0B/~2.10.0B/~4.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
         [Month, Day, Year, Hour, Min, Sec]));
 datetime_to_io(Datetime, Fmt) ->
-    ?ClientError({"Data conversion format error",{datetime,Fmt,Datetime}}).
+    ?ClientErrorNoLogging({"Data conversion format error",{datetime,Fmt,Datetime}}).
 
 timestamp_to_io(TS) ->
     timestamp_to_io(TS,6,eu).
@@ -1282,7 +1292,7 @@ offset_datetime('+', {{Y,M,D},{HH,MI,SS}}, Offset) ->
     GregSecs = calendar:datetime_to_gregorian_seconds({{Y,M,D},{HH,MI,SS}}),  %% for local time we should use calendar:local_time_to_universal_time_dst(DT)
     calendar:gregorian_seconds_to_datetime(GregSecs + round(Offset*86400.0)); %% calendar:universal_time_to_local_time(
 offset_datetime(OP, DT, Offset) ->
-    ?ClientError({"Illegal datetime offset operation",{OP,DT,Offset}}).
+    ?ClientErrorNoLogging({"Illegal datetime offset operation",{OP,DT,Offset}}).
 
 offset_timestamp('+', TS, Offset) when Offset < 0.0 ->
     offset_timestamp('-', TS, -Offset);
@@ -1303,7 +1313,7 @@ offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
     NewMega = (NewSec-Se) div 1000000,
     {NewMega, Se, Mi};
 offset_timestamp(OP, TS, Offset) ->
-    ?ClientError({"Illegal timestamp offset operation",{OP,TS,Offset}}).
+    ?ClientErrorNoLogging({"Illegal timestamp offset operation",{OP,TS,Offset}}).
 
 musec_diff(TS1) -> musec_diff(TS1,os:timestamp()).
 
@@ -1423,14 +1433,14 @@ item(I,T) when is_tuple(T) ->
         size(T) >= I ->
             term_to_io(element(I,T));
         true ->
-            ?emptyIo        %% ?ClientError({"Tuple too short",{T,I}})
+            ?emptyIo        %% ?ClientErrorNoLogging({"Tuple too short",{T,I}})
     end;
 item(I,L) when is_list(L) ->
     if
         length(L) >= I ->
             term_to_io(lists:nth(I,L));
         true ->
-            ?emptyIo        %% ?ClientError({"List too short",{L,I}})
+            ?emptyIo        %% ?ClientErrorNoLogging({"List too short",{L,I}})
     end;
 item(I,B) when is_binary(B) ->
     try
@@ -1441,7 +1451,7 @@ item(I,B) when is_binary(B) ->
         end
     catch _:_ -> ?emptyIo
     end;
-item(_,_) -> ?emptyIo.      %% ?ClientError({"Tuple or list expected",T}).
+item(_,_) -> ?emptyIo.      %% ?ClientErrorNoLogging({"Tuple or list expected",T}).
 
 item1(T) -> item(1,T).
 item2(T) -> item(2,T).

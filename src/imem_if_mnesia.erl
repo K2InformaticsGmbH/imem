@@ -25,7 +25,6 @@
 
 -export([ schema/0
         , schema/1
-        , system_id/0
         , data_nodes/0
         , all_tables/0
         , is_readable_table/1
@@ -37,15 +36,10 @@
         , table_record_name/1        
         , check_table/1
         , check_local_table_copy/1
-        , check_table_columns/2
         , is_system_table/1
         , meta_field_value/1
         , subscribe/1
         , unsubscribe/1
-        ]).
-
--export([ add_attribute/2
-        , update_opts/2
         ]).
 
 -export([ create_table/3
@@ -83,12 +77,17 @@
         , return_atomic_ok/1
         , return_atomic/1
         , lock/2
+        , abort/1
         ]).
 
 -export([ first/1
+        , dirty_first/1
         , next/2
+        , dirty_next/2
         , last/1
+        , dirty_last/1
         , prev/2
+        , dirty_prev/2
         , foldl/3
         ]).
 
@@ -146,6 +145,8 @@ return_atomic({aborted, {throw,{Exception, Reason}}}) -> throw({Exception, Reaso
 return_atomic({aborted, {exit, {Exception, Reason}}}) -> exit({Exception, Reason});
 return_atomic({aborted, Error}) ->          ?SystemExceptionNoLogging(Error);
 return_atomic(Other) ->                     Other.
+
+abort(Reason) -> mnesia:abort(Reason).
 
 % init and store transaction time
 trans_time_init() ->
@@ -248,9 +249,6 @@ schema(Node) ->
             list_to_atom(Schema)
     end.
 
-system_id() ->
-    lists:flatten(atom_to_list(schema()) ++ "@",atom_to_list(node())).
-
 add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
@@ -329,16 +327,6 @@ check_local_table_copy(Table) ->
     catch
         exit:{aborted,{no_exists,_,_}} -> ?ClientErrorNoLogging({"Table does not exist", Table})
     end.
-
-check_table_columns(Table, ColumnNames) ->
-    TableColumns = table_columns(Table),
-    if
-        ColumnNames =:= TableColumns ->
-            ok;
-        true ->
-            ?SystemExceptionNoLogging({"Column names do not match table structure",Table})
-    end.
-
 
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
@@ -856,13 +844,21 @@ unsubscribe(system)                 -> mnesia:unsubscribe(system);
 unsubscribe(EventCategory) ->
     ?ClientErrorNoLogging({"Unsupported event category unsubscription", EventCategory}).
 
-first(Table) ->     mnesia:first(Table).
+first(Table) ->             mnesia:first(Table).
 
-next(Table,Key) ->  mnesia:next(Table,Key).
+dirty_first(Table) ->       mnesia:dirty_first(Table).
 
-last(Table) ->      mnesia:last(Table).
+next(Table,Key) ->          mnesia:next(Table,Key).
 
-prev(Table,Key) ->  mnesia:prev(Table,Key).
+dirty_next(Table,Key) ->    mnesia:dirty_next(Table,Key).
+
+last(Table) ->              mnesia:last(Table).
+
+dirty_last(Table) ->        mnesia:dirty_last(Table).
+
+prev(Table,Key) ->          mnesia:prev(Table,Key).
+
+dirty_prev(Table,Key) ->    mnesia:dirty_prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->
     return_atomic(transaction(fun mnesia:foldl/3, [FoldFun, InputAcc, Table])).
@@ -885,20 +881,23 @@ start_link(Params) ->
 
 init(_) ->
     {ok, SchemaName} = application:get_env(mnesia_schema_name),
+    {ok, ClusterManagers} = application:get_env(erl_cluster_mgrs),
     case disc_schema_nodes(SchemaName) of
         [] ->   
             case node() of
                 nonode@nohost ->    
                     ok;
                 _ ->                
-                    ?Warn ("no node found at ~p for schema ~p in erlang cluster ~p~n"
-                          , [node(), SchemaName, erlang:get_cookie()]
-                          )
+                    ?Warn ("no node found at ~p for schema ~p cluster ~p~n",
+                           [node(), SchemaName, erlang:get_cookie()]),
+                    {ok, _} = mnesia:change_config(
+                                extra_db_nodes, [node() | ClusterManagers])
             end;
         [DiscSchemaNode|_] ->
-            ?Info("adding ~p to schema ~p on ~p~n", [node(), SchemaName, DiscSchemaNode]),
+            ?Info("adding ~p to schema ~p on ~p~n",
+                  [node(), SchemaName, DiscSchemaNode]),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config,
-                               [extra_db_nodes, [node()]])
+                               [extra_db_nodes, [node() | ClusterManagers]])
     end,
     {ok, NodeType} = application:get_env(mnesia_node_type),
     ?Info("mnesia node type is '~p'~n", [NodeType]),

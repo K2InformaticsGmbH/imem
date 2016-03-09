@@ -207,7 +207,7 @@ vnf_float(L) when is_list(L) ->
         _ ->                    [?nav]
     end.
 
-vnf_datetime(B) when is_binary(B) ->
+vnf_datetime(B) ->
     try imem_datatype:io_to_datetime(B) of
         D -> [D]
     catch _T:_E -> [?nav]

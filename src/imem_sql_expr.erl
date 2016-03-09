@@ -21,25 +21,17 @@
         , bind_tree/2
         ]).
 
--export([ bind_table/3
-        , bind_tab/3
-        ]).
-
 -export([ main_spec/2
         , join_specs/3
         , sort_fun/3
         , sort_spec/3
-        , is_readonly/1
         , filter_spec_where/3
         , sort_spec_order/3
         , sort_spec_fun/3
         ]).
 
--export([ binstr_to_qname3/1
-        , binstr_to_qname2/1
-        , binstr_to_qname/1
-        , uses_operator/2
-        , uses_operand/2
+-export([ binstr_to_qname2/1
+        , to_guard/1
         ]).
 
 %% @doc Reforms the main scan specification for the select statement 
@@ -51,15 +43,15 @@
 -spec bind_scan(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_scan(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?LogDebug("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?LogDebug("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [to_guard(STree1)], [Result]}],
             case Ti of
                 ?MainIdx -> {SSpec1,ets:match_spec_compile(SSpec1),FilterFun0};
@@ -69,8 +61,8 @@ bind_scan(Ti,X,ScanSpec0) ->
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
             {STree2,FTree} = split_filter_from_guard(STree1),
-            % ?Info("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
-            % ?Info("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
+            % ?LogDebug("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
+            % ?LogDebug("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
             SSpec1 = [{SHead, [to_guard(STree2)], [Result]}],
             FilterFun1 = imem_sql_funs:filter_fun(FTree),
             case Ti of
@@ -88,26 +80,27 @@ bind_scan(Ti,X,ScanSpec0) ->
 -spec bind_virtual(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_virtual(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?LogDebug("STree before virtual scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?LogDebug("FTree before virtual scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [STree1], [Result]}],   % to_guard(STree1)
             {SSpec1,TailSpec0,FilterFun0};
         {_,_} ->                                    %% filter fun needs to be evaluated
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("SGuard after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             %% TODO: splitting into generator conditions and filter conditions
             %% For now, we assume that we only have generator conditions which define
             %% the raw virtual rows (e.g. is_member() or item >=1 and item <=10) 
             SSpec1 = [{SHead, [STree1], [Result]}],             % was [to_guard(STree1)]
             FilterFun1 = imem_sql_funs:filter_fun(STree1),
+            % ?LogDebug("FilterFun 1 ~p", [FilterFun1]),
             {SSpec1,TailSpec0,FilterFun1}
     end.
 
@@ -153,21 +146,16 @@ uses_operator(Op,{Op,_}) ->         true;
 uses_operator(Op,{Op,_,_}) ->       true;
 uses_operator(Op,{Op,_,_,_}) ->     true;
 uses_operator(Op,{Op,_,_,_,_}) ->   true;
+uses_operator(Op,[A|Rest]) ->       
+    case uses_operator(Op,A) of
+        false ->    uses_operator(Op,Rest);
+        true ->     true
+    end;
 uses_operator(Op,{_,A}) ->          uses_operator(Op,A);
 uses_operator(Op,{_,A,B}) ->        uses_operator(Op,A) orelse uses_operator(Op,B);
 uses_operator(Op,{_,A,B,C}) ->      uses_operator(Op,A) orelse uses_operator(Op,B) orelse uses_operator(Op,C);
 uses_operator(Op,{_,A,B,C,D}) ->    uses_operator(Op,A) orelse uses_operator(Op,B) orelse uses_operator(Op,C) orelse uses_operator(Op,D);
 uses_operator(_,_) ->               false.
-
-%% Does guard contain given operand V ?
-uses_operand(V,V) ->                true;
-uses_operand(_,{const,_}) ->        false;
-uses_operand(V,#bind{tind=0,cind=0,btree=BTree}) -> uses_operand(V,BTree);
-uses_operand(V,{_,A}) ->            uses_operand(V,A);
-uses_operand(V,{_,A,B}) ->          uses_operand(V,A) orelse uses_operand(V,B);
-uses_operand(V,{_,A,B,C}) ->        uses_operand(V,A) orelse uses_operand(V,B) orelse uses_operand(V,C);
-uses_operand(V,{_,A,B,C,D}) ->      uses_operand(V,A) orelse uses_operand(V,B) orelse uses_operand(V,C) orelse uses_operand(V,D);
-uses_operand(_,_) ->                false.
 
 %% Does guard contain any of the filter operators?
 %% ToDo: bad tuple tolerance for element/2 (add element to function category?)
@@ -222,6 +210,7 @@ bind_eval({list,L}) when is_list(L) ->
         [true] ->     %% BTree evaluates to a list of values
             BTL 
     end;
+bind_eval(L) when is_list(L) ->     [bind_eval(Ele) || Ele <- L];
 bind_eval({'or', true, _}) ->       true; 
 bind_eval({'or', _, true}) ->       true; 
 bind_eval({'or', false, false}) ->  false; 
@@ -271,12 +260,12 @@ bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav;
 bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav;
 bind_eval(BTree) ->
     case bind_done(BTree) of
-        false ->    %% cannot simplify BTree here
-            BTree;  
-        true ->     %% BTree evaluates to a value
-            bind_fun(imem_sql_funs:expr_fun(BTree))
+        false ->    BTree;                                      %% cannot simplify BTree here
+        true ->     bind_fun(imem_sql_funs:expr_fun(BTree))     %% BTree evaluates to a value
     end.
 
+bind_fun(L) when is_list(L) ->
+    [bind_fun(I) || I <- L]; 
 bind_fun(BTF) when is_function(BTF) -> 
     bind_value(BTF(anything));
 bind_fun(Value) -> 
@@ -291,21 +280,25 @@ bind_fun(Value) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_table(integer(), tuple(), tuple()) -> tuple().
 bind_table(Ti, BTree, X) ->
-    % ?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
+    % ?LogDebug("bind_table ~p ~p ~p",[Ti, BTree, X]),
     case bind_tab(Ti, BTree, X) of
-        ?nav ->     false;
-        B ->        B
+        ?nav ->     
+            false;
+        B ->
+            % ?LogDebug("bind_table result ~p",[B]),        
+            B
     end.
 
 bind_tab(_, {const,T}, _) when is_tuple(T) -> {const,T};
 bind_tab(Ti, #bind{tind=0,cind=0,btree=BT}, X) -> bind_eval(bind_tab(Ti, BT, X));
 bind_tab(Ti, #bind{tind=Tind}=Bind, X) when Tind<Ti -> bind_value(?BoundVal(Bind,X));
-bind_tab(_ , #bind{}=Bind, _) -> Bind;
-bind_tab(Ti, {Op,A}, X) ->       bind_eval({Op,bind_tab(Ti,A,X)}); %% unary functions and operators
-bind_tab(Ti, {Op,A,B}, X) ->     bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X)}); %% binary functions/op.
-bind_tab(Ti, {Op,A,B,C}, X) ->   bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X)});
-bind_tab(Ti, {Op,A,B,C,D}, X) -> bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X),bind_tab(Ti,D,X)});
-bind_tab(_ , A, _) ->            bind_value(A).
+bind_tab(_ , #bind{}=Bind, _) ->        Bind;
+bind_tab(Ti, {Op,A}, X) ->              bind_eval({Op,bind_tab(Ti,A,X)}); %% unary functions and operators
+bind_tab(Ti, {Op,A,B}, X) ->            bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X)}); %% binary functions/op.
+bind_tab(Ti, {Op,A,B,C}, X) ->          bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X)});
+bind_tab(Ti, {Op,A,B,C,D}, X) ->        bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X),bind_tab(Ti,D,X)});
+bind_tab(Ti, L, X) when is_list(L) ->   [bind_eval(bind_tab(Ti, E, X)) || E <- L];
+bind_tab(_ , A, _) ->                   bind_value(A).
 
 
 %% @doc Transforms an expression tree into a matchspec guard by replacing bind records with their tag value.  
@@ -318,7 +311,8 @@ to_guard({Op,A}) ->             {Op,to_guard(A)}; %% unary functions and operato
 to_guard({Op,A,B}) ->           {Op,to_guard(A),to_guard(B)}; %% binary functions/op.
 to_guard({Op,A,B,C}) ->         {Op,to_guard(A),to_guard(B),to_guard(C)};
 to_guard({Op,A,B,C,D}) ->       {Op,to_guard(A),to_guard(B),to_guard(C),to_guard(D)};
-to_guard(L) when is_list(L) ->  [bind_value(I) || I <- L];  % means that lists must be constants in guards
+% to_guard(L) when is_list(L) ->  [bind_value(I) || I <- L];  % means that lists must be constants in guards
+to_guard(L) when is_list(L) ->  [to_guard(I) || I <- L];  
 to_guard(A) ->                  A.
 
 %% @doc Binds all unbound variables in an expression tree in one pass.
@@ -336,6 +330,7 @@ bind_t({Op,A}, X) ->             bind_eval({Op,bind_t(A,X)});
 bind_t({Op,A,B}, X) ->           bind_eval({Op,bind_t(A,X),bind_t(B,X)});
 bind_t({Op,A,B,C}, X) ->         bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X)});
 bind_t({Op,A,B,C,D}, X) ->       bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X),bind_t(D,X)});
+bind_t(L, X) when is_list(L) ->  [bind_eval(bind_t(E,X)) || E <- L];
 bind_t(A, _) ->                  bind_value(A). % TODO: may need to bind lists here too
 
 
@@ -360,6 +355,7 @@ bind_subtree_const(BTree) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec prune_tree(integer(), binary()|tuple()) -> list().
 prune_tree(Ti, WBTree) ->
+    % ?LogDebug("Prune walk call ~p",[WBTree]),
     Res1 = prune_walk(Ti, WBTree),
     % ?LogDebug("Prune walk result ~p",[Res1]),
     Res2 = prune_eval(Res1),
@@ -1112,6 +1108,10 @@ expr_math(Op, CMapA, CMapB, BT) ->
             #bind{type=float,btree={Op,CMapA,CMapB}};
         {_,float,_,_} ->
             #bind{type=float,btree={Op,CMapA,CMapB}};
+        {list,_,_,_} ->
+            #bind{type=list,btree={Op,CMapA,CMapB}};
+        {map,_,_,_} ->
+            #bind{type=map,btree={Op,CMapA,CMapB}};
         {_,_,_,_} ->
             #bind{type=number,btree={Op,CMapA,CMapB}}
     end.

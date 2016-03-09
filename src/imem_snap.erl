@@ -118,6 +118,7 @@ start_link(Params) ->
     end.
 
 init(_) ->
+
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
     case filelib:is_dir(SnapDir) of
@@ -379,15 +380,17 @@ take({tabs, [_R|_] = RegExs}) when is_list(_R) ->   % multiple tables as list of
         []  -> {error, lists:flatten(io_lib:format(" ~p doesn't match any table in ~p~n", [RegExs, FilteredSnapReadTables]))};
         _   -> take({tabs, SelectedSnapTables})
     end;
-take(Tab) when is_atom(Tab) ->                      % single table as atom (internal use)
-    take({tabs, [Tab]});
-take({tabs, Tabs}) ->                               % list of tables as atoms
+take({tabs, Tabs}) ->                               % list of tables as atoms or snapshot transform maps
     lists:flatten([
         case take_chunked(Tab) of
             ok -> {ok, Tab};
             {error, Reason} -> {error, lists:flatten(io_lib:format("snapshot ~p failed for ~p~n", [Tab, Reason]))}
         end
-    || Tab <- Tabs]).
+    || Tab <- Tabs]);
+take(Tab) when is_atom(Tab) ->                      % single table as atom (internal use)
+    take({tabs, [Tab]});
+take(Tab) when is_map(Tab) ->                       % single table using transform map 
+    take({tabs, [Tab]}).
 
 
 % snapshot restore interface
@@ -425,8 +428,8 @@ restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
                end,
     erlang:whereis(?MODULE) ! imem_snap_loop,
     case restore_chunked(list_to_atom(DstTab), SnapFile, Strategy, Simulate) of
-        {L1,L2,L3} when is_list(L1), is_list(L2), is_list(L3) ->
-            ?Info("Restored table ~s as ~s from ~s", [SrcTab, DstTab, SnapFile]),
+        {L1,L2,L3} ->
+            ?Info("Restored table ~s as ~s from ~s with result ~p", [SrcTab, DstTab, SnapFile, {L1,L2,L3}]),
             ok;
         Error -> Error
     end.
@@ -479,7 +482,7 @@ restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
         -> catch imem_meta:truncate_table(Tab);
         true -> ok
     end,
-    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {[],[],[]}).
+    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {0,0,0}).
 
 read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Debug("backup file header read"),
@@ -539,7 +542,7 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
         TableType = imem_if_mnesia:table_info(Tab, type),
         lists:foldl(
           fun(Row, {I, E, A}) ->
-            UpdatedRows = length(E) + length(A),
+            UpdatedRows = E + A,
             if (UpdatedRows > 0 andalso UpdatedRows rem 500 == 0) ->
                    ?Info("restoring ~p updated ~p rows~n", [Tab, UpdatedRows]);
                true -> ok
@@ -548,24 +551,24 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
                 K = element(2, Row),
                 case imem_meta:read(Tab, K) of
                     [Row] ->    % found identical existing row
-                            {[Row|I], E, A};
-                    [RowN] ->   % existing row with different content,
+                            {I+1, E, A};
+                    [_] ->   % existing row with different content,
                         case Strategy of
                             replace ->
                                 if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                                {I, [{Row,RowN}|E], A};
+                                {I, E+1, A};
                             destroy ->
                                 if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                                {I, E, [Row|A]};
+                                {I, E, A+1};
                             _ -> {I, E, A}
                         end;
                     [] -> % row not found, appending
                         if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                        {I, E, [Row|A]}
+                        {I, E, A+1}
                 end;
             true ->
                 if Simulate /= true -> ok = imem_meta:write(Tab,Row); true -> ok end,
-                {I, E, [Row|A]}
+                {I, E, A+1}
             end
         end,
         {OldI, OldE, OldA},
@@ -594,17 +597,17 @@ close_file(Me, FHndl) ->
     end,
     Me ! Ret.
 
-write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin) ->
+write_file(Me,Tab,FetchFunPid,RTrans,FHndl,NewRowCount,NewByteCount,RowsBin) ->
     PayloadSize = byte_size(RowsBin),
     case file:write(FHndl, << PayloadSize:32, RowsBin/binary >>) of
         ok ->
             FetchFunPid ! next,
-            take_fun(Me,Tab,FetchFunPid,NewRowCount,NewByteCount,FHndl);
+            take_fun(Me,Tab,FetchFunPid,RTrans,NewRowCount,NewByteCount,FHndl);
         {error,_} = Error ->
             Me ! Error
     end.
 
-write_close_file(Me, FHndl,RowsBin) ->
+write_close_file(Me, FHndl, RowsBin) ->
     PayloadSize = byte_size(RowsBin),
     Ret = case file:write(FHndl, << PayloadSize:32, RowsBin/binary >>) of
         ok ->
@@ -616,7 +619,7 @@ write_close_file(Me, FHndl,RowsBin) ->
     end,
     Me ! Ret.
 
-take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
+take_fun(Me,Tab,FetchFunPid,RTrans,RowCount,ByteCount,FHndl) ->
     FetchFunPid ! next,
     receive
         {row, ?eot} ->
@@ -626,25 +629,25 @@ take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
             ?Debug("empty ~p~n",[Tab]),
             close_file(Me, FHndl);
         {row, [?sot,?eot|Rows]} ->
-            RowsBin = term_to_binary(Rows),
+            RowsBin = term_to_binary([RTrans(R) || R <- Rows]),
             ?Debug("snap ~p all, total ~p rows ~p bytes~n",[Tab, RowCount+length(Rows), ByteCount+byte_size(RowsBin)]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?eot|Rows]} ->
-            RowsBin = term_to_binary(Rows),
+            RowsBin = term_to_binary([RTrans(R) || R <- Rows]),
             ?Debug("snap ~p last, total ~p rows ~p bytes~n",[Tab, RowCount+length(Rows), ByteCount+byte_size(RowsBin)]),
             write_close_file(Me, FHndl,RowsBin);
         {row, [?sot|Rows]} ->
             NewRowCount = RowCount+length(Rows),
-            RowsBin = term_to_binary(Rows),
+            RowsBin = term_to_binary([RTrans(R) || R <- Rows]),
             NewByteCount = ByteCount+byte_size(RowsBin),
             ?Debug("snap ~p first ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
-            write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin);
+            write_file(Me,Tab,FetchFunPid,RTrans,FHndl,NewRowCount,NewByteCount,RowsBin);
         {row, Rows} ->
             NewRowCount = RowCount+length(Rows),
-            RowsBin = term_to_binary(Rows),
+            RowsBin = term_to_binary([RTrans(R) || R <- Rows]),
             NewByteCount = ByteCount+byte_size(RowsBin),
             ?Debug("snap ~p intermediate, total ~p rows ~p bytes~n",[Tab, NewRowCount, NewByteCount]),
-            write_file(Me,Tab,FetchFunPid,FHndl,NewRowCount,NewByteCount,RowsBin)
+            write_file(Me,Tab,FetchFunPid,RTrans,FHndl,NewRowCount,NewByteCount,RowsBin)
     after
         ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT ->
             FetchFunPid ! abort,
@@ -654,13 +657,26 @@ take_fun(Me,Tab,FetchFunPid,RowCount,ByteCount,FHndl) ->
 take_chunked(Tab) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     take_chunked(Tab, SnapDir).
-take_chunked(Tab, SnapDir) ->
-    BackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_EXTN]),
-    NewBackFile = filename:join([SnapDir, atom_to_list(Tab)++?BKP_TMP_EXTN]),
+
+take_chunked(Tab, SnapDir) when is_atom(Tab) ->
+    take_chunked(#{table=>Tab}, SnapDir);  
+take_chunked(Map, SnapDir) when is_map(Map) ->
+    NTrans = fun(Name) -> atom_to_list(Name) end,
+    PTrans = fun(Prop) -> Prop end,
+    RTrans = fun(Row) -> Row end,
+    take_chunked_transform(maps:merge(#{nTrans=>NTrans, pTrans=>PTrans, rTrans=>RTrans}, Map), SnapDir).
+
+take_chunked_transform(#{table:=Tab, nTrans:=NTrans, pTrans:=PTrans, rTrans:=RTrans}, SnapDir) ->
+    % Tab (atom) table name
+    % NTrans (fun/1) name translation
+    % PTrans (fun/1) property translation
+    % RTrans (fun/1) row translation
+    BackFile = filename:join([SnapDir, NTrans(Tab) ++ ?BKP_EXTN]),
+    NewBackFile = filename:join([SnapDir, NTrans(Tab) ++ ?BKP_TMP_EXTN]),
     % truncates the file if already exists and writes the table props
     TblPropBin = case imem_if_mnesia:read(ddTable, {imem_meta:schema(),Tab}) of
-        [] ->           term_to_binary({prop, imem_if_mnesia:table_info(Tab, user_properties)});
-        [DDTableRow] -> term_to_binary({prop, [DDTableRow]})
+        [] ->           term_to_binary({prop, PTrans(imem_if_mnesia:table_info(Tab, user_properties))});
+        [DDTableRow] -> term_to_binary({prop, PTrans([DDTableRow])})
     end,
     PayloadSize = byte_size(TblPropBin),
     ok = file:write_file(NewBackFile, << PayloadSize:32, TblPropBin/binary >>),
@@ -679,7 +695,7 @@ take_chunked(Tab, SnapDir) ->
                             , {delayed_write, erlang:round(ChunkSize * AvgRowSize)
                               , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]),
         FetchFunPid = imem_if_mnesia:fetch_start(self(), Tab, [{'$1', [], ['$1']}], ChunkSize, []),
-        take_fun(Me,Tab,FetchFunPid,0,0,FHndl)
+        take_fun(Me,Tab,FetchFunPid,RTrans,0,0,FHndl)
     end),
     receive
         done    ->
@@ -739,6 +755,7 @@ snap_err(P,A) -> ?Error(P,A).
 snap_file_count() ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     length(filelib:wildcard("*.{bkp,zip}",SnapDir)).
+
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

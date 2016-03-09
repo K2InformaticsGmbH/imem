@@ -122,7 +122,7 @@ init(_Args) ->
                     AccountDyn = #ddAccountDyn{id=system},
                     if_write(none, ddAccount, Account),                    
                     if_write(none, ddAccountDyn, AccountDyn),                    
-                    if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
+                    if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables,{dderl,con,local,use}]});
             _ ->    ok
         end,
         % imem_meta:fail({"Fail in imem_seco:init on purpose"}),        
@@ -491,8 +491,8 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
                     if_write(SKey, ddAccountDyn, AD);               
                 [#ddAccountDyn{lastFailureTime=undefined}] ->       % never had a failure before
                     ok;
-                [AD] ->
-                    fail_or_clear_password_lock(SeCo, AD)
+                [#ddAccountDyn{id=AccountId}] ->
+                    fail_or_clear_password_lock(SeCo, AccountId)
             end,
             ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             seco_register(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5]}, authenticated);     % return SKey only

@@ -14,6 +14,8 @@
 
 exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ToDo: spawn imem_statement here and execute in its own security context (compile & run from same process)
+    ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
+    % ?LogDebug("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
     {_, TableList} = lists:keyfind(from, 1, SelectSections),
     % ?Info("TableList: ~p~n", [TableList]),
     Params = imem_sql:params_from_opts(Opts,ParseTree),
@@ -92,6 +94,9 @@ setup() ->
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
+    catch imem_meta:drop_table(skvhSqlTest),
+    catch imem_meta:drop_table(skvhSqlTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhSqlTestHist),
     ?imem_test_setup.
 
 teardown(_SKey) -> 
@@ -99,6 +104,9 @@ teardown(_SKey) ->
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
+    catch imem_meta:drop_table(skvhSqlTest),
+    catch imem_meta:drop_table(skvhSqlTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhSqlTestHist),        
     ?imem_test_teardown.
 
 db1_test_() ->
@@ -166,8 +174,38 @@ db1_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
+        exec_fetch_sort_equal(SKey, query3w, 100, IsSec, "
+            select item
+            from tuple
+            where is_member(item,to_list('[{a,b},{c,d}]'))"
+            ,
+            [{<<"{a,b}">>},{<<"{c,d}">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3v, 100, IsSec, "
+            select item 
+            from tuple 
+            where item = to_tuple('{a,b}')"
+            ,
+            [{<<"{a,b}">>}]
+        ),
+
         ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
 
+        ?assertEqual(ok, imem_dal_skvh:create_check_channel(<<"skvhSqlTest">>)),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,100],<<"100">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,200],<<"200">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,300],<<"300">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,400],<<"400">>),
+
+        Sql3q1 = "select cvalue
+                    from integer, skvhSqlTest
+                    where item = 300 
+                    and ckey = list(123,item)",
+        exec_fetch_sort_equal(SKey, query3q1, 100, IsSec, Sql3q1
+            ,
+            [{<<"300">>}]
+        ),
 
         Sql3p1 = "select item 
                     from dual,atom 
@@ -202,22 +240,25 @@ db1_with_or_without_sec(IsSec) ->
                     from atom where item = to_atom('filter_funs')"
                     ,
                     [{<<"filter_funs">>,<<"list">>}]
+                ),
+                % ?assertException(throw,{'UnimplementedException',{"Unsupported filter function", {mfa,imem_sql_funs,_,_}}},
+                %     exec_fetch_sort(SKey, query3p3, 100, IsSec, "
+                %         select item, hd(mfa('imem_sql_funs', item, '[]')) 
+                %         from atom where item = to_atom('filter_funs')" )
+                % ),
+                Sql3p4 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_meta','schema','[]'))
+                    and item like 'list%'",
+                ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
+                ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_,_}}},
+                    exec_fetch_sort(SKey, query3p4, 100, IsSec, Sql3p4)
                 )
-                % , % ToDo: test if mfa security is implemented
-                % Sql3p4 = "select item 
-                %     from dual,atom 
-                %     where is_member(item, mfa('imem_meta','schema','[]'))
-                %     and item like 'list%'",
-                % ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
-                % ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_}}},
-                %     exec_fetch_sort(SKey, query3p4, 100, IsSec, Sql3p4)
-                % )
                 ;
             false ->
-                % ToDo: test if mfa security is implemented
-                % ?assertException(throw,{'SecurityException',{"Not logged in",undefined}},
-                %     exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
-                % ),
+                ?assertException(throw,{'SecurityException',{"Not logged in",_}},
+                    exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
+                ),
                 ok
         end,
 
@@ -271,6 +312,18 @@ db1_with_or_without_sec(IsSec) ->
             ,
             [ {CsvFileName,<<"11">>,<<"6">>,<<"A1">>,<<"1">>}
             , {CsvFileName,<<"17">>,<<"6">>,<<"A2">>,<<"2">>}
+            ]
+        ),
+
+        CsvFileNameLong = <<"CsvTestFileNameLong123abc.txt">>,
+        BigField = binary:copy(<<"Test">>, 1500),
+        file:write_file(CsvFileNameLong,<<"Col1\tCol2\r\nA1\t1\r\n",BigField/binary,"\t2\r\n">>),
+
+        exec_fetch_sort_equal(SKey, query06, 100, IsSec, "
+            select col1, col2, col3 from csv$skip1$tab$3." ++ ?DQFN(CsvFileNameLong)  
+            ,
+            [ {<<"A1">>,<<"1">>,<<>>}
+            , {BigField,<<"2">>,<<>>}
             ]
         ),
 
@@ -677,10 +730,10 @@ db1_with_or_without_sec(IsSec) ->
             [{<<"100">>,<<"{'Atom100',100}">>}]
         ),
 
-        exec_fetch_equal(SKey, query3a, 100, IsSec, 
-            "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)", 
-            [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
-        ),
+        % exec_fetch_equal(SKey, query3a, 100, IsSec, 
+        %     "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)", 
+        %     [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
+        % ),
 
         % R3b = exec_fetch_sort(SKey, query3b, 100, IsSec, 
         %     "select col3, item from def, integer where is_member(item,to_atom('$_')) and col1 <> 100"
@@ -822,6 +875,7 @@ db1_with_or_without_sec(IsSec) ->
             ,
             [{<<"1">>},{<<"2">>},{<<"3">>}]
         ),
+
 
         %% self joins 
 

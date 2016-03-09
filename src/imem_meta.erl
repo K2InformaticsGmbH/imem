@@ -57,6 +57,15 @@
 
 -define(PartEndDigits,10).  % Number of digits representing the partition end (seconds since epoch) in partition names
 
+-define(GET_SNAP_NAME_TRANS(__TABLE),
+        ?GET_CONFIG(snapNameTrans,[__TABLE], <<"fun(N) -> atom_to_list(N) end">> , "Name translation for snapshot files, '.bkp' added")
+       ).
+-define(GET_SNAP_PROP_TRANS(__TABLE),
+        ?GET_CONFIG(snapPropTrans,[__TABLE], <<"fun(P) -> P end">> , "Table property translation for snapshot files")
+       ).
+-define(GET_SNAP_ROW_TRANS(__TABLE),
+        ?GET_CONFIG(snapRowTrans,[__TABLE], <<"fun(R) -> R end">> , "Row translation for snapshot files")
+       ).
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
@@ -88,7 +97,6 @@
 
 -export([ schema/0
         , schema/1
-        , system_id/0
         , data_nodes/0
         , host_fqdn/1
         , host_name/1
@@ -132,20 +140,15 @@
         , dictionary_trigger/5
         , check_table/1
         , check_local_table_copy/1
-        , check_table_meta/2
-        , check_table_columns/2
         , meta_field_list/0        
         , meta_field/1
         , meta_field_info/1
         , meta_field_value/1
         , column_infos/1
         , from_column_infos/1
-        , column_info_items/2
         ]).
 
--export([ add_attribute/2
-        , update_opts/2
-        , compile_fun/1
+-export([ compile_fun/1
         , log_to_db/5
         , log_to_db/6
         , log_to_db/7
@@ -218,6 +221,7 @@
         , dirty_write/2
         , delete/2              %% delete row by key
         , delete_object/2       %% delete single row in bag table 
+        , abort/1               %% abort transaction with a message
         ]).
 
 -export([ update_prepare/3          %% stateless creation of update plan from change list
@@ -257,9 +261,13 @@
         ]).
 
 -export([ first/1
+        , dirty_first/1
         , next/2
+        , dirty_next/2
         , last/1
+        , dirty_last/1
         , prev/2
+        , dirty_prev/2
         , foldl/3
         ]).
 
@@ -585,8 +593,6 @@ check_table_meta(TableAlias, Names) when is_atom(TableAlias) ->
             end
     end.
 
-check_table_columns(Table, Meta) -> check_table_meta(Table, Meta).  % ToDo: deprecate
-
 drop_meta_tables() ->
     drop_meta_tables(?META_TABLES).
 
@@ -802,13 +808,14 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         {type,?MODULE} ->                                                 % module defined table
                 ?ClientError({"Invalid module name for table type",{type,?MODULE}});
         {type,M} ->                                                 % module defined table
-                case lists:member(M,erlang:loaded()) of
-                    true -> case lists:member({create_table,4},M:module_info(exports)) of
-                                true ->     M;
-                                false ->    ?ClientError({"Bad module name for table type",{type,M}})
-                            end;
-                    false ->
-                        ?ClientError({"Unknown module name for table type",{type,M}})
+                case catch M:module_info(exports) of
+                    {'EXIT',_} ->
+                        ?ClientError({"Unknown module name for table type",{type,M}});
+                    Exports -> 
+                        case lists:member({create_table,4},Exports) of
+                            true ->     M;
+                            false ->    ?ClientError({"Bad module name for table type",{type,M}})
+                        end
                 end
     end,
     case {TypeMod,length(ColInfos)} of
@@ -1261,19 +1268,28 @@ snapshot_table({Schema,Table}) ->
 snapshot_table(Alias) when is_atom(Alias) ->
     log_to_db(debug,?MODULE,snapshot_table,[{table,Alias}],"snapshot table"),
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
-        [] ->   ?ClientError({"Table does not exist",Alias});
-        PTNs -> case lists:usort([check_table(T) || T <- PTNs]) of
-                    [ok] -> snapshot_partitioned_tables(PTNs);
-                    _ ->    ?ClientError({"Table does not exist",Alias})
-                end
+        [] ->   
+            ?ClientError({"Table does not exist",Alias});
+        PTNs -> 
+            case lists:usort([check_table(T) || T <- PTNs]) of
+                [ok] -> 
+                    snapshot_partitioned_tables(
+                          imem_datatype:io_to_fun(?GET_SNAP_NAME_TRANS(Alias),1)
+                        , imem_datatype:io_to_fun(?GET_SNAP_PROP_TRANS(Alias),1)
+                        , imem_datatype:io_to_fun(?GET_SNAP_ROW_TRANS(Alias),1)            
+                        , PTNs
+                    );
+                _ ->    
+                    ?ClientError({"Table does not exist",Alias})
+            end
     end;
 snapshot_table(TableName) ->
     snapshot_table(qualified_table_name(TableName)).
 
-snapshot_partitioned_tables([]) -> ok;
-snapshot_partitioned_tables([TableName|TableNames]) ->
-    imem_snap:take(TableName),
-    snapshot_partitioned_tables(TableNames).
+snapshot_partitioned_tables(_,_,_,[]) -> ok;
+snapshot_partitioned_tables(NTrans,PTrans,RTrans,[TableName|TableNames]) ->
+    imem_snap:take(#{table=>TableName,nTrans=>NTrans, pTrans=>PTrans, rTrans=>RTrans}),
+    snapshot_partitioned_tables(NTrans,PTrans,RTrans,TableNames).
 
 restore_table({_Schema,Table,_Alias}) ->
     restore_table({_Schema,Table});
@@ -1310,7 +1326,7 @@ restore_table_as(Alias, NewAlias) when is_atom(Alias) ->
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
         [PTN] ->
-            NewPTN = case catch ?binary_to_existing_atom(NewAlias) of
+            NewPTN = case catch ?binary_to_atom(NewAlias) of    % _existing
                           {'EXIT',_} -> NewAlias;
                           {'ClientError',_} -> NewAlias;
                           NewAliasAtom ->
@@ -1827,20 +1843,14 @@ compile_fun(String) when is_list(String) ->
             undefined
     end.
 
+abort(Reason) ->
+    imem_if_mnesia:abort(Reason).
+
 schema() ->
     imem_if_mnesia:schema().
 
 schema(Node) ->
     imem_if_mnesia:schema(Node).
-
-system_id() ->
-    imem_if_mnesia:system_id().
-
-add_attribute(A, Opts) -> 
-    imem_if_mnesia:add_attribute(A, Opts).
-
-update_opts(T, Opts) ->
-    imem_if_mnesia:update_opts(T, Opts).
 
 failing_function([]) -> 
     {undefined,undefined, 0};
@@ -2861,13 +2871,21 @@ return_atomic_ok(Result) ->
 return_atomic(Result) -> 
     imem_if_mnesia:return_atomic(Result).
 
-first(Table) ->     imem_if_mnesia:first(Table).
+first(Table) ->             imem_if_mnesia:first(Table).
 
-next(Table,Key) ->  imem_if_mnesia:next(Table,Key).
+dirty_first(Table) ->       imem_if_mnesia:dirty_first(Table).
 
-last(Table) ->      imem_if_mnesia:last(Table).
+next(Table,Key) ->          imem_if_mnesia:next(Table,Key).
 
-prev(Table,Key) ->  imem_if_mnesia:prev(Table,Key).
+dirty_next(Table,Key) ->    imem_if_mnesia:dirty_next(Table,Key).
+
+last(Table) ->              imem_if_mnesia:last(Table).
+
+dirty_last(Table) ->        imem_if_mnesia:dirty_last(Table).
+
+prev(Table,Key) ->          imem_if_mnesia:prev(Table,Key).
+
+dirty_prev(Table,Key) ->    imem_if_mnesia:dirty_prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->  
     imem_if_mnesia:foldl(FoldFun, InputAcc, Table).
@@ -3550,7 +3568,7 @@ meta_partitions(_) ->
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)), % one record to first partition
-        timer:sleep(1050),
+        timer:sleep(920),   % was 1050
         _FL2 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@, _FL2, written]), 
 
@@ -3558,7 +3576,7 @@ meta_partitions(_) ->
         FL3 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
         ?assert(FL3 >= 3),
-        timer:sleep(1050),
+        timer:sleep(920),   % was 1050
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
         % ?LogDebug("success ~p~n", [roll_partitioned_table]),
         {timeout, 5, fun() -> ?assertEqual(ok,drop_table(fakelog_1@)) end},

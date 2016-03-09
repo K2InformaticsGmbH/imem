@@ -7,37 +7,26 @@
 
 -export([ schema/1
         , schema/2
-        , system_id/1
         , data_nodes/1
         , all_tables/1
         , is_readable_table/2
         , tables_starting_with/2
-        , node_shard/1
         , physical_table_name/2
         , physical_table_names/2
         , table_type/2
         , table_columns/2
         , table_size/2
         , table_record_name/2
-        , check_table/2
-        , check_table_meta/3
-        , check_table_columns/3
         , is_system_table/2
         , meta_field_list/1                
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
-        , column_infos/2
-        , column_info_items/3        
-        , column_map/3
         , subscribe/2
         , unsubscribe/2
         ]).
 
--export([ update_opts/3
-        , add_attribute/3
-   %     , log_to_db/6
-        , get_config_hlk/5  %% get single config value and put default if not found
+-export([ get_config_hlk/5  %% get single config value and put default if not found
         , put_config_hlk/6  %% put single config value with remark
         ]).
 
@@ -109,28 +98,9 @@
         , update_tables/3           %% update (first) table and return updated keys 
         ]).
 
--export([ transaction/2
-        , transaction/3
-        , transaction/4
-        , return_atomic_list/2
-        , return_atomic_ok/2
-        , return_atomic/2
-        ]).
-
--export([ first/2
-        , next/3
-        , last/2
-        , prev/3
-        , foldl/4
-        ]).
-
 -export([ have_table_permission/3   %% includes table ownership and readonly
         , have_module_permission/3  
         , have_permission/2    
-        ]).
-
-% exported for test
--export([ select_rowfun_str/5
         ]).
 
 %% one to one from dd_account ------------ AA FUNCTIONS _--------
@@ -162,43 +132,20 @@ clone_seco(SKey, Pid) ->
 
 %% from imem_meta --- HELPER FUNCTIONS do not export!! --------
 
-if_is_system_table(_SKey,{_,Table}) -> 
-    if_is_system_table(_SKey,Table);       % TODO: May depend on Schema
+if_is_system_table(SKey,{_,Table}) -> 
+    if_is_system_table(SKey,Table);       % TODO: May depend on Schema
 if_is_system_table(_SKey,Table) when is_atom(Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
         false ->    imem_meta:is_system_table(Table)
     end;
-if_is_system_table(_SKey,Table) when is_binary(Table) ->
+if_is_system_table(SKey,Table) when is_binary(Table) ->
     try
         {S,T} = imem_sql_expr:binstr_to_qname2(Table), 
-        if_is_system_table(_SKey,{?binary_to_existing_atom(S),?binary_to_existing_atom(T)})
+        if_is_system_table(SKey,{?binary_to_existing_atom(S),?binary_to_existing_atom(T)})
     catch
         _:_ -> false
     end.
-
-if_meta_field_list(_SKey) ->
-    imem_meta:meta_field_list().
-
-if_meta_field(_SKey, Name) when is_atom(Name) ->
-    if_meta_field(_SKey, ?atom_to_binary(Name));
-if_meta_field(_SKey, Name) ->
-    case lists:member(Name,?SECO_FIELDS) of
-        true ->     true;
-        false ->    imem_meta:meta_field(Name)
-    end.
-
-if_meta_field_info(_SKey, Name) ->              imem_meta:meta_field_info(Name).
-
-if_meta_field_value(SKey, <<"user">>) ->        imem_seco:account_id(SKey);
-if_meta_field_value(SKey, user) ->              imem_seco:account_id(SKey);
-if_meta_field_value(SKey, <<"username">>) ->    imem_seco:account_name(SKey);
-if_meta_field_value(SKey, username) ->          imem_seco:account_name(SKey);
-if_meta_field_value(_SKey, Name) ->             imem_meta:meta_field_value(Name).
-
-add_attribute(_SKey, A, Opts) ->                imem_meta:add_attribute(A, Opts).
-
-update_opts(_SKey, T, Opts) ->                  imem_meta:update_opts(T, Opts).
 
 %% imem_if but security context added --- META INFORMATION ------
 
@@ -210,39 +157,29 @@ schema(SKey, Node) ->
     seco_authorized(SKey),
     imem_meta:schema(Node).
 
-% BIKRAM: exported for testing
-select_rowfun_str(SKey, ColMap, DateFmt, NumFmt, StrFmt) ->
-    io:format(user, "imem_sec:select_rowfun_str~n", []),
-    seco_authorized(SKey),
-    imem_datatype:select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt).
-
-system_id(_Skey) ->
-    imem_meta:system_id().
-
 is_system_table(SKey, Table) ->
     seco_authorized(SKey),    
     if_is_system_table(SKey, Table).
 
-meta_field_list(SKey) ->
-    if_meta_field_list(SKey).
+meta_field_list(_SKey) ->
+    imem_meta:meta_field_list().
 
-meta_field(SKey, Name) ->
-    if_meta_field(SKey, Name).
+meta_field(SKey, Name) when is_atom(Name) ->
+    meta_field(SKey, ?atom_to_binary(Name));
+meta_field(_SKey, Name) ->
+    case lists:member(Name,?SECO_FIELDS) of
+        true ->     true;
+        false ->    imem_meta:meta_field(Name)
+    end.
 
-meta_field_info(SKey, Name) ->
-    if_meta_field_info(SKey, Name).
+meta_field_info(_SKey, Name) ->
+    imem_meta:meta_field_info(Name).
 
-meta_field_value(SKey, Name) ->
-    if_meta_field_value(SKey, Name).
-
-column_map(_SKey, Tables, Columns) ->
-    imem_sql:column_map(Tables, Columns).
-
-column_infos(_SKey, Table) ->
-    imem_meta:column_infos(Table).
-
-column_info_items(_SKey, Info, Item) ->
-    imem_meta:column_info_items(Info, Item).
+meta_field_value(SKey, <<"user">>) ->        imem_seco:account_id(SKey);
+meta_field_value(SKey, user) ->              imem_seco:account_id(SKey);
+meta_field_value(SKey, <<"username">>) ->    imem_seco:account_name(SKey);
+meta_field_value(SKey, username) ->          imem_seco:account_name(SKey);
+meta_field_value(_SKey, Name) ->             imem_meta:meta_field_value(Name).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),
@@ -280,9 +217,6 @@ atoms_starting_with(Prefix,[A|Atoms],Acc) ->
         false ->    atoms_starting_with(Prefix,Atoms,Acc)
     end.
 
-node_shard(_SKey) ->
-    imem_meta:node_shard().
-
 table_type(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_type(Table);
@@ -300,12 +234,6 @@ physical_table_names(SKey,Name) ->
     PhysicalNames = imem_meta:physical_table_names(Name),
     Pred = fun(PN) -> have_table_permission(SKey, PN, select) end,
     lists:filter(Pred,PhysicalNames).
-
-% log_to_db(SKey,Level,Module,Function,Fields,Message) ->
-%     case have_table_permission(SKey, ?LOG_TABLE, insert) of
-%         true ->     imem_meta:log_to_db(Level,Module,Function,Fields,Message);
-%         false ->    ?SecurityException({"Insert into ddLog@ unauthorized", SKey})
-%     end.    
 
 table_columns(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
@@ -325,15 +253,6 @@ table_size(SKey, Table) ->
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
-check_table(_SKey, Table) ->
-    imem_meta:check_table(Table).
-
-check_table_meta(_SKey, Table, ColumnNames) ->
-    imem_meta:check_table_meta(Table, ColumnNames).
-
-check_table_columns(_SKey, Table, ColumnInfo) ->
-    imem_meta:check_table_columns(Table, ColumnInfo).
-
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
@@ -348,33 +267,6 @@ unsubscribe(_SKey, EventCategory) ->
 update_tables(_SKey, UpdatePlan, Lock) ->
     %% ToDo: Plan must be checked against permissions
     imem_meta:update_tables(UpdatePlan, Lock).
-
-transaction(_SKey, Function) ->
-    imem_meta:transaction(Function).
-
-transaction(_SKey, Function, Args) ->
-    imem_meta:transaction(Function, Args).
-
-transaction(_SKey, Function, Args, Retries) ->
-    imem_meta:transaction(Function, Args, Retries).
-
-return_atomic_list(_SKey, Result) ->
-    imem_meta:return_atomic_list(Result). 
-
-return_atomic_ok(_SKey, Result) -> 
-    imem_meta:return_atomic_ok(Result).
-
-return_atomic(_SKey, Result) -> 
-    imem_meta:return_atomic(Result).
-
-first(_SKey, Table)                 -> imem_meta:first(Table).
-next(_SKey, Table,Key)              -> imem_meta:next(Table,Key).
-last(_SKey, Table)                  -> imem_meta:last(Table).
-prev(_SKey, Table,Key)              -> imem_meta:prev(Table,Key).
-foldl(_SKey,FoldFun,InputAcc,Table) -> imem_meta:foldl(FoldFun,InputAcc,Table).
-
-%% imem_if but security context added --- DATA DEFINITIONimem_meta--
-
 
 create_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
@@ -915,7 +807,7 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
     end.
 
 dal_exec(SKey, Module, Function, Params) ->
-    case re:run(atom_to_list(Module),"_dal_|_prov_",[]) of
+    case re:run(atom_to_list(Module),"_dal_|_prov_|_prov$|_dal$") of
         nomatch ->  ?SecurityException({"dal_exec attempted on wrong module", {Module,Function,Params,SKey}});
         _ ->        dal_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}])
     end.
@@ -1197,15 +1089,6 @@ test(_) ->
         ?assertEqual(false, lists:member({imem,ddTable}, UserTables)),
         ?assertEqual(true, lists:member({imem,user_table_123}, UserTables)),
         % ?LogDebug("success ~p~n", [user_tables]),
-
-        % LogCount1 = table_size(SeCoAdmin,?LOG_TABLE),
-        % ?assertEqual(ok, log_to_db(SeCoAdmin,info,?MODULE,test,[{test_1,value2},{test_3,value4}],"Message")),        
-        % LogCount2 = table_size(SeCoAdmin,?LOG_TABLE),
-        % ?assertEqual(LogCount1+1,LogCount2),
-        % ?assertException(throw, {SeEx,{"Insert into ddLog@ unauthorized",SeCoUser}}, log_to_db(SeCoUser,info,?MODULE,test,[{test_5,value6},{test_7,value8}],"Message")),        
-        % LogCount3 = table_size(SeCoAdmin,?LOG_TABLE),
-        % ?assertEqual(LogCount2+1,LogCount3),
-
 
         LogTable = physical_table_name(SeCoAdmin,?LOG_TABLE),
         % ?LogDebug("success ~p ~p~n", [physical_table_name,LogTable]),

@@ -25,7 +25,6 @@
           ?MODULE,lists:flatten([__Context,node()]),__Default,__Documentation)
        ).
 
-
 -define(PUT_CONFIG(__PName,__Context,__Default,__Remark),
         imem_meta:put_config_hlk(
           ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},

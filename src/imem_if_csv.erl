@@ -6,7 +6,12 @@
 -include("imem_if_csv.hrl").
 -include_lib("kernel/include/file.hrl").
 
--define(CSV_INFO_BYTES, 4 * 1024).
+%% -define(CSV_BLOCK_SIZE,?GET_CONFIG(csvBlockSize,[], 4096, "Minimum number of bytes to read for guessing csv paramaters")).
+%% -define(CSV_MAX_LINE_SIZE,?GET_CONFIG(csvMaxLineSize,[], 10000000, "Maximum number of bytes to read for a single csv line")).
+
+-define(CSV_BLOCK_SIZE, 4096).
+-define(CSV_MAX_LINE_SIZE,10000000).
+
 -define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding, skip])).
 -define(ALL_CSV_SCHEMA_TOKENS, [ {<<"crlf">>,lineSeparator,<<"\r\n">>}
                                , {<<"lf">>,lineSeparator,<<"\n">>}
@@ -15,6 +20,7 @@
                                , {<<"colon">>,columnSeparator,<<":">>}
                                , {<<"pipe">>,columnSeparator,<<"|">>}
                                , {<<"semicolon">>,columnSeparator,<<";">>}
+                               , {<<"space">>,columnSeparator,<<" ">>}
                                , {<<"header">>,header,true}
                                , {<<"utf8">>,encoding,utf8}
                                , {<<"ansi">>,encoding,ansi}
@@ -36,6 +42,7 @@
         ]).
 
 -export([ file_info/1
+        , file_info/3
         , file_list/1
         , column_names/1
         , select/4
@@ -176,17 +183,17 @@ file_sample(FilePattern, Opts, Files) ->
     file_sample(FilePattern, Opts, Files, file:open(hd(Files), [raw, read, binary])).
 
 file_sample(_FilePattern, Opts, _Files, {ok, Io}) ->
-    {ok, D0} = file:pread(Io, 0, ?CSV_INFO_BYTES),
+    LineSeparator = case maps:is_key(lineSeparator,Opts) of
+        false ->    <<"\n">>;
+        true ->     maps:get(lineSeparator,Opts)
+    end,
+    {ok, D0} = read_line_or_more(Io, 0, ?CSV_BLOCK_SIZE, ?CSV_MAX_LINE_SIZE, LineSeparator),
     Data = case byte_size(D0) of
-        ?CSV_INFO_BYTES ->  
-            {ok, D1} = file:pread(Io, ?CSV_INFO_BYTES, ?CSV_INFO_BYTES),
-            LS = case maps:is_key(lineSeparator,Opts) of
-                false ->    <<"\n">>;
-                true ->     maps:get(lineSeparator,Opts)
-            end,
-            case binary:split(D1, LS, [global]) of
+        ?CSV_BLOCK_SIZE ->  
+            {ok, D1} = read_line_or_more(Io, ?CSV_BLOCK_SIZE, ?CSV_BLOCK_SIZE, ?CSV_MAX_LINE_SIZE, LineSeparator),
+            case binary:split(D1, LineSeparator, [global]) of
                 [<<>>] ->   D0;
-                [D2|_] ->   <<D0/binary,D2/binary,LS/binary>>  % ToDo: concat all except last for more statistics
+                [D2|_] ->   <<D0/binary,D2/binary,LineSeparator/binary>>  % ToDo: concat all except last for more statistics
             end;
         _ ->
             D0            
@@ -386,15 +393,15 @@ select({Schema,_FilePattern}, MatchSpec, RowLimit, _LockType, Files) ->
     % ?LogDebug("CSV Schema Opts : ~p", [CsvOpts]),
     {ok, Io} = file:open(hd(Files), [raw, read, binary]),
     CMS = ets:match_spec_compile(MatchSpec),
-    read_blocks(Io, Files, CMS, 0, ?CSV_INFO_BYTES, RowLimit, 0, CsvOpts).
+    read_blocks(Io, Files, CMS, 0, ?CSV_BLOCK_SIZE, ?CSV_MAX_LINE_SIZE, RowLimit, 0, CsvOpts).
 
-select(#{io:=Io, files:=Files, cms:=CMS, pos:=Pos, blockSize:=BlockSize, rowLimit:=RowLimit, rowsSkipped:=RowsSkipped, opts:=CsvOpts}) ->
-    read_blocks(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts).
+select(#{io:=Io, files:=Files, cms:=CMS, pos:=Pos, blockSize:=BlockSize, maxLineSize:=MaxLineSize, rowLimit:=RowLimit, rowsSkipped:=RowsSkipped, opts:=CsvOpts}) ->
+    read_blocks(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts).
 
-read_blocks(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
-    read_blocks(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, []).
+read_blocks(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts) ->
+    read_blocks(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts, []).
 
-read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
+read_blocks(Io, [File|Files], CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
     #{ lineSeparator := LineSeparator
      , columnSeparator := ColumnSeparator
      , columnCount := ColumnCount
@@ -405,15 +412,15 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpt
      } = CsvOpts,
     LSL = byte_size(LineSeparator),
     LastFile = (Files == []),
-    case file:pread(Io, Pos, BlockSize) of
+    case read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator) of
         {ok, Bin} -> 
             AllLines = binary:split(Bin, [LineSeparator],[global]),
-            {Lines,FileRead} = case {binary_ends_with(Bin,LineSeparator), byte_size(Bin)} of
-                {true,BlockSize} -> 
+            {Lines,FileRead} = case {binary_ends_with(Bin,LineSeparator), byte_size(Bin) rem BlockSize} of
+                {true, 0} -> 
                     {lists:droplast(AllLines),false};   % drop trailing empty split
-                {true,_} -> 
+                {true, _} -> 
                     {lists:droplast(AllLines),true};    % drop trailing empty split
-                {false, BlockSize} ->
+                {false, 0} ->
                     {lists:droplast(AllLines),false};   % drop possibly incomplete row
                 {false, _} ->   
                     {AllLines,true}                     % eof expected
@@ -465,14 +472,14 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpt
                     {AllNewRows, {'$end_of_table'}};
                 (AllNewRowsCount < RowLimit) ->                                 % next block may add more rows
                     % ToDo: maybe increase BlockSize 
-                    read_blocks(Io, [File|Files], CMS, NextPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts, AllNewRows);
+                    read_blocks(Io, [File|Files], CMS, NextPos, BlockSize, MaxLineSize, RowLimit, RowsSkipped1, CsvOpts, AllNewRows);
                 (AllNewRowsCount > RowLimit) ->      % too many rows read, clip and re-read from next result row
                     % ToDo: maybe decrease BlockSize
                     ClippedRows = lists:sublist(AllNewRows, RowLimit),
                     ClippedPos = element(?CSV_IDX_OFFET,lists:nth(RowLimit+1,AllNewRows)),
-                    {ClippedRows, continuation(Io, [File|Files], CMS, ClippedPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)};
+                    {ClippedRows, continuation(Io, [File|Files], CMS, ClippedPos, BlockSize, MaxLineSize, RowLimit, RowsSkipped1, CsvOpts)};
                 (AllNewRowsCount == RowLimit) ->                        % this file or next files may contain more data 
-                    {AllNewRows, continuation(Io, [File|Files], CMS, NextPos, BlockSize, RowLimit, RowsSkipped1, CsvOpts)}
+                    {AllNewRows, continuation(Io, [File|Files], CMS, NextPos, BlockSize, MaxLineSize, RowLimit, RowsSkipped1, CsvOpts)}
             end;
         eof -> 
             file:close(Io),
@@ -481,7 +488,7 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpt
                     {Rows, {'$end_of_table'}};
                 false ->   
                     {ok, IoN} = file:open(hd(Files), [raw, read, binary]),  % open next file
-                    read_blocks(IoN, Files, CMS, 0, BlockSize, RowLimit, 0, CsvOpts, Rows)
+                    read_blocks(IoN, Files, CMS, 0, BlockSize, MaxLineSize, RowLimit, 0, CsvOpts, Rows)
             end;
         {_, einval} -> 
             file:close(Io), 
@@ -489,8 +496,49 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpt
             {aborted, einval}
     end.
 
-continuation(Io, Files, CMS, Pos, BlockSize, RowLimit, RowsSkipped, CsvOpts) ->
-    #{io=>Io, files=>Files, cms=>CMS, pos=>Pos, blockSize=>BlockSize, rowLimit=>RowLimit, rowsSkipped=>RowsSkipped, opts=>CsvOpts}.
+read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator) ->
+    read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator,0, []).
+
+read_line_or_more(_Io, _Pos, _BlockSize, MaxLineSize, _LineSeparator, TotalBytes, _Acc) when TotalBytes > MaxLineSize ->
+    ?Error("Maximum csv line size exceeded ~p", [MaxLineSize]),
+    {aborted, einval};
+read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator, TotalBytes, Acc) ->
+    case file:pread(Io, Pos, BlockSize) of
+        {ok, D} ->
+            case {byte_size(D),byte_size(LineSeparator)} of
+                {0,_} ->
+                    list_to_binary(lists:reverse(Acc));
+                {BlockSize,1} when Acc == [] ->  
+                    case binary:match(D, LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, byte_size(D), [D]);
+                        _ ->        {ok, D}
+                    end;
+                {BlockSize,1} ->  
+                    case binary:match(D, LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, TotalBytes + byte_size(D), [D|Acc]);
+                        _ ->        {ok, list_to_binary(lists:reverse([D|Acc]))}
+                    end;
+                {BlockSize,_} when Acc == [] ->  
+                    case binary:match(D, LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, byte_size(D), [D]);
+                        _ ->        {ok, D}
+                    end;
+                {BlockSize,_} ->  
+                    case binary:match(list_to_binary(lists:reverse([D|Acc])), LineSeparator) of
+                        nomatch ->  read_line_or_more(Io, Pos+BlockSize, BlockSize, MaxLineSize, LineSeparator, TotalBytes + byte_size(D), [D|Acc]);
+                        _ ->        {ok, list_to_binary(lists:reverse([D|Acc]))}
+                    end;
+                {_,_} when Acc == [] ->
+                    {ok, D};
+                {_,_} ->
+                    {ok, list_to_binary(lists:reverse([D|Acc]))}
+            end;
+        Error ->
+            Error
+    end.
+
+continuation(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts) ->
+    #{io=>Io, files=>Files, cms=>CMS, pos=>Pos, blockSize=>BlockSize, maxLineSize=>MaxLineSize, rowLimit=>RowLimit, rowsSkipped=>RowsSkipped, opts=>CsvOpts}.
 
 change_encoding(Data, From, From) ->
     Data;
