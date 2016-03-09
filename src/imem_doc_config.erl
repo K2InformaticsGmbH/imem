@@ -73,6 +73,7 @@ find([C|Comps], Acc) when is_atom(C); is_integer(C); is_float(C) ->
 find([C|Comps], Acc) -> find(Comps, find(C, Acc));
 find(C, Acc) when is_tuple(C) -> find(tuple_to_list(C), Acc).
 
+ast2term({var,_,Var}) -> error({unsupported_var,Var});
 ast2term(AST) ->
     try
         {value, Value, _} = erl_eval:expr(erl_syntax:revert(AST),[]),
