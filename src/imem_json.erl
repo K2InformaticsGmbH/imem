@@ -69,7 +69,7 @@
 decode(Json) -> decode(Json, []).
 
 -spec decode(Json :: binary(), Opts :: list()) -> data_object().
-decode(Json, Opts) -> jsx:decode(Json, Opts).
+decode(Json, Opts) -> jsx:decode(Json, lists:usort([strict|Opts])).
 
 -spec encode(data_object()) -> Json :: binary().
 encode(Json) -> jsx:encode(Json).
