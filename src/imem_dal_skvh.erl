@@ -777,25 +777,57 @@ read_siblings(User, Channel, [Key | Keys]) ->
     read_shallow(User, Channel, [lists:reverse(ParentKeyRev)])
     ++ read_siblings(User, Channel, Keys).
 
-read_shallow(_User, _Channel, []) -> [];
-read_shallow(User, Channel, [Key | Keys]) ->
-    KeyLen = length(binterm_to_term_key(Key)) + 1,
-    [SkvhRow || #{ckey := CK} = SkvhRow <- read_deep(User, Channel, [Key]),
-                length(CK) == KeyLen]
-    ++ read_shallow(User, Channel, Keys).
+read_shallow(User, Channel, Keys) ->
+    ReadShallowFun = fun() ->
+        read_shallow_internal(User, Channel, Keys)
+    end,
+    imem_meta:return_atomic(imem_meta:transaction(ReadShallowFun)).
 
-read_deep(_User, _Channel, []) -> [];
-read_deep(User, Channel, [Key | Keys]) ->
+read_shallow_internal(_User, _Channel, []) -> [];
+read_shallow_internal(User, Channel, [Key | Keys]) ->
+    KeyLen = length(binterm_to_term_key(Key)) + 1,
+    StartKey = term_key_to_binterm(Key),
+    EndKey = term_key_to_binterm(binterm_to_term_key(Key) ++ <<255>>),
+    TableName = atom_table_name(Channel),
+    read_shallow_single(Channel, TableName, StartKey, EndKey, KeyLen) ++ 
+        read_shallow_internal(User, Channel, Keys).
+
+read_shallow_single(Channel, TableName, CurrentKey, EndKey, KeyLen) ->
+    case imem_meta:next(TableName, CurrentKey) of
+        '$end_of_table' -> [];
+        NextKey when NextKey >= EndKey -> [];
+        NextKey ->
+            case length(imem_datatype:binterm_to_term(NextKey)) =:= KeyLen of
+                false -> read_shallow_single(Channel, TableName, NextKey, EndKey, KeyLen);
+                true ->
+                    [Row] = imem_meta:read(TableName, NextKey),
+                    [skvh_rec_to_map(Row) | 
+                         read_shallow_single(Channel, TableName, NextKey, EndKey, KeyLen)]
+            end
+    end.
+
+read_deep(User, Channel, Keys) ->
+    ReadDeepFun = fun() ->
+        read_deep_internal(User, Channel, Keys)
+    end,
+    imem_meta:return_atomic(imem_meta:transaction(ReadDeepFun)).
+
+read_deep_internal(_User, _Channel, []) -> [];
+read_deep_internal(User, Channel, [Key | Keys]) ->
     StartKey = term_key_to_binterm(Key),
     EndKey = term_key_to_binterm(binterm_to_term_key(Key) ++ <<255>>), % improper list [...|<<255>>]
     TableName = atom_table_name(Channel),
-    {SkvhRows, true} = imem_meta:select(
-                         TableName,
-                         [{#skvhTable{ckey='$1', cvalue = '$2', chash = '$3'},
-                           [{'andalso',{'>','$1',StartKey},{'<','$1',EndKey}}],
-                           ['$_']}]),
-    [skvh_rec_to_map(SkvhRow) || SkvhRow <- SkvhRows]
-    ++ read_deep(User, Channel, Keys).
+    read_deep_single(Channel, TableName, StartKey, EndKey) ++
+        read_deep_internal(User, Channel, Keys).
+
+read_deep_single(Channel, TableName, CurrentKey, EndKey) ->
+    case imem_meta:next(TableName, CurrentKey) of
+        '$end_of_table' -> [];
+        NextKey when NextKey >= EndKey -> [];
+        NextKey ->
+            [Row] = imem_meta:read(TableName, NextKey),
+            [skvh_rec_to_map(Row) | read_deep_single(Channel, TableName, NextKey, EndKey)]
+    end.
 
 % @doc Returnes the longest prefix >= startKey and =< EndKey
 -spec get_longest_prefix(User :: any(), Channel :: binary(),
