@@ -119,13 +119,15 @@
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
+        , prune_history/2   %% (User, Channel)                      keeps the last non noop history states and cverifies history state exists for all the keys
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
         , get_longest_prefix/4
-        , check_age_audit_entry/4 %% (User, Channel, Key, TS1)    returns the records if there is any for the key after the timestamp TS1
+        , check_age_audit_entry/4 %% (User, Channel, Key, TS1)      returns the records if there is any for the key after the timestamp TS1
+        , audit_write_noop/3 %% (User, Channel, Key)                creates an entry in audit table for channel wehere nvalue and ovalue are the same
         ]).
 
 -export([build_aux_table_info/1,
@@ -548,6 +550,22 @@ audit_recs_time({_,A}) when is_record(A, skvhAudit) -> A#skvhAudit.time;
 audit_recs_time([A|Rest]) -> [audit_recs_time(A)|audit_recs_time(Rest)];
 audit_recs_time([]) -> [].
 
+audit_write_noop(User, Channel, Key) ->
+    case read(User, Channel, [Key]) of
+        [] -> no_op;
+        [#{cvalue := Value}] ->
+            AuditNoop = fun() ->
+                {AuditTable, TransTime} = audit_table_time(
+                    binary_to_list(Channel)),
+                SkvhRec = #skvhTable{ckey = imem_datatype:term_to_binterm(Key),
+                                      cvalue = Value},
+                AuditInfo = audit_info(User,Channel,AuditTable,TransTime,
+                    SkvhRec,SkvhRec),
+                write_audit(AuditInfo)
+            end,
+            imem_meta:return_atomic(imem_meta:transaction(AuditNoop))
+    end.
+
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
     ok = imem_meta:write(AuditTable,Rec),
@@ -931,6 +949,35 @@ hist_read(User, Channel, [DecodedKey | DecodedKeys]) ->
 hist_read_deleted(User, Channel, DecodedKey) ->
 [#{cvhist := [#{ovalue := Value} |_]}] = hist_read(User, Channel, [DecodedKey]),
     Value.
+
+-spec prune_history(ddEntityId(), binary()) -> list().
+prune_history(User, Channel) ->
+    Time = os:timestamp(),
+    HistoryTable = ?HIST_FROM_STR(binary_to_list(Channel)),
+    PruneFun = fun(#{ckey := Key, cvalue := Value}, _) ->
+        EKey = imem_datatype:term_to_binterm(Key),
+        {HistTime, OValue, NValue, CUser} = case 
+            hist_read(User, Channel, [Key]) of
+            [] ->
+                {Time, undefined, Value, User};
+            [#{cvhist := Hist}] ->
+                    prune_cvhist(Hist, Value, Time, User)
+        end,
+        imem_meta:write(HistoryTable, 
+            #skvhHist{ckey=EKey, cvhist=[#skvhCL{time=HistTime, ovalue=OValue,
+                                                 nvalue=NValue, cuser=CUser}]})
+    end,
+    foldl(User, PruneFun, [], Channel).
+
+-spec prune_cvhist(list(), binary(), tuple(), ddEntityId()) -> tuple().
+prune_cvhist([], Value, Time, User) -> {Time, undefined, Value, User};
+prune_cvhist([#{nvalue := V, ovalue := V}|Rest], Value, Time, User) ->
+    prune_cvhist(Rest, Value, Time, User);
+prune_cvhist([#{nvalue := NVal, ovalue := OVal, time := HistTime, 
+                       cuser := CUser} | _], NVal, _, _) ->
+    {HistTime, OVal, NVal, CUser};
+prune_cvhist([#{nvalue := NVal}| _], Value, Time, User) ->
+    {Time, NVal, Value, User}.
 
 %% Data Access per key range
 
@@ -1326,6 +1373,26 @@ skvh_operations(_) ->
 		?assertEqual({ok,[<<"24OMVH">>]}, write(system, ?Channel, <<"[90074,[],\"ContentSizeMax\"]",9,"297000">>)),
 		?assertEqual({ok,[<<"1W8TVA">>]}, write(system, ?Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
 		?assertEqual({ok,[<<"22D5ZL">>]}, write(system, ?Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
+
+        %% audit_write_noop test
+        write(system, ?Channel, [1, k], <<"{\"a\":\"a\"}">>),
+        Time = erlang:now(),
+        ok = audit_write_noop(system, ?Channel, [1,k]),
+        AudNoop = audit_readGT(system, ?Channel, Time, 10),
+        ?assertEqual(1, length(AudNoop)),
+        ?assertMatch([#{nvalue := V, ovalue := V}], AudNoop),
+
+        %% prune_history test
+        [#{cvhist := Hist1}] = hist_read(system, ?Channel, [[1,k]]),
+        %% noop history created
+        write(system, ?Channel, [1, k], <<"{\"a\":\"a\"}">>),
+        ?assertEqual(1, length(Hist1)),
+        [#{cvhist := Hist2}] = hist_read(system, ?Channel, [[1,k]]),
+        ?assertEqual(2, length(Hist2)),
+        prune_history(system, ?Channel),
+        [#{cvhist := Hist3}] = hist_read(system, ?Channel, [[1,k]]),
+        ?assertEqual(1, length(Hist3)),
+        ?assertMatch([#{ovalue := undefined, nvalue := <<"{\"a\":\"a\"}">>}], Hist3),
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
