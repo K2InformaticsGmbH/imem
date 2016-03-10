@@ -182,7 +182,8 @@ cluster_snap([], {_,_,_} = StartTime, Dir) ->
             ok = file:del_dir(Dir),
             ?Info("cluster snapshot ~s", [ZipFile])
     end,
-    ?Info("snapshot took ~pms", [timer:now_diff(os:timestamp(), StartTime) div 1000]),
+    ?Info("cluster snapshot took ~pms",
+          [timer:now_diff(os:timestamp(), StartTime) div 1000]),
     erlang:send_after(
       1000, ?MODULE,
       {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp',
