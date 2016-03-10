@@ -37,7 +37,10 @@
        ).
    
 -define(SET_SEC_FUNS(__Funs),
-        imem_meta:get_config_hlk(?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,secureFunctions},?MODULE,[node()],__Funs)
+        imem_meta:get_config_hlk(
+          ?CONFIG_TABLE, {element(2,application:get_application(?MODULE)),
+                          ?MODULE,secureFunctions},
+          ?MODULE, [node()], __Funs, "List of custom functions declared as safe")
        ).
 
 -define(GET_ROWNUM_LIMIT,
