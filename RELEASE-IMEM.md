@@ -3,6 +3,13 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.12 (Release Date 14.03.2016)
+=======================================
+* Prune history implemented
+* Audit write no op implemented
+* Fixed cluster snapshots
+* Improve speed of skvh read shallow and deep.
+
 Version 1.4.11 (Release Date 05.03.2016)
 =======================================
 * Fixed some security vulnerabilities
