@@ -50,10 +50,10 @@
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
 
--define(GET_SNAPSHOT_CYCLE_WAIT,?GET_CONFIG(snapshotCycleWait,[],10000)).
--define(GET_SNAPSHOT_CHUNK_MAX_SIZE,?GET_CONFIG(snapshotChunkMaxSize,[],500)).
--define(GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT,?GET_CONFIG(snapshotChunkFetchTimeout,[],20000)).
--define(GET_SNAPSHOT_SCRIPT,?GET_CONFIG(snapshotScript,[],true)).
+-define(GET_SNAPSHOT_CYCLE_WAIT,?GET_CONFIG(snapshotCycleWait,[],10000,"Wait time between snapshot cycles in msec.")).
+-define(GET_SNAPSHOT_CHUNK_MAX_SIZE,?GET_CONFIG(snapshotChunkMaxSize,[],500,"Maximum snapshot chunk size (number of rows).")).
+-define(GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT,?GET_CONFIG(snapshotChunkFetchTimeout,[],20000,"Timeout in msec for fetching the next chunk from DB.")).
+-define(GET_SNAPSHOT_SCRIPT,?GET_CONFIG(snapshotScript,[],true,"Do we want to use a specialized snapshot script function?")).
 -define(GET_SNAPSHOT_SCRIPT_FUN,?GET_CONFIG(snapshotScriptFun,[],
 <<"fun() ->
     ExcludeList = [dual, ddSize, ddNode
@@ -87,10 +87,10 @@
       end)()
     || T <- Candidates],
     ok
-end.">>)).
--define(GET_CLUSTER_SNAPSHOT,?GET_CONFIG(snapshotCluster,[],true)).
--define(GET_CLUSTER_SNAPSHOT_TABLES,?GET_CONFIG(snapshotClusterTables,[],[ddAccount,ddRole,ddConfig])).
--define(GET_CLUSTER_SNAPSHOT_TOD,?GET_CONFIG(snapshotClusterHourOfDay,[],14)).
+end.">>,"Function to perform customized snapshotting.")).
+-define(GET_CLUSTER_SNAPSHOT,?GET_CONFIG(snapshotCluster,[],true,"Do we need periodic snapshotting of important tables an all nodes?")).
+-define(GET_CLUSTER_SNAPSHOT_TABLES,?GET_CONFIG(snapshotClusterTables,[],[ddAccount,ddRole,ddConfig],"List of important tables to be regularily snapshotted.")).
+-define(GET_CLUSTER_SNAPSHOT_TOD,?GET_CONFIG(snapshotClusterHourOfDay,[],14,"Hour of (00..23)day in which important tables must be snapshotted.")).
 
 -ifdef(TEST).
     start_snap_loop() -> ok.

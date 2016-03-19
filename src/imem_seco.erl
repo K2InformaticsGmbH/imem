@@ -2,15 +2,15 @@
 
 -include("imem_seco.hrl").
 
--define(GET_PASSWORD_LIFE_TIME(__AccountId), ?GET_CONFIG(passwordLifeTime,[__AccountId],100)).
+-define(GET_PASSWORD_LIFE_TIME(__AccountId), ?GET_CONFIG(passwordLifeTime,[__AccountId],100,"Password expiry time in days.")).
 -define(SALT_BYTES, 32).
 -define(PWD_HASH, scrypt).                       %% target hash: pwdmd5,md4,md5,sha512,scrypt 
 -define(PWD_HASH_LIST, [scrypt,sha512,pwdmd5]).  %% allowed hash types
 -define(REQUIRE_PWDMD5, <<"fun(Factors,NetCtx) -> [pwdmd5] -- Factors end">>).  % access | smsott | saml | pwdmd5
 -define(AUTH_SMS_TOKEN_RETRY_DELAY, 1000).
 -define(FULL_ACCESS, <<"fun(NetCtx) -> true end">>).
--define(PASSWORD_LOCK_TIME, ?GET_CONFIG(passwordLockTime,[],900)).
--define(PASSWORD_LOCK_COUNT, ?GET_CONFIG(passwordLockCount,[],5)).
+-define(PASSWORD_LOCK_TIME, ?GET_CONFIG(passwordLockTime,[],900,"Password lock time in seconds after reaching the password lock count.")).
+-define(PASSWORD_LOCK_COUNT, ?GET_CONFIG(passwordLockCount,[],5,"Maximum number of wrong passwords tolerated before temporarily locking the account.")).
 
 -behavior(gen_server).
 
@@ -515,7 +515,7 @@ auth_abort(SKey) ->
 -spec auth_step(ddSeCoKey(), ddCredential()) -> {ddSeCoKey(),[ddCredRequest()]} | no_return(). 
 auth_step(SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
     #ddSeCo{skey = SKey, sessionCtx=SessionCtx, accountName=AccountName0, accountId=AccountId0} = SeCo,
-    AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS),
+    AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS,"Function to check network access parameters in preparation of authentication steps."),
     CacheKey = {?MODULE,accessCheckFun,AccessCheckFunStr},
     AccessCheckFun = case imem_cache:read(CacheKey) of 
         [] ->
@@ -575,7 +575,7 @@ auth_step(SeCo, {smsott,Token}) ->
                 ok ->
                     auth_step_succeed(SeCo#ddSeCo{authFactors=[smsott|AFs]});
                 _ ->
-                    case ?GET_CONFIG(smsTokenValidationRetry,[SessionCtx#ddSessionCtx.appId],true) of
+                    case ?GET_CONFIG(smsTokenValidationRetry,[SessionCtx#ddSessionCtx.appId],true,"Can a wrong SMS authentication token answer be retried (within time limit)?") of
                         true ->
                             case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
                                 ok ->
@@ -601,7 +601,7 @@ authenticate_fail(_SeCo, ErrorTerm, false) ->
 
 -spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
-    AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5),
+    AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5,"Function which defines authentication requirements depending on current authentication step."),
     CacheKey = {?MODULE,authenticateRequireFun,AuthRequireFunStr},
     AuthRequireFun = case imem_cache:read(CacheKey) of 
         [] ->
@@ -636,7 +636,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
                         ok ->           
                             {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % request a SMS one time token
                         {'EXIT',{Err2,_StackTrace}} ->
-                            case ?GET_CONFIG(smsTokenSendingErrorSkip,[SessionCtx#ddSessionCtx.appId],false) of
+                            case ?GET_CONFIG(smsTokenSendingErrorSkip,[SessionCtx#ddSessionCtx.appId],false,"Should SMS token authentication be skipped when the token server is unavailable?") of
                                 true -> {seco_register(SeCo, authenticated),[]};   % authentication success, return {SKey,[]} 
                                 _ ->    authenticate_fail(SeCo,{"SMS one time token sending failed", Err2}, true)
                             end

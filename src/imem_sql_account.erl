@@ -9,7 +9,7 @@
                         " Password,"
                         " \"^(?=.{8,})(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*\\\\W).*$\")"
                         " /= nomatch"
-                      " end.">>)).
+                      " end.">>,"Function which decides about sufficient password complexity.")).
 
 -export([exec/5]).
 

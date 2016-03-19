@@ -5,9 +5,9 @@
 
 %% HARD CODED CONFIGURATIONS
 
--define(GET_PURGE_CYCLE_WAIT,?GET_CONFIG(purgeCycleWait,[],10000)).     %% 10000 = 10 sec
--define(GET_PURGE_ITEM_WAIT,?GET_CONFIG(purgeItemWait,[],10)).          %% 10 = 10 msec
--define(GET_PURGE_SCRIPT,?GET_CONFIG(purgeScript,[],false)).
+-define(GET_PURGE_CYCLE_WAIT,?GET_CONFIG(purgeCycleWait,[],10000,"Wait time in msec between table purge cycles.")).     %% 10000 = 10 sec
+-define(GET_PURGE_ITEM_WAIT,?GET_CONFIG(purgeItemWait,[],10,"Wait time in msec between individual table purges within a cycle.")).          %% 10 = 10 msec
+-define(GET_PURGE_SCRIPT,?GET_CONFIG(purgeScript,[],false,"Do we want to use a special purge function to override the standard behaviour?")).
 -define(GET_PURGE_SCRIPT_FUN,?GET_CONFIG(purgeScriptFun,[],
 <<"fun (PartTables) ->
 	MAX_TABLE_COUNT_PERCENT = 90,
@@ -88,7 +88,7 @@
         end
 	end
 end
-">>)).
+">>,"Function used for tailoring the purge strategy to the system's needs.")).
 
 -behavior(gen_server).
 

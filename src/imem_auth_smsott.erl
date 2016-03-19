@@ -10,8 +10,8 @@
 %  {https_proxy,{{"localhost",1},[]}},
 %  ...
 % {socket_opts,[]}]}
--define(HTTP_PROFILE(__AppId), ?GET_CONFIG(smsTokenValidationHttpProfile, [__AppId], smsott)).
--define(HTTP_OPTS(__AppId), ?GET_CONFIG(smsTokenValidationHttpOpts, [__AppId], [])).
+-define(HTTP_PROFILE(__AppId), ?GET_CONFIG(smsTokenValidationHttpProfile, [__AppId], smsott,"HTTP profile name to be used for SMS one time token validation.")).
+-define(HTTP_OPTS(__AppId), ?GET_CONFIG(smsTokenValidationHttpOpts, [__AppId], [],"HTTP options for SMS one time token validation.")).
 
 -export([ send_sms_token/3
         , verify_sms_token/4
@@ -20,7 +20,7 @@
 -spec send_sms_token(atom(), binary(), ddCredRequest()) ->
     ok | no_return().
 send_sms_token(AppId, To, {smsott,Map}) when Map == #{} ->
-    case ?GET_CONFIG(smsTokenMsgType, [AppId], xml) of
+    case ?GET_CONFIG(smsTokenMsgType, [AppId], xml, "Message type (json/xml) for SMS token validation.") of
         json -> sc_send_sms_token(AppId, To);
         xml -> sc_soap_send_sms_token(AppId, To)
     end;
@@ -30,7 +30,7 @@ send_sms_token(_AppId, _To, _DDCredRequest) ->
 -spec verify_sms_token(atom(), binary(), list() | integer() | binary(), ddCredRequest()) ->
     ok | no_return().
 verify_sms_token(AppId, To, Token, {smsott,Map}) when Map == #{} ->
-    case ?GET_CONFIG(smsTokenMsgType, [AppId], xml) of
+    case ?GET_CONFIG(smsTokenMsgType, [AppId], xml, "Message type (json/xml) for SMS token validation.") of
         json -> sc_verify_sms_token(AppId, To, Token);
         xml -> sc_soap_verify_sms_token(AppId, To, Token)
     end;
@@ -39,21 +39,21 @@ verify_sms_token(_AppId, _To, _Token, _DDCredRequest) ->
 
 % @doc
 sc_soap_send_sms_token(AppId, To) ->
-    sc_send_sms_token( ?GET_CONFIG(smsTokenSendServiceUrl,[AppId],"https://host:port/sendSmsToken")
-                     , ?GET_CONFIG(smsTokenServiceParams,[AppId],{"user","password","xmlns"})
-                     , ?GET_CONFIG(smsTokenFromMSISDN,[AppId],"+41790000000")
+    sc_send_sms_token( ?GET_CONFIG(smsTokenSendServiceUrl,[AppId],"https://host:port/sendSmsToken","SMS token sender service URL.")
+                     , ?GET_CONFIG(smsTokenServiceParams,[AppId],{"user","password","xmlns"},"SMS token service parameters.")
+                     , ?GET_CONFIG(smsTokenFromMSISDN,[AppId],"+41790000000","SMS token FROM MSISDN.")
                      , To
-                     , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 2 Minutes.">>)
-                     , ?GET_CONFIG(smsTokenValidationTokenType,[AppId],<<"SHORT_NUMERIC">>)
-                     , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],180)
-                     , ?GET_CONFIG(smsTokenValidationTTL,[AppId],180)
-                     , ?GET_CONFIG(smsTokenValidationTokenLength,[AppId],6)
+                     , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 2 Minutes.">>,"SMS token validation text.")
+                     , ?GET_CONFIG(smsTokenValidationTokenType,[AppId],<<"SHORT_NUMERIC">>,"SMS token validation token type.")
+                     , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],180,"SMS token validation expiry time in seconds.")
+                     , ?GET_CONFIG(smsTokenValidationTTL,[AppId],180,"SMS token validation TTL in seconds.")
+                     , ?GET_CONFIG(smsTokenValidationTokenLength,[AppId],6,"SMS token validation token length (characters/digits).")
                      , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))
                      ).
 
 sc_soap_verify_sms_token(AppId, To, Token) ->
     sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://host:port/validateSmsToken")
-                       , ?GET_CONFIG(smsTokenServiceParams,[AppId],{"user","password","xmlns"})
+                       , ?GET_CONFIG(smsTokenServiceParams,[AppId],{"user","password","xmlns"},"SMS token service parameters.")
                        , To
                        , Token
                        , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))
@@ -62,22 +62,22 @@ sc_soap_verify_sms_token(AppId, To, Token) ->
 sc_send_sms_token(AppId,To) ->
     sc_send_sms_token( AppId
                      , To
-                     , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 2 Minutes.">>)
-                     , ?GET_CONFIG(smsTokenValidationTokenType,[AppId],<<"SHORT_NUMERIC">>)
-                     , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],120)
-                     , ?GET_CONFIG(smsTokenValidationTokenLength,[AppId],6)
+                     , ?GET_CONFIG(smsTokenValidationText, [AppId], <<"Imem verification code: %TOKEN% \r\nThis token will expire in 2 Minutes.">>,"SMS token validation text.")
+                     , ?GET_CONFIG(smsTokenValidationTokenType,[AppId],<<"SHORT_NUMERIC">>,"SMS token validation token type.")
+                     , ?GET_CONFIG(smsTokenValidationExpireTime,[AppId],120,"SMS token validation expiry time in seconds.")
+                     , ?GET_CONFIG(smsTokenValidationTokenLength,[AppId],6,"SMS token validation TTL in seconds.")
                      , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))
                      ).
 
 sc_send_sms_token(AppId, To, Text, TokenType, ExpireTime, TokenLength, Profile) ->
-    sc_send_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://api.swisscom.com/v1/tokenvalidation")
-                     , ?GET_CONFIG(smsTokenValidationClientId,[AppId],"DEVELOPER-CLIENT-ID")
+    sc_send_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://api.swisscom.com/v1/tokenvalidation","SMS token validation service URL.")
+                     , ?GET_CONFIG(smsTokenValidationClientId,[AppId],"DEVELOPER-CLIENT-ID","SMS token validation client ID.")
                      , To
                      , Text
                      , TokenType
                      , ExpireTime
                      , TokenLength
-                     , ?GET_CONFIG(smsTokenValidationTraceId,[AppId],"IMEM")
+                     , ?GET_CONFIG(smsTokenValidationTraceId,[AppId],"IMEM","SMS token validation trace ID.")
                      , Profile
                      ).
 
@@ -160,8 +160,8 @@ sc_verify_sms_token(AppId, To, Token) when is_integer(Token) ->
 sc_verify_sms_token(AppId, To, Token) when is_binary(Token) ->
     sc_verify_sms_token(AppId, To, binary_to_list(Token));
 sc_verify_sms_token(AppId, To, Token) ->
-    sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId], "https://api.swisscom.com/v1/tokenvalidation")
-                       , ?GET_CONFIG(smsTokenValidationClientId,[AppId], "RokAOeF59nkcFg2GtgxgOdZzosQW1MPQ")
+    sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId], "https://api.swisscom.com/v1/tokenvalidation","SMS token validation service URL.")
+                       , ?GET_CONFIG(smsTokenValidationClientId,[AppId], "RokAOeF59nkcFg2GtgxgOdZzosQW1MPQ","SMS token validation client ID.")
                        , To
                        , Token
                        , imem_client:get_profile(httpc, ?HTTP_PROFILE(AppId), ?HTTP_OPTS(AppId))

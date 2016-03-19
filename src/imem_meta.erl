@@ -21,7 +21,7 @@
 -define(META_TABLES,[?CACHE_TABLE,?LOG_TABLE,?MONITOR_TABLE,?CONFIG_TABLE,dual,ddNode,ddSnap,ddSchema,ddSize,ddAlias,ddTable]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
--define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit,[],1000)).
+-define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit,[],1000,"Maximum number of rows which can be generated in first (and only) result block")).
 
 -define(CONFIG_TABLE_OPTS,  [{record_name,ddConfig}
                             ,{type,ordered_set}
@@ -507,7 +507,10 @@ dictionary_trigger(OldRec,NewRec,T,_User,_TrOpts) when T==ddTable; T==ddAlias ->
         {{},_}  ->  %% write new rec (maybe fixing something)
             {S,TN} = element(2,NewRec),
             imem_cache:clear({?MODULE, trigger, S, TN});
-        {_,_}  ->  %% update old rec (maybe fixing something)
+        {_,{}}  ->  %% drop dictionary row
+            {S,TO} = element(2,OldRec),
+            imem_cache:clear({?MODULE, trigger, S, TO});
+        {_,_}  ->  %% update dict rec (maybe fixing something)
             {S,TO} = element(2,OldRec),
             %% ToDo: check for changed index definition
             %% ToDo: rebuild index table if index definition changed
@@ -1388,6 +1391,7 @@ drop_partitions_and_infos([TableName|TableNames]) ->
 drop_table_and_info(TableName) ->
     try
         imem_if_mnesia:drop_table(TableName),
+        imem_cache:clear({?MODULE, trigger, schema(), TableName}),
         case TableName of
             ddTable ->  ok;
             ddAlias ->  ok;

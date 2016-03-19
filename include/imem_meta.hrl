@@ -44,7 +44,7 @@
        ).
 
 -define(GET_ROWNUM_LIMIT,
-        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],10000)
+        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],200000,"Default rownum limit for SQL queries.")
        ).
 
 -record(ddColumn,                           %% column definition    

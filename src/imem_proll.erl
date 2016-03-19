@@ -7,14 +7,14 @@
 -ifdef(TEST).
 -define(PROLL_FIRST_WAIT,1000).                                             %% 1000 = 1 sec
 -define(PROLL_ERROR_WAIT,1000).                                             %% 1000 = 1 sec
--define(GET_PROLL_CYCLE_WAIT,?GET_CONFIG(prollCycleWait,[],1000)).     %% 1000 = 1 sec
+-define(GET_PROLL_CYCLE_WAIT,?GET_CONFIG(prollCycleWait,[],1000,"Wait time in msec between partition rolls.")).     %% 1000 = 1 sec
 -else.
 -define(PROLL_FIRST_WAIT,10000).                                            %% 10000 = 10 sec
 -define(PROLL_ERROR_WAIT,1000).                                             %% 1000 = 1 sec
--define(GET_PROLL_CYCLE_WAIT,?GET_CONFIG(prollCycleWait,[],100000)).   %% 100000 = 100 sec
+-define(GET_PROLL_CYCLE_WAIT,?GET_CONFIG(prollCycleWait,[],100000,"Wait time in msec between partition rolls.")).   %% 100000 = 100 sec
 -endif. %TEST
 
--define(GET_PROLL_ITEM_WAIT,?GET_CONFIG(prollItemWait,[],10)).         %% 10 = 10 msec
+-define(GET_PROLL_ITEM_WAIT,?GET_CONFIG(prollItemWait,[],10,"Wait time in msec between individual partition rolls within a cycle.")).         %% 10 = 10 msec
 
 -behavior(gen_server).
 
