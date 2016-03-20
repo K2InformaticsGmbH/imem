@@ -1387,7 +1387,7 @@ filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
 
 filter_name_value(F,Idx,Val,ColMap) ->
     % ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
-    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    #bind{ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
     Tag = "Col" ++ integer_to_list(Idx),
     % ?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
     Name = case PTree of
@@ -1398,7 +1398,7 @@ filter_name_value(F,Idx,Val,ColMap) ->
     {Name,filter_value_tree(F,Tag,Type,L,P,D,Val)}.
 
 filter_name_values(F,Idx,Vals,ColMap) ->
-    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    #bind{ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
     Tag = "Col" ++ integer_to_list(Idx),
     % ?Info("filter_name_values Idx ~p Vals ~p PTree ~p",[Idx,Vals,PTree]),
     Name = case PTree of
@@ -1879,22 +1879,22 @@ test_with_or_without_sec(IsSec) ->
                     , #bind{tag="C", tind=1, cind=3, name= <<"c1">>, type=ipaddr, alias= <<"c1">>}
                     ],
 
-        ?assertEqual([], filter_spec_where(?NoFilter, ColsFS, [])),
-        ?assertEqual({wt}, filter_spec_where(?NoFilter, ColsFS, {wt})),
-        FA1 = {1,[<<"$in$">>,<<"111">>]},
-        CA1 = {'=',<<"imem.meta_table_1.a">>,<<"111">>},
-        ?assertEqual({'and',CA1,{wt}}, filter_spec_where({'or',[FA1]}, ColsFS, {wt})),
-        FB2 = {2,[<<"$in$">>,<<"222">>]},
-        CB2 = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'222'">>]}},
-        ?assertEqual({'and',{'and',CA1,CB2},{wt}}, filter_spec_where({'and',[FA1,FB2]}, ColsFS, {wt})),
-        FC3 = {3,[<<"$in$">>,<<"3.1.2.3">>,<<"3.3.2.1">>]},
-        CC3 = {'in',<<"c1">>,{'list',[{'fun',<<"to_ipaddr">>,[<<"'3.1.2.3'">>]},{'fun',<<"to_ipaddr">>,[<<"'3.3.2.1'">>]}]}},
-        ?assertEqual({'and',{'or',{'or',CA1,CB2},CC3},{wt}}, filter_spec_where({'or',[FA1,FB2,FC3]}, ColsFS, {wt})),
-        ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsFS, {wt})),
+        % ?assertEqual([], filter_spec_where(?NoFilter, ColsFS, [])),
+        % ?assertEqual({wt}, filter_spec_where(?NoFilter, ColsFS, {wt})),
+        % FA1 = {1,[<<"$in$">>,<<"111">>]},
+        % CA1 = {'=',<<"imem.meta_table_1.a">>,<<"111">>},
+        % ?assertEqual({'and',CA1,{wt}}, filter_spec_where({'or',[FA1]}, ColsFS, {wt})),
+        % FB2 = {2,[<<"$in$">>,<<"222">>]},
+        % CB2 = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'222'">>]}},
+        % ?assertEqual({'and',{'and',CA1,CB2},{wt}}, filter_spec_where({'and',[FA1,FB2]}, ColsFS, {wt})),
+        % FC3 = {3,[<<"$in$">>,<<"3.1.2.3">>,<<"3.3.2.1">>]},
+        % CC3 = {'in',<<"c1">>,{'list',[{'fun',<<"to_ipaddr">>,[<<"'3.1.2.3'">>]},{'fun',<<"to_ipaddr">>,[<<"'3.3.2.1'">>]}]}},
+        % ?assertEqual({'and',{'or',{'or',CA1,CB2},CC3},{wt}}, filter_spec_where({'or',[FA1,FB2,FC3]}, ColsFS, {wt})),
+        % ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsFS, {wt})),
 
-        FB2a = {2,[<<"$in$">>,<<"22'2">>]},
-        CB2a = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'22''2'">>]}},
-        ?assertEqual({'and',{'and',CA1,CB2a},{wt}}, filter_spec_where({'and',[FA1,FB2a]}, ColsFS, {wt})),
+        % FB2a = {2,[<<"$in$">>,<<"22'2">>]},
+        % CB2a = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'22''2'">>]}},
+        % ?assertEqual({'and',{'and',CA1,CB2a},{wt}}, filter_spec_where({'and',[FA1,FB2a]}, ColsFS, {wt})),
 
         % ?LogDebug("success ~p~n", [filter_spec_where]),
 
