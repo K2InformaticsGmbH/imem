@@ -6,7 +6,10 @@
         ]).
     
 exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Opts, _IsSec) -> ok;
-exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Opts, IsSec) ->
+exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade, _TableTypes}, _Stmt, _Opts, _IsSec) -> ok;
+exec(SKey, {'drop table', Tables, Exists, RestrictCascade}, Stmt, Opts, IsSec) ->
+    exec(SKey, {'drop table', Tables, Exists, RestrictCascade, []}, Stmt, Opts, IsSec);
+exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade, _TableTypes}=_ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("Drop Table ParseTree~n~p~n", [_ParseTree]),
     QName = imem_meta:qualified_table_name(TableName), 
     % ?LogDebug("Drop Table QName~n~p~n", [QName]),
