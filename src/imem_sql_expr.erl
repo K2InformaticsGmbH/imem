@@ -1020,8 +1020,8 @@ expr({'between', A, Low, High}, FullMap, BT) ->
 expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op=='<>' ->
     CMapA = expr(A,FullMap,#bind{type=binstr}), 
     CMapB = expr(B,FullMap,#bind{type=binstr}),         
-    % ?Info("Comparison ~p CMapA~n~p~n", [Op,CMapA]),
-    % ?Info("Comparison ~p CMapB~n~p~n", [Op,CMapB]),
+    % ?Info("Comparison ~p CMapA~n~p", [Op,CMapA]),
+    % ?Info("Comparison ~p CMapB~n~p", [Op,CMapB]),
     BTree = case {CMapA#bind.tind, CMapB#bind.tind} of
         {0,0} -> 
             case CMapA#bind.type > CMapB#bind.type of    
@@ -1318,18 +1318,19 @@ sort_fun_item(Expr,Direction,FullMap,ColMap) ->
             ?ClientError({"Ambiguous column name in order by clause", Expr})
     end.
 
+filter_reorder({Idx,[Pref|Vals]}) ->
+    case Vals --[?NavString] of 
+        Vals -> {Idx,[Pref|Vals]};
+        V ->    {Idx,[Pref,?NavString|V]}
+    end.
+
 filter_spec_where(?NoMoreFilter, _, WhereTree) -> 
     WhereTree;
 filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree) ->
+    % ?Info("filter_spec_where ColMap ~p",[ColMap]),    
     FCond = filter_condition(filter_reorder(ColF), ColMap),
-    % ?Info("Colf ~p FCond ~p",[ColF,FCond]),
-    filter_spec_where({FType,ColFs}, ColMap, WhereTree, FCond). 
-
-filter_reorder({Idx,[Pref|Vals]}) -> 
-    case Vals --[?NavString] of 
-        Vals -> {Idx,[Pref|Vals]};
-        V ->    [?NavString|V]
-    end.
+    % ?Info("filter_spec_where ColF ~p FCond ~p",[ColF,FCond]),
+    filter_spec_where({FType,ColFs}, ColMap, WhereTree, FCond).
 
 filter_spec_where(?NoMoreFilter, _, ?EmptyWhere, LeftTree) ->
     LeftTree;
@@ -1341,25 +1342,27 @@ filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree, LeftTree) ->
 
 filter_condition({Idx,[<<"$in$">>,?NavString]}, ColMap) ->
     {Name,_Value} = filter_name_value(in,Idx,?NavString,ColMap),
-    {'is_nav',Name};
+    {'fun',<<"is_nav">>,[Name]};
 filter_condition({Idx,[<<"$in$">>,Val]}, ColMap) ->
     {Name,Value} = filter_name_value(in,Idx,Val,ColMap),
     {'=',Name,Value};
 filter_condition({Idx,[<<"$in$">>,?NavString|Vals]}, ColMap) ->
-    {Name,_Values} = filter_name_values(in,Idx,?NavString,ColMap),
-    {'or',{'is_nav',Name},filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap)};
+    {Name,_Values} = filter_name_value(in,Idx,?NavString,ColMap),
+    {'or',{'fun',<<"is_nav">>,[Name]},filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap) ->
+    % ?Info("filter_condition Vals ~p",[Vals]),   
     {Name,Values} = filter_name_values(in,Idx,Vals,ColMap),
+    % ?Info("filter_condition Name ~p, Values ~p",[Name,Values]),   
     {'in',Name,{'list',Values}};
 filter_condition({Idx,[<<"$not_in$">>,?NavString]}, ColMap) ->
     {Name,_Value} = filter_name_value(in,Idx,?NavString,ColMap),
-    {'is_val',Name};
+    {'fun',<<"is_val">>,[Name]};
 filter_condition({Idx,[<<"$not_in$">>,Val]}, ColMap) ->
     {Name,Value} = filter_name_value(in,Idx,Val,ColMap),
     {'<>',Name,Value};
 filter_condition({Idx,[<<"$not_in$">>,?NavString|Vals]}, ColMap) ->
-    {Name,_Values} = filter_name_values(in,Idx,?NavString,ColMap),
-    {'and',{'is_val',Name},filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap)};
+    {Name,_Values} = filter_name_value(in,Idx,?NavString,ColMap),
+    {'and',{'fun',<<"is_val">>,[Name]},filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap) ->
     {Name,Values} = filter_name_values(in,Idx,Vals,ColMap),
     {'not',{'in',Name,{'list',Values}}};
@@ -1384,24 +1387,25 @@ filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
 
 filter_name_value(F,Idx,Val,ColMap) ->
     % ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
-    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,alias=A,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
     Tag = "Col" ++ integer_to_list(Idx),
-    Name = case {Ti,Ci} of
-        {0,0} ->    ?Info("Picking from colmap ~p",[lists:nth(Idx,ColMap)]),
-                    A;
-        _ ->        qname3_to_binstr({S,T,N})
+    % ?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
+    Name = case PTree of
+        {as,PTA,_} ->   sqlparse:pt_to_string({fields,[PTA]});
+        PT ->           sqlparse:pt_to_string({fields,[PT]})        % _ -> qname3_to_binstr({S,T,N})
     end,
+    % ?Info("filter_name_values Name ~p",[Name]),
     {Name,filter_value_tree(F,Tag,Type,L,P,D,Val)}.
 
 filter_name_values(F,Idx,Vals,ColMap) ->
-    % ?Info("Idx ~p Vals ~p Colmap ~p",[Idx,Vals,ColMap]),
-    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,alias=A,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
     Tag = "Col" ++ integer_to_list(Idx),
-    Name = case {Ti,Ci} of
-        {0,0} ->    ?Info("Picking from colmap ~p",[lists:nth(Idx,ColMap)]),
-                    A;
-        _ ->        qname3_to_binstr({S,T,N})
+    % ?Info("filter_name_values Idx ~p Vals ~p PTree ~p",[Idx,Vals,PTree]),
+    Name = case PTree of
+        {as,PTA,_} ->   sqlparse:pt_to_string({fields,[PTA]});
+        PT ->           sqlparse:pt_to_string({fields,[PT]})        % _ -> qname3_to_binstr({S,T,N})
     end,
+    % ?Info("filter_name_values Name ~p",[Name]),
     {Name,[filter_value_tree(F,Tag,Type,L,P,D,Val) || Val <- Vals]}.
 
 filter_value_tree(like,_,_,_,_,_,Val) ->

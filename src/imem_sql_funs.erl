@@ -99,7 +99,7 @@
 filter_funs() -> ?FilterFuns.
 
 unary_fun_bind_type(B) when is_binary(B) ->     unary_fun_bind_type(binary_to_list(B));
-unary_fun_bind_type("to_json") ->               #bind{type=json,default=?nav};
+unary_fun_bind_type("to_json") ->               #bind{type=binstr,default=?nav};
 unary_fun_bind_type([$t,$o,$_|_]) ->            #bind{type=binstr,default= <<>>};
 unary_fun_bind_type([$#,_]) ->                  #bind{type=json,default= <<>>};     % #key(s), #value(s) for now
 unary_fun_bind_type("is_integer") ->            #bind{type=integer,default=?nav};
@@ -153,7 +153,7 @@ unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
 unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>};
-unary_fun_result_type("to_json") ->             #bind{type=binstr,default=?nav};
+unary_fun_result_type("to_json") ->             #bind{type=json,default=?nav};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
@@ -702,10 +702,17 @@ to_map(B) when is_binary(B) ->
 to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
 to_term(T) -> T.
 
-to_json(B) when is_binary(B) -> 
-    imem_json:encode(imem_json:decode(B, [return_maps]));
-to_json(M) -> 
-    imem_json:encode(M).
+to_json(N) when is_number(N) -> N; 
+to_json('true') -> true;
+to_json('false') -> false;
+to_json('null') -> null;
+to_json(B) when is_binary(B) ->
+    case catch imem_json:encode(imem_json:decode(B, [return_maps])) of 
+        JO when is_binary(JO) -> JO;
+        _ ->    B
+    end;
+to_json(M) when is_map(M) ->  imem_json:encode(M);
+to_json(M) -> ?nav.
 
 to_pid(T) when is_pid(T) -> T;
 to_pid(B) -> imem_datatype:io_to_pid(B).
