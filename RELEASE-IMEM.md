@@ -3,6 +3,14 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.13 (Release Date 21.03.2016)
+=======================================
+* Fixed preview not returning the complete list of results
+* Fixed data dictionary trigger
+* Added imem config documentation
+* drop with table opts support and ignore
+* Fixed sql generation from filters for json
+
 Version 1.4.12 (Release Date 14.03.2016)
 =======================================
 * Prune history implemented
