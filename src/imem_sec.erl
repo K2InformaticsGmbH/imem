@@ -47,6 +47,7 @@
         , create_or_replace_index/3
         , init_create_index/3
 		, drop_table/2
+        , drop_table/3
         , drop_index/2
         , drop_index/3
         , purge_table/2
@@ -373,11 +374,13 @@ create_or_replace_index(SKey,Table,IndexDefinition) ->
             end
     end.
 
-drop_table(SKey, Table) ->
+drop_table(SKey, Table) -> drop_table(SKey, Table, []).
+ 
+drop_table(SKey, Table, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     case if_is_system_table(SKey, Table) of
-        true  -> drop_system_table(SKey, Table, AccountId);
-        false -> drop_user_table(SKey, Table, AccountId)
+        true  -> drop_system_table(SKey, Table, Opts, AccountId);
+        false -> drop_user_table(SKey, Table, Opts, AccountId)
     end.
 
 drop_index(SKey, Table) ->
@@ -404,17 +407,17 @@ purge_table(SKey, Table, Opts) ->
         false -> purge_user_table(SKey, Table, Opts, AccountId)
     end.
 
-drop_user_table(SKey, Table, _AccountId) ->
+drop_user_table(SKey, Table, Opts, _AccountId) ->
     case imem_seco:have_permission(SKey, manage_user_tables) of
         true ->             
-            imem_meta:drop_table(Table);
+            imem_meta:drop_table(Table, Opts);
         false ->
             case have_table_permission(SKey, Table, drop) of
                 true ->
-                    imem_meta:drop_table(Table);
+                    imem_meta:drop_table(Table, Opts);
                 false ->
                     case have_table_ownership(SKey, Table) of
-                        true ->     imem_meta:drop_table(Table);
+                        true ->     imem_meta:drop_table(Table, Opts);
                         false ->    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
                     end
             end
@@ -467,10 +470,10 @@ purge_user_table(SKey, Table, Opts, _AccountId) ->
             end
     end.
 
-drop_system_table(SKey, Table, _AccountId) ->
+drop_system_table(SKey, Table, Opts, _AccountId) ->
     case imem_seco:have_permission(SKey, manage_system_tables) of
         true ->
-            imem_meta:drop_table(Table);
+            imem_meta:drop_table(Table, Opts);
         false ->
             ?SecurityException({"Drop system table unauthorized", {Table,SKey}})
     end. 

@@ -1351,7 +1351,7 @@ filter_condition({Idx,[<<"$in$">>,?NavString|Vals]}, ColMap) ->
     {'or',{'fun',<<"is_nav">>,[Name]},filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap) ->
     % ?Info("filter_condition Vals ~p",[Vals]),   
-    {Name,Values} = filter_name_values(in,Idx,Vals,ColMap),
+    {Name,Values} = filter_name_value(in,Idx,Vals,ColMap),
     % ?Info("filter_condition Name ~p, Values ~p",[Name,Values]),   
     {'in',Name,{'list',Values}};
 filter_condition({Idx,[<<"$not_in$">>,?NavString]}, ColMap) ->
@@ -1364,49 +1364,32 @@ filter_condition({Idx,[<<"$not_in$">>,?NavString|Vals]}, ColMap) ->
     {Name,_Values} = filter_name_value(in,Idx,?NavString,ColMap),
     {'and',{'fun',<<"is_val">>,[Name]},filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap) ->
-    {Name,Values} = filter_name_values(in,Idx,Vals,ColMap),
+    {Name,Values} = filter_name_value(in,Idx,Vals,ColMap),
     {'not',{'in',Name,{'list',Values}}};
 filter_condition({Idx,[<<"$like$">>|Vals]}, ColMap) ->
-    {Name,Values} = filter_name_values(like,Idx,Vals,ColMap),
+    {Name,Values} = filter_name_value(like,Idx,Vals,ColMap),
     Conditions = [{'like',Name,Val} || Val <- Values],      
     or_like_expr(Conditions);
 filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
-    {Name,Values} = filter_name_values(like,Idx,Vals,ColMap),
+    {Name,Values} = filter_name_value(like,Idx,Vals,ColMap),
     Conditions = [{'like',Name,Val} || Val <- Values],      
     and_not_like_expr(Conditions).
-% filter_condition({Idx,[Val]}, ColMap) ->
-%     #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
-%     Tag = "Col" ++ integer_to_list(Idx),
-%     Value = filter_field_value(Tag,Type,L,P,D,Val),     % list_to_binary(
-%     {'=',qname3_to_binstr({S,T,N}),Value};
-% filter_condition({Idx,Vals}, ColMap) ->
-%     #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
-%     Tag = "Col" ++ integer_to_list(Idx),
-%     Values = [filter_field_value(Tag,Type,L,P,D,Val) || Val <- Vals],       % list_to_binary(
-%     {'in',qname3_to_binstr({S,T,N}),{'list',Values}}.
 
-filter_name_value(F,Idx,Val,ColMap) ->
+filter_name_value(F,Idx,Vals,ColMap) ->
     % ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
-    #bind{ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap), 
     Tag = "Col" ++ integer_to_list(Idx),
     % ?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
-    Name = case PTree of
-        {as,PTA,_} ->   sqlparse:pt_to_string({fields,[PTA]});
-        PT ->           sqlparse:pt_to_string({fields,[PT]})        % _ -> qname3_to_binstr({S,T,N})
+    Name = case {Ti,Ci,PTree} of 
+        {0,0,{as,PTA,_}} -> sqlparse:pt_to_string({fields,[PTA]});
+        {0,0,PT} ->         sqlparse:pt_to_string({fields,[PT]});
+        _ ->                qname3_to_binstr({S,T,N})
     end,
     % ?Info("filter_name_values Name ~p",[Name]),
-    {Name,filter_value_tree(F,Tag,Type,L,P,D,Val)}.
-
-filter_name_values(F,Idx,Vals,ColMap) ->
-    #bind{ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
-    Tag = "Col" ++ integer_to_list(Idx),
-    % ?Info("filter_name_values Idx ~p Vals ~p PTree ~p",[Idx,Vals,PTree]),
-    Name = case PTree of
-        {as,PTA,_} ->   sqlparse:pt_to_string({fields,[PTA]});
-        PT ->           sqlparse:pt_to_string({fields,[PT]})        % _ -> qname3_to_binstr({S,T,N})
-    end,
-    % ?Info("filter_name_values Name ~p",[Name]),
-    {Name,[filter_value_tree(F,Tag,Type,L,P,D,Val) || Val <- Vals]}.
+    if
+        is_list(Vals) ->    {Name,[filter_value_tree(F,Tag,Type,L,P,D,V) || V <- Vals]};
+        true ->             {Name,filter_value_tree(F,Tag,Type,L,P,D,Vals)}
+    end.
 
 filter_value_tree(like,_,_,_,_,_,Val) ->
     imem_datatype:add_squotes(imem_sql:escape_sql(Val));
@@ -1879,24 +1862,24 @@ test_with_or_without_sec(IsSec) ->
                     , #bind{tag="C", tind=1, cind=3, name= <<"c1">>, type=ipaddr, alias= <<"c1">>}
                     ],
 
-        % ?assertEqual([], filter_spec_where(?NoFilter, ColsFS, [])),
-        % ?assertEqual({wt}, filter_spec_where(?NoFilter, ColsFS, {wt})),
-        % FA1 = {1,[<<"$in$">>,<<"111">>]},
-        % CA1 = {'=',<<"imem.meta_table_1.a">>,<<"111">>},
-        % ?assertEqual({'and',CA1,{wt}}, filter_spec_where({'or',[FA1]}, ColsFS, {wt})),
-        % FB2 = {2,[<<"$in$">>,<<"222">>]},
-        % CB2 = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'222'">>]}},
-        % ?assertEqual({'and',{'and',CA1,CB2},{wt}}, filter_spec_where({'and',[FA1,FB2]}, ColsFS, {wt})),
-        % FC3 = {3,[<<"$in$">>,<<"3.1.2.3">>,<<"3.3.2.1">>]},
-        % CC3 = {'in',<<"c1">>,{'list',[{'fun',<<"to_ipaddr">>,[<<"'3.1.2.3'">>]},{'fun',<<"to_ipaddr">>,[<<"'3.3.2.1'">>]}]}},
-        % ?assertEqual({'and',{'or',{'or',CA1,CB2},CC3},{wt}}, filter_spec_where({'or',[FA1,FB2,FC3]}, ColsFS, {wt})),
-        % ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsFS, {wt})),
+        ?assertEqual([], filter_spec_where(?NoFilter, ColsFS, [])),
+        ?assertEqual({wt}, filter_spec_where(?NoFilter, ColsFS, {wt})),
+        FA1 = {1,[<<"$in$">>,<<"111">>]},
+        CA1 = {'=',<<"imem.meta_table_1.a">>,<<"111">>},
+        ?assertEqual({'and',CA1,{wt}}, filter_spec_where({'or',[FA1]}, ColsFS, {wt})),
+        FB2 = {2,[<<"$in$">>,<<"222">>]},
+        CB2 = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'222'">>]}},
+        ?assertEqual({'and',{'and',CA1,CB2},{wt}}, filter_spec_where({'and',[FA1,FB2]}, ColsFS, {wt})),
+        FC3 = {3,[<<"$in$">>,<<"3.1.2.3">>,<<"3.3.2.1">>]},
+        CC3 = {'in',<<"c1">>,{'list',[{'fun',<<"to_ipaddr">>,[<<"'3.1.2.3'">>]},{'fun',<<"to_ipaddr">>,[<<"'3.3.2.1'">>]}]}},
+        ?assertEqual({'and',{'or',{'or',CA1,CB2},CC3},{wt}}, filter_spec_where({'or',[FA1,FB2,FC3]}, ColsFS, {wt})),
+        ?assertEqual({'and',{'and',{'and',CA1,CB2},CC3},{wt}}, filter_spec_where({'and',[FA1,FB2,FC3]}, ColsFS, {wt})),
 
-        % FB2a = {2,[<<"$in$">>,<<"22'2">>]},
-        % CB2a = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'22''2'">>]}},
-        % ?assertEqual({'and',{'and',CA1,CB2a},{wt}}, filter_spec_where({'and',[FA1,FB2a]}, ColsFS, {wt})),
+        FB2a = {2,[<<"$in$">>,<<"22'2">>]},
+        CB2a = {'=',<<"meta_table_1.b1">>,{'fun',<<"to_string">>,[<<"'22''2'">>]}},
+        ?assertEqual({'and',{'and',CA1,CB2a},{wt}}, filter_spec_where({'and',[FA1,FB2a]}, ColsFS, {wt})),
 
-        % ?LogDebug("success ~p~n", [filter_spec_where]),
+        ?LogDebug("success ~p~n", [filter_spec_where]),
 
         ?assertEqual([], sort_spec_order([], ColsFS, ColsFS)),
         SA = {1,1,<<"desc">>},

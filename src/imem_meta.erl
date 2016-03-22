@@ -89,6 +89,7 @@
 
 -export([ drop_meta_tables/0
         , drop_system_table/1
+        , drop_system_table/2
         , fail/1
         , get_tables_count/0
         , sql_jp_bind/1
@@ -182,6 +183,7 @@
         , create_or_replace_index/2
         , create_sys_conf/1
         , drop_table/1
+        , drop_table/2
         , drop_trigger/1
         , drop_index/1
         , drop_index/2
@@ -805,22 +807,7 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         true ->     ?ClientError({"Reserved table name",TableAlias})
     end,
     Opts1 = norm_opts(Opts0),
-    TypeMod = case lists:keyfind(type, 1, Opts1) of
-        false ->                                        undefined;  % normal table
-        {type,T} when T==set;T==ordered_set;T==bag ->   undefined;  % normal table
-        {type,?MODULE} ->                                                 % module defined table
-                ?ClientError({"Invalid module name for table type",{type,?MODULE}});
-        {type,M} ->                                                 % module defined table
-                case catch M:module_info(exports) of
-                    {'EXIT',_} ->
-                        ?ClientError({"Unknown module name for table type",{type,M}});
-                    Exports -> 
-                        case lists:member({create_table,4},Exports) of
-                            true ->     M;
-                            false ->    ?ClientError({"Bad module name for table type",{type,M}})
-                        end
-                end
-    end,
+    TypeMod = module_from_type_opts(Opts1),
     case {TypeMod,length(ColInfos)} of
         {undefined,0} ->    ?ClientError({"No columns given in create table",TableAlias});
         {undefined,1} ->    ?ClientError({"No value column given in create table, add dummy value column",TableAlias});
@@ -849,6 +836,30 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
     case TypeMod of 
         undefined ->    create_physical_standard_table(TableAlias,ColInfos,Opts1,Owner);
         _ ->            TypeMod:create_table(TableAlias,ColInfos,Opts1,Owner)
+    end.
+
+module_from_type_opts(Opts) ->
+    case lists:keyfind(type, 1, Opts) of
+        false ->                                        undefined;  % normal table
+        {type,T} when T==set;T==ordered_set;T==bag ->   undefined;  % normal table
+        {type,?MODULE} ->                               ?ClientError({"Invalid module name for table type",{type,?MODULE}});
+        {type,M} when is_atom(M) ->                     module_with_table_api(M);
+        {type,B} when is_binary(B) ->
+            case catch ?binary_to_existing_atom(B) of
+                M when is_atom(M) ->                    module_with_table_api(M);
+                _ ->                                    ?ClientError({"Invalid module name for table type",{type,B}})
+            end
+    end.
+
+module_with_table_api(M) ->
+    case catch M:module_info(exports) of
+        {'EXIT',_} ->
+            ?ClientError({"Unknown module name for table type",{type,M}});
+        Exports -> 
+            case lists:member({create_table,4},Exports) of
+                true ->     M;
+                false ->    ?ClientError({"Bad module name for table type",{type,M}})
+            end
     end.
 
 create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
@@ -1357,38 +1368,42 @@ restore_table_as(TableName,NewTableName) ->
             ?UnimplementedException({"Restore table as in foreign schema",{MySchema,Schema,Table}})
     end.
 
-drop_table({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
+drop_table(Table) -> drop_table(Table, []).
+
+drop_table({Schema,TableAlias},TableTypeOpts) when is_atom(Schema), is_atom(TableAlias), is_list(TableTypeOpts) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> drop_table(TableAlias);
+        MySchema -> drop_table(TableAlias,TableTypeOpts);
         _ ->        ?UnimplementedException({"Drop table in foreign schema",{Schema,TableAlias}})
     end;
-drop_table(TableAlias) when is_atom(TableAlias) ->
+drop_table(TableAlias,TableTypeOpts) when is_atom(TableAlias), is_list(TableTypeOpts) ->
     case is_system_table(TableAlias) of
         true -> ?ClientError({"Cannot drop system table",TableAlias});
-        false-> drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+        false-> drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)),TableTypeOpts)
     end;
-drop_table(TableAlias) when is_binary(TableAlias) ->
-    drop_table(qualified_table_name(TableAlias)).
+drop_table(TableAlias,TableTypeOpts) when is_binary(TableAlias), is_list(TableTypeOpts) ->
+    drop_table(qualified_table_name(TableAlias),TableTypeOpts).
 
-drop_system_table(TableAlias) when is_atom(TableAlias) ->
+drop_system_table(TableAlias) -> drop_system_table(TableAlias,[]).
+
+drop_system_table(TableAlias, TableTypeOpts) when is_atom(TableAlias), is_list(TableTypeOpts) ->
     case is_system_table(TableAlias) of
         false -> ?ClientError({"Not a system table",TableAlias});
-        true ->  drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+        true ->  drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)), TableTypeOpts)
     end.
 
-drop_tables_and_infos(TableName,[TableName]) ->
-    drop_table_and_info(TableName);
-drop_tables_and_infos(TableAlias, TableList) -> 
+drop_tables_and_infos(TableName,[TableName],TableTypeOpts) ->
+    drop_table_and_info(TableName,TableTypeOpts);
+drop_tables_and_infos(TableAlias, TableList,TableTypeOpts) -> 
      imem_if_mnesia:delete(ddAlias, {schema(),TableAlias}),
-     drop_partitions_and_infos(TableList).
+     drop_partitions_and_infos(TableList,TableTypeOpts).
 
-drop_partitions_and_infos([]) -> ok;
-drop_partitions_and_infos([TableName|TableNames]) ->
-    drop_table_and_info(TableName),
-    drop_partitions_and_infos(TableNames).
+drop_partitions_and_infos([],_TableTypeOpts) -> ok;
+drop_partitions_and_infos([TableName|TableNames],TableTypeOpts) ->
+    drop_table_and_info(TableName,TableTypeOpts),
+    drop_partitions_and_infos(TableNames,TableTypeOpts).
 
-drop_table_and_info(TableName) ->
+drop_table_and_info(TableName,[]) ->
     try
         imem_if_mnesia:drop_table(TableName),
         imem_cache:clear({?MODULE, trigger, schema(), TableName}),
@@ -1401,7 +1416,12 @@ drop_table_and_info(TableName) ->
         throw:{'ClientError',{"Table does not exist",Table}} ->
             catch imem_if_mnesia:delete(ddTable, {schema(),TableName}),
             throw({'ClientError',{"Table does not exist",Table}})
-    end.       
+    end;       
+drop_table_and_info(TableName,Opts) ->
+    case module_from_type_opts(Opts) of
+        undefined ->    drop_table_and_info(TableName,[]);
+        TypeMod ->      TypeMod:drop_table(TableName)
+    end.
 
 purge_table(TableAlias) ->
     purge_table(TableAlias, []).
@@ -1439,7 +1459,7 @@ purge_time_partitioned_table(TableAlias, Opts) ->
                 true ->
                     FreedMemory = table_memory(TableName),
                     ?Info("Purge time partition ~p~n",[TableName]),
-                    drop_table_and_info(TableName),
+                    drop_table_and_info(TableName,Opts),
                     FreedMemory
             end
     end.

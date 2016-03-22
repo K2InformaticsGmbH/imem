@@ -499,11 +499,11 @@ drop_table(Name) when is_atom(Name) ->
     drop_table(list_to_binary(atom_to_list(Name)));
 drop_table(Channel) when is_binary(Channel) ->
     Tab = binary_to_atom(table_name(Channel),utf8),
-    ok = imem_meta:drop_table(Tab),
-    AC = list_to_atom(?AUDIT(Channel)),
-    ok = imem_meta:drop_table(AC),
-    HC = list_to_atom(?HIST(Channel)),
-    ok = imem_meta:drop_table(HC).
+    catch imem_meta:drop_table(Tab),
+    AC = list_to_existing_atom(?AUDIT(Channel)),
+    catch imem_meta:drop_table(AC),
+    HC = list_to_existing_atom(?HIST(Channel)),
+    catch imem_meta:drop_table(HC).
 
 build_aux_table_info(Table) ->
 	["","",Channel,"","","",""] = imem_meta:parse_table_name(Table),
