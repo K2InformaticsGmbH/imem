@@ -7,37 +7,26 @@
 
 -export([ schema/1
         , schema/2
-        , system_id/1
         , data_nodes/1
         , all_tables/1
         , is_readable_table/2
         , tables_starting_with/2
-        , node_shard/1
         , physical_table_name/2
         , physical_table_names/2
         , table_type/2
         , table_columns/2
         , table_size/2
         , table_record_name/2
-        , check_table/2
-        , check_table_meta/3
-        , check_table_columns/3
         , is_system_table/2
         , meta_field_list/1                
         , meta_field/2
         , meta_field_info/2
         , meta_field_value/2
-        , column_infos/2
-        , column_info_items/3        
-        , column_map/3
         , subscribe/2
         , unsubscribe/2
         ]).
 
--export([ update_opts/3
-        , add_attribute/3
-   %     , log_to_db/6
-        , get_config_hlk/5  %% get single config value and put default if not found
+-export([ get_config_hlk/5  %% get single config value and put default if not found
         , put_config_hlk/6  %% put single config value with remark
         ]).
 
@@ -58,6 +47,7 @@
         , create_or_replace_index/3
         , init_create_index/3
 		, drop_table/2
+        , drop_table/3
         , drop_index/2
         , drop_index/3
         , purge_table/2
@@ -105,31 +95,13 @@
         ]).
 
 -export([ fetch_start/6
+        , fetch_start_virtual/7
         , update_tables/3           %% update (first) table and return updated keys 
-        ]).
-
--export([ transaction/2
-        , transaction/3
-        , transaction/4
-        , return_atomic_list/2
-        , return_atomic_ok/2
-        , return_atomic/2
-        ]).
-
--export([ first/2
-        , next/3
-        , last/2
-        , prev/3
-        , foldl/4
         ]).
 
 -export([ have_table_permission/3   %% includes table ownership and readonly
         , have_module_permission/3  
         , have_permission/2    
-        ]).
-
-% exported for test
--export([ select_rowfun_str/5
         ]).
 
 %% one to one from dd_account ------------ AA FUNCTIONS _--------
@@ -161,43 +133,20 @@ clone_seco(SKey, Pid) ->
 
 %% from imem_meta --- HELPER FUNCTIONS do not export!! --------
 
-if_is_system_table(_SKey,{_,Table}) -> 
-    if_is_system_table(_SKey,Table);       % TODO: May depend on Schema
+if_is_system_table(SKey,{_,Table}) -> 
+    if_is_system_table(SKey,Table);       % TODO: May depend on Schema
 if_is_system_table(_SKey,Table) when is_atom(Table) ->
     case lists:member(Table,?SECO_TABLES) of
         true ->     true;
         false ->    imem_meta:is_system_table(Table)
     end;
-if_is_system_table(_SKey,Table) when is_binary(Table) ->
+if_is_system_table(SKey,Table) when is_binary(Table) ->
     try
         {S,T} = imem_sql_expr:binstr_to_qname2(Table), 
-        if_is_system_table(_SKey,{?binary_to_existing_atom(S),?binary_to_existing_atom(T)})
+        if_is_system_table(SKey,{?binary_to_existing_atom(S),?binary_to_existing_atom(T)})
     catch
         _:_ -> false
     end.
-
-if_meta_field_list(_SKey) ->
-    imem_meta:meta_field_list().
-
-if_meta_field(_SKey, Name) when is_atom(Name) ->
-    if_meta_field(_SKey, ?atom_to_binary(Name));
-if_meta_field(_SKey, Name) ->
-    case lists:member(Name,?SECO_FIELDS) of
-        true ->     true;
-        false ->    imem_meta:meta_field(Name)
-    end.
-
-if_meta_field_info(_SKey, Name) ->              imem_meta:meta_field_info(Name).
-
-if_meta_field_value(SKey, <<"user">>) ->        imem_seco:account_id(SKey);
-if_meta_field_value(SKey, user) ->              imem_seco:account_id(SKey);
-if_meta_field_value(SKey, <<"username">>) ->    imem_seco:account_name(SKey);
-if_meta_field_value(SKey, username) ->          imem_seco:account_name(SKey);
-if_meta_field_value(_SKey, Name) ->             imem_meta:meta_field_value(Name).
-
-add_attribute(_SKey, A, Opts) ->                imem_meta:add_attribute(A, Opts).
-
-update_opts(_SKey, T, Opts) ->                  imem_meta:update_opts(T, Opts).
 
 %% imem_if but security context added --- META INFORMATION ------
 
@@ -209,39 +158,29 @@ schema(SKey, Node) ->
     seco_authorized(SKey),
     imem_meta:schema(Node).
 
-% BIKRAM: exported for testing
-select_rowfun_str(SKey, ColMap, DateFmt, NumFmt, StrFmt) ->
-    io:format(user, "imem_sec:select_rowfun_str~n", []),
-    seco_authorized(SKey),
-    imem_datatype:select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt).
-
-system_id(_Skey) ->
-    imem_meta:system_id().
-
 is_system_table(SKey, Table) ->
     seco_authorized(SKey),    
     if_is_system_table(SKey, Table).
 
-meta_field_list(SKey) ->
-    if_meta_field_list(SKey).
+meta_field_list(_SKey) ->
+    imem_meta:meta_field_list().
 
-meta_field(SKey, Name) ->
-    if_meta_field(SKey, Name).
+meta_field(SKey, Name) when is_atom(Name) ->
+    meta_field(SKey, ?atom_to_binary(Name));
+meta_field(_SKey, Name) ->
+    case lists:member(Name,?SECO_FIELDS) of
+        true ->     true;
+        false ->    imem_meta:meta_field(Name)
+    end.
 
-meta_field_info(SKey, Name) ->
-    if_meta_field_info(SKey, Name).
+meta_field_info(_SKey, Name) ->
+    imem_meta:meta_field_info(Name).
 
-meta_field_value(SKey, Name) ->
-    if_meta_field_value(SKey, Name).
-
-column_map(_SKey, Tables, Columns) ->
-    imem_sql:column_map(Tables, Columns).
-
-column_infos(_SKey, Table) ->
-    imem_meta:column_infos(Table).
-
-column_info_items(_SKey, Info, Item) ->
-    imem_meta:column_info_items(Info, Item).
+meta_field_value(SKey, <<"user">>) ->        imem_seco:account_id(SKey);
+meta_field_value(SKey, user) ->              imem_seco:account_id(SKey);
+meta_field_value(SKey, <<"username">>) ->    imem_seco:account_name(SKey);
+meta_field_value(SKey, username) ->          imem_seco:account_name(SKey);
+meta_field_value(_SKey, Name) ->             imem_meta:meta_field_value(Name).
 
 data_nodes(SKey) ->
     seco_authorized(SKey),
@@ -279,9 +218,6 @@ atoms_starting_with(Prefix,[A|Atoms],Acc) ->
         false ->    atoms_starting_with(Prefix,Atoms,Acc)
     end.
 
-node_shard(_SKey) ->
-    imem_meta:node_shard().
-
 table_type(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_type(Table);
@@ -299,12 +235,6 @@ physical_table_names(SKey,Name) ->
     PhysicalNames = imem_meta:physical_table_names(Name),
     Pred = fun(PN) -> have_table_permission(SKey, PN, select) end,
     lists:filter(Pred,PhysicalNames).
-
-% log_to_db(SKey,Level,Module,Function,Fields,Message) ->
-%     case have_table_permission(SKey, ?LOG_TABLE, insert) of
-%         true ->     imem_meta:log_to_db(Level,Module,Function,Fields,Message);
-%         false ->    ?SecurityException({"Insert into ddLog@ unauthorized", SKey})
-%     end.    
 
 table_columns(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
@@ -324,15 +254,6 @@ table_size(SKey, Table) ->
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
-check_table(_SKey, Table) ->
-    imem_meta:check_table(Table).
-
-check_table_meta(_SKey, Table, ColumnNames) ->
-    imem_meta:check_table_meta(Table, ColumnNames).
-
-check_table_columns(_SKey, Table, ColumnInfo) ->
-    imem_meta:check_table_columns(Table, ColumnInfo).
-
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
@@ -347,33 +268,6 @@ unsubscribe(_SKey, EventCategory) ->
 update_tables(_SKey, UpdatePlan, Lock) ->
     %% ToDo: Plan must be checked against permissions
     imem_meta:update_tables(UpdatePlan, Lock).
-
-transaction(_SKey, Function) ->
-    imem_meta:transaction(Function).
-
-transaction(_SKey, Function, Args) ->
-    imem_meta:transaction(Function, Args).
-
-transaction(_SKey, Function, Args, Retries) ->
-    imem_meta:transaction(Function, Args, Retries).
-
-return_atomic_list(_SKey, Result) ->
-    imem_meta:return_atomic_list(Result). 
-
-return_atomic_ok(_SKey, Result) -> 
-    imem_meta:return_atomic_ok(Result).
-
-return_atomic(_SKey, Result) -> 
-    imem_meta:return_atomic(Result).
-
-first(_SKey, Table)                 -> imem_meta:first(Table).
-next(_SKey, Table,Key)              -> imem_meta:next(Table,Key).
-last(_SKey, Table)                  -> imem_meta:last(Table).
-prev(_SKey, Table,Key)              -> imem_meta:prev(Table,Key).
-foldl(_SKey,FoldFun,InputAcc,Table) -> imem_meta:foldl(FoldFun,InputAcc,Table).
-
-%% imem_if but security context added --- DATA DEFINITIONimem_meta--
-
 
 create_table(SKey, Table, RecordInfo, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
@@ -480,11 +374,13 @@ create_or_replace_index(SKey,Table,IndexDefinition) ->
             end
     end.
 
-drop_table(SKey, Table) ->
+drop_table(SKey, Table) -> drop_table(SKey, Table, []).
+ 
+drop_table(SKey, Table, Opts) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     case if_is_system_table(SKey, Table) of
-        true  -> drop_system_table(SKey, Table, AccountId);
-        false -> drop_user_table(SKey, Table, AccountId)
+        true  -> drop_system_table(SKey, Table, Opts, AccountId);
+        false -> drop_user_table(SKey, Table, Opts, AccountId)
     end.
 
 drop_index(SKey, Table) ->
@@ -511,17 +407,17 @@ purge_table(SKey, Table, Opts) ->
         false -> purge_user_table(SKey, Table, Opts, AccountId)
     end.
 
-drop_user_table(SKey, Table, _AccountId) ->
+drop_user_table(SKey, Table, Opts, _AccountId) ->
     case imem_seco:have_permission(SKey, manage_user_tables) of
         true ->             
-            imem_meta:drop_table(Table);
+            imem_meta:drop_table(Table, Opts);
         false ->
             case have_table_permission(SKey, Table, drop) of
                 true ->
-                    imem_meta:drop_table(Table);
+                    imem_meta:drop_table(Table, Opts);
                 false ->
                     case have_table_ownership(SKey, Table) of
-                        true ->     imem_meta:drop_table(Table);
+                        true ->     imem_meta:drop_table(Table, Opts);
                         false ->    ?SecurityException({"Drop table unauthorized", {Table,SKey}})
                     end
             end
@@ -574,10 +470,10 @@ purge_user_table(SKey, Table, Opts, _AccountId) ->
             end
     end.
 
-drop_system_table(SKey, Table, _AccountId) ->
+drop_system_table(SKey, Table, Opts, _AccountId) ->
     case imem_seco:have_permission(SKey, manage_system_tables) of
         true ->
-            imem_meta:drop_table(Table);
+            imem_meta:drop_table(Table, Opts);
         false ->
             ?SecurityException({"Drop system table unauthorized", {Table,SKey}})
     end. 
@@ -718,9 +614,37 @@ fetch_start(SKey, Pid, all_tables, MatchSpec, BlockSize, Opts) ->
     imem_meta:fetch_start(Pid, all_tables, MatchSpec, BlockSize, Opts);  %% {select_filter_all(SKey, RList, []), true};
 fetch_start(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
     seco_authorized(SKey),
+    Schema = imem_meta:schema(),
+    case Table of
+        {Schema,_} ->   fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts);    % local schema select
+        {_,_} ->        fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts);   % ddSysConf / csv$ superuser select
+        _ ->            fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts)     % local schema select
+    end.
+
+fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
     case have_table_permission(SKey, Table, select) of
         true -> imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
         _ ->    ?SecurityException({"Select unauthorized", {Table,SKey}})  
+    end.
+
+fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
+    case imem_seco:have_permission(SKey, [manage_system_tables, select_os_files]) of
+        true -> 
+            imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
+        _ ->    
+            case have_table_permission(SKey, Table, select) of
+                true -> imem_meta:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
+                _ ->    ?SecurityException({"System select unauthorized", {Table,SKey}})  
+            end
+    end.
+
+fetch_start_virtual(SKey, Pid, Table, Rows, BlockSize, Limit, Opts) ->
+    seco_authorized(SKey),
+    % ?LogDebug("imem_sec:fetch_start_virtual ~p",[self()]),
+    Schema = imem_meta:schema(),
+    case Table of
+        {Schema,_} ->   imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
+        _ ->            ?SecurityException({"Select virtual in foreign schema unauthorized", {Table,SKey}}) 
     end.
 
 fetch_close(SKey, Pid) ->
@@ -886,7 +810,7 @@ admin_apply(SKey, Module, Function, Params, Permissions) ->
     end.
 
 dal_exec(SKey, Module, Function, Params) ->
-    case re:run(atom_to_list(Module),"_dal_|_prov_",[]) of
+    case re:run(atom_to_list(Module),"_dal_|_prov_|_prov$|_dal$") of
         nomatch ->  ?SecurityException({"dal_exec attempted on wrong module", {Module,Function,Params,SKey}});
         _ ->        dal_apply(SKey, Module, Function, Params, [manage_system,{module,Module,execute}])
     end.
@@ -1056,32 +980,28 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun test/1
-        ]}}.    
+        {with, [fun test/1]}
+    }.    
 
     
 test(_) ->
     try
+        ?LogDebug("---TEST---"),
+
         ClEr = 'ClientError',
         SeEx = 'SecurityException',
         CoEx = 'ConcurrencyException',
-        % SeVi = 'SecurityViolation',
-        % SyEx = 'SystemException',          %% cannot easily test that
-
-        ?LogDebug("---TEST---~p:test_mnesia~n", [?MODULE]),
-
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?LogDebug("~p:test_admin_login~n", [?MODULE]),
+        % ?LogDebug("~p:test_admin_login~n", [?MODULE]),
 
         SeCoAdmin=?imem_test_admin_login(),
-        ?LogDebug("success ~p~n", [admin_login]),
+        % ?LogDebug("success ~p~n", [admin_login]),
         ?assert(1 =< table_size(SeCoAdmin, ddSeCo@)),
-        ?LogDebug("success ~p~n", [seco_table_size]), 
+        % ?LogDebug("success ~p~n", [seco_table_size]), 
         AllTablesAdmin = all_tables(SeCoAdmin),
         ?assertEqual(true, lists:member(ddAccount,AllTablesAdmin)),
         ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddPerm@),AllTablesAdmin)),
@@ -1089,60 +1009,60 @@ test(_) ->
         ?assertEqual(true, lists:member(ddRole,AllTablesAdmin)),
         ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddSeCo@),AllTablesAdmin)),
         ?assertEqual(true, lists:member(ddTable,AllTablesAdmin)),
-        ?LogDebug("success ~p~n", [all_tables_admin]), 
+        % ?LogDebug("success ~p~n", [all_tables_admin]), 
 
-        ?LogDebug("~p:test_admin_exec~n", [?MODULE]),
+        % ?LogDebug("~p:test_admin_exec~n", [?MODULE]),
 
-        ?LogDebug("accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
+        % ?LogDebug("accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, <<"PasswordMd5">>])),
-        ?LogDebug("success ~p~n", [account_create_user]),
+        % ?LogDebug("success ~p~n", [account_create_user]),
         UserId = admin_exec(SeCoAdmin, imem_account, get_id_by_name, [<<"test_user_123">>]),
         ?assert(is_integer(UserId)),
-        ?LogDebug("success (~p) ~p~n", [UserId, create_test_admin_permissions]), 
+        % ?LogDebug("success (~p) ~p~n", [UserId, create_test_admin_permissions]), 
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [<<"test_user_123">>, create_table])),
-        ?LogDebug("success ~p~n", [create_test_admin_permissions]), 
+        % ?LogDebug("success ~p~n", [create_test_admin_permissions]), 
      
-        ?LogDebug("~p:test_user_login~n", [?MODULE]),
+        % ?LogDebug("~p:test_user_login~n", [?MODULE]),
 
         SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,<<"PasswordMd5">>}),
         ?assertEqual(true, is_integer(SeCoUser0)),
-        ?LogDebug("success ~p~n", [user_authentication]), 
+        % ?LogDebug("success ~p~n", [user_authentication]), 
         ?assertException(throw,{SeEx,{?PasswordChangeNeeded, _}}, login(SeCoUser0)),
-        ?LogDebug("success ~p~n", [password_expired]), 
+        % ?LogDebug("success ~p~n", [password_expired]), 
         SeCoUser=authenticate(none, someSessionId, <<"test_user_123">>, {pwdmd5,<<"PasswordMd5">>}), 
         ?assertEqual(true, is_integer(SeCoUser)),
-        ?LogDebug("success ~p~n", [user_authentication]), 
+        % ?LogDebug("success ~p~n", [user_authentication]), 
         ?assertEqual(SeCoUser, change_credentials(SeCoUser, {pwdmd5,<<"PasswordMd5">>}, {pwdmd5,<<"NewPasswordMd5">>})),
-        ?LogDebug("success ~p~n", [password_changed]), 
+        % ?LogDebug("success ~p~n", [password_changed]), 
         Type123a = {[a,b,c],[term,term,term],{user_table_123,undefined,undefined,undefined}},
         Type123b = {[a,b,a],[term,term,term],{user_table_123,undefined,undefined,undefined}},
         Type123c = {[a,b,x],[term,term,term],{user_table_123,undefined,undefined,undefined}},
         ?assertEqual(ok, create_table(SeCoUser, user_table_123, Type123a, [])),
-        ?LogDebug("success ~p~n", [create_user_table]),
+        % ?LogDebug("success ~p~n", [create_user_table]),
         ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, Type123b, [])),
         ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, Type123c, [])),
-        ?LogDebug("success ~p~n", [create_user_table]),
+        % ?LogDebug("success ~p~n", [create_user_table]),
         ?assertEqual(0, table_size(SeCoUser, user_table_123)),
-        ?LogDebug("success ~p~n", [own_table_size]),
+        % ?LogDebug("success ~p~n", [own_table_size]),
 
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
-        ?LogDebug("success ~p~n", [permissions_own_table]), 
+        % ?LogDebug("success ~p~n", [permissions_own_table]), 
 
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, revoke_role, [<<"test_user_123">>, create_table])),
-        ?LogDebug("success ~p~n", [role_revoke_role]),
+        % ?LogDebug("success ~p~n", [role_revoke_role]),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, drop)),
         ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, alter)),
-        ?LogDebug("success ~p~n", [permissions_own_table]),
+        % ?LogDebug("success ~p~n", [permissions_own_table]),
 
         ?assertException(throw, {SeEx,{"Select unauthorized", {dba_tables,SeCoUser}}}, select(SeCoUser, dba_tables, ?MatchAllKeys)),
-        ?LogDebug("success ~p~n", [dba_tables_unauthorized]),
+        % ?LogDebug("success ~p~n", [dba_tables_unauthorized]),
         {DbaTables, true} = select(SeCoAdmin, dba_tables, ?MatchAllKeys),
         ?assertEqual(true, lists:member({imem,ddAccount}, DbaTables)),
         ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddPerm@)}, DbaTables)),
@@ -1151,7 +1071,7 @@ test(_) ->
         ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddSeCo@)}, DbaTables)),
         ?assertEqual(true, lists:member({imem,ddTable}, DbaTables)),
         ?assertEqual(true, lists:member({imem,user_table_123}, DbaTables)),
-        ?LogDebug("success ~p~n", [dba_tables]),
+        % ?LogDebug("success ~p~n", [dba_tables]),
 
         {AdminTables, true} = select(SeCoAdmin, user_tables, ?MatchAllKeys),
         ?assertEqual(false, lists:member({imem,ddAccount}, AdminTables)),
@@ -1161,7 +1081,7 @@ test(_) ->
         ?assertEqual(false, lists:member({imem,imem_meta:physical_table_name(ddSeCo@)}, AdminTables)),
         ?assertEqual(false, lists:member({imem,ddTable}, AdminTables)),
         ?assertEqual(false, lists:member({imem,user_table_123}, AdminTables)),
-        ?LogDebug("success ~p~n", [admin_tables]),
+        % ?LogDebug("success ~p~n", [admin_tables]),
 
         {UserTables, true} = select(SeCoUser, user_tables, ?MatchAllKeys),
         ?assertEqual(false, lists:member({imem,ddAccount}, UserTables)),
@@ -1171,19 +1091,10 @@ test(_) ->
         ?assertEqual(false, lists:member({imem,ddSeCo@}, UserTables)),
         ?assertEqual(false, lists:member({imem,ddTable}, UserTables)),
         ?assertEqual(true, lists:member({imem,user_table_123}, UserTables)),
-        ?LogDebug("success ~p~n", [user_tables]),
-
-        % LogCount1 = table_size(SeCoAdmin,?LOG_TABLE),
-        % ?assertEqual(ok, log_to_db(SeCoAdmin,info,?MODULE,test,[{test_1,value2},{test_3,value4}],"Message")),        
-        % LogCount2 = table_size(SeCoAdmin,?LOG_TABLE),
-        % ?assertEqual(LogCount1+1,LogCount2),
-        % ?assertException(throw, {SeEx,{"Insert into ddLog@ unauthorized",SeCoUser}}, log_to_db(SeCoUser,info,?MODULE,test,[{test_5,value6},{test_7,value8}],"Message")),        
-        % LogCount3 = table_size(SeCoAdmin,?LOG_TABLE),
-        % ?assertEqual(LogCount2+1,LogCount3),
-
+        % ?LogDebug("success ~p~n", [user_tables]),
 
         LogTable = physical_table_name(SeCoAdmin,?LOG_TABLE),
-        ?LogDebug("success ~p ~p~n", [physical_table_name,LogTable]),
+        % ?LogDebug("success ~p ~p~n", [physical_table_name,LogTable]),
         ?assertException(throw, {SeEx,{"Select unauthorized",{_,SeCoUser}}}, physical_table_name(SeCoUser,?LOG_TABLE)),    
         LogTables = physical_table_names(SeCoAdmin,?LOG_TABLE),
         ?assert(lists:member(LogTable,LogTables)),        
@@ -1199,7 +1110,7 @@ test(_) ->
 
         ?assertEqual({user_table_123,"A","B","C"}, insert(SeCoUser, user_table_123, {user_table_123,"A","B","C"})),
         ?assertEqual(1, table_size(SeCoUser, user_table_123)),
-        ?LogDebug("success ~p~n", [insert_own_table]),
+        % ?LogDebug("success ~p~n", [insert_own_table]),
         ?assertEqual({user_table_123,"AA","BB","CC"}, merge(SeCoUser, user_table_123, {user_table_123,"AA","BB","CC"})),
         ?assertEqual(2, table_size(SeCoUser, user_table_123)),
         ?assertEqual({user_table_123,"AA","B0","CC"}, update(SeCoUser, user_table_123, {{user_table_123,"AA","BB","CC"},{user_table_123,"AA","B0","CC"}})),
@@ -1207,14 +1118,15 @@ test(_) ->
         ?assertException(throw, {CoEx,{"Update failed, key does not exist",{user_table_123,"A0"}}}, update(SeCoUser, user_table_123, {{user_table_123,"A0","B0","C0"},{user_table_123,"A0","B0","CC"}})),    
 
         ?assertEqual(2, table_size(SeCoUser, user_table_123)),
-        ?LogDebug("success ~p~n", [insert_own_table]),
+        % ?LogDebug("success ~p~n", [insert_own_table]),
         ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),
-        ?LogDebug("success ~p~n", [drop_own_table]),
+        % ?LogDebug("success ~p~n", [drop_own_table]),
         ?assertException(throw, {ClEr,{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
-        ?LogDebug("success ~p~n", [drop_own_table_no_exists]),
+        % ?LogDebug("success ~p~n", [drop_own_table_no_exists]),
 
         ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [<<"test_user_123">>])),
-        ?LogDebug("success ~p~n", [account_create_user])
+        % ?LogDebug("success ~p~n", [account_create_user]),
+        ok
 
     catch
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),

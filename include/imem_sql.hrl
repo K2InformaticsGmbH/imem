@@ -10,7 +10,6 @@
 -define(FilterTrue, fun(_) -> true end).
 -define(FilterFalse, fun(_) -> false end).
 
-
 -define(RecIdx, 1).                                       %% Record name position in records
 -define(FirstIdx, 2).                                     %% First field position in records
 -define(KeyIdx, 2).                                       %% Key position in records

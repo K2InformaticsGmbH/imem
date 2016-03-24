@@ -88,17 +88,22 @@ teardown(_) ->
     catch imem_meta:drop_table(def),
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun test_without_sec/1
-            , fun test_with_sec/1
-        ]}
+        {with, [fun test_without_sec/1]}
     }.
     
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [fun test_with_sec/1]}
+    }.
+
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
@@ -107,13 +112,14 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
+
         ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
         CoEx = 'ConcurrencyException',
-        ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
         Schema = imem_meta:schema(),
-        ?LogDebug("schema ~p~n", [Schema]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+
+        % ?LogDebug("schema ~p~n", [Schema]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(Schema)),
         ?assertEqual(true, lists:member({Schema,node()}, imem_meta:data_nodes())),
 
@@ -127,29 +133,29 @@ test_with_or_without_sec(IsSec) ->
             , 0, [{schema,imem}], IsSec)),
 
         Sql0a = "insert into fun_test (col0) values (5)",  
-        ?LogDebug("Sql0a:~n~s~n", [Sql0a]),
+        % ?LogDebug("Sql0a:~n~s~n", [Sql0a]),
         ?assertEqual([{fun_test,5,25}], imem_sql:exec(SKey, Sql0a, 0, [{schema,imem}], IsSec)),
 
         TT0aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, fun_test])),
-        ?LogDebug("fun_test~n~p~n", [TT0aRows]),
+        % ?LogDebug("fun_test~n~p~n", [TT0aRows]),
         [{fun_test,Col0a,Col1a}] = TT0aRows,
         ?assertEqual(Col0a*Col0a, Col1a),
 
         Sql0b = "insert into fun_test",  
-        ?LogDebug("Sql0b:~n~s~n", [Sql0b]),
+        % ?LogDebug("Sql0b:~n~s~n", [Sql0b]),
         ?assertEqual([{fun_test,12,144}], imem_sql:exec(SKey, Sql0b, 0, [{schema,imem}], IsSec)),
 
         Sql1 = "create table def (col1 string, col2 integer, col3 term);",
-        ?LogDebug("Sql1: ~p~n", [Sql1]),
+        % ?LogDebug("Sql1: ~p~n", [Sql1]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, [{schema,imem}], IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
 
-        [Meta1] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
-        ?LogDebug("Meta table def:~n~p~n", [Meta1]),
+        [_Meta1] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
+        % ?LogDebug("Meta table def:~n~p~n", [_Meta1]),
 
 
         Sql8 = "insert into def (col1,col3) values (:J, :A);",  
-        ?LogDebug("Sql8: ~p~n", [Sql8]),
+        % ?LogDebug("Sql8: ~p~n", [Sql8]),
         Pstring8 = {<<":J">>,<<"string">>,<<"0">>,[<<"\"J\"">>]},
         Patom8   = {<<":A">>,<<"atom">>,<<"0">>,[<<"another_atom">>]},
         ?assertEqual([{def,"J",undefined,another_atom}], imem_sql:exec(SKey, Sql8, 0, [{params,[Pstring8,Patom8]}], IsSec)),
@@ -159,135 +165,135 @@ test_with_or_without_sec(IsSec) ->
         % ?assertEqual(ok, insert_range(SKey, 3, "def", imem, IsSec)),
 
         Sql1a = "insert into def (col1) values ('a');",
-        ?LogDebug("Sql1a: ~p~n", [Sql1a]),
+        % ?LogDebug("Sql1a: ~p~n", [Sql1a]),
         ?assertException(throw,{ClEr,{"Wrong data type for value, expecting type or default",{<<"a">>,string,undefined}}}, imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)),
 
         Sql2 = "insert into def (col1) values ('\"{B}\"');",
-        ?LogDebug("Sql2: ~p~n", [Sql2]),
+        % ?LogDebug("Sql2: ~p~n", [Sql2]),
         ?assertEqual([{def,"{B}",undefined,undefined}], imem_sql:exec(SKey, Sql2, 0, [{schema,imem}], IsSec)),
 
         Sql2b = "insert into def (col1,col2) values ('\"[]\"', 6);",  
-        ?LogDebug("Sql2b: ~p~n", [Sql2b]),
+        % ?LogDebug("Sql2b: ~p~n", [Sql2b]),
         ?assertEqual([{def,"[]",6,undefined}], imem_sql:exec(SKey, Sql2b, 0, [{schema,imem}], IsSec)),
 
         Sql2c = "drop table def;",
-        ?LogDebug("Sql2c: ~p~n", [Sql2c]),
+        % ?LogDebug("Sql2c: ~p~n", [Sql2c]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql2c, 0, [{schema,imem}], IsSec)),
 
         Sql2d = "create table def (col1 varchar2(10), col2 integer, col3 term);",
-        ?LogDebug("Sql2d: ~p~n", [Sql2d]),
+        % ?LogDebug("Sql2d: ~p~n", [Sql2d]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql2d, 0, [{schema,imem}], IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
 
         Sql3 = "insert into def (col1,col2) values ('C', 7+1);",  
-        ?LogDebug("Sql3: ~p~n", [Sql3]),
+        % ?LogDebug("Sql3: ~p~n", [Sql3]),
         ?assertEqual([{def,<<"C">>,8,undefined}], imem_sql:exec(SKey, Sql3, 0, [{schema,imem}], IsSec)),
 
         Sql3a = "insert into def (col1,col2) values ('D''s', 'undefined');",  
-        ?LogDebug("Sql3a: ~p~n", [Sql3a]),
+        % ?LogDebug("Sql3a: ~p~n", [Sql3a]),
         ?assertEqual([{def,<<"D's">>,undefined,undefined}], imem_sql:exec(SKey, Sql3a, 0, [{schema,imem}], IsSec)),
 
         Sql3b = "insert into def (col1,col2) values ('E', 'undefined');", 
-        ?LogDebug("Sql3b: ~p~n", [Sql3b]),
+        % ?LogDebug("Sql3b: ~p~n", [Sql3b]),
         ?assertEqual([{def,<<"E">>,undefined,undefined}], imem_sql:exec(SKey, Sql3b, 0, [{schema,imem}], IsSec)),
 
         Sql4 = "insert into def (col1,col3) values ('F', \"COL\");",  
-        ?LogDebug("Sql3b: ~p~n", [Sql4]),
+        % ?LogDebug("Sql3b: ~p~n", [Sql4]),
         ?assertException(throw,{ClEr,{"Unknown field or table name",<<"\"COL\"">>}}, imem_sql:exec(SKey, Sql4, 0, [{schema,imem}], IsSec)),
 
         Sql4a = "insert into def (col1,col3) values ('G', '[1,2,3]');",  
-        ?LogDebug("Sql3b: ~p~n", [Sql4a]),
+        % ?LogDebug("Sql3b: ~p~n", [Sql4a]),
         ?assertEqual([{def,<<"G">>,undefined,[1,2,3]}], imem_sql:exec(SKey, Sql4a, 0, [{schema,imem}], IsSec)),
 
         Sql4b = "insert into def (col1,col3) values ('H', undefined);",  
-        ?LogDebug("Sql3b: ~p~n", [Sql4b]),
+        % ?LogDebug("Sql3b: ~p~n", [Sql4b]),
         ?assertException(throw,{ClEr,{"Unknown field or table name",<<"undefined">>}}, imem_sql:exec(SKey, Sql4b, 0, [{schema,imem}], IsSec)),
 
         Sql4c = "insert into def (col1,col3) values ('I', to_atom('an_atom'));",  
-        ?LogDebug("Sql3c: ~p~n", [Sql4c]),
+        % ?LogDebug("Sql3c: ~p~n", [Sql4c]),
         ?assertEqual([{def,<<"I">>,undefined,'an_atom'}], imem_sql:exec(SKey, Sql4c, 0, [{schema,imem}], IsSec)),
 
         Sql4d = "insert into def (col1,col3) values ('J', sqrt(2));",  
-        ?LogDebug("Sql3d: ~p~n", [Sql4d]),
+        % ?LogDebug("Sql3d: ~p~n", [Sql4d]),
         ?assertEqual([{def,<<"J">>,undefined,math:sqrt(2)}], imem_sql:exec(SKey, Sql4d, 0, [{schema,imem}], IsSec)),
 
         Sql4e = "insert into def (col1,col3) values ('K', '\"undefined\"');",  
-        ?LogDebug("Sql3e: ~p~n", [Sql4e]),
+        % ?LogDebug("Sql3e: ~p~n", [Sql4e]),
         ?assertEqual([{def,<<"K">>,undefined,"undefined"}], imem_sql:exec(SKey, Sql4e, 0, [{schema,imem}], IsSec)),
 
         Sql4f = "insert into def (col1,col3) values ('L', 1+(2*3));",  
-        ?LogDebug("Sql3f: ~p~n", [Sql4f]),
+        % ?LogDebug("Sql3f: ~p~n", [Sql4f]),
         ?assertEqual([{def,<<"L">>,undefined,7}], imem_sql:exec(SKey, Sql4f, 0, [{schema,imem}], IsSec)),
 
         Sql4g = "insert into def (col1,col3) values ('M''s', 'undefined');",  
-        ?LogDebug("Sql3g: ~p~n", [Sql4g]),
+        % ?LogDebug("Sql3g: ~p~n", [Sql4g]),
         ?assertEqual([{def,<<"M's">>,undefined,undefined}], imem_sql:exec(SKey, Sql4g, 0, [{schema,imem}], IsSec)),
 
         Sql4h = "insert into def (col1,col3) values ('N', 'not quite undefined');",  
-        ?LogDebug("Sql3h: ~p~n", [Sql4h]),
+        % ?LogDebug("Sql3h: ~p~n", [Sql4h]),
         ?assertEqual([{def,<<"N">>,undefined,<<"not quite undefined">>}], imem_sql:exec(SKey, Sql4h, 0, [{schema,imem}], IsSec)),
 
         Sql5 = "insert into def (col1) values ('C', 5);",
-        ?LogDebug("Sql5: ~p~n", [Sql5]),
+        % ?LogDebug("Sql5: ~p~n", [Sql5]),
         ?assertException(throw,{ClEr,{"Too many values",_}}, imem_sql:exec(SKey, Sql5, 0, [{schema,imem}], IsSec)),
 
         Sql5a = "insert into def (col1,col2,col3) values ('C', 5);",
-        ?LogDebug("Sql5a: ~p~n", [Sql5a]),
+        % ?LogDebug("Sql5a: ~p~n", [Sql5a]),
         ?assertException(throw,{ClEr,{"Too few values",_}}, imem_sql:exec(SKey, Sql5a, 0, [{schema,imem}], IsSec)),
 
         Sql6 = "insert into def (col1) values ('C');",
-        ?LogDebug("Sql6: ~p~n", [Sql6]),
+        % ?LogDebug("Sql6: ~p~n", [Sql6]),
         ?assertException(throw,{CoEx,{"Insert failed, key already exists in",_}}, imem_sql:exec(SKey, Sql6, 0, [{schema,imem}], IsSec)),
 
         Sql6a = "insert into def (col1,col2) values ( 'O', sqrt(2)+1);",
-        ?LogDebug("Sql6a: ~p~n", [Sql6a]),
+        % ?LogDebug("Sql6a: ~p~n", [Sql6a]),
         ?assertException(throw,{ClEr,{"Wrong data type for value, expecting type or default",_}}, imem_sql:exec(SKey, Sql6a, 0, [{schema,imem}], IsSec)),
 
-        {List2, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords]),
-        ?LogDebug("table def 2~n~p~n", [lists:sort(List2)]),
+        {_List2, true} = if_call_mfa(IsSec,select,[SKey, def, ?MatchAllRecords]),
+        % ?LogDebug("table def 2~n~p~n", [lists:sort(_List2)]),
 
         Sql20 = "create table not_null (col1 varchar2 not null, col2 integer not null);",
-        ?LogDebug("Sql20: ~p~n", [Sql20]),
+        % ?LogDebug("Sql20: ~p~n", [Sql20]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql20, 0, [{schema,imem}], IsSec)),
 
-        [Meta2] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,not_null}]),
-        ?LogDebug("Meta table not_null:~n~p~n", [Meta2]),
+        [_Meta2] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,not_null}]),
+        % ?LogDebug("Meta table not_null:~n~p~n", [_Meta2]),
 
         Sql21 = "insert into not_null (col1, col2) values ('A',5);",
-        ?LogDebug("Sql21: ~p~n", [Sql21]),
+        % ?LogDebug("Sql21: ~p~n", [Sql21]),
         ?assertEqual([{not_null,<<"A">>,5}], imem_sql:exec(SKey, Sql21, 0, [{schema,imem}], IsSec)),
         ?assertEqual(1,  if_call_mfa(IsSec, table_size, [SKey, not_null])),
 
         Sql22 = "insert into not_null (col2) values (5);",
-        ?LogDebug("Sql22: ~p~n", [Sql22]),
+        % ?LogDebug("Sql22: ~p~n", [Sql22]),
         ?assertException(throw, {ClEr,{"Not null constraint violation",_}}, imem_sql:exec(SKey, Sql22, 0, [{schema,imem}], IsSec)),
 
         Sql23 = "insert into not_null (col1) values ('B');",
-        ?LogDebug("Sql23: ~p~n", [Sql23]),
+        % ?LogDebug("Sql23: ~p~n", [Sql23]),
         ?assertException(throw, {ClEr,{"Not null constraint violation", _}}, imem_sql:exec(SKey, Sql23, 0, [{schema,imem}], IsSec)),
 
 
         Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
-        ?LogDebug("Sql30: ~p~n", [Sql30]),
+        % ?LogDebug("Sql30: ~p~n", [Sql30]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, [{schema,imem}], IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
-        TableDef = if_call_mfa(IsSec, read, [SKey, key_test, {imem_meta:schema(),key_test}]),
-        ?LogDebug("TableDef: ~p~n", [TableDef]),
+        _TableDef = if_call_mfa(IsSec, read, [SKey, key_test, {imem_meta:schema(),key_test}]),
+        % ?LogDebug("TableDef: ~p~n", [_TableDef]),
 
         Sql96 = "drop table fun_test;",
-        ?LogDebug("Sql96: ~p~n", [Sql96]),
+        % ?LogDebug("Sql96: ~p~n", [Sql96]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql96 , 0, [{schema,imem}], IsSec)),
 
         Sql97 = "drop table key_test;",
-        ?LogDebug("Sql97: ~p~n", [Sql97]),
+        % ?LogDebug("Sql97: ~p~n", [Sql97]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, [{schema,imem}], IsSec)),
 
         Sql98 = "drop table not_null;",
-        ?LogDebug("Sql98: ~p~n", [Sql98]),
+        % ?LogDebug("Sql98: ~p~n", [Sql98]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql98 , 0, [{schema,imem}], IsSec)),
 
         Sql99 = "drop table def;",
-        ?LogDebug("Sql99: ~p~n", [Sql99]),
+        % ?LogDebug("Sql99: ~p~n", [Sql99]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql99, 0, [{schema,imem}], IsSec))
 
     catch

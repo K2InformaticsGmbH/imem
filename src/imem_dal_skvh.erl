@@ -2,7 +2,6 @@
 
 -include("imem.hrl").
 -include("imem_meta.hrl").
--include("imem_dal_skvh.hrl").
 
 -define(AUDIT_SUFFIX,"Audit_86400@_").
 -define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
@@ -89,11 +88,14 @@
 -export([ table_name/1              %% (Channel)                    return table name as binstr
         , atom_table_name/1         %% (Channel)                    return table name as atom
         , audit_alias/1             %% (Channel)                    return audit alias as bisntr
+        , atom_history_alias/1      %% (Channel)                    return history alias as atom
         , create_table/4            %% (Name,[],Opts,Owner)         create empty table / audit table / history table (Name as binary or atom)
         , drop_table/1              %% (Name)
         , channel_ctx/1             %% (Name)                       return #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}
         , create_check_channel/1    %% (Channel)                    create empty table / audit table / history table if necessary (Name as binary or atom)
         , create_check_channel/2    %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
+        , create_check_skvh/2       %% (User, Channel)              create empty table / audit table / history table if necessary (Name as binary or atom)
+        , create_check_skvh/3       %% (Channel,Options)            create empty table / audit table / history table if necessary (Name as binary or atom)
         , write/3           %% (User, Channel, KVTable)             resource may not exist, will be created, return list of hashes
         , write/4           %% (User, Channel, Key, Value)          resource may not exist, will be created, map of inserted row
         , insert/3          %% (User, Channel, MapList)             resources should not exist will be created, retrun list of maps with inserted rows
@@ -106,6 +108,9 @@
         , read/4            %% (User, Channel, Item, KeyTable)      return empty Arraylist if none of these resources exists
         , readGELT/5        %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, result as map, fails if more than L rows
         , readGELT/6        %% (User, Channel, Item, CKey1, CKey2, L)   from key at or after CKey1 to last key before CKey2, fails if more than L rows
+        , readGELTKeys/5    %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of keys
+        , readGELTHashes/5  %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of {key, hash}
+        , readGELTMap/5     %% (User, Channel, CKey1, CKey2, L)     from key at or after CKey1 to last key before CKey2, list of skvhmaps
         , readGT/4          %% (User, Channel, CKey1, L)            start with first key after CKey1, return result as list of maps of lenght L or less
         , readGT/5          %% (User, Channel, Item, CKey1, Limit)  start with first key after CKey1, return Limit results or less
         , readGE/4          %% (User, Channel, CKey1, Limit)        start with first key at or after CKey1, return Limit results or less as maps
@@ -114,17 +119,15 @@
         , audit_readGT/5    %% (User, Channel, Item, TS1, Limit)    read audit info after Timestamp1, return Limit results or less
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
-        , hist_read_shallow/3 %% (User, Channel, Key)               return the shallow list of deleted objects
-        , search_deleted/6  %% (User, Channel, Ckey1, Ckey2, Text, DelStatus) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V
-        , search_deleted_clients/6 %% (User, Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted clients
-        , search_deleted_objects/6 %% (User, Channel, Ckey1, Ckey2, Text, Limit) from key at or after CKey1 to last key before CKey2, finds {K,V} with text in V in deleted objects
+        , prune_history/2   %% (User, Channel)                      keeps the last non noop history states and cverifies history state exists for all the keys
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
         , deleteGELT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys >= CKey1 and < CKey2, fails if more than L rows
         , deleteGTLT/5      %% (User, Channel, CKey1, CKey2, L)     delete range of keys > CKey1 and < CKey2, fails if more than L rows
         , get_longest_prefix/4
-        , check_age_audit_entry/4 %% (User, Channel, Key, TS1)    returns the records if there is any for the key after the timestamp TS1
+        , check_age_audit_entry/4 %% (User, Channel, Key, TS1)      returns the records if there is any for the key after the timestamp TS1
+        , audit_write_noop/3 %% (User, Channel, Key)                creates an entry in audit table for channel wehere nvalue and ovalue are the same
         ]).
 
 -export([build_aux_table_info/1,
@@ -339,27 +342,33 @@ is_row_type(binary, R) -> ?ClientError({"Bad datatype, expected binary", R}).
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError
 -spec channel_ctx(binary()|atom()) -> #skvhCtx{}.
-channel_ctx(Channel) ->
+channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
     Main = table_name(Channel),
-    Tab = try 
+    Tab =
+    try
         T = binary_to_existing_atom(Main,utf8),
         imem_meta:check_local_table_copy(T),           %% throws if master table is not locally resident
         T
     catch
-        _:_ ->  ?ClientError({"Channel does not exist", Channel})
+        throw:{'ClientError',{"Table does not exist",_}} ->
+            ?ClientError({"Channel does not exist", Channel});
+        throw:Throw -> throw(Throw);
+        Class:Error ->
+            ?SystemException(
+               {"Error creating channel context", {Class,Error}})
     end,
     Audit = try
         A = list_to_existing_atom(?AUDIT(Channel)),
         AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
         imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
         A
-    catch _:_ ->  undefined
+    catch _:_ ->  ignored
     end,    
     Hist = try
         H = list_to_existing_atom(?HIST(Channel)),
         imem_meta:check_local_table_copy(H),             %% throws if history table is not locally resident
         H
-    catch _:_ -> undefined
+    catch _:_ -> ignored
     end,
     #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
 
@@ -369,11 +378,20 @@ channel_ctx(Channel) ->
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_channel(binary()|atom()) -> #skvhCtx{}.
+-spec create_check_skvh(ddEntityId(),binary()|atom()) -> ok | no_return().
+create_check_skvh(UserId, Channel) ->
+    %% TODO : Possible future validation, Ignored for now
+    create_check_skvh(UserId, Channel, [audit,history]).
+
+-spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok | no_return().
+create_check_skvh(_UserId, Channel, Options) ->
+    create_check_channel(Channel, Options).
+
+-spec create_check_channel(binary()|atom()) ->  ok | no_return().
 create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
--spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> #skvhCtx{}.
+-spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok | no_return().
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
     CreateAudit = proplists:get_value(audit, Options, false),
@@ -401,7 +419,7 @@ create_check_channel(Channel, Options) ->
                 ?TABLE_OPTS, system),
             TC
     end,
-    Audit = if 
+    if 
         CreateAudit ->
             try
                 A = list_to_existing_atom(?AUDIT(Channel)),
@@ -417,7 +435,7 @@ create_check_channel(Channel, Options) ->
             end;
         true -> undefined
     end,    
-    Hist = if 
+    if 
         CreateAudit andalso CreateHistory ->
             try
                 H = list_to_existing_atom(?HIST(Channel)),
@@ -433,8 +451,8 @@ create_check_channel(Channel, Options) ->
         true -> undefined
     end,
     %% TODO: This will replace the trigger each time maybe versioning will be better
-    imem_meta:create_or_replace_trigger(Tab, ?skvhTableTrigger(Options, "")),
-    #skvhCtx{mainAlias=Tab, auditAlias=Audit, histAlias=Hist}.
+    imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, "")),
+    ok.
 
 -spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
 create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
@@ -444,24 +462,54 @@ create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
     ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), ?skvhTableTrigger([audit,history],"")),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history],"")),
     HC = list_to_atom(?HIST(Channel)),
     ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
+
+add_if(F, Opts, Code) ->
+    case lists:member(F,Opts) of
+        true -> Code;
+        false -> ""
+    end.
+skvh_trigger_fun_str(Opts, ExtraFun) ->
+    list_to_binary(
+      ["fun(OldRec,NewRec,Table,User,TrOpts) ->\n"
+       "    start_trigger",
+       add_if(audit, Opts,
+       ",\n    {AuditTable,HistoryTable,TransTime,Channel}\n"
+       "        = imem_dal_skvh:build_aux_table_info(Table),\n"
+       "    AuditInfoList = imem_dal_skvh:audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec),\n"
+       "    case lists:member(no_audit,TrOpts) of \n"
+       "        true ->  ok;\n"
+       "        false -> ok = imem_dal_skvh:write_audit(AuditInfoList)\n"
+       "    end"),
+       add_if(history, Opts,
+       ",\n    case lists:member(no_history,TrOpts) of \n"
+       "        true ->  ok;\n"
+       "        false -> ok = imem_dal_skvh:write_history(HistoryTable,AuditInfoList)\n"
+       "    end"),
+       if length(ExtraFun) == 0 -> "";
+          true -> ",\n    "++ExtraFun end,
+       "\n    %extend_code_start"
+       "\n    %extend_code_end"
+       "\nend."]).
 
 -spec drop_table(binary()|atom()) -> ok.
 drop_table(Name) when is_atom(Name) ->
     drop_table(list_to_binary(atom_to_list(Name)));
 drop_table(Channel) when is_binary(Channel) ->
     Tab = binary_to_atom(table_name(Channel),utf8),
-    ok = imem_meta:drop_table(Tab),
-    AC = list_to_atom(?AUDIT(Channel)),
-    ok = imem_meta:drop_table(AC),
-    HC = list_to_atom(?HIST(Channel)),
-    ok = imem_meta:drop_table(HC).
+    catch imem_meta:drop_table(Tab),
+    AC = list_to_existing_atom(?AUDIT(Channel)),
+    catch imem_meta:drop_table(AC),
+    HC = list_to_existing_atom(?HIST(Channel)),
+    catch imem_meta:drop_table(HC).
 
 build_aux_table_info(Table) ->
 	["","",Channel,"","","",""] = imem_meta:parse_table_name(Table),
-	HistoryTable = ?HIST_FROM_STR(Channel),
+    HistoryTable = try ?HIST_FROM_STR(Channel) of H -> H
+                   catch _:_ -> '$no_history'
+                   end,
 	{AuditTable,TransTime} = audit_table_time(Channel),
     {AuditTable,HistoryTable,TransTime,Channel}.
 
@@ -501,6 +549,22 @@ audit_recs_time(A) when is_record(A, skvhAudit) -> A#skvhAudit.time;
 audit_recs_time({_,A}) when is_record(A, skvhAudit) -> A#skvhAudit.time;
 audit_recs_time([A|Rest]) -> [audit_recs_time(A)|audit_recs_time(Rest)];
 audit_recs_time([]) -> [].
+
+audit_write_noop(User, Channel, Key) ->
+    case read(User, Channel, [Key]) of
+        [] -> no_op;
+        [#{cvalue := Value}] ->
+            AuditNoop = fun() ->
+                {AuditTable, TransTime} = audit_table_time(
+                    binary_to_list(Channel)),
+                SkvhRec = #skvhTable{ckey = imem_datatype:term_to_binterm(Key),
+                                      cvalue = Value},
+                AuditInfo = audit_info(User,Channel,AuditTable,TransTime,
+                    SkvhRec,SkvhRec),
+                write_audit(AuditInfo)
+            end,
+            imem_meta:return_atomic(imem_meta:transaction(AuditNoop))
+    end.
 
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
@@ -656,7 +720,9 @@ term_tkvu_quintuple_to_io({T,K,O,N,U}) ->
 
 skvh_rec_to_map(#skvhTable{ckey=EncodedKey, cvalue=CValue, chash=CHash}) ->
     CKey = imem_datatype:binterm_to_term(EncodedKey),
-    #{ckey => CKey, cvalue => CValue, chash => CHash}.
+    #{ckey => CKey, cvalue => CValue, chash => CHash};
+skvh_rec_to_map(#skvhHist{ckey = _, cvhist = _} = HistRec) ->
+    skvh_hist_to_map(HistRec).
 
 skvh_audit_to_map(#skvhAudit{time = Time, ckey = EncodedKey, ovalue = OldValue,
                              nvalue = NewValue, cuser = User}) ->
@@ -729,25 +795,57 @@ read_siblings(User, Channel, [Key | Keys]) ->
     read_shallow(User, Channel, [lists:reverse(ParentKeyRev)])
     ++ read_siblings(User, Channel, Keys).
 
-read_shallow(_User, _Channel, []) -> [];
-read_shallow(User, Channel, [Key | Keys]) ->
-    KeyLen = length(binterm_to_term_key(Key)) + 1,
-    [SkvhRow || #{ckey := CK} = SkvhRow <- read_deep(User, Channel, [Key]),
-                length(CK) == KeyLen]
-    ++ read_shallow(User, Channel, Keys).
+read_shallow(User, Channel, Keys) ->
+    ReadShallowFun = fun() ->
+        read_shallow_internal(User, Channel, Keys)
+    end,
+    imem_meta:return_atomic(imem_meta:transaction(ReadShallowFun)).
 
-read_deep(_User, _Channel, []) -> [];
-read_deep(User, Channel, [Key | Keys]) ->
+read_shallow_internal(_User, _Channel, []) -> [];
+read_shallow_internal(User, Channel, [Key | Keys]) ->
+    KeyLen = length(binterm_to_term_key(Key)) + 1,
+    StartKey = term_key_to_binterm(Key),
+    EndKey = term_key_to_binterm(binterm_to_term_key(Key) ++ <<255>>),
+    TableName = atom_table_name(Channel),
+    read_shallow_single(Channel, TableName, StartKey, EndKey, KeyLen) ++ 
+        read_shallow_internal(User, Channel, Keys).
+
+read_shallow_single(Channel, TableName, CurrentKey, EndKey, KeyLen) ->
+    case imem_meta:next(TableName, CurrentKey) of
+        '$end_of_table' -> [];
+        NextKey when NextKey >= EndKey -> [];
+        NextKey ->
+            case length(imem_datatype:binterm_to_term(NextKey)) =:= KeyLen of
+                false -> read_shallow_single(Channel, TableName, NextKey, EndKey, KeyLen);
+                true ->
+                    [Row] = imem_meta:read(TableName, NextKey),
+                    [skvh_rec_to_map(Row) | 
+                         read_shallow_single(Channel, TableName, NextKey, EndKey, KeyLen)]
+            end
+    end.
+
+read_deep(User, Channel, Keys) ->
+    ReadDeepFun = fun() ->
+        read_deep_internal(User, Channel, Keys)
+    end,
+    imem_meta:return_atomic(imem_meta:transaction(ReadDeepFun)).
+
+read_deep_internal(_User, _Channel, []) -> [];
+read_deep_internal(User, Channel, [Key | Keys]) ->
     StartKey = term_key_to_binterm(Key),
     EndKey = term_key_to_binterm(binterm_to_term_key(Key) ++ <<255>>), % improper list [...|<<255>>]
     TableName = atom_table_name(Channel),
-    {SkvhRows, true} = imem_meta:select(
-                         TableName,
-                         [{#skvhTable{ckey='$1', cvalue = '$2', chash = '$3'},
-                           [{'andalso',{'>','$1',StartKey},{'<','$1',EndKey}}],
-                           ['$_']}]),
-    [skvh_rec_to_map(SkvhRow) || SkvhRow <- SkvhRows]
-    ++ read_deep(User, Channel, Keys).
+    read_deep_single(Channel, TableName, StartKey, EndKey) ++
+        read_deep_internal(User, Channel, Keys).
+
+read_deep_single(Channel, TableName, CurrentKey, EndKey) ->
+    case imem_meta:next(TableName, CurrentKey) of
+        '$end_of_table' -> [];
+        NextKey when NextKey >= EndKey -> [];
+        NextKey ->
+            [Row] = imem_meta:read(TableName, NextKey),
+            [skvh_rec_to_map(Row) | read_deep_single(Channel, TableName, NextKey, EndKey)]
+    end.
 
 % @doc Returnes the longest prefix >= startKey and =< EndKey
 -spec get_longest_prefix(User :: any(), Channel :: binary(),
@@ -797,7 +895,7 @@ insert(User, Channel, DecodedKey, Value) ->
 
 insert(User, Channel, MapList) ->
     InsertFun = fun() -> insert_priv(User, Channel, MapList) end,
-    imem_if:return_atomic_list(imem_meta:transaction(InsertFun)).
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(InsertFun)).
 
 insert_priv(_User, _Channel, []) -> [];
 insert_priv(User, Channel, [#{ckey := DecodedKey, cvalue := Value} | MapList]) ->
@@ -811,7 +909,7 @@ update(User, Channel, RowMap) when is_map(RowMap) ->
     skvh_rec_to_map(UpdateResult);
 update(User, Channel, ChangeList) ->
     UpdateFun = fun() -> update_priv(User, Channel, ChangeList) end,
-    imem_if:return_atomic_list(imem_meta:transaction(UpdateFun)).
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(UpdateFun)).
 
 update_priv(_User, _Channel, []) -> [];
 update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
@@ -820,7 +918,7 @@ update_priv(User, Channel, [NewRow | ChangeList]) when is_map(NewRow) ->
 remove(User, Channel, Rows) -> remove(User, Channel, Rows, []).
 remove(User, Channel, Rows, Opts) when is_list(Rows) ->
     RemoveFun = fun() -> remove_list(User, Channel, Rows, Opts) end,
-    imem_if:return_atomic_list(imem_meta:transaction(RemoveFun));
+    imem_if_mnesia:return_atomic_list(imem_meta:transaction(RemoveFun));
 remove(User, Channel, Row, Opts) ->
     remove_single(User, Channel, Row, Opts).
 
@@ -852,209 +950,34 @@ hist_read_deleted(User, Channel, DecodedKey) ->
 [#{cvhist := [#{ovalue := Value} |_]}] = hist_read(User, Channel, [DecodedKey]),
     Value.
 
--spec hist_read_shallow(ddEntityId(), binary(), term()) -> list().
-hist_read_shallow(User, Channel, Key) ->
-    Len = length(Key) + 1,
-    Results = search_deleted(User, Channel, <<>>, Key, Key ++ <<255>>, true),
-    [R || {CKey, _} = R <- Results, length(CKey) == Len].
-
--spec search_deleted_init(binary(), binary(), binary(), binary()) -> list().
-search_deleted_init(CKey1, CKey2, Text, Channel) ->
-    Key1 = term_key_to_binterm(CKey1),
-    Key2 = term_key_to_binterm(CKey2),
-    [LText] = imem_index:vnf_lcase_ascii(Text),
-    HistTableName = atom_history_alias(Channel),
-    [Key1, Key2, LText, HistTableName].
-
--spec search_deleted(ddEntityId(), binary(), binary(), binary(), binary(), boolean()) -> list().
-search_deleted(_User, Channel, Text, CKey1, CKey2, DelStatus) ->
-    [Key1, Key2, LText, HistTableName] = search_deleted_init(CKey1, CKey2, Text, Channel),
-    SearchFun = fun() -> find_deleted(HistTableName, imem_meta:next(HistTableName, Key1), Key2, LText, DelStatus) end,
-    imem_meta:return_atomic_list(imem_meta:transaction(SearchFun)).
-
--spec find_deleted(atom(), binary(), binary(), binary(), boolean()) -> list().
-find_deleted(Table, Key, EndKey, Text, DelStatus) ->
-    find_deleted(Table, Key, EndKey, Text, DelStatus, []).
-
--spec find_deleted(atom(), binary(), binary(), binary(), boolean(), list()) -> list().
-find_deleted(_Table, Key , EndKey, _Text, _DelStatus, Acc) when Key > EndKey -> Acc;
-find_deleted(_Table, '$end_of_table' , _EndKey, _Text, _DelStatus, Acc)  -> Acc;
-find_deleted(Table, Key , EndKey, <<>>, true, Acc) ->
-    NewAcc =  case imem_meta:read(Table, Key) of
-        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            Acc ++ [{binterm_to_term_key(Key), Value}];
-        _ ->
-            Acc
+-spec prune_history(ddEntityId(), binary()) -> list().
+prune_history(User, Channel) ->
+    Time = os:timestamp(),
+    HistoryTable = ?HIST_FROM_STR(binary_to_list(Channel)),
+    PruneFun = fun(#{ckey := Key, cvalue := Value}, _) ->
+        EKey = imem_datatype:term_to_binterm(Key),
+        {HistTime, OValue, NValue, CUser} = case 
+            hist_read(User, Channel, [Key]) of
+            [] ->
+                {Time, undefined, Value, User};
+            [#{cvhist := Hist}] ->
+                    prune_cvhist(Hist, Value, Time, User)
+        end,
+        imem_meta:write(HistoryTable, 
+            #skvhHist{ckey=EKey, cvhist=[#skvhCL{time=HistTime, ovalue=OValue,
+                                                 nvalue=NValue, cuser=CUser}]})
     end,
-    NextKey = imem_meta:next(Table, Key),
-    find_deleted(Table, NextKey, EndKey, <<>>, true, NewAcc);
-find_deleted(Table, Key , EndKey, <<>>, false, Acc) ->
-    NewAcc =  case imem_meta:read(Table, Key) of
-         [#skvhHist{cvhist = [#skvhCL{nvalue = undefined}| _]}] ->
-            Acc;
-        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
-            Acc ++ [{binterm_to_term_key(Key), Value}];
-        _ ->
-            Acc
-    end,
-    NextKey = imem_meta:next(Table, Key),
-    find_deleted(Table, NextKey, EndKey, <<>>, false, NewAcc);
-find_deleted(Table, Key, EndKey, Text, true, Acc) ->
-    NewAcc =  case imem_meta:read(Table, Key) of
-        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            check_binary_match(Key, Value, Text, Acc);
-        _ ->
-            Acc
-    end,
-    NextKey = imem_meta:next(Table, Key),
-    find_deleted(Table, NextKey, EndKey, Text, true, NewAcc);
-find_deleted(Table, Key, EndKey, Text, false, Acc) ->
-    NewAcc =  case imem_meta:read(Table, Key) of
-        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
-            check_binary_match(Key, Value, Text, Acc);
-        _ ->
-            Acc
-    end,
-    NextKey = imem_meta:next(Table, Key),
-    find_deleted(Table, NextKey, EndKey, Text, false, NewAcc).
+    foldl(User, PruneFun, [], Channel).
 
--spec search_deleted_clients(ddEntityId(), binary(), binary(), binary(), binary(), integer()) -> list().
-search_deleted_clients(_User, Channel, Text, CKey1, CKey2, Limit) ->
-    [Key1, Key2, LText, HistTableName] = search_deleted_init(CKey1, CKey2, Text, Channel),
-    SearchFun = fun() -> {NewClientKey, NextKey} = find_next_clients(HistTableName, [], imem_meta:next(HistTableName, Key1), Key2),
-        find_deleted_clients(HistTableName, NewClientKey, NextKey, Key2, LText, Limit, []) end,
-    imem_meta:return_atomic_list(imem_meta:transaction(SearchFun)).
-
--spec find_deleted_clients(atom(), list(), binary(), binary(), binary(), integer(), list()) -> list().
-find_deleted_clients(_Table, _ClientKey, _Key, _EndKey, _Text, 0, Acc) -> Acc;
-find_deleted_clients(_Table, _ClientKey, Key , EndKey, _Text, _Limit, Acc) when Key > EndKey -> Acc;
-find_deleted_clients(_Table, _ClientKey, '$end_of_table' , _EndKey, _Text, _Limit, Acc) -> Acc;
-find_deleted_clients(Table, ClientKey, Key , EndKey, <<>>, Limit, Acc) ->
-    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
-        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
-        [#skvhHist{cvhist = [#skvhCL{nvalue = Value}| _]}] ->
-            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]};
-        _ ->
-            {Limit, Acc}
-    end,
-    find_deleted_clients(Table, ClientKey, imem_meta:next(Table, Key), EndKey, <<>>, NewLimit, NewAcc);
-find_deleted_clients(Table, ClientKey, Key, EndKey, Text, Limit, Acc) ->
-    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
-        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            check_binary_match(Key, Value, Text, Acc, Limit);
-        [#skvhHist{cvhist = [#skvhCL{nvalue = NValue}| _]}] ->
-            check_binary_match(Key, NValue, Text, Acc, Limit);
-        _ ->
-            {Limit, Acc}
-    end,
-    NKey = imem_meta:next(Table, Key),
-    {NewClientKey, NextKey} = find_next_clients(Table, ClientKey, NKey, EndKey),
-    find_deleted_clients(Table, NewClientKey, NextKey, EndKey, Text, NewLimit, NewAcc).
-
-%client search
--spec find_next_clients(binary(), list(), atom() | binary(), binary()) -> tuple().
-find_next_clients(_Table, ClientKey, '$end_of_table', _EndKey) ->
-    {ClientKey, '$end_of_table'};
-find_next_clients(Table, ClientKey, Key, EndKey) when Key > EndKey ->
-    find_next_clients(Table, ClientKey, '$end_of_table', EndKey);
-find_next_clients(Table, ClientKey, KeyBin, EndKey) ->
-    find_next_clients(Table, ClientKey, binterm_to_term_key(KeyBin), KeyBin, EndKey).
-
--spec find_next_clients(binary(), list(), list(), atom() | binary(), binary()) -> tuple().
-find_next_clients(_Table, [A, B] = ClientKey, [A,B| _] = _Key, KeyBin, _EndKey) ->
-    {ClientKey, KeyBin};
-find_next_clients(Table, ClientKey, [_,_] = Key, KeyBin, EndKey) ->
-    case imem_meta:read(Table, KeyBin) of
-        [#skvhHist{cvhist = [#skvhCL{nvalue = undefined}| _]}] ->
-            {Key, KeyBin};
-        _ -> NextKey = imem_meta:next(Table, term_key_to_binterm(Key ++ <<255>>)),
-            find_next_clients(Table, ClientKey, NextKey, EndKey)
-    end;
-find_next_clients(Table, ClientKey , Key, _KeyBin, EndKey) ->
-    NextKey = imem_meta:next(Table, term_key_to_binterm(lists:sublist(Key, 2) ++ <<255>>)),
-    find_next_clients(Table, ClientKey, NextKey, EndKey).
-
-%object search
--spec search_deleted_objects(ddEntityId(), binary(), binary(), binary(), binary(), integer()) -> list().
-search_deleted_objects(_User, Channel, Text, CKey1, CKey2, Limit) ->
-    [Key1, Key2, LText, HistTableName] = search_deleted_init(CKey1, CKey2, Text, Channel),
-    SearchFun = fun() -> 
-        NextKey = find_next_objects(HistTableName, imem_meta:next(HistTableName, Key1), Key2),
-        find_deleted_objects(HistTableName, NextKey, Key2, LText, Limit) end,
-    imem_meta:return_atomic_list(imem_meta:transaction(SearchFun)).
-
--spec find_deleted_objects(atom(), binary(), binary(), binary(), integer()) -> list().
-find_deleted_objects(Table, Key, EndKey, Text, Limit) ->
-    find_deleted_objects(Table, Key, EndKey, Text, Limit, []).
-
--spec find_deleted_objects(atom(), binary(), binary(), binary(), integer(), list()) -> list().
-find_deleted_objects(_Table, _Key, _EndKey, _Text, 0, Acc) -> Acc;
-find_deleted_objects(_Table, '$end_of_table' , _EndKey, _Text, _Limit, Acc) -> Acc;
-find_deleted_objects(Table, Key , EndKey, <<>>, Limit, Acc) ->
-    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
-        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            NAcc = Acc ++ [{binterm_to_term_key(Key), Value}],
-            find_deleted_objects_deep(Table, Key, <<>>, NAcc, Limit - 1);
-        _ ->
-            {Limit, Acc}
-    end,
-    NKey = imem_meta:next(Table, Key),
-    NextKey = find_next_objects(Table, NKey, EndKey),
-    find_deleted_objects(Table, NextKey, EndKey, <<>>, NewLimit, NewAcc);
-find_deleted_objects(Table, Key, EndKey, Text, Limit, Acc) ->
-    {NewLimit, NewAcc} =  case imem_meta:read(Table, Key) of
-        [#skvhHist{cvhist = [#skvhCL{ovalue = Value, nvalue = undefined}| _]}] ->
-            {NLimit, NAcc} = check_binary_match(Key, Value, Text, Acc, Limit),
-            find_deleted_objects_deep(Table, Key, Text, NAcc, NLimit);
-        _ ->
-            {Limit, Acc}
-    end,
-    NKey = imem_meta:next(Table, Key),
-    NextKey = find_next_objects(Table, NKey, EndKey),
-    find_deleted_objects(Table, NextKey, EndKey, Text, NewLimit, NewAcc).
-
-find_deleted_objects_deep(Table, KeyBin, Text, Acc, Limit) ->
-    Key1 = binterm_to_term_key(KeyBin),
-    KeyBin2 = term_key_to_binterm(Key1 ++ <<255>>),
-    Results = find_deleted(Table, imem_meta:next(Table, KeyBin), KeyBin2, Text, false),
-    case length(Results) of
-        N when N > Limit -> {0, Acc ++ lists:sublist(Results, Limit)};
-        M -> {Limit -M, Acc ++ Results}
-    end.
-
--spec find_next_objects(binary(), atom() | binary(), binary()) -> atom() | binary().
-find_next_objects(_Table, '$end_of_table', _EndKey) -> '$end_of_table';
-find_next_objects(_Table, Key, EndKey) when Key > EndKey -> '$end_of_table';
-find_next_objects(Table, KeyBin, EndKey) ->
-    find_next_objects(Table, binterm_to_term_key(KeyBin), KeyBin, EndKey).
-
--spec find_next_objects(binary(), list(), atom() | binary(), binary()) -> atom() | binary().
-find_next_objects(_Table, [_,_,_|_], KeyBin, _EndKey) ->
-    KeyBin;
-find_next_objects(Table, [_,_] = Key, KeyBin, EndKey) ->
-    case imem_meta:read(Table, KeyBin) of
-        [#skvhHist{cvhist = [#skvhCL{nvalue = undefined}| _]}] ->
-            NextKey = imem_meta:next(Table, term_key_to_binterm(Key ++ <<255>>)),
-            find_next_objects(Table, NextKey, EndKey);
-        _ -> 
-            find_next_objects(Table, imem_meta:next(Table, KeyBin), EndKey)
-    end.
-
--spec check_binary_match(binary(), binary(), binary(), list()) -> list().
-check_binary_match(Key, Value, Text, Acc) ->
-    {_, NewAcc} = check_binary_match(Key, Value, Text, Acc, 1),
-    NewAcc.
-
--spec check_binary_match(binary(), binary(), binary(), list(), integer()) -> list().
-check_binary_match(Key, Value, Text, Acc, Limit) ->
-    [LValue] = imem_index:vnf_lcase_ascii(Value),
-    case binary:match(LValue, Text) of
-        nomatch ->
-            {Limit, Acc};
-        _ -> 
-            {Limit - 1, Acc ++ [{binterm_to_term_key(Key), Value}]}
-    end.
+-spec prune_cvhist(list(), binary(), tuple(), ddEntityId()) -> tuple().
+prune_cvhist([], Value, Time, User) -> {Time, undefined, Value, User};
+prune_cvhist([#{nvalue := V, ovalue := V}|Rest], Value, Time, User) ->
+    prune_cvhist(Rest, Value, Time, User);
+prune_cvhist([#{nvalue := NVal, ovalue := OVal, time := HistTime, 
+                       cuser := CUser} | _], NVal, _, _) ->
+    {HistTime, OVal, NVal, CUser};
+prune_cvhist([#{nvalue := NVal}| _], Value, Time, User) ->
+    {Time, NVal, Value, User}.
 
 %% Data Access per key range
 
@@ -1210,6 +1133,14 @@ readGE(_User, Channel, DecodedKey, Limit) ->
     MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key)}], ['$_']},
     exec_select(Channel, MatchFunction, Limit).
 
+readGELTMap(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key1 = term_key_to_binterm(DecodedKey1),
+    Key2 = term_key_to_binterm(DecodedKey2),
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$_']},
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [skvh_rec_to_map(R) || R <- L ].
+
 readGELT(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
     Key1 = term_key_to_binterm(DecodedKey1),
     Key2 = term_key_to_binterm(DecodedKey2),
@@ -1220,6 +1151,22 @@ exec_select(Channel, MatchFunction, Limit) ->
     TableName = atom_table_name(Channel),
     {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
     [skvh_rec_to_map(R) || R <- L ].
+
+readGELTKeys(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key1 = term_key_to_binterm(DecodedKey1),
+    Key2 = term_key_to_binterm(DecodedKey2),
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], ['$1']},
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [binterm_to_term_key(R) || R <- L].
+
+readGELTHashes(_User, Channel, DecodedKey1, DecodedKey2, Limit) ->
+    TableName = atom_table_name(Channel),
+    Key1 = term_key_to_binterm(DecodedKey1),
+    Key2 = term_key_to_binterm(DecodedKey2),
+    MatchFunction = {?MATCHHEAD, [{'>=', '$1', match_val(Key1)}, {'<', '$1', match_val(Key2)}], [{{'$1','$3'}}]},
+    {L,_} = imem_meta:select(TableName, [MatchFunction], Limit),
+    [{binterm_to_term_key(Key), Hash} || {Key, Hash} <- L].
 
 audit_part_readGT([], _MatchFunction, _Limit) -> [];
 audit_part_readGT(_Partitions, _MatchFunction, 0) -> [];
@@ -1254,6 +1201,8 @@ setup() ->
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
@@ -1270,20 +1219,28 @@ teardown(_) ->
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun skvh_operations/1,
-              fun skvh_concurrency/1
-        ]}}.    
+        {with, [fun skvh_operations/1]}
+    }.    
+
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [fun skvh_concurrency/1]}
+    }.    
 
 hist_reset_time([]) -> [];
 hist_reset_time([#{cvhist := CList} = Hist | Rest]) ->
@@ -1291,12 +1248,13 @@ hist_reset_time([#{cvhist := CList} = Hist | Rest]) ->
 
 skvh_operations(_) ->
     try
-        ClEr = 'ClientError',
-        ?LogDebug("---TEST---~p:skvh_operations~n", [?MODULE]),
+        ?LogDebug("---TEST---~p()", [skvh_operations]),
 
-        ?assertMatch(#skvhCtx{mainAlias=mapChannel}, create_check_channel(<<"mapChannel">>,[{type,map}])),
-        ?assertMatch(#skvhCtx{mainAlias=lstChannel}, create_check_channel(<<"lstChannel">>,[{type,list}])),
-        ?assertMatch(#skvhCtx{mainAlias=binChannel}, create_check_channel(<<"binChannel">>,[{type,binary}])),
+        ClEr = 'ClientError',
+
+        ?assertMatch(ok, create_check_channel(<<"mapChannel">>,[{type,map}])),
+        ?assertMatch(ok, create_check_channel(<<"lstChannel">>,[{type,list}])),
+        ?assertMatch(ok, create_check_channel(<<"binChannel">>,[{type,binary}])),
 
         ?assertMatch({ok, [_,_]}, write(system,<<"mapChannel">>,[{1,#{a=>1}},{2,#{b=>2}}])),
         ?assertMatch({ok, [_,_]}, write(system,<<"lstChannel">>,[{1,[a]},{2,[b]}])),
@@ -1315,6 +1273,15 @@ skvh_operations(_) ->
         ?assertException(throw, {ClEr,{"Bad datatype, expected binary",[a]}},
                          write(system,<<"binChannel">>,[{1,[a]},{2,[b]}])),
 
+        ?assertMatch(ok, create_check_channel(<<"noOptsChannel">>,[])),
+        ?assertMatch(ok, create_check_channel(<<"noHistoryHChannel">>,[audit])),
+
+        ?assertEqual(#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}, write(system,<<"noOptsChannel">>,test, <<"{\"a\":\"a\"}">>)),
+        ?assertEqual(#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}, write(system,<<"noHistoryHChannel">>,test, <<"{\"a\":\"a\"}">>)),
+
+        ?assertEqual([#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}], read(system,<<"noOptsChannel">>, [test])),
+        ?assertEqual([#{chash => <<"24FBRP">>,ckey => test,cvalue => <<"{\"a\":\"a\"}">>}], read(system,<<"noHistoryHChannel">>, [test])),
+
         ?assertEqual(<<"skvhTest">>, table_name(?Channel)),
 
         ?assertException(throw, {ClEr,{"Table does not exist",_}}, imem_meta:check_table(skvhTest)), 
@@ -1327,7 +1294,7 @@ skvh_operations(_) ->
 		K0 = <<"{<<\"0\">>,<<>>,<<>>}">>,
 
         ?assertException(throw, {ClEr, {"Channel does not exist",<<"skvhTest">>}}, read(system, ?Channel, <<"kvpair">>, K0)), 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
 		?assertEqual({ok,[]}, readGT(system, ?Channel, <<"khpair">>, <<"{<<\"0\">>,<<>>,<<>>}">>, <<"1000">>)),
 
@@ -1353,19 +1320,20 @@ skvh_operations(_) ->
         ?assertEqual({ok,[KVa,<<"[1,ab]",9,"undefined">>,KVb,KVc]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]",13,10,"[1,ab]",13,10,"[1,b]",10,"[1,c]">>)),
 
         Dat = imem_meta:read(skvhTest),
-        ?LogDebug("TEST data ~n~p~n", [Dat]),
+        % ?LogDebug("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
-        ?LogDebug("audit trail~n~p~n", [Aud]),
+        % ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
         {ok,Aud1} = audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
-        ?LogDebug("audit trail~n~p~n", [Aud1]),
+        % ?LogDebug("audit trail~n~p~n", [Aud1]),
         ?assertEqual(6, length(Aud1)),
         {ok,Aud2} = audit_readGT(system, ?Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
+        timer:sleep(10), % windows wall clock may be 17ms behind
         {ok,Aud3} = audit_readGT(system, ?Channel,<<"kvpair">>, <<"now">>, 100),
         ?assertEqual(0, length(Aud3)),
         {ok,Aud4} = audit_readGT(system, ?Channel,<<"key">>, <<"2100-01-01">>, 100),
@@ -1376,7 +1344,7 @@ skvh_operations(_) ->
         ?assertEqual(Aud1, Aud5),
 
         Hist = imem_meta:read(skvhTestHist),
-        ?LogDebug("audit trail~n~p~n", [Hist]),
+        % ?LogDebug("audit trail~n~p~n", [Hist]),
         ?assertEqual(3, length(Hist)),
 
         ?assertEqual({ok,[<<"[1,a]",9,"undefined">>]}, read(system, ?Channel, <<"kvpair">>, <<"[1,a]">>)),
@@ -1402,14 +1370,34 @@ skvh_operations(_) ->
 		?assertEqual({ok,[<<"1W8TVA">>]}, write(system, ?Channel, <<"[90074,[],<<\"MmscId\">>]",9,"\"testMMSC\"">>)),
 		?assertEqual({ok,[<<"22D5ZL">>]}, write(system, ?Channel, <<"[90074,\"MMS-DEL-90074\",\"TpDeliverUrl\"]",9,"\"http:\/\/10.132.30.84:18888\/deliver\"">>)),
 
+        %% audit_write_noop test
+        write(system, ?Channel, [1, k], <<"{\"a\":\"a\"}">>),
+        Time = erlang:now(),
+        ok = audit_write_noop(system, ?Channel, [1,k]),
+        AudNoop = audit_readGT(system, ?Channel, Time, 10),
+        ?assertEqual(1, length(AudNoop)),
+        ?assertMatch([#{nvalue := V, ovalue := V}], AudNoop),
+
+        %% prune_history test
+        [#{cvhist := Hist1}] = hist_read(system, ?Channel, [[1,k]]),
+        %% noop history created
+        write(system, ?Channel, [1, k], <<"{\"a\":\"a\"}">>),
+        ?assertEqual(1, length(Hist1)),
+        [#{cvhist := Hist2}] = hist_read(system, ?Channel, [[1,k]]),
+        ?assertEqual(2, length(Hist2)),
+        prune_history(system, ?Channel),
+        [#{cvhist := Hist3}] = hist_read(system, ?Channel, [[1,k]]),
+        ?assertEqual(1, length(Hist3)),
+        ?assertMatch([#{ovalue := undefined, nvalue := <<"{\"a\":\"a\"}">>}], Hist3),
+
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
 				
-        ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
+        % ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
 
 		?assertEqual(ok,imem_meta:drop_table(skvhTest)),
 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
 
 		?assertEqual({ok,[]},deleteGTLT(system, ?Channel, <<"[]">>, <<"[]">>, <<"1">>)),
@@ -1438,7 +1426,7 @@ skvh_operations(_) ->
     	?assertEqual({ok,[<<"[1,b]",9,"234567",9,"BFFHP">>]}, readGELT(system, ?Channel, <<"kvhtriple">>, <<"[1,ab]">>, <<"[1,c]">>, <<"2">>)),
  
     	?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[]">>, <<"1000">>)),
         ?assertEqual({ok,[<<"BFFHP">>,<<"ZCZ28">>]}, readGT(system, ?Channel, <<"hash">>, <<"[1,a]">>, <<"1000">>)),
@@ -1472,24 +1460,21 @@ skvh_operations(_) ->
         Map3 = #{ckey => ["1", "b"], cvalue => <<"{\"testKey\": \"b\", \"testNumber\": 100}">>, chash => <<"3MBW5">>},
         Map4 = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 250}">>, chash => <<"1RZ299">>},
         Map5 = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 300}">>, chash => <<"1DKGDA">>},
-        Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1DN1MP">>},
-        Map7 = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 150}">>, chash => <<"HJ3TK">>},
-        Map8 = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 250}">>, chash => <<"1M3DPR">>},
-        Map9 = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 350}">>, chash => <<"KKR3X">>},
-
+        Map6 = #{ckey => ["1", "e"], cvalue => [#{<<"testKey">> => <<"b">>,<<"testNumber">> => 3},#{<<"testKey">> => <<"a">>,<<"testNumber">> => 1}], chash => <<"1404CV">>},  % 1DN1MP
+    
         %% Keys not in the table.
         FirstKey = [""],
         MidleKey = ["1", "b", "1"],
         LastKey = ["1", "e"],
 
-        ?assertEqual(#skvhCtx{mainAlias=skvhTest, auditAlias=skvhTestAudit_86400@_, histAlias=skvhTestHist}, create_check_channel(?Channel)),
+        ?assertEqual(ok, create_check_channel(?Channel)),
         ?assertEqual({ok,[<<"{<<\"0\">>,<<>>,<<>>}\tundefined">>]}, read(system, ?Channel, <<"kvpair">>, K0)),
         ?assertEqual(ok, imem_meta:check_table(skvhTest)),
         ?assertEqual(ok, imem_meta:check_table(skvhTestAudit_86400@_)),
 
         ?assertEqual([], read(system, ?Channel, [["1"]])),
 
-        BeforeInsert = erlang:now(),
+        BeforeInsert = imem:now(), %% os:timestamp(), % erlang:now(),
 
         ?assertEqual(Map1, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
         ?assertEqual(Map2, insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
@@ -1525,7 +1510,7 @@ skvh_operations(_) ->
         Map4Upd = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 150}">>, chash => <<"1RZ299">>},
         Map5Upd = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 400}">>, chash => <<"1DKGDA">>},
 
-        BeforeUpdate = erlang:now(),
+        BeforeUpdate = imem:now(), %% os:timestamp(), % erlang:now(),
 
         %% Update using single maps
         Map1Done = update(system, ?Channel, Map1Upd),
@@ -1562,7 +1547,7 @@ skvh_operations(_) ->
         ?assertEqual([Map4, Map5], readGELT(system, ?Channel, MidleKey, LastKey, 10)),
         ?assertEqual([], readGELT(system, ?Channel, LastKey, [LastKey | "1"], 10)),
 
-        BeforeRemove = erlang:now(),
+        BeforeRemove = imem:now(), %% os:timestamp(), % erlang:now(),
 
         %% Tests removing rows
         ?assertEqual(Map1Done, remove(system, ?Channel, Map1Done)),
@@ -1600,18 +1585,12 @@ skvh_operations(_) ->
         ResultAuditRemoves = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, ?Channel, BeforeRemove, 3)],
         ?assertEqual([AuditRemove1, AuditRemove2, AuditRemove3], ResultAuditRemoves),
 
-        ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),
+        % ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),   % may not work with os:timestamp()
         ?assertEqual([], audit_readGT(system, ?Channel, <<"2100-01-01">>, 100)),
         ?assertEqual(11, length(audit_readGT(system, ?Channel, <<"1970-01-01">>, 100))),
 
         Ex4 = {'ClientError',{"Data conversion format error",{timestamp,"1900-01-01",{"Cannot handle dates before 1970"}}}},
         ?assertException(throw, Ex4, audit_readGT(system, ?Channel, <<"1900-01-01">>, 100)),
-
-        %% Inserts for history search_deleted clients and objects
-        InsertResult = insert(system, ?Channel, [Map7, Map8, Map9]),
-        Map7Upd = #{ckey => ["1", "a", "2","e"], cvalue => <<"{\"testKey\": \"e\", \"testNumber\": 400}">>, chash => <<"HJ3TK">>},
-        Map8Upd = #{ckey => ["1", "d", "2","f"], cvalue => <<"{\"testKey\": \"f\", \"testNumber\": 555}">>, chash => <<"830WW">>},
-        Map9Upd = #{ckey => ["1", "a", "2","g"], cvalue => <<"{\"testKey\": \"g\", \"testNumber\": 400}">>, chash => <<"KKR3X">>},
 
         %% Read History tests, time is reset to 0 for comparison but should be ordered from new to old.
         CL1 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map1Upd), nvalue => undefined, cuser => system}
@@ -1626,32 +1605,30 @@ skvh_operations(_) ->
               ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map3), nvalue => maps:get(cvalue, Map3Upd), cuser => system}
               ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map3), cuser => system}],
         History3 = #{ckey => maps:get(ckey, Map3), cvhist => CL3},
-        CL4 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map4), nvalue => maps:get(cvalue, Map4Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map4), cuser => system}],
-        History4 = #{ckey => maps:get(ckey, Map4), cvhist => CL4},
-        CL5 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5), nvalue => maps:get(cvalue, Map5Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map5), cuser => system}],
-        History5 = #{ckey => maps:get(ckey, Map5), cvhist => CL5},
-        CL7 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map7), nvalue => maps:get(cvalue, Map7Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map7), cuser => system}],
-        History7 = #{ckey => maps:get(ckey, Map7), cvhist => CL7},
-        CL8 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8), nvalue => maps:get(cvalue, Map8Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map8), cuser => system}],
-        History8 = #{ckey => maps:get(ckey, Map8), cvhist => CL8},
-        CL9 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9Upd), nvalue => undefined, cuser => system}
-              ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9), nvalue => maps:get(cvalue, Map9Upd), cuser => system}
-              ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map9), cuser => system}],
-        History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
+        % CL4 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map4), nvalue => maps:get(cvalue, Map4Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map4), cuser => system}],
+        % History4 = #{ckey => maps:get(ckey, Map4), cvhist => CL4},
+        % CL5 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map5), nvalue => maps:get(cvalue, Map5Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map5), cuser => system}],
+        % History5 = #{ckey => maps:get(ckey, Map5), cvhist => CL5},
+        % CL7 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map7), nvalue => maps:get(cvalue, Map7Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map7), cuser => system}],
+        % History7 = #{ckey => maps:get(ckey, Map7), cvhist => CL7},
+        % CL8 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map8), nvalue => maps:get(cvalue, Map8Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map8), cuser => system}],
+        % History8 = #{ckey => maps:get(ckey, Map8), cvhist => CL8},
+        % CL9 = [#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9Upd), nvalue => undefined, cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => maps:get(cvalue, Map9), nvalue => maps:get(cvalue, Map9Upd), cuser => system}
+        %       ,#{time => {0,0,0}, ovalue => undefined, nvalue => maps:get(cvalue, Map9), cuser => system}],
+        % History9 = #{ckey => maps:get(ckey, Map9), cvhist => CL9},
 
         %% Updating objects for history test cases
-        [Map4Done, Map5Done, Map7Done, Map8Done, Map9Done] = update(system, ?Channel, [Map4Upd, Map5Upd, Map7Upd, Map8Upd, Map9Upd]),
+        [Map4Done, Map5Done] = update(system, ?Channel, [Map4Upd, Map5Upd]),
         ?assertEqual([maps:remove(chash,Map4Upd), maps:remove(chash,Map5Upd)]
                     , [maps:remove(chash,M) || M <- [Map4Done, Map5Done]]
                     ),
-
-        RemoveResult = remove(system, ?Channel, [Map8Done, Map9Done]),
 
         %% Read using a list of term keys.
         HistResult = hist_reset_time(hist_read(system, ?Channel, [maps:get(ckey, Map1), maps:get(ckey, Map2), maps:get(ckey, Map3)])),
@@ -1666,73 +1643,26 @@ skvh_operations(_) ->
         HistResultEnc = hist_reset_time(hist_read(system, ?Channel, EncodedKeys)),
         ?assertEqual([History1, History2, History3], HistResultEnc),
 
-        %% Search history for test for deleted objects
-        HistSearchResult1 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map5), true),
-        ?assertEqual(4, length(HistSearchResult1)),
-
-        %% Search for 150 for deleted objects
-        HistSearchResult2 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map5), true),
-        ?assertEqual(1, length(HistSearchResult2)),
-        ?assertEqual([{maps:get(ckey, Map3), maps:get(cvalue, Map3Upd)}], HistSearchResult2),
-
-        %% Search history for test for objects with deleted parents
-        HistSearchResult3 = search_deleted(system, ?Channel, <<"test">>, [], maps:get(ckey, Map5), false),
-        ?assertEqual(3, length(HistSearchResult3)),
-
-        %% Search for 150 for for objects with deleted parents
-        HistSearchResult4 = search_deleted(system, ?Channel, <<"150">>, [], maps:get(ckey, Map5), false),
-        ?assertEqual(1, length(HistSearchResult4)),
-        ?assertEqual([{maps:get(ckey, Map4), maps:get(cvalue, Map4Upd)}], HistSearchResult4),
-
         %% Get the last value of a deleted object with key
         ?assertEqual(maps:get(cvalue, Map1Upd), hist_read_deleted(system, ?Channel, maps:get(ckey, Map1))),
 
-        %% Shallow read of the deleted object
-        HistReadShallowResult = hist_read_shallow(system, ?Channel, maps:get(ckey, Map1)),
-        HistReadShallowExpected = [{maps:get(ckey, Map2Upd), maps:get(cvalue, Map2Upd)}, {maps:get(ckey, Map3Upd), maps:get(cvalue, Map3Upd)}],
-        ?assertEqual(2, length(HistReadShallowResult)),
-        ?assertEqual(HistReadShallowExpected, HistReadShallowResult),
-
-        %% Deleted search client with text
-        HistSearchClients1 = search_deleted_clients(system, ?Channel, <<"400">>,  maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        ?assertEqual(2, length(HistSearchClients1)),
-        ?assertEqual([{maps:get(ckey, Map7Upd), maps:get(cvalue, Map7Upd)}, {maps:get(ckey, Map9Upd), maps:get(cvalue, Map9Upd)}] , HistSearchClients1),
-        %% Deleted search client with empty text
-        HistSearchClients2 = search_deleted_clients(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        ?assertEqual(7, length(HistSearchClients2)),
-        %% Deleted search client with text limit test
-        HistSearchClients3 = search_deleted_clients(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 5),
-        ?assertEqual(5, length(HistSearchClients3)),
-
-        %% Deleted search object with text
-        HistSearchObjects1 = search_deleted_objects(system, ?Channel, <<"555">>,  maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        ?assertEqual(1, length(HistSearchObjects1)),
-        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects1),
-        %% Deleted search client with empty text
-        HistSearchObjects2 = search_deleted_objects(system, ?Channel, <<"test">>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 1),
-        ?assertEqual(1, length(HistSearchObjects2)),
-        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects2),
-        %% Deleted search object with empty limit
-        HistSearchObjects3 = search_deleted_objects(system, ?Channel, <<>>, maps:get(ckey, Map1), maps:get(ckey, Map1) ++ <<255>>, 10),
-        ?assertEqual(1, length(HistSearchObjects3)),
-        ?assertEqual([{maps:get(ckey, Map8Upd), maps:get(cvalue, Map8Upd)}], HistSearchObjects3),
-
-        ?LogDebug("starting ~p", [drop_table123]),
+        % ?LogDebug("starting ~p", [drop_table123]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
-        ?LogDebug("success drop ~p", [skvhTest]),
+        % ?LogDebug("success drop ~p", [skvhTest]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
+        % ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
-        ?LogDebug("success drop ~p", [skvhTestHist]),
+        % ?LogDebug("success drop ~p", [skvhTestHist]),
 
         ?assertEqual(ok, create_table(skvhTest,[],[],system)),
-        ?LogDebug("starting ~p", [drop_table]),
+        % ?LogDebug("starting ~p", [drop_table]),
         ?assertEqual(ok, drop_table(skvhTest)),
-        ?LogDebug("success ~p~n", [drop_table])
+        % ?LogDebug("success ~p~n", [drop_table]),
+        ok
  
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,
@@ -1740,45 +1670,41 @@ skvh_operations(_) ->
 
 skvh_concurrency(_) ->
     try
-        ClEr = 'ClientError',
+        ?LogDebug("---TEST---~p()", [skvh_concurrency]),
+
         TestKey = ["sum"],
-
-        ?LogDebug("---TEST---~p:skvh_concurrency~n", [?MODULE]),
-
         % CreateResult = [create_table(Ch,[],[],system) || Ch <- ?Channels],  % serialized version
         Self = self(),
         TabCount = length(?Channels),
         [spawn(fun() -> Self ! {Ch,create_table(Ch,[],[],system)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_create_spawned]),
+        % ?LogDebug("success ~p", [bulk_create_spawned]),
         CreateResult = receive_results(TabCount,[]),
         ?assertEqual(TabCount, length(CreateResult)),
         ?assertEqual([ok], lists:usort([ R || {_,R} <- CreateResult])),
-        ?LogDebug("success ~p~n", [bulk_create_tables]),
+        % ?LogDebug("success ~p~n", [bulk_create_tables]),
 
         [spawn(fun() -> Self ! {Ch,insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_insert_spawned]),
+        % ?LogDebug("success ~p", [bulk_insert_spawned]),
         InitResult = receive_results(TabCount,[]),
         ?assertEqual(TabCount, length(InitResult)),
-        ?LogDebug("success ~p~n", [bulk_insert]),
+        % ?LogDebug("success ~p~n", [bulk_insert]),
 
         [spawn(fun() -> Self ! {N1,update_test(hd(?Channels),TestKey,N1)} end) || N1 <- lists:seq(1,10)],
-        ?LogDebug("success ~p", [bulk_update_spawned]),
+        % ?LogDebug("success ~p", [bulk_update_spawned]),
         UpdateResult = receive_results(10,[]),
         ?assertEqual(10, length(UpdateResult)),
         ?assertMatch([{skvhTable,_,<<"55">>,_}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
-        ?LogDebug("success ~p~n", [bulk_update]),
+        % ?LogDebug("success ~p~n", [bulk_update]),
 
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
         [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
-        ?LogDebug("success ~p", [bulk_drop_spawned]),
-        DropResultFun = fun() ->
-                ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])]))
-            end,
-        {timeout, 10, DropResultFun},
-        ?LogDebug("success ~p~n", [bulk_drop_tables])
+        % ?LogDebug("success ~p", [bulk_drop_spawned]),
+        {timeout, 10, fun() -> ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])])) end},
+        % ?LogDebug("success ~p~n", [bulk_drop_tables]),
+        ok
     catch
         Class:Reason ->     
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw ({Class, Reason})
     end,

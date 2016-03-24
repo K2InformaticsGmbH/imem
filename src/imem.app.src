@@ -3,7 +3,7 @@
 {application, imem,
  [
   {description, "Replication Mnesia DB cluster"},
-  {vsn, "1.3.8"},
+  {vsn, "1.4.13"},
   {registered, []},
   {applications, [
                   kernel,
@@ -34,6 +34,7 @@
          {proll_server, true},
          {purge_server, true},
          {seco_server, true},
+         {domain_server, true},
          {snap_server, true},
          {tcp_server, true},
          {client_server, true},

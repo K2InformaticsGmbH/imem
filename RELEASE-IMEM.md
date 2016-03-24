@@ -3,6 +3,97 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.13 (Release Date 21.03.2016)
+=======================================
+* Fixed preview not returning the complete list of results
+* Fixed data dictionary trigger
+* Added imem config documentation
+* drop with table opts support and ignore
+* Fixed sql generation from filters for json
+
+Version 1.4.12 (Release Date 14.03.2016)
+=======================================
+* Prune history implemented
+* Audit write no op implemented
+* Fixed cluster snapshots
+* Improve speed of skvh read shallow and deep.
+
+Version 1.4.11 (Release Date 05.03.2016)
+=======================================
+* Fixed some security vulnerabilities
+* Moved JSON Path documentation to Wiki
+* Added map interface to skvh
+
+Version 1.4.10 (Release Date 01.03.2016)
+=======================================
+* json_diff bug fixes
+
+Version 1.4.9 (Release Date 26.02.2016)
+=======================================
+* Added json_diff to the sql layer
+
+
+Version 1.4.8 (Release Date 18.02.2016)
+=======================================
+* Removed search deleted from imem_dal_skvh
+* Fixed bug in imem_snap
+* Added imem_domain gen_server for translation functions
+
+
+Version 1.4.7 (Release Date 12.02.2016)
+=======================================
+* Fix imem_if_csv for large lines
+* Fixed bug in authentication failure handling
+
+
+Version 1.4.6 (Release Date 05.02.2016)
+=======================================
+* Improved snapshot restore efficiency
+* Added to_json as sql function
+* Fixed bug in imem_doc_config
+
+
+Version 1.4.5 (Release Date 29.01.2016)
+=======================================
+* Fixed bug searching delete objects
+
+
+Version 1.4.4 (Release Date 26.01.2016)
+=======================================
+
+* Added is_val support for sql
+* Corrected to_map function
+
+
+Version 1.4.3 (Release Date 19.01.2016)
+=======================================
+
+* Added support for functions (mfa) using sql
+* Improved generators for primitive data types
+* Added complexity check for "alter user password" sql
+
+
+Version 1.4.2 (Release Date 12.12.2015)
+=======================================
+
+* adding temporary lock to authentication
+* fix modulo calculation in failure tuple
+
+
+Version 1.4.1 (Release Date 10.12.2015)
+=======================================
+
+* Added support for continuation to imem_index preview
+
+
+Version 1.4.0 (Release Date 07.12.2015)
+=======================================
+
+* CSV file read
+* Major backward incompatible DB schema changes
+* Lot of bug fixes
+
+
 Version 1.2.3 (Release Date 04.09.2013)
 =======================================
 

@@ -2,8 +2,16 @@
 
 -include("imem_seco.hrl").
 
--export([ exec/5
-        ]).
+-define(GET_PASSWORD_CHECK_FUN,
+        ?GET_CONFIG(isPasswordComplex,[],
+                    <<"fun(Password) ->"
+                      " re:run("
+                        " Password,"
+                        " \"^(?=.{8,})(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*\\\\W).*$\")"
+                        " /= nomatch"
+                      " end.">>,"Function which decides about sufficient password complexity.")).
+
+-export([exec/5]).
 
 exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _StmtOpts, IsSec) ->
     {pwdmd5, PasswordMd5} = imem_seco:create_credentials(pwdmd5, Password),
@@ -31,9 +39,28 @@ exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _StmtOpts, IsSec) ->
         false -> ok
     end,
     case lists:keyfind('identified by', 1, Specs) of
-        {'identified by', NewPassword} ->  
-            NewCredentials = imem_seco:create_credentials(pwdmd5, NewPassword),
-            if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, set_credentials, [Name,NewCredentials]]);
+        {'identified by', NewPasswordMayBeDoubleQuoted} ->
+            NewPassword = imem_datatype:strip_dquotes(NewPasswordMayBeDoubleQuoted),
+            try
+                begin
+                    IsPasswordComplexFunStr = ?GET_PASSWORD_CHECK_FUN,
+                    ?Info("IsPasswordComplexFunStr ~p", [IsPasswordComplexFunStr]),
+                    IsPasswordComplexFun = imem_meta:compile_fun(IsPasswordComplexFunStr),
+                    IsPasswordComplexFun(NewPassword)
+                end of
+                true ->
+                    NewCredentials = imem_seco:create_credentials(pwdmd5, NewPassword),
+                    if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, set_credentials, [Name,NewCredentials]]);
+                false ->
+                    ?ClientError("New password insufficiently complex");
+                Other ->
+                    ?Error("Bad return from isPasswordComplex function '~p' (should be true|false)", [Other]),
+                    ?ClientError("Bad password check function")
+            catch
+                _:Exception ->
+                    ?Error("Cannot check password complexity ~p", [Exception]),
+                    ?ClientError("Bad configuration or argument of isPasswordComplex function")
+            end;
         false -> ok
     end;
 
@@ -231,9 +258,7 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun test_with_sec/1
-        ]}
+        {with, [fun test_with_sec/1]}
     }.
     
 test_with_sec(_) ->
@@ -241,20 +266,19 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
+
         ClEr = 'ClientError',
         UiEx = 'UnimplementedException',
-        % SeEx = 'SecurityException',
-        ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
-
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
         SKey=?imem_test_admin_login(),
         ?assertEqual(ok, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
         UserId = imem_account:get_id_by_name(SKey,<<"test_user_1">>),
-        ?LogDebug("UserId ~p~n", [UserId]),
+        % ?LogDebug("UserId ~p~n", [UserId]),
         ?assertException(throw, {ClEr,{"Account already exists", <<"test_user_1">>}}, imem_sql:exec(SKey, "CREATE USER test_user_1 IDENTIFIED BY a_password;", 0, [{schema,imem}], IsSec)),
         ?assertException(throw, {UiEx,{"Unimplemented account delete option",[cascade]}}, imem_sql:exec(SKey, "DROP USER test_user_1 CASCADE;", 0, [{schema,imem}], IsSec)),
         ?assertEqual(false, imem_seco:has_permission(SKey, UserId, manage_system)),

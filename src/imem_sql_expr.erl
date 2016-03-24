@@ -11,6 +11,7 @@
 -define(ParamNameIdx,1).
 -define(ParamTypeIdx,2).
 -define(ParamPrecisionIdx,3).
+-define(NavString,<<"'$not_a_value'">>).
 
 -export([ column_map_tables/3
         , column_map_columns/2
@@ -21,25 +22,17 @@
         , bind_tree/2
         ]).
 
--export([ bind_table/3
-        , bind_tab/3
-        ]).
-
 -export([ main_spec/2
         , join_specs/3
         , sort_fun/3
         , sort_spec/3
-        , is_readonly/1
         , filter_spec_where/3
         , sort_spec_order/3
         , sort_spec_fun/3
         ]).
 
--export([ binstr_to_qname3/1
-        , binstr_to_qname2/1
-        , binstr_to_qname/1
-        , uses_operator/2
-        , uses_operand/2
+-export([ binstr_to_qname2/1
+        , to_guard/1
         ]).
 
 %% @doc Reforms the main scan specification for the select statement 
@@ -51,15 +44,15 @@
 -spec bind_scan(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_scan(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?LogDebug("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?LogDebug("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [to_guard(STree1)], [Result]}],
             case Ti of
                 ?MainIdx -> {SSpec1,ets:match_spec_compile(SSpec1),FilterFun0};
@@ -69,8 +62,8 @@ bind_scan(Ti,X,ScanSpec0) ->
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
             {STree2,FTree} = split_filter_from_guard(STree1),
-            % ?Info("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
-            % ?Info("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
+            % ?LogDebug("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
+            % ?LogDebug("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
             SSpec1 = [{SHead, [to_guard(STree2)], [Result]}],
             FilterFun1 = imem_sql_funs:filter_fun(FTree),
             case Ti of
@@ -88,26 +81,27 @@ bind_scan(Ti,X,ScanSpec0) ->
 -spec bind_virtual(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_virtual(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?LogDebug("STree before virtual scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?LogDebug("FTree before virtual scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
         {_,true} ->                                 %% no filter fun (pre-calculated to true)
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             SSpec1 = [{SHead, [STree1], [Result]}],   % to_guard(STree1)
             {SSpec1,TailSpec0,FilterFun0};
         {_,_} ->                                    %% filter fun needs to be evaluated
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
-            % ?Info("STree after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
+            % ?LogDebug("SGuard after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             %% TODO: splitting into generator conditions and filter conditions
             %% For now, we assume that we only have generator conditions which define
             %% the raw virtual rows (e.g. is_member() or item >=1 and item <=10) 
             SSpec1 = [{SHead, [STree1], [Result]}],             % was [to_guard(STree1)]
             FilterFun1 = imem_sql_funs:filter_fun(STree1),
+            % ?LogDebug("FilterFun 1 ~p", [FilterFun1]),
             {SSpec1,TailSpec0,FilterFun1}
     end.
 
@@ -142,6 +136,9 @@ rownum_match({_,L,R}) ->                case rownum_match(L) of
                                         end;    
 rownum_match(_) ->                      false.
 
+%% Does expression tree contain operators which can generate data?
+uses_generator(STree) -> uses_operator('is_member',STree).
+
 %% Does expression tree contain given operator Op?
 uses_operator(_, {const,_}) ->              false;
 uses_operator(Op,#bind{tind=0,cind=0,btree=BTree}) ->   uses_operator(Op,BTree);
@@ -150,22 +147,16 @@ uses_operator(Op,{Op,_}) ->         true;
 uses_operator(Op,{Op,_,_}) ->       true;
 uses_operator(Op,{Op,_,_,_}) ->     true;
 uses_operator(Op,{Op,_,_,_,_}) ->   true;
+uses_operator(Op,[A|Rest]) ->       
+    case uses_operator(Op,A) of
+        false ->    uses_operator(Op,Rest);
+        true ->     true
+    end;
 uses_operator(Op,{_,A}) ->          uses_operator(Op,A);
 uses_operator(Op,{_,A,B}) ->        uses_operator(Op,A) orelse uses_operator(Op,B);
 uses_operator(Op,{_,A,B,C}) ->      uses_operator(Op,A) orelse uses_operator(Op,B) orelse uses_operator(Op,C);
 uses_operator(Op,{_,A,B,C,D}) ->    uses_operator(Op,A) orelse uses_operator(Op,B) orelse uses_operator(Op,C) orelse uses_operator(Op,D);
 uses_operator(_,_) ->               false.
-
-%% Does guard contain given operand V ?
-uses_operand(V,V) ->                true;
-uses_operand(_,{const,_}) ->        false;
-uses_operand(V,#bind{tind=0,cind=0,btree=BTree}) -> uses_operand(V,BTree);
-uses_operand(V,{_,A}) ->            uses_operand(V,A);
-uses_operand(V,{_,A,B}) ->          uses_operand(V,A) orelse uses_operand(V,B);
-uses_operand(V,{_,A,B,C}) ->        uses_operand(V,A) orelse uses_operand(V,B) orelse uses_operand(V,C);
-uses_operand(V,{_,A,B,C,D}) ->      uses_operand(V,A) orelse uses_operand(V,B) orelse uses_operand(V,C) orelse uses_operand(V,D);
-uses_operand(_,_) ->                false.
-
 
 %% Does guard contain any of the filter operators?
 %% ToDo: bad tuple tolerance for element/2 (add element to function category?)
@@ -220,6 +211,7 @@ bind_eval({list,L}) when is_list(L) ->
         [true] ->     %% BTree evaluates to a list of values
             BTL 
     end;
+bind_eval(L) when is_list(L) ->     [bind_eval(Ele) || Ele <- L];
 bind_eval({'or', true, _}) ->       true; 
 bind_eval({'or', _, true}) ->       true; 
 bind_eval({'or', false, false}) ->  false; 
@@ -269,12 +261,12 @@ bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav;
 bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav;
 bind_eval(BTree) ->
     case bind_done(BTree) of
-        false ->    %% cannot simplify BTree here
-            BTree;  
-        true ->     %% BTree evaluates to a value
-            bind_fun(imem_sql_funs:expr_fun(BTree))
+        false ->    BTree;                                      %% cannot simplify BTree here
+        true ->     bind_fun(imem_sql_funs:expr_fun(BTree))     %% BTree evaluates to a value
     end.
 
+bind_fun(L) when is_list(L) ->
+    [bind_fun(I) || I <- L]; 
 bind_fun(BTF) when is_function(BTF) -> 
     bind_value(BTF(anything));
 bind_fun(Value) -> 
@@ -289,21 +281,25 @@ bind_fun(Value) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_table(integer(), tuple(), tuple()) -> tuple().
 bind_table(Ti, BTree, X) ->
-    % ?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
+    % ?LogDebug("bind_table ~p ~p ~p",[Ti, BTree, X]),
     case bind_tab(Ti, BTree, X) of
-        ?nav ->     false;
-        B ->        B
+        ?nav ->     
+            false;
+        B ->
+            % ?LogDebug("bind_table result ~p",[B]),        
+            B
     end.
 
 bind_tab(_, {const,T}, _) when is_tuple(T) -> {const,T};
 bind_tab(Ti, #bind{tind=0,cind=0,btree=BT}, X) -> bind_eval(bind_tab(Ti, BT, X));
 bind_tab(Ti, #bind{tind=Tind}=Bind, X) when Tind<Ti -> bind_value(?BoundVal(Bind,X));
-bind_tab(_ , #bind{}=Bind, _) -> Bind;
-bind_tab(Ti, {Op,A}, X) ->       bind_eval({Op,bind_tab(Ti,A,X)}); %% unary functions and operators
-bind_tab(Ti, {Op,A,B}, X) ->     bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X)}); %% binary functions/op.
-bind_tab(Ti, {Op,A,B,C}, X) ->   bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X)});
-bind_tab(Ti, {Op,A,B,C,D}, X) -> bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X),bind_tab(Ti,D,X)});
-bind_tab(_ , A, _) ->            bind_value(A).
+bind_tab(_ , #bind{}=Bind, _) ->        Bind;
+bind_tab(Ti, {Op,A}, X) ->              bind_eval({Op,bind_tab(Ti,A,X)}); %% unary functions and operators
+bind_tab(Ti, {Op,A,B}, X) ->            bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X)}); %% binary functions/op.
+bind_tab(Ti, {Op,A,B,C}, X) ->          bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X)});
+bind_tab(Ti, {Op,A,B,C,D}, X) ->        bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X),bind_tab(Ti,D,X)});
+bind_tab(Ti, L, X) when is_list(L) ->   [bind_eval(bind_tab(Ti, E, X)) || E <- L];
+bind_tab(_ , A, _) ->                   bind_value(A).
 
 
 %% @doc Transforms an expression tree into a matchspec guard by replacing bind records with their tag value.  
@@ -316,7 +312,8 @@ to_guard({Op,A}) ->             {Op,to_guard(A)}; %% unary functions and operato
 to_guard({Op,A,B}) ->           {Op,to_guard(A),to_guard(B)}; %% binary functions/op.
 to_guard({Op,A,B,C}) ->         {Op,to_guard(A),to_guard(B),to_guard(C)};
 to_guard({Op,A,B,C,D}) ->       {Op,to_guard(A),to_guard(B),to_guard(C),to_guard(D)};
-to_guard(L) when is_list(L) ->  [bind_value(I) || I <- L];  % means that lists must be constants in guards
+% to_guard(L) when is_list(L) ->  [bind_value(I) || I <- L];  % means that lists must be constants in guards
+to_guard(L) when is_list(L) ->  [to_guard(I) || I <- L];  
 to_guard(A) ->                  A.
 
 %% @doc Binds all unbound variables in an expression tree in one pass.
@@ -334,7 +331,8 @@ bind_t({Op,A}, X) ->             bind_eval({Op,bind_t(A,X)});
 bind_t({Op,A,B}, X) ->           bind_eval({Op,bind_t(A,X),bind_t(B,X)});
 bind_t({Op,A,B,C}, X) ->         bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X)});
 bind_t({Op,A,B,C,D}, X) ->       bind_eval({Op,bind_t(A,X),bind_t(B,X),bind_t(C,X),bind_t(D,X)});
-bind_t(A, _) ->                  bind_value(A).
+bind_t(L, X) when is_list(L) ->  [bind_eval(bind_t(E,X)) || E <- L];
+bind_t(A, _) ->                  bind_value(A). % TODO: may need to bind lists here too
 
 
 %% @doc Reforms the select field expression tree by evaluating
@@ -358,7 +356,12 @@ bind_subtree_const(BTree) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec prune_tree(integer(), binary()|tuple()) -> list().
 prune_tree(Ti, WBTree) ->
-    case prune_eval(prune_walk(Ti, WBTree)) of
+    % ?LogDebug("Prune walk call ~p",[WBTree]),
+    Res1 = prune_walk(Ti, WBTree),
+    % ?LogDebug("Prune walk result ~p",[Res1]),
+    Res2 = prune_eval(Res1),
+    % ?LogDebug("Prune eval result ~p",[Res2]),
+    case Res2 of
         ?nav ->     ?ClientError({"Cannot evaluate pruned where clause", {Ti,WBTree}});
         ?Join ->    true;
         Tree ->     Tree
@@ -368,11 +371,13 @@ prune_walk(_ , {const,T}) when is_tuple(T) -> {const,T};
 prune_walk(Ti, #bind{tind=T}) when T>Ti -> ?Join;
 prune_walk(Ti, #bind{tind=0,cind=0,btree=BTree}) -> prune_eval(prune_walk(Ti, BTree));
 prune_walk(_ , #bind{}=Bind) -> Bind;
+prune_walk(Ti, {list,L}) -> prune_walk(Ti,L);
 prune_walk(_ , {Op}) -> prune_eval({Op});
 prune_walk(Ti, {Op,A}) -> prune_eval({Op,prune_walk(Ti,A)});
 prune_walk(Ti, {Op,A,B}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B)});
 prune_walk(Ti, {Op,A,B,C}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B),prune_walk(Ti,C)});
 prune_walk(Ti, {Op,A,B,C,D}) -> prune_eval({Op,prune_walk(Ti,A),prune_walk(Ti,B),prune_walk(Ti,C),prune_walk(Ti,D)});
+prune_walk(Ti, L) when is_list(L) -> [prune_walk(Ti,I) || I <- L];
 prune_walk(_ , BTree) -> BTree. % ToDo: Maybe need to prune_walk lists too
 
 prune_eval({_,?Join}) -> ?Join;
@@ -395,7 +400,7 @@ main_spec(?EmptyWhere, FullMap) ->
     scan_spec(?MainIdx, true, FullMap);
 main_spec(WBTree, FullMap) ->
     PrunedTree = prune_tree(?MainIdx, WBTree),
-    % ?LogDebug("Pruned where tree for main scan~n~p~n",[to_guard(PrunedTree)]),
+    % ?LogDebug("Pruned where tree for main scan~n~p",[to_guard(PrunedTree)]),
     scan_spec(?MainIdx, PrunedTree, FullMap).
 
 %% @doc Reforms the where clause bind tree for the whole select into
@@ -445,8 +450,8 @@ scan_spec(Ti,STree0,FullMap) ->
             ?UnimplementedException({"Unsupported use of rownum",{Else}})
     end,
     % ?LogDebug("STree0 (~p)~n~p~n", [Ti,to_guard(STree0)]),
-    case {uses_bind(Ti-1,STree0),uses_filter(STree0)} of
-        {false,true} ->     
+    case {uses_generator(STree0),uses_bind(Ti-1,STree0),uses_filter(STree0)} of
+        {false,false,true} ->     
             %% we can do the split upfront here and pre-calculate SSpec, TailSpec and FilterFun
             {STree1,FTree} = split_filter_from_guard(STree0),
             % ?LogDebug("STree1 after split (~p)~n~p~n", [Ti,to_guard(STree1)]),
@@ -455,16 +460,20 @@ scan_spec(Ti,STree0,FullMap) ->
             TailSpec = if Ti==?MainIdx -> ets:match_spec_compile(SSpec); true -> true end,
             FilterFun = imem_sql_funs:filter_fun(FTree),  %% TODO: Use bind tree and implicit binding
             #scanSpec{sspec=SSpec,stree=true,tailSpec=TailSpec,ftree=true,filterFun=FilterFun,limit=Limit}; 
-        {true,true} ->     
+        {true,false,true} ->     
+            %% we need a generator function, depending on meta binds at fetch time, cannot precalculate 
+            SSpec = [{MatchHead, [undefined], ['$_']}],       %% will be split and reworked at fetch time
+            #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit}; 
+        {_,true,true} ->     
             %% we may  need a filter function, depending on meta binds at fetch time
             SSpec = [{MatchHead, [undefined], ['$_']}],       %% will be split and reworked at fetch time
             #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit}; 
-        {false,false} ->
+        {_,false,false} ->
             %% we don't need filters and pre-calculate SSpec, TailSpec and FilterFun
             SSpec = [{MatchHead, [to_guard(STree0)], ['$_']}],
             TailSpec = if Ti==?MainIdx -> ets:match_spec_compile(SSpec); true -> true end,
             #scanSpec{sspec=SSpec,stree=true,tailSpec=TailSpec,ftree=true,filterFun=true,limit=Limit};
-        {true,false} ->
+        {_,true,false} ->
             %% we cannot bind upfront but we know to get away without filters after bind
             SSpec = [{MatchHead, [undefined], ['$_']}],
             #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=true,filterFun=true,limit=Limit}
@@ -526,6 +535,11 @@ qname3_to_binstr({undefined,undefined,N}) when is_binary(N) -> N;
 qname3_to_binstr({undefined,T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]); 
 qname3_to_binstr({S,T,N}) when is_binary(S),is_binary(T),is_binary(N) -> list_to_binary([S,".",T,".",N]). 
 
+to_binstr(B) when is_binary(B) ->   B;
+to_binstr(I) when is_integer(I) -> list_to_binary(integer_to_list(I));
+to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
+to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
+to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
 %% @doc Projects by name one record field out of a list of column maps.
 %% Map:     list of bind items
@@ -622,17 +636,26 @@ column_map_table_fields([{undefined,T,A}|Tables], Ti, Acc) ->
     S = ?atom_to_binary(imem_meta:schema()),
     column_map_table_fields([{S,T,A}|Tables], Ti, Acc);
 column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
-    Cols = imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}),
-    case Ti of
-        ?MainIdx ->      
-            case imem_meta:is_virtual_table(?binary_to_atom(T)) of
-                true ->     ?ClientError({"Virtual table can only be joined", T});
-                false ->    ok
-            end;
-        _ -> ok
+    Cols = case S of
+        ?CSV_SCHEMA_PATTERN ->
+            case Ti of
+                ?MainIdx -> ok;
+                _ ->        ?ClientError({"A CSV table can only be the first table in a join", T})
+            end,
+            imem_meta:column_infos({S,T});
+        _ ->    
+            % case Ti of
+            %     ?MainIdx ->      
+            %         case imem_meta:is_virtual_table(?binary_to_atom(T)) of
+            %             true ->     ?ClientError({"Virtual table can only be joined", T});
+            %             false ->    ok
+            %         end;
+            %     _ -> ok
+            % end,
+            imem_meta:column_infos({?binary_to_atom(S),?binary_to_atom(T)}) %% ToDo: avoid if possible
     end,
     Binds = [ #bind{schema=S,table=T,alias=A,tind=Ti,cind=Ci
-                   ,type=Type,len=Len,prec=P,name=?atom_to_binary(N)
+                   ,type=Type,len=Len,prec=P,name=to_binstr(N)
                    ,default=D,tag=list_to_atom(lists:flatten([$$,integer_to_list(Ti),integer_to_list(Ci)]))
                    } 
           || {Ci, #ddColumn{name=N,type=Type,len=Len,prec=P,default=D}} <- 
@@ -808,6 +831,11 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
     end;
 expr({param,Name}, FullMap, _) when is_binary(Name) -> 
     field_map_lookup({undefined,?ParamTab,Name},FullMap);
+expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) -> 
+    % #bind{type=list,btree=[expr(A,FullMap,#bind{type=term}) || A <- L]};
+    #bind{type=list,btree={list,[expr(A,FullMap,#bind{type=term}) || A <- L]}};
+expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) -> 
+    #bind{type=tuple,btree={list_to_tuple,{list,[expr(A,FullMap,#bind{type=term}) || A <- L]}}};
 expr({'fun',Fname,[A]}=PTree, FullMap, _) -> 
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
@@ -832,11 +860,6 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
                     end
             end
     end;        
-expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) -> 
-    % #bind{type=list,btree=[expr(A,FullMap,#bind{type=term}) || A <- L]};
-    #bind{type=list,btree={list,[expr(A,FullMap,#bind{type=term}) || A <- L]}};
-expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) -> 
-    #bind{type=tuple,btree={list_to_tuple,{list,[expr(A,FullMap,#bind{type=term}) || A <- L]}}};
 expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) -> 
     expr({'fun',<<"is_regexp_like">>,[A,B]}, FullMap, BT); 
 expr({'||',A,B}, FullMap, _) -> 
@@ -886,6 +909,26 @@ expr({'fun',Fname,[A,B]}, FullMap, _) ->
         #bind{type=Type,btree={Func,CMapA,CMapB}}
     catch
         _:_ -> ?UnimplementedException({"Unsupported binary sql function", Fname})
+    end;
+expr({'fun',Fname,[A,B,C]}, FullMap, _) -> 
+    CMapA = case imem_sql_funs:ternary_fun_bind_type1(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
+        BA ->           expr(A,FullMap,BA)
+    end,
+    CMapB = case imem_sql_funs:ternary_fun_bind_type2(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
+        BB ->           expr(B,FullMap,BB)
+    end,
+    CMapC = case imem_sql_funs:ternary_fun_bind_type3(Fname) of
+        undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
+        CC ->           expr(C,FullMap,CC)
+    end,
+    try 
+        Func = binary_to_existing_atom(Fname,utf8),
+        #bind{type=Type} = imem_sql_funs:ternary_fun_result_type(Fname),
+        #bind{type=Type,btree={Func,CMapA,CMapB,CMapC}}
+    catch
+        _:_ -> ?UnimplementedException({"Unsupported ternary sql function", Fname})
     end;
 expr({'#',<<"keys">>,A}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
@@ -977,8 +1020,8 @@ expr({'between', A, Low, High}, FullMap, BT) ->
 expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op=='<>' ->
     CMapA = expr(A,FullMap,#bind{type=binstr}), 
     CMapB = expr(B,FullMap,#bind{type=binstr}),         
-    % ?Info("Comparison ~p CMapA~n~p~n", [Op,CMapA]),
-    % ?Info("Comparison ~p CMapB~n~p~n", [Op,CMapB]),
+    % ?Info("Comparison ~p CMapA~n~p", [Op,CMapA]),
+    % ?Info("Comparison ~p CMapB~n~p", [Op,CMapB]),
     BTree = case {CMapA#bind.tind, CMapB#bind.tind} of
         {0,0} -> 
             case CMapA#bind.type > CMapB#bind.type of    
@@ -1006,6 +1049,9 @@ expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op==
     #bind{type=boolean,btree=BTree};
 expr({'in', ?nav, {list,_}}, _FullMap, _) -> ?nav;
 expr({'in', _, {list,[]}}, _FullMap, _) -> false;
+expr({'in', A, {list,[B]}}, FullMap, _) ->
+    CMapA = expr({'=', A, B}, FullMap, #bind{}),
+    #bind{type=boolean,btree=CMapA};
 expr({'in', A, {list,[B|Rest]}}, FullMap, _) ->
     CMapA = expr({'=', A, B}, FullMap, #bind{}),
     CMapR = expr({'in', A, {list,Rest}}, FullMap, #bind{}),
@@ -1063,6 +1109,10 @@ expr_math(Op, CMapA, CMapB, BT) ->
             #bind{type=float,btree={Op,CMapA,CMapB}};
         {_,float,_,_} ->
             #bind{type=float,btree={Op,CMapA,CMapB}};
+        {list,_,_,_} ->
+            #bind{type=list,btree={Op,CMapA,CMapB}};
+        {map,_,_,_} ->
+            #bind{type=map,btree={Op,CMapA,CMapB}};
         {_,_,_,_} ->
             #bind{type=number,btree={Op,CMapA,CMapB}}
     end.
@@ -1268,71 +1318,78 @@ sort_fun_item(Expr,Direction,FullMap,ColMap) ->
             ?ClientError({"Ambiguous column name in order by clause", Expr})
     end.
 
+filter_reorder({Idx,[Pref|Vals]}) ->
+    case Vals --[?NavString] of 
+        Vals -> {Idx,[Pref|Vals]};
+        V ->    {Idx,[Pref,?NavString|V]}
+    end.
+
 filter_spec_where(?NoMoreFilter, _, WhereTree) -> 
     WhereTree;
 filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree) ->
-    FCond = filter_condition(ColF, ColMap),
-    % ?Info("Colf ~p FCond ~p",[ColF,FCond]),
-    filter_spec_where({FType,ColFs}, ColMap, WhereTree, FCond). 
+    % ?Info("filter_spec_where ColMap ~p",[ColMap]),    
+    FCond = filter_condition(filter_reorder(ColF), ColMap),
+    % ?Info("filter_spec_where ColF ~p FCond ~p",[ColF,FCond]),
+    filter_spec_where({FType,ColFs}, ColMap, WhereTree, FCond).
 
 filter_spec_where(?NoMoreFilter, _, ?EmptyWhere, LeftTree) ->
     LeftTree;
 filter_spec_where(?NoMoreFilter, _, WhereTree, LeftTree) ->
     {'and', LeftTree, WhereTree};
 filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree, LeftTree) ->
-    FCond = filter_condition(ColF, ColMap),
+    FCond = filter_condition(filter_reorder(ColF), ColMap),
     filter_spec_where({FType,ColFs}, ColMap, WhereTree, {FType,LeftTree,FCond}).    
 
+filter_condition({Idx,[<<"$in$">>,?NavString]}, ColMap) ->
+    {Name,_Value} = filter_name_value(in,Idx,?NavString,ColMap),
+    {'fun',<<"is_nav">>,[Name]};
 filter_condition({Idx,[<<"$in$">>,Val]}, ColMap) ->
     {Name,Value} = filter_name_value(in,Idx,Val,ColMap),
     {'=',Name,Value};
+filter_condition({Idx,[<<"$in$">>,?NavString|Vals]}, ColMap) ->
+    {Name,_Values} = filter_name_value(in,Idx,?NavString,ColMap),
+    {'or',{'fun',<<"is_nav">>,[Name]},filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap) ->
-    {Name,Values} = filter_name_values(in,Idx,Vals,ColMap),
+    % ?Info("filter_condition Vals ~p",[Vals]),   
+    {Name,Values} = filter_name_value(in,Idx,Vals,ColMap),
+    % ?Info("filter_condition Name ~p, Values ~p",[Name,Values]),   
     {'in',Name,{'list',Values}};
+filter_condition({Idx,[<<"$not_in$">>,?NavString]}, ColMap) ->
+    {Name,_Value} = filter_name_value(in,Idx,?NavString,ColMap),
+    {'fun',<<"is_val">>,[Name]};
 filter_condition({Idx,[<<"$not_in$">>,Val]}, ColMap) ->
     {Name,Value} = filter_name_value(in,Idx,Val,ColMap),
     {'<>',Name,Value};
+filter_condition({Idx,[<<"$not_in$">>,?NavString|Vals]}, ColMap) ->
+    {Name,_Values} = filter_name_value(in,Idx,?NavString,ColMap),
+    {'and',{'fun',<<"is_val">>,[Name]},filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap) ->
-    {Name,Values} = filter_name_values(in,Idx,Vals,ColMap),
+    {Name,Values} = filter_name_value(in,Idx,Vals,ColMap),
     {'not',{'in',Name,{'list',Values}}};
 filter_condition({Idx,[<<"$like$">>|Vals]}, ColMap) ->
-    {Name,Values} = filter_name_values(like,Idx,Vals,ColMap),
+    {Name,Values} = filter_name_value(like,Idx,Vals,ColMap),
     Conditions = [{'like',Name,Val} || Val <- Values],      
     or_like_expr(Conditions);
 filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
-    {Name,Values} = filter_name_values(like,Idx,Vals,ColMap),
+    {Name,Values} = filter_name_value(like,Idx,Vals,ColMap),
     Conditions = [{'like',Name,Val} || Val <- Values],      
     and_not_like_expr(Conditions).
-% filter_condition({Idx,[Val]}, ColMap) ->
-%     #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
-%     Tag = "Col" ++ integer_to_list(Idx),
-%     Value = filter_field_value(Tag,Type,L,P,D,Val),     % list_to_binary(
-%     {'=',qname3_to_binstr({S,T,N}),Value};
-% filter_condition({Idx,Vals}, ColMap) ->
-%     #bind{schema=S,table=T,name=N,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
-%     Tag = "Col" ++ integer_to_list(Idx),
-%     Values = [filter_field_value(Tag,Type,L,P,D,Val) || Val <- Vals],       % list_to_binary(
-%     {'in',qname3_to_binstr({S,T,N}),{'list',Values}}.
 
-filter_name_value(F,Idx,Val,ColMap) ->
+filter_name_value(F,Idx,Vals,ColMap) ->
     % ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
-    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,alias=A,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
+    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap), 
     Tag = "Col" ++ integer_to_list(Idx),
-    Name = case {Ti,Ci} of
-        {0,0} ->    A;
-        _ ->        qname3_to_binstr({S,T,N})
+    % ?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
+    Name = case {Ti,Ci,PTree} of 
+        {0,0,{as,PTA,_}} -> sqlparse:pt_to_string({fields,[PTA]});
+        {0,0,PT} ->         sqlparse:pt_to_string({fields,[PT]});
+        _ ->                qname3_to_binstr({S,T,N})
     end,
-    {Name,filter_value_tree(F,Tag,Type,L,P,D,Val)}.
-
-filter_name_values(F,Idx,Vals,ColMap) ->
-    % ?Info("Idx ~p Vals ~p Colmap ~p",[Idx,Vals,ColMap]),
-    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,alias=A,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
-    Tag = "Col" ++ integer_to_list(Idx),
-    Name = case {Ti,Ci} of
-        {0,0} ->    A;
-        _ ->        qname3_to_binstr({S,T,N})
-    end,
-    {Name,[filter_value_tree(F,Tag,Type,L,P,D,Val) || Val <- Vals]}.
+    % ?Info("filter_name_values Name ~p",[Name]),
+    if
+        is_list(Vals) ->    {Name,[filter_value_tree(F,Tag,Type,L,P,D,V) || V <- Vals]};
+        true ->             {Name,filter_value_tree(F,Tag,Type,L,P,D,Vals)}
+    end.
 
 filter_value_tree(like,_,_,_,_,_,Val) ->
     imem_datatype:add_squotes(imem_sql:escape_sql(Val));
@@ -1567,28 +1624,35 @@ teardown(_) ->
     catch imem_meta:drop_table(meta_table_1), 
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun test_without_sec/1
-        ]}
+        {with, [fun test_without_sec/1]}
     }.
     
+% db2_test_() ->
+%     {
+%         setup,
+%         fun setup/0,
+%         fun teardown/1,
+%         {with, [fun test_with_sec/1]}
+%     }.
+
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
+% test_with_sec(_) -> 
+%     test_with_or_without_sec(true).  % ToDo: create table needs login etc. May not be worth it.
+
 test_with_or_without_sec(IsSec) ->
     try
-        ClEr = 'ClientError',
-        ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p ----Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ClEr = 'ClientError',
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1602,9 +1666,9 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(<<"schema.table.field">>, qname3_to_binstr(binstr_to_qname3(<<"schema.table.field">>))),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?LogDebug("success ~p~n", [schema]),
+        % ?LogDebug("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        ?LogDebug("success ~p~n", [data_nodes]),
+        % ?LogDebug("success ~p~n", [data_nodes]),
 
     %% uses_filter
         ?assertEqual(true, uses_filter({'is_member', {'+','$2',1}, '$3'})),
@@ -1613,19 +1677,19 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, uses_filter({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, uses_filter({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
-        BTreeSample = 
-            {'>',{ bind,2,7,<<"imem">>,<<"ddAccount">>,<<"ddAccount">>,<<"lastLoginTime">>,
-                   datetime,undefined,undefined,undefined,false,undefined,undefined,undefined,'$27'}
-                ,{ bind,0,0,undefined,undefined,undefined,undefined,datetime,0,0,undefined,false,undefined,undefined
-                    , {add_dt, {bind,1,4,<<"imem">>,<<"meta">>,<<"meta">>,<<"sysdate">>,
-                                datetime,20,0,undefined,true,undefined,undefined,undefined,'$14'}
-                             , {'-', {bind,0,0,undefined,undefined,undefined,undefined,
-                                      float,0,0,undefined,true,undefined,undefined,1.1574074074074073e-5,[]}
-                               }
-                      }
-                    ,[]
-                }
-            },
+        % BTreeSample = 
+        %     {'>',{ bind,2,7,<<"imem">>,<<"ddAccount">>,<<"ddAccount">>,<<"lastLoginTime">>,
+        %            datetime,undefined,undefined,undefined,false,undefined,undefined,undefined,'$27'}
+        %         ,{ bind,0,0,undefined,undefined,undefined,undefined,datetime,0,0,undefined,false,undefined,undefined
+        %             , {add_dt, {bind,1,4,<<"imem">>,<<"meta">>,<<"meta">>,<<"sysdate">>,
+        %                         datetime,20,0,undefined,true,undefined,undefined,undefined,'$14'}
+        %                      , {'-', {bind,0,0,undefined,undefined,undefined,undefined,
+        %                               float,0,0,undefined,true,undefined,undefined,1.1574074074074073e-5,[]}
+        %                        }
+        %               }
+        %             ,[]
+        %         }
+        %     },
         % ?assertEqual(true, uses_bind(2,7,BTreeSample)),
         % ?assertEqual(false, uses_bind(2,6,BTreeSample)),
         % ?assertEqual(true, uses_bind(1,4,BTreeSample)),
@@ -1645,7 +1709,7 @@ test_with_or_without_sec(IsSec) ->
                         },
         ?assertEqual(ColMapExpected, bind_subtree_const(ColMapSample)),
 
-        ?LogDebug("~p:test_database_operations~n", [?MODULE]),
+        % ?LogDebug("~p:test_database_operations~n", [?MODULE]),
         _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
                     , #ddColumn{name=b1, type=char, len=1}    %% value 1
                     , #ddColumn{name=c1, type=char, len=1}    %% value 2
@@ -1662,7 +1726,7 @@ test_with_or_without_sec(IsSec) ->
 
         ?assertEqual(ok, imem_sql:exec(anySKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),    
-        ?LogDebug("success ~p~n", [create_tables]),
+        % ?LogDebug("success ~p~n", [create_tables]),
 
         Table1 =    <<"imem.meta_table_1">>,
         Table2 =    <<"meta_table_2">>,
@@ -1673,38 +1737,38 @@ test_with_or_without_sec(IsSec) ->
         Alias2 =    {as, <<"imem.meta_table_1">>, <<"alias2">>},
 
         ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, column_map_tables([Table1,TableX,Table3],[],[])),
-        ?LogDebug("success ~p~n", [table_no_exists]),
+        % ?LogDebug("success ~p~n", [table_no_exists]),
 
         FullMap0 =  column_map_tables([],imem_meta:meta_field_list(),[]),
-        ?LogDebug("FullMap0~n~p~n", [FullMap0]),
+        % ?LogDebug("FullMap0~n~p~n", [FullMap0]),
         MetaFieldCount = length(imem_meta:meta_field_list()),
         ?assertEqual(MetaFieldCount, length(FullMap0)),
 
         FullMap1 = column_map_tables([Table1],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+3, length(FullMap1)),
-        ?LogDebug("success ~p~n", [full_map_1]),
+        % ?LogDebug("success ~p~n", [full_map_1]),
 
         FullMap13 = column_map_tables([Table1,Table3],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+6, length(FullMap13)),
-        ?LogDebug("success ~p~n", [full_map_13]),
+        % ?LogDebug("success ~p~n", [full_map_13]),
 
         FullMap123 = column_map_tables([Table1,Table2,Table3],imem_meta:meta_field_list(),[]),
         ?assertEqual(MetaFieldCount+8, length(FullMap123)),
-        ?LogDebug("success ~p~n", [full_map_123]),
+        % ?LogDebug("success ~p~n", [full_map_123]),
 
         AliasMap1 = column_map_tables([Alias1],imem_meta:meta_field_list(),[]),
-        ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
+        % ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
         ?assertEqual(MetaFieldCount+3, length(AliasMap1)),
-        ?LogDebug("success ~p~n", [alias_map_1]),
+        % ?LogDebug("success ~p~n", [alias_map_1]),
 
         AliasMap123 = column_map_tables([Alias1,Alias2,Table3],imem_meta:meta_field_list(),[]),    
         %% select from 
         %%            meta_table_1 as alias1        (a char, b1 char    , c1 char)
         %%          , imem.meta_table1 as alias2    (a char, b1 char    , c1 char)
         %%          , meta_table_3                  (a char, b3 integer , c1 char)
-        ?LogDebug("AliasMap123~n~p~n", [AliasMap123]),
+        % ?LogDebug("AliasMap123~n~p~n", [AliasMap123]),
         ?assertEqual(MetaFieldCount+9, length(AliasMap123)),
-        ?LogDebug("success ~p~n", [alias_map_123]),
+        % ?LogDebug("success ~p~n", [alias_map_123]),
 
         % ColsE1=     [ #bind{tag="A1", schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>}
         %             , #bind{tag="A2", name= <<"x">>}
@@ -1716,7 +1780,7 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown field or table name", <<"x">>}}, column_map_columns(ColsE1,FullMap1)),
-        ?LogDebug("success ~p~n", [unknown_column_name_1]),
+        % ?LogDebug("success ~p~n", [unknown_column_name_1]),
 
         % ColsE2=     [ #bind{tag="A1", schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>}
         %             , #bind{tag="A2", table= <<"meta_table_x">>, name= <<"b1">>}
@@ -1728,7 +1792,7 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Unknown field or table name", <<"meta_table_x.b1">>}}, column_map_columns(ColsE2,FullMap1)),
-        ?LogDebug("success ~p~n", [unknown_column_name_2]),
+        % ?LogDebug("success ~p~n", [unknown_column_name_2]),
 
         % ColsF =     [ {as, <<"imem.meta_table_1.a">>, <<"a">>}
         %             , {as, <<"meta_table_1.b1">>, <<"b1">>}
@@ -1741,57 +1805,57 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertException(throw, {ClEr,{"Ambiguous field or table name", <<"a">>}}, column_map_columns([<<"a">>],FullMap13)),
-        ?LogDebug("success ~p~n", [columns_ambiguous_a]),
+        % ?LogDebug("success ~p~n", [columns_ambiguous_a]),
 
         ?assertException(throw, {ClEr,{"Ambiguous field or table name", <<"c1">>}}, column_map_columns(ColsA,FullMap13)),
-        ?LogDebug("success ~p~n", [columns_ambiguous_c1]),
+        % ?LogDebug("success ~p~n", [columns_ambiguous_c1]),
 
         ?assertEqual(3, length(column_map_columns(ColsA,FullMap1))),
-        ?LogDebug("success ~p~n", [columns_A]),
+        % ?LogDebug("success ~p~n", [columns_A]),
 
         ?assertEqual(6, length(column_map_columns([<<"*">>],FullMap13))),
-        ?LogDebug("success ~p~n", [columns_13_join]),
+        % ?LogDebug("success ~p~n", [columns_13_join]),
 
         Cmap3 = column_map_columns([<<"*">>], FullMap123),
         % ?LogDebug("ColMap3 ~p~n", [Cmap3]),        
         ?assertEqual(8, length(Cmap3)),
         ?assertEqual(lists:sort(Cmap3), Cmap3),
-        ?LogDebug("success ~p~n", [columns_123_join]),
+        % ?LogDebug("success ~p~n", [columns_123_join]),
 
 
-        ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
+        % ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
 
         Abind1 = column_map_columns([<<"*">>],AliasMap1),
-        ?LogDebug("AliasBind1~n~p~n", [Abind1]),        
+        % ?LogDebug("AliasBind1~n~p~n", [Abind1]),        
 
         Abind2 = column_map_columns([<<"alias1.*">>],AliasMap1),
-        ?LogDebug("AliasBind2~n~p~n", [Abind2]),        
+        % ?LogDebug("AliasBind2~n~p~n", [Abind2]),        
         ?assertEqual(Abind1, Abind2),
 
         Abind3 = column_map_columns([<<"imem.alias1.*">>],AliasMap1),
-        ?LogDebug("AliasBind3~n~p~n", [Abind3]),        
+        % ?LogDebug("AliasBind3~n~p~n", [Abind3]),        
         ?assertEqual(Abind1, Abind3),
 
         ?assertEqual(3, length(Abind1)),
-        ?LogDebug("success ~p~n", [alias_1]),
+        % ?LogDebug("success ~p~n", [alias_1]),
 
         ?assertEqual(9, length(column_map_columns([<<"*">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [alias_113_join]),
+        % ?LogDebug("success ~p~n", [alias_113_join]),
 
         ?assertEqual(3, length(column_map_columns([<<"meta_table_3.*">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [columns_113_star1]),
+        % ?LogDebug("success ~p~n", [columns_113_star1]),
 
         ?assertEqual(4, length(column_map_columns([<<"alias1.*">>,<<"meta_table_3.a">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [columns_alias_1]),
+        % ?LogDebug("success ~p~n", [columns_alias_1]),
 
         ?assertEqual(2, length(column_map_columns([<<"alias1.a">>,<<"alias2.a">>],AliasMap123))),
-        ?LogDebug("success ~p~n", [columns_alias_2]),
+        % ?LogDebug("success ~p~n", [columns_alias_2]),
 
         ?assertEqual(2, length(column_map_columns([<<"alias1.a">>,<<"sysdate">>],AliasMap1))),
-        ?LogDebug("success ~p~n", [sysdate]),
+        % ?LogDebug("success ~p~n", [sysdate]),
 
         ?assertException(throw, {ClEr,{"Unknown field or table name",  <<"any.sysdate">>}}, column_map_columns([<<"alias1.a">>,<<"any.sysdate">>],AliasMap1)),
-        ?LogDebug("success ~p~n", [sysdate_reject]),
+        % ?LogDebug("success ~p~n", [sysdate_reject]),
 
         ColsFS =    [ #bind{tag="A", tind=1, cind=1, schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>, type=integer, alias= <<"a">>}
                     , #bind{tag="B", tind=1, cind=2, table= <<"meta_table_1">>, name= <<"b1">>, type=string, alias= <<"b1">>}
@@ -1835,13 +1899,13 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual([OC,OA], sort_spec_order([SC,OA], ColsFS, ColsFS)),
         ?assertEqual([OB,OC,OA], sort_spec_order([OB,OC,OA], ColsFS, ColsFS)),
 
-        ?LogDebug("success ~p~n", [sort_spec_order]),
+        % ?LogDebug("success ~p~n", [sort_spec_order]),
 
 
         ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
         ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
-        ?LogDebug("success ~p~n", [drop_tables]),
+        % ?LogDebug("success ~p~n", [drop_tables]),
 
         case IsSec of
             true -> ?imem_logout(anySKey);

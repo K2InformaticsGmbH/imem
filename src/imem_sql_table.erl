@@ -4,18 +4,25 @@
 
 -export([ exec/5
         ]).
-    
-exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Opts, _IsSec) -> ok;
-exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade}=_ParseTree, Stmt, Opts, IsSec) ->
-    % ?LogDebug("Drop Table ParseTree~n~p~n", [_ParseTree]),
+
+exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade}, _Stmt, _Opts, _IsSec) -> 
+    exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade, []}, _Stmt, _Opts, _IsSec);                 % old parser compatibility
+exec(_SKey, {'drop table', {tables, Tables}, _Exists, _RestrictCascade}, _Stmt, _Opts, _IsSec) -> 
+    exec(_SKey, {'drop table', {tables, Tables}, _Exists, _RestrictCascade, []}, _Stmt, _Opts, _IsSec);             % old parser compatibility
+
+exec(_SKey, {'drop table', {tables, []}, _Exists, _RestrictCascade, _TableTypeOpts}, _Stmt, _Opts, _IsSec) -> ok;   % typed table drops
+exec(SKey, {'drop table', {tables, [TableName|Tables]}, Exists, RestrictCascade, TableTypeOpts}=_ParseTree, Stmt, Opts, IsSec) ->
+    % ?LogDebug("Drop Table ParseTree~n~p", [_ParseTree]),
     QName = imem_meta:qualified_table_name(TableName), 
     % ?LogDebug("Drop Table QName~n~p~n", [QName]),
-    if_call_mfa(IsSec, 'drop_table', [SKey,QName]),
-    exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade}, Stmt, Opts, IsSec);
+    case TableTypeOpts of
+        [] ->   if_call_mfa(IsSec, 'drop_table', [SKey,QName]);
+        _ ->    if_call_mfa(IsSec, 'drop_table', [SKey,QName,TableTypeOpts])
+    end,
+    exec(SKey, {'drop table', {tables, Tables}, Exists, RestrictCascade, TableTypeOpts}, Stmt, Opts, IsSec);
 exec(SKey, {'truncate table', TableName, {}, {}}=_ParseTree, _Stmt, _Opts, IsSec) ->
     % ?Info("Parse Tree ~p~n", [_ParseTree]),
     if_call_mfa(IsSec, 'truncate_table', [SKey, imem_meta:qualified_table_name(TableName)]);
-
 exec(SKey, {'create table', TableName, Columns, TOpts}=_ParseTree, _Stmt, _Opts, IsSec) ->
     % ?LogDebug("Parse Tree ~p", [_ParseTree]),
     % ?LogDebug("TOpts ~p", [TOpts]),
@@ -99,17 +106,22 @@ teardown(_) ->
     catch imem_meta:drop_table(def),
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun test_without_sec/1
-            % , fun test_with_sec/1
-        ]}
+        {with, [fun test_without_sec/1]}
     }.
     
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [fun test_with_sec/1]}
+    }.
+
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
@@ -118,12 +130,11 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
-        ?LogDebug("---TEST--- ~p ----Security ~p~n", [?MODULE, IsSec]),
+        ?LogDebug("---TEST---"),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ClEr = 'ClientError',
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -140,7 +151,7 @@ test_with_or_without_sec(IsSec) ->
                 ],
         ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
-        ?LogDebug("Meta table~n~p~n", [Meta]),
+        % ?LogDebug("Meta table~n~p~n", [Meta]),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertEqual(Expected,element(3,Meta)),    
 
@@ -158,20 +169,20 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, imem, IsSec)),
 
         Sql30 = "create loCal SeT table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
-        ?LogDebug("Sql30: ~p~n", [Sql30]),
+        % ?LogDebug("Sql30: ~p~n", [Sql30]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
-        TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
-        ?LogDebug("TableDef: ~p~n", [TableDef]),
+        _TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
+        % ?LogDebug("TableDef: ~p~n", [_TableDef]),
 
         Sql40 = "create someType table def (col1 varchar2(10) not null, col2 integer);",
         ?assertException(throw, {ClEr,{"Unsupported table option",{type,<<"someType">>}}}, imem_sql:exec(SKey, Sql40, 0, imem, IsSec)),
         Sql41 = "create imem_meta table skvhTEST();",
         ?assertException(throw, {ClEr,{"Invalid module name for table type",{type,imem_meta}}}, imem_sql:exec(SKey, Sql41, 0, imem, IsSec)),
-        ?LogDebug("Sql41: ~p~n", [Sql41]),
+        % ?LogDebug("Sql41: ~p~n", [Sql41]),
 
         Sql97 = "drop table key_test;",
-        ?LogDebug("Sql97: ~p~n", [Sql97]),
+        % ?LogDebug("Sql97: ~p~n", [Sql97]),
         ?assertEqual(ok, imem_sql:exec(SKey, Sql97 , 0, imem, IsSec)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),

@@ -32,12 +32,11 @@ to_strbinterm_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-              fun strbinterm/1
-        ]}}.
+        {with, [fun strbinterm/1]}
+    }.
 
 strbinterm(_) ->
-    ?LogDebug("---TEST---~p:strbinterm~n", [?MODULE]),
+    ?LogDebug("---TEST---"),
     ?assertEqual(sext:encode(["123456", "IPCON_"]), imem_json_data:to_strbinterm([<<"123456">>,<<"IPCON_">>])),
     ?assertEqual(sext:encode({"123456", "IPCON_"}), imem_json_data:to_strbinterm({<<"123456">>,<<"IPCON_">>})),
     ?assertEqual(sext:encode("123456"), imem_json_data:to_strbinterm(<<"123456">>)),

@@ -69,7 +69,7 @@ create_stmt(Statement, SKey, IsSec) ->
         false -> 
             gen_server:start(?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]);
         true ->
-            {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),            
+            {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
             {ok, Pid}
@@ -104,10 +104,10 @@ fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
                 ?Debug("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
                 ?ClientError(Reason);            
-            {_, {Pid,{error, {'ClientError', Reason}}}} ->
-                ?Debug("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
+            {_, {Pid,{error, {'UnimplementedException', Reason}}}} ->
+                ?Debug("fetch_recs exception ~p ~p~n", ['UnimplementedException', Reason]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
-                ?ClientError(Reason);
+                ?UnimplementedException(Reason);
             Error ->
                 ?Debug("fetch_recs bad async receive~n~p~n", [Error]),
                 gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
@@ -187,7 +187,9 @@ init([Statement,ParentPid]) ->
     imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
     {ok, #state{statement=Statement, parmonref=erlang:monitor(process, ParentPid)}}.
 
-handle_call({set_seco, SKey}, _From, State) ->    
+handle_call({set_seco, SKey}, _From, State) ->
+    ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
+    % ?LogDebug("Putting SKey ~p to process dict of statement ~p",[SKey,self()]),
     {reply,ok,State#state{seco=SKey, isSec=true}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
     STT = os:timestamp(),
@@ -314,31 +316,15 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % ?LogDebug("fetch_recs_async called with Stmt~n~p~n", [Stmt]),
     #statement{tables=[Table|JTabs], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
-    Params1 = case lists:keyfind(params, 1, Opts) of
-        false ->    Params0;    %% from statement exec, only used on first fetch
-        {_, P} ->   P           %% from fetch_recs, only used on first fetch
-    end,
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
-        {true,undefined} ->      %% {SkipFetch, Pid} = {true, uninitialized} -> skip fetch
-            RowNum = case MetaFields of
-                [<<"rownum">>|_] -> 1;
-                _ ->                undefined
-            end, 
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
-            % ?LogDebug("Meta Rec: ~p~n", [MR]),
-            % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
-            {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
-            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
-            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
+        {Skip,undefined} ->      %% {SkipFetch, Pid} = {true|false, uninitialized} -> skip fetch
+            Params1 = case lists:keyfind(params, 1, Opts) of
+                false ->    Params0;    %% from statement exec, only used on first fetch
+                {_, P} ->   P           %% from fetch_recs, only used on first fetch
+            end,
             RecName = try imem_meta:table_record_name(Table)
-                      catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
-                      end,
-            FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
-                                 ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
-                                 ,opts=Opts,tailSpec=TailSpec
-                                 ,filter=FilterFun,recName=RecName},
-            handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkip}); 
-        {false,undefined} ->     %% {SkipFetch, Pid} = {false, uninitialized} -> initialize fetch
+                catch {'ClientError', {"Table does not exist", _}} -> undefined
+            end,
             RowNum = case MetaFields of
                 [<<"rownum">>|_] -> 1;
                 _ ->                undefined
@@ -346,39 +332,66 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
-            {SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
-            % ?LogDebug("Scan Spec after meta bind:~n~p~n", [SSpec]),
-            % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
-            % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-            try 
-                get_select_permissions(IsSec,SKey, [Table|JTabs]),
-                case if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SSpec, BlockSize, Opts]) of
-                    TransPid when is_pid(TransPid) ->
-                        MonitorRef = erlang:monitor(process, TransPid),
-                        TransPid ! next,
-                        % ?Debug("fetch opts ~p~n", [Opts]),
-                        RecName = try imem_meta:table_record_name(Table)
-                                  catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
-                                  end,
-                        FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
-                                              ,metarec=MR,blockSize=BlockSize
-                                              ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
-                                              ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
-                                              ,recName=RecName},
-                        {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
-                    Error ->
-                        send_reply_to_client(Sock, {error, {"Cannot spawn async fetch process", Error}}),
-                        FetchAborted1 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
-                        {noreply, State#state{reply=Sock,fetchCtx=FetchAborted1}}
-                end
-            catch
-                _:Err ->
-                    send_reply_to_client(Sock, {error, Err}),
-                    FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
-                    {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
+            case Skip of
+                true ->
+                    {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+                    % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
+                    % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
+                    FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
+                                         ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
+                                         ,opts=Opts,tailSpec=TailSpec
+                                         ,filter=FilterFun,recName=RecName},
+                    handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkip}); 
+                false ->
+                    try 
+                        {TailSpec,FilterFun,FetchStartResult} = case imem_meta:is_virtual_table(Table) of 
+                            false ->    
+                                {SS,TS,FF} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
+                                % ?LogDebug("Scan Spec after meta bind:~n~p", [SS]),
+                                % ?LogDebug("Tail Spec after meta bind:~n~p", [TS]),
+                                % ?LogDebug("Filter Fun after meta bind:~n~p", [FF]),
+                                {TS,FF,if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SS, BlockSize, Opts])};
+                            true ->     
+                                {[{_,[SG],_}],TS,FF} = imem_sql_expr:bind_virtual(?MainIdx,{MR},MainSpec),
+                                % ?LogDebug("Virtual Tail Spec after meta bind:~n~p", [TS]),
+                                % ?LogDebug("Virtual Filter Fun after meta bind:~n~p", [FF]),
+                                % ?LogDebug("Virtual Scan SGuard after meta bind:~n~p", [SG]),
+                                SGuard = imem_sql_expr:to_guard(SG),
+                                % ?LogDebug("Virtual Scan SGuard after meta bind:~n~p", [SGuard]),
+                                Rows = [{RecName,I,K} ||{I,K} <- generate_virtual_data(RecName,{MR},SGuard,RowNum)],
+                                % ?LogDebug("Generated virtual scan data ~p~n~p", [Table,Rows]),
+                                {TS,FF,if_call_mfa(IsSec, fetch_start_virtual, [SKey, self(), Table, Rows, BlockSize, RowNum, Opts])}
+                        end,
+                        get_select_permissions(IsSec,SKey, [Table|JTabs]),
+                        % ?LogDebug("Select permission granted for : ~p", [Table]),
+                        case FetchStartResult of
+                            TransPid when is_pid(TransPid) ->
+                                MonitorRef = erlang:monitor(process, TransPid),
+                                TransPid ! next,
+                                % ?LogDebug("fetch opts ~p~n", [Opts]),
+                                RecName = try imem_meta:table_record_name(Table)
+                                          catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
+                                          end,
+                                FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
+                                                      ,metarec=MR,blockSize=BlockSize
+                                                      ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
+                                                      ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
+                                                      ,recName=RecName},
+                                {noreply, State#state{reply=Sock,fetchCtx=FetchStart}}; 
+                            Error ->
+                                send_reply_to_client(Sock, {error, {"Cannot spawn async fetch process", Error}}),
+                                FetchAborted1 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                                {noreply, State#state{reply=Sock,fetchCtx=FetchAborted1}}
+                        end
+                    catch
+                        _:Err ->
+                            send_reply_to_client(Sock, {error, Err}),
+                            FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
+                            {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
+                    end
             end;
         {true,_Pid} ->          %% skip ongoing fetch (and possibly go to tail_mode)
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -387,7 +400,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -526,8 +539,8 @@ handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
-    % ?Info("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
-    % ?Info("received rows~n~p~n", [Rows0]),
+    % ?LogDebug("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
+    % ?LogDebug("received rows~n~p~n", [Rows0]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
@@ -670,9 +683,14 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 get_select_permissions(false, _, _) -> true;
 get_select_permissions(true, _, []) -> true;
 get_select_permissions(true, SKey, [Table|JTabs]) ->
-    case imem_sec:have_table_permission(SKey, Table, select) of
-        false ->   ?SecurityException({"Select unauthorized", {Table,SKey}});
-        true ->    get_select_permissions(true, SKey, JTabs)
+    case imem_meta:is_virtual_table(Table) of
+        true ->     
+            get_select_permissions(true, SKey, JTabs);
+        false ->
+            case imem_sec:have_table_permission(SKey, Table, select) of
+                false ->   ?SecurityException({"Select unauthorized", {Table,SKey}});
+                true ->    get_select_permissions(true, SKey, JTabs)
+        end
     end.
 
 unsubscribe(Stmt) ->
@@ -739,16 +757,17 @@ join_row(Recs0, BlockSize, Ti, [{_S,JoinTable}|Tabs], [JS|JSpecs]) ->
     join_row(lists:flatten(Recs1), BlockSize, Ti+1, Tabs, JSpecs).
 
 join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
-    % ?Info("Join ~p table ~p~n", [Ti,Table]),
-    % ?Info("Rec used for join bind~n~p~n", [Rec]),
+    % ?LogDebug("Join ~p table ~p~n", [Ti,Table]),
+    % ?LogDebug("Rec used for join bind~n~p~n", [Rec]),
     {SSpec,_TailSpec,FilterFun} = imem_sql_expr:bind_scan(Ti,Rec,JoinSpec),
-    % ?Info("SSpec for join~n~p~n", [SSpec]),
-    % ?Info("TailSpec for join~n~p~n", [_TailSpec]),
-    % ?Info("FilterFun for join~n~p~n", [FilterFun]),
+    % ?LogDebug("SSpec for join~n~p~n", [SSpec]),
+    % ?LogDebug("TailSpec for join~n~p~n", [_TailSpec]),
+    % ?LogDebug("FilterFun for join~n~p~n", [FilterFun]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
     case imem_meta:select(Table, SSpec, MaxSize) of
         {[], true} ->   [];
         {L, true} ->
+            % ?LogDebug("scan result for join~n~p~n", [L]),
             case FilterFun of
                 true ->     [setelement(Ti, Rec, I) || I <- L];
                 false ->    [];
@@ -760,55 +779,72 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     end.
 
 join_virtual(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
-    % ?Info("Virtual join scan spec unbound (~p)~n~p~n", [Ti,SSpec0]),
     {SSpec1,_TailSpec,FilterFun} = imem_sql_expr:bind_virtual(Ti,Rec,JoinSpec),
     [{_,[SGuard1],_}] = SSpec1,
-    ?Info("Virtual join table (~p) ~p~n", [Ti,Table]),
-    ?Info("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
-    ?Info("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
+    % ?LogDebug("Virtual join table (~p) ~p~n", [Ti,Table]),
+    % ?LogDebug("Virtual join spec (~p) ~p~n", [Ti,JoinSpec]),
+    % ?LogDebug("Rec used for join bind (~p)~n~p~n", [Ti,Rec]),
+    % ?LogDebug("Virtual join scan spec (~p)~n~p~n", [Ti,SSpec1]),
+    % ?LogDebug("Virtual join guard bound (~p)~n~p~n", [Ti,SGuard1]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
-    Recs = case SGuard1 of
-        false ->
-            [];
-        true ->
-            ?UnimplementedException({"Unsupported virtual join filter guard", true}); 
-        {is_member,Tag, '$_'} when is_atom(Tag);is_record(Tag,bind) ->
-            Items = element(?MainIdx,Rec),
-            ?Info("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
-            Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {is_member,Tag, Items} when is_atom(Tag);is_record(Tag,bind) ->
-            ?Info("generate_virtual table ~p from~n~p~n", [Table,Items]),
-            Virt = generate_virtual(Table,Items,MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {'and',{is_member,Tag, '$_'},_} when is_atom(Tag);is_record(Tag,bind) ->
-            Items = element(?MainIdx,Rec),
-            ?Info("generate_virtual table ~p from ~p~n~p~n", [Table,'$_',Items]),
-            Virt = generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        {'and',{is_member,Tag, Items},_} when is_atom(Tag);is_record(Tag,bind) ->
-            ?Info("generate_virtual table ~p from~n~p~n", [Table,Items]),
-            Virt = generate_virtual(Table,Items,MaxSize),
-            ?Info("Generated virtual table ~p~n~p~n", [Table,Virt]),
-            [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt];
-        BadFG ->
-            ?UnimplementedException({"Unsupported virtual join bound filter guard",BadFG})
-    end,
+    Virt = generate_virtual_data(Table,Rec,imem_sql_expr:to_guard(SGuard1),MaxSize),
+    % ?LogDebug("Generated virtual data ~p~n~p", [Table,Virt]),
+    Recs = [setelement(Ti, Rec, {Table,I,K}) || {I,K} <- Virt],
+    % ?LogDebug("Generated records ~p~n~p", [Table,Recs]),
     case FilterFun of
         true ->     Recs;
         false ->    [];
         Filter ->   lists:filter(Filter,Recs)
     end.
 
-generate_virtual(Table, {list,Items}, MaxSize)  ->
+generate_virtual_data(_Table,_Rec,false,_MaxSize) -> 
+    [];
+generate_virtual_data(boolean,_Rec,true,_MaxSize) ->
+    [{false,<<"false">>},{true,<<"true">>}];
+generate_virtual_data(_Table,_Rec,true,_MaxSize) ->
+    ?ClientError({"Invalid virtual filter guard", true});
+generate_virtual_data(Table,Rec,{is_member,Tag,'$_'},MaxSize) when is_atom(Tag) ->
+    Items = element(?MainIdx,Rec),
+    generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
+generate_virtual_data(Table,Rec,{'and',{is_member,Tag,'$_'},_},MaxSize) when is_atom(Tag) ->
+    Items = element(?MainIdx,Rec), 
+    generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
+generate_virtual_data(Table,Rec,{'and',{'and',{is_member,Tag,'$_'},_},_},MaxSize) when is_atom(Tag) ->
+    Items = element(?MainIdx,Rec), 
+    generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
+generate_virtual_data(Table,_Rec,{is_member,Tag, Items},MaxSize) when is_atom(Tag) ->
+    generate_virtual(Table,Items,MaxSize);
+generate_virtual_data(Table,_Rec,{'and',{is_member,Tag, Items},_},MaxSize) when is_atom(Tag) ->
+    generate_virtual(Table,Items,MaxSize);
+generate_virtual_data(tuple,_Rec,{'==',Tag,{const,Val}},MaxSize) when is_atom(Tag),is_tuple(Val) ->
+    generate_virtual(tuple,{const,Val},MaxSize);
+generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag) ->
+    generate_virtual(Table,Val,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min,Max,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min+1,Max,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min,Max-1,MaxSize);
+generate_virtual_data(integer,_Rec,{'and',{'>',Tag,Min},{'<',Tag,Max}},MaxSize) ->
+    generate_virtual_integers(Min+1,Max-1,MaxSize);
+generate_virtual_data(integer,_Rec,SGuard,_MaxSize) ->
+    ?UnimplementedException({"Unsupported virtual integer bound filter guard",SGuard});
+generate_virtual_data(Table,_Rec,SGuard,_MaxSize) ->
+    ?UnimplementedException({"Unsupported virtual join bound filter guard",{Table,SGuard}}).
+
+generate_virtual_integers(Min,Max,MaxSize) when (Max>=Min),(MaxSize>Max-Min) ->
+    [{I,imem_datatype:integer_to_io(I)} || I <- lists:seq(Min,Max)];
+generate_virtual_integers(Min,Max,_MaxSize) ->
+    ?UnimplementedException({"Unsupported virtual integer table size", Max-Min+1}).
+
+generate_virtual(list=Table, {list,Items}, MaxSize)  ->
     generate_virtual(Table, Items, MaxSize);
-generate_virtual(Table, {const,Items}, MaxSize) when is_tuple(Items) ->
-    generate_virtual(Table, tuple_to_list(Items), MaxSize);
-generate_virtual(Table, Items, MaxSize) when is_tuple(Items) ->
-    generate_virtual(Table, tuple_to_list(Items), MaxSize);
+% generate_virtual(Table, {const,Items}, MaxSize) when is_tuple(Items) ->
+%     generate_virtual(Table, tuple_to_list(Items), MaxSize);
+
+generate_virtual(tuple, {const,I}, _) when is_tuple(I) ->
+    [{I,imem_datatype:term_to_io(I)}];
 
 generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
@@ -914,9 +950,9 @@ generate_virtual(timestamp, _, _) -> [];
 
 generate_virtual(tuple=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
-    Pred = fun(X) -> is_tuple(X) end,
-    [{I,imem_datatype:tuple_to_io(I)} || I <- lists:filter(Pred,Items)];
-generate_virtual(tuple, I, _) when is_tuple(I)-> [{I,imem_datatype:tuple_to_io(I)}];
+    Pred = fun({const,X}) -> is_tuple(X); (_) -> false end,
+    [{I,imem_datatype:term_to_io(I)} || {const,I} <- lists:filter(Pred,Items)];
+generate_virtual(tuple, I, _) when is_tuple(I)-> [{I,imem_datatype:term_to_io(I)}];
 generate_virtual(tuple, _, _) -> [];
 
 generate_virtual(pid=Table, Items, MaxSize) when is_list(Items) ->
@@ -1247,41 +1283,58 @@ if_call_mfa(IsSec,Fun,Args) ->
 setup() -> ?imem_test_setup.
 
 teardown(_SKey) ->    
-    ?LogDebug("test teardown....~n",[]),
+    % ?LogDebug("test teardown....~n",[]),
     ?imem_test_teardown.
 
 
-db_part1_test_() ->
+db_part11_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part1(false) end,
-       fun(_) -> test_with_or_without_sec_part1(true) end
-      ]}
+     {with,[fun(_) -> test_with_or_without_sec_part1(false) end]}
     }.
 
-db_part2_test_() ->
+db_part12_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     {with,inorder,
-      [fun(_) -> test_with_or_without_sec_part2(false) end,
-       fun(_) -> test_with_or_without_sec_part2(true) end
-      ]}
+     {with,[fun(_) -> test_with_or_without_sec_part2(false) end]}
+    }.
+
+db_part13_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,[fun(_) -> test_with_or_without_sec_part3(false) end]}
+    }.
+
+db_part21_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,[fun(_) -> test_with_or_without_sec_part1(true) end]}
+    }.
+
+db_part22_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,[fun(_) -> test_with_or_without_sec_part2(true) end]}
+    }.
+
+db_part23_test_() ->
+    {setup,
+     fun setup/0,
+     fun teardown/1,
+     {with,[fun(_) -> test_with_or_without_sec_part3(true) end]}
     }.
 
 test_with_or_without_sec_part1(IsSec) ->
     try
-        ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec_part1, IsSec]),
 
-        ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p_part1 ----Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
-
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1306,11 +1359,11 @@ test_with_or_without_sec_part1(IsSec) ->
             , 0, [{schema,imem}], IsSec)),
 
         Sql0a = "insert into fun_test (col0) values (12)",  
-        ?LogDebug("Sql0a:~n~s~n", [Sql0a]),
+        % ?LogDebug("Sql0a:~n~s~n", [Sql0a]),
         ?assertEqual([{fun_test,12,144}], imem_sql:exec(SKey, Sql0a, 0, [{schema,imem}], IsSec)),
 
         TT0aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, fun_test])),
-        ?LogDebug("fun_test~n~p~n", [TT0aRows]),
+        % ?LogDebug("fun_test~n~p~n", [TT0aRows]),
         [{fun_test,Col0a,Col1a}] = TT0aRows,
         ?assertEqual(Col0a*Col0a, Col1a),
 
@@ -1332,11 +1385,11 @@ test_with_or_without_sec_part1(IsSec) ->
 
         ?assertEqual(ok, fetch_close(SKey,SR00,IsSec)),
         ?assertEqual(ok, fetch_async(SKey,SR00,[],IsSec)),
-        [{<<"13">>,<<"169">>},{<<"15">>,<<"225">>}] = receive_tuples(SR00,true),
+        [{<<"13">>,<<"169">>},{<<"15">>,<<"225">>}] = lists:sort(receive_tuples(SR00,true)),
         ?assertEqual(ok, close(SKey, SR00)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table fun_test;", 0, [{schema,imem}], IsSec)),
-        ?LogDebug("dropped table ~p~n", [fun_test]),
+        % ?LogDebug("dropped table ~p~n", [fun_test]),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "
             create table tuple_test (
@@ -1356,7 +1409,7 @@ test_with_or_without_sec_part1(IsSec) ->
                 ,'{key1,{key1a,key1b}}'
                 ,1 
             );",  
-        ?LogDebug("Sql1a:~n~s~n", [Sql1a]),
+        % ?LogDebug("Sql1a:~n~s~n", [Sql1a]),
         ?assertEqual( [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}]
                     , imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)
                     ),
@@ -1370,7 +1423,7 @@ test_with_or_without_sec_part1(IsSec) ->
                 ,'{a,''B2''}'
                 ,2 
             );",  
-        ?LogDebug("Sql1b:~n~s~n", [Sql1b]),
+        % ?LogDebug("Sql1b:~n~s~n", [Sql1b]),
         ?assertEqual( [{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}]
                     , imem_sql:exec(SKey, Sql1b, 0, [{schema,imem}], IsSec)
                     ),
@@ -1384,13 +1437,13 @@ test_with_or_without_sec_part1(IsSec) ->
                 ,'undefined'
                 ,3 
             );",  
-        ?LogDebug("Sql1c:~n~s~n", [Sql1c]),
+        % ?LogDebug("Sql1c:~n~s~n", [Sql1c]),
         ?assertEqual( [{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}]
                     , imem_sql:exec(SKey, Sql1c, 0, [{schema,imem}], IsSec)
                     ),
 
         TT1Rows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?LogDebug("original table~n~p~n", [TT1Rows]),
+        % ?LogDebug("original table~n~p~n", [TT1Rows]),
         TT1RowsExpected=
         [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}
         ,{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}
@@ -1430,7 +1483,7 @@ test_with_or_without_sec_part1(IsSec) ->
         update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
         TT1aRows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
         ?assertNotEqual(TT1Rows,TT1aRows),
-        ?LogDebug("changed table~n~p~n", [TT1aRows]),
+        % ?LogDebug("changed table~n~p~n", [TT1aRows]),
         ?assert(lists:member(O1X,TT1aRows)),
         ?assert(lists:member(O2X,TT1aRows)),
         ?assert(lists:member(O3,TT1aRows)),
@@ -1441,7 +1494,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)),
         update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
         TT1bRows = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?LogDebug("TT1bRows~n~p~n", [TT1bRows]),
+        % ?LogDebug("TT1bRows~n~p~n", [TT1bRows]),
         ?assert(lists:member(O4X,TT1bRows)),
 
         TT2a = exec(SKey,tt2, 4, IsSec, "
@@ -1464,7 +1517,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, TT2a, IsSec, TT2aChange)),
         update_cursor_execute(SKey, TT2a, IsSec, optimistic),        
         TT2aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),
-        ?LogDebug("appended table~n~p~n", [TT2aRows1]),
+        % ?LogDebug("appended table~n~p~n", [TT2aRows1]),
         ?assert(lists:member(O5X,TT2aRows1)),
         ?assert(lists:member(O6X,TT2aRows1)),
 
@@ -1472,9 +1525,9 @@ test_with_or_without_sec_part1(IsSec) ->
         % ?assertEqual(ok, close(SKey, TT2a)),
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table tuple_test;", 0, [{schema,imem}], IsSec)),
-        ?LogDebug("dropped table ~p~n", [tuple_test]),
+        % ?LogDebug("dropped table ~p~n", [tuple_test]),
 
-    %% test table def
+        %% test table def
 
         ?assertEqual(ok, imem_sql:exec(SKey, "
             create table def (
@@ -1486,9 +1539,9 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assertEqual(ok, insert_range(SKey, 15, def, imem, IsSec)),
 
         TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
-        ?LogDebug("Meta table~n~p~n", [Meta]),
-        ?LogDebug("original table~n~p~n", [TableRows1]),
+        [_Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
+        % ?LogDebug("Meta table~n~p~n", [_Meta]),
+        % ?LogDebug("original table~n~p~n", [TableRows1]),
 
         SR0 = exec(SKey,query0, 15, IsSec, "select * from def;"),
         try
@@ -1539,7 +1592,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)),
         update_cursor_execute(SKey, SR1, IsSec, optimistic),        
         TableRows2 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        ?LogDebug("changed table~n~p~n", [TableRows2]),
+        % ?LogDebug("changed table~n~p~n", [TableRows2]),
         ?assert(TableRows1 /= TableRows2),
         ?assertEqual(length(TableRows1), length(TableRows2)),
         ?assertEqual(true, lists:member({def,<<"112">>,12},TableRows2)),
@@ -1571,7 +1624,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assertEqual(ok, update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
         ChangedKeys3 = update_cursor_execute(SKey, SR1, IsSec, optimistic),        
         TableRows3 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        ?LogDebug("changed table~n~p~n", [TableRows3]),
+        % ?LogDebug("changed table~n~p~n", [TableRows3]),
         [?assert(lists:member(R,TableRows3)) || R <- ExpectedRows3],
         [?assertNot(lists:member(R,TableRows3)) || R <- RemovedRows3],
         ?assertEqual(ExpectedKeys3,lists:sort([ {I,setelement(?MetaIdx,C,?EmptyMR)} || {I,C} <- ChangedKeys3])),
@@ -1636,7 +1689,38 @@ test_with_or_without_sec_part1(IsSec) ->
             ?assertEqual([], receive_raw())        
         after
             ?assertEqual(ok, close(SKey, SR3))
+        end
+
+    catch
+        Class:Reason ->  
+            timer:sleep(100),
+            ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ?assert( true == "all tests completed")
+    end,
+    ok. 
+
+
+test_with_or_without_sec_part2(IsSec) ->
+    try
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec_part2, IsSec]),
+
+        ClEr = 'ClientError',
+
+        ?assertEqual([],receive_raw()),
+
+        SKey=case IsSec of
+            true ->     ?imem_test_admin_login();
+            false ->    none
         end,
+
+        catch imem_meta:drop_table(def),
+
+        ?assertEqual(ok, imem_sql:exec(SKey, "
+            create table def (
+                col1 varchar2(10), 
+                col2 integer
+            );"
+            , 0, [{schema,imem}], IsSec)),
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
         ?assertEqual(0,imem_meta:table_size(def)),
@@ -1708,9 +1792,9 @@ test_with_or_without_sec_part1(IsSec) ->
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
             List4a = receive_tuples(SR4,false),
             ?assertEqual(5, length(List4a)),
-            ?LogDebug("trying to insert one row before fetch complete~n", []),
+            % ?LogDebug("trying to insert one row before fetch complete~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
-            ?LogDebug("completed insert one row before fetch complete~n", []),
+            % ?LogDebug("completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),
             List4b = receive_tuples(SR4,true),
             ?assertEqual(5, length(List4b)),
@@ -1722,10 +1806,10 @@ test_with_or_without_sec_part1(IsSec) ->
             ?assertEqual(11,imem_meta:table_size(def)),
             List4d = receive_tuples(SR4,tail),
             ?assertEqual(12, length(List4d)),
-            ?LogDebug("12 tail rows received in single packets~n", []),
+            % ?LogDebug("12 tail rows received in single packets~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
             Result4e = receive_raw(),
-            ?LogDebug("reject received ~n~p~n", [Result4e]),
+            % ?LogDebug("reject received ~n~p~n", [Result4e]),
             [{StmtRef4, {error, {ClEr,Reason4e}}}] = Result4e, 
             ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason4e),
             ?assertEqual(StmtRef4,SR4#stmtResult.stmtRef),
@@ -1744,7 +1828,7 @@ test_with_or_without_sec_part1(IsSec) ->
             List5a = receive_tuples(SR5,true),
             ?assert(lists:member({<<"imem.def">>},List5a)),
             ?assert(lists:member({<<"imem.ddTable">>},List5a)),
-            ?LogDebug("first read success (async)~n", []),
+            % ?LogDebug("first read success (async)~n", []),
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             [{StmtRef5, {error, Reason5a}}] = receive_raw(),
             ?assertEqual({'ClientError',
@@ -1758,7 +1842,7 @@ test_with_or_without_sec_part1(IsSec) ->
             D21 = List5b--List5a,
             ?assert( (D12==[]) orelse (list:usort([imem_meta:is_local_time_partitioned_table(N) || {N} <- D12]) == [true]) ),
             ?assert( (D21==[]) orelse (list:usort([imem_meta:is_local_time_partitioned_table(N) || {N} <- D21]) == [true]) ),
-            ?LogDebug("second read success (async)~n", []),
+            % ?LogDebug("second read success (async)~n", []),
             ?assertException(throw,
                 {'ClientError',"Fetch is completed, execute fetch_close before fetching from start again"},
                 fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec)
@@ -1767,7 +1851,8 @@ test_with_or_without_sec_part1(IsSec) ->
             List5c = fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec),
             ?assertEqual(length(List5b), length(List5c)),
             ?assertEqual(lists:sort(List5b), lists:sort(result_tuples(List5c,SR5#stmtResult.rowFun))),
-            ?LogDebug("third read success (sync)~n", [])
+            % ?LogDebug("third read success (sync)~n", []),
+            ok
         after
             ?assertEqual(ok, close(SKey, SR4))
         end,
@@ -1838,23 +1923,18 @@ test_with_or_without_sec_part1(IsSec) ->
         end
     catch
         Class:Reason ->  
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             ?assert( true == "all tests completed")
     end,
     ok. 
 
-test_with_or_without_sec_part2(IsSec) ->
+test_with_or_without_sec_part3(IsSec) ->
     try
-        ClEr = 'ClientError',
-        % SeEx = 'SecurityException',
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec_part3, IsSec]),
 
-        ?LogDebug("----------------------------------~n"),
-        ?LogDebug("---TEST--- ~p_part2 ----Security ~p", [?MODULE, IsSec]),
-        ?LogDebug("----------------------------------~n"),
-
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -1876,10 +1956,10 @@ test_with_or_without_sec_part2(IsSec) ->
 
         ?assertEqual(ok, insert_range(SKey, 11, def, imem, IsSec)),
 
-        TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
-        [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
-        ?LogDebug("Meta table~n~p~n", [Meta]),
-        ?LogDebug("original table~n~p~n", [TableRows1]),
+        _TableRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, def])),
+        % ?LogDebug("original table~n~p~n", [_TableRows1]),
+        [_Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
+        % ?LogDebug("Meta table~n~p~n", [_Meta]),
         
         SR8 = exec(SKey,query8, 100, IsSec, "
             select 
@@ -1898,7 +1978,7 @@ test_with_or_without_sec_part2(IsSec) ->
             List8a = receive_recs(SR8,true),
             ?assertEqual([{<<"11">>,<<"11">>},{<<"10">>,<<"10">>},{<<"3">>,<<"3">>},{<<"2">>,<<"2">>},{<<"1">>,<<"1">>}], result_tuples_sort(List8a,SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
             Result8a = filter_and_sort(SKey, SR8, {'and',[]}, [{2,2,<<"asc">>}], [], IsSec),
-            ?LogDebug("Result8a ~n~p~n", [Result8a]),
+            % ?LogDebug("Result8a ~n~p~n", [Result8a]),
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
@@ -1907,19 +1987,22 @@ test_with_or_without_sec_part2(IsSec) ->
 
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"$in$">>,<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
-            ?LogDebug("Sql8c ~n~p~n", [Sql8c]),
+            % ?LogDebug("Sql8c ~n~p~n", [Sql8c]),
+            %% Expected8c = "select col1 as c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             Expected8c = "select col1 as c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
             {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8d)),
-            ?LogDebug("Sql8d ~n~p~n", [Sql8d]),
+            % ?LogDebug("Sql8d ~n~p~n", [Sql8d]),
+            %% Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8d, string:strip(binary_to_list(Sql8d))),
 
             {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]},{2,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
-            ?LogDebug("Sql8e ~n~p~n", [Sql8e]),
+            % ?LogDebug("Sql8e ~n~p~n", [Sql8e]),
+            %% Expected8e = "select col2, col1 as c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             Expected8e = "select col2, col1 as c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8e, string:strip(binary_to_list(Sql8e))),
 
@@ -1935,7 +2018,7 @@ test_with_or_without_sec_part2(IsSec) ->
         % ?LogDebug("SortSpec9 ~p~n", [SR9#stmtResult.sortSpec]),
         try
             Result9 = filter_and_sort(SKey, SR9, {undefined,[]}, [], [1,3,2], IsSec),
-            ?LogDebug("Result9 ~n~p~n", [Result9]),
+            % ?LogDebug("Result9 ~n~p~n", [Result9]),
             {ok, Sql9, _SF9} = Result9,
             Expected9 = "select qname, opts, columns from ddTable",
             ?assertEqual(Expected9, string:strip(binary_to_list(Sql9))),
@@ -1950,7 +2033,7 @@ test_with_or_without_sec_part2(IsSec) ->
             from def a, def b 
             where a.col1 = b.col1;"
         ),
-        ?LogDebug("StmtCols9a ~n~p~n", [SR9a#stmtResult.stmtCols]),
+        % ?LogDebug("StmtCols9a ~n~p~n", [SR9a#stmtResult.stmtCols]),
         try
             Result9a = filter_and_sort(SKey, SR9a, {undefined,[]}, [{1,<<"asc">>},{3,<<"desc">>}], [1,3,2], IsSec),
             % ?LogDebug("Result9a ~p~n", [Result9a]),
@@ -1981,7 +2064,7 @@ test_with_or_without_sec_part2(IsSec) ->
         ),
         ?assertEqual(ok, fetch_async(SKey,SR10,[],IsSec)),
         List10a = receive_tuples(SR10,true),
-        ?LogDebug("Result10a ~p~n", [List10a]),
+        % ?LogDebug("Result10a ~p~n", [List10a]),
         ?assertEqual(11, length(List10a)),
 
         ChangeList10 = [
@@ -1989,7 +2072,7 @@ test_with_or_without_sec_part2(IsSec) ->
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, SR10, IsSec, ChangeList10)),
         Result10b = update_cursor_execute(SKey, SR10, IsSec, optimistic),        
-        ?LogDebug("Result10b ~p~n", [Result10b]),
+        % ?LogDebug("Result10b ~p~n", [Result10b]),
         ?assertMatch([{1,{_,{def,<<"X">>,5},{def,<<"X">>,5}}}],Result10b), 
 
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema,imem}], IsSec)),
@@ -2001,7 +2084,7 @@ test_with_or_without_sec_part2(IsSec) ->
 
     catch
         Class:Reason ->  
-            timer:sleep(1000),
+            timer:sleep(100),
             ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             ?assert( true == "all tests completed")
     end,
@@ -2041,9 +2124,11 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                     RT = result_tuples(List,RowFun),
                     if 
                         length(RT) =< 10 ->
-                            ?LogDebug("Received:~n~p~n", [RT]);
+                            % ?LogDebug("Received:~n~p~n", [RT])
+                            ok;
                         true ->
-                            ?LogDebug("Received: ~p items:~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                            % ?LogDebug("Received: ~p items:~n~p~n~p~n~p~n", [length(RT),hd(RT), '...', lists:last(RT)])
+                            ok
                     end,            
                     RT;
                 StmtRefs ->
@@ -2071,8 +2156,8 @@ insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
 exec(SKey,Id, BS, IsSec, Sql) ->
     exec(SKey,Id, BS, IsSec, [], Sql).
 
-exec(SKey,Id, BS, IsSec, Opts, Sql) ->
-    ?LogDebug("~p : ~s~n", [Id,lists:flatten(Sql)]),
+exec(SKey, _Id, BS, IsSec, Opts, Sql) ->
+    % ?LogDebug("~p : ~s~n", [_Id,lists:flatten(Sql)]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, Opts, IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResult{stmtCols=StmtCols} = StmtResult,

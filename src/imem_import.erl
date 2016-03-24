@@ -54,17 +54,23 @@ teardown(_) ->
     % catch imem_meta:drop_table(import_test_1), 
     ?imem_test_teardown.
 
-db_test_() ->
+db1_test_() ->
     {
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-                 fun test_without_sec/1
-               , fun test_with_sec/1
-        ]}
+        {with, [ fun test_without_sec/1]}
     }.
     
+db2_test_() ->
+    {
+        setup,
+        fun setup/0,
+        fun teardown/1,
+        {with, [ fun test_with_sec/1
+        ]}
+    }.
+
 test_without_sec(_) -> 
     test_with_or_without_sec(false).
 
@@ -73,13 +79,10 @@ test_with_sec(_) ->
 
 test_with_or_without_sec(IsSec) ->
     try
-        _ClEr = 'ClientError',
-        %% SyEx = 'SystemException',    %% difficult to test
-        % SeEx = 'SecurityException',
-        ?LogDebug("---TEST--- ~p ----Security ~p ~n", [?MODULE, IsSec]),
+        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
 
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
@@ -88,14 +91,14 @@ test_with_or_without_sec(IsSec) ->
             _ ->    ok
         end,
 
-        ?LogDebug("~p:test_mnesia~n", [?MODULE]),
+        % ?LogDebug("~p:test_mnesia~n", [?MODULE]),
 
         ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?LogDebug("success ~p~n", [schema]),
+        % ?LogDebug("success ~p~n", [schema]),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        ?LogDebug("success ~p~n", [data_nodes]),
+        % ?LogDebug("success ~p~n", [data_nodes]),
 
-        ?LogDebug("~p:import from string~n", [?MODULE]),
+        % ?LogDebug("~p:import from string~n", [?MODULE]),
 
         Imp1 = "
         table_name\n
@@ -118,7 +121,7 @@ test_with_or_without_sec(IsSec) ->
         % ?assertEqual(ok, imem_meta:drop_table(import_test_3)),
         % ?assertEqual(ok, imem_meta:drop_table(import_test_2)),
         % ?assertEqual(ok, imem_meta:drop_table(import_test_1)),
-        ?LogDebug("success ~p~n", [drop_tables]),
+        % ?LogDebug("success ~p~n", [drop_tables]),
 
         case IsSec of
             true -> ?imem_logout(SKey);

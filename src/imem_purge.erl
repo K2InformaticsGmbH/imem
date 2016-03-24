@@ -5,9 +5,9 @@
 
 %% HARD CODED CONFIGURATIONS
 
--define(GET_PURGE_CYCLE_WAIT,?GET_CONFIG(purgeCycleWait,[],10000)).     %% 10000 = 10 sec
--define(GET_PURGE_ITEM_WAIT,?GET_CONFIG(purgeItemWait,[],10)).          %% 10 = 10 msec
--define(GET_PURGE_SCRIPT,?GET_CONFIG(purgeScript,[],false)).
+-define(GET_PURGE_CYCLE_WAIT,?GET_CONFIG(purgeCycleWait,[],10000,"Wait time in msec between table purge cycles.")).     %% 10000 = 10 sec
+-define(GET_PURGE_ITEM_WAIT,?GET_CONFIG(purgeItemWait,[],10,"Wait time in msec between individual table purges within a cycle.")).          %% 10 = 10 msec
+-define(GET_PURGE_SCRIPT,?GET_CONFIG(purgeScript,[],false,"Do we want to use a special purge function to override the standard behaviour?")).
 -define(GET_PURGE_SCRIPT_FUN,?GET_CONFIG(purgeScriptFun,[],
 <<"fun (PartTables) ->
 	MAX_TABLE_COUNT_PERCENT = 90,
@@ -20,7 +20,7 @@
 			 lists:nth(3, imem_meta:parse_table_name(T)),
              T}
 			|| T <- PartTables]),
-    {Os, FreeMemory, TotalMemory} = imem_if:get_os_memory(),
+    {Os, FreeMemory, TotalMemory} = imem:get_os_memory(),
 	MemFreePerCent = FreeMemory / TotalMemory * 100,
 	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
 	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
@@ -88,7 +88,7 @@
         end
 	end
 end
-">>)).
+">>,"Function used for tailoring the purge strategy to the system's needs.")).
 
 -behavior(gen_server).
 
@@ -182,7 +182,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
 handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#state{purgeList=[Tab|Rest]}) ->
     % process one purge candidate
     ?Debug("Purge try table ~p~n",[Tab]), 
-    case imem_if:read(ddTable,{imem_meta:schema(), Tab}) of
+    case imem_if_mnesia:read(ddTable,{imem_meta:schema(), Tab}) of
         [] ->   
             ?Debug("Table deleted before it could be purged ~p~n",[Tab]); 
         [#ddTable{opts=Opts}] ->

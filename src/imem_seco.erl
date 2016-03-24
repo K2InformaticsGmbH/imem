@@ -2,13 +2,15 @@
 
 -include("imem_seco.hrl").
 
--define(GET_PASSWORD_LIFE_TIME(__AccountId), ?GET_CONFIG(passwordLifeTime,[__AccountId],100)).
+-define(GET_PASSWORD_LIFE_TIME(__AccountId), ?GET_CONFIG(passwordLifeTime,[__AccountId],100,"Password expiry time in days.")).
 -define(SALT_BYTES, 32).
 -define(PWD_HASH, scrypt).                       %% target hash: pwdmd5,md4,md5,sha512,scrypt 
 -define(PWD_HASH_LIST, [scrypt,sha512,pwdmd5]).  %% allowed hash types
 -define(REQUIRE_PWDMD5, <<"fun(Factors,NetCtx) -> [pwdmd5] -- Factors end">>).  % access | smsott | saml | pwdmd5
 -define(AUTH_SMS_TOKEN_RETRY_DELAY, 1000).
 -define(FULL_ACCESS, <<"fun(NetCtx) -> true end">>).
+-define(PASSWORD_LOCK_TIME, ?GET_CONFIG(passwordLockTime,[],900,"Password lock time in seconds after reaching the password lock count.")).
+-define(PASSWORD_LOCK_COUNT, ?GET_CONFIG(passwordLockCount,[],5,"Maximum number of wrong passwords tolerated before temporarily locking the account.")).
 
 -behavior(gen_server).
 
@@ -53,7 +55,9 @@
         ]).
 
 -export([ has_role/3
+        , has_role/2
         , has_permission/3
+        , has_permission/2
         ]).
 
 -export([ have_role/2
@@ -118,7 +122,7 @@ init(_Args) ->
                     AccountDyn = #ddAccountDyn{id=system},
                     if_write(none, ddAccount, Account),                    
                     if_write(none, ddAccountDyn, AccountDyn),                    
-                    if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables]});
+                    if_write(none, ddRole, #ddRole{id=system,roles=[],permissions=[manage_system, manage_accounts, manage_system_tables, manage_user_tables,{dderl,con,local,use}]});
             _ ->    ok
         end,
         % imem_meta:fail({"Fail in imem_seco:init on purpose"}),        
@@ -205,7 +209,7 @@ if_dirty_index_read(_SeKey, Table, SecKey, Index) ->
     imem_meta:dirty_index_read(Table, SecKey, Index).
 
 if_select_account_by_name(_SeKey, <<"system">>) -> 
-    {if_read(_SeKey, ddAccount, system),true};
+    {if_read(ddAccount, system),true};
 if_select_account_by_name(_SeKey, Name) -> 
     {if_dirty_index_read(_SeKey,ddAccount,Name, #ddAccount.name),true}.
 
@@ -220,7 +224,7 @@ if_truncate_table(_SKey, Table) ->
 if_write(_SKey, Table, Record) -> 
     imem_meta:write(Table, Record).
 
-if_read(_SKey, Table, Key) -> 
+if_read(Table, Key) -> 
     imem_meta:read(Table, Key).
 
 if_delete(_SKey, Table, RowId) ->
@@ -231,27 +235,27 @@ if_missing_role(RoleId) when is_atom(RoleId) ->
     false;
 if_missing_role(_) -> false.
 
-if_has_role(_SKey, _RootRoleId, _RootRoleId) ->
+has_role(_RootRoleId, _RootRoleId) ->
     true;
-if_has_role(SKey, RootRoleId, RoleId) ->
-    case if_read(SKey, ddRole, RootRoleId) of
+has_role(RootRoleId, RoleId) ->
+    case if_read(ddRole, RootRoleId) of
         [#ddRole{roles=[]}] ->          false;
-        [#ddRole{roles=ChildRoles}] ->  if_has_child_role(SKey,  ChildRoles, RoleId);
+        [#ddRole{roles=ChildRoles}] ->  if_has_child_role(ChildRoles, RoleId);
         [] ->                           if_missing_role(RootRoleId)
     end.
 
-if_has_child_role(_SKey, [], _RoleId) -> false;
-if_has_child_role(SKey, [RootRoleId|OtherRoles], RoleId) ->
-    case if_has_role(SKey, RootRoleId, RoleId) of
+if_has_child_role([], _RoleId) -> false;
+if_has_child_role([RootRoleId|OtherRoles], RoleId) ->
+    case has_role(RootRoleId, RoleId) of
         true ->                         true;
-        false ->                        if_has_child_role(SKey, OtherRoles, RoleId)
+        false ->                        if_has_child_role(OtherRoles, RoleId)
     end.
 
-if_has_permission(_SKey, _RootRoleId, []) ->
+has_permission(_RootRoleId, []) ->
     false;
-if_has_permission(SKey, RootRoleId, PermissionList) when is_list(PermissionList)->
+has_permission(RootRoleId, PermissionList) when is_list(PermissionList)->
     %% search for first match in list of permissions
-    case if_read(SKey, ddRole, RootRoleId) of
+    case if_read(ddRole, RootRoleId) of
         [#ddRole{permissions=[],roles=[]}] ->     
             false;
         [#ddRole{permissions=Permissions, roles=[]}] -> 
@@ -259,14 +263,14 @@ if_has_permission(SKey, RootRoleId, PermissionList) when is_list(PermissionList)
         [#ddRole{permissions=Permissions, roles=ChildRoles}] ->
             case list_member(PermissionList, Permissions) of
                 true ->     true;
-                false ->    if_has_child_permission(SKey,  ChildRoles, PermissionList)
+                false ->    if_has_child_permission(ChildRoles, PermissionList)
             end;
         [] ->
             if_missing_role(RootRoleId)
     end;
-if_has_permission(SKey, RootRoleId, PermissionId) ->
+has_permission(RootRoleId, PermissionId) ->
     %% search for single permission
-    case if_read(SKey, ddRole, RootRoleId) of
+    case if_read(ddRole, RootRoleId) of
         [#ddRole{permissions=[],roles=[]}] ->     
             false;
         [#ddRole{permissions=Permissions, roles=[]}] -> 
@@ -274,17 +278,17 @@ if_has_permission(SKey, RootRoleId, PermissionId) ->
         [#ddRole{permissions=Permissions, roles=ChildRoles}] ->
             case lists:member(PermissionId, Permissions) of
                 true ->     true;
-                false ->    if_has_child_permission(SKey,  ChildRoles, PermissionId)
+                false ->    if_has_child_permission(ChildRoles, PermissionId)
             end;
         [] ->
             if_missing_role(RootRoleId)
     end.
 
-if_has_child_permission(_SKey, [], _Permission) -> false;
-if_has_child_permission(SKey, [RootRoleId|OtherRoles], Permission) ->
-    case if_has_permission(SKey, RootRoleId, Permission) of
+if_has_child_permission([], _Permission) -> false;
+if_has_child_permission([RootRoleId|OtherRoles], Permission) ->
+    case has_permission(RootRoleId, Permission) of
         true ->     true;
-        false ->    if_has_child_permission(SKey, OtherRoles, Permission)
+        false ->    if_has_child_permission(OtherRoles, Permission)
     end.
 
 
@@ -347,7 +351,7 @@ seco_unregister(#ddSeCo{skey=SKey, pid=Pid}) when Pid == self() ->
 
 
 seco_existing(SKey) -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid} = SeCo] when Pid == self() -> 
             SeCo;
         [] ->               
@@ -355,7 +359,7 @@ seco_existing(SKey) ->
     end.   
 
 seco_authenticated(SKey) -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid, authState=authenticated} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
@@ -367,7 +371,7 @@ seco_authenticated(SKey) ->
     end.   
 
 seco_authorized(SKey) -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
             SeCo;
         [#ddSeCo{}] ->      
@@ -377,7 +381,7 @@ seco_authorized(SKey) ->
     end.   
 
 seco_update(#ddSeCo{skey=SKey,pid=Pid}=SeCo, #ddSeCo{skey=SKey,pid=Pid}=SeCoNew) when Pid == self() -> 
-    case if_read(SKey, ddSeCo@, SKey) of
+    case if_read(ddSeCo@, SKey) of
         [] ->       ?SecurityException({"Not logged in", SKey});
         [SeCo] ->   if_write(SKey, ddSeCo@, SeCoNew);
         [_] ->      ?SecurityException({"Security context is modified by someone else", SKey})
@@ -413,7 +417,7 @@ account_id(SKey) ->
 
 account_name(SKey) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    case if_read(SKey, ddAccount, AccountId) of
+    case if_read(ddAccount, AccountId) of
         [#ddAccount{name=Name}] ->  Name;
         [] ->                       ?ClientError({"Account does not exist", AccountId})
     end.
@@ -421,10 +425,10 @@ account_name(SKey) ->
 has_role(SKey, RootRoleId, RoleId) ->
     case have_permission(SKey, read_accounts) of
         true ->
-            if_has_role(SKey, RootRoleId, RoleId);
+            has_role(RootRoleId, RoleId);
         false ->     
             case have_permission(SKey, manage_accounts) of
-                true ->     if_has_role(SKey, RootRoleId, RoleId); 
+                true ->     has_role(RootRoleId, RoleId); 
                 false ->    ?SecurityException({"Has role unauthorized",SKey})
             end
     end.
@@ -432,21 +436,47 @@ has_role(SKey, RootRoleId, RoleId) ->
 has_permission(SKey, RootRoleId, Permission) ->
     case have_permission(SKey, read_accounts) of
         true ->     
-            if_has_permission(SKey, RootRoleId, Permission); 
+            has_permission(RootRoleId, Permission); 
         false ->    
             case have_permission(SKey, manage_accounts) of
-                true ->     if_has_permission(SKey, RootRoleId, Permission); 
+                true ->     has_permission(RootRoleId, Permission); 
                 false ->    ?SecurityException({"Has permission unauthorized",SKey})
             end
     end.
 
 have_role(SKey, RoleId) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    if_has_role(SKey, AccountId, RoleId).
+    has_role(AccountId, RoleId).
 
 have_permission(SKey, Permission) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
-    if_has_permission(SKey, AccountId, Permission).
+    has_permission(AccountId, Permission).
+
+fail_or_clear_password_lock(#ddSeCo{skey=SKey} = SeCo, AccountId) ->
+    case if_read(ddAccountDyn, AccountId) of
+        [] ->          % create default for missing dynamic account record
+            if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId});
+        [#ddAccountDyn{lastFailureTime=undefined}] ->
+            ok;
+        [#ddAccountDyn{lastFailureTime=LastFailureTuple}=AD] ->
+            FailureCount = failure_count(LastFailureTuple),
+            {{FY,FM,FD},{FHr,FMin,FSec}} = failure_datetime(LastFailureTuple),
+            {{LY,LM,LD},{LHr,LMin,LSec}} = calendar:local_time(),
+            UnlockSecs = 86400*(366*FY + 31*FM + FD) + 3600*FHr + 60*FMin + FSec + ?PASSWORD_LOCK_TIME,
+            EffectiveSecs = 86400*(366*LY + 31*LM + LD) + 3600*LHr + 60*LMin + LSec,  % no need for monotony
+            PLC = ?PASSWORD_LOCK_COUNT,
+            if 
+                EffectiveSecs > UnlockSecs ->
+                    %% clear the password lock because user waited long enough
+                    if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=undefined});
+                FailureCount > PLC ->
+                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
+                    authenticate_fail(SeCo, "Your account is temporarily locked. Try again in a few minutes.", true);
+                true ->
+                    %% user has not used up his password attempts, grant one more
+                    ok
+            end
+    end.
 
 -spec authenticate(any(), binary(), ddCredential()) -> ddSeCoKey() | no_return(). 
 authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for simple password authentication, deprecated
@@ -455,15 +485,14 @@ authenticate(SessionId, Name, {pwdmd5,Token}) ->            % old direct API for
         {[#ddAccount{locked='true'}],true} ->
             authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
         {[#ddAccount{id=AccountId} = Account],true} ->
-            LocalTime = calendar:local_time(),
-            case if_read(SKey, ddAccountDyn, AccountId) of
-                [] ->   
+            case if_read(ddAccountDyn, AccountId) of
+                [] ->                                               % create missing dynamic account record
                     AD = #ddAccountDyn{id=AccountId},
-                    if_write(SKey, ddAccountDyn, AD);   % create missing dynamic account record
-                [#ddAccountDyn{lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
-                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
-                _ -> ok 
+                    if_write(SKey, ddAccountDyn, AD);               
+                [#ddAccountDyn{lastFailureTime=undefined}] ->       % never had a failure before
+                    ok;
+                [#ddAccountDyn{id=AccountId}] ->
+                    fail_or_clear_password_lock(SeCo, AccountId)
             end,
             ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             seco_register(SeCo#ddSeCo{accountName=Name, accountId=AccountId, authFactors=[pwdmd5]}, authenticated);     % return SKey only
@@ -486,7 +515,7 @@ auth_abort(SKey) ->
 -spec auth_step(ddSeCoKey(), ddCredential()) -> {ddSeCoKey(),[ddCredRequest()]} | no_return(). 
 auth_step(SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
     #ddSeCo{skey = SKey, sessionCtx=SessionCtx, accountName=AccountName0, accountId=AccountId0} = SeCo,
-    AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS),
+    AccessCheckFunStr = ?GET_CONFIG(accessCheckFun,[SessionCtx#ddSessionCtx.appId],?FULL_ACCESS,"Function to check network access parameters in preparation of authentication steps."),
     CacheKey = {?MODULE,accessCheckFun,AccessCheckFunStr},
     AccessCheckFun = case imem_cache:read(CacheKey) of 
         [] ->
@@ -528,13 +557,7 @@ auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
         {[#ddAccount{locked='true'}],true} ->
             authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
         {[#ddAccount{id=AccountId1} = Account],true} when AccountId0==AccountId1; AccountId0==undefined ->
-            LocalTime = calendar:local_time(),
-            case if_read(SKey, ddAccountDyn, AccountId1) of
-                [#ddAccountDyn{lastFailureTime=LocalTime}] ->
-                    %% lie a bit, don't show to a fast attacker that this attempt might have worked
-                    authenticate_fail(SeCo, "Invalid account credentials. Please retry", true);
-                _ -> ok
-            end,
+            ok = fail_or_clear_password_lock(SeCo, AccountId1),
             ok = check_re_hash(SeCo, Account, Token, Token, true, ?PWD_HASH_LIST),
             auth_step_succeed(SeCo#ddSeCo{accountName=Name, accountId=AccountId1, authFactors=[pwdmd5|AFs]});
         {[#ddAccount{}],true} -> 
@@ -543,8 +566,8 @@ auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
             authenticate_fail(SeCo, "Invalid account credentials. Please retry", true)
     end;
 auth_step(SeCo, {smsott,Token}) ->
-    #ddSeCo{skey=SKey, sessionCtx=SessionCtx, accountName=AccountName, accountId=AccountId, authFactors=AFs} = SeCo,
-    case sms_ott_mobile_phone(SKey, AccountId) of
+    #ddSeCo{sessionCtx=SessionCtx, accountName=AccountName, accountId=AccountId, authFactors=AFs} = SeCo,
+    case sms_ott_mobile_phone(AccountId) of
         undefined ->    
             authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token", true);
         To ->           
@@ -552,7 +575,7 @@ auth_step(SeCo, {smsott,Token}) ->
                 ok ->
                     auth_step_succeed(SeCo#ddSeCo{authFactors=[smsott|AFs]});
                 _ ->
-                    case ?GET_CONFIG(smsTokenValidationRetry,[SessionCtx#ddSessionCtx.appId],true) of
+                    case ?GET_CONFIG(smsTokenValidationRetry,[SessionCtx#ddSessionCtx.appId],true,"Can a wrong SMS authentication token answer be retried (within time limit)?") of
                         true ->
                             case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
                                 ok ->
@@ -578,7 +601,7 @@ authenticate_fail(_SeCo, ErrorTerm, false) ->
 
 -spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
-    AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5),
+    AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5,"Function which defines authentication requirements depending on current authentication step."),
     CacheKey = {?MODULE,authenticateRequireFun,AuthRequireFunStr},
     AuthRequireFun = case imem_cache:read(CacheKey) of 
         [] ->
@@ -594,7 +617,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
     end,
     case AuthRequireFun(AFs,SessionCtx#ddSessionCtx.networkCtx) of
         [] ->   
-            case if_read(SKey, ddAccountDyn, AccountId) of
+            case if_read(ddAccountDyn, AccountId) of
                 [] ->   
                     AD = #ddAccountDyn{id=AccountId},
                     if_write(SKey, ddAccountDyn, AD);   % create dynamic account record if missing
@@ -605,7 +628,7 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
             end,
             {seco_register(SeCo, authenticated),[]};   % authentication success, return {SKey,[]} 
         [smsott] ->
-            case sms_ott_mobile_phone(SKey, AccountId) of
+            case sms_ott_mobile_phone(AccountId) of
                 undefined ->    
                     authenticate_fail(SeCo, "Missing mobile phone number for SMS one time token", true);
                 To ->           
@@ -613,14 +636,14 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
                         ok ->           
                             {seco_register(SeCo),[{smsott,#{accountName=>AccountName,to=>To}}]};     % request a SMS one time token
                         {'EXIT',{Err2,_StackTrace}} ->
-                            case ?GET_CONFIG(smsTokenSendingErrorSkip,[SessionCtx#ddSessionCtx.appId],false) of
+                            case ?GET_CONFIG(smsTokenSendingErrorSkip,[SessionCtx#ddSessionCtx.appId],false,"Should SMS token authentication be skipped when the token server is unavailable?") of
                                 true -> {seco_register(SeCo, authenticated),[]};   % authentication success, return {SKey,[]} 
                                 _ ->    authenticate_fail(SeCo,{"SMS one time token sending failed", Err2}, true)
                             end
                     end
             end;
         [smsott|Rest] ->
-            case sms_ott_mobile_phone(SKey, AccountId) of
+            case sms_ott_mobile_phone(AccountId) of
                 undefined ->    {seco_register(SeCo),[{A,#{accountName=>AccountName}} || A <- Rest]};
                 To ->           
                     case (catch imem_auth_smsott:send_sms_token(SessionCtx#ddSessionCtx.appId, To, {smsott, #{}})) of
@@ -631,8 +654,8 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
         OFs ->  {seco_register(SeCo),[{A,#{accountName=>AccountName}} || A <- OFs]}   % ask for remaining factors to try
     end.       
 
-sms_ott_mobile_phone(SKey, AccountId) ->
-    case if_read(SKey, ddAccount, AccountId) of
+sms_ott_mobile_phone(AccountId) ->
+    case if_read(ddAccount, AccountId) of
         [] ->                           
             undefined;
         [#ddAccount{fullName=FN}] ->    
@@ -651,16 +674,23 @@ normalized_msisdn(B0) ->
         Rest3 ->               <<$+,Rest3/binary>>
     end.
 
+failure_count(undefined) -> 0;
+failure_count({{_,_,_},{_,_,SF}}) -> SF rem 10. % Failure count is packed into last second digit of a datetime tuple
+
+failure_datetime(undefined) -> undefined;
+failure_datetime({{Y,M,D},{Hr,Mi,Ss}}) -> {{Y,M,D},{Hr,Mi,10*(Ss div 10)}}.
+
+failure_tuple({{Y,M,D},{Hr,Mi,Ss}},undefined) -> {{Y,M,D},{Hr,Mi,10*(Ss div 10) + 1}};      % first failure (last digit in seconds)
+failure_tuple({{Y,M,D},{Hr,Mi,Ss}},{{_,_,_},{_,_,SF}}) -> {{Y,M,D},{Hr,Mi, 10 * (Ss div 10) + (SF+1) rem 10}}.    % next failure
+
 check_re_hash(#ddSeCo{skey=SKey}=SeCo, #ddAccount{id=AccountId}=_Account, _OldToken, _NewToken, Unregister, []) ->
     % no more credential types to check, credential check failed
     LocalTime = calendar:local_time(),
-    case if_read(SKey, ddAccountDyn, AccountId) of
+    case if_read(ddAccountDyn, AccountId) of
         [] ->                                           % create missing dynamic account record   
-            if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId,lastFailureTime=LocalTime});
-        [#ddAccountDyn{lastFailureTime=LocalTime}] ->   % last error time already remembered 
-            ok;
-        [#ddAccountDyn{}=AD] ->                         % update last error time
-            if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=LocalTime})
+            if_write(SKey, ddAccountDyn, #ddAccountDyn{id=AccountId,lastFailureTime=failure_tuple(LocalTime,undefined)});
+        [#ddAccountDyn{lastFailureTime=LFT}=AD] ->                         % update last error time
+            if_write(SKey, ddAccountDyn, AD#ddAccountDyn{lastFailureTime=failure_tuple(LocalTime,LFT)})
     end,    
     authenticate_fail(SeCo, "Invalid account credentials. Please retry", Unregister);
 check_re_hash(SeCo, Account, OldToken, NewToken, Unregister, [pwdmd5|Types]) ->
@@ -731,13 +761,13 @@ login(SKey) ->
         {_,infinity} -> 0;      % sorts in after any date tuple
         {_,PVal} ->     calendar:gregorian_seconds_to_datetime(PwdExpireSecs-24*3600*PVal)
     end,
-    case {if_read(SKey, ddAccount, AccountId), lists:member(pwdmd5,AuthenticationFactors)} of
+    case {if_read(ddAccount, AccountId), lists:member(pwdmd5,AuthenticationFactors)} of
         {[#ddAccount{type='user',lastPasswordChangeTime=undefined}], true} -> 
             ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{type='user',lastPasswordChangeTime=LastChange}], true} when LastChange < PwdExpireDate -> 
             ?SecurityException({?PasswordChangeNeeded, AccountId});
         {[#ddAccount{}], _} ->
-            [AccountDyn] = if_read(SKey,ddAccountDyn,AccountId),
+            [AccountDyn] = if_read(ddAccountDyn,AccountId),
             ok = seco_update(SeCo, SeCo#ddSeCo{authState=authorized}),
             if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=LocalTime}),
             SKey;            
@@ -751,7 +781,7 @@ change_credentials(SKey, {pwdmd5,Token}, {pwdmd5,Token}) ->
     ?SecurityException({"The same password cannot be re-used. Please retry", AccountId});
 change_credentials(SKey, {pwdmd5,OldToken}, {pwdmd5,NewToken}) ->
     #ddSeCo{accountId=AccountId} = SeCo = seco_authenticated(SKey),
-    [Account] = if_read(SKey, ddAccount, AccountId),
+    [Account] = if_read(ddAccount, AccountId),
     ok = check_re_hash(SeCo, Account, OldToken, NewToken, false, ?PWD_HASH_LIST),
     login(SKey).
 
@@ -766,11 +796,11 @@ set_credentials(SKey, Name, {pwdmd5,NewToken}) ->
 set_login_time(SKey, AccountId) ->
     case have_permission(SKey, manage_accounts) of
         true ->
-            AccountDyn = case if_read(SKey,ddAccountDyn,AccountId) of
+            AccountDyn = case if_read(ddAccountDyn,AccountId) of
                              [AccountDynRec] ->  AccountDynRec;
                              [] -> #ddAccountDyn{id = AccountId}
                          end,
-            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=os:timestamp()});
+            if_write(SKey, ddAccountDyn, AccountDyn#ddAccountDyn{lastLoginTime=calendar:local_time()});
         false ->    ?SecurityException({"Set login time unauthorized",SKey})
     end.
 
@@ -808,49 +838,42 @@ db_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [
-            fun test/1
-        ]}}.    
+        {with, [fun test/1]}
+    }.    
 
     
 test(_) ->
     try
-        % ClEr = 'ClientError',
-        % CoEx = 'ConcurrencyException',
-        % SeEx = 'SecurityException',
-        % SeVi = 'SecurityViolation',
-        % SyEx = 'SystemException',          %% cannot easily test that
+        ?LogDebug("---TEST---"),
 
-        ?LogDebug("---TEST---~p~n", [?MODULE]),
-
-        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
 
-        ?LogDebug("~p:test_database~n", [?MODULE]),
+        % ?LogDebug("~p:test_database~n", [?MODULE]),
 
         Seco0 = imem_meta:table_size(ddSeCo@),
         Perm0 = imem_meta:table_size(ddPerm@),
         ?assert(0 =< imem_meta:table_size(ddSeCo@)),
         ?assert(0 =< imem_meta:table_size(ddPerm@)),
-        ?LogDebug("success ~p~n", [minimum_table_sizes]),
+        % ?LogDebug("success ~p~n", [minimum_table_sizes]),
 
-        ?LogDebug("~p:test_admin_login~n", [?MODULE]),
+        % ?LogDebug("~p:test_admin_login~n", [?MODULE]),
 
         SeCoAdmin0=?imem_test_admin_login(),
-        ?LogDebug("success ~p~n", [test_admin_login]),
+        % ?LogDebug("success ~p~n", [test_admin_login]),
 
         Seco1 = imem_meta:table_size(ddSeCo@),
         Perm1 = imem_meta:table_size(ddPerm@),
         ?assertEqual(Seco0+1,Seco1),
         ?assertEqual(Perm0,Perm1),        
-        ?LogDebug("success ~p~n", [status1]),
+        % ?LogDebug("success ~p~n", [status1]),
         Seco2 = imem_sec:table_size(SeCoAdmin0, ddSeCo@),
         Perm2 = imem_sec:table_size(SeCoAdmin0, ddPerm@),
         ?assertEqual(Seco0+1,Seco2),
         ?assertEqual(Perm0+2,Perm2),        
-        ?LogDebug("success ~p~n", [status1]),
+        % ?LogDebug("success ~p~n", [status1]),
 
         imem_seco ! {'DOWN', simulated_reference, process, self(), simulated_exit},
         timer:sleep(2000),
@@ -858,16 +881,17 @@ test(_) ->
         Perm3 = imem_meta:table_size(ddPerm@),
         ?assertEqual(Seco0,Seco3),
         ?assertEqual(Perm0,Perm3),        
-        ?LogDebug("success ~p~n", [status2]),
+        % ?LogDebug("success ~p~n", [status2]),
 
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"+41794321750">>)),
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"+41 (0)79 432 17 50">>)),
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"4179-432-17-50">>)),
         ?assertEqual(<<"+41794321750">>,normalized_msisdn(<<"079 432 17 50">>)),
 
-        ?LogDebug("success ~p~n", [normalized_msisdn]),
+        % ?LogDebug("success ~p~n", [normalized_msisdn]),
 
-        ?LogDebug("~p:test_imem_seco~n", [?MODULE])
+        % ?LogDebug("~p:test_imem_seco~n", [?MODULE]),
+        ok
     catch
         Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         throw ({Class, Reason})
