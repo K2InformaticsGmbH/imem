@@ -84,10 +84,7 @@ get_channel(Channel, none) ->
 get_channel(Channel, #{jp := JP, limit := Limit, keyGT := KeyGT,
     keyLT := KeyLT}) ->
     Rows = imem_dal_skvh:readGELT(system, Channel, KeyGT, KeyLT, Limit),
-    % Data = [lists:concat(["{\"key\":", Key, "\"value\": ", Value, "}"]) 
-    % || #{ckey := Key, cvalue := Value} <- Rows],
-    % {200, [{<<"Content-type">>, <<"application/json">>}], list_to_binary(["[", string:joing(Data, ","), "]"])}.
-    Data = [#{key => key_to_json(Key), value => imem_json:decode(Value)} 
+    Data = [#{key => key_to_json(Key), value => walk_jpath(JP, imem_json:decode(Value))} 
     || #{ckey := Key, cvalue := Value} <- Rows],
     {200, [{<<"Content-type">>, <<"application/json">>}], imem_json:encode(Data)}.
 
@@ -122,3 +119,15 @@ key_from_json([T | Key]) -> [T | key_from_json(Key)].
 key_to_json([]) -> [];
 key_to_json([L | Key]) when is_list(L) -> [list_to_binary(L) | key_to_json(Key)];
 key_to_json([T | Key]) -> [T | key_to_json(Key)].
+
+walk_jpath({}, Value) -> Value;
+walk_jpath(JP, Value) ->
+    case jpparse:parsetree(JP) of
+        {ok, JPPath} when is_binary(JPPath) -> proplists:get_value(JPPath, Value, no_val);
+        {ok, _} ->
+            case catch imem_json:eval(JP, Value) of
+                {nomatch, _} -> no_val;
+                {'EXIT', _} -> no_val;
+                Result -> Result
+            end
+    end.
