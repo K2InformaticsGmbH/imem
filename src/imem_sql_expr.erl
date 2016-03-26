@@ -575,15 +575,13 @@ column_map_items(_Map, Item) ->
 -spec is_readonly(#bind{}) -> boolean().
 is_readonly(#bind{tind=Ti}) when Ti > ?MainIdx -> true;
 is_readonly(#bind{tind=?MainIdx,cind=Ci}) when Ci>0 -> false;   
-is_readonly(#bind{tind=?MainIdx,cind=0}) -> true;               %% Vector field cannot be edited
-is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> true; %% Vector field cannot be edited
-is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> true; %% Vector field cannot be edited
+is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                                      %% Vector field can be edited ??????????
+is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;       %% Vector field can be edited ??????????
+is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;     %% Vector field can be edited ??????????
 is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
-is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op=='element';Op=='nth' -> false;  %% editable projection
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op==element;Op=='nth';Op==json_value -> false;  %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
-is_readonly(_BTree) -> 
-    % ?LogDebug("Positive readonly test for ~n~p~n",[_BTree]),
-    true.
+is_readonly(_BTree) -> false.       % ?Info("is_readonly ~p",[_BTree]), 
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.

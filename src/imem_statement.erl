@@ -1031,8 +1031,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap,
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % ?Info("ColMap~n~p~n", [ColMap]),
-    % ?Info("Values~n~p~n", [Values]),
+    % ?Info("update_prepare ColMap~n~p", [ColMap]),
+    % ?Info("update_prepare Values~n~p", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1065,7 +1065,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Pos=imem_sql_expr:bind_tree(PosBind,Recs), 
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,Proj(X),tuple_type(Type,Pos),undefined,undefined,<<>>,false,Value) of
+                            case imem_datatype:io_to_db(Item,OldVal,tuple_type(Type,Pos),undefined,undefined,<<>>,false,Value) of
                                 OldVal ->   X;
                                 NewVal ->   ?replace(X,Cx,setelement(Pos,?BoundVal(B,X),NewVal))
                             end
@@ -1075,7 +1075,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,Proj(X),list_type(Type),undefined,undefined,<<>>,false,Value) of
+                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
                                 OldVal ->               
                                     X;
                                 NewVal1 when Pos==1 ->  
@@ -1092,6 +1092,32 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             case imem_datatype:io_to_db(Item,OldVal,Type,undefined,undefined,<<>>,false,Value) of
                                 OldVal ->   X;
                                 NewVal ->   ?replace(X,Cx,NewVal)
+                            end
+                        end,     
+                        {Cx,0,Fx};
+                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            RealType = case OldVal of
+                                true ->     boolean;
+                                false ->    boolean;
+                                null when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
+                                ?nav when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
+                                N when N==null; N==?nav; is_number(N) ->     
+                                    case catch imem_datatype:io_to_integer(Value) of
+                                        I when is_integer(I) ->                 integer;
+                                        _ ->
+                                            case catch imem_datatype:io_to_float(Value,undefined) of
+                                                F when is_float(F) ->           float;
+                                                _ when Value == <<"null">> ->   atom;
+                                                _ ->                            Type
+                                            end
+                                    end;
+                                _ ->                                            Type
+                            end,
+                            case imem_datatype:io_to_db(Item,OldVal,RealType,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
                             end
                         end,     
                         {Cx,0,Fx};
