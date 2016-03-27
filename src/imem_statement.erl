@@ -1125,6 +1125,15 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                 end;
             #bind{tind=0,cind=0} ->  
                 ?SystemException({"Internal update error, constant projection binding",{Item,CMap}});
+            #bind{tind=?MainIdx,cind=0,type=tuple} ->
+                Fx = fun(X) -> 
+                    OldVal = element(?MainIdx,X),
+                    case imem_datatype:io_to_db(Item,OldVal,tuple,undefined,undefined,<<>>,false,Value) of
+                        OldVal ->   X;
+                        NewVal ->   setelement(?MainIdx,X,NewVal)
+                    end
+                end,     
+                {0,0,Fx};
             #bind{tind=?MainIdx,cind=Cx,type=T,len=L,prec=P,default=D} ->
                 Fx = fun(X) -> 
                     ?replace(X,Cx,imem_datatype:io_to_db(Item,?BoundVal(CMap,X),T,L,P,D,false,Value))
@@ -1196,6 +1205,13 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                 end;
             #bind{tind=0,cind=0} ->  
                 ?SystemException({"Internal update error, constant projection binding",{Item,CMap}});
+            #bind{tind=?MainIdx,cind=0,type=tuple} ->
+                Fx = fun(X) ->
+                    NewVal = imem_datatype:io_to_db(Item,{},tuple,undefined,undefined,<<>>,false,Value),
+                    % setelement(?MainIdx,X,NewVal)
+                    NewVal 
+                end,     
+                {0,0,Fx};                
             #bind{tind=?MainIdx,cind=Cx,type=T,len=L,prec=P,default=D} ->
                 Fx = fun(X) -> 
                     ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value))
