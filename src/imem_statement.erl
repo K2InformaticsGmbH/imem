@@ -820,6 +820,12 @@ generate_virtual_data(tuple,_Rec,{'==',Tag,{const,Val}},MaxSize) when is_atom(Ta
     generate_virtual(tuple,{const,Val},MaxSize);
 generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,Val,MaxSize);
+generate_virtual_data(Table,_Rec,{'or',{'==',Tag,V1},OrEqual},MaxSize) when is_atom(Tag) ->
+    generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
+% generate_virtual_data(Table,_Rec,{'and',{'or',{'==',Tag,V1},OrEqual},_},MaxSize) when is_atom(Tag) ->
+%     generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
+% generate_virtual_data(Table,_Rec,{'and',{'and',{'or',{'==',Tag,V1},OrEqual},_},_},MaxSize) when is_atom(Tag) ->
+%     generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
 generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
     generate_virtual_integers(Min,Max,MaxSize);
 generate_virtual_data(integer,_Rec,{'and',{'>',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
@@ -832,6 +838,16 @@ generate_virtual_data(integer,_Rec,SGuard,_MaxSize) ->
     ?UnimplementedException({"Unsupported virtual integer bound filter guard",SGuard});
 generate_virtual_data(Table,_Rec,SGuard,_MaxSize) ->
     ?UnimplementedException({"Unsupported virtual join bound filter guard",{Table,SGuard}}).
+
+vals_from_or_equal(Tag,OrEqual) ->
+    vals_from_or_equal(Tag,OrEqual,[]).
+
+vals_from_or_equal(Tag, {'==',Tag,V}, Acc) -> 
+    lists:reverse([V|Acc]);
+vals_from_or_equal(Tag, {'or',{'==',Tag,V},OrEqual}, Acc) -> 
+    vals_from_or_equal(Tag, OrEqual, [V|Acc]);
+vals_from_or_equal(_, SGuard, _Acc) -> 
+    ?UnimplementedException({"Unsupported virtual in() filter guard",SGuard}).
 
 generate_virtual_integers(Min,Max,MaxSize) when (Max>=Min),(MaxSize>Max-Min) ->
     [{I,imem_datatype:integer_to_io(I)} || I <- lists:seq(Min,Max)];
@@ -1206,7 +1222,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
             #bind{tind=0,cind=0} ->  
                 ?SystemException({"Internal update error, constant projection binding",{Item,CMap}});
             #bind{tind=?MainIdx,cind=0,type=tuple} ->
-                Fx = fun(X) ->
+                Fx = fun(_X) ->
                     NewVal = imem_datatype:io_to_db(Item,{},tuple,undefined,undefined,<<>>,false,Value),
                     % setelement(?MainIdx,X,NewVal)
                     NewVal 
