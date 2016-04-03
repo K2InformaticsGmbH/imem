@@ -802,7 +802,7 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         true ->     ok;
         false ->    ?ClientError({"Invalid character(s) in table name",TableAlias})
     end,    
-    case sqlparse:is_reserved(TableAlias) of
+    case is_reserved_for_tables(TableAlias) of
         false ->    ok;
         true ->     ?ClientError({"Reserved table name",TableAlias})
     end,
@@ -818,7 +818,7 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         false ->    ok;
         {_,BadN} -> ?ClientError({"Invalid character(s) in column name",BadN})
     end,
-    ReservedCheck = [{sqlparse:is_reserved(Name),Name} || Name <- column_info_items(ColInfos, name)],
+    ReservedCheck = [{is_reserved_for_columns(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(true, 1, ReservedCheck) of
         false ->    ok;
         {_,BadC} -> ?ClientError({"Reserved column name",BadC})
@@ -1547,6 +1547,11 @@ is_local_or_schema_time_partitioned_table(Name) when is_list(Name) ->
         [_,_,_,_,_,"@",NS] ->   true;
         _ ->                    false
     end.
+
+is_reserved_for_tables(TableAlias) -> sqlparse:is_reserved(TableAlias).
+
+is_reserved_for_columns(roles) -> false;
+is_reserved_for_columns(Name) -> sqlparse:is_reserved(Name).
 
 -spec parse_table_name(atom()|list()|binary()) -> list(list()).
     %% TableName -> [Schema,".",Name,"_",Period,"@",Node] all strings , all optional ("") except Name
