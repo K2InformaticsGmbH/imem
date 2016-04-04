@@ -128,6 +128,7 @@
         , get_longest_prefix/4
         , check_age_audit_entry/4 %% (User, Channel, Key, TS1)      returns the records if there is any for the key after the timestamp TS1
         , audit_write_noop/3 %% (User, Channel, Key)                creates an entry in audit table for channel wehere nvalue and ovalue are the same
+        , range_replace/5    %% (User, Channel, Key1, Key2, KVTable)  replaces all the data in the range Key1 to K2 with KVTable
         ]).
 
 -export([build_aux_table_info/1,
@@ -1058,6 +1059,28 @@ read_with_limit(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
 		true ->					project_result(Cmd, L, Item)
 	end.
 
+range_replace(User, Channel, CKey1, CKey2, KVTable) when is_binary(Channel) ->
+    range_replace(User, atom_table_name(Channel), CKey1, CKey2, KVTable);
+range_replace(User, Channel, CKey1, CKey2, KVTable) ->
+    CKey1E = term_key_to_binterm(CKey1),
+    CKey2E = term_key_to_binterm(CKey2),
+    KVTableE = [{term_key_to_binterm(Key), Value} || {Key, Value} <- KVTable],
+    ReplaceFun = fun() ->
+        range_replace_internal(User, Channel, CKey1E, CKey2E, KVTableE)
+    end,
+    imem_meta:transaction(ReplaceFun).
+
+range_replace_internal(User, TableName, CurrentKey, EndKey, KVTable) ->
+    case imem_meta:next(TableName, CurrentKey) of
+        '$end_of_table' -> done;
+        NextKey when NextKey > EndKey -> done;
+        NextKey -> 
+            case lists:keyfind(NextKey, 1, KVTable) of
+                false -> imem_meta:delete(TableName, NextKey);
+                {Key, Value} -> imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value} ,User)
+            end,
+        range_replace(User, TableName, NextKey, EndKey, KVTable)
+    end.
 
 deleteGELT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGELT, User, Channel, CKey1, CKey2, Limit],
