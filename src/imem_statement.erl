@@ -1341,7 +1341,9 @@ if_call_mfa(IsSec,Fun,Args) ->
 setup() -> ?imem_test_setup.
 
 teardown(_SKey) ->    
-    % ?LogDebug("test teardown....~n",[]),
+    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(tuple_test),
+    catch imem_meta:drop_table(fun_test),
     ?imem_test_teardown.
 
 

@@ -757,8 +757,13 @@ field_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
         (Tcount==0) andalso (Schema == undefined) andalso (Name /= undefined) ->
             %% Maybe we got a table name {undefined,Schema,Table}  
             field_map_lookup({Table,Name,undefined},FullMap);
-        (Tcount==0) ->  
+        (Tcount==0) andalso (Name == undefined) ->
             ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
+        (Tcount==0) ->
+            case imem_datatype:strip_dquotes(Name) of
+                Name -> ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
+                UQN ->  field_map_lookup({Schema,Table,UQN},FullMap)
+            end;
         (Tcount > 1) ->
             ?ClientError({"Ambiguous field or table name", qname3_to_binstr(QN3)});
         (Name == undefined) ->         

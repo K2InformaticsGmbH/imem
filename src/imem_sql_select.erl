@@ -1874,7 +1874,8 @@ db2_with_or_without_sec(IsSec) ->
             create table ddCmdTest (
                 id integer,
                 owner userid,
-                opts term
+                opts term,
+                \"roles\" list
             );", 0, [{schema,imem}], IsSec)),
 
         ?assertEqual(ok, imem_sql:exec(SKey,"
@@ -1884,15 +1885,15 @@ db2_with_or_without_sec(IsSec) ->
                 cmd integer
             );", 0, [{schema,imem}], IsSec)),
 
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,1,system,[a]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,2,system,[a,b]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,3,system,[a,b,c]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,11,111,[c]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,12,111,[b]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,13,111,[a]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,22,222,[a]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,23,222,[b]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,24,222,[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,1,system,[a],[]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,2,system,[a,b],[a,b]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,3,system,[a,b,c],[]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,11,111,[c],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,12,111,[b],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,13,111,[a],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,22,222,[a],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,23,222,[b],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,24,222,[c],[c]}]),
 
         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1001,system,1}]),
         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1002,system,2}]),
@@ -1907,14 +1908,25 @@ db2_with_or_without_sec(IsSec) ->
         case IsSec of
             false ->    ok;
             true ->     MyAcid = imem_seco:account_id(SKey),
-                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,91,MyAcid,[c]}]),
-                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,92,MyAcid,[b,c]}]),
-                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,93,MyAcid,[a,b,c]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,91,MyAcid,[c],[]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,92,MyAcid,[b,c],[]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,93,MyAcid,[a,b,c],[]}]),
                         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1010,MyAcid,91}]),
                         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1011,MyAcid,23}]),
                         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1013,MyAcid,3}]),
                         ok                        
         end,
+
+        exec_fetch_sort_equal(SKey, query5x2, 100, IsSec, "
+            select \"id\" \"roles\"
+            from ddCmdTest
+            where id <= 3"
+            ,
+            [{<<"1">>,<<"[]">>}
+            ,{<<"2">>,<<"[a,b]">>}
+            ,{<<"3">>,<<"[]">>}
+            ]
+        ),
 
         exec_fetch_sort_equal(SKey, query5y, 100, IsSec, "
             select v.id, c.id
