@@ -1219,7 +1219,7 @@ check_age_audit_entry(_User, Channel, Key, TS1) ->
 
 
 %% ----- TESTS ------------------------------------------------
--ifdef(TEST).
+% -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 -define(Channel, <<"skvhTest">> ).
@@ -1419,6 +1419,15 @@ skvh_operations(_) ->
         [#{cvhist := Hist3}] = hist_read(system, ?Channel, [[1,k]]),
         ?assertEqual(1, length(Hist3)),
         ?assertMatch([#{ovalue := undefined, nvalue := <<"{\"a\":\"a\"}">>}], Hist3),
+
+        %% range_replace test
+        write(system, ?Channel, ["a", "1"], <<"{\"a\":\"1\"}">>),
+        write(system, ?Channel, ["a", "2"], <<"{\"a\":\"2\"}">>),
+        write(system, ?Channel, ["a", "3"], <<"{\"a\":\"5\"}">>),
+        write(system, ?Channel, ["a", "4"], <<"{\"a\":\"4\"}">>),
+        range_replace(system, ?Channel, ["a"], ["a" | <<255>>], [{["a", "3"], <<"{\"a\":\"3\"}">>}]),
+        Rows = readGELT(system, ?Channel, ["a"], ["a" | <<255>>], 1),
+        ?assertMatch([#{ckey := ["a","3"], cvalue := <<"{\"a\":\"3\"}">>}], Rows),
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
@@ -1764,4 +1773,4 @@ receive_results(N,Acc) ->
         Acc
     end.
 
--endif.
+% -endif.
