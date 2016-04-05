@@ -25,11 +25,11 @@
         ,vnf_datetime_ne/1          %% accept Date as a non-empty string in JSON format converts to erlang datetime
         ]).
 
--export([vnf_key_1/2
-        ,vnf_key_2/2
-        ,vnf_key_3/2
-        ,vnf_key_4/2
-        ,vnf_key_5/2
+-export([vnf_binterm_list_1/2
+        ,vnf_binterm_list_2/2
+        ,vnf_binterm_list_3/2
+        ,vnf_binterm_list_4/2
+        ,vnf_binterm_list_5/2
         ]).
 
 %% ==================================================================
@@ -223,39 +223,25 @@ vnf_datetime(B) ->
 
 vnf_datetime_ne(<<"\"\"">>) -> [?nav]; 
 vnf_datetime_ne(<<>>) -> [?nav];
-vnf_datetime_ne(D) -> vnf_datetime(D). 
+vnf_datetime_ne(D) -> vnf_datetime(D).
 
-vnf_key_1(Key,_) when is_list(Key) -> [hd(Key)];
-vnf_key_1(_Key,_) -> [?nav].
-
-vnf_key_2(Key,_) when is_list(Key) -> 
-    if 
-        length(Key) >= 2 -> lists:nth(2,Key);
-        true -> [?nav]
+vnf_binterm_list(<<17:8,_/binary>> = SextKey, N) ->
+    case (catch imem_datatype:binterm_to_term(SextKey)) of
+        Decoded when is_list(Decoded) -> vnf_binterm_list(Decoded, N);
+        _ -> [?nav]
     end;
-vnf_key_2(_,_) -> [?nav]. 
-
-vnf_key_3(Key,_) when is_list(Key) -> 
-    if 
-        length(Key) >= 3 -> lists:nth(3,Key);
-        true -> [?nav]
+vnf_binterm_list(Key, N) when is_list(Key), length(Key) >= N ->
+    case lists:nth(N,Key) of
+        KeyPart when is_list(KeyPart) -> [list_to_binary(KeyPart)];
+        KeyPart -> KeyPart
     end;
-vnf_key_3(_,_) -> [?nav]. 
+vnf_binterm_list(_,_) -> [?nav]. 
 
-vnf_key_4(Key,_) when is_list(Key) -> 
-    if 
-        length(Key) >= 4 -> lists:nth(4,Key);
-        true -> [?nav]
-    end;
-vnf_key_4(_,_) -> [?nav]. 
-
-
-vnf_key_5(Key,_) when is_list(Key) -> 
-    if 
-        length(Key) >= 5 -> lists:nth(5,Key);
-        true -> [?nav]
-    end;
-vnf_key_5(_,_) -> [?nav]. 
+vnf_binterm_list_1(Key,_V) -> vnf_binterm_list(Key, 1).
+vnf_binterm_list_2(Key,_V) -> vnf_binterm_list(Key, 2).
+vnf_binterm_list_3(Key,_V) -> vnf_binterm_list(Key, 3).
+vnf_binterm_list_4(Key,_V) -> vnf_binterm_list(Key, 4).
+vnf_binterm_list_5(Key,_V) -> vnf_binterm_list(Key, 5).
 
 
 %% ===================================================================
