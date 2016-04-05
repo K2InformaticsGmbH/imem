@@ -25,6 +25,13 @@
         ,vnf_datetime_ne/1          %% accept Date as a non-empty string in JSON format converts to erlang datetime
         ]).
 
+-export([vnf_key_1/2
+        ,vnf_key_2/2
+        ,vnf_key_3/2
+        ,vnf_key_4/2
+        ,vnf_key_5/2
+        ]).
+
 %% ==================================================================
 %% index filter funs
 %% ==================================================================
@@ -217,6 +224,38 @@ vnf_datetime(B) ->
 vnf_datetime_ne(<<"\"\"">>) -> [?nav]; 
 vnf_datetime_ne(<<>>) -> [?nav];
 vnf_datetime_ne(D) -> vnf_datetime(D). 
+
+vnf_key_1(Key,_) when is_list(Key) -> [hd(Key)];
+vnf_key_1(_Key,_) -> [?nav].
+
+vnf_key_2(Key,_) when is_list(Key) -> 
+    if 
+        length(Key) >= 2 -> lists:nth(2,Key);
+        true -> [?nav]
+    end;
+vnf_key_2(_,_) -> [?nav]. 
+
+vnf_key_3(Key,_) when is_list(Key) -> 
+    if 
+        length(Key) >= 3 -> lists:nth(3,Key);
+        true -> [?nav]
+    end;
+vnf_key_3(_,_) -> [?nav]. 
+
+vnf_key_4(Key,_) when is_list(Key) -> 
+    if 
+        length(Key) >= 4 -> lists:nth(4,Key);
+        true -> [?nav]
+    end;
+vnf_key_4(_,_) -> [?nav]. 
+
+
+vnf_key_5(Key,_) when is_list(Key) -> 
+    if 
+        length(Key) >= 5 -> lists:nth(5,Key);
+        true -> [?nav]
+    end;
+vnf_key_5(_,_) -> [?nav]. 
 
 
 %% ===================================================================
