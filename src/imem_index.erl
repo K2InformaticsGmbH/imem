@@ -25,6 +25,13 @@
         ,vnf_datetime_ne/1          %% accept Date as a non-empty string in JSON format converts to erlang datetime
         ]).
 
+-export([vnf_binterm_list_1/2
+        ,vnf_binterm_list_2/2
+        ,vnf_binterm_list_3/2
+        ,vnf_binterm_list_4/2
+        ,vnf_binterm_list_5/2
+        ]).
+
 %% ==================================================================
 %% index filter funs
 %% ==================================================================
@@ -216,7 +223,25 @@ vnf_datetime(B) ->
 
 vnf_datetime_ne(<<"\"\"">>) -> [?nav]; 
 vnf_datetime_ne(<<>>) -> [?nav];
-vnf_datetime_ne(D) -> vnf_datetime(D). 
+vnf_datetime_ne(D) -> vnf_datetime(D).
+
+vnf_binterm_list(<<17:8,_/binary>> = SextKey, N) ->
+    case (catch imem_datatype:binterm_to_term(SextKey)) of
+        Decoded when is_list(Decoded) -> vnf_binterm_list(Decoded, N);
+        _ -> [?nav]
+    end;
+vnf_binterm_list(Key, N) when is_list(Key), length(Key) >= N ->
+    case lists:nth(N,Key) of
+        KeyPart when is_list(KeyPart) -> [list_to_binary(KeyPart)];
+        KeyPart -> KeyPart
+    end;
+vnf_binterm_list(_,_) -> [?nav]. 
+
+vnf_binterm_list_1(Key,_V) -> vnf_binterm_list(Key, 1).
+vnf_binterm_list_2(Key,_V) -> vnf_binterm_list(Key, 2).
+vnf_binterm_list_3(Key,_V) -> vnf_binterm_list(Key, 3).
+vnf_binterm_list_4(Key,_V) -> vnf_binterm_list(Key, 4).
+vnf_binterm_list_5(Key,_V) -> vnf_binterm_list(Key, 5).
 
 
 %% ===================================================================
