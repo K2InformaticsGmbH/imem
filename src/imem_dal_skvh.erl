@@ -1061,25 +1061,29 @@ read_with_limit(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
 
 range_replace(User, Channel, CKey1, CKey2, KVTable) when is_binary(Channel) ->
     range_replace(User, atom_table_name(Channel), CKey1, CKey2, KVTable);
-range_replace(User, Channel, CKey1, CKey2, KVTable) ->
+range_replace(User, TableName, CKey1, CKey2, KVTable) ->
     CKey1E = term_key_to_binterm(CKey1),
     CKey2E = term_key_to_binterm(CKey2),
     KVTableE = [{term_key_to_binterm(Key), Value} || {Key, Value} <- KVTable],
     ReplaceFun = fun() ->
-        range_replace_internal(User, Channel, CKey1E, CKey2E, KVTableE)
+        RemainingKV = range_replace_internal(User, TableName, CKey1E, CKey2E, KVTableE),
+        [imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value}, User) || {Key, Value} <- RemainingKV]
     end,
     imem_meta:transaction(ReplaceFun).
 
 range_replace_internal(User, TableName, CurrentKey, EndKey, KVTable) ->
     case imem_meta:next(TableName, CurrentKey) of
-        '$end_of_table' -> done;
-        NextKey when NextKey > EndKey -> done;
+        '$end_of_table' -> KVTable;
+        NextKey when NextKey > EndKey -> KVTable;
         NextKey -> 
-            case lists:keyfind(NextKey, 1, KVTable) of
-                false -> imem_meta:delete(TableName, NextKey);
-                {Key, Value} -> imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value} ,User)
-            end,
-        range_replace(User, TableName, NextKey, EndKey, KVTable)
+            case lists:keytake(NextKey, 1, KVTable) of
+                false -> 
+                    imem_meta:delete(TableName, NextKey),
+                    range_replace_internal(User, TableName, NextKey, EndKey, KVTable);
+                {value, {Key, Value}, NewKVTable} -> 
+                    imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value}, User),
+                    range_replace_internal(User, TableName, NextKey, EndKey, NewKVTable)
+            end
     end.
 
 deleteGELT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
