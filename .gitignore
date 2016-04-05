@@ -11,3 +11,5 @@ deps
 snapshot/
 .rebar/
 priv/*.dll
+/ct/log
+/ct/*/*.beam
