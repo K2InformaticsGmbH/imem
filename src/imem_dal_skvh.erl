@@ -1059,32 +1059,31 @@ read_with_limit(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
 		true ->					project_result(Cmd, L, Item)
 	end.
 
-range_replace(User, Channel, CKey1, CKey2, KVTable) when is_binary(Channel) ->
-    range_replace(User, atom_table_name(Channel), CKey1, CKey2, KVTable);
-range_replace(User, TableName, CKey1, CKey2, KVTable) ->
+range_replace(User, Channel, CKey1, CKey2, KVTuples) when is_binary(Channel) ->
+    range_replace(User, atom_table_name(Channel), CKey1, CKey2, KVTuples);
+range_replace(User, TableName, CKey1, CKey2, KVTuples) ->
     CKey1E = term_key_to_binterm(CKey1),
     CKey2E = term_key_to_binterm(CKey2),
-    KVTableE = [{term_key_to_binterm(Key), Value} || {Key, Value} <- KVTable],
-    ReplaceFun = fun() ->
-        RemainingKV = range_replace_internal(User, TableName, CKey1E, CKey2E, KVTableE),
-        [imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value}, User) || {Key, Value} <- RemainingKV]
-    end,
-    imem_meta:transaction(ReplaceFun).
+    KVTuplesE = [{term_key_to_binterm(Key), Value} || {Key, Value} <- KVTuples],
+    imem_meta:transaction(fun range_replace_internal/5, [User, TableName, CKey1E, CKey2E, KVTuplesE]).
 
-range_replace_internal(User, TableName, CurrentKey, EndKey, KVTable) ->
-    case imem_meta:next(TableName, CurrentKey) of
-        '$end_of_table' -> KVTable;
-        NextKey when NextKey > EndKey -> KVTable;
+range_replace_internal(User, TableName, done, _EndKey, RemainingKVs) ->
+    [imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value}, User) || {Key, Value} <- RemainingKVs];
+range_replace_internal(User, TableName, CurrentKey, EndKey, KVTuples) ->
+    {NKey, Tuples} = case imem_meta:next(TableName, CurrentKey) of
+        '$end_of_table' -> {done, KVTuples};
+        NextKey when NextKey > EndKey -> {done, KVTuples};
         NextKey -> 
-            case lists:keytake(NextKey, 1, KVTable) of
+            case lists:keytake(NextKey, 1, KVTuples) of
                 false -> 
                     imem_meta:delete(TableName, NextKey),
-                    range_replace_internal(User, TableName, NextKey, EndKey, KVTable);
-                {value, {Key, Value}, NewKVTable} -> 
+                    {NextKey, KVTuples};
+                {value, {Key, Value}, NewKVTuples} -> 
                     imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value}, User),
-                    range_replace_internal(User, TableName, NextKey, EndKey, NewKVTable)
+                    {NextKey, NewKVTuples}
             end
-    end.
+    end,
+    range_replace_internal(User, TableName, NKey, EndKey, Tuples).
 
 deleteGELT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGELT, User, Channel, CKey1, CKey2, Limit],
