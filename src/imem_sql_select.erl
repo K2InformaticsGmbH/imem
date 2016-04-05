@@ -1918,7 +1918,7 @@ db2_with_or_without_sec(IsSec) ->
         end,
 
         exec_fetch_sort_equal(SKey, query5x2, 100, IsSec, "
-            select \"id\" \"roles\"
+            select \"id\", \"roles\"
             from ddCmdTest
             where id <= 3"
             ,

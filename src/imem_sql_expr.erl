@@ -755,14 +755,19 @@ field_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
     % ?Debug("column_map matching table count ~p~n", [Tcount]),
     if 
         (Tcount==0) andalso (Schema == undefined) andalso (Name /= undefined) ->
-            %% Maybe we got a table name {undefined,Schema,Table}  
-            field_map_lookup({Table,Name,undefined},FullMap);
+            case imem_datatype:strip_dquotes(Name) of
+                Name -> %% Maybe we got a table name {undefined,Schema,Table}  
+                        field_map_lookup({Table,Name,undefined},FullMap);
+                UQN ->  %% try first with unquoted Name
+                        field_map_lookup({Schema,Table,UQN},FullMap)
+            end;                        
         (Tcount==0) andalso (Name == undefined) ->
             ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
         (Tcount==0) ->
             case imem_datatype:strip_dquotes(Name) of
                 Name -> ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
-                UQN ->  field_map_lookup({Schema,Table,UQN},FullMap)
+                UQN ->  ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,UQN]), 
+                        field_map_lookup({Schema,Table,UQN},FullMap)
             end;
         (Tcount > 1) ->
             ?ClientError({"Ambiguous field or table name", qname3_to_binstr(QN3)});
