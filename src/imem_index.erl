@@ -233,7 +233,7 @@ vnf_binterm_list(<<17:8,_/binary>> = SextKey, N) ->
 vnf_binterm_list(Key, N) when is_list(Key), length(Key) >= N ->
     case lists:nth(N,Key) of
         KeyPart when is_list(KeyPart) -> [list_to_binary(KeyPart)];
-        KeyPart -> KeyPart
+        KeyPart -> [KeyPart]
     end;
 vnf_binterm_list(_,_) -> [?nav]. 
 
