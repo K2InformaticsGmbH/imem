@@ -1219,7 +1219,7 @@ check_age_audit_entry(_User, Channel, Key, TS1) ->
 
 
 %% ----- TESTS ------------------------------------------------
-% -ifdef(TEST).
+-ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 -define(Channel, <<"skvhTest">> ).
@@ -1773,4 +1773,4 @@ receive_results(N,Acc) ->
         Acc
     end.
 
-% -endif.
+-endif.
