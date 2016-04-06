@@ -3,6 +3,16 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.14 (Release Date 06.04.2016)
+=======================================
+* Fixed sql generation issues for filter
+* Added support for drop imem_dal_skvh tables
+* Added edit on simple json path expression projections
+* Allow update and insert for vector query
+* Enabled generators for in()
+* Support arity 2 vnf(Key, Value)
+* Updated sqlparse to version 1.5.3
+
 Version 1.4.13 (Release Date 21.03.2016)
 =======================================
 * Fixed preview not returning the complete list of results
