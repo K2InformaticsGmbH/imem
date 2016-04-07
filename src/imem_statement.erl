@@ -862,6 +862,10 @@ generate_virtual(list=Table, {list,Items}, MaxSize)  ->
 generate_virtual(tuple, {const,I}, _) when is_tuple(I) ->
     [{I,imem_datatype:term_to_io(I)}];
 
+generate_virtual(_, [], _) -> [];
+
+generate_virtual(_, <<>>, _) -> [];
+
 generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_atom(X) end,
@@ -869,18 +873,25 @@ generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
 generate_virtual(atom, I, _) when is_atom(I)-> [{I,imem_datatype:atom_to_io(I)}];
 generate_virtual(atom, _, _) -> [];
 
+generate_virtual(binary=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
+    [{I,imem_datatype:binary_to_io(I)} || I <- Items];
 generate_virtual(binary=Table, Items, MaxSize) when is_binary(Items) ->
     generate_limit_check(Table, byte_size(Items), MaxSize),
     [{list_to_binary([I]),list_to_binary([I])} || I <- binary_to_list(Items)];
 generate_virtual(binary, _, _) -> [];
 
+generate_virtual(binstr=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
+    [{I,imem_datatype:binstr_to_io(I)} || I <- Items];
 generate_virtual(binstr=Table, Items, MaxSize) when is_binary(Items) ->
     generate_limit_check(Table, byte_size(Items), MaxSize),
     String = binary_to_list(Items),
     case io_lib:printable_unicode_list(String) of
-        true ->     [{S,<<S>>} || S <- String];
+        true ->     [{<<S>>,<<S>>} || S <- String];
         false ->    []
     end;
+generate_virtual(binstr, _, _) -> [];
 
 generate_virtual(boolean=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
@@ -925,6 +936,9 @@ generate_virtual(integer=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
     [{I,imem_datatype:integer_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(integer=Table, Items, MaxSize) when is_binary(Items) ->
+    generate_limit_check(Table, byte_size(Items), MaxSize),
+    [{I,list_to_binary([I])} || I <- binary_to_list(Items)];
 generate_virtual(integer, I, _) when is_integer(I)-> [{I,imem_datatype:integer_to_io(I)}];
 generate_virtual(integer, _, _) -> [];
 
@@ -985,11 +999,12 @@ generate_virtual(ref=Table, Items, MaxSize) when is_list(Items) ->
 generate_virtual(ref, I, _) when is_reference(I)-> [{I,imem_datatype:ref_to_io(I)}];
 generate_virtual(ref, _, _) -> [];
 
+generate_virtual(string, [], _) -> [];
 generate_virtual(string=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     case io_lib:printable_unicode_list(Items) of
         true ->     [{I,imem_datatype:integer_to_io(I)} || I <- Items];
-        false ->    []
+        false ->    [{I,imem_datatype:string_to_io(I)} || I <- Items]
     end;
 
 generate_virtual(term=Table, Items, MaxSize) when is_list(Items) ->
