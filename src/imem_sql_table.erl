@@ -119,7 +119,9 @@ db2_test_() ->
         setup,
         fun setup/0,
         fun teardown/1,
-        {with, [fun test_with_sec/1]}
+        {with, [fun test_with_sec/1
+               ,fun test_without_sec/1
+               ]}
     }.
 
 test_without_sec(_) -> 

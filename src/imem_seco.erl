@@ -1,4 +1,4 @@
--module(imem_seco).
+    -module(imem_seco).
 
 -include("imem_seco.hrl").
 
@@ -84,14 +84,14 @@ init(_Args) ->
         if_check_table(none, ddTable),
 
         ADef = {record_info(fields, ddAccount),?ddAccount,#ddAccount{}},
-        catch imem_meta:create_check_table(ddAccount, ADef, [], system),
+        imem_meta:init_create_check_table(ddAccount, ADef, [], system),
         imem_meta:create_or_replace_index(ddAccount, name),
 
         ADDef = {record_info(fields, ddAccountDyn),?ddAccountDyn,#ddAccountDyn{}},
-        catch imem_meta:create_check_table(ddAccountDyn, ADDef, [], system),
+        imem_meta:init_create_check_table(ddAccountDyn, ADDef, [], system),
 
         RDef = {record_info(fields, ddRole), ?ddRole, #ddRole{}},
-        catch imem_meta:create_check_table(ddRole, RDef, [], system),
+        imem_meta:init_create_check_table(ddRole, RDef, [], system),
 
         SDef = {record_info(fields, ddSeCo), ?ddSeCo, #ddSeCo{}},
         case (catch imem_meta:table_columns(ddSeCo@)) of
@@ -101,15 +101,15 @@ init(_Args) ->
             _ ->                            ok      % table does not exist
         end,
 
-        catch imem_meta:create_check_table(ddSeCo@, SDef
+        imem_meta:init_create_check_table(ddSeCo@, SDef
               , [{scope,local}, {local_content,true},{record_name,ddSeCo}], system),
 
         PDef = {record_info(fields, ddPerm),?ddPerm, #ddPerm{}},
-        catch imem_meta:create_check_table(ddPerm@, PDef
+        imem_meta:init_create_check_table(ddPerm@, PDef
               , [{scope,local}, {local_content,true},{record_name,ddPerm}], system),
 
         QDef = {record_info(fields, ddQuota), ?ddQuota, #ddQuota{}},
-        catch imem_meta:create_check_table(ddQuota@, QDef
+        imem_meta:init_create_check_table(ddQuota@, QDef
               , [{scope,local}, {local_content,true},{record_name,ddQuota}], system),
 
         case if_select_account_by_name(none, <<"system">>) of

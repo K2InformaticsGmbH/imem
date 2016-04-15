@@ -199,7 +199,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql4 = "insert into def (col1,col3) values ('F', \"COL\");",  
         % ?LogDebug("Sql3b: ~p~n", [Sql4]),
-        ?assertException(throw,{ClEr,{"Unknown field or table name",<<"\"COL\"">>}}, imem_sql:exec(SKey, Sql4, 0, [{schema,imem}], IsSec)),
+        ?assertException(throw,{ClEr,{"Unknown field or table name",<<"COL">>}}, imem_sql:exec(SKey, Sql4, 0, [{schema,imem}], IsSec)),
 
         Sql4a = "insert into def (col1,col3) values ('G', '[1,2,3]');",  
         % ?LogDebug("Sql3b: ~p~n", [Sql4a]),

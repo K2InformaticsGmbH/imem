@@ -820,6 +820,12 @@ generate_virtual_data(tuple,_Rec,{'==',Tag,{const,Val}},MaxSize) when is_atom(Ta
     generate_virtual(tuple,{const,Val},MaxSize);
 generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,Val,MaxSize);
+generate_virtual_data(Table,_Rec,{'or',{'==',Tag,V1},OrEqual},MaxSize) when is_atom(Tag) ->
+    generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
+% generate_virtual_data(Table,_Rec,{'and',{'or',{'==',Tag,V1},OrEqual},_},MaxSize) when is_atom(Tag) ->
+%     generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
+% generate_virtual_data(Table,_Rec,{'and',{'and',{'or',{'==',Tag,V1},OrEqual},_},_},MaxSize) when is_atom(Tag) ->
+%     generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
 generate_virtual_data(integer,_Rec,{'and',{'>=',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
     generate_virtual_integers(Min,Max,MaxSize);
 generate_virtual_data(integer,_Rec,{'and',{'>',Tag,Min},{'=<',Tag,Max}},MaxSize) ->
@@ -832,6 +838,16 @@ generate_virtual_data(integer,_Rec,SGuard,_MaxSize) ->
     ?UnimplementedException({"Unsupported virtual integer bound filter guard",SGuard});
 generate_virtual_data(Table,_Rec,SGuard,_MaxSize) ->
     ?UnimplementedException({"Unsupported virtual join bound filter guard",{Table,SGuard}}).
+
+vals_from_or_equal(Tag,OrEqual) ->
+    vals_from_or_equal(Tag,OrEqual,[]).
+
+vals_from_or_equal(Tag, {'==',Tag,V}, Acc) -> 
+    lists:reverse([V|Acc]);
+vals_from_or_equal(Tag, {'or',{'==',Tag,V},OrEqual}, Acc) -> 
+    vals_from_or_equal(Tag, OrEqual, [V|Acc]);
+vals_from_or_equal(_, SGuard, _Acc) -> 
+    ?UnimplementedException({"Unsupported virtual in() filter guard",SGuard}).
 
 generate_virtual_integers(Min,Max,MaxSize) when (Max>=Min),(MaxSize>Max-Min) ->
     [{I,imem_datatype:integer_to_io(I)} || I <- lists:seq(Min,Max)];
@@ -846,6 +862,10 @@ generate_virtual(list=Table, {list,Items}, MaxSize)  ->
 generate_virtual(tuple, {const,I}, _) when is_tuple(I) ->
     [{I,imem_datatype:term_to_io(I)}];
 
+generate_virtual(_, [], _) -> [];
+
+generate_virtual(_, <<>>, _) -> [];
+
 generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_atom(X) end,
@@ -853,18 +873,25 @@ generate_virtual(atom=Table, Items, MaxSize) when is_list(Items) ->
 generate_virtual(atom, I, _) when is_atom(I)-> [{I,imem_datatype:atom_to_io(I)}];
 generate_virtual(atom, _, _) -> [];
 
+generate_virtual(binary=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
+    [{I,imem_datatype:binary_to_io(I)} || I <- Items];
 generate_virtual(binary=Table, Items, MaxSize) when is_binary(Items) ->
     generate_limit_check(Table, byte_size(Items), MaxSize),
     [{list_to_binary([I]),list_to_binary([I])} || I <- binary_to_list(Items)];
 generate_virtual(binary, _, _) -> [];
 
+generate_virtual(binstr=Table, Items, MaxSize) when is_list(Items) ->
+    generate_limit_check(Table, length(Items), MaxSize),
+    [{I,imem_datatype:binstr_to_io(I)} || I <- Items];
 generate_virtual(binstr=Table, Items, MaxSize) when is_binary(Items) ->
     generate_limit_check(Table, byte_size(Items), MaxSize),
     String = binary_to_list(Items),
     case io_lib:printable_unicode_list(String) of
-        true ->     [{S,<<S>>} || S <- String];
+        true ->     [{<<S>>,<<S>>} || S <- String];
         false ->    []
     end;
+generate_virtual(binstr, _, _) -> [];
 
 generate_virtual(boolean=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
@@ -909,6 +936,9 @@ generate_virtual(integer=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     Pred = fun(X) -> is_integer(X) end,
     [{I,imem_datatype:integer_to_io(I)} || I <- lists:filter(Pred,Items)];
+generate_virtual(integer=Table, Items, MaxSize) when is_binary(Items) ->
+    generate_limit_check(Table, byte_size(Items), MaxSize),
+    [{I,list_to_binary([I])} || I <- binary_to_list(Items)];
 generate_virtual(integer, I, _) when is_integer(I)-> [{I,imem_datatype:integer_to_io(I)}];
 generate_virtual(integer, _, _) -> [];
 
@@ -969,11 +999,12 @@ generate_virtual(ref=Table, Items, MaxSize) when is_list(Items) ->
 generate_virtual(ref, I, _) when is_reference(I)-> [{I,imem_datatype:ref_to_io(I)}];
 generate_virtual(ref, _, _) -> [];
 
+generate_virtual(string, [], _) -> [];
 generate_virtual(string=Table, Items, MaxSize) when is_list(Items) ->
     generate_limit_check(Table, length(Items), MaxSize),
     case io_lib:printable_unicode_list(Items) of
         true ->     [{I,imem_datatype:integer_to_io(I)} || I <- Items];
-        false ->    []
+        false ->    [{I,imem_datatype:string_to_io(I)} || I <- Items]
     end;
 
 generate_virtual(term=Table, Items, MaxSize) when is_list(Items) ->
@@ -1031,8 +1062,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap,
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % ?Info("ColMap~n~p~n", [ColMap]),
-    % ?Info("Values~n~p~n", [Values]),
+    % ?Info("update_prepare ColMap~n~p", [ColMap]),
+    % ?Info("update_prepare Values~n~p", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1065,7 +1096,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Pos=imem_sql_expr:bind_tree(PosBind,Recs), 
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,Proj(X),tuple_type(Type,Pos),undefined,undefined,<<>>,false,Value) of
+                            case imem_datatype:io_to_db(Item,OldVal,tuple_type(Type,Pos),undefined,undefined,<<>>,false,Value) of
                                 OldVal ->   X;
                                 NewVal ->   ?replace(X,Cx,setelement(Pos,?BoundVal(B,X),NewVal))
                             end
@@ -1075,7 +1106,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,Proj(X),list_type(Type),undefined,undefined,<<>>,false,Value) of
+                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
                                 OldVal ->               
                                     X;
                                 NewVal1 when Pos==1 ->  
@@ -1095,10 +1126,45 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,0,Fx};
+                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            RealType = case OldVal of
+                                true ->     boolean;
+                                false ->    boolean;
+                                null when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
+                                ?nav when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
+                                N when N==null; N==?nav; is_number(N) ->     
+                                    case catch imem_datatype:io_to_integer(Value) of
+                                        I when is_integer(I) ->                 integer;
+                                        _ ->
+                                            case catch imem_datatype:io_to_float(Value,undefined) of
+                                                F when is_float(F) ->           float;
+                                                _ when Value == <<"null">> ->   atom;
+                                                _ ->                            Type
+                                            end
+                                    end;
+                                _ ->                                            Type
+                            end,
+                            case imem_datatype:io_to_db(Item,OldVal,RealType,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
+                            end
+                        end,     
+                        {Cx,0,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
                 end;
             #bind{tind=0,cind=0} ->  
                 ?SystemException({"Internal update error, constant projection binding",{Item,CMap}});
+            #bind{tind=?MainIdx,cind=0,type=tuple} ->
+                Fx = fun(X) -> 
+                    OldVal = element(?MainIdx,X),
+                    case imem_datatype:io_to_db(Item,OldVal,tuple,undefined,undefined,<<>>,false,Value) of
+                        OldVal ->   X;
+                        NewVal ->   setelement(?MainIdx,X,NewVal)
+                    end
+                end,     
+                {0,0,Fx};
             #bind{tind=?MainIdx,cind=Cx,type=T,len=L,prec=P,default=D} ->
                 Fx = fun(X) -> 
                     ?replace(X,Cx,imem_datatype:io_to_db(Item,?BoundVal(CMap,X),T,L,P,D,false,Value))
@@ -1170,6 +1236,13 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                 end;
             #bind{tind=0,cind=0} ->  
                 ?SystemException({"Internal update error, constant projection binding",{Item,CMap}});
+            #bind{tind=?MainIdx,cind=0,type=tuple} ->
+                Fx = fun(_X) ->
+                    NewVal = imem_datatype:io_to_db(Item,{},tuple,undefined,undefined,<<>>,false,Value),
+                    % setelement(?MainIdx,X,NewVal)
+                    NewVal 
+                end,     
+                {0,0,Fx};                
             #bind{tind=?MainIdx,cind=Cx,type=T,len=L,prec=P,default=D} ->
                 Fx = fun(X) -> 
                     ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,?nav,T,L,P,D,false,Value))
@@ -1283,7 +1356,9 @@ if_call_mfa(IsSec,Fun,Args) ->
 setup() -> ?imem_test_setup.
 
 teardown(_SKey) ->    
-    % ?LogDebug("test teardown....~n",[]),
+    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(tuple_test),
+    catch imem_meta:drop_table(fun_test),
     ?imem_test_teardown.
 
 

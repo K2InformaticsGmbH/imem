@@ -575,15 +575,13 @@ column_map_items(_Map, Item) ->
 -spec is_readonly(#bind{}) -> boolean().
 is_readonly(#bind{tind=Ti}) when Ti > ?MainIdx -> true;
 is_readonly(#bind{tind=?MainIdx,cind=Ci}) when Ci>0 -> false;   
-is_readonly(#bind{tind=?MainIdx,cind=0}) -> true;               %% Vector field cannot be edited
-is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> true; %% Vector field cannot be edited
-is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> true; %% Vector field cannot be edited
+is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                                      %% Vector field can be edited ??????????
+is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;       %% Vector field can be edited ??????????
+is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;     %% Vector field can be edited ??????????
 is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
-is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op=='element';Op=='nth' -> false;  %% editable projection
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op==element;Op=='nth';Op==json_value -> false;  %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
-is_readonly(_BTree) -> 
-    % ?LogDebug("Positive readonly test for ~n~p~n",[_BTree]),
-    true.
+is_readonly(_BTree) -> true.       % ?Info("is_readonly ~p",[_BTree])
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.
@@ -757,10 +755,20 @@ field_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
     % ?Debug("column_map matching table count ~p~n", [Tcount]),
     if 
         (Tcount==0) andalso (Schema == undefined) andalso (Name /= undefined) ->
-            %% Maybe we got a table name {undefined,Schema,Table}  
-            field_map_lookup({Table,Name,undefined},FullMap);
-        (Tcount==0) ->  
+            case imem_datatype:strip_dquotes(Name) of
+                Name -> %% Maybe we got a table name {undefined,Schema,Table}  
+                        field_map_lookup({Table,Name,undefined},FullMap);
+                UQN ->  %% try first with unquoted Name
+                        field_map_lookup({Schema,Table,UQN},FullMap)
+            end;                        
+        (Tcount==0) andalso (Name == undefined) ->
             ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
+        (Tcount==0) ->
+            case imem_datatype:strip_dquotes(Name) of
+                Name -> ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
+                UQN ->  ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,UQN]), 
+                        field_map_lookup({Schema,Table,UQN},FullMap)
+            end;
         (Tcount > 1) ->
             ?ClientError({"Ambiguous field or table name", qname3_to_binstr(QN3)});
         (Name == undefined) ->         

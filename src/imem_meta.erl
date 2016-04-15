@@ -802,7 +802,7 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         true ->     ok;
         false ->    ?ClientError({"Invalid character(s) in table name",TableAlias})
     end,    
-    case sqlparse:is_reserved(TableAlias) of
+    case is_reserved_for_tables(TableAlias) of
         false ->    ok;
         true ->     ?ClientError({"Reserved table name",TableAlias})
     end,
@@ -818,7 +818,7 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         false ->    ok;
         {_,BadN} -> ?ClientError({"Invalid character(s) in column name",BadN})
     end,
-    ReservedCheck = [{sqlparse:is_reserved(Name),Name} || Name <- column_info_items(ColInfos, name)],
+    ReservedCheck = [{is_reserved_for_columns(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(true, 1, ReservedCheck) of
         false ->    ok;
         {_,BadC} -> ?ClientError({"Reserved column name",BadC})
@@ -1548,6 +1548,11 @@ is_local_or_schema_time_partitioned_table(Name) when is_list(Name) ->
         _ ->                    false
     end.
 
+is_reserved_for_tables(TableAlias) -> sqlparse:is_reserved(TableAlias).
+
+is_reserved_for_columns(roles) -> false;
+is_reserved_for_columns(Name) -> sqlparse:is_reserved(Name).
+
 -spec parse_table_name(atom()|list()|binary()) -> list(list()).
     %% TableName -> [Schema,".",Name,"_",Period,"@",Node] all strings , all optional ("") except Name
 parse_table_name(TableName) when is_atom(TableName) -> 
@@ -2096,9 +2101,9 @@ compiled_index_plan(IdxDef,ColumnInfos) ->
 compile_or_generate(Source) when is_binary(Source) ->
     compile_or_generate(imem_datatype:io_to_fun(Source));   %% compile the source code
 compile_or_generate(IdxFun) when is_function(IdxFun,1) ->
-    IdxFun;                                                 %% return the arity 1 function for vnf
+    IdxFun;                                                 %% return the arity 1 function for vnf/1
 compile_or_generate(IdxFun) when is_function(IdxFun,2) ->
-    IdxFun;                                                 %% return the arity 2 function for iff
+    IdxFun;                                                 %% return the arity 2 function for iff/2 or vnf/2
 compile_or_generate(IdxFun) when is_function(IdxFun,0) ->
     IdxFun();                                               %% arity 0 function is a function generator
 compile_or_generate(Bad) ->
@@ -2825,7 +2830,7 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
     Key = element(?KeyIdx,Rec),         %% index a field as a whole, no json path search
     KVPs = case element(Pos,Rec) of
         ?nav -> [];
-        RV ->   case Vnf(RV) of         %% apply value normalising function
+        RV ->   case vnf_eval(Vnf,Key,RV) of         %% apply value normalising function
                     ?nav ->     [];
                     [?nav] ->   [];
                     [] ->       [];
@@ -2848,12 +2853,9 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
             Match = imem_json:eval(PT,Binds),
             case Match of
                 MV when is_binary(MV);is_number(MV);is_atom(MV) ->    
-                    % ?LogDebug("Value from json ~p",[MV]),
-                    % ?LogDebug("Vnf evaluates to ~p",[Vnf(MV)]),
-                    % ?LogDebug("lists:flatten evaluates to ~p",[lists:flatten([Vnf(M1) || M1  <- [MV]])]),
-                    [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- [MV]]), V /= ?nav];
+                    [{Key,V} || V <- lists:flatten([vnf_eval(Vnf,Key,M) || M  <- [MV]]), V /= ?nav];
                 ML when is_list(ML) ->      
-                    [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- ML]), V /= ?nav];
+                    [{Key,V} || V <- lists:flatten([vnf_eval(Vnf,Key,M) || M  <- ML]), V /= ?nav];
                 {nomatch, {path_not_found, _}} ->          
                     [];
                 {nomatch, {property_not_found, _, _}} ->   
@@ -2876,6 +2878,12 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
     %% ?LogDebug("index_items KVPs ~p",[KVPs]),
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
     index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch).
+
+vnf_eval(Vnf,Key,Val) ->
+    case is_function(Vnf,1) of 
+        true -> Vnf(Val);
+        false -> Vnf(Key,Val)
+    end.
 
 transaction(Function) ->
     imem_if_mnesia:transaction(Function).
