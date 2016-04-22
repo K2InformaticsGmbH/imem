@@ -499,12 +499,16 @@ restore_chunked(Tab, Strategy, Simulate) ->
 
 restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
     ?Debug("restoring ~p from ~p by ~p~n", [Tab, SnapFile, Strategy]),
-    {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
-    if (Simulate /= true) andalso (Strategy =:= destroy)
-        -> catch imem_meta:truncate_table(Tab);
-        true -> ok
-    end,
-    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {0,0,0}).
+    case file:open(SnapFile, [read, raw, binary]) of
+       {ok, FHndl} ->
+           if 
+                (Simulate /= true) andalso (Strategy =:= destroy) -> 
+                    catch imem_meta:truncate_table(Tab);
+                true -> ok
+           end,
+           read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {0,0,0});
+       {error, Error} -> {error, Error}
+   end.
 
 read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Debug("backup file header read"),
@@ -713,9 +717,14 @@ take_chunked_transform(#{table:=Tab, nTrans:=NTrans, pTrans:=PTrans, rTrans:=RTr
                     , ?GET_SNAPSHOT_CHUNK_MAX_SIZE]),
         ?Debug("[~p] snapshoting ~p of ~p rows ~p bytes~n", [self(), Tab, imem_meta:table_size(Tab)
                                                                , imem_meta:table_memory(Tab)]),
-        {ok, FHndl} = file:open(NewBackFile, [append, raw
+        FHndl = case file:open(NewBackFile, [append, raw
                             , {delayed_write, erlang:round(ChunkSize * AvgRowSize)
-                              , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]),
+                              , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]) of
+            {ok, FileHandle} -> FileHandle;
+            {error, Error} -> 
+                ?Error("Error : ~p opening file : ~p", [Error, NewBackFile]),
+                error(Error)
+        end,
         FetchFunPid = imem_if_mnesia:fetch_start(self(), Tab, [{'$1', [], ['$1']}], ChunkSize, []),
         take_fun(Me,Tab,FetchFunPid,RTrans,0,0,FHndl)
     end),
