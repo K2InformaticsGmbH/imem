@@ -1,9 +1,9 @@
 language: erlang
 notifications:
   email:
-    - ochsenbein@bluewin.ch
     - acautin@bluewin.ch
     - chatterjee@bluewin.ch
+    - ochsenbein@bluewin.ch
     - shamis.shukoor@bluewin.ch
 otp_release:
   - 18.0
