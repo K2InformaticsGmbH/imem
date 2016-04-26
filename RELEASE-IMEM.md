@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.4.15 (Release Date 26.04.2016)
+=======================================
+* Set sext dependency to a particular commit (map support)
+* Improve generation for binstr and binary
+
 Version 1.4.14 (Release Date 06.04.2016)
 =======================================
 * Fixed sql generation issues for filter
