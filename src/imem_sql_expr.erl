@@ -742,14 +742,31 @@ column_map_lookup(QN3,FullMap) ->
         Other ->                                        Other   
     end.                                
 
-field_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
+field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
     % ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,Name]),
+    NameInString = case is_binary(NameIn) of
+                       true ->
+                           string:to_lower(binary_to_list(NameIn));
+                       false ->
+                           NameIn
+                   end,
     Pred = fun(__FM) ->
-        ((Name == undefined) orelse (Name == __FM#bind.name)) 
+        ((NameIn == undefined) orelse (NameInString == string:to_lower(binary_to_list(__FM#bind.name))))
         andalso ((Table == undefined) orelse (Table == __FM#bind.alias)) 
         andalso ((Schema == undefined) orelse (Schema == __FM#bind.schema))
     end,
     Bmatch = lists:filter(Pred, FullMap),
+    Name = case Bmatch of
+               [] ->
+                   NameIn;
+               [BmatchRec | _] ->
+                   case is_binary(NameIn) of
+                       true ->
+                           BmatchRec#bind.name;
+                       false ->
+                           NameIn
+                   end
+           end,
     % ?LogDebug("column_map matching tables ~p~n", [Bmatch]),
     Tcount = length(lists:usort([{B#bind.schema, B#bind.alias} || B <- Bmatch])),
     % ?Debug("column_map matching table count ~p~n", [Tcount]),
