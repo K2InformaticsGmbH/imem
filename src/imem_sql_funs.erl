@@ -186,7 +186,7 @@ binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_value") ->          #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("json_diff") ->           #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("phash2") ->              #bind{type=term,default=?nav};
-binary_fun_bind_type1("map_get") ->             #bind{type=term,default=?nav};
+binary_fun_bind_type1("map_get") ->             #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("map_merge") ->           #bind{type=map,default= #{}};
 binary_fun_bind_type1("map_remove") ->          #bind{type=term,default=?nav};
 binary_fun_bind_type1("map_with") ->            #bind{type=list,default= []};
