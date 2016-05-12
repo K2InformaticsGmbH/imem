@@ -382,7 +382,7 @@ expr_fun({Op, A, B}) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='
 expr_fun({Op, A}) when Op=='map_size' ->
     module_fun('maps', {size, A});
 expr_fun({Op, A, B}) when Op=='map_get';Op=='map_merge';Op=='map_remove';Op=='map_with';Op=='map_without'->
-    module_fun('maps', {Op, A, B});
+    module_fun('maps', {list_to_atom(lists:nthtail(4,atom_to_list(Op))), A, B});
 %% Logical expressions
 expr_fun({'not', A}) ->
     case expr_fun(A) of
