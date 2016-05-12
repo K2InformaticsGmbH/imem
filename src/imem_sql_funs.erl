@@ -11,7 +11,8 @@
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
             , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff, md5
-            , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap, phash2
+            , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2
+            , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa
             ]).
@@ -185,6 +186,11 @@ binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_value") ->          #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("json_diff") ->           #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("phash2") ->              #bind{type=term,default=?nav};
+binary_fun_bind_type1("map_get") ->             #bind{type=term,default=?nav};
+binary_fun_bind_type1("map_merge") ->           #bind{type=map,default= #{}};
+binary_fun_bind_type1("map_remove") ->          #bind{type=term,default=?nav};
+binary_fun_bind_type1("map_with") ->            #bind{type=list,default= []};
+binary_fun_bind_type1("map_without") ->         #bind{type=list,default= []};
 binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_bind_type2(B) when is_binary(B) ->   binary_fun_bind_type2(binary_to_list(B));
@@ -200,6 +206,11 @@ binary_fun_bind_type2("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_value") ->          #bind{type=json,default=[]};
 binary_fun_bind_type2("json_diff") ->           #bind{type=json,default=?nav};
 binary_fun_bind_type2("phash2") ->              #bind{type=integer,default=27};
+binary_fun_bind_type2("map_get") ->             #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_merge") ->           #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_remove") ->          #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_with") ->            #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_without") ->         #bind{type=map,default= #{}};
 binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_result_type(B) when is_binary(B) ->  binary_fun_result_type(binary_to_list(B));
@@ -215,6 +226,11 @@ binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_value") ->         #bind{type=json,default=[]};
 binary_fun_result_type("json_diff") ->          #bind{type=json,default=[]};
 binary_fun_result_type("phash2") ->             #bind{type=integer,default=0};
+binary_fun_result_type("map_get") ->            #bind{type=map,default=?nav};
+binary_fun_result_type("map_merge") ->          #bind{type=map,default=?nav};
+binary_fun_result_type("map_remove") ->         #bind{type=map,default=?nav};
+binary_fun_result_type("map_with") ->           #bind{type=map,default=?nav};
+binary_fun_result_type("map_without") ->        #bind{type=map,default=?nav};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 
 
@@ -365,6 +381,8 @@ expr_fun({Op, A, B}) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='
 %% maps module
 expr_fun({Op, A}) when Op=='map_size' ->
     module_fun('maps', {size, A});
+expr_fun({Op, A, B}) when Op=='map_get';Op=='map_merge';Op=='map_remove';Op=='map_with';Op=='map_without'->
+    module_fun('maps', {Op, A, B});
 %% Logical expressions
 expr_fun({'not', A}) ->
     case expr_fun(A) of
@@ -711,8 +729,13 @@ to_json(B) when is_binary(B) ->
         JO when is_binary(JO) -> JO;
         _ ->    B
     end;
+to_json(L) when is_list(L) ->
+    case catch imem_json:encode(L) of 
+        JO when is_binary(JO) -> JO;
+        _ ->    ?nav
+    end;
 to_json(M) when is_map(M) ->  imem_json:encode(M);
-to_json(M) -> ?nav.
+to_json(_) -> ?nav.
 
 to_pid(T) when is_pid(T) -> T;
 to_pid(B) -> imem_datatype:io_to_pid(B).
