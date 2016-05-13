@@ -1319,7 +1319,12 @@ restore_table(Alias) when is_atom(Alias) ->
         [] ->   ?ClientError({"Table does not exist",Alias});
         PTNs -> case imem_snap:restore(bkp,PTNs,destroy,false) of
                     [{_, {_, _, _}}]  ->    ok;
-                    [{_, E}] -> ?SystemException({"Restore table failed with",E})
+                    Error ->
+                        E = case Error of 
+                            [{_, Err}] -> Err; 
+                            Error -> Error 
+                        end,
+                        ?SystemException({"Restore table failed with",E})
                 end
     end;    
 restore_table(TableName) ->
