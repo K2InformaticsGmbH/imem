@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.0 (Release Date 17.05.2016)
+=======================================
+* Added map functions
+* Implement slice sql function
+
 Version 1.4.15 (Release Date 26.04.2016)
 =======================================
 * Set sext dependency to a particular commit (map support)
