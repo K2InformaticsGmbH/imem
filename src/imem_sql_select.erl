@@ -52,10 +52,41 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
     % ?LogDebug("ColMap1:~n~p", [ColMap1]),
-    RowFun = case ?DefaultRendering of
-        raw ->  imem_datatype:select_rowfun_raw(ColMap1);
-        str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
-    end,
+    {_, ColMapGroupBy} = lists:keyfind('group by', 1, SelectSections),
+    IsDistinct = case length(ColMapGroupBy) of
+                     0 ->
+                         case lists:keyfind(opt, 1, SelectSections) of
+                             false -> false;
+                             {_, OptDistinct} ->
+                                 case OptDistinct == <<"distinct">> of
+                                     true -> true;
+                                     _ -> false
+                                 end
+                         end;
+                     _ -> true
+                 end,
+    RowFun = case IsDistinct of
+                 true ->
+                     case ets:info(?MODULE) of
+                         undefined ->
+                             ets:new(?MODULE, [named_table, public, set]);
+                         _ -> ok
+                     end,
+                     Key = erlang:phash2(Stmt),
+                     true = ets:insert(?MODULE, {Key, []}),
+                     case ?DefaultRendering of
+                         raw ->
+                             imem_datatype:select_rowfun_raw(ColMap1, {?MODULE, Key});
+                         str ->
+                             imem_datatype:select_rowfun_str(ColMap1, {?MODULE, Key}, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
+                     end;
+                 false ->
+                     case ?DefaultRendering of
+                         raw -> imem_datatype:select_rowfun_raw(ColMap1);
+                         str ->
+                             imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
+                     end
+             end,
     % ?Info("RowFun:~n~p~n", [RowFun]),
     SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap, ColMap1),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap, ColMap1),
@@ -438,6 +469,25 @@ db1_with_or_without_sec(IsSec) ->
             % ]
         ),
 
+        exec_fetch_sort_equal(SKey, query9b_dist, 100, IsSec, "
+            select distinct col2#keys
+            from def
+            "
+            ,
+            [{<<"[\"name\",\"age\",\"empty\"]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query9b_group, 100, IsSec, "
+            select col2#keys
+            from def
+            group by col2#keys
+            "
+            ,
+            [{<<"[\"name\",\"age\",\"empty\"]">>}
+            ]
+        ),
+
         exec_fetch_sort_equal(SKey, query9c, 100, IsSec, "
             select col2#values 
             from def
@@ -513,6 +563,15 @@ db1_with_or_without_sec(IsSec) ->
             ]
         ),
 
+        exec_fetch_sort_equal(SKey, query10b_dist, 100, IsSec, "
+            select distinct is_list(col2[])
+            from def
+            "
+            ,
+            [{<<"true">>}
+            ]
+        ),
+
         exec_fetch_sort_equal(SKey, query10c, 100, IsSec, "
             select col2[1,3] 
             from def
@@ -526,6 +585,27 @@ db1_with_or_without_sec(IsSec) ->
             ]
         ),
 
+        exec_fetch_sort_equal(SKey, query10c_dist, 100, IsSec, "
+            select distinct col2[1,3]
+            from def
+            "
+            ,
+            [{<<"[\"a1\",\"$not_a_value\"]">>}
+                ,{<<"[1,3]">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query10c_group, 100, IsSec, "
+            select col2[1,3]
+            from def
+            group by col2[1,3]
+            "
+            ,
+            [{<<"[\"a1\",\"$not_a_value\"]">>}
+                ,{<<"[1,3]">>}
+            ]
+        ),
+
         exec_fetch_sort_equal(SKey, query10d, 100, IsSec, "
             select col2[0] 
             from def
@@ -536,6 +616,25 @@ db1_with_or_without_sec(IsSec) ->
             ,{<<"'$not_a_value'">>}
             ,{<<"'$not_a_value'">>}
             ,{<<"'$not_a_value'">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query10d_dist, 100, IsSec, "
+            select distinct col2[0]
+            from def
+            "
+            ,
+            [{<<"'$not_a_value'">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query10d_group, 100, IsSec, "
+            select col2[0]
+            from def
+            group by col2[0]
+            "
+            ,
+            [{<<"'$not_a_value'">>}
             ]
         ),
 
@@ -2123,6 +2222,41 @@ db2_with_or_without_sec(IsSec) ->
             ]
         ),
 
+        exec_fetch_sort_equal(SKey, query8n_dist, 100, IsSec, "
+            select distinct is_tuple(col3), element(1,col3)
+            from member_test"
+            ,
+            [
+                {<<"false">>,?navio}
+                ,{<<"true">>,<<"a">>}
+                ,{<<"true">>,<<"imem">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8n_dist_sort, 100, IsSec, "
+            select distinct is_tuple(col3), element(1,col3)
+            from member_test
+            order by 1 desc, 2"
+            ,
+            [
+                {<<"true">>,<<"a">>}
+                ,{<<"true">>,<<"imem">>}
+                ,{<<"false">>,?navio}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8n_group, 100, IsSec, "
+            select is_tuple(col3), element(1,col3)
+            from member_test
+            group by is_tuple(col3), element(1,col3)"
+            ,
+            [
+                {<<"false">>,?navio}
+                ,{<<"true">>,<<"a">>}
+                ,{<<"true">>,<<"imem">>}
+            ]
+        ),
+
         exec_fetch_sort_equal(SKey, query8o, 100, IsSec, "
             select is_tuple(col3), element(1,col3)
             from member_test 
@@ -2132,6 +2266,27 @@ db2_with_or_without_sec(IsSec) ->
              {<<"false">>,?navio}
             ,{<<"false">>,?navio}
             ,{<<"false">>,?navio}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8o_dist, 100, IsSec, "
+            select distinct is_tuple(col3), element(1,col3)
+            from member_test
+            where is_nav(element(1,col3))"
+            ,
+            [
+                {<<"false">>,?navio}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query8o_group, 100, IsSec, "
+            select is_tuple(col3), element(1,col3)
+            from member_test
+            where is_nav(element(1,col3))
+            group by is_tuple(col3), element(1,col3)"
+            ,
+            [
+                {<<"false">>,?navio}
             ]
         ),
 
