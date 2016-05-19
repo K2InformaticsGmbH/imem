@@ -73,6 +73,15 @@ init(ListenerPid, Socket, Transport, Opts) ->
     imem_meta:log_to_db(debug,?MODULE,init
                         ,[ListenerPid, Socket, Transport, Opts], Str),
     ok = ranch:accept_ack(ListenerPid),
+    % Linkinking TCP socket
+    % for easy lookup
+    erlang:link(
+      case lists:member(ssl, Opts) of
+          true ->
+              {sslsocket,{gen_tcp,TcpSocket,tls_connection,_},_} = Socket,
+              TcpSocket;
+          _ -> Socket
+      end),
     loop(Socket, Transport, <<>>, 0).
 
 -define(TLog(__F, __A), ok). 
