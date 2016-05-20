@@ -466,6 +466,10 @@ handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{isSec=IsSec,seco
                 [] ->   [];
                 [R2] -> lists:filter(FilterFun, [?MetaMain(MR2, R2)])
             end
+            ;
+        STF -> 
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{status,STF},{rec,R1}],"Unexpected status in tail event"),     
+            []
     end,
     case {RawRecords,length(Stmt#statement.tables),RowNum} of
         {[],_,_} ->   %% nothing to be returned  
@@ -2168,7 +2172,7 @@ test_with_or_without_sec_part3(IsSec) ->
 
 
 receive_tuples(StmtResult, Complete) ->
-    receive_tuples(StmtResult,Complete,50,[]).
+    receive_tuples(StmtResult,Complete,80,[]).
 
 % receive_tuples(StmtResult, Complete, Timeout) ->
 %     receive_tuples(StmtResult, Complete, Timeout,[]).
