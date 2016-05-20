@@ -482,22 +482,19 @@ dirty_index_read(Table, SecKey, Index) when is_atom(Table) ->
         throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_index_read failure",Reason})
     end.
 
+read_hlk(_, []) -> [];
 read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
-    % read using HierarchicalListKey 
-    Trans = fun
-        ([],_) ->
-            [];
-        (HLK,Tra) ->
-            case mnesia:read(Table,HLK) of
-                [] ->   Tra(lists:sublist(HLK, length(HLK)-1),Tra);
-                R ->    R
-            end
-    end,
-    case transaction(Trans,[HListKey,Trans]) of
-        {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
-        Result ->                   return_atomic(Result)
+    % read using HierarchicalListKey
+    try 
+        case mnesia:dirty_read(Table, HListKey) of
+            [] ->   read_hlk(Table, lists:sublist(HListKey, length(HListKey)-1));
+            R ->    R
+        end
+    catch
+        exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
+        exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
+        throw:Reason ->                     ?SystemExceptionNoLogging({"Mnesia dirty_index_read failure",Reason})
     end.
-
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
     try

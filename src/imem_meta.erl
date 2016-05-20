@@ -464,7 +464,7 @@ create_nonexisting_partitioned_table(TableAlias, TableName) ->
     % find out ColumnsInfos, Opts, Owner from ddAlias
     case imem_if_mnesia:read(ddAlias,{schema(), TableAlias}) of
         [] ->
-            ?Error("Table template not found in ddAlias~p", [TableAlias]),   
+            ?Error("Table template not found in ddAlias ~p", [TableAlias]),   
             {error, {"Table template not found in ddAlias", TableAlias}}; 
         [#ddAlias{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
             try
@@ -2442,7 +2442,7 @@ put_config_hlk(Table, Key, Owner, Context, Value, Remark, _Documentation) ->
 put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
     put_config_hlk(Table, Key, Owner, Context, Value, Remark);
 put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
-    write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
+    dirty_write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
 
 select({ddSysConf,Table}, _MatchSpec) ->
     % imem_if_sys_conf:select(physical_table_name(Table), MatchSpec);
