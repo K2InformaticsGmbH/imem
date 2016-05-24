@@ -49,6 +49,7 @@
         , drop_index/2
         , truncate_table/1
         , select/2
+        , dirty_select/2
         , select/3
         , select_sort/2
         , select_sort/3
@@ -530,6 +531,9 @@ delete_object(Table, Row) when is_atom(Table) ->
         {aborted,{no_exists,_}} ->          ?ClientErrorNoLogging({"Table does not exist",Table});
         Result ->                           return_atomic_ok(Result)
     end.
+
+dirty_select(Table, MatchSpec) when is_atom(Table) ->
+    mnesia:select(Table, MatchSpec).
 
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of

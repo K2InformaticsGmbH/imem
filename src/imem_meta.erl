@@ -198,6 +198,7 @@
         , read/2                %% read by key
         , read_hlk/2            %% read using hierarchical list key
         , select/2              %% select without limit, only use for small result sets
+        , dirty_select/2        %% select dirty without any trynsaction locks
         , select_virtual/3      %% select virtual table without limit, only use for small result sets
         , select/3              %% select with limit
         , select_sort/2
@@ -2451,6 +2452,9 @@ select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(Table, MatchSpec) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec).
+
+dirty_select(Table, MatchSpec) ->
+    imem_if_mnesia:dirty_select(physical_table_name(Table), MatchSpec).
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
