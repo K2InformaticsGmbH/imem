@@ -533,7 +533,7 @@ delete_object(Table, Row) when is_atom(Table) ->
     end.
 
 dirty_select(Table, MatchSpec) when is_atom(Table) ->
-    mnesia:select(Table, MatchSpec).
+    mnesia:dirty_select(Table, MatchSpec).
 
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of
