@@ -5,7 +5,9 @@
 
 -export([ start_link/4
         , start_link/1
+        , start/0
         , stop/0
+        , restart/0
         , init/4
         , send_resp/2
         , mfa/2
@@ -60,8 +62,18 @@ start_link(ListenerPid, Socket, Transport, Opts) ->
                     [link, {fullsweep_after, 0}]),
     {ok, Pid}.
 
-stop() ->
-    ranch:stop_listener(?MODULE).
+start() ->
+    {ok, TcpIf} = application:get_env(imem, tcp_ip),
+    {ok, TcpPort} = application:get_env(imem, tcp_port),
+    {ok, SSL} = application:get_env(imem, ssl),
+    Pwd = case code:lib_dir(imem) of {error, _} -> "."; Path -> Path end,
+    start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort},{pwd, Pwd}, {ssl, SSL}]).
+
+stop() -> ranch:stop_listener(?MODULE).
+
+restart() ->
+    stop(),
+    start().
  
 init(ListenerPid, Socket, Transport, Opts) ->
     PeerNameMod = case lists:member(ssl, Opts) of true -> ssl; _ -> inet end,
