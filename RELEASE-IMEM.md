@@ -3,6 +3,13 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.1 (Release Date 29.05.2016)
+=======================================
+* [imem_server (TCP/SSL) restart APIs](https://github.com/K2InformaticsGmbH/imem/issues/88)
+* dirty_select support
+* ddConfig dirty access
+* tial bug fix
+
 Version 1.5.0 (Release Date 17.05.2016)
 =======================================
 * Added map functions
