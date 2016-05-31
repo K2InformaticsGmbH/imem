@@ -5,7 +5,9 @@
 
 -export([ start_link/4
         , start_link/1
+        , start/0
         , stop/0
+        , restart/0
         , init/4
         , send_resp/2
         , mfa/2
@@ -60,8 +62,18 @@ start_link(ListenerPid, Socket, Transport, Opts) ->
                     [link, {fullsweep_after, 0}]),
     {ok, Pid}.
 
-stop() ->
-    ranch:stop_listener(?MODULE).
+start() ->
+    {ok, TcpIf} = application:get_env(imem, tcp_ip),
+    {ok, TcpPort} = application:get_env(imem, tcp_port),
+    {ok, SSL} = application:get_env(imem, ssl),
+    Pwd = case code:lib_dir(imem) of {error, _} -> "."; Path -> Path end,
+    start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort},{pwd, Pwd}, {ssl, SSL}]).
+
+stop() -> ranch:stop_listener(?MODULE).
+
+restart() ->
+    stop(),
+    start().
  
 init(ListenerPid, Socket, Transport, Opts) ->
     PeerNameMod = case lists:member(ssl, Opts) of true -> ssl; _ -> inet end,
@@ -73,6 +85,15 @@ init(ListenerPid, Socket, Transport, Opts) ->
     imem_meta:log_to_db(debug,?MODULE,init
                         ,[ListenerPid, Socket, Transport, Opts], Str),
     ok = ranch:accept_ack(ListenerPid),
+    % Linkinking TCP socket
+    % for easy lookup
+    erlang:link(
+      case lists:member(ssl, Opts) of
+          true ->
+              {sslsocket,{gen_tcp,TcpSocket,tls_connection,_},_} = Socket,
+              TcpSocket;
+          _ -> Socket
+      end),
     loop(Socket, Transport, <<>>, 0).
 
 -define(TLog(__F, __A), ok). 
