@@ -12,6 +12,9 @@
         , send_resp/2
         , mfa/2
         ]).
+
+%% -- Certificate management APIs --
+-export([get_cert_key/1, decode_cert_key/1]).
  
 start_link(Params) ->
     Interface   = proplists:get_value(tcp_ip,Params),
@@ -175,3 +178,30 @@ send_resp(Resp, {Transport, Socket, Ref}) ->
     Transport:send(Socket, << PayloadSize:32, RespBin/binary >>);
 send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
     Pid ! {Ref, Resp}.
+
+%%
+%% -- Certificate management interface --
+%%
+
+-spec get_cert_key({file, list()} | {bin, binary()}) -> list().
+get_cert_key({file, CertKeyFile}) when is_list(CertKeyFile) ->
+    {ok, Bin} = file:read_file(CertKeyFile),
+    get_cert_key({bin, Bin});
+get_cert_key({bin, Bin}) when is_binary(Bin) ->
+    case public_key:pem_decode(Bin) of
+        [{'Certificate',Cert,not_encrypted} | Certs] ->
+            CACerts = [C || {'Certificate',C,not_encrypted} <- Certs],
+            [{cert, Cert} | if length(CACerts) > 0 ->
+                                   [{cacerts,CACerts}];
+                               true -> []
+                            end];
+        [{KeyType,Key,not_encrypted}|_] -> [{key, {KeyType, Key}}]
+    end.
+
+-spec decode_cert_key({file, list()} | {bin, binary()}) -> list().
+decode_cert_key({file, CertFile}) when is_list(CertFile) ->
+    {ok, CertBin} = file:read_file(CertFile),
+    decode_cert_key({bin,CertBin});
+decode_cert_key({bin,CertBin}) when is_binary(CertBin) ->
+    [public_key:pem_entry_decode(Cert)
+     || Cert <- public_key:pem_decode(CertBin)].
