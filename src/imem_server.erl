@@ -2,6 +2,7 @@
 -behaviour(ranch_protocol).
 
 -include("imem.hrl").
+-include("imem_meta.hrl").
 
 -export([ start_link/4
         , start_link/1
@@ -29,18 +30,37 @@ start_link(Params) ->
             ?Error("~p failed to start ~p~n", [?MODULE, Reason]),
             {error, Reason};
         {ok, ListenIf} when is_integer(ListenPort) ->
-            NewOpts = lists:foldl(
-                        fun({K, V}, Acc) ->
-                          case K of
-                              certfile ->
-                                  [{K, filename:join([Pwd, V])} | Acc];
-                              keyfile ->
-                                  [{K, filename:join([Pwd, V])} | Acc];
-                              _ -> [{K, V} | Acc]
-                          end
-                        end
-                        , []
-                        , Opts),
+            NewOpts =
+            if THandler =:= ranch_ssl ->
+                   case ?GET_CONFIG(
+                           imemSslOpts,[],'$no_ssl_conf',
+                           "SSL listen socket options") of
+                       '$no_ssl_conf' ->
+                           CertFile = filename:join(
+                                       [Pwd, proplists:get_value(certfile, Opts)]),
+                           KeyFile = filename:join(
+                                       [Pwd, proplists:get_value(keyfile, Opts)]),
+                           ImemSslDefault =
+                           [{versions, ['tlsv1.2','tlsv1.1',tlsv1]} |
+                            get_cert_key({file, CertFile}) ++
+                            get_cert_key({file, KeyFile})],
+                           ?Info("Installing SSL certificates ~p~nKeys ~p",
+                                 [catch decode_cert_key({file, CertFile}),
+                                  catch decode_cert_key({file, KeyFile})]),
+                           ?PUT_CONFIG(
+                              imemSslOpts, [], ImemSslDefault,
+                              list_to_binary(
+                                io_lib:format("Installed at ~p on ~s",
+                                              [node(), imem_datatype:timestamp_to_io(os:timestamp())]
+                                             ))),
+                           ImemSslDefault ++
+                           proplists:delete(keyfile, proplists:delete(certfile, Opts));
+                       ImemSslDefault ->
+                           ImemSslDefault ++ 
+                           proplists:delete(keyfile, proplists:delete(certfile, Opts))
+                   end;
+               true -> Opts
+            end,
             ?Info("~p starting...~n", [?MODULE]),
             case ranch:start_listener(
                    ?MODULE, 1, THandler,
@@ -195,7 +215,7 @@ get_cert_key({bin, Bin}) when is_binary(Bin) ->
                                    [{cacerts,CACerts}];
                                true -> []
                             end];
-        [{KeyType,Key,not_encrypted}|_] -> [{key, {KeyType, Key}}]
+        [{KeyType,Key,_}|_] -> [{key, {KeyType, Key}}]
     end.
 
 -spec decode_cert_key({file, list()} | {bin, binary()}) -> list().
