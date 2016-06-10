@@ -15,7 +15,7 @@
         ]).
 
 %% -- Certificate management APIs --
--export([get_cert_key/1, decode_cert_key/1]).
+-export([get_cert_key/1]).
  
 start_link(Params) ->
     Interface   = proplists:get_value(tcp_ip,Params),
@@ -36,27 +36,41 @@ start_link(Params) ->
                            imemSslOpts,[],'$no_ssl_conf',
                            "SSL listen socket options") of
                        '$no_ssl_conf' ->
-                           CertFile = filename:join(
-                                       [Pwd, proplists:get_value(certfile, Opts)]),
-                           KeyFile = filename:join(
-                                       [Pwd, proplists:get_value(keyfile, Opts)]),
-                           ImemSslDefault =
-                           [{versions, ['tlsv1.2','tlsv1.1',tlsv1]} |
-                            get_cert_key({file, CertFile}) ++
-                            get_cert_key({file, KeyFile})],
-                           ?Info("Installing SSL certificates ~p~nKeys ~p",
-                                 [catch decode_cert_key({file, CertFile}),
-                                  catch decode_cert_key({file, KeyFile})]),
+                           {ok, CertBin} =
+                           file:read_file(
+                             filename:join(
+                               [Pwd, proplists:get_value(certfile, Opts)])),
+                           {ok, KeyBin} =
+                           file:read_file(
+                             filename:join(
+                               [Pwd, proplists:get_value(keyfile, Opts)])),
+                           Cert = get_cert_key(CertBin),
+                           Key = get_cert_key(KeyBin),
+                           ImemSslDefault = Cert ++ Key,
+                           ?Info("Installing SSL ~p", [ImemSslDefault]),
                            ?PUT_CONFIG(
-                              imemSslOpts, [], ImemSslDefault,
+                              imemSslOpts, [], #{cert => CertBin, key => KeyBin},
                               list_to_binary(
-                                io_lib:format("Installed at ~p on ~s",
-                                              [node(), imem_datatype:timestamp_to_io(os:timestamp())]
-                                             ))),
+                                io_lib:format(
+                                  "Installed at ~p on ~s",
+                                  [node(), imem_datatype:timestamp_to_io(os:timestamp())]
+                                 ))),
                            ImemSslDefault ++
                            proplists:delete(keyfile, proplists:delete(certfile, Opts));
-                       ImemSslDefault ->
-                           ImemSslDefault ++ 
+                       #{cert := CertBin, key := KeyBin} ->
+                           CertFile = filename:join([Pwd, proplists:get_value(certfile, Opts)]),
+                           case file:read_file(CertFile) of
+                               {ok, CertBin} -> nop;
+                               _ -> ok = file:write_file(CertFile, CertBin)
+                           end,
+                           KeyFile = filename:join([Pwd, proplists:get_value(keyfile, Opts)]),
+                           case file:read_file(KeyFile) of
+                               {ok, KeyBin} -> nop;
+                               _ -> ok = file:write_file(KeyFile, KeyBin)
+                           end,
+                           Cert = get_cert_key(CertBin),
+                           Key = get_cert_key(KeyBin),
+                           Cert ++ Key ++
                            proplists:delete(keyfile, proplists:delete(certfile, Opts))
                    end;
                true -> Opts
@@ -203,11 +217,8 @@ send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
 %% -- Certificate management interface --
 %%
 
--spec get_cert_key({file, list()} | {bin, binary()}) -> list().
-get_cert_key({file, CertKeyFile}) when is_list(CertKeyFile) ->
-    {ok, Bin} = file:read_file(CertKeyFile),
-    get_cert_key({bin, Bin});
-get_cert_key({bin, Bin}) when is_binary(Bin) ->
+-spec get_cert_key(binary()) -> [{cert | cacerts | key, any()}].
+get_cert_key(Bin) when is_binary(Bin) ->
     case public_key:pem_decode(Bin) of
         [{'Certificate',Cert,not_encrypted} | Certs] ->
             CACerts = [C || {'Certificate',C,not_encrypted} <- Certs],
@@ -217,11 +228,3 @@ get_cert_key({bin, Bin}) when is_binary(Bin) ->
                             end];
         [{KeyType,Key,_}|_] -> [{key, {KeyType, Key}}]
     end.
-
--spec decode_cert_key({file, list()} | {bin, binary()}) -> list().
-decode_cert_key({file, CertFile}) when is_list(CertFile) ->
-    {ok, CertBin} = file:read_file(CertFile),
-    decode_cert_key({bin,CertBin});
-decode_cert_key({bin,CertBin}) when is_binary(CertBin) ->
-    [public_key:pem_entry_decode(Cert)
-     || Cert <- public_key:pem_decode(CertBin)].
