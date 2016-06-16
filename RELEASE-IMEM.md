@@ -3,6 +3,10 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.3 (Release Date 16.06.2016)
+=======================================
+* [snapshot restore error message improvements](https://github.com/K2InformaticsGmbH/imem/pull/81)
+
 Version 1.5.2 (Release Date 10.06.2016)
 =======================================
 * [imem_server (TCP/SSL) certificate management](https://github.com/K2InformaticsGmbH/imem/issues?q=milestone%3A1.5.2+is%3Aclosed)
