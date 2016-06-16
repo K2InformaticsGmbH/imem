@@ -1319,8 +1319,13 @@ restore_table(Alias) when is_atom(Alias) ->
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
         PTNs -> case imem_snap:restore(bkp,PTNs,destroy,false) of
-                    L when is_list(L) ->    ok;
-                    E ->                    ?SystemException({"Restore table failed with",E})
+                    [{_, {_, _, _}}]  ->    ok;
+                    Error ->
+                        E = case Error of 
+                            [{_, Err}] -> Err; 
+                            Error -> Error 
+                        end,
+                        ?SystemException({"Restore table failed with",E})
                 end
     end;    
 restore_table(TableName) ->
