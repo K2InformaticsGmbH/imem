@@ -466,7 +466,7 @@ read(Table, Key) when is_atom(Table) ->
 
 dirty_read(Table, Key) when is_atom(Table) ->
     try
-        return_atomic_list(mnesia_table_read_access(dirty_read, [Table, Key]))
+        mnesia:dirty_read(Table, Key)
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
@@ -498,9 +498,8 @@ read_hlk(Table, HListKey) when is_atom(Table), is_list(HListKey) ->
     end.
 
 dirty_write(Table, Row) when is_atom(Table), is_tuple(Row) ->
-    try
-        % ?Debug("mnesia:dirty_write ~p ~p~n", [Table,Row]),
-        mnesia_table_write_access(dirty_write, [Table, Row])
+    try mnesia:dirty_write(Table, Row) of
+        ok -> ?TOUCH_SNAP(Table)
     catch
         exit:{aborted, {no_exists,_}} ->    ?ClientErrorNoLogging({"Table does not exist",Table});
         exit:{aborted, {no_exists,_,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
@@ -692,7 +691,7 @@ update_xt({Table,bag}, Item, Lock, Old, {}, Trigger, User, TrOpts) when is_atom(
     Exists = lists:member(Old,Current),
     if
         Exists ->
-            mnesia_table_write_access(delete_object, [Table, Old, write]),
+            mnesia_atomic(delete_object, [Table, Old, write]),
             Trigger(Old, {}, Table, User, TrOpts),
             {Item,{}};
         Lock == none ->
@@ -709,7 +708,7 @@ update_xt({Table,bag}, Item, Lock, {}, New, Trigger, User, TrOpts) when is_atom(
         Exists ->
             ?ConcurrencyExceptionNoLogging({"Record already exists", {Item, New}});
         true ->
-            mnesia_table_write_access(write, [Table, New, write]),
+            mnesia_atomic(write, [Table, New, write]),
             Trigger({}, New, Table, User, TrOpts),
             {Item,New}
     end;
@@ -721,7 +720,7 @@ update_xt({Table,bag}, Item, Lock, Old, Old, Trigger, User, TrOpts) when is_atom
             Trigger(Old, Old, Table, User, TrOpts),
             {Item,Old};
         Lock == none ->
-            mnesia_table_write_access(write, [Table, Old, write]),
+            mnesia_atomic(write, [Table, Old, write]),
             Trigger(?NoRec, Old, Table, User, TrOpts),
             {Item,Old};
         true ->
@@ -736,7 +735,7 @@ update_xt({_Table,_}, _Item, _Lock, ?NoRec, ?NoRec, _, _, _) ->
 update_xt({Table,_}, Item, Lock, Old, ?NoRec, Trigger, User, TrOpts) when is_atom(Table), is_tuple(Old) ->
     case mnesia:read(Table, element(?KeyIdx,Old)) of
         [Old] ->    
-            mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
+            mnesia_atomic(delete, [Table, element(?KeyIdx, Old), write]),
             Trigger(Old, ?NoRec, Table, User, TrOpts),
             {Item,?NoRec};
         [] ->       
@@ -746,7 +745,7 @@ update_xt({Table,_}, Item, Lock, Old, ?NoRec, Trigger, User, TrOpts) when is_ato
             end;
         [Current] ->  
             case Lock of
-                none -> mnesia_table_write_access(delete, [Table, element(?KeyIdx, Old), write]),
+                none -> mnesia_atomic(delete, [Table, element(?KeyIdx, Old), write]),
                         Trigger(Current, ?NoRec, Table, User, TrOpts),
                         {Item,?NoRec};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Key violation", {Item,{Old,Current}}})
@@ -754,14 +753,14 @@ update_xt({Table,_}, Item, Lock, Old, ?NoRec, Trigger, User, TrOpts) when is_ato
     end;
 update_xt({Table,_}, Item, Lock, ?NoRec, New, Trigger, User, TrOpts) when is_atom(Table), is_tuple(New) ->
     case mnesia:read(Table, element(?KeyIdx,New)) of
-        [] ->       mnesia_table_write_access(write, [Table, New, write]),
+        [] ->       mnesia_atomic(write, [Table, New, write]),
                     Trigger(?NoRec, New, Table, User, TrOpts),
                     {Item,New};
         [New] ->    Trigger(New, New, Table, User, TrOpts),
                     {Item,New};
         [Current] ->  
             case Lock of
-                none -> mnesia_table_write_access(write, [Table, New, write]),
+                none -> mnesia_atomic(write, [Table, New, write]),
                         Trigger(Current, New, Table, User, TrOpts),
                         {Item,New};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Key already exists", {Item,Current}})
@@ -773,14 +772,14 @@ update_xt({Table,_}, Item, Lock, Old, Old, Trigger, User, TrOpts) when is_atom(T
                     {Item,Old};
         [] ->       
             case Lock of
-                none -> mnesia_table_write_access(write, [Table, Old, write]),
+                none -> mnesia_atomic(write, [Table, Old, write]),
                         Trigger(?NoRec, Old, Table, User, TrOpts),
                         {Item,Old};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
             end;
         [Current] ->  
             case Lock of
-                none -> mnesia_table_write_access(write, [Table, Old, write]),
+                none -> mnesia_atomic(write, [Table, Old, write]),
                         Trigger(Current, Old, Table, User, TrOpts),
                         {Item,Old};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
@@ -791,32 +790,32 @@ update_xt({Table,_}, Item, Lock, Old, New, Trigger, User, TrOpts) when is_atom(T
     NewKey = element(?KeyIdx,New),
     case {mnesia:read(Table, OldKey),(OldKey==NewKey)} of
         {[Old],true} ->    
-            mnesia_table_write_access(write, [Table, New, write]),
+            mnesia_atomic(write, [Table, New, write]),
             Trigger(Old, New, Table, User, TrOpts),
             {Item,New};
         {[Old],false} ->
-            mnesia_table_write_access(delete, [Table, OldKey, write]),    
-            mnesia_table_write_access(write, [Table, New, write]),
+            mnesia_atomic(delete, [Table, OldKey, write]),    
+            mnesia_atomic(write, [Table, New, write]),
             Trigger(Old, New, Table, User, TrOpts),
             {Item,New};
         {[],_} ->       
             case Lock of
-                none -> mnesia_table_write_access(write, [Table, New, write]),
+                none -> mnesia_atomic(write, [Table, New, write]),
                         Trigger(?NoRec, New, Table, User, TrOpts),
                         {Item,New};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is deleted by someone else", {Item, Old}})
             end;
         {[Current],true} ->  
             case Lock of
-                none -> mnesia_table_write_access(write, [Table, New, write]),
+                none -> mnesia_atomic(write, [Table, New, write]),
                         Trigger(Current, New, Table, User, TrOpts),
                         {Item,New};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
             end;
         {[Current],false} ->  
             case Lock of
-                none -> mnesia_table_write_access(delete, [Table, OldKey, write]),
-                        mnesia_table_write_access(write, [Table, New, write]),
+                none -> mnesia_atomic(delete, [Table, OldKey, write]),
+                        mnesia_atomic(write, [Table, New, write]),
                         Trigger(Current, New, Table, User, TrOpts),
                         {Item,New};
                 _ ->    ?ConcurrencyExceptionNoLogging({"Data is modified by someone else", {Item,{Old, Current}}})
@@ -1014,21 +1013,12 @@ epmd_register() ->
     end.
 
 %% ----- Private functions ------------------------------------
-mnesia_table_write_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
+mnesia_atomic(Fun, [_|_] = Args)
+  when Fun == write; Fun == delete; Fun == delete_object ->
     case apply(mnesia, Fun, Args) of
-        {atomic,ok} ->
-            ?TOUCH_SNAP(hd(Args)),
-            {atomic,ok};
-        Error ->
-            Error   
-    end.
-
-mnesia_table_read_access(Fun, Args) when is_atom(Fun), is_list(Args) ->
-    case apply(mnesia, Fun, Args) of
-        {atomic,ok} ->
-            {atomic,ok};
-        Error ->
-            Error   
+        ok -> ?TOUCH_SNAP(hd(Args)),
+              ok;
+        Error -> Error
     end.
 
 %% ----- TESTS ------------------------------------------------
