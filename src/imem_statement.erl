@@ -1133,26 +1133,33 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                     {json_value,AttName,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            RealType = case OldVal of
-                                true ->     boolean;
-                                false ->    boolean;
-                                null when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
-                                ?nav when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
-                                N when N==null; N==?nav; is_number(N) ->     
-                                    case catch imem_datatype:io_to_integer(Value) of
-                                        I when is_integer(I) ->                 integer;
-                                        _ ->
-                                            case catch imem_datatype:io_to_float(Value,undefined) of
-                                                F when is_float(F) ->           float;
-                                                _ when Value == <<"null">> ->   atom;
-                                                _ ->                            Type
-                                            end
-                                    end;
-                                _ ->                                            Type
-                            end,
-                            case imem_datatype:io_to_db(Item,OldVal,RealType,undefined,undefined,<<>>,false,Value) of
-                                OldVal ->   X;
-                                NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->    
+                                    X;                                                  % attribute still not present
+                                {?navio,_} ->       
+                                    ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X)));    % remove json attribute
+                                _ ->
+                                    RealType = case OldVal of                           % guess data type and try to keep it
+                                        true ->     boolean;
+                                        false ->    boolean;
+                                        null when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
+                                        ?nav when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
+                                        N when N==null; N==?nav; is_number(N) ->     
+                                            case catch imem_datatype:io_to_integer(Value) of
+                                                I when is_integer(I) ->                 integer;
+                                                _ ->
+                                                    case catch imem_datatype:io_to_float(Value,undefined) of
+                                                        F when is_float(F) ->           float;
+                                                        _ when Value == <<"null">> ->   atom;
+                                                        _ ->                            Type
+                                                    end
+                                            end;
+                                        _ ->                                            Type
+                                    end,
+                                    case imem_datatype:io_to_db(Item,OldVal,RealType,undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
+                                    end
                             end
                         end,     
                         {Cx,0,Fx};

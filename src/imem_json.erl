@@ -21,6 +21,7 @@
         , get/3
         , keys/1
         , put/3
+        , remove/2
         , size/1
         , values/1
         ]).
@@ -43,7 +44,6 @@
 %% -         , to_binary/1
 %% -         , items/1
 %% -         , update/3
-%% -         , remove/2
 %% -         , map/2
 %% -         , new/0
 %% -         , new/1
@@ -214,6 +214,15 @@ put(Key,Value,DataObject) when is_map(DataObject) ->
     maps:put(Key,Value,DataObject);
 put(Key,Value,DataObject) ->
     encode(?MODULE:put(Key,Value,decode(DataObject))).
+
+%% @doc Remove a key from a data object
+-spec remove(key(), data_object()) -> data_object().
+remove(Key,DataObject) when is_list(DataObject) ->
+  proplists:delete(Key,DataObject);
+remove(Key,DataObject) when is_map(DataObject) ->
+  maps:remove(Key,DataObject);
+remove(Key,DataObject) ->
+  encode(remove(Key,decode(DataObject))).
 
 %% @doc Size of a data object, ignoring null values
 -spec size(data_object()) -> integer().
@@ -587,15 +596,6 @@ expand_inline(Root, _OldRoot, Binds) ->
 %% - new(proplist) -> [];
 %% - new(map) -> #{};
 %% - new(json) -> <<"{}">>.
-%% -
-%% - %% @doc Remove a key from a data object
-%% - -spec remove(key(), data_object()) -> data_object().
-%% - remove(Key,DataObject) when is_list(DataObject) ->
-%% -     proplists:delete(Key,DataObject);
-%% - remove(Key,DataObject) when is_map(DataObject) ->
-%% -     maps:remove(Key,DataObject);
-%% - remove(Key,DataObject) ->
-%% -     encode(remove(Key,decode(DataObject))).
 %% -
 %% - %% @doc Update a key with a new value. If key is not present, 
 %% - %% error:badarg exception is raised.
