@@ -1080,9 +1080,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                     {hd,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
-                                OldVal ->   X;
-                                NewVal ->   ?replace(X,Cx,[NewVal|tl(?BoundVal(B,X))])
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                                                  % attribute still not present
+                                {?navio,_} ->       
+                                    ?replace(X,Cx,tl(?BoundVal(B,X)));                  % remove head
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,[NewVal|tl(?BoundVal(B,X))])
+                                    end
                             end
                         end,     
                         {Cx,1,Fx};
@@ -1090,9 +1097,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Pos = length(?BoundVal(B,Recs)),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
-                                OldVal ->   X;
-                                NewVal ->   ?replace(X,Cx,lists:sublist(?BoundVal(B,X),Pos-1) ++ NewVal)
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                                                  % attribute still not present
+                                {?navio,_} ->       
+                                    ?replace(X,Cx,lists:sublist(?BoundVal(B,X),Pos-1)); % remove last element
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,lists:sublist(?BoundVal(B,X),Pos-1) ++ NewVal)
+                                    end
                             end
                         end,     
                         {Cx,Pos,Fx};
@@ -1108,17 +1122,29 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         {Cx,Pos,Fx};
                     {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
+                        ?Info("Pos in nth ~p",[Pos]),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
-                                OldVal ->               
-                                    X;
-                                NewVal1 when Pos==1 ->  
-                                    ?replace(X,Cx,[NewVal1|tl(?BoundVal(B,X))]);
-                                NewVal2 ->              
-                                    Old = ?BoundVal(B,X),
-                                    ?replace(X,Cx,lists:sublist(Old,Pos-1) ++ NewVal2 ++ lists:nthtail(Old,Pos))
-                            end 
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                                                  % attribute still not present
+                                {?navio,_} ->
+                                    Old = ?BoundVal(B,X),       
+                                    case Pos of 
+                                        1 ->    ?replace(X,Cx,tl(Old));                 % remove head
+                                        _ ->    ?replace(X,Cx,lists:sublist(Old,Pos-1) ++ lists:nthtail(Pos, Old))
+                                    end;
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->               
+                                            X;
+                                        NewVal1 when Pos==1 ->  
+                                            ?replace(X,Cx,[NewVal1|tl(?BoundVal(B,X))]);
+                                        NewVal2 ->              
+                                            Old = ?BoundVal(B,X),
+                                            ?replace(X,Cx,lists:sublist(Old,Pos-1) ++ NewVal2 ++ lists:nthtail(Pos,Old))
+                                    end 
+                            end
                         end,     
                         {Cx,Pos,Fx};
                     {from_binterm,#bind{tind=?MainIdx,cind=Cx,type=Type}} ->
@@ -1134,7 +1160,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
                             case {Value, OldVal} of 
-                                {?navio,?nav} ->    
+                                {?navio,?nav} ->
                                     X;                                                  % attribute still not present
                                 {?navio,_} ->       
                                     ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X)));    % remove json attribute
@@ -1184,7 +1210,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
           end
           || 
           {#bind{readonly=R}=CMap,Value} 
-          <- lists:zip(ColMap,Values), R==false, Value /= ?navio
+          <- lists:zip(ColMap,Values), R==false % , Value /= ?navio
         ]),    
     UpdatedRecs = update_recs(Recs, UpdateMap),
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
@@ -1241,6 +1267,22 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                     {from_binterm,#bind{tind=?MainIdx,cind=Cx,type=Type}} ->
                         Fx = fun(X) -> 
                             ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value))
+                        end,     
+                        {Cx,0,Fx};
+                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                        Fx = fun(X) -> 
+                            case ?BoundVal(B,X) of 
+                                ?nav ->
+                                    case imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value) of
+                                        ?nav ->     X;
+                                        NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,<<"{}">>))
+                                    end;
+                                Old ->
+                                    case imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value) of
+                                        ?nav ->     X;
+                                        NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,Old))
+                                    end
+                            end
                         end,     
                         {Cx,0,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
