@@ -5,6 +5,8 @@
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
+-define(CALL_TIMEOUT(__Method), ?GET_CONFIG(callTimeout,[__Method],10000,"gen_server call timeout in msec.")).
+
 %% gen_server
 -behaviour(gen_server).
 -export([ init/1
@@ -159,7 +161,7 @@ filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec) when is_pid(Pid) -
 update_cursor_prepare(SKey, #stmtResult{stmtRef=Pid}, IsSec, ChangeList) ->
     update_cursor_prepare(SKey, Pid, IsSec, ChangeList);
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
-    case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList}) of
+    case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)) of
         ok ->   ok;
         Error-> throw(Error)
     end.
@@ -170,7 +172,7 @@ update_cursor_execute(SKey, Pid, IsSec, Lock) when is_pid(Pid) ->
     update_cursor_exec(SKey, Pid, IsSec, Lock).
 
 update_cursor_exec(SKey, Pid, IsSec, Lock) when Lock==none;Lock==optimistic ->
-    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, Lock}),
+    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, Lock},?CALL_TIMEOUT(update_cursor_execute)),
     % ?Debug("update_cursor_execute ~p~n", [Result]),
     case Result of
         KeyUpd when is_list(KeyUpd) ->  KeyUpd;
