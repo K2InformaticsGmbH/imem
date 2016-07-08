@@ -151,7 +151,9 @@
 
 
 -export([ select_rowfun_raw/1   %% return rows in raw erlang db format
+        , select_rowfun_raw/2   %% return distinct rows in raw erlang db format
         , select_rowfun_str/4   %% convert all rows to string
+        , select_rowfun_str/5   %% convert distinct rows to string
         ]).
 
 bind_arg_types() ->
@@ -160,6 +162,19 @@ bind_arg_types() ->
 select_rowfun_raw(ColMap) ->
     fun(Recs) ->
         select_rowfun_raw(Recs, ColMap, [])
+    end.
+
+select_rowfun_raw(ColMap, {TableId, Key}) ->
+    fun(Recs) ->
+        [{_, Distincts}] = ets:lookup(TableId, Key),
+        RT = select_rowfun_raw(Recs, ColMap, []),
+        case lists:member(RT, Distincts) of
+            false ->
+                true = ets:insert(TableId, {Key, [RT | Distincts]}),
+                RT;
+            _ ->
+                []
+        end
     end.
 
 select_rowfun_raw(_Recs, [], Acc) ->
@@ -199,6 +214,19 @@ select_rowfun_raw(Recs, [#bind{tind=Ti,cind=Ci,func=F}|ColMap], Acc) ->
 select_rowfun_str(ColMap, DateFmt, NumFmt, StrFmt) ->
     fun(Recs) ->
         select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, [])
+    end.
+
+select_rowfun_str(ColMap, {TableId, Key}, DateFmt, NumFmt, StrFmt) ->
+    fun(Recs) ->
+        [{_, Distincts}] = ets:lookup(TableId, Key),
+        RT = select_rowfun_str(Recs, ColMap, DateFmt, NumFmt, StrFmt, []),
+        case lists:member(RT, Distincts) of
+            false ->
+                true = ets:insert(TableId, {Key, [RT | Distincts]}),
+                RT;
+            _ ->
+                []
+        end
     end.
 
 select_rowfun_str(_Recs, [], _DateFmt, _NumFmt, _StrFmt, Acc) ->

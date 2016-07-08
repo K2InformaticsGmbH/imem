@@ -1392,8 +1392,9 @@ receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->
             receive_recs(StmtResult,Complete,Timeout,[Result|Acc])
     end.
 
-result_tuples(List,RowFun) when is_list(List), is_function(RowFun) ->  
-    [list_to_tuple(R) || R <- lists:map(RowFun,List)].
+result_tuples(List, RowFun) when is_list(List), is_function(RowFun) ->
+    lists:filter(fun(X) ->
+        tuple_size(X) > 0 end, [list_to_tuple(R) || R <- lists:map(RowFun, List)]).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
@@ -2251,7 +2252,8 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                 [StmtRef] -> 
                     % ?LogDebug("Unchecked receive result :~n~p~n",[Unchecked]),               
                     List = lists:flatten([element(1,element(2, T)) || T <- Unchecked]),
-                    RT = result_tuples(List,RowFun),
+                    RT = lists:filter(fun(X) ->
+                        tuple_size(X) > 0 end, result_tuples(List, RowFun)),
                     if 
                         length(RT) =< 10 ->
                             % ?LogDebug("Received:~n~p~n", [RT])
@@ -2275,8 +2277,8 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
 %     lists:map(RowFun,recs_sort(List,SortFun)).
 
 result_tuples_sort(List,RowFun,SortFun) when is_list(List), is_function(RowFun), is_function(SortFun) ->  
-    [list_to_tuple(R) || R <- lists:map(RowFun,recs_sort(List,SortFun))].
-
+    lists:filter(fun(X) ->
+        tuple_size(X) > 0 end, [list_to_tuple(R) || R <- lists:map(RowFun, recs_sort(List, SortFun))]).
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
