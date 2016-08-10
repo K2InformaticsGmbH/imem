@@ -131,28 +131,30 @@ init(ListenerPid, Socket, Transport, Opts) ->
               TcpSocket;
           _ -> Socket
       end),
-    loop(Socket, Transport, <<>>, 0).
+    loop(Socket, Transport, <<>>).
 
 -define(TLog(__F, __A), ok). 
 %-define(TLog(__F, __A), ?Info(__F, __A)). 
-loop(Socket, Transport, Buf, Len) ->
+loop(Socket, Transport, Buf) ->
     {OK, Closed, Error} = Transport:messages(),
     Transport:setopts(Socket, [{active, once}]),   
     receive
         {OK, Socket, Data} ->
-            {NewLen, NewBuf} =
-                if Buf =:= <<>> ->
-                    << L:32, PayLoad/binary >> = Data,
-                    ?TLog(" term size ~p~n", [<< L:32 >>]),
-                    {L, PayLoad};
-                true -> {Len, <<Buf/binary, Data/binary>>}
-            end,
-            case {byte_size(NewBuf), NewLen} of
-                {NewLen, NewLen} ->
-                    case (catch binary_to_term(NewBuf)) of
+            NewBuf = <<Buf/binary, Data/binary>>,
+            case NewBuf of
+                NewBuf when byte_size(NewBuf) < 4 ->
+                    ?Warn("[SHORTFRAME] received only ~p of 4 length bytes. Buffering...", [byte_size(NewBuf)]),
+                    loop(Socket, Transport, NewBuf);
+                <<Len:32, PayLoad/binary>> when Len > byte_size(PayLoad) ->
+                    ?Info("[INCOMPLETE] received only ~p of ~p bytes. Buffering...", [byte_size(NewBuf), Len]),
+                    loop(Socket, Transport, NewBuf);
+                <<Len:32, _/binary>> = NewBuf ->
+                    <<Len:32, TermBin:Len/binary, RestBin/binary>> = NewBuf,
+                    case (catch binary_to_term(TermBin)) of
                         {'EXIT', _} ->
-                            ?Info(" [MALFORMED] ~p received ~p bytes buffering...", [self(), byte_size(NewBuf)]),
-                            loop(Socket, Transport, NewBuf, NewLen);
+                            ?Error("[MALFORMED] discarded ~p bytes. Buffering...", [byte_size(TermBin)]),
+                            ?Info("Len ~p TermBin ~p RestBin ~p NewBuf ~p", [Len, TermBin, RestBin, NewBuf]),
+                            loop(Socket, Transport, RestBin);
                         Term ->
                             if element(2, Term) =:= imem_sec ->
                                 ?TLog("mfa ~p", [Term]),
@@ -160,13 +162,8 @@ loop(Socket, Transport, Buf, Len) ->
                             true ->
                                 send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
                             end,
-                            TSize = byte_size(term_to_binary(Term)),
-                            RestSize = byte_size(NewBuf)-TSize,
-                            loop(Socket, Transport, binary_part(NewBuf, {TSize, RestSize}), NewLen)
-                    end;
-                _ ->
-                    ?Info(" [INCOMPLETE] ~p received ~p bytes buffering...", [self(), byte_size(NewBuf)]),
-                    loop(Socket, Transport, NewBuf, NewLen)
+                            loop(Socket, Transport, RestBin)
+                    end
             end;
         {Closed, Socket} ->
             ?Debug("socket ~p got closed!~n", [Socket]);
