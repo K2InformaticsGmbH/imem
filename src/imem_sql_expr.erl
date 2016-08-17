@@ -612,8 +612,8 @@ column_map_param_fields([Param|Params], Ti, Acc) ->
     case imem_datatype:is_datatype(element(?ParamTypeIdx,Param)) of
         true -> 
             N = element(?ParamNameIdx,Param),           %% Parameter name as binary in first element of triple
-            Type = ?binary_to_atom(element(?ParamTypeIdx,Param)),   %% Parameter type (imem datatype) as second element
-            Prec = list_to_integer(binary_to_list(element(?ParamPrecisionIdx,Param))),  %% Parameter precision (for decimals)
+            Type = element(?ParamTypeIdx,Param),   %% Parameter type (imem datatype) as second element
+            Prec = element(?ParamPrecisionIdx,Param),  %% Parameter precision (for decimals)
             Cindex = length(Acc) + 1,       %% Ci of next param field, appended to meta fields
             Tag = list_to_atom(lists:flatten([$$,integer_to_list(?MetaIdx),integer_to_list(Cindex)])),
             Bind=#bind{table=?ParamTab,alias=?ParamTab,name=N,tind=Ti,cind=Cindex,type=Type,prec=Prec,tag=Tag}, 
