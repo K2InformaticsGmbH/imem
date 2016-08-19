@@ -2382,7 +2382,7 @@ read(ddSize,Table) ->
 read(Table, Key) -> 
     imem_if_mnesia:read(physical_table_name(Table), Key).
 
-dirty_read({Table, Key}) -> dirty_read(Table, Key).
+dirty_read(Table) -> imem_if_mnesia:dirty_read(physical_table_name(Table)).
 
 dirty_read({ddSysConf,Table}, Key) -> read({ddSysConf,Table}, Key);
 dirty_read({_Schema,Table}, Key) ->   dirty_read(Table, Key);
