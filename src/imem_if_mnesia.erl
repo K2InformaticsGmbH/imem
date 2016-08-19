@@ -55,6 +55,7 @@
         , select_sort/3
         , read/1
         , read/2
+        , dirty_read/1
         , dirty_read/2
         , dirty_index_read/3
         , read_hlk/2            %% read using hierarchical list key
@@ -463,6 +464,8 @@ read(Table, Key) when is_atom(Table) ->
         {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Result ->                   return_atomic_list(Result)
     end.
+
+dirty_read({Table, Key}) -> dirty_read(Table, Key).
 
 dirty_read(Table, Key) when is_atom(Table) ->
     try

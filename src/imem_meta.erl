@@ -219,6 +219,7 @@
         , remove/4              %% delete row if key exists (if bag row exists), apply trigger with trigger options
         , write/2               %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
+        , dirty_read/1
         , dirty_read/2
         , dirty_index_read/3    
         , dirty_write/2
@@ -2380,6 +2381,8 @@ read(ddSize,Table) ->
     end;            
 read(Table, Key) -> 
     imem_if_mnesia:read(physical_table_name(Table), Key).
+
+dirty_read({Table, Key}) -> dirty_read(Table, Key).
 
 dirty_read({ddSysConf,Table}, Key) -> read({ddSysConf,Table}, Key);
 dirty_read({_Schema,Table}, Key) ->   dirty_read(Table, Key);
