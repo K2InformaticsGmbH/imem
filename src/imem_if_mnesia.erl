@@ -55,6 +55,7 @@
         , select_sort/3
         , read/1
         , read/2
+        , dirty_read/1
         , dirty_read/2
         , dirty_index_read/3
         , read_hlk/2            %% read using hierarchical list key
@@ -463,6 +464,8 @@ read(Table, Key) when is_atom(Table) ->
         {aborted,{no_exists,_}} ->  ?ClientErrorNoLogging({"Table does not exist",Table});
         Result ->                   return_atomic_list(Result)
     end.
+
+dirty_read(Table) -> mnesia:dirty_select(Table, [{'_',[],['$_']}]).
 
 dirty_read(Table, Key) when is_atom(Table) ->
     try
@@ -1116,6 +1119,7 @@ table_operations(_) ->
         AllRecords=lists:sort([{imem_table_123,"A","B","C"},{imem_table_123,"AA","BB","cc"},{imem_table_123,"AAA","BB","CC"}]),
         AllKeys=["A","AA","AAA"],
         ?assertEqual(AllRecords, lists:sort(read(imem_table_123))),
+        ?assertEqual(AllRecords, lists:sort(dirty_read(imem_table_123))),
         % ?LogDebug("success ~p~n", [read_table_4]),
         ?assertEqual({AllRecords,true}, select_sort(imem_table_123, ?MatchAllRecords)),
         % ?LogDebug("success ~p~n", [select_all_records]),
