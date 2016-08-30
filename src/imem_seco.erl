@@ -590,6 +590,18 @@ auth_step(SeCo, {smsott,Token}) ->
                     end
             end
     end;
+auth_step(SeCo, {saml, Name}) ->
+    #ddSeCo{skey=SKey, accountId=AccountId0, authFactors=AFs} = SeCo, % may not yet exist in ddSeco@
+    case if_select_account_by_name(SKey, Name) of
+        {[#ddAccount{id=AccountId1}],true} when AccountId0==AccountId1; AccountId0==undefined ->
+            auth_step_succeed(SeCo#ddSeCo{accountName=Name, accountId=AccountId1, authFactors=[saml|AFs]});
+        {[#ddAccount{locked='true'}],true} ->
+            authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
+        {[#ddAccount{}],true} -> 
+            authenticate_fail(SeCo, "Account name conflict", true);
+        {[],true} ->
+            authenticate_fail(SeCo, "Not a valid user", true)
+    end;
 auth_step(SeCo, Credential) ->
     authenticate_fail(SeCo,{"Invalid credential type",element(1,Credential)}, true).
 
