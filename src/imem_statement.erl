@@ -535,13 +535,15 @@ handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{isSec=IsSec,seco
                     end
             end
     end;
-handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State) ->
+handle_info({mnesia_table_event,{delete_object, OldRecord, _ActivityId}}, #state{isSec=IsSec,seco=SKey,reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
-    % ?Debug("received mnesia subscription event ~p ~p~n", [delete_object, _OldRecord]),
+    ?Info("mnesia delete_object event ~p~n", [OldRecord]),
+    send_reply_to_client(Sock, {delete_object, OldRecord}),
     {noreply, State};
-handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
+handle_info({mnesia_table_event,{delete, {Tab, Key}, _ActivityId}}, #state{isSec=IsSec,seco=SKey,reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
-    % ?Debug("received mnesia subscription event ~p ~p~n", [delete, {_Tab, _Key}]),
+    ?Info("mnesia delete event ~p~n", [{Tab, Key}]),
+    send_reply_to_client(Sock, {delete, {Tab, Key}}),
     {noreply, State};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
