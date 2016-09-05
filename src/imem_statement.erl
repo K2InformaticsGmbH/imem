@@ -436,115 +436,22 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             {noreply, State}
     end;        
-handle_info({mnesia_table_event, {write, {schema, _TableName, _TableNewProperties}, _ActivityId}}, State) ->
+handle_info({mnesia_table_event, {write, _Table, {schema, _TableName, _TableNewProperties}, _OldRecords, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write, schema}],"tail delete"),
     % ?Debug("received mnesia subscription event ~p ~p ~p~n", [write_schema, _TableName, _TableNewProperties]),
     {noreply, State};
-handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{isSec=IsSec,seco=SKey,reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
-    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
-    % ?LogDebug("received mnesia subscription event ~p ~p~n", [write, Record]),
-    #fetchCtx{status=Status,metarec=MR0,rownum=RowNum,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
-    MR1 = imem_sql:meta_rec(IsSec,SKey,Stmt#statement.metaFields,[],MR0),    %% Params cannot change any more after first fetch
-    MR2 = case RowNum of
-        undefined -> MR1;
-        _ ->         setelement(?RownumIdx,MR1,RowNum)
-    end,
-    R1 = erlang:setelement(?RecIdx, R0, RecName),  %% Main Tail Record (record name recovered)
-    % ?LogDebug("processing tail : record / tail / filter~n~p~n~p~n~p~n", [R1,TailSpec,FilterFun]),
-    RawRecords = case {Status,TailSpec,FilterFun} of
-        {tailing,false,_} ->        [];
-        {tailing,_,false} ->        [];
-        {tailing,undefined,_} ->    ?SystemException({"Undefined tail function for tail record",R1}); 
-        {tailing,_,undefined} ->    ?SystemException({"Undefined filter function for tail record",R1}); 
-        {tailing,true,true} ->      [?MetaMain(MR2, R1)];
-        {tailing,true,_} ->         lists:filter(FilterFun, [?MetaMain(MR2, R1)]);
-        {tailing,_,true} ->         
-            case ets:match_spec_run([R1], TailSpec) of
-                [] ->   [];
-                [R2] -> [?MetaMain(MR2, R2)]
-            end;
-        {tailing,_,_} ->            
-            case ets:match_spec_run([R1], TailSpec) of
-                [] ->   [];
-                [R2] -> lists:filter(FilterFun, [?MetaMain(MR2, R2)])
-            end
-            ;
-        STF -> 
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{status,STF},{rec,R1}],"Unexpected status in tail event"),     
-            []
-    end,
-    case {RawRecords,length(Stmt#statement.tables),RowNum} of
-        {[],_,_} ->   %% nothing to be returned  
-            {noreply, State};
-        {_,1,undefined} ->    %% single table select, avoid join overhead
-            if  
-                Rem0 =< 1 ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
-                    send_reply_to_client(Sock, {RawRecords,true}),  
-                    unsubscribe(Stmt),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                true ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
-                    send_reply_to_client(Sock, {RawRecords,tail}),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-1}}}
-            end;
-        {_,1,_FirstRN} ->    %% single table select, avoid join overhead but update RowNum meta field
-            if  
-                Rem0 =< 1 ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
-                    send_reply_to_client(Sock, {RawRecords,true}),  
-                    unsubscribe(Stmt),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                true ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
-                    send_reply_to_client(Sock, {RawRecords,tail}),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+1,remaining=Rem0-1}}}
-            end;
-        {_,_,undefined} ->        %% join raw result of main scan with remaining tables
-            case join_rows(RawRecords, FetchCtx0, Stmt) of
-                [] ->
-                    {noreply, State};
-                Result ->    
-                    if 
-                        (Rem0 =< length(Result)) ->
-                            % ?LogDebug("send~n~p~n", [{Result,true}]),
-                            send_reply_to_client(Sock, {Result, true}),
-                            unsubscribe(Stmt),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                        true ->
-                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
-                            send_reply_to_client(Sock, {Result, tail}),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-length(Result)}}}
-                    end
-            end;
-        {_,_,_} ->        %% join raw result of main scan with remaining tables, correct RowNum
-            case join_rows(RawRecords, FetchCtx0, Stmt) of
-                [] ->
-                    {noreply, State};
-                JoinedRows ->
-                    if 
-                        (Rem0 =< length(JoinedRows)) ->
-                            % ?LogDebug("send~n~p~n", [{Result,true}]),
-                            send_reply_to_client(Sock, {update_row_num(MR2, RowNum, JoinedRows), true}),
-                            unsubscribe(Stmt),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                        true ->
-                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
-                            send_reply_to_client(Sock, {update_row_num(MR2, RowNum, JoinedRows), tail}),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+length(JoinedRows),remaining=Rem0-length(JoinedRows)}}}
-                    end
-            end
+handle_info({mnesia_table_event,{write,_Table,R0,_OldRecords,_ActivityId}},#state{reply=Sock}=State) ->
+    case process_tail_row(R0, State) of
+        {[], NewState} -> {noreply, NewState};
+        {Result, NewState} ->
+            send_reply_to_client(Sock, Result),
+            {noreply, NewState}
     end;
-handle_info({mnesia_table_event,{delete_object, OldRecord, _ActivityId}}, #state{isSec=IsSec,seco=SKey,reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
-    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
-    ?Info("mnesia delete_object event ~p~n", [OldRecord]),
-    send_reply_to_client(Sock, {delete_object, OldRecord}),
+handle_info({mnesia_table_event,{delete, schema, _What, _SchemaInfo, _ActivityId}}, State) ->
     {noreply, State};
-handle_info({mnesia_table_event,{delete, {Tab, Key}, _ActivityId}}, #state{isSec=IsSec,seco=SKey,reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
-    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
-    ?Info("mnesia delete event ~p~n", [{Tab, Key}]),
-    send_reply_to_client(Sock, {delete, {Tab, Key}}),
-    {noreply, State};
+handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, State) ->
+    NewState = process_tail_delete_rows(DelRows, State),
+    {noreply, NewState};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
     % ?LogDebug("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
@@ -660,7 +567,7 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
         true ->     
             {_Schema,Table} = hd(Stmt#statement.tables),
             % ?Debug("fetch complete, switching to tail_mode~p~n", [Opts]), 
-            case  catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
+            case  catch if_call_mfa(false,subscribe,[none,{table, Table, detailed}]) of
                 ok ->
                     % ?Debug("Subscribed to table changes ~p~n", [Table]),    
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
@@ -703,7 +610,7 @@ get_select_permissions(true, SKey, [Table|JTabs]) ->
 
 unsubscribe(Stmt) ->
     {_Schema,Table} = hd(Stmt#statement.tables),
-    case catch if_call_mfa(false,unsubscribe,[none,{table,Table,simple}]) of
+    case catch if_call_mfa(false,unsubscribe,[none,{table,Table,detailed}]) of
         ok ->       ok;
         {ok,_} ->   ok;
         Error ->
@@ -731,6 +638,103 @@ take_remaining(Remaining, Rows) ->
             % %% TODO: may need to read more blocks to completely read this key in a bag
             % ResultRows ++ ResultTail
             ResultRows
+    end.
+
+process_tail_delete_rows([], State) -> State;
+process_tail_delete_rows([R0 | Rest], #state{reply=Sock}=State) ->
+    case process_tail_row(R0, State) of
+        {[], NewState} -> process_tail_delete_rows(Rest, NewState);
+        {Result, NewState} ->
+            send_reply_to_client(Sock, Result),
+            process_tail_delete_rows(Rest, NewState)
+    end.
+
+
+process_tail_row(R0,#state{isSec=IsSec,seco=SKey,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
+    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
+    % ?LogDebug("received mnesia subscription event ~p ~p~n", [write, Record]),
+    #fetchCtx{status=Status,metarec=MR0,rownum=RowNum,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
+    MR1 = imem_sql:meta_rec(IsSec,SKey,Stmt#statement.metaFields,[],MR0),    %% Params cannot change any more after first fetch
+    MR2 = case RowNum of
+        undefined -> MR1;
+        _ ->         setelement(?RownumIdx,MR1,RowNum)
+    end,
+    R1 = erlang:setelement(?RecIdx, R0, RecName),  %% Main Tail Record (record name recovered)
+    % ?LogDebug("processing tail : record / tail / filter~n~p~n~p~n~p~n", [R1,TailSpec,FilterFun]),
+    RawRecords = case {Status,TailSpec,FilterFun} of
+        {tailing,false,_} ->        [];
+        {tailing,_,false} ->        [];
+        {tailing,undefined,_} ->    ?SystemException({"Undefined tail function for tail record",R1});
+        {tailing,_,undefined} ->    ?SystemException({"Undefined filter function for tail record",R1});
+        {tailing,true,true} ->      [?MetaMain(MR2, R1)];
+        {tailing,true,_} ->         lists:filter(FilterFun, [?MetaMain(MR2, R1)]);
+        {tailing,_,true} ->
+            case ets:match_spec_run([R1], TailSpec) of
+                [] ->   [];
+                [R2] -> [?MetaMain(MR2, R2)]
+            end;
+        {tailing,_,_} ->
+            case ets:match_spec_run([R1], TailSpec) of
+                [] ->   [];
+                [R2] -> lists:filter(FilterFun, [?MetaMain(MR2, R2)])
+            end;
+        STF ->
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{status,STF},{rec,R1}],"Unexpected status in tail event"),
+            []
+    end,
+    case {RawRecords,length(Stmt#statement.tables),RowNum} of
+        {[],_,_} ->   %% nothing to be returned
+            {[], State};
+        {_,1,undefined} ->    %% single table select, avoid join overhead
+            if
+                Rem0 =< 1 ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
+                    unsubscribe(Stmt),
+                    {{RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                true ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
+                    {{RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-1}}}
+            end;
+        {_,1,_FirstRN} ->    %% single table select, avoid join overhead but update RowNum meta field
+            if
+                Rem0 =< 1 ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
+                    unsubscribe(Stmt),
+                    {{RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                true ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
+                    {{RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+1,remaining=Rem0-1}}}
+            end;
+        {_,_,undefined} ->        %% join raw result of main scan with remaining tables
+            case join_rows(RawRecords, FetchCtx0, Stmt) of
+                [] ->
+                    {[], State};
+                Result ->
+                    if
+                        (Rem0 =< length(Result)) ->
+                            % ?LogDebug("send~n~p~n", [{Result,true}]),
+                            unsubscribe(Stmt),
+                            {{Result, true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                        true ->
+                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
+                            {{Result, tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-length(Result)}}}
+                    end
+            end;
+        {_,_,_} ->        %% join raw result of main scan with remaining tables, correct RowNum
+            case join_rows(RawRecords, FetchCtx0, Stmt) of
+                [] ->
+                    {[], State};
+                JoinedRows ->
+                    if
+                        (Rem0 =< length(JoinedRows)) ->
+                            % ?LogDebug("send~n~p~n", [{Result,true}]),
+                            unsubscribe(Stmt),
+                            {{update_row_num(MR2, RowNum, JoinedRows), true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                        true ->
+                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
+                            {{update_row_num(MR2, RowNum, JoinedRows), tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+length(JoinedRows),remaining=Rem0-length(JoinedRows)}}}
+                    end
+            end
     end.
 
 update_row_num(MR, FirstRN, Rows) ->
