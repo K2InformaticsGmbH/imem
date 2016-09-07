@@ -645,7 +645,7 @@ process_tail_delete_rows([R0 | Rest], #state{reply=Sock}=State) ->
     case process_tail_row(R0, State) of
         {[], NewState} -> process_tail_delete_rows(Rest, NewState);
         {Result, NewState} ->
-            send_reply_to_client(Sock, Result),
+            send_reply_to_client(Sock, {delete, Result}),
             process_tail_delete_rows(Rest, NewState)
     end.
 
