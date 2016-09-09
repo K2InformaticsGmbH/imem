@@ -981,7 +981,7 @@ expr({'{}',A,Filter}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
     CMapF = expr({list,Filter},FullMap,#bind{type=json,default=?nav}),
     #bind{type=json,btree={json_obj_proj,CMapA,CMapF}};
-expr({':',A,B}, FullMap, _) when is_binary(A) ->
+expr({':',A,B}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
     CMapB = expr(B,FullMap,#bind{type=json,default=?nav}),
     #bind{type=json,btree={json_value,CMapA,CMapB}};
