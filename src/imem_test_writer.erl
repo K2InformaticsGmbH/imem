@@ -10,9 +10,9 @@
 -record(ddTest,   % test table record definition with erlang types
                   { time      ::ddTimestamp()
                   , x         ::integer()
-                  , fX        ::integer()
+                  , y         ::integer()
                   , oneOverX  ::float()
-                  , comment   ::list()
+                  , label     ::list()
                   }
        ).
 -define(ddTest, [timestamp,integer,integer,float,string]).  % test table DDerl types
@@ -73,12 +73,12 @@ start_link(Wait) ->
 wait(Wait) when is_integer(Wait) ->
     gen_server:call(?MODULE, {wait, Wait}). 
 
-write_test_record(X,FX,OneOverX,Comment) ->
+write_test_record(X,Y,OneOverX,Label) ->
     Record = #ddTest{ time=os:timestamp()
                     , x=X
-                    , fX=FX
+                    , y=Y
                     , oneOverX=OneOverX
-                    , comment=Comment
+                    , label=Label
                     },
     imem_meta:write(?ddTestName, Record).
 
@@ -110,11 +110,11 @@ handle_cast(_Request, State) ->
 
 handle_info(next_event, #state{wait=Wait}) ->
     Ran = random:uniform(),         % 0..1
-    X = round(50*Ran),              % bad code causing 1/0
+    X = round(50*Ran)+1,              % bad code causing 1/0
     {_,Sec,_} = os:timestamp(),     % {MegaSec,Sec,MicroSec} since epoch
-    FX = X * (Sec rem 100 + 1),     % rampy sample distribution
+    Y = X * (Sec rem 100 + 1),     % rampy sample distribution
     OneOverX = 5000.0/X,            % spiky sample distribution
-    imem_test_writer:write_test_record(X,FX,OneOverX,integer_to_list(fac(X))),
+    imem_test_writer:write_test_record(X,Y,OneOverX,integer_to_list(fac(X))),
     erlang:send_after(Wait, self(), next_event),
     {noreply, #state{wait=Wait}}.
 
