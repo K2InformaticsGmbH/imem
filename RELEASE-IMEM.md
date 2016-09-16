@@ -3,6 +3,13 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.4 (Release Date 16.09.2016)
+=======================================
+* Added complexity check to change password
+* Tail mode propagate deleted rows using detailed MNESIA events
+* Suspend snapshot during ``imem_snap:restore_as``
+* Added saml auth support
+
 Version 1.5.3 (Release Date 16.06.2016)
 =======================================
 * [snapshot restore error message improvements](https://github.com/K2InformaticsGmbH/imem/pull/81)
