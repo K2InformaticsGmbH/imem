@@ -196,9 +196,12 @@ cluster_snap([], {_,_,_} = StartTime, Dir) ->
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
     cluster_snap(Tabs, StartTime, create_clean_dir("backup_snapshot_"));
 cluster_snap([T|Tabs], {_,_,_} = StartTime, Dir) ->
-    NextTabs = case catch take_chunked(T, Dir) of                   
+    NextTabs = case catch take_chunked(imem_meta:physical_table_name(T), Dir) of                   
                    ok ->
                        ?Info("cluster snapshot ~p", [T]),
+                        Tabs;
+                   {'ClientError', {"Table does not exist", T}} ->
+                       ?Warn("cluster snapshot - Table : ~p does not exist", [T]),
                        Tabs;
                    [{error,Error}] ->
                        ?Error("cluster snapshot failed for ~p : ~p", [T, Error]),
