@@ -531,11 +531,11 @@ db1_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
+            [{<<>>}
+            ,{<<>>}
+            ,{<<>>}
+            ,{<<>>}
+            ,{<<>>}
             ]
         ),
 
