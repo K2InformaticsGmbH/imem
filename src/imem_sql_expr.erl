@@ -581,7 +581,8 @@ is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> fal
 is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op==element;Op=='nth';Op==json_value -> false;  %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
-is_readonly(_BTree) -> true.       % ?Info("is_readonly ~p",[_BTree])
+is_readonly(#bind{tind=0,cind=0,type=json}) -> false;
+is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]), 
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.

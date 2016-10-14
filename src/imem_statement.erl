@@ -1130,7 +1130,6 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         {Cx,Pos,Fx};
                     {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
-                        ?Info("Pos in nth ~p",[Pos]),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
                             case {Value, OldVal} of 
@@ -1164,35 +1163,38 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,0,Fx};
-                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
                             case {Value, OldVal} of 
-                                {?navio,?nav} ->
-                                    X;                                                  % attribute still not present
-                                {?navio,_} ->       
-                                    ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X)));    % remove json attribute
+                                {<<>>,?nav} ->  
+                                    X;                         % attribute still not present
+                                {<<>>,_} ->     
+                                    ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X))); 
                                 _ ->
-                                    RealType = case OldVal of                           % guess data type and try to keep it
-                                        true ->     boolean;
-                                        false ->    boolean;
-                                        null when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
-                                        ?nav when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
-                                        N when N==null; N==?nav; is_number(N) ->     
-                                            case catch imem_datatype:io_to_integer(Value) of
-                                                I when is_integer(I) ->                 integer;
-                                                _ ->
-                                                    case catch imem_datatype:io_to_float(Value,undefined) of
-                                                        F when is_float(F) ->           float;
-                                                        _ when Value == <<"null">> ->   atom;
-                                                        _ ->                            Type
-                                                    end
-                                            end;
-                                        _ ->                                            Type
-                                    end,
-                                    case imem_datatype:io_to_db(Item,OldVal,RealType,undefined,undefined,<<>>,false,Value) of
+                                    case imem_json:decode(Value) of
                                         OldVal ->   X;
                                         NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
+                                    end
+                            end
+                        end,     
+                        {Cx,0,Fx};
+                    {json_value,AttName,{json_value,ParentName,#bind{tind=?MainIdx,cind=Cx}=B}} -> 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case {Value, OldVal} of 
+                                {<<>>,?nav} ->  
+                                    X;                         % attribute still not present
+                                {<<>>,_} ->
+                                    NewParent = imem_json:remove(AttName,imem_json:get(ParentName,?BoundVal(B,X))),
+                                    ?replace(X,Cx,imem_json:put(ParentName,NewParent,?BoundVal(B,X))); 
+                                _ ->
+                                    case imem_json:decode(Value) of
+                                        OldVal ->   
+                                            X;
+                                        NewVal ->
+                                            NewParent = imem_json:put(AttName,NewVal,imem_json:get(ParentName,?BoundVal(B,X))),
+                                            ?replace(X,Cx,imem_json:put(ParentName,NewParent,?BoundVal(B,X)))
                                     end
                             end
                         end,     
@@ -1277,21 +1279,14 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value))
                         end,     
                         {Cx,0,Fx};
-                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
-                        Fx = fun(X) -> 
-                            case ?BoundVal(B,X) of 
-                                ?nav ->
-                                    case imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value) of
-                                        ?nav ->     X;
-                                        NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,<<"{}">>))
-                                    end;
-                                Old ->
-                                    case imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value) of
-                                        ?nav ->     X;
-                                        NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,Old))
-                                    end
+                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
+                        Fx = fun(X) ->
+                            case  Value of
+                                <<>> ->     X;
+                                ?navio ->   X;
+                                _ ->        ?replace(X,Cx,imem_json:put(AttName,imem_json:decode(Value),?BoundVal(B,X)))
                             end
-                        end,     
+                        end,
                         {Cx,0,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
                 end;
