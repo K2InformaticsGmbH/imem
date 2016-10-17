@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.5 (Release Date 17.10.2016)
+=======================================
+* Added behaviour imem_gen_metrics defining the api for metrics
+* Support for json path edits, empty binary instead of '$not_a_value'
+* Updated sqlparse to version 1.5.4
+
 Version 1.5.4 (Release Date 16.09.2016)
 =======================================
 * Added complexity check to change password
