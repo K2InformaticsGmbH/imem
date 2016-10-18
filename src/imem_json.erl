@@ -748,6 +748,8 @@ diff(undefined, Data2) when is_binary(Data2) ->
     encode(diff([], decode(Data2)));
 diff(undefined, undefined) -> [].
 
+diff([{}], B, Acc) -> diff([], B, Acc);
+diff(A, [{}], Acc) -> diff(A, [], Acc);
 diff([], [], Acc) -> lists:reverse(Acc);
 diff([A|R1], [A|R2], Acc) ->  diff(R1,R2,Acc);
 diff([{_,null}|R1], [], Acc) ->  diff(R1, [], Acc);                               % missing equals null
