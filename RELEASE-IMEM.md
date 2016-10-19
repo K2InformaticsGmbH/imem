@@ -3,6 +3,10 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.6 (Release Date 19.10.2016)
+=======================================
+* Cluster snapshot fixes #101 and #102
+
 Version 1.5.5 (Release Date 17.10.2016)
 =======================================
 * Added behaviour imem_gen_metrics defining the api for metrics
