@@ -1,4 +1,4 @@
-    -module(imem_seco).
+-module(imem_seco).
 
 -include("imem_seco.hrl").
 
@@ -52,6 +52,7 @@
         , clone_seco/2
         , account_id/1
         , account_name/1
+        , password_strength_fun/0
         ]).
 
 -export([ has_role/3
@@ -589,6 +590,18 @@ auth_step(SeCo, {smsott,Token}) ->
                     end
             end
     end;
+auth_step(SeCo, {saml, Name}) ->
+    #ddSeCo{skey=SKey, accountId=AccountId0, authFactors=AFs} = SeCo, % may not yet exist in ddSeco@
+    case if_select_account_by_name(SKey, Name) of
+        {[#ddAccount{id=AccountId1}],true} when AccountId0==AccountId1; AccountId0==undefined ->
+            auth_step_succeed(SeCo#ddSeCo{accountName=Name, accountId=AccountId1, authFactors=[saml|AFs]});
+        {[#ddAccount{locked='true'}],true} ->
+            authenticate_fail(SeCo, "Account is locked. Contact a system administrator", true);
+        {[#ddAccount{}],true} -> 
+            authenticate_fail(SeCo, "Account name conflict", true);
+        {[],true} ->
+            authenticate_fail(SeCo, "Not a valid user", true)
+    end;
 auth_step(SeCo, Credential) ->
     authenticate_fail(SeCo,{"Invalid credential type",element(1,Credential)}, true).
 
@@ -814,6 +827,34 @@ clone_seco(SKeyParent, Pid) ->
     monitor_pid(SKey,Pid),
     if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     SKey.
+
+-spec password_strength_fun() ->
+    fun((list()|binary()) -> short|weak|medium|strong).
+password_strength_fun() ->
+    PasswordStrengthFunStr =
+    ?GET_CONFIG(
+       passwordStrength, [],
+       <<"fun(Password) ->"
+           "  REStrong = \"^(?=.{8,})(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*\\\\W).*$\","
+           "  REMedium = \"^(?=.{7,})(((?=.*[A-Z])(?=.*[a-z]))|((?=.*[A-Z])(?=.*[0-9]))"
+                          "|((?=.*[a-z])(?=.*[0-9]))).*$\","
+           "  REEnough = \"(?=.{6,}).*\","
+           "  case re:run(Password, REEnough) of"
+           "   nomatch -> short;"
+           "   _ ->"
+           "    case re:run(Password, REStrong) of"
+           "     nomatch ->"
+           "      case re:run(Password, REMedium) of"
+           "       nomatch -> weak;"
+           "       _ -> medium"
+           "      end;"
+           "     _ -> strong"
+           "    end"
+           "  end"
+           " end.">>,
+         "Function to measure the effectiveness of a string as potential password."),
+    ?Debug("PasswordStrength ~p", [PasswordStrengthFunStr]),
+    imem_meta:compile_fun(PasswordStrengthFunStr).
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).

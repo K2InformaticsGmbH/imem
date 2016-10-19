@@ -94,14 +94,19 @@ end.">>,"Function to perform customized snapshotting.")).
 
 -ifdef(TEST).
     start_snap_loop() -> ok.
+    restart_snap_loop() -> ok.
 -else.
     start_snap_loop() ->
         spawn(fun() ->
             catch ?Info("~s~n", [zip({re, "*.bkp"})]),
-            erlang:whereis(?MODULE) ! imem_snap_loop
+            restart_snap_loop()
         end).
+    restart_snap_loop() ->
+        erlang:whereis(?MODULE) ! imem_snap_loop.
 -endif.
 
+suspend_snap_loop() ->
+    erlang:whereis(?MODULE) ! imem_snap_loop_cancel.
 
 %% ----- SERVER INTERFACE ------------------------------------------------
 %% ?SERVER_START_LINK.
@@ -191,9 +196,12 @@ cluster_snap([], {_,_,_} = StartTime, Dir) ->
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
     cluster_snap(Tabs, StartTime, create_clean_dir("backup_snapshot_"));
 cluster_snap([T|Tabs], {_,_,_} = StartTime, Dir) ->
-    NextTabs = case catch take_chunked(T, Dir) of                   
+    NextTabs = case catch take_chunked(imem_meta:physical_table_name(T), Dir) of                   
                    ok ->
                        ?Info("cluster snapshot ~p", [T]),
+                        Tabs;
+                   {'ClientError', {"Table does not exist", T}} ->
+                       ?Warn("cluster snapshot - Table : ~p does not exist", [T]),
                        Tabs;
                    [{error,Error}] ->
                        ?Error("cluster snapshot failed for ~p : ~p", [T, Error]),
@@ -276,10 +284,12 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
     end;
 
 handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
-    ?Debug("timer paused~n"),
     case SnapTimer of
-        undefined -> ok;
-        SnapTimer -> erlang:cancel_timer(SnapTimer)
+        undefined -> 
+            ok;
+        SnapTimer -> 
+            ?Debug("timer paused~n"),
+            erlang:cancel_timer(SnapTimer)
     end,
     {noreply, State#state{snap_timer = undefined}};
 
@@ -418,7 +428,7 @@ take(Tab) when is_map(Tab) ->                       % single table using transfo
 % snapshot restore interface
 %  - periodic snapshoting timer is paused during a restore operation
 restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
-    erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
+    suspend_snap_loop(),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     Res = [(fun() ->
         Table = if
@@ -429,7 +439,7 @@ restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
         {Tab, restore_chunked(list_to_atom(Table), SnapFile, Strategy, Simulate)}
     end)()
     || Tab <- Tabs],
-    erlang:whereis(?MODULE) ! imem_snap_loop,
+    restart_snap_loop(),
     Res.
 
 % snapshot restore_as interface
@@ -441,25 +451,27 @@ restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_atom(DstTab) ->
 restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_binary(DstTab) ->
     restore_as(Op, SrcTab, binary_to_list(DstTab), Strategy, Simulate);
 restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
-    erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
+    suspend_snap_loop(),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),    
     DstSnapFile = filename:join([SnapDir, DstTab++?BKP_EXTN]),
     SnapFile = case filelib:is_file(DstSnapFile) of
                    true -> DstSnapFile;
                    false -> filename:join([SnapDir, SrcTab++?BKP_EXTN])
                end,
-    erlang:whereis(?MODULE) ! imem_snap_loop,
     case restore_chunked(list_to_atom(DstTab), SnapFile, Strategy, Simulate) of
         {L1,L2,L3} ->
             ?Info("Restored table ~s as ~s from ~s with result ~p", [SrcTab, DstTab, SnapFile, {L1,L2,L3}]),
+            restart_snap_loop(),
             ok;
-        Error -> Error
+        Error -> 
+            restart_snap_loop(),
+            Error
     end.
 
 restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
-            erlang:whereis(?MODULE) ! imem_snap_loop_cancel,
+            suspend_snap_loop(),
             {ok,Fs} = zip:unzip(ZipFile),
             ?Debug("unzipped ~p from ~p~n", [Fs,ZipFile]),
             Files = [F
@@ -476,7 +488,7 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
                 end,
                 [], Files
             ),
-            erlang:whereis(?MODULE) ! imem_snap_loop,
+            restart_snap_loop(),
             Res;
         _ ->
             {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -499,12 +511,16 @@ restore_chunked(Tab, Strategy, Simulate) ->
 
 restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
     ?Debug("restoring ~p from ~p by ~p~n", [Tab, SnapFile, Strategy]),
-    {ok, FHndl} = file:open(SnapFile, [read, raw, binary]),
-    if (Simulate /= true) andalso (Strategy =:= destroy)
-        -> catch imem_meta:truncate_table(Tab);
-        true -> ok
-    end,
-    read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {0,0,0}).
+    case file:open(SnapFile, [read, raw, binary]) of
+       {ok, FHndl} ->
+           if 
+                (Simulate /= true) andalso (Strategy =:= destroy) -> 
+                    catch imem_meta:truncate_table(Tab);
+                true -> ok
+           end,
+           read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {0,0,0});
+       {error, Error} -> {error, Error}
+   end.
 
 read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, Opts) ->
     ?Debug("backup file header read"),
@@ -713,9 +729,14 @@ take_chunked_transform(#{table:=Tab, nTrans:=NTrans, pTrans:=PTrans, rTrans:=RTr
                     , ?GET_SNAPSHOT_CHUNK_MAX_SIZE]),
         ?Debug("[~p] snapshoting ~p of ~p rows ~p bytes~n", [self(), Tab, imem_meta:table_size(Tab)
                                                                , imem_meta:table_memory(Tab)]),
-        {ok, FHndl} = file:open(NewBackFile, [append, raw
+        FHndl = case file:open(NewBackFile, [append, raw
                             , {delayed_write, erlang:round(ChunkSize * AvgRowSize)
-                              , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]),
+                              , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]) of
+            {ok, FileHandle} -> FileHandle;
+            {error, Error} -> 
+                ?Error("Error : ~p opening file : ~p", [Error, NewBackFile]),
+                error(Error)
+        end,
         FetchFunPid = imem_if_mnesia:fetch_start(self(), Tab, [{'$1', [], ['$1']}], ChunkSize, []),
         take_fun(Me,Tab,FetchFunPid,RTrans,0,0,FHndl)
     end),

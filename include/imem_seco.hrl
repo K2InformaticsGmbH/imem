@@ -11,7 +11,8 @@
                       | {scrypt,{binary(),binary()}}  % {scrypt,{Salt,Hash}}    in ddAccount.credentials 
                       | {access,map()}                % {access,NetworkCtx}                   input to auth_start / auth_add_cred
                       | {pwdmd5,{binary(),binary()}}  % {pwdmd5, {AccountName,md5(password)}  input to auth_start / auth_add_cred
-                      | {smsott,binary()}.            % {smsott,Token}                        input to auth_start / auth_add_cred 
+                      | {smsott,binary()}             % {smsott,Token}                        input to auth_start / auth_add_cred 
+                      | {saml,binary()}.              % {saml, AccountName}                   input to auth_start / auth_add_cred 
 
 -type ddCredRequest() :: {pwdmd5,map()}               % {pwdmd5,#{}} | {smsott,#{accountName=>AccountName}} (any / fixed AccountName) 
                        | {smsott,map()}               % {smsott,#{accountName=>AccountName,to=>To}}

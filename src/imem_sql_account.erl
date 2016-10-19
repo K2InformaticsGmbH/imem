@@ -2,15 +2,6 @@
 
 -include("imem_seco.hrl").
 
--define(GET_PASSWORD_CHECK_FUN,
-        ?GET_CONFIG(isPasswordComplex,[],
-                    <<"fun(Password) ->"
-                      " re:run("
-                        " Password,"
-                        " \"^(?=.{8,})(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*\\\\W).*$\")"
-                        " /= nomatch"
-                      " end.">>,"Function which decides about sufficient password complexity.")).
-
 -export([exec/5]).
 
 exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _StmtOpts, IsSec) ->
@@ -43,18 +34,21 @@ exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _StmtOpts, IsSec) ->
             NewPassword = imem_datatype:strip_dquotes(NewPasswordMayBeDoubleQuoted),
             try
                 begin
-                    IsPasswordComplexFunStr = ?GET_PASSWORD_CHECK_FUN,
-                    ?Info("IsPasswordComplexFunStr ~p", [IsPasswordComplexFunStr]),
-                    IsPasswordComplexFun = imem_meta:compile_fun(IsPasswordComplexFunStr),
-                    IsPasswordComplexFun(NewPassword)
+                    PasswordStrengthFun = imem_seco:password_strength_fun(),
+                    PasswordStrengthFun(NewPassword)
                 end of
-                true ->
+                strong ->
                     NewCredentials = imem_seco:create_credentials(pwdmd5, NewPassword),
                     if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, set_credentials, [Name,NewCredentials]]);
-                false ->
-                    ?ClientError("New password insufficiently complex");
+                Error when Error /= strong ->
+                    ?ClientError(
+                       lists:flatten(
+                         io_lib:format(
+                           "New password insufficiently complex ('~p')",
+                           [Error])));
                 Other ->
-                    ?Error("Bad return from isPasswordComplex function '~p' (should be true|false)", [Other]),
+                    ?Error("Bad return from isPasswordComplex function '~p'"
+                           " (should be strong|short|medium|weak)", [Other]),
                     ?ClientError("Bad password check function")
             catch
                 _:Exception ->

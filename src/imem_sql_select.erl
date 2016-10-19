@@ -51,7 +51,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
-    % ?LogDebug("ColMap1:~n~p", [ColMap1]),
+    % ?Info("ColMap1:~n~p", [ColMap1]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap1);
         str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
@@ -531,11 +531,11 @@ db1_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
+            [{<<>>}
+            ,{<<>>}
+            ,{<<>>}
+            ,{<<>>}
+            ,{<<>>}
             ]
         ),
 

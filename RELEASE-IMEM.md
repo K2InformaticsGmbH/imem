@@ -3,6 +3,44 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.5 (Release Date 17.10.2016)
+=======================================
+* Added behaviour imem_gen_metrics defining the api for metrics
+* Support for json path edits, empty binary instead of '$not_a_value'
+* Updated sqlparse to version 1.5.4
+
+Version 1.5.4 (Release Date 16.09.2016)
+=======================================
+* Added complexity check to change password
+* Tail mode propagate deleted rows using detailed MNESIA events
+* Suspend snapshot during ``imem_snap:restore_as``
+* Added saml auth support
+
+Version 1.5.3 (Release Date 16.06.2016)
+=======================================
+* [snapshot restore error message improvements](https://github.com/K2InformaticsGmbH/imem/pull/81)
+
+Version 1.5.2 (Release Date 10.06.2016)
+=======================================
+* [imem_server (TCP/SSL) certificate management](https://github.com/K2InformaticsGmbH/imem/issues?q=milestone%3A1.5.2+is%3Aclosed)
+
+Version 1.5.1 (Release Date 29.05.2016)
+=======================================
+* [imem_server (TCP/SSL) restart APIs](https://github.com/K2InformaticsGmbH/imem/issues/88)
+* dirty_select support
+* ddConfig dirty access
+* tial bug fix
+
+Version 1.5.0 (Release Date 17.05.2016)
+=======================================
+* Added map functions
+* Implement slice sql function
+
+Version 1.4.15 (Release Date 26.04.2016)
+=======================================
+* Set sext dependency to a particular commit (map support)
+* Improve generation for binstr and binary
+
 Version 1.4.14 (Release Date 06.04.2016)
 =======================================
 * Fixed sql generation issues for filter

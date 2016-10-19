@@ -5,6 +5,8 @@
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
+-define(CALL_TIMEOUT(__Method), ?GET_CONFIG(callTimeout,[__Method],10000,"gen_server call timeout in msec.")).
+
 %% gen_server
 -behaviour(gen_server).
 -export([ init/1
@@ -159,7 +161,7 @@ filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec) when is_pid(Pid) -
 update_cursor_prepare(SKey, #stmtResult{stmtRef=Pid}, IsSec, ChangeList) ->
     update_cursor_prepare(SKey, Pid, IsSec, ChangeList);
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
-    case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList}) of
+    case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)) of
         ok ->   ok;
         Error-> throw(Error)
     end.
@@ -170,7 +172,7 @@ update_cursor_execute(SKey, Pid, IsSec, Lock) when is_pid(Pid) ->
     update_cursor_exec(SKey, Pid, IsSec, Lock).
 
 update_cursor_exec(SKey, Pid, IsSec, Lock) when Lock==none;Lock==optimistic ->
-    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, Lock}),
+    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, Lock},?CALL_TIMEOUT(update_cursor_execute)),
     % ?Debug("update_cursor_execute ~p~n", [Result]),
     case Result of
         KeyUpd when is_list(KeyUpd) ->  KeyUpd;
@@ -434,109 +436,22 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot}],"eot"),
             {noreply, State}
     end;        
-handle_info({mnesia_table_event, {write, {schema, _TableName, _TableNewProperties}, _ActivityId}}, State) ->
+handle_info({mnesia_table_event, {write, _Table, {schema, _TableName, _TableNewProperties}, _OldRecords, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write, schema}],"tail delete"),
     % ?Debug("received mnesia subscription event ~p ~p ~p~n", [write_schema, _TableName, _TableNewProperties]),
     {noreply, State};
-handle_info({mnesia_table_event,{write,R0,_ActivityId}}, #state{isSec=IsSec,seco=SKey,reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
-    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
-    % ?LogDebug("received mnesia subscription event ~p ~p~n", [write, Record]),
-    #fetchCtx{status=Status,metarec=MR0,rownum=RowNum,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
-    MR1 = imem_sql:meta_rec(IsSec,SKey,Stmt#statement.metaFields,[],MR0),    %% Params cannot change any more after first fetch
-    MR2 = case RowNum of
-        undefined -> MR1;
-        _ ->         setelement(?RownumIdx,MR1,RowNum)
-    end,
-    R1 = erlang:setelement(?RecIdx, R0, RecName),  %% Main Tail Record (record name recovered)
-    % ?LogDebug("processing tail : record / tail / filter~n~p~n~p~n~p~n", [R1,TailSpec,FilterFun]),
-    RawRecords = case {Status,TailSpec,FilterFun} of
-        {tailing,false,_} ->        [];
-        {tailing,_,false} ->        [];
-        {tailing,undefined,_} ->    ?SystemException({"Undefined tail function for tail record",R1}); 
-        {tailing,_,undefined} ->    ?SystemException({"Undefined filter function for tail record",R1}); 
-        {tailing,true,true} ->      [?MetaMain(MR2, R1)];
-        {tailing,true,_} ->         lists:filter(FilterFun, [?MetaMain(MR2, R1)]);
-        {tailing,_,true} ->         
-            case ets:match_spec_run([R1], TailSpec) of
-                [] ->   [];
-                [R2] -> [?MetaMain(MR2, R2)]
-            end;
-        {tailing,_,_} ->            
-            case ets:match_spec_run([R1], TailSpec) of
-                [] ->   [];
-                [R2] -> lists:filter(FilterFun, [?MetaMain(MR2, R2)])
-            end
-    end,
-    case {RawRecords,length(Stmt#statement.tables),RowNum} of
-        {[],_,_} ->   %% nothing to be returned  
-            {noreply, State};
-        {_,1,undefined} ->    %% single table select, avoid join overhead
-            if  
-                Rem0 =< 1 ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
-                    send_reply_to_client(Sock, {RawRecords,true}),  
-                    unsubscribe(Stmt),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                true ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
-                    send_reply_to_client(Sock, {RawRecords,tail}),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-1}}}
-            end;
-        {_,1,_FirstRN} ->    %% single table select, avoid join overhead but update RowNum meta field
-            if  
-                Rem0 =< 1 ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
-                    send_reply_to_client(Sock, {RawRecords,true}),  
-                    unsubscribe(Stmt),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                true ->
-                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
-                    send_reply_to_client(Sock, {RawRecords,tail}),
-                    {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+1,remaining=Rem0-1}}}
-            end;
-        {_,_,undefined} ->        %% join raw result of main scan with remaining tables
-            case join_rows(RawRecords, FetchCtx0, Stmt) of
-                [] ->
-                    {noreply, State};
-                Result ->    
-                    if 
-                        (Rem0 =< length(Result)) ->
-                            % ?LogDebug("send~n~p~n", [{Result,true}]),
-                            send_reply_to_client(Sock, {Result, true}),
-                            unsubscribe(Stmt),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                        true ->
-                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
-                            send_reply_to_client(Sock, {Result, tail}),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-length(Result)}}}
-                    end
-            end;
-        {_,_,_} ->        %% join raw result of main scan with remaining tables, correct RowNum
-            case join_rows(RawRecords, FetchCtx0, Stmt) of
-                [] ->
-                    {noreply, State};
-                JoinedRows ->
-                    if 
-                        (Rem0 =< length(JoinedRows)) ->
-                            % ?LogDebug("send~n~p~n", [{Result,true}]),
-                            send_reply_to_client(Sock, {update_row_num(MR2, RowNum, JoinedRows), true}),
-                            unsubscribe(Stmt),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
-                        true ->
-                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
-                            send_reply_to_client(Sock, {update_row_num(MR2, RowNum, JoinedRows), tail}),
-                            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+length(JoinedRows),remaining=Rem0-length(JoinedRows)}}}
-                    end
-            end
+handle_info({mnesia_table_event,{write,_Table,R0,_OldRecords,_ActivityId}},#state{reply=Sock}=State) ->
+    case process_tail_row(R0, State) of
+        {[], NewState} -> {noreply, NewState};
+        {Result, NewState} ->
+            send_reply_to_client(Sock, Result),
+            {noreply, NewState}
     end;
-handle_info({mnesia_table_event,{delete_object, _OldRecord, _ActivityId}}, State) ->
-    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete_object}],"tail delete"),
-    % ?Debug("received mnesia subscription event ~p ~p~n", [delete_object, _OldRecord]),
+handle_info({mnesia_table_event,{delete, schema, _What, _SchemaInfo, _ActivityId}}, State) ->
     {noreply, State};
-handle_info({mnesia_table_event,{delete, {_Tab, _Key}, _ActivityId}}, State) ->
-    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,delete}],"tail delete"),
-    % ?Debug("received mnesia subscription event ~p ~p~n", [delete, {_Tab, _Key}]),
-    {noreply, State};
+handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, State) ->
+    NewState = process_tail_delete_rows(DelRows, State),
+    {noreply, NewState};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
     % ?LogDebug("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
@@ -652,7 +567,7 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
         true ->     
             {_Schema,Table} = hd(Stmt#statement.tables),
             % ?Debug("fetch complete, switching to tail_mode~p~n", [Opts]), 
-            case  catch if_call_mfa(false,subscribe,[none,{table,Table,simple}]) of
+            case  catch if_call_mfa(false,subscribe,[none,{table, Table, detailed}]) of
                 ok ->
                     % ?Debug("Subscribed to table changes ~p~n", [Table]),    
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=tailing}}};
@@ -695,7 +610,7 @@ get_select_permissions(true, SKey, [Table|JTabs]) ->
 
 unsubscribe(Stmt) ->
     {_Schema,Table} = hd(Stmt#statement.tables),
-    case catch if_call_mfa(false,unsubscribe,[none,{table,Table,simple}]) of
+    case catch if_call_mfa(false,unsubscribe,[none,{table,Table,detailed}]) of
         ok ->       ok;
         {ok,_} ->   ok;
         Error ->
@@ -723,6 +638,103 @@ take_remaining(Remaining, Rows) ->
             % %% TODO: may need to read more blocks to completely read this key in a bag
             % ResultRows ++ ResultTail
             ResultRows
+    end.
+
+process_tail_delete_rows([], State) -> State;
+process_tail_delete_rows([R0 | Rest], #state{reply=Sock}=State) ->
+    case process_tail_row(R0, State) of
+        {[], NewState} -> process_tail_delete_rows(Rest, NewState);
+        {Result, NewState} ->
+            send_reply_to_client(Sock, {delete, Result}),
+            process_tail_delete_rows(Rest, NewState)
+    end.
+
+
+process_tail_row(R0,#state{isSec=IsSec,seco=SKey,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
+    % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
+    % ?LogDebug("received mnesia subscription event ~p ~p~n", [write, Record]),
+    #fetchCtx{status=Status,metarec=MR0,rownum=RowNum,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
+    MR1 = imem_sql:meta_rec(IsSec,SKey,Stmt#statement.metaFields,[],MR0),    %% Params cannot change any more after first fetch
+    MR2 = case RowNum of
+        undefined -> MR1;
+        _ ->         setelement(?RownumIdx,MR1,RowNum)
+    end,
+    R1 = erlang:setelement(?RecIdx, R0, RecName),  %% Main Tail Record (record name recovered)
+    % ?LogDebug("processing tail : record / tail / filter~n~p~n~p~n~p~n", [R1,TailSpec,FilterFun]),
+    RawRecords = case {Status,TailSpec,FilterFun} of
+        {tailing,false,_} ->        [];
+        {tailing,_,false} ->        [];
+        {tailing,undefined,_} ->    ?SystemException({"Undefined tail function for tail record",R1});
+        {tailing,_,undefined} ->    ?SystemException({"Undefined filter function for tail record",R1});
+        {tailing,true,true} ->      [?MetaMain(MR2, R1)];
+        {tailing,true,_} ->         lists:filter(FilterFun, [?MetaMain(MR2, R1)]);
+        {tailing,_,true} ->
+            case ets:match_spec_run([R1], TailSpec) of
+                [] ->   [];
+                [R2] -> [?MetaMain(MR2, R2)]
+            end;
+        {tailing,_,_} ->
+            case ets:match_spec_run([R1], TailSpec) of
+                [] ->   [];
+                [R2] -> lists:filter(FilterFun, [?MetaMain(MR2, R2)])
+            end;
+        STF ->
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{status,STF},{rec,R1}],"Unexpected status in tail event"),
+            []
+    end,
+    case {RawRecords,length(Stmt#statement.tables),RowNum} of
+        {[],_,_} ->   %% nothing to be returned
+            {[], State};
+        {_,1,undefined} ->    %% single table select, avoid join overhead
+            if
+                Rem0 =< 1 ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
+                    unsubscribe(Stmt),
+                    {{RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                true ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
+                    {{RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-1}}}
+            end;
+        {_,1,_FirstRN} ->    %% single table select, avoid join overhead but update RowNum meta field
+            if
+                Rem0 =< 1 ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
+                    unsubscribe(Stmt),
+                    {{RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                true ->
+                    % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
+                    {{RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+1,remaining=Rem0-1}}}
+            end;
+        {_,_,undefined} ->        %% join raw result of main scan with remaining tables
+            case join_rows(RawRecords, FetchCtx0, Stmt) of
+                [] ->
+                    {[], State};
+                Result ->
+                    if
+                        (Rem0 =< length(Result)) ->
+                            % ?LogDebug("send~n~p~n", [{Result,true}]),
+                            unsubscribe(Stmt),
+                            {{Result, true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                        true ->
+                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
+                            {{Result, tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-length(Result)}}}
+                    end
+            end;
+        {_,_,_} ->        %% join raw result of main scan with remaining tables, correct RowNum
+            case join_rows(RawRecords, FetchCtx0, Stmt) of
+                [] ->
+                    {[], State};
+                JoinedRows ->
+                    if
+                        (Rem0 =< length(JoinedRows)) ->
+                            % ?LogDebug("send~n~p~n", [{Result,true}]),
+                            unsubscribe(Stmt),
+                            {{update_row_num(MR2, RowNum, JoinedRows), true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                        true ->
+                            % ?LogDebug("send~n~p~n", [{Result,tail}]),
+                            {{update_row_num(MR2, RowNum, JoinedRows), tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+length(JoinedRows),remaining=Rem0-length(JoinedRows)}}}
+                    end
+            end
     end.
 
 update_row_num(MR, FirstRN, Rows) ->
@@ -1076,9 +1088,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                     {hd,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
-                                OldVal ->   X;
-                                NewVal ->   ?replace(X,Cx,[NewVal|tl(?BoundVal(B,X))])
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                                                  % attribute still not present
+                                {?navio,_} ->       
+                                    ?replace(X,Cx,tl(?BoundVal(B,X)));                  % remove head
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,[NewVal|tl(?BoundVal(B,X))])
+                                    end
                             end
                         end,     
                         {Cx,1,Fx};
@@ -1086,9 +1105,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Pos = length(?BoundVal(B,Recs)),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
-                                OldVal ->   X;
-                                NewVal ->   ?replace(X,Cx,lists:sublist(?BoundVal(B,X),Pos-1) ++ NewVal)
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                                                  % attribute still not present
+                                {?navio,_} ->       
+                                    ?replace(X,Cx,lists:sublist(?BoundVal(B,X),Pos-1)); % remove last element
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,lists:sublist(?BoundVal(B,X),Pos-1) ++ NewVal)
+                                    end
                             end
                         end,     
                         {Cx,Pos,Fx};
@@ -1106,15 +1132,26 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
-                                OldVal ->               
-                                    X;
-                                NewVal1 when Pos==1 ->  
-                                    ?replace(X,Cx,[NewVal1|tl(?BoundVal(B,X))]);
-                                NewVal2 ->              
-                                    Old = ?BoundVal(B,X),
-                                    ?replace(X,Cx,lists:sublist(Old,Pos-1) ++ NewVal2 ++ lists:nthtail(Old,Pos))
-                            end 
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                                                  % attribute still not present
+                                {?navio,_} ->
+                                    Old = ?BoundVal(B,X),       
+                                    case Pos of 
+                                        1 ->    ?replace(X,Cx,tl(Old));                 % remove head
+                                        _ ->    ?replace(X,Cx,lists:sublist(Old,Pos-1) ++ lists:nthtail(Pos, Old))
+                                    end;
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,list_type(Type),undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->               
+                                            X;
+                                        NewVal1 when Pos==1 ->  
+                                            ?replace(X,Cx,[NewVal1|tl(?BoundVal(B,X))]);
+                                        NewVal2 ->              
+                                            Old = ?BoundVal(B,X),
+                                            ?replace(X,Cx,lists:sublist(Old,Pos-1) ++ NewVal2 ++ lists:nthtail(Pos,Old))
+                                    end 
+                            end
                         end,     
                         {Cx,Pos,Fx};
                     {from_binterm,#bind{tind=?MainIdx,cind=Cx,type=Type}} ->
@@ -1126,29 +1163,39 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,0,Fx};
-                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            RealType = case OldVal of
-                                true ->     boolean;
-                                false ->    boolean;
-                                null when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
-                                ?nav when Value == <<"true">>;Value == <<"false">>;Value == <<"null">> -> atom;
-                                N when N==null; N==?nav; is_number(N) ->     
-                                    case catch imem_datatype:io_to_integer(Value) of
-                                        I when is_integer(I) ->                 integer;
-                                        _ ->
-                                            case catch imem_datatype:io_to_float(Value,undefined) of
-                                                F when is_float(F) ->           float;
-                                                _ when Value == <<"null">> ->   atom;
-                                                _ ->                            Type
-                                            end
-                                    end;
-                                _ ->                                            Type
-                            end,
-                            case imem_datatype:io_to_db(Item,OldVal,RealType,undefined,undefined,<<>>,false,Value) of
-                                OldVal ->   X;
-                                NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
+                            case {Value, OldVal} of 
+                                {<<>>,?nav} ->  
+                                    X;                         % attribute still not present
+                                {<<>>,_} ->     
+                                    ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X))); 
+                                _ ->
+                                    case imem_json:decode(Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
+                                    end
+                            end
+                        end,     
+                        {Cx,0,Fx};
+                    {json_value,AttName,{json_value,ParentName,#bind{tind=?MainIdx,cind=Cx}=B}} -> 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case {Value, OldVal} of 
+                                {<<>>,?nav} ->  
+                                    X;                         % attribute still not present
+                                {<<>>,_} ->
+                                    NewParent = imem_json:remove(AttName,imem_json:get(ParentName,?BoundVal(B,X))),
+                                    ?replace(X,Cx,imem_json:put(ParentName,NewParent,?BoundVal(B,X))); 
+                                _ ->
+                                    case imem_json:decode(Value) of
+                                        OldVal ->   
+                                            X;
+                                        NewVal ->
+                                            NewParent = imem_json:put(AttName,NewVal,imem_json:get(ParentName,?BoundVal(B,X))),
+                                            ?replace(X,Cx,imem_json:put(ParentName,NewParent,?BoundVal(B,X)))
+                                    end
                             end
                         end,     
                         {Cx,0,Fx};
@@ -1173,7 +1220,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
           end
           || 
           {#bind{readonly=R}=CMap,Value} 
-          <- lists:zip(ColMap,Values), R==false, Value /= ?navio
+          <- lists:zip(ColMap,Values), R==false % , Value /= ?navio
         ]),    
     UpdatedRecs = update_recs(Recs, UpdateMap),
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
@@ -1231,6 +1278,15 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Fx = fun(X) -> 
                             ?ins_repl(X,Cx,imem_datatype:io_to_db(Item,<<>>,Type,undefined,undefined,<<>>,false,Value))
                         end,     
+                        {Cx,0,Fx};
+                    {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
+                        Fx = fun(X) ->
+                            case  Value of
+                                <<>> ->     X;
+                                ?navio ->   X;
+                                _ ->        ?replace(X,Cx,imem_json:put(AttName,imem_json:decode(Value),?BoundVal(B,X)))
+                            end
+                        end,
                         {Cx,0,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
                 end;
@@ -2168,7 +2224,7 @@ test_with_or_without_sec_part3(IsSec) ->
 
 
 receive_tuples(StmtResult, Complete) ->
-    receive_tuples(StmtResult,Complete,50,[]).
+    receive_tuples(StmtResult,Complete,80,[]).
 
 % receive_tuples(StmtResult, Complete, Timeout) ->
 %     receive_tuples(StmtResult, Complete, Timeout,[]).

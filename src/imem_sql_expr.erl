@@ -581,7 +581,8 @@ is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> fal
 is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op==element;Op=='nth';Op==json_value -> false;  %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
-is_readonly(_BTree) -> true.       % ?Info("is_readonly ~p",[_BTree])
+is_readonly(#bind{tind=0,cind=0,type=json}) -> false;
+is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]), 
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.
@@ -612,8 +613,8 @@ column_map_param_fields([Param|Params], Ti, Acc) ->
     case imem_datatype:is_datatype(element(?ParamTypeIdx,Param)) of
         true -> 
             N = element(?ParamNameIdx,Param),           %% Parameter name as binary in first element of triple
-            Type = ?binary_to_atom(element(?ParamTypeIdx,Param)),   %% Parameter type (imem datatype) as second element
-            Prec = list_to_integer(binary_to_list(element(?ParamPrecisionIdx,Param))),  %% Parameter precision (for decimals)
+            Type = element(?ParamTypeIdx,Param),   %% Parameter type (imem datatype) as second element
+            Prec = element(?ParamPrecisionIdx,Param),  %% Parameter precision (for decimals)
             Cindex = length(Acc) + 1,       %% Ci of next param field, appended to meta fields
             Tag = list_to_atom(lists:flatten([$$,integer_to_list(?MetaIdx),integer_to_list(Cindex)])),
             Bind=#bind{table=?ParamTab,alias=?ParamTab,name=N,tind=Ti,cind=Cindex,type=Type,prec=Prec,tag=Tag}, 
@@ -742,14 +743,31 @@ column_map_lookup(QN3,FullMap) ->
         Other ->                                        Other   
     end.                                
 
-field_map_lookup({Schema,Table,Name}=QN3,FullMap) ->
+field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
     % ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,Name]),
+    NameInString = case is_binary(NameIn) of
+                       true ->
+                           string:to_lower(binary_to_list(NameIn));
+                       false ->
+                           NameIn
+                   end,
     Pred = fun(__FM) ->
-        ((Name == undefined) orelse (Name == __FM#bind.name)) 
+        ((NameIn == undefined) orelse (NameInString == string:to_lower(binary_to_list(__FM#bind.name))))
         andalso ((Table == undefined) orelse (Table == __FM#bind.alias)) 
         andalso ((Schema == undefined) orelse (Schema == __FM#bind.schema))
     end,
     Bmatch = lists:filter(Pred, FullMap),
+    Name = case Bmatch of
+               [] ->
+                   NameIn;
+               [BmatchRec | _] ->
+                   case is_binary(NameIn) of
+                       true ->
+                           BmatchRec#bind.name;
+                       false ->
+                           NameIn
+                   end
+           end,
     % ?LogDebug("column_map matching tables ~p~n", [Bmatch]),
     Tcount = length(lists:usort([{B#bind.schema, B#bind.alias} || B <- Bmatch])),
     % ?Debug("column_map matching table count ~p~n", [Tcount]),
@@ -964,7 +982,7 @@ expr({'{}',A,Filter}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
     CMapF = expr({list,Filter},FullMap,#bind{type=json,default=?nav}),
     #bind{type=json,btree={json_obj_proj,CMapA,CMapF}};
-expr({':',A,B}, FullMap, _) when is_binary(A) ->
+expr({':',A,B}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=json,default=?nav}),
     CMapB = expr(B,FullMap,#bind{type=json,default=?nav}),
     #bind{type=json,btree={json_value,CMapA,CMapB}};

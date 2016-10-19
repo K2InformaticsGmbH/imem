@@ -11,7 +11,8 @@
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
             , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff, md5
-            , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap, phash2
+            , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice
+            , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa
             ]).
@@ -93,6 +94,8 @@
         , json_value/2
         , json_diff/2
         , mfa/3
+        , slice/2
+        , slice/3
         ]).
 
 
@@ -185,6 +188,12 @@ binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_value") ->          #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("json_diff") ->           #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("phash2") ->              #bind{type=term,default=?nav};
+binary_fun_bind_type1("slice") ->               #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("map_get") ->             #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("map_merge") ->           #bind{type=map,default= #{}};
+binary_fun_bind_type1("map_remove") ->          #bind{type=term,default=?nav};
+binary_fun_bind_type1("map_with") ->            #bind{type=list,default= []};
+binary_fun_bind_type1("map_without") ->         #bind{type=list,default= []};
 binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_bind_type2(B) when is_binary(B) ->   binary_fun_bind_type2(binary_to_list(B));
@@ -200,6 +209,12 @@ binary_fun_bind_type2("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_value") ->          #bind{type=json,default=[]};
 binary_fun_bind_type2("json_diff") ->           #bind{type=json,default=?nav};
 binary_fun_bind_type2("phash2") ->              #bind{type=integer,default=27};
+binary_fun_bind_type2("slice") ->               #bind{type=integer,default=1};
+binary_fun_bind_type2("map_get") ->             #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_merge") ->           #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_remove") ->          #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_with") ->            #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_without") ->         #bind{type=map,default= #{}};
 binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_result_type(B) when is_binary(B) ->  binary_fun_result_type(binary_to_list(B));
@@ -215,21 +230,31 @@ binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_value") ->         #bind{type=json,default=[]};
 binary_fun_result_type("json_diff") ->          #bind{type=json,default=[]};
 binary_fun_result_type("phash2") ->             #bind{type=integer,default=0};
+binary_fun_result_type("slice") ->              #bind{type=binstr,default=?nav};
+binary_fun_result_type("map_get") ->            #bind{type=map,default=?nav};
+binary_fun_result_type("map_merge") ->          #bind{type=map,default=?nav};
+binary_fun_result_type("map_remove") ->         #bind{type=map,default=?nav};
+binary_fun_result_type("map_with") ->           #bind{type=map,default=?nav};
+binary_fun_result_type("map_without") ->        #bind{type=map,default=?nav};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 
 
 ternary_fun_bind_type1(B) when is_binary(B) ->  ternary_fun_bind_type1(binary_to_list(B));
 ternary_fun_bind_type1("mfa") ->                #bind{type=atom,default=?nav};
+ternary_fun_bind_type1("slice") ->              #bind{type=binstr,default=?nav};
 ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_bind_type2(B) when is_binary(B) ->  ternary_fun_bind_type2(binary_to_list(B));
 ternary_fun_bind_type2("mfa") ->                #bind{type=atom,default=?nav};
+ternary_fun_bind_type2("slice") ->              #bind{type=integer,default=1};
 ternary_fun_bind_type2(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_bind_type3(B) when is_binary(B) ->  ternary_fun_bind_type3(binary_to_list(B));
+ternary_fun_bind_type3("slice") ->              #bind{type=integer,default=1};
 ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_result_type(B) when is_binary(B) -> ternary_fun_result_type(binary_to_list(B));
+ternary_fun_result_type("slice") ->             #bind{type=binstr,default=?nav};
 ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
 
 re_compile(?nav) -> ?nav;
@@ -365,6 +390,8 @@ expr_fun({Op, A, B}) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='
 %% maps module
 expr_fun({Op, A}) when Op=='map_size' ->
     module_fun('maps', {size, A});
+expr_fun({Op, A, B}) when Op=='map_get';Op=='map_merge';Op=='map_remove';Op=='map_with';Op=='map_without'->
+    module_fun('maps', {list_to_atom(lists:nthtail(4,atom_to_list(Op))), A, B});
 %% Logical expressions
 expr_fun({'not', A}) ->
     case expr_fun(A) of
@@ -411,14 +438,14 @@ expr_fun({Op, A}) ->
 %% Binary custom filters
 expr_fun({Op, A, B}) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element';Op=='concat';Op=='is_key' ->
     binary_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts' ->
+expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='slice' ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff' ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
 %% Ternary custom filters
-expr_fun({Op, A, B, C}) when Op=='remap';Op=='mfa' ->
+expr_fun({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice' ->
     ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
@@ -711,8 +738,13 @@ to_json(B) when is_binary(B) ->
         JO when is_binary(JO) -> JO;
         _ ->    B
     end;
+to_json(L) when is_list(L) ->
+    case catch imem_json:encode(L) of 
+        JO when is_binary(JO) -> JO;
+        _ ->    ?nav
+    end;
 to_json(M) when is_map(M) ->  imem_json:encode(M);
-to_json(M) -> ?nav.
+to_json(_) -> ?nav.
 
 to_pid(T) when is_pid(T) -> T;
 to_pid(B) -> imem_datatype:io_to_pid(B).
@@ -863,7 +895,7 @@ binary_fun_final({'is_regexp_like', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff';Op=='is_key' ->
+binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff';Op=='is_key';Op=='slice' ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -1034,7 +1066,7 @@ ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
         true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
         CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
     end;
-ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa'->
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice' ->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
@@ -1075,6 +1107,40 @@ remap(Val,From,To) ->
         true ->         Val
     end.
 
+slice(<<>>,_) -> <<>>;
+slice(B,Start) when is_binary(B) -> 
+    unicode:characters_to_binary(slice(unicode:characters_to_list(B, utf8),Start));
+slice([],_) -> [];
+slice(L,Start) when is_list(L),Start==1 -> L;
+slice(L,Start) when is_list(L),Start > 0 -> lists:nthtail(Start-1, L);
+slice(L,Start) when is_list(L) -> 
+    if 
+        length(L)+Start >= 0 ->
+            lists:nthtail(length(L)+Start, L);
+        true ->
+            L
+    end;
+slice(A,Start) when is_atom(A) -> slice(atom_to_list(A),Start);
+slice(I,Start) when is_integer(I) -> slice(integer_to_list(I),Start);
+slice(F,Start) when is_float(F) -> slice(float_to_list(F),Start).
+
+slice(<<>>,_,_) -> <<>>;
+slice(B,Start,Len) when is_binary(B) -> 
+    unicode:characters_to_binary(slice(unicode:characters_to_list(B, utf8),Start,Len));
+slice([],_,_) -> [];
+slice(L,_,Len) when is_list(L), Len < 1 -> [];
+slice(L,Start,Len) when is_list(L), Start > 0 -> lists:sublist(L, Start, Len);
+slice(L,Start,Len) when is_list(L) -> 
+    if
+        length(L)+Start >= 0 ->
+            lists:sublist(L, length(L)+Start+1, Len);
+        true ->
+            lists:sublist(L, Len)
+    end;
+slice(A,Start,Len) when is_atom(A) -> slice(atom_to_list(A),Start,Len);
+slice(I,Start,Len) when is_integer(I) -> slice(integer_to_list(I),Start,Len);
+slice(F,Start,Len) when is_float(F) -> slice(float_to_list(F),Start,Len).
+
 mfa(Mod,Func,Args) ->
     SKey = imem_sec:have_permission(?IMEM_SKEY_GET_FUN(),{eval_mfa,Mod,Func}),
     case SKey of
@@ -1108,6 +1174,36 @@ db2_test_() ->
         fun setup/0,
         fun teardown/1,
         {with, [fun test_with_sec/1]}
+    }.
+
+slice_test_() ->
+    B = <<"1234567890">>,
+    L = "1234567890",
+    { inparallel
+    , [{"l11", ?_assertEqual("1",slice(L,1,1))}
+      ,{"l12", ?_assertEqual("12",slice(L,1,2))}
+      ,{"l13", ?_assertEqual("1234567890",slice(L,1,10))}
+      ,{"l14", ?_assertEqual("1234567890",slice(L,1,20))}
+      ,{"l54", ?_assertEqual("5",slice(L,5,1))}
+      ,{"l55", ?_assertEqual("567890",slice(L,5,6))}
+      ,{"l56", ?_assertEqual("567890",slice(L,5,7))}
+      ,{"l81", ?_assertEqual("890",slice(L,-3,3))}
+      ,{"l18", ?_assertEqual("1234567890",slice(L,-10,10))}
+      ,{"l57", ?_assertEqual("567890",slice(L,5))}
+      ,{"l90", ?_assertEqual("90",slice(L,-2))}
+      ,{"l50", ?_assertEqual("567890",slice(L,-6))}
+      ,{"l-1", ?_assertEqual("1234567890",slice(L,-11))}
+      ,{"l-3", ?_assertEqual("123",slice(L,-11,3))}
+      ,{"b11", ?_assertEqual(<<"1">>,slice(B,1,1))}
+      ,{"b12", ?_assertEqual(<<"12">>,slice(B,1,2))}
+      ,{"b13", ?_assertEqual(<<"1234567890">>,slice(B,1,10))}
+      ,{"b14", ?_assertEqual(<<"1234567890">>,slice(B,1,20))}
+      ,{"b54", ?_assertEqual(<<"5">>,slice(B,5,1))}
+      ,{"b55", ?_assertEqual(<<"567890">>,slice(B,5,6))}
+      ,{"b56", ?_assertEqual(<<"567890">>,slice(B,5,7))}
+      ,{"b81", ?_assertEqual(<<"890">>,slice(B,-3,3))}
+      ,{"b08", ?_assertEqual(<<"1234567890">>,slice(B,-10,10))}
+      ]
     }.
 
 test_without_sec(_) -> 

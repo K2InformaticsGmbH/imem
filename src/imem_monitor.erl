@@ -149,7 +149,7 @@ write_monitor(ExtraFun,DumpFun) ->
                     Moni0#ddMonitor{extra=ExtraFun(Moni0)}
                 catch 
                     _:ExtraError ->
-                        ?Error("cannot monitor ~p", [ExtraError]),
+                        ?Error("cannot monitor ~p : ~p", [ExtraError, erlang:get_stacktrace()]),
                         Moni0
                 end
         end,

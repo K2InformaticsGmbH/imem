@@ -198,6 +198,7 @@
         , read/2                %% read by key
         , read_hlk/2            %% read using hierarchical list key
         , select/2              %% select without limit, only use for small result sets
+        , dirty_select/2        %% select dirty without any trynsaction locks
         , select_virtual/3      %% select virtual table without limit, only use for small result sets
         , select/3              %% select with limit
         , select_sort/2
@@ -218,6 +219,7 @@
         , remove/4              %% delete row if key exists (if bag row exists), apply trigger with trigger options
         , write/2               %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
+        , dirty_read/1
         , dirty_read/2
         , dirty_index_read/3    
         , dirty_write/2
@@ -464,7 +466,7 @@ create_nonexisting_partitioned_table(TableAlias, TableName) ->
     % find out ColumnsInfos, Opts, Owner from ddAlias
     case imem_if_mnesia:read(ddAlias,{schema(), TableAlias}) of
         [] ->
-            ?Error("Table template not found in ddAlias~p", [TableAlias]),   
+            ?Error("Table template not found in ddAlias ~p", [TableAlias]),   
             {error, {"Table template not found in ddAlias", TableAlias}}; 
         [#ddAlias{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
             try
@@ -1318,8 +1320,13 @@ restore_table(Alias) when is_atom(Alias) ->
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
         PTNs -> case imem_snap:restore(bkp,PTNs,destroy,false) of
-                    L when is_list(L) ->    ok;
-                    E ->                    ?SystemException({"Restore table failed with",E})
+                    [{_, {_, _, _}}]  ->    ok;
+                    Error ->
+                        E = case Error of 
+                            [{_, Err}] -> Err; 
+                            Error -> Error 
+                        end,
+                        ?SystemException({"Restore table failed with",E})
                 end
     end;    
 restore_table(TableName) ->
@@ -2375,6 +2382,8 @@ read(ddSize,Table) ->
 read(Table, Key) -> 
     imem_if_mnesia:read(physical_table_name(Table), Key).
 
+dirty_read(Table) -> imem_if_mnesia:dirty_read(physical_table_name(Table)).
+
 dirty_read({ddSysConf,Table}, Key) -> read({ddSysConf,Table}, Key);
 dirty_read({_Schema,Table}, Key) ->   dirty_read(Table, Key);
 dirty_read(ddNode,Node) ->  read(ddNode,Node); 
@@ -2442,7 +2451,7 @@ put_config_hlk(Table, Key, Owner, Context, Value, Remark, _Documentation) ->
 put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
     put_config_hlk(Table, Key, Owner, Context, Value, Remark);
 put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
-    write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
+    dirty_write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
 
 select({ddSysConf,Table}, _MatchSpec) ->
     % imem_if_sys_conf:select(physical_table_name(Table), MatchSpec);
@@ -2451,6 +2460,9 @@ select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(Table, MatchSpec) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec).
+
+dirty_select(Table, MatchSpec) ->
+    imem_if_mnesia:dirty_select(physical_table_name(Table), MatchSpec).
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
