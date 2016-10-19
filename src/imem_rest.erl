@@ -83,7 +83,7 @@ get_channel(Channel, none) ->
     end;
 get_channel(Channel, #{jp := JP, limit := Limit, keyGT := KeyGT,
     keyLT := KeyLT}) ->
-    Rows = imem_dal_skvh:readGELT(system, Channel, KeyGT, KeyLT, Limit),
+    Rows = imem_dal_skvh:readGELTMap(system, Channel, KeyGT, KeyLT, Limit),
     Data = [#{key => key_to_json(Key), value => walk_jpath(JP, imem_json:decode(Value))} 
     || #{ckey := Key, cvalue := Value} <- Rows],
     {200, [{<<"Content-type">>, <<"application/json">>}], imem_json:encode(Data)}.
