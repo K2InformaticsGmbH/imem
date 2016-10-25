@@ -555,7 +555,7 @@ auth_step(SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
             AuthFactors = [access|SeCo#ddSeCo.authFactors],
             auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=NewSessionCtx, accountName=AccountName1, accountId=AccountId1});
         true ->
-            AuthRequireFun = get_auth_fun(SeCo, SessionCtx),
+            AuthRequireFun = get_auth_fun(SeCo),
             {SKey, [{A,#{accountName=>AccountName0}} || A <- AuthRequireFun(SeCo#ddSeCo.authFactors, SessionCtx#ddSessionCtx.networkCtx)]}
     end;
 auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
@@ -618,7 +618,7 @@ authenticate_fail(SeCo, ErrorTerm, true) ->
 authenticate_fail(_SeCo, ErrorTerm, false) ->
     ?SecurityException(ErrorTerm).
 
-get_auth_fun(SeCo, SessionCtx) ->
+get_auth_fun(#ddSeCo{sessionCtx=SessionCtx} = SeCo) ->
     AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5,"Function which defines authentication requirements depending on current authentication step."),
     CacheKey = {?MODULE,authenticateRequireFun,AuthRequireFunStr},
     case imem_cache:read(CacheKey) of 
@@ -636,7 +636,7 @@ get_auth_fun(SeCo, SessionCtx) ->
 
 -spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
 auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
-    AuthRequireFun = get_auth_fun(SeCo, SessionCtx),
+    AuthRequireFun = get_auth_fun(SeCo),
     case AuthRequireFun(AFs,SessionCtx#ddSessionCtx.networkCtx) of
         [] ->   
             case if_read(ddAccountDyn, AccountId) of
