@@ -9,10 +9,14 @@ static ERL_NIF_TERM now(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     argc = argc; // for unused variable warning
 
-    FILETIME tm;
-    GetSystemTimePreciseAsFileTime(&tm);
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+	unsigned long long tt = ft.dwHighDateTime;
+	tt <<= 32;
+	tt |= ft.dwLowDateTime;
+	tt -= 11644473600000000ULL;
 
-    return enif_make_atom(env, "ok1");
+    return enif_make_uint64(env, tt);
 }
 
 int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM load_info)
