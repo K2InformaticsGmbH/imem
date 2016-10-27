@@ -20,11 +20,6 @@
         , stop_test_writer/0]
         ).
 
-% TCP server control interface
--export([ start_tcp/2
-        , stop_tcp/0
-        ]).
-
 % application callbacks
 -export([ start/2
         , stop/1
@@ -296,7 +291,7 @@ config_start_mnesia() ->
 %-endif. % TEST
 
 stop(_State) ->
-    stop_tcp(),
+    imem_server:stop(),
 	?Info("stopped imem_server~n"),
 	?Info("stopping mnesia...~n"),
     spawn(
@@ -306,12 +301,6 @@ stop(_State) ->
       end),
 	?Notice("SHUTDOWN IMEM~n"),
     ?Notice("---------------------------------------------------~n").
-
-% start stop query imem tcp server
-start_tcp(Ip, Port) ->
-    imem_server:start_link([{tcp_ip, Ip},{tcp_port, Port}]).
-
-stop_tcp() -> imem_server:stop().
 
 join_erl_cluster([]) -> ok;
 join_erl_cluster([Node|Nodes]) ->

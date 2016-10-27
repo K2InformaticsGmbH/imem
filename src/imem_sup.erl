@@ -129,6 +129,14 @@ init(_StartArgs) ->
             []
     end
     ++
+    % imem_domain
+    case application:get_env(domain_server) of
+        {ok, true} -> [?CHILD(imem_domain, worker, [], ImemTimeout)];
+        _ ->
+            ?Info("~p domain_server disabled~n", [?MODULE]),
+            []
+    end
+    ++
     % imem_snap
     case application:get_env(snap_server) of
         {ok, true} -> [?CHILD(imem_snap, worker, [], ImemTimeout)];

@@ -2,8 +2,7 @@
 
 -include("imem_seco.hrl").
 
--export([ exec/5
-        ]).
+-export([exec/5]).
 
 exec(SKey, {'create user', Name, {'identified by', Password}, Opts}, _Stmt, _StmtOpts, IsSec) ->
     {pwdmd5, PasswordMd5} = imem_seco:create_credentials(pwdmd5, Password),
@@ -31,9 +30,31 @@ exec(SKey, {'alter user', Name, {spec, Specs}}, _Stmt, _StmtOpts, IsSec) ->
         false -> ok
     end,
     case lists:keyfind('identified by', 1, Specs) of
-        {'identified by', NewPassword} ->  
-            NewCredentials = imem_seco:create_credentials(pwdmd5, NewPassword),
-            if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, set_credentials, [Name,NewCredentials]]);
+        {'identified by', NewPasswordMayBeDoubleQuoted} ->
+            NewPassword = imem_datatype:strip_dquotes(NewPasswordMayBeDoubleQuoted),
+            try
+                begin
+                    PasswordStrengthFun = imem_seco:password_strength_fun(),
+                    PasswordStrengthFun(NewPassword)
+                end of
+                strong ->
+                    NewCredentials = imem_seco:create_credentials(pwdmd5, NewPassword),
+                    if_call_mfa(IsSec, admin_exec, [SKey, imem_seco, set_credentials, [Name,NewCredentials]]);
+                Error when Error /= strong ->
+                    ?ClientError(
+                       lists:flatten(
+                         io_lib:format(
+                           "New password insufficiently complex ('~p')",
+                           [Error])));
+                Other ->
+                    ?Error("Bad return from isPasswordComplex function '~p'"
+                           " (should be strong|short|medium|weak)", [Other]),
+                    ?ClientError("Bad password check function")
+            catch
+                _:Exception ->
+                    ?Error("Cannot check password complexity ~p", [Exception]),
+                    ?ClientError("Bad configuration or argument of isPasswordComplex function")
+            end;
         false -> ok
     end;
 

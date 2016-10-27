@@ -100,9 +100,8 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
                                     Line,
                                     node(),
                                     Fields,
-                                    re:replace(Message, "(\\[.*\\])*([ ]*{[a-z0-"
-                                               "9_]*,[0-9]*})*[ ]*", "",
-                                               [{return, binary}]),
+                                    re:replace(Message, "^(\\[[A-Za-z0-9_]*\\])*([ ]*{[a-z0-9_]*,[0-9]*})*[ ]*",
+                                     "", [{return, binary}]),
                                     StackTrace
                                    ]),
                     try

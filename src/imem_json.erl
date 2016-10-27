@@ -21,6 +21,7 @@
         , get/3
         , keys/1
         , put/3
+        , remove/2
         , size/1
         , values/1
         ]).
@@ -31,6 +32,7 @@
 %% Other Functionality
 -export([ eval/2            %% Constructs a data object prescribed by json path (using jpparse)
         , expand_inline/2   %% Recursively expands 'inline_*' references in a JSON object
+        , diff/2            %% Lists differences of two JSON objects
         ]).
 
 %% Unused exports
@@ -42,7 +44,6 @@
 %% -         , to_binary/1
 %% -         , items/1
 %% -         , update/3
-%% -         , remove/2
 %% -         , map/2
 %% -         , new/0
 %% -         , new/1
@@ -68,7 +69,7 @@
 decode(Json) -> decode(Json, []).
 
 -spec decode(Json :: binary(), Opts :: list()) -> data_object().
-decode(Json, Opts) -> jsx:decode(Json, Opts).
+decode(Json, Opts) -> jsx:decode(Json, lists:usort([strict|Opts])).
 
 -spec encode(data_object()) -> Json :: binary().
 encode(Json) -> jsx:encode(Json).
@@ -213,6 +214,15 @@ put(Key,Value,DataObject) when is_map(DataObject) ->
     maps:put(Key,Value,DataObject);
 put(Key,Value,DataObject) ->
     encode(?MODULE:put(Key,Value,decode(DataObject))).
+
+%% @doc Remove a key from a data object
+-spec remove(key(), data_object()) -> data_object().
+remove(Key,DataObject) when is_list(DataObject) ->
+  proplists:delete(Key,DataObject);
+remove(Key,DataObject) when is_map(DataObject) ->
+  maps:remove(Key,DataObject);
+remove(Key,DataObject) ->
+  encode(remove(Key,decode(DataObject))).
 
 %% @doc Size of a data object, ignoring null values
 -spec size(data_object()) -> integer().
@@ -587,15 +597,6 @@ expand_inline(Root, _OldRoot, Binds) ->
 %% - new(map) -> #{};
 %% - new(json) -> <<"{}">>.
 %% -
-%% - %% @doc Remove a key from a data object
-%% - -spec remove(key(), data_object()) -> data_object().
-%% - remove(Key,DataObject) when is_list(DataObject) ->
-%% -     proplists:delete(Key,DataObject);
-%% - remove(Key,DataObject) when is_map(DataObject) ->
-%% -     maps:remove(Key,DataObject);
-%% - remove(Key,DataObject) ->
-%% -     encode(remove(Key,decode(DataObject))).
-%% -
 %% - %% @doc Update a key with a new value. If key is not present, 
 %% - %% error:badarg exception is raised.
 %% - -spec update(key(),value(),data_object()) -> data_object().
@@ -710,6 +711,57 @@ expand_inline(Root, _OldRoot, Binds) ->
 %% -     maps:merge(DataObject1,clean_null_values(DataObject2));
 %% - merge(DataObject1,DataObject2) ->
 %% -     encode(merge(decode(DataObject1),decode(DataObject2))).
+
+%% @doc creates a diff data object between the first (v1) and second (v2) provided JSON/map objects.
+%% Resulting data object will have the merged root keys of both objects but only for
+%% attributes with differences. 
+-spec diff(data_object(), data_object()) -> data_object().
+diff(Data1, Data2) when is_list(Data1), is_list(Data2) ->
+    diff(lists:sort(Data1), lists:sort(Data2),[]);
+diff(Data1, undefined) when is_list(Data1) ->
+    diff(lists:sort(Data1), []);
+diff(Data1, Data2) when is_map(Data1), is_map(Data2) ->
+    maps:from_list(diff(maps:to_list(Data1), maps:to_list(Data2)));
+diff(Data1, undefined) when is_map(Data1) ->
+    maps:from_list(diff(maps:to_list(Data1), []));
+diff(Data1, Data2) when is_map(Data1), is_list(Data2) ->
+    maps:from_list(diff(maps:to_list(Data1), Data2));
+diff(Data1, Data2) when is_map(Data1), is_binary(Data2) ->
+    maps:from_list(diff(maps:to_list(Data1), decode(Data2)));
+diff(Data1, Data2) when is_list(Data1), is_map(Data2) ->
+    diff(Data1, maps:to_list(Data2));
+diff(Data1, Data2) when is_list(Data1), is_binary(Data2) ->
+    diff(Data1,decode(Data2));
+diff(Data1, Data2) when is_binary(Data1), is_binary(Data2) ->
+    encode(diff(decode(Data1), decode(Data2)));
+diff(Data1, undefined) when is_binary(Data1) ->
+    encode(diff(decode(Data1), []));
+diff(Data1, Data2) when is_binary(Data1), is_list(Data2) ->
+    encode(diff(decode(Data1), Data2));
+diff(Data1, Data2) when is_binary(Data1), is_map(Data2) ->
+    encode(diff(decode(Data1), maps:to_list(Data2)));
+diff(undefined, Data2) when is_list(Data2) ->
+    diff([], lists:sort(Data2),[]);
+diff(undefined, Data2) when is_map(Data2) ->
+    maps:from_list(diff([], maps:to_list(Data2)));
+diff(undefined, Data2) when is_binary(Data2) ->
+    encode(diff([], decode(Data2)));
+diff(undefined, undefined) -> [].
+
+diff([{}], B, Acc) -> diff([], B, Acc);
+diff(A, [{}], Acc) -> diff(A, [], Acc);
+diff([], [], Acc) -> lists:reverse(Acc);
+diff([A|R1], [A|R2], Acc) ->  diff(R1,R2,Acc);
+diff([{_,null}|R1], [], Acc) ->  diff(R1, [], Acc);                               % missing equals null
+diff([{A,AV}|R1], [], Acc) ->  diff(R1, [], [{A,[{<<"v1">>,AV},{<<"v2">>,null}]} | Acc]);
+diff([], [{_,null}|R2], Acc) ->  diff([], R2, Acc);                               % missing equals null
+diff([], [{B,BV}|R2], Acc) ->  diff([], R2, [{B,[{<<"v1">>,null},{<<"v2">>,BV}]} | Acc]);
+diff([{A,AV}|R1], [{A,BV}|R2], Acc) ->  diff(R1, R2, [{A,[{<<"v1">>,AV},{<<"v2">>,BV}]} | Acc]);
+diff([{A,null}|R1], [{B,BV}|R2], Acc) when A < B ->  diff(R1, [{B,BV}|R2], Acc);  % missing equals null
+diff([{A,AV}|R1], [{B,BV}|R2], Acc) when A < B ->  diff(R1, [{B,BV}|R2], [{A,[{<<"v1">>,AV},{<<"v2">>,null}]} | Acc]);
+diff([{A,AV}|R1], [{B,null}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, Acc);  % missing equals null
+diff([{A,AV}|R1], [{B,BV}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, [{B,[{<<"v1">>,null},{<<"v2">>,BV}]} | Acc]).
+
 %% - 
 %% - %% @doc creates a diff data object between the first (old) and second (new) provided data
 %% - %% objects. null values are ignored. Resulting data object will have 5 root keys, each containg
@@ -722,7 +774,7 @@ expand_inline(Root, _OldRoot, Binds) ->
 %% - %% replaced : containts key/value pairs who are not indentical between data object 1 and 2,
 %% - %%            with the values from data object 1
 %% - -spec diff(data_object(), data_object()) -> diff_object().
-%% - diff(RawDataObject1, RawDataObject2) when is_list(RawDataObject1), is_list(RawDataObject2) ->
+%% - diff(RawDataObject1, Data2) when is_list(RawDataObject1), is_list(RawDataObject2) ->
 %% -     DataObject1 = clean_null_values(RawDataObject1),
 %% -     DataObject2 = clean_null_values(RawDataObject2),
 %% -     Object1Keys = proplists:get_keys(DataObject1),

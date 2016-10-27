@@ -11,4 +11,4 @@ deps
 snapshot/
 .rebar/
 *.pdb
-priv/
+priv/*.dll

@@ -11,7 +11,8 @@
                       | {scrypt,{binary(),binary()}}  % {scrypt,{Salt,Hash}}    in ddAccount.credentials 
                       | {access,map()}                % {access,NetworkCtx}                   input to auth_start / auth_add_cred
                       | {pwdmd5,{binary(),binary()}}  % {pwdmd5, {AccountName,md5(password)}  input to auth_start / auth_add_cred
-                      | {smsott,binary()}.            % {smsott,Token}                        input to auth_start / auth_add_cred 
+                      | {smsott,binary()}             % {smsott,Token}                        input to auth_start / auth_add_cred 
+                      | {saml,binary()}.              % {saml, AccountName}                   input to auth_start / auth_add_cred 
 
 -type ddCredRequest() :: {pwdmd5,map()}               % {pwdmd5,#{}} | {smsott,#{accountName=>AccountName}} (any / fixed AccountName) 
                        | {smsott,map()}               % {smsott,#{accountName=>AccountName,to=>To}}
@@ -94,6 +95,11 @@
        ). 
 -define(ddQuota, [tuple,integer,pid,term]).
 
+-define(IMEM_SKEY_NAME,imem_skey).                                    % security key name in process context
+-define(IMEM_SKEY_PUT(__SKey),erlang:put(?IMEM_SKEY_NAME,__SKey)).    % store security key in process dict
+-define(IMEM_SKEY_GET,erlang:get(?IMEM_SKEY_NAME)).                   % retrieve security key from process dict
+-define(IMEM_SKEY_GET_FUN,fun() -> erlang:get(?IMEM_SKEY_NAME) end).  % retrieve security key from process dict
+
 -define(SecurityException(Reason), ?THROW_EXCEPTION('SecurityException',Reason)).
 -define(SecurityViolation(Reason), ?THROW_EXCEPTION('SecurityViolation',Reason)).
 
@@ -147,6 +153,20 @@ end
     {__SKey,[]} = imem_seco:auth_start(imem, testAdminSessionId, {pwdmd5,{<<"_test_admin_">>,__Token}}),
     imem_seco:login(__SKey)
 end 
+).
+
+-define(imem_test_admin_grant, fun(__Perm) ->
+    [#ddAccount{id=__AcId}] = imem_meta:dirty_index_read(ddAccount, <<"_test_admin_">>, #ddAccount.name),
+    [#ddRole{permissions=__Perms0} = __Role0] = imem_meta:read(ddRole,__AcId),
+    imem_meta:write(ddRole, __Role0#ddRole{permissions=lists:usort([__Perm|__Perms0])})
+  end 
+).
+
+-define(imem_test_admin_revoke, fun(__Perm) ->
+    [#ddAccount{id=__AcId}] = imem_meta:dirty_index_read(ddAccount, <<"_test_admin_">>, #ddAccount.name),
+    [#ddRole{permissions=__Perms0} = __Role0] = imem_meta:read(ddRole,__AcId),
+    imem_meta:write(ddRole, __Role0#ddRole{permissions=lists:delete(__Perm,__Perms0)})
+  end 
 ).
 
 -define(imem_logout, fun(__X) -> imem_seco:logout(__X) end).

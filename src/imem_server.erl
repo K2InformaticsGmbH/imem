@@ -2,14 +2,20 @@
 -behaviour(ranch_protocol).
 
 -include("imem.hrl").
+-include("imem_meta.hrl").
 
 -export([ start_link/4
         , start_link/1
+        , start/0
         , stop/0
+        , restart/0
         , init/4
         , send_resp/2
         , mfa/2
         ]).
+
+%% -- Certificate management APIs --
+-export([get_cert_key/1]).
  
 start_link(Params) ->
     Interface   = proplists:get_value(tcp_ip,Params),
@@ -24,18 +30,51 @@ start_link(Params) ->
             ?Error("~p failed to start ~p~n", [?MODULE, Reason]),
             {error, Reason};
         {ok, ListenIf} when is_integer(ListenPort) ->
-            NewOpts = lists:foldl(
-                        fun({K, V}, Acc) ->
-                          case K of
-                              certfile ->
-                                  [{K, filename:join([Pwd, V])} | Acc];
-                              keyfile ->
-                                  [{K, filename:join([Pwd, V])} | Acc];
-                              _ -> [{K, V} | Acc]
-                          end
-                        end
-                        , []
-                        , Opts),
+            NewOpts =
+            if THandler =:= ranch_ssl ->
+                   case ?GET_CONFIG(
+                           imemSslOpts,[],'$no_ssl_conf',
+                           "SSL listen socket options") of
+                       '$no_ssl_conf' ->
+                           {ok, CertBin} =
+                           file:read_file(
+                             filename:join(
+                               [Pwd, proplists:get_value(certfile, Opts)])),
+                           {ok, KeyBin} =
+                           file:read_file(
+                             filename:join(
+                               [Pwd, proplists:get_value(keyfile, Opts)])),
+                           Cert = get_cert_key(CertBin),
+                           Key = get_cert_key(KeyBin),
+                           ImemSslDefault = Cert ++ Key,
+                           ?Info("Installing SSL ~p", [ImemSslDefault]),
+                           ?PUT_CONFIG(
+                              imemSslOpts, [], #{cert => CertBin, key => KeyBin},
+                              list_to_binary(
+                                io_lib:format(
+                                  "Installed at ~p on ~s",
+                                  [node(), imem_datatype:timestamp_to_io(os:timestamp())]
+                                 ))),
+                           ImemSslDefault ++
+                           proplists:delete(keyfile, proplists:delete(certfile, Opts));
+                       #{cert := CertBin, key := KeyBin} ->
+                           CertFile = filename:join([Pwd, proplists:get_value(certfile, Opts)]),
+                           case file:read_file(CertFile) of
+                               {ok, CertBin} -> nop;
+                               _ -> ok = file:write_file(CertFile, CertBin)
+                           end,
+                           KeyFile = filename:join([Pwd, proplists:get_value(keyfile, Opts)]),
+                           case file:read_file(KeyFile) of
+                               {ok, KeyBin} -> nop;
+                               _ -> ok = file:write_file(KeyFile, KeyBin)
+                           end,
+                           Cert = get_cert_key(CertBin),
+                           Key = get_cert_key(KeyBin),
+                           Cert ++ Key ++
+                           proplists:delete(keyfile, proplists:delete(certfile, Opts))
+                   end;
+               true -> Opts
+            end,
             ?Info("~p starting...~n", [?MODULE]),
             case ranch:start_listener(
                    ?MODULE, 1, THandler,
@@ -60,8 +99,18 @@ start_link(ListenerPid, Socket, Transport, Opts) ->
                     [link, {fullsweep_after, 0}]),
     {ok, Pid}.
 
-stop() ->
-    ranch:stop_listener(?MODULE).
+start() ->
+    {ok, TcpIf} = application:get_env(imem, tcp_ip),
+    {ok, TcpPort} = application:get_env(imem, tcp_port),
+    {ok, SSL} = application:get_env(imem, ssl),
+    Pwd = case code:lib_dir(imem) of {error, _} -> "."; Path -> Path end,
+    start_link([{tcp_ip, TcpIf},{tcp_port, TcpPort},{pwd, Pwd}, {ssl, SSL}]).
+
+stop() -> ranch:stop_listener(?MODULE).
+
+restart() ->
+    stop(),
+    start().
  
 init(ListenerPid, Socket, Transport, Opts) ->
     PeerNameMod = case lists:member(ssl, Opts) of true -> ssl; _ -> inet end,
@@ -73,28 +122,39 @@ init(ListenerPid, Socket, Transport, Opts) ->
     imem_meta:log_to_db(debug,?MODULE,init
                         ,[ListenerPid, Socket, Transport, Opts], Str),
     ok = ranch:accept_ack(ListenerPid),
-    loop(Socket, Transport, <<>>, 0).
+    % Linkinking TCP socket
+    % for easy lookup
+    erlang:link(
+      case lists:member(ssl, Opts) of
+          true ->
+              {sslsocket,{gen_tcp,TcpSocket,tls_connection,_},_} = Socket,
+              TcpSocket;
+          _ -> Socket
+      end),
+    loop(Socket, Transport, <<>>).
 
 -define(TLog(__F, __A), ok). 
 %-define(TLog(__F, __A), ?Info(__F, __A)). 
-loop(Socket, Transport, Buf, Len) ->
+loop(Socket, Transport, Buf) ->
     {OK, Closed, Error} = Transport:messages(),
     Transport:setopts(Socket, [{active, once}]),   
     receive
         {OK, Socket, Data} ->
-            {NewLen, NewBuf} =
-                if Buf =:= <<>> ->
-                    << L:32, PayLoad/binary >> = Data,
-                    ?TLog(" term size ~p~n", [<< L:32 >>]),
-                    {L, PayLoad};
-                true -> {Len, <<Buf/binary, Data/binary>>}
-            end,
-            case {byte_size(NewBuf), NewLen} of
-                {NewLen, NewLen} ->
-                    case (catch binary_to_term(NewBuf)) of
+            NewBuf = <<Buf/binary, Data/binary>>,
+            case NewBuf of
+                NewBuf when byte_size(NewBuf) < 4 ->
+                    ?Warn("[SHORTFRAME] received only ~p of 4 length bytes. Buffering...", [byte_size(NewBuf)]),
+                    loop(Socket, Transport, NewBuf);
+                <<Len:32, PayLoad/binary>> when Len > byte_size(PayLoad) ->
+                    ?Info("[INCOMPLETE] received only ~p of ~p bytes. Buffering...", [byte_size(NewBuf), Len]),
+                    loop(Socket, Transport, NewBuf);
+                <<Len:32, _/binary>> = NewBuf ->
+                    <<Len:32, TermBin:Len/binary, RestBin/binary>> = NewBuf,
+                    case (catch binary_to_term(TermBin)) of
                         {'EXIT', _} ->
-                            ?Info(" [MALFORMED] ~p received ~p bytes buffering...", [self(), byte_size(NewBuf)]),
-                            loop(Socket, Transport, NewBuf, NewLen);
+                            ?Error("[MALFORMED] discarded ~p bytes. Buffering...", [byte_size(TermBin)]),
+                            ?Info("Len ~p TermBin ~p RestBin ~p NewBuf ~p", [Len, TermBin, RestBin, NewBuf]),
+                            loop(Socket, Transport, RestBin);
                         Term ->
                             if element(2, Term) =:= imem_sec ->
                                 ?TLog("mfa ~p", [Term]),
@@ -102,13 +162,8 @@ loop(Socket, Transport, Buf, Len) ->
                             true ->
                                 send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
                             end,
-                            TSize = byte_size(term_to_binary(Term)),
-                            RestSize = byte_size(NewBuf)-TSize,
-                            loop(Socket, Transport, binary_part(NewBuf, {TSize, RestSize}), NewLen)
-                    end;
-                _ ->
-                    ?Info(" [INCOMPLETE] ~p received ~p bytes buffering...", [self(), byte_size(NewBuf)]),
-                    loop(Socket, Transport, NewBuf, NewLen)
+                            loop(Socket, Transport, RestBin)
+                    end
             end;
         {Closed, Socket} ->
             ?Debug("socket ~p got closed!~n", [Socket]);
@@ -154,3 +209,19 @@ send_resp(Resp, {Transport, Socket, Ref}) ->
     Transport:send(Socket, << PayloadSize:32, RespBin/binary >>);
 send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
     Pid ! {Ref, Resp}.
+
+%%
+%% -- Certificate management interface --
+%%
+
+-spec get_cert_key(binary()) -> [{cert | cacerts | key, any()}].
+get_cert_key(Bin) when is_binary(Bin) ->
+    case public_key:pem_decode(Bin) of
+        [{'Certificate',Cert,not_encrypted} | Certs] ->
+            CACerts = [C || {'Certificate',C,not_encrypted} <- Certs],
+            [{cert, Cert} | if length(CACerts) > 0 ->
+                                   [{cacerts,CACerts}];
+                               true -> []
+                            end];
+        [{KeyType,Key,_}|_] -> [{key, {KeyType, Key}}]
+    end.

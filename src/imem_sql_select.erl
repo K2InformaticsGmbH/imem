@@ -5,14 +5,17 @@
 
 -define(DefaultRendering, str ).         %% gui (strings when necessary) | str (always strings) | raw (erlang terms) 
 
--define(GET_DATE_FORMAT(__IsSec),?GET_CONFIG(dateFormat,[__IsSec],eu)).            %% eu | us | iso | raw
--define(GET_NUM_FORMAT(__IsSec),?GET_CONFIG(numberFormat,[__IsSec],{prec,2})).     %% not used yet
--define(GET_STR_FORMAT(__IsSec),?GET_CONFIG(stringFormat,[__IsSec],[])).           %% not used yet
+-define(GET_DATE_FORMAT(__IsSec),?GET_CONFIG(dateFormat,[__IsSec],eu,"Default date format (eu/us/iso/raw) to return in SQL queries.")).            %% eu | us | iso | raw
+-define(GET_NUM_FORMAT(__IsSec),?GET_CONFIG(numberFormat,[__IsSec],{prec,2},"Default number formats and precision (not used yet).")).     %% not used yet
+-define(GET_STR_FORMAT(__IsSec),?GET_CONFIG(stringFormat,[__IsSec],[],"Default string format to return in SQL queries (not used yet).")).           %% not used yet
 
 -export([ exec/5
         ]).
 
 exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
+    % ToDo: spawn imem_statement here and execute in its own security context (compile & run from same process)
+    ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
+    % ?LogDebug("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
     {_, TableList} = lists:keyfind(from, 1, SelectSections),
     % ?Info("TableList: ~p~n", [TableList]),
     Params = imem_sql:params_from_opts(Opts,ParseTree),
@@ -33,7 +36,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
     % ?LogDebug("Statement columns: ~n~p~n", [StmtCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
-    % ?Info("WhereParseTree~n~p~n", [WPTree]),
+    % ?LogDebug("WhereParseTree~n~p", [WPTree]),
     WBTree0 = case WPTree of
         ?EmptyWhere ->  
             true;
@@ -41,14 +44,14 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
             #bind{btree=WBT} = imem_sql_expr:expr(WPTree, FullMap, #bind{type=boolean,default=true}),
             WBT
     end,
-    % ?Info("WhereBindTree0~n~p~n", [WBTree0]),
+    % ?LogDebug("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
-    % ?Info("MainSpec:~n~p~n", [MainSpec]),
+    % ?LogDebug("MainSpec:~n~p", [MainSpec]),
     JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
     % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
-    % ?Info("ColMap1:~n~p~n", [ColMap1]),
+    % ?Info("ColMap1:~n~p", [ColMap1]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap1);
         str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
@@ -91,6 +94,9 @@ setup() ->
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
+    catch imem_meta:drop_table(skvhSqlTest),
+    catch imem_meta:drop_table(skvhSqlTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhSqlTestHist),
     ?imem_test_setup.
 
 teardown(_SKey) -> 
@@ -98,6 +104,9 @@ teardown(_SKey) ->
     catch imem_meta:drop_table(def),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
+    catch imem_meta:drop_table(skvhSqlTest),
+    catch imem_meta:drop_table(skvhSqlTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhSqlTestHist),        
     ?imem_test_teardown.
 
 db1_test_() ->
@@ -108,6 +117,9 @@ db1_test_() ->
         {with,[fun db1_without_sec/1]}
     }.
     
+db1_without_sec(_) -> 
+    db1_with_or_without_sec(false).
+
 db1_sec_test_() ->
     {
         setup,
@@ -116,12 +128,8 @@ db1_sec_test_() ->
         {with,[fun db1_with_sec/1]}
     }.
 
-db1_without_sec(_) -> 
-    db1_with_or_without_sec(false).
-
 db1_with_sec(_) ->
     db1_with_or_without_sec(true).
-
 
 db2_test_() ->
     {
@@ -166,7 +174,93 @@ db1_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
+        exec_fetch_sort_equal(SKey, query3w, 100, IsSec, "
+            select item
+            from tuple
+            where is_member(item,to_list('[{a,b},{c,d}]'))"
+            ,
+            [{<<"{a,b}">>},{<<"{c,d}">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3v, 100, IsSec, "
+            select item 
+            from tuple 
+            where item = to_tuple('{a,b}')"
+            ,
+            [{<<"{a,b}">>}]
+        ),
+
         ?assertEqual("\"abc\"", ?DQFN(<<"abc">>)),
+
+        ?assertEqual(ok, imem_dal_skvh:create_check_channel(<<"skvhSqlTest">>)),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,100],<<"100">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,200],<<"200">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,300],<<"300">>),
+        imem_dal_skvh:write(system,<<"skvhSqlTest">>,[123,400],<<"400">>),
+
+        Sql3q1 = "select cvalue
+                    from integer, skvhSqlTest
+                    where item = 300 
+                    and ckey = list(123,item)",
+        exec_fetch_sort_equal(SKey, query3q1, 100, IsSec, Sql3q1
+            ,
+            [{<<"300">>}]
+        ),
+
+        Sql3p1 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_sql_funs','filter_funs','[]'))
+                    and item like 'list%'",
+        case IsSec of
+            true ->
+                ?imem_test_admin_grant({eval_mfa,imem_seco,has_permission}),
+                ?assert(imem_seco:have_permission(SKey, {eval_mfa,imem_seco,has_permission})),
+                exec_fetch_sort_equal(SKey, query3p0, 100, IsSec, "
+                    select mfa('imem_seco', 'has_permission', list(r.item, p.item)) as perm 
+                    from atom r, atom p 
+                    where is_member(r.item, '[system]') 
+                    and is_member(p.item, '[manage_system,noex]')"
+                    ,
+                    [{<<"true">>},{<<"false">>}]
+                ),
+                ?imem_test_admin_grant({eval_mfa,imem_sql_funs,filter_funs}),
+                ?assert(imem_seco:have_permission(SKey, {eval_mfa,imem_sql_funs,filter_funs})),
+                exec_fetch_sort_equal(SKey, query3p1, 100, IsSec, Sql3p1
+                    ,
+                    [{<<"list">>},{<<"list_to_tuple">>}]
+                ),
+                exec_fetch_sort_equal(SKey, query3p2, 100, IsSec, "
+                    select item, hd(mfa('imem_sql_funs', 'filter_funs', '[]')) 
+                    from atom where item = to_atom('filter_funs')"
+                    ,
+                    [{<<"filter_funs">>,<<"list">>}]
+                ),
+                exec_fetch_sort_equal(SKey, query3p3, 100, IsSec, "
+                    select item, hd(mfa('imem_sql_funs', item, '[]')) 
+                    from atom where item = to_atom('filter_funs')"
+                    ,
+                    [{<<"filter_funs">>,<<"list">>}]
+                ),
+                % ?assertException(throw,{'UnimplementedException',{"Unsupported filter function", {mfa,imem_sql_funs,_,_}}},
+                %     exec_fetch_sort(SKey, query3p3, 100, IsSec, "
+                %         select item, hd(mfa('imem_sql_funs', item, '[]')) 
+                %         from atom where item = to_atom('filter_funs')" )
+                % ),
+                Sql3p4 = "select item 
+                    from dual,atom 
+                    where is_member(item, mfa('imem_meta','schema','[]'))
+                    and item like 'list%'",
+                ?assert(false == imem_seco:have_permission(SKey, {eval_mfa,imem_meta,schema})),
+                ?assertException(throw,{'SecurityException',{"Function evaluation unauthorized", {imem_meta,schema,_,_}}},
+                    exec_fetch_sort(SKey, query3p4, 100, IsSec, Sql3p4)
+                )
+                ;
+            false ->
+                ?assertException(throw,{'SecurityException',{"Not logged in",_}},
+                    exec_fetch_sort(SKey, query3p1, 100, IsSec, Sql3p1)
+                ),
+                ok
+        end,
 
         CsvFileName = <<"CsvTestFileName123abc.txt">>,
         file:write_file(CsvFileName,<<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
@@ -218,6 +312,18 @@ db1_with_or_without_sec(IsSec) ->
             ,
             [ {CsvFileName,<<"11">>,<<"6">>,<<"A1">>,<<"1">>}
             , {CsvFileName,<<"17">>,<<"6">>,<<"A2">>,<<"2">>}
+            ]
+        ),
+
+        CsvFileNameLong = <<"CsvTestFileNameLong123abc.txt">>,
+        BigField = binary:copy(<<"Test">>, 1500),
+        file:write_file(CsvFileNameLong,<<"Col1\tCol2\r\nA1\t1\r\n",BigField/binary,"\t2\r\n">>),
+
+        exec_fetch_sort_equal(SKey, query06, 100, IsSec, "
+            select col1, col2, col3 from csv$skip1$tab$3." ++ ?DQFN(CsvFileNameLong)  
+            ,
+            [ {<<"A1">>,<<"1">>,<<>>}
+            , {BigField,<<"2">>,<<>>}
             ]
         ),
 
@@ -425,11 +531,11 @@ db1_with_or_without_sec(IsSec) ->
             from def
             "
             ,
-            [{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
-            ,{<<"'$not_a_value'">>}
+            [{<<>>}
+            ,{<<>>}
+            ,{<<>>}
+            ,{<<>>}
+            ,{<<>>}
             ]
         ),
 
@@ -624,10 +730,10 @@ db1_with_or_without_sec(IsSec) ->
             [{<<"100">>,<<"{'Atom100',100}">>}]
         ),
 
-        exec_fetch_equal(SKey, query3a, 100, IsSec, 
-            "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)", 
-            [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
-        ),
+        % exec_fetch_equal(SKey, query3a, 100, IsSec, 
+        %     "select ip.item from def, integer as ip where col1 = 1 and is_member(item,col4)", 
+        %     [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
+        % ),
 
         % R3b = exec_fetch_sort(SKey, query3b, 100, IsSec, 
         %     "select col3, item from def, integer where is_member(item,to_atom('$_')) and col1 <> 100"
@@ -669,6 +775,107 @@ db1_with_or_without_sec(IsSec) ->
             ,
             []
         ),
+
+        exec_fetch_sort_equal(SKey, query3k, 100, IsSec, "
+            select item 
+            from integer 
+            where item >=1 and item <= 3"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3l, 100, IsSec, "
+            select first.item, second.item, first.item * second.item as product 
+            from integer first, integer second
+            where first.item >=1 and first.item <= 3 
+            and second.item > 4 and second.item < 7" 
+            ,
+            [{<<"1">>,<<"5">>,<<"5">>}
+            ,{<<"1">>,<<"6">>,<<"6">>}
+            ,{<<"2">>,<<"5">>,<<"10">>}
+            ,{<<"2">>,<<"6">>,<<"12">>}
+            ,{<<"3">>,<<"5">>,<<"15">>}
+            ,{<<"3">>,<<"6">>,<<"18">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3m, 100, IsSec, "
+            select first.item, second.item, first.item * second.item as product 
+            from integer first, integer second
+            where first.item >=1 and first.item <= 3 
+            and second.item > first.item and second.item < 5" 
+            ,
+            [{<<"1">>,<<"2">>,<<"2">>}
+            ,{<<"1">>,<<"3">>,<<"3">>}
+            ,{<<"1">>,<<"4">>,<<"4">>}
+            ,{<<"2">>,<<"3">>,<<"6">>}
+            ,{<<"2">>,<<"4">>,<<"8">>}
+            ,{<<"3">>,<<"4">>,<<"12">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3n, 100, IsSec, "
+            select item 
+            from dual,integer 
+            where is_member(item, to_list('[1,2,3]'))"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3o, 100, IsSec, "
+            select item 
+            from integer 
+            where is_member(item, to_list('[1,2,3]'))"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
+
+
+
+        exec_fetch_sort_equal(SKey, query3q, 100, IsSec, "
+            select item from atom where is_member(item, list(to_atom('a')))"
+            ,
+            [
+                 {<<"a">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3r, 100, IsSec, "
+            select item from atom where is_member(item, list(to_atom('a'),to_atom('b')))"
+            ,
+            [
+                 {<<"a">>}
+                ,{<<"b">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3s, 100, IsSec, "
+            select item from term where is_member(item, list(1))"
+            ,
+            [
+                 {<<"1">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3t, 100, IsSec, "
+            select item from term where is_member(item, list(to_atom('a'),1,2.5))"
+            ,
+            [
+                 {<<"1">>}
+                ,{<<"2.5">>}
+                ,{<<"a">>}
+            ]
+        ),
+
+        exec_fetch_sort_equal(SKey, query3u, 100, IsSec, "
+            select item 
+            from integer 
+            where is_member(item, to_list('[1,2,3]'))"
+            ,
+            [{<<"1">>},{<<"2">>},{<<"3">>}]
+        ),
+
 
         %% self joins 
 
@@ -1241,6 +1448,7 @@ db2_with_or_without_sec(IsSec) ->
         R1c = exec_fetch_sort(SKey, query1c, 100, IsSec, "
             select systimestamp from dual"
         ),
+        % ?LogDebug("systimestamp ~p",[element(1,hd(R1c))]),
         ?assertEqual(26, size(element(1,hd(R1c)))),
 
         R1d = exec_fetch_sort(SKey, query1d, 100, IsSec, "
@@ -1363,12 +1571,13 @@ db2_with_or_without_sec(IsSec) ->
 
     %% joins with virtual (datatype) tables
 
-        ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"integer">>}}, 
+        % ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"integer">>}}, 
+        ?assertException(throw,{ClEr,{"Invalid virtual filter guard",true}},
             exec_fetch_sort(SKey, query3a1, 100, IsSec, "select item from integer")
         ),
 
-        ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"ddSize">>}}, 
-            exec_fetch_sort(SKey, query3a2, 100, IsSec, "select name from ddSize")
+        ?assertException(throw,{ClEr,{"Invalid virtual filter guard",true}}, 
+            exec_fetch_sort(SKey, query3a2, 100, IsSec, "select name from ddSize where name like 'ddAcc%'")
         ),
 
         R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, "
@@ -1665,7 +1874,8 @@ db2_with_or_without_sec(IsSec) ->
             create table ddCmdTest (
                 id integer,
                 owner userid,
-                opts term
+                opts term,
+                \"roles\" list
             );", 0, [{schema,imem}], IsSec)),
 
         ?assertEqual(ok, imem_sql:exec(SKey,"
@@ -1675,15 +1885,15 @@ db2_with_or_without_sec(IsSec) ->
                 cmd integer
             );", 0, [{schema,imem}], IsSec)),
 
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,1,system,[a]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,2,system,[a,b]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,3,system,[a,b,c]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,11,111,[c]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,12,111,[b]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,13,111,[a]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,22,222,[a]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,23,222,[b]}]),
-        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,24,222,[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,1,system,[a],[]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,2,system,[a,b],[a,b]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,3,system,[a,b,c],[]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,11,111,[c],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,12,111,[b],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,13,111,[a],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,22,222,[a],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,23,222,[b],[c]}]),
+        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,24,222,[c],[c]}]),
 
         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1001,system,1}]),
         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1002,system,2}]),
@@ -1698,14 +1908,25 @@ db2_with_or_without_sec(IsSec) ->
         case IsSec of
             false ->    ok;
             true ->     MyAcid = imem_seco:account_id(SKey),
-                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,91,MyAcid,[c]}]),
-                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,92,MyAcid,[b,c]}]),
-                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,93,MyAcid,[a,b,c]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,91,MyAcid,[c],[]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,92,MyAcid,[b,c],[]}]),
+                        if_call_mfa(IsSec, write,[SKey,ddCmdTest,{ddCmdTest,93,MyAcid,[a,b,c],[]}]),
                         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1010,MyAcid,91}]),
                         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1011,MyAcid,23}]),
                         if_call_mfa(IsSec, write,[SKey,ddViewTest,{ddViewTest,1013,MyAcid,3}]),
                         ok                        
         end,
+
+        exec_fetch_sort_equal(SKey, query5x2, 100, IsSec, "
+            select \"id\", \"roles\"
+            from ddCmdTest
+            where id <= 3"
+            ,
+            [{<<"1">>,<<"[]">>}
+            ,{<<"2">>,<<"[a,b]">>}
+            ,{<<"3">>,<<"[]">>}
+            ]
+        ),
 
         exec_fetch_sort_equal(SKey, query5y, 100, IsSec, "
             select v.id, c.id

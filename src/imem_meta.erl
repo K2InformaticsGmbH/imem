@@ -21,6 +21,7 @@
 -define(META_TABLES,[?CACHE_TABLE,?LOG_TABLE,?MONITOR_TABLE,?CONFIG_TABLE,dual,ddNode,ddSnap,ddSchema,ddSize,ddAlias,ddTable]).
 -define(META_FIELDS,[<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
+-define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit,[],1000,"Maximum number of rows which can be generated in first (and only) result block")).
 
 -define(CONFIG_TABLE_OPTS,  [{record_name,ddConfig}
                             ,{type,ordered_set}
@@ -56,6 +57,15 @@
 
 -define(PartEndDigits,10).  % Number of digits representing the partition end (seconds since epoch) in partition names
 
+-define(GET_SNAP_NAME_TRANS(__TABLE),
+        ?GET_CONFIG(snapNameTrans,[__TABLE], <<"fun(N) -> atom_to_list(N) end">> , "Name translation for snapshot files, '.bkp' added")
+       ).
+-define(GET_SNAP_PROP_TRANS(__TABLE),
+        ?GET_CONFIG(snapPropTrans,[__TABLE], <<"fun(P) -> P end">> , "Table property translation for snapshot files")
+       ).
+-define(GET_SNAP_ROW_TRANS(__TABLE),
+        ?GET_CONFIG(snapRowTrans,[__TABLE], <<"fun(R) -> R end">> , "Row translation for snapshot files")
+       ).
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
@@ -79,6 +89,7 @@
 
 -export([ drop_meta_tables/0
         , drop_system_table/1
+        , drop_system_table/2
         , fail/1
         , get_tables_count/0
         , sql_jp_bind/1
@@ -87,12 +98,12 @@
 
 -export([ schema/0
         , schema/1
-        , system_id/0
         , data_nodes/0
         , host_fqdn/1
         , host_name/1
         , node_name/1
         , node_hash/1
+        , nodes/0
         , all_aliases/0
         , all_tables/0
         , tables_starting_with/1
@@ -130,27 +141,24 @@
         , dictionary_trigger/5
         , check_table/1
         , check_local_table_copy/1
-        , check_table_meta/2
-        , check_table_columns/2
         , meta_field_list/0        
         , meta_field/1
         , meta_field_info/1
         , meta_field_value/1
         , column_infos/1
         , from_column_infos/1
-        , column_info_items/2
         ]).
 
--export([ add_attribute/2
-        , update_opts/2
-        , compile_fun/1
+-export([ compile_fun/1
         , log_to_db/5
         , log_to_db/6
         , log_to_db/7
         , log_slow_process/6
         , failing_function/1
         , get_config_hlk/5
+        , get_config_hlk/6
         , put_config_hlk/6
+        , put_config_hlk/7
         , admin_exec/3
         ]).
 
@@ -175,6 +183,7 @@
         , create_or_replace_index/2
         , create_sys_conf/1
         , drop_table/1
+        , drop_table/2
         , drop_trigger/1
         , drop_index/1
         , drop_index/2
@@ -189,7 +198,8 @@
         , read/2                %% read by key
         , read_hlk/2            %% read using hierarchical list key
         , select/2              %% select without limit, only use for small result sets
-        , select_virtual/2      %% select virtual table without limit, only use for small result sets
+        , dirty_select/2        %% select dirty without any trynsaction locks
+        , select_virtual/3      %% select virtual table without limit, only use for small result sets
         , select/3              %% select with limit
         , select_sort/2
         , select_sort/3
@@ -209,11 +219,13 @@
         , remove/4              %% delete row if key exists (if bag row exists), apply trigger with trigger options
         , write/2               %% write row for single key, no defaults applied, no trigger applied
         , write_log/1
+        , dirty_read/1
         , dirty_read/2
         , dirty_index_read/3    
         , dirty_write/2
         , delete/2              %% delete row by key
         , delete_object/2       %% delete single row in bag table 
+        , abort/1               %% abort transaction with a message
         ]).
 
 -export([ update_prepare/3          %% stateless creation of update plan from change list
@@ -234,6 +246,7 @@
         ]).
 
 -export([ fetch_start/5
+        , fetch_start_virtual/6
         , update_tables/2
         , update_index/6            %% (Old,New,Tab,User,TrOpts,IdxDef)   
         , fill_index/2              %% (Table,IndexDefinition)
@@ -252,9 +265,13 @@
         ]).
 
 -export([ first/1
+        , dirty_first/1
         , next/2
+        , dirty_next/2
         , last/1
+        , dirty_last/1
         , prev/2
+        , dirty_prev/2
         , foldl/3
         ]).
 
@@ -449,7 +466,7 @@ create_nonexisting_partitioned_table(TableAlias, TableName) ->
     % find out ColumnsInfos, Opts, Owner from ddAlias
     case imem_if_mnesia:read(ddAlias,{schema(), TableAlias}) of
         [] ->
-            ?Error("Table template not found in ddAlias~p", [TableAlias]),   
+            ?Error("Table template not found in ddAlias ~p", [TableAlias]),   
             {error, {"Table template not found in ddAlias", TableAlias}}; 
         [#ddAlias{columns=ColumnInfos,opts=Opts,owner=Owner}] ->
             try
@@ -494,7 +511,10 @@ dictionary_trigger(OldRec,NewRec,T,_User,_TrOpts) when T==ddTable; T==ddAlias ->
         {{},_}  ->  %% write new rec (maybe fixing something)
             {S,TN} = element(2,NewRec),
             imem_cache:clear({?MODULE, trigger, S, TN});
-        {_,_}  ->  %% update old rec (maybe fixing something)
+        {_,{}}  ->  %% drop dictionary row
+            {S,TO} = element(2,OldRec),
+            imem_cache:clear({?MODULE, trigger, S, TO});
+        {_,_}  ->  %% update dict rec (maybe fixing something)
             {S,TO} = element(2,OldRec),
             %% ToDo: check for changed index definition
             %% ToDo: rebuild index table if index definition changed
@@ -579,8 +599,6 @@ check_table_meta(TableAlias, Names) when is_atom(TableAlias) ->
                 OldN ->     ?SystemException({"Column names do not match ddTable dictionary",{PTN,Names,OldN}})
             end
     end.
-
-check_table_columns(Table, Meta) -> check_table_meta(Table, Meta).  % ToDo: deprecate
 
 drop_meta_tables() ->
     drop_meta_tables(?META_TABLES).
@@ -786,26 +804,12 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         true ->     ok;
         false ->    ?ClientError({"Invalid character(s) in table name",TableAlias})
     end,    
-    case sqlparse:is_reserved(TableAlias) of
+    case is_reserved_for_tables(TableAlias) of
         false ->    ok;
         true ->     ?ClientError({"Reserved table name",TableAlias})
     end,
     Opts1 = norm_opts(Opts0),
-    TypeMod = case lists:keyfind(type, 1, Opts1) of
-        false ->                                        undefined;  % normal table
-        {type,T} when T==set;T==ordered_set;T==bag ->   undefined;  % normal table
-        {type,?MODULE} ->                                                 % module defined table
-                ?ClientError({"Invalid module name for table type",{type,?MODULE}});
-        {type,M} ->                                                 % module defined table
-                case lists:member(M,erlang:loaded()) of
-                    true -> case lists:member({create_table,4},M:module_info(exports)) of
-                                true ->     M;
-                                false ->    ?ClientError({"Bad module name for table type",{type,M}})
-                            end;
-                    false ->
-                        ?ClientError({"Unknown module name for table type",{type,M}})
-                end
-    end,
+    TypeMod = module_from_type_opts(Opts1),
     case {TypeMod,length(ColInfos)} of
         {undefined,0} ->    ?ClientError({"No columns given in create table",TableAlias});
         {undefined,1} ->    ?ClientError({"No value column given in create table, add dummy value column",TableAlias});
@@ -816,7 +820,7 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
         false ->    ok;
         {_,BadN} -> ?ClientError({"Invalid character(s) in column name",BadN})
     end,
-    ReservedCheck = [{sqlparse:is_reserved(Name),Name} || Name <- column_info_items(ColInfos, name)],
+    ReservedCheck = [{is_reserved_for_columns(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(true, 1, ReservedCheck) of
         false ->    ok;
         {_,BadC} -> ?ClientError({"Reserved column name",BadC})
@@ -834,6 +838,30 @@ create_physical_table(TableAlias,ColInfos,Opts0,Owner) ->
     case TypeMod of 
         undefined ->    create_physical_standard_table(TableAlias,ColInfos,Opts1,Owner);
         _ ->            TypeMod:create_table(TableAlias,ColInfos,Opts1,Owner)
+    end.
+
+module_from_type_opts(Opts) ->
+    case lists:keyfind(type, 1, Opts) of
+        false ->                                        undefined;  % normal table
+        {type,T} when T==set;T==ordered_set;T==bag ->   undefined;  % normal table
+        {type,?MODULE} ->                               ?ClientError({"Invalid module name for table type",{type,?MODULE}});
+        {type,M} when is_atom(M) ->                     module_with_table_api(M);
+        {type,B} when is_binary(B) ->
+            case catch ?binary_to_existing_atom(B) of
+                M when is_atom(M) ->                    module_with_table_api(M);
+                _ ->                                    ?ClientError({"Invalid module name for table type",{type,B}})
+            end
+    end.
+
+module_with_table_api(M) ->
+    case catch M:module_info(exports) of
+        {'EXIT',_} ->
+            ?ClientError({"Unknown module name for table type",{type,M}});
+        Exports -> 
+            case lists:member({create_table,4},Exports) of
+                true ->     M;
+                false ->    ?ClientError({"Bad module name for table type",{type,M}})
+            end
     end.
 
 create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
@@ -1256,19 +1284,28 @@ snapshot_table({Schema,Table}) ->
 snapshot_table(Alias) when is_atom(Alias) ->
     log_to_db(debug,?MODULE,snapshot_table,[{table,Alias}],"snapshot table"),
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
-        [] ->   ?ClientError({"Table does not exist",Alias});
-        PTNs -> case lists:usort([check_table(T) || T <- PTNs]) of
-                    [ok] -> snapshot_partitioned_tables(PTNs);
-                    _ ->    ?ClientError({"Table does not exist",Alias})
-                end
+        [] ->   
+            ?ClientError({"Table does not exist",Alias});
+        PTNs -> 
+            case lists:usort([check_table(T) || T <- PTNs]) of
+                [ok] -> 
+                    snapshot_partitioned_tables(
+                          imem_datatype:io_to_fun(?GET_SNAP_NAME_TRANS(Alias),1)
+                        , imem_datatype:io_to_fun(?GET_SNAP_PROP_TRANS(Alias),1)
+                        , imem_datatype:io_to_fun(?GET_SNAP_ROW_TRANS(Alias),1)            
+                        , PTNs
+                    );
+                _ ->    
+                    ?ClientError({"Table does not exist",Alias})
+            end
     end;
 snapshot_table(TableName) ->
     snapshot_table(qualified_table_name(TableName)).
 
-snapshot_partitioned_tables([]) -> ok;
-snapshot_partitioned_tables([TableName|TableNames]) ->
-    imem_snap:take(TableName),
-    snapshot_partitioned_tables(TableNames).
+snapshot_partitioned_tables(_,_,_,[]) -> ok;
+snapshot_partitioned_tables(NTrans,PTrans,RTrans,[TableName|TableNames]) ->
+    imem_snap:take(#{table=>TableName,nTrans=>NTrans, pTrans=>PTrans, rTrans=>RTrans}),
+    snapshot_partitioned_tables(NTrans,PTrans,RTrans,TableNames).
 
 restore_table({_Schema,Table,_Alias}) ->
     restore_table({_Schema,Table});
@@ -1283,8 +1320,13 @@ restore_table(Alias) when is_atom(Alias) ->
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
         PTNs -> case imem_snap:restore(bkp,PTNs,destroy,false) of
-                    L when is_list(L) ->    ok;
-                    E ->                    ?SystemException({"Restore table failed with",E})
+                    [{_, {_, _, _}}]  ->    ok;
+                    Error ->
+                        E = case Error of 
+                            [{_, Err}] -> Err; 
+                            Error -> Error 
+                        end,
+                        ?SystemException({"Restore table failed with",E})
                 end
     end;    
 restore_table(TableName) ->
@@ -1305,7 +1347,7 @@ restore_table_as(Alias, NewAlias) when is_atom(Alias) ->
     case lists:sort(simple_or_local_node_sharded_tables(Alias)) of
         [] ->   ?ClientError({"Table does not exist",Alias});
         [PTN] ->
-            NewPTN = case catch ?binary_to_existing_atom(NewAlias) of
+            NewPTN = case catch ?binary_to_atom(NewAlias) of    % _existing
                           {'EXIT',_} -> NewAlias;
                           {'ClientError',_} -> NewAlias;
                           NewAliasAtom ->
@@ -1333,40 +1375,45 @@ restore_table_as(TableName,NewTableName) ->
             ?UnimplementedException({"Restore table as in foreign schema",{MySchema,Schema,Table}})
     end.
 
-drop_table({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
+drop_table(Table) -> drop_table(Table, []).
+
+drop_table({Schema,TableAlias},TableTypeOpts) when is_atom(Schema), is_atom(TableAlias), is_list(TableTypeOpts) ->
     MySchema = schema(),
     case Schema of
-        MySchema -> drop_table(TableAlias);
+        MySchema -> drop_table(TableAlias,TableTypeOpts);
         _ ->        ?UnimplementedException({"Drop table in foreign schema",{Schema,TableAlias}})
     end;
-drop_table(TableAlias) when is_atom(TableAlias) ->
+drop_table(TableAlias,TableTypeOpts) when is_atom(TableAlias), is_list(TableTypeOpts) ->
     case is_system_table(TableAlias) of
         true -> ?ClientError({"Cannot drop system table",TableAlias});
-        false-> drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+        false-> drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)),TableTypeOpts)
     end;
-drop_table(TableAlias) when is_binary(TableAlias) ->
-    drop_table(qualified_table_name(TableAlias)).
+drop_table(TableAlias,TableTypeOpts) when is_binary(TableAlias), is_list(TableTypeOpts) ->
+    drop_table(qualified_table_name(TableAlias),TableTypeOpts).
 
-drop_system_table(TableAlias) when is_atom(TableAlias) ->
+drop_system_table(TableAlias) -> drop_system_table(TableAlias,[]).
+
+drop_system_table(TableAlias, TableTypeOpts) when is_atom(TableAlias), is_list(TableTypeOpts) ->
     case is_system_table(TableAlias) of
         false -> ?ClientError({"Not a system table",TableAlias});
-        true ->  drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)))
+        true ->  drop_tables_and_infos(TableAlias,lists:sort(simple_or_local_node_sharded_tables(TableAlias)), TableTypeOpts)
     end.
 
-drop_tables_and_infos(TableName,[TableName]) ->
-    drop_table_and_info(TableName);
-drop_tables_and_infos(TableAlias, TableList) -> 
+drop_tables_and_infos(TableName,[TableName],TableTypeOpts) ->
+    drop_table_and_info(TableName,TableTypeOpts);
+drop_tables_and_infos(TableAlias, TableList,TableTypeOpts) -> 
      imem_if_mnesia:delete(ddAlias, {schema(),TableAlias}),
-     drop_partitions_and_infos(TableList).
+     drop_partitions_and_infos(TableList,TableTypeOpts).
 
-drop_partitions_and_infos([]) -> ok;
-drop_partitions_and_infos([TableName|TableNames]) ->
-    drop_table_and_info(TableName),
-    drop_partitions_and_infos(TableNames).
+drop_partitions_and_infos([],_TableTypeOpts) -> ok;
+drop_partitions_and_infos([TableName|TableNames],TableTypeOpts) ->
+    drop_table_and_info(TableName,TableTypeOpts),
+    drop_partitions_and_infos(TableNames,TableTypeOpts).
 
-drop_table_and_info(TableName) ->
+drop_table_and_info(TableName,[]) ->
     try
         imem_if_mnesia:drop_table(TableName),
+        imem_cache:clear({?MODULE, trigger, schema(), TableName}),
         case TableName of
             ddTable ->  ok;
             ddAlias ->  ok;
@@ -1376,7 +1423,12 @@ drop_table_and_info(TableName) ->
         throw:{'ClientError',{"Table does not exist",Table}} ->
             catch imem_if_mnesia:delete(ddTable, {schema(),TableName}),
             throw({'ClientError',{"Table does not exist",Table}})
-    end.       
+    end;       
+drop_table_and_info(TableName,Opts) ->
+    case module_from_type_opts(Opts) of
+        undefined ->    drop_table_and_info(TableName,[]);
+        TypeMod ->      TypeMod:drop_table(TableName)
+    end.
 
 purge_table(TableAlias) ->
     purge_table(TableAlias, []).
@@ -1414,7 +1466,7 @@ purge_time_partitioned_table(TableAlias, Opts) ->
                 true ->
                     FreedMemory = table_memory(TableName),
                     ?Info("Purge time partition ~p~n",[TableName]),
-                    drop_table_and_info(TableName),
+                    drop_table_and_info(TableName,Opts),
                     FreedMemory
             end
     end.
@@ -1502,6 +1554,11 @@ is_local_or_schema_time_partitioned_table(Name) when is_list(Name) ->
         [_,_,_,_,_,"@",NS] ->   true;
         _ ->                    false
     end.
+
+is_reserved_for_tables(TableAlias) -> sqlparse:is_reserved(TableAlias).
+
+is_reserved_for_columns(roles) -> false;
+is_reserved_for_columns(Name) -> sqlparse:is_reserved(Name).
 
 -spec parse_table_name(atom()|list()|binary()) -> list(list()).
     %% TableName -> [Schema,".",Name,"_",Period,"@",Node] all strings , all optional ("") except Name
@@ -1822,20 +1879,14 @@ compile_fun(String) when is_list(String) ->
             undefined
     end.
 
+abort(Reason) ->
+    imem_if_mnesia:abort(Reason).
+
 schema() ->
     imem_if_mnesia:schema().
 
 schema(Node) ->
     imem_if_mnesia:schema(Node).
-
-system_id() ->
-    imem_if_mnesia:system_id().
-
-add_attribute(A, Opts) -> 
-    imem_if_mnesia:add_attribute(A, Opts).
-
-update_opts(T, Opts) ->
-    imem_if_mnesia:update_opts(T, Opts).
 
 failing_function([]) -> 
     {undefined,undefined, 0};
@@ -1987,6 +2038,16 @@ node_name(Node) when is_atom(Node) ->
 node_hash(Node) when is_atom(Node) ->
     io_lib:format("~6.6.0w",[erlang:phash2(Node, 1000000)]).
 
+nodes() ->
+    lists:filter(
+      fun(Node) ->
+              case rpc:call(Node, erlang, system_info, [version], 1000) of
+                  {badrpc, _} -> false;
+                  _ -> true
+              end
+      end, erlang:nodes()).
+
+
 -spec trigger_infos(atom()|{atom(),atom()}) -> {TableType :: atom(), DefaultRecord :: tuple(), TriggerFun :: function()}.
 trigger_infos(Table) when is_atom(Table) ->
     trigger_infos({schema(),Table});
@@ -2047,9 +2108,9 @@ compiled_index_plan(IdxDef,ColumnInfos) ->
 compile_or_generate(Source) when is_binary(Source) ->
     compile_or_generate(imem_datatype:io_to_fun(Source));   %% compile the source code
 compile_or_generate(IdxFun) when is_function(IdxFun,1) ->
-    IdxFun;                                                 %% return the arity 1 function for vnf
+    IdxFun;                                                 %% return the arity 1 function for vnf/1
 compile_or_generate(IdxFun) when is_function(IdxFun,2) ->
-    IdxFun;                                                 %% return the arity 2 function for iff
+    IdxFun;                                                 %% return the arity 2 function for iff/2 or vnf/2
 compile_or_generate(IdxFun) when is_function(IdxFun,0) ->
     IdxFun();                                               %% arity 0 function is a function generator
 compile_or_generate(Bad) ->
@@ -2113,7 +2174,11 @@ table_record_name(ddNode)  ->                   ddNode;
 table_record_name(ddSnap)  ->                   ddSnap;
 table_record_name(ddSchema)  ->                 ddSchema;
 table_record_name(ddSize)  ->                   ddSize;
-table_record_name(Table) when is_atom(Table) -> imem_if_mnesia:table_record_name(physical_table_name(Table)).
+table_record_name(Table) when is_atom(Table) ->
+    case is_virtual_table(Table) of
+        true ->     Table; 
+        false ->    imem_if_mnesia:table_record_name(physical_table_name(Table))
+    end.
 
 table_columns({ddSysConf,Table}) ->             imem_if_sys_conf:table_columns(Table);
 table_columns({_Schema,Table}) ->               table_columns(Table);       %% ToDo: may depend on schema
@@ -2210,19 +2275,17 @@ fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts)
     imem_if_csv:fetch_start(Pid, {S,FileName}, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
-fetch_start(Pid, ddNode, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddNode, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, ddSnap, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddSnap, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, ddSchema, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddSchema, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, ddSize, MatchSpec, BlockSize, Opts) ->
-    fetch_start_virtual(Pid, ddSize, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize -> 
+    fetch_start_calculated(Pid, Tab, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
 
-fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
-    {Rows,true} = select(VTable, MatchSpec),
+fetch_start_calculated(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
+    Limit = ?VIRTUAL_TABLE_ROW_LIMIT,
+    % ?LogDebug("fetch_start_calculated matchspec ~n~p",[MatchSpec]),
+    % ?LogDebug("fetch_start_calculated limit ~n~p",[Limit]),
+    {Rows,true} = select(VTable, MatchSpec, Limit),
     spawn(
         fun() ->
             receive
@@ -2231,6 +2294,19 @@ fetch_start_virtual(Pid, VTable, MatchSpec, _BlockSize, _Opts) ->
             end
         end
     ).
+
+fetch_start_virtual(Pid, _Table, Rows, _BlockSize, _Limit, _Opts) ->
+    % ?LogDebug("fetch_start_virtual table rows ~p:~n~p",[Table, Rows]),
+    % ?LogDebug("fetch_start_virtual limit = ~p",[_Limit]),
+    spawn(
+        fun() ->
+            receive
+                abort ->    ok;
+                next ->     Pid ! {row, [?sot,?eot|Rows]}
+            end
+        end
+    ).
+
 
 close(Pid) ->
     imem_statement:close(none, Pid).
@@ -2241,7 +2317,7 @@ read({ddSysConf,_Table}) ->
 read({_Schema,Table}) -> 
     read(Table);            %% ToDo: may depend on schema
 read(ddNode) ->
-    lists:flatten([read(ddNode,Node) || Node <- [node()|nodes()]]);
+    lists:flatten([read(ddNode,Node) || Node <- [node()|erlang:nodes()]]);
 read(ddSnap) ->
     {bkp, BkpInfo} = imem_snap:info(bkp),
     {zip, ZipInfo} = imem_snap:info(zip),    
@@ -2306,6 +2382,8 @@ read(ddSize,Table) ->
 read(Table, Key) -> 
     imem_if_mnesia:read(physical_table_name(Table), Key).
 
+dirty_read(Table) -> imem_if_mnesia:dirty_read(physical_table_name(Table)).
+
 dirty_read({ddSysConf,Table}, Key) -> read({ddSysConf,Table}, Key);
 dirty_read({_Schema,Table}, Key) ->   dirty_read(Table, Key);
 dirty_read(ddNode,Node) ->  read(ddNode,Node); 
@@ -2323,6 +2401,9 @@ read_hlk({_Schema,Table}, HListKey) ->
 read_hlk(Table,HListKey) ->
     imem_if_mnesia:read_hlk(Table,HListKey).
 
+
+get_config_hlk(Table, Key, Owner, Context, Default, _Documentation) ->
+    get_config_hlk(Table, Key, Owner, Context, Default).
 get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
     get_config_hlk(Table, Key, Owner, Context, Default);
 get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list(Context), is_atom(Owner) ->
@@ -2365,26 +2446,23 @@ get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list
             Default
     end.
 
+put_config_hlk(Table, Key, Owner, Context, Value, Remark, _Documentation) ->
+    put_config_hlk(Table, Key, Owner, Context, Value, Remark).
 put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
     put_config_hlk(Table, Key, Owner, Context, Value, Remark);
 put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
-    write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
+    dirty_write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
 
 select({ddSysConf,Table}, _MatchSpec) ->
     % imem_if_sys_conf:select(physical_table_name(Table), MatchSpec);
     ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
-select(ddNode, MatchSpec) ->
-    select_virtual(ddNode, MatchSpec);
-select(ddSnap, MatchSpec) ->
-    select_virtual(ddSnap, MatchSpec);
-select(ddSchema, MatchSpec) ->
-    select_virtual(ddSchema, MatchSpec);
-select(ddSize, MatchSpec) ->
-    select_virtual(ddSize, MatchSpec);
 select(Table, MatchSpec) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec).
+
+dirty_select(Table, MatchSpec) ->
+    imem_if_mnesia:dirty_select(physical_table_name(Table), MatchSpec).
 
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
@@ -2393,24 +2471,30 @@ select({ddSysConf,Table}, _MatchSpec, _Limit) ->
     ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
-select(ddNode, MatchSpec, _Limit) ->
-    select_virtual(ddNode, MatchSpec);
-select(ddSnap, MatchSpec, _Limit) ->
-    select_virtual(ddSnap, MatchSpec);
-select(ddSchema, MatchSpec, _Limit) ->
-    select_virtual(ddSchema, MatchSpec);
-select(ddSize, MatchSpec, _Limit) ->
-    select_virtual(ddSize, MatchSpec);
+select(Tab, MatchSpec, Limit) when
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer ->
+    select_virtual(Tab, MatchSpec,Limit);
 select(Table, MatchSpec, Limit) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec, Limit).
 
-select_virtual(_Table, [{_,[false],['$_']}]) ->
+select_integer_range(Min,Max,Limit) ->
+    {[{integer,I} || I <- lists:seq(Min,erlang:min(Max,Min+Limit-1))],true}.
+
+select_virtual(_Table, [{_,[false],['$_']}],_Limit) ->
     {[],true};
-select_virtual(Table, [{_,[true],['$_']}]) ->
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>=','$22',Min},{'=<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min,Max,Limit);
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>','$22',Min},{'=<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min+1,Max,Limit);
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>=','$22',Min},{'<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min,Max-1,Limit);
+select_virtual(integer, [{{'_','$22','$23'},[{'and',{'>','$22',Min},{'<','$22',Max}}],['$_']}],Limit) ->
+    select_integer_range(Min+1,Max-1,Limit);
+select_virtual(Table, [{_,[true],['$_']}],_Limit) ->
     {read(Table),true};                 %% used in select * from virtual_table
-select_virtual(Table, [{_,[],['$_']}]) ->
+select_virtual(Table, [{_,[],['$_']}],_Limit) ->
     {read(Table),true};                 %% used in select * from virtual_table
-select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec) ->
+select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec,_Limit) ->
     Tag = element(2,MatchHead),
     % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case operand_match(Tag,Guard) of
@@ -2758,7 +2842,7 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
     Key = element(?KeyIdx,Rec),         %% index a field as a whole, no json path search
     KVPs = case element(Pos,Rec) of
         ?nav -> [];
-        RV ->   case Vnf(RV) of         %% apply value normalising function
+        RV ->   case vnf_eval(Vnf,Key,RV) of         %% apply value normalising function
                     ?nav ->     [];
                     [?nav] ->   [];
                     [] ->       [];
@@ -2781,12 +2865,9 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
             Match = imem_json:eval(PT,Binds),
             case Match of
                 MV when is_binary(MV);is_number(MV);is_atom(MV) ->    
-                    % ?LogDebug("Value from json ~p",[MV]),
-                    % ?LogDebug("Vnf evaluates to ~p",[Vnf(MV)]),
-                    % ?LogDebug("lists:flatten evaluates to ~p",[lists:flatten([Vnf(M1) || M1  <- [MV]])]),
-                    [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- [MV]]), V /= ?nav];
+                    [{Key,V} || V <- lists:flatten([vnf_eval(Vnf,Key,M) || M  <- [MV]]), V /= ?nav];
                 ML when is_list(ML) ->      
-                    [{Key,V} || V <- lists:flatten([Vnf(M) || M  <- ML]), V /= ?nav];
+                    [{Key,V} || V <- lists:flatten([vnf_eval(Vnf,Key,M) || M  <- ML]), V /= ?nav];
                 {nomatch, {path_not_found, _}} ->          
                     [];
                 {nomatch, {property_not_found, _, _}} ->   
@@ -2810,6 +2891,12 @@ index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)],
     index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch).
 
+vnf_eval(Vnf,Key,Val) ->
+    case is_function(Vnf,1) of 
+        true -> Vnf(Val);
+        false -> Vnf(Key,Val)
+    end.
+
 transaction(Function) ->
     imem_if_mnesia:transaction(Function).
 
@@ -2828,13 +2915,21 @@ return_atomic_ok(Result) ->
 return_atomic(Result) -> 
     imem_if_mnesia:return_atomic(Result).
 
-first(Table) ->     imem_if_mnesia:first(Table).
+first(Table) ->             imem_if_mnesia:first(Table).
 
-next(Table,Key) ->  imem_if_mnesia:next(Table,Key).
+dirty_first(Table) ->       imem_if_mnesia:dirty_first(Table).
 
-last(Table) ->      imem_if_mnesia:last(Table).
+next(Table,Key) ->          imem_if_mnesia:next(Table,Key).
 
-prev(Table,Key) ->  imem_if_mnesia:prev(Table,Key).
+dirty_next(Table,Key) ->    imem_if_mnesia:dirty_next(Table,Key).
+
+last(Table) ->              imem_if_mnesia:last(Table).
+
+dirty_last(Table) ->        imem_if_mnesia:dirty_last(Table).
+
+prev(Table,Key) ->          imem_if_mnesia:prev(Table,Key).
+
+dirty_prev(Table,Key) ->    imem_if_mnesia:dirty_prev(Table,Key).
 
 foldl(FoldFun, InputAcc, Table) ->  
     imem_if_mnesia:foldl(FoldFun, InputAcc, Table).
@@ -3327,7 +3422,7 @@ meta_operations(_) ->
 
         Schema0 = [{ddSchema,{schema(),node()},[]}],
         ?assertEqual(Schema0, read(ddSchema)),
-        ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords)),
+        ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords,1000)),
 
         ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
         ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
@@ -3517,7 +3612,7 @@ meta_partitions(_) ->
                         ,fields=[],message= <<>>,stacktrace=[]
                     },
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)), % one record to first partition
-        timer:sleep(1050),
+        timer:sleep(920),   % was 1050
         _FL2 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@, _FL2, written]), 
 
@@ -3525,7 +3620,7 @@ meta_partitions(_) ->
         FL3 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
         ?assert(FL3 >= 3),
-        timer:sleep(1050),
+        timer:sleep(920),   % was 1050
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
         % ?LogDebug("success ~p~n", [roll_partitioned_table]),
         {timeout, 5, fun() -> ?assertEqual(ok,drop_table(fakelog_1@)) end},

@@ -4,15 +4,17 @@
 -include("imem_sql.hrl").
 
 -define( FilterFuns, 
-            [ list, prefix_ul, safe, concat, is_nav, is_key 
+            [ list, prefix_ul, safe, concat, is_nav, is_val, is_key 
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
             , to_atom, to_string, to_binstr, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
-            , json_to_list, json_arr_proj, json_obj_proj, json_value
-            , byte_size, bit_size, map_size, nth, sort, usort, reverse, last, remap
+            , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff, md5
+            , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice
+            , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
+            , mfa
             ]).
 
 -export([ filter_funs/0
@@ -25,6 +27,10 @@
         , binary_fun_bind_type1/1
         , binary_fun_bind_type2/1
         , binary_fun_result_type/1
+        , ternary_fun_bind_type1/1
+        , ternary_fun_bind_type2/1
+        , ternary_fun_bind_type3/1
+        , ternary_fun_result_type/1
         , ternary_not/1
         , ternary_and/2
         , ternary_or/2
@@ -33,6 +39,7 @@
         , mod_op_3/5
         , math_plus/1
         , math_minus/1
+        , is_val/1
         , is_nav/1
         , is_key/2
         ]).
@@ -48,6 +55,7 @@
         , to_number/1
         , to_string/1
         , to_binstr/1
+        , to_json/1
         , to_atom/1
         , to_existing_atom/1
         , to_tuple/1
@@ -84,12 +92,17 @@
         , json_arr_proj/2
         , json_obj_proj/2
         , json_value/2
+        , json_diff/2
+        , mfa/3
+        , slice/2
+        , slice/3
         ]).
 
 
 filter_funs() -> ?FilterFuns.
 
 unary_fun_bind_type(B) when is_binary(B) ->     unary_fun_bind_type(binary_to_list(B));
+unary_fun_bind_type("to_json") ->               #bind{type=binstr,default=?nav};
 unary_fun_bind_type([$t,$o,$_|_]) ->            #bind{type=binstr,default= <<>>};
 unary_fun_bind_type([$#,_]) ->                  #bind{type=json,default= <<>>};     % #key(s), #value(s) for now
 unary_fun_bind_type("is_integer") ->            #bind{type=integer,default=?nav};
@@ -118,6 +131,8 @@ unary_fun_bind_type("map_size") ->              #bind{type=map,default= #{}};
 unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
 unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
+unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
+unary_fun_bind_type("md5") ->                   #bind{type=binstr,default= <<>>};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
@@ -139,6 +154,9 @@ unary_fun_result_type("from_decimal") ->        #bind{type=float,default=?nav};
 unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
 unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
+unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
+unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>};
+unary_fun_result_type("to_json") ->             #bind{type=json,default=?nav};
 unary_fun_result_type(String) ->            
     case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
         {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
@@ -168,6 +186,14 @@ binary_fun_bind_type1("from_decimal") ->        #bind{type=decimal,default=?nav}
 binary_fun_bind_type1("json_arr_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_value") ->          #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("json_diff") ->           #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("phash2") ->              #bind{type=term,default=?nav};
+binary_fun_bind_type1("slice") ->               #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("map_get") ->             #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("map_merge") ->           #bind{type=map,default= #{}};
+binary_fun_bind_type1("map_remove") ->          #bind{type=term,default=?nav};
+binary_fun_bind_type1("map_with") ->            #bind{type=list,default= []};
+binary_fun_bind_type1("map_without") ->         #bind{type=list,default= []};
 binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_bind_type2(B) when is_binary(B) ->   binary_fun_bind_type2(binary_to_list(B));
@@ -181,6 +207,14 @@ binary_fun_bind_type2("from_decimal") ->        #bind{type=integer,default=0};
 binary_fun_bind_type2("json_arr_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_value") ->          #bind{type=json,default=[]};
+binary_fun_bind_type2("json_diff") ->           #bind{type=json,default=?nav};
+binary_fun_bind_type2("phash2") ->              #bind{type=integer,default=27};
+binary_fun_bind_type2("slice") ->               #bind{type=integer,default=1};
+binary_fun_bind_type2("map_get") ->             #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_merge") ->           #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_remove") ->          #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_with") ->            #bind{type=map,default= #{}};
+binary_fun_bind_type2("map_without") ->         #bind{type=map,default= #{}};
 binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_result_type(B) when is_binary(B) ->  binary_fun_result_type(binary_to_list(B));
@@ -194,7 +228,34 @@ binary_fun_result_type("from_decimal") ->       #bind{type=float,default=?nav};
 binary_fun_result_type("json_arr_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_value") ->         #bind{type=json,default=[]};
+binary_fun_result_type("json_diff") ->          #bind{type=json,default=[]};
+binary_fun_result_type("phash2") ->             #bind{type=integer,default=0};
+binary_fun_result_type("slice") ->              #bind{type=binstr,default=?nav};
+binary_fun_result_type("map_get") ->            #bind{type=map,default=?nav};
+binary_fun_result_type("map_merge") ->          #bind{type=map,default=?nav};
+binary_fun_result_type("map_remove") ->         #bind{type=map,default=?nav};
+binary_fun_result_type("map_with") ->           #bind{type=map,default=?nav};
+binary_fun_result_type("map_without") ->        #bind{type=map,default=?nav};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
+
+
+ternary_fun_bind_type1(B) when is_binary(B) ->  ternary_fun_bind_type1(binary_to_list(B));
+ternary_fun_bind_type1("mfa") ->                #bind{type=atom,default=?nav};
+ternary_fun_bind_type1("slice") ->              #bind{type=binstr,default=?nav};
+ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
+
+ternary_fun_bind_type2(B) when is_binary(B) ->  ternary_fun_bind_type2(binary_to_list(B));
+ternary_fun_bind_type2("mfa") ->                #bind{type=atom,default=?nav};
+ternary_fun_bind_type2("slice") ->              #bind{type=integer,default=1};
+ternary_fun_bind_type2(_) ->                    #bind{type=term,default=?nav}.
+
+ternary_fun_bind_type3(B) when is_binary(B) ->  ternary_fun_bind_type3(binary_to_list(B));
+ternary_fun_bind_type3("slice") ->              #bind{type=integer,default=1};
+ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
+
+ternary_fun_result_type(B) when is_binary(B) -> ternary_fun_result_type(binary_to_list(B));
+ternary_fun_result_type("slice") ->             #bind{type=binstr,default=?nav};
+ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
 
 re_compile(?nav) -> ?nav;
 re_compile(S) when is_list(S);is_binary(S) ->
@@ -269,6 +330,8 @@ expr_fun({const, A}) when is_tuple(A) -> A;
 %% create a list
 expr_fun({list, L}) when is_list(L) -> 
     list_fun(lists:reverse([expr_fun(E) || E <- L]),[]);
+expr_fun(L) when is_list(L) -> 
+    list_fun(lists:reverse([expr_fun(E) || E <- L]),[]);
 %% Select field Expression header
 expr_fun(#bind{tind=0,cind=0,btree=BTree}) -> expr_fun(BTree);
 %% Comparison expressions
@@ -307,7 +370,7 @@ expr_fun({Op, A}) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_
     module_fun('erlang', {Op, A});
 expr_fun({Op, A}) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
     module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple' ->
+expr_fun({Op, A}) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple';Op=='md5' ->
     module_fun('erlang', {Op, A});
 expr_fun({Op, A, B}) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
     module_fun('erlang', {Op, A, B});
@@ -327,6 +390,8 @@ expr_fun({Op, A, B}) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='
 %% maps module
 expr_fun({Op, A}) when Op=='map_size' ->
     module_fun('maps', {size, A});
+expr_fun({Op, A, B}) when Op=='map_get';Op=='map_merge';Op=='map_remove';Op=='map_with';Op=='map_without'->
+    module_fun('maps', {list_to_atom(lists:nthtail(4,atom_to_list(Op))), A, B});
 %% Logical expressions
 expr_fun({'not', A}) ->
     case expr_fun(A) of
@@ -360,11 +425,11 @@ expr_fun({'safe', A}) ->
     safe_fun(A);
 expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav' ->
+expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav';Op=='is_val' ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr' ->
+expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr';Op=='to_json' ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='from_binterm';Op=='prefix_ul' ->
+expr_fun({Op, A}) when Op=='from_binterm';Op=='prefix_ul';Op=='phash2' ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op=='json_to_list'->
     unary_json_fun({Op, A});
@@ -373,14 +438,14 @@ expr_fun({Op, A}) ->
 %% Binary custom filters
 expr_fun({Op, A, B}) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element';Op=='concat';Op=='is_key' ->
     binary_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts' ->
+expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='slice' ->
     binary_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value' ->
+expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff' ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
 %% Ternary custom filters
-expr_fun({Op, A, B, C}) when Op=='remap' ->
+expr_fun({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice' ->
     ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
@@ -419,7 +484,19 @@ safe_fun_final(A) ->
 %         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
 %     end.
 
-list_fun([],Acc) -> Acc;
+list_fun([],Acc) ->     Acc;
+list_fun([A],Acc) when is_list(Acc) -> 
+    case bind_action(A) of 
+        false ->        [A|Acc];
+        true ->         fun(X) -> [A(X)|Acc] end;
+        ABind ->        fun(X) -> [?BoundVal(ABind,X)|Acc] end
+    end;
+list_fun([A],Acc) -> 
+    case bind_action(A) of 
+        false ->        fun(X) -> [A|Acc(X)] end;
+        true ->         fun(X) -> [A(X)|Acc(X)] end;
+        ABind ->        fun(X) -> [?BoundVal(ABind,X)|Acc(X)] end
+    end;
 list_fun([A|Rest],Acc) when is_list(Acc) -> 
     case bind_action(A) of 
         false ->        list_fun(Rest,[A|Acc]);
@@ -509,7 +586,11 @@ math_minus(_) ->                    ?nav.
 
 -define(MathOpBlockBinary(__Op,__A,__B), 
         case __Op of
-            _ when (is_number(__A)==false);(is_number(__B)==false) -> ?nav;
+            '+'  when is_list(__A), is_list(__B) ->                     (__A ++ __B);
+            '+'  when is_map(__A), is_map(__B) ->                       maps:merge(__A,__B);
+            '-'  when is_list(__A), is_list(__B) ->                     (__A -- __B);
+            '-'  when is_map(__A), is_list(__B) ->                      maps:without(__B,__A);
+            _ when (is_number(__A)==false);(is_number(__B)==false) ->   ?nav;
             '+'  ->      (__A + __B);
             '-'  ->      (__A - __B);
             '*'  ->      (__A * __B);
@@ -573,6 +654,12 @@ unary_fun({Op, A}) ->
     unary_fun_final( {Op, expr_fun(A)});
 unary_fun(Value) -> Value.
 
+unary_fun_final({'is_val', A}) -> 
+    case bind_action(A) of 
+        false ->        is_val(A);
+        true ->         fun(X) -> Ab=A(X),is_val(Ab) end;
+        ABind ->        fun(X) -> Ab=?BoundVal(ABind,X),is_val(Ab) end
+    end;
 unary_fun_final({'is_nav', A}) -> 
     case bind_action(A) of 
         false ->        is_nav(A);
@@ -589,6 +676,8 @@ unary_fun_final({Op, A}) ->
 is_nav(?nav) -> true;
 is_nav(_) -> false.
 
+is_val(?nav) -> false;
+is_val(_) -> true.
 
 to_atom(A) when is_atom(A) -> A;
 to_atom(B) when is_binary(B) -> ?binary_to_atom(B);
@@ -624,15 +713,38 @@ to_tuple(B) when is_binary(B) -> imem_datatype:io_to_tuple(B,0);
 to_tuple(T) when is_tuple(T) -> T.
 
 to_list(B) when is_binary(B) -> imem_datatype:io_to_list(B,0);
-to_list(M) when is_map(M) -> imem_maps:to_list(M);
+to_list(M) when is_map(M) -> maps:to_list(M);
 to_list(L) when is_list(L) -> L.
 
-to_map(B) when is_binary(B) -> imem_datatype:io_to_map(B);
-to_map(M) when is_map(M) -> M;
-to_map(L) when is_list(L) -> maps:from_list(L).
+to_map(M) when is_map(M) ->     M;
+to_map(L) when is_list(L) ->    maps:from_list(L);
+to_map(B) when is_binary(B) ->  
+    case catch imem_datatype:io_to_map(B) of        
+        M when is_map(M) -> 
+            M;
+        _ ->                
+            imem_json:decode(B, [return_maps])
+    end.
 
 to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
 to_term(T) -> T.
+
+to_json(N) when is_number(N) -> N; 
+to_json('true') -> true;
+to_json('false') -> false;
+to_json('null') -> null;
+to_json(B) when is_binary(B) ->
+    case catch imem_json:encode(imem_json:decode(B, [return_maps])) of 
+        JO when is_binary(JO) -> JO;
+        _ ->    B
+    end;
+to_json(L) when is_list(L) ->
+    case catch imem_json:encode(L) of 
+        JO when is_binary(JO) -> JO;
+        _ ->    ?nav
+    end;
+to_json(M) when is_map(M) ->  imem_json:encode(M);
+to_json(_) -> ?nav.
 
 to_pid(T) when is_pid(T) -> T;
 to_pid(B) -> imem_datatype:io_to_pid(B).
@@ -783,7 +895,7 @@ binary_fun_final({'is_regexp_like', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='is_key' ->
+binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff';Op=='is_key';Op=='slice' ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -870,6 +982,8 @@ json_value(_Name, _PL)  ->
     % ?Info("JSON attribute ~p not found in ~p",[_Name,_PL]),
     ?nav.
 
+json_diff(A, B) -> imem_json:diff(A, B).
+
 safe_value(Name,M) when is_map(M) -> 
     case maps:find(Name, M) of
         {ok, Value} ->  Value;
@@ -941,7 +1055,18 @@ ternary_fun({Op, A, B, C}) ->
     ternary_fun_final( {Op, FA, FB, FC});
 ternary_fun(Value) -> Value.
 
-ternary_fun_final({Op, A, B, C}) when Op=='remap' ->
+ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
+    % ?LogDebug("Permission query ~p ~p ~p ~p",[Mod, Func, Args,?IMEM_SKEY_GET]),
+    case imem_sec:have_permission(?IMEM_SKEY_GET,{eval_mfa,Mod,Func}) of
+        true ->     ok;   
+        false ->    ?SecurityException({"Function evaluation unauthorized",{Mod,Func,?IMEM_SKEY_GET,self()}})
+    end,
+    case bind_action(Args) of 
+        false ->  apply(Mod,Func,Args);        
+        true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
+        CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
+    end;
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice' ->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
@@ -974,14 +1099,55 @@ ternary_fun_final({Op, A, B, C}) when Op=='remap' ->
         {ABind,BBind,CBind} ->  fun(X) -> Cb=?BoundVal(CBind,X),Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_3(?MODULE,Op,Ab,Bb,Cb) end
     end;
 ternary_fun_final(BTree) ->
-    ?UnimplementedException({"Unsupported filter function",{BTree}}).
-
+    ?UnimplementedException({"Unsupported filter function",BTree}).
 
 remap(Val,From,To) ->
     if 
         Val == From ->  To;
         true ->         Val
     end.
+
+slice(<<>>,_) -> <<>>;
+slice(B,Start) when is_binary(B) -> 
+    unicode:characters_to_binary(slice(unicode:characters_to_list(B, utf8),Start));
+slice([],_) -> [];
+slice(L,Start) when is_list(L),Start==1 -> L;
+slice(L,Start) when is_list(L),Start > 0 -> lists:nthtail(Start-1, L);
+slice(L,Start) when is_list(L) -> 
+    if 
+        length(L)+Start >= 0 ->
+            lists:nthtail(length(L)+Start, L);
+        true ->
+            L
+    end;
+slice(A,Start) when is_atom(A) -> slice(atom_to_list(A),Start);
+slice(I,Start) when is_integer(I) -> slice(integer_to_list(I),Start);
+slice(F,Start) when is_float(F) -> slice(float_to_list(F),Start).
+
+slice(<<>>,_,_) -> <<>>;
+slice(B,Start,Len) when is_binary(B) -> 
+    unicode:characters_to_binary(slice(unicode:characters_to_list(B, utf8),Start,Len));
+slice([],_,_) -> [];
+slice(L,_,Len) when is_list(L), Len < 1 -> [];
+slice(L,Start,Len) when is_list(L), Start > 0 -> lists:sublist(L, Start, Len);
+slice(L,Start,Len) when is_list(L) -> 
+    if
+        length(L)+Start >= 0 ->
+            lists:sublist(L, length(L)+Start+1, Len);
+        true ->
+            lists:sublist(L, Len)
+    end;
+slice(A,Start,Len) when is_atom(A) -> slice(atom_to_list(A),Start,Len);
+slice(I,Start,Len) when is_integer(I) -> slice(integer_to_list(I),Start,Len);
+slice(F,Start,Len) when is_float(F) -> slice(float_to_list(F),Start,Len).
+
+mfa(Mod,Func,Args) ->
+    SKey = imem_sec:have_permission(?IMEM_SKEY_GET_FUN(),{eval_mfa,Mod,Func}),
+    case SKey of
+        true ->     apply(Mod,Func,Args);   
+        false ->    ?SecurityException({"Function evaluation unauthorized",{Mod,Func,SKey,self()}})
+    end.
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
@@ -1008,6 +1174,36 @@ db2_test_() ->
         fun setup/0,
         fun teardown/1,
         {with, [fun test_with_sec/1]}
+    }.
+
+slice_test_() ->
+    B = <<"1234567890">>,
+    L = "1234567890",
+    { inparallel
+    , [{"l11", ?_assertEqual("1",slice(L,1,1))}
+      ,{"l12", ?_assertEqual("12",slice(L,1,2))}
+      ,{"l13", ?_assertEqual("1234567890",slice(L,1,10))}
+      ,{"l14", ?_assertEqual("1234567890",slice(L,1,20))}
+      ,{"l54", ?_assertEqual("5",slice(L,5,1))}
+      ,{"l55", ?_assertEqual("567890",slice(L,5,6))}
+      ,{"l56", ?_assertEqual("567890",slice(L,5,7))}
+      ,{"l81", ?_assertEqual("890",slice(L,-3,3))}
+      ,{"l18", ?_assertEqual("1234567890",slice(L,-10,10))}
+      ,{"l57", ?_assertEqual("567890",slice(L,5))}
+      ,{"l90", ?_assertEqual("90",slice(L,-2))}
+      ,{"l50", ?_assertEqual("567890",slice(L,-6))}
+      ,{"l-1", ?_assertEqual("1234567890",slice(L,-11))}
+      ,{"l-3", ?_assertEqual("123",slice(L,-11,3))}
+      ,{"b11", ?_assertEqual(<<"1">>,slice(B,1,1))}
+      ,{"b12", ?_assertEqual(<<"12">>,slice(B,1,2))}
+      ,{"b13", ?_assertEqual(<<"1234567890">>,slice(B,1,10))}
+      ,{"b14", ?_assertEqual(<<"1234567890">>,slice(B,1,20))}
+      ,{"b54", ?_assertEqual(<<"5">>,slice(B,5,1))}
+      ,{"b55", ?_assertEqual(<<"567890">>,slice(B,5,6))}
+      ,{"b56", ?_assertEqual(<<"567890">>,slice(B,5,7))}
+      ,{"b81", ?_assertEqual(<<"890">>,slice(B,-3,3))}
+      ,{"b08", ?_assertEqual(<<"1234567890">>,slice(B,-10,10))}
+      ]
     }.
 
 test_without_sec(_) -> 
