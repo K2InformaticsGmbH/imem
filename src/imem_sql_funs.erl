@@ -259,7 +259,7 @@ ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
 
 re_compile(?nav) -> ?nav;
 re_compile(S) when is_list(S);is_binary(S) ->
-    case (catch re:compile(S))  of
+    case (catch re:compile(S, [dotall]))  of
         {ok, MP} -> MP;
         _ ->        ?nav
     end;
