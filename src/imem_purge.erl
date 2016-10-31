@@ -25,12 +25,14 @@
 	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
 	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
 	       io:format(user, \"Free mem ~p% required min ~p%~n\", [MemFreePerCent, MIN_FREE_MEM_PERCENT]),
-	       %io:format(user, \"Possible purging canditate tables ~p~n\", [SortedPartTables]),
+           FilteredSortedPartTables = [Itm || {_, _, _, T} = Itm <- SortedPartTables,
+                                       imem_meta:is_local_time_partitioned_table(T)],
+           %io:format(user,	\"Possible purging canditate tables ~p~n\", [FilteredSortedPartTables]),
 	       MapFun = fun ({TRemain, RCnt, Class, TName} = Itm, A) ->
 				if TRemain < TABLE_EXPIRY_MARGIN_SEC ->
 				       ClassCnt = length([Spt
 							  || Spt
-								 <- SortedPartTables,
+								 <- FilteredSortedPartTables,
 							     element(3, Spt) =:=
 							       Class]),
 				       if ClassCnt > 1 -> [Itm | A];
@@ -39,8 +41,7 @@
 				   true -> A
 				end
 			end,
-	       DelCandidates = lists:foldl(MapFun, [],
-					   SortedPartTables),
+	       DelCandidates = lists:foldl(MapFun,[],FilteredSortedPartTables),
 	       if DelCandidates =:= [] ->
                 %[{time_to_part_expiry,table_size,partition_time,table}]
 		      TruncCandidates = lists:sort(fun ({_, R1, _, _},
@@ -49,7 +50,7 @@
 							       true -> false
 							    end
 						    end,
-						    SortedPartTables),
+						    FilteredSortedPartTables),
 		      [{_, _, _, T} | _] = TruncCandidates,
               imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"truncate table\"),
 		      imem_meta:truncate_table(T),
