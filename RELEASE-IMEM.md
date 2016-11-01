@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.7 (Release Date 01.11.2016)
+=======================================
+* Binding Strategy for from_binterm
+* Auto purge only local shards on low memory
+* Fixed like operation not working on strings containing ~n
+
 Version 1.5.6 (Release Date 19.10.2016)
 =======================================
 * Cluster snapshot fixes #101 and #102
