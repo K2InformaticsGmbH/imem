@@ -772,9 +772,9 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     % ?LogDebug("Join ~p table ~p~n", [Ti,Table]),
     % ?LogDebug("Rec used for join bind~n~p~n", [Rec]),
     {SSpec,_TailSpec,FilterFun} = imem_sql_expr:bind_scan(Ti,Rec,JoinSpec),
-    % ?LogDebug("SSpec for join~n~p~n", [SSpec]),
-    % ?LogDebug("TailSpec for join~n~p~n", [_TailSpec]),
-    % ?LogDebug("FilterFun for join~n~p~n", [FilterFun]),
+    % ?Info("SSpec for join~n~p~n", [SSpec]),
+    % ?Info("TailSpec for join~n~p~n", [_TailSpec]),
+    % ?Info("FilterFun for join~n~p~n", [FilterFun]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
     case imem_meta:select(Table, SSpec, MaxSize) of
         {[], true} ->   [];

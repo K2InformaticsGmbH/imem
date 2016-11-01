@@ -44,8 +44,8 @@
 -spec bind_scan(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_scan(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?LogDebug("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?LogDebug("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
@@ -62,8 +62,8 @@ bind_scan(Ti,X,ScanSpec0) ->
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
             {STree2,FTree} = split_filter_from_guard(STree1),
-            % ?LogDebug("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
-            % ?LogDebug("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
+            % ?Info("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
+            % ?Info("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
             SSpec1 = [{SHead, [to_guard(STree2)], [Result]}],
             FilterFun1 = imem_sql_funs:filter_fun(FTree),
             case Ti of
@@ -212,6 +212,8 @@ bind_eval({list,L}) when is_list(L) ->
             BTL 
     end;
 bind_eval(L) when is_list(L) ->     [bind_eval(Ele) || Ele <- L];
+bind_eval({from_binterm, {to_binterm,A}}) ->       bind_eval(A); 
+bind_eval({to_binterm, {from_binterm,A}}) ->       bind_eval(A); 
 bind_eval({'or', true, _}) ->       true; 
 bind_eval({'or', _, true}) ->       true; 
 bind_eval({'or', false, false}) ->  false; 
@@ -295,6 +297,10 @@ bind_tab(Ti, #bind{tind=0,cind=0,btree=BT}, X) -> bind_eval(bind_tab(Ti, BT, X))
 bind_tab(Ti, #bind{tind=Tind}=Bind, X) when Tind<Ti -> bind_value(?BoundVal(Bind,X));
 bind_tab(_ , #bind{}=Bind, _) ->        Bind;
 bind_tab(Ti, {Op,A}, X) ->              bind_eval({Op,bind_tab(Ti,A,X)}); %% unary functions and operators
+bind_tab(Ti, {Op,A,{from_binterm,#bind{tind=Ti,cind=2,btree=undefined}=B}}, X) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='\=' ->
+                                        bind_eval({Op,bind_tab(Ti,{to_binterm,A},X),bind_tab(Ti,B,X)});
+bind_tab(Ti, {Op,{from_binterm,#bind{tind=Ti,cind=2,btree=undefined}=A},B}, X) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='\=' ->
+                                        bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,{to_binterm,B},X)});
 bind_tab(Ti, {Op,A,B}, X) ->            bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X)}); %% binary functions/op.
 bind_tab(Ti, {Op,A,B,C}, X) ->          bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X)});
 bind_tab(Ti, {Op,A,B,C,D}, X) ->        bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X),bind_tab(Ti,D,X)});
