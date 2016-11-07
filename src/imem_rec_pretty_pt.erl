@@ -23,7 +23,7 @@ parse_transform(Forms, _Options) ->
         Forms2
     catch
         _:Error ->
-            ?L("parse transform failed ~p~n~p~n",
+            ?L("parse transform failed~n~p~n~p~n",
                [Error, erlang:get_stacktrace()]),
             Forms
     end.
