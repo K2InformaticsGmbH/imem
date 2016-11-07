@@ -43,7 +43,7 @@ rf(Record, Fun, FieldNames) ->
        "}"]),
     {function,1,Fun,1,
      [{clause,1,
-       [{var,1,'S'}], [],
+       [{var,1,'_S'}], [],
        [{call,1,{remote,1,{atom,1,io_lib},{atom,1,format}},
          [{string,1,Fmt}, f2l(Record, FieldNames)]}]
       }]}.
@@ -53,4 +53,4 @@ f2l(Record, FieldNames) ->
 f2l(_, [], Acc) -> Acc;
 f2l(Record, [FieldName|FieldNames], Acc) ->
     f2l(Record, FieldNames,
-        {cons,1,{record_field,1,{var,1,'S'},Record,{atom,1,FieldName}}, Acc}).
+        {cons,1,{record_field,1,{var,1,'_S'},Record,{atom,1,FieldName}}, Acc}).
