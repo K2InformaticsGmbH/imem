@@ -1,6 +1,8 @@
 -ifndef(IMEM_META_HRL).
 -define(IMEM_META_HRL, true).
 
+-compile({parse_transform, imem_rec_pretty_pt}).
+
 -include("imem_if.hrl").
 -include("imem_if_csv.hrl").
 
