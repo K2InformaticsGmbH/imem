@@ -17,10 +17,12 @@ parse_transform(Forms, _Options) ->
                    [{attribute,1,export,[{Fun,1}]} | Exprts]};
              (_, Acc) -> Acc
           end, {[], []}, Forms),
-        [{eof,_} = EOF | Rest] = lists:reverse(Forms),
-        Forms1 = lists:reverse([EOF|Functions]++Rest),
-        Forms2 = ins_exprts(Exports, Forms1),
-        Forms2
+        case ins_exprts(Exports, Forms) of
+            Forms -> Forms;
+            Forms1 ->
+                [{eof,_} = EOF | Rest] = lists:reverse(Forms1),
+                lists:reverse([EOF|Functions]++Rest)
+        end
     catch
         _:Error ->
             ?L("parse transform failed~n~p~n~p~n",
@@ -28,7 +30,11 @@ parse_transform(Forms, _Options) ->
             Forms
     end.
 
-ins_exprts(Exprts, [_|_] = Forms) -> ins_exprts(Exprts, {[], Forms});
+ins_exprts(Exprts, [_|_] = Forms) ->
+    case lists:usort([lists:member(E, Forms) || E <- Exprts]) of
+        [false] -> ins_exprts(Exprts, {[], Forms});
+        _ -> Forms
+    end;
 ins_exprts([], {Heads,Tail}) -> lists:reverse(Heads)++Tail;
 ins_exprts(Exports, {Heads, [{attribute,_,export,_} = E | Tail]}) ->
     ins_exprts([], {[E | Exports] ++ Heads, Tail});
