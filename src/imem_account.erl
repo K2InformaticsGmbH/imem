@@ -1,7 +1,5 @@
 -module(imem_account).
 
--include_lib("eunit/include/eunit.hrl").
-
 -include("imem_seco.hrl").
 
 -export([ create/2

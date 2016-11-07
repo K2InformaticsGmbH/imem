@@ -3,6 +3,7 @@
 
 -include("imem_if.hrl").
 -include("imem_if_csv.hrl").
+-compile({parse_transform, imem_rec_pretty_pt}).
 
 -define(ClientError(__Reason), ?THROW_EXCEPTION('ClientError',__Reason)).
 -define(SystemException(__Reason),  ?THROW_EXCEPTION('SystemException',__Reason)).
