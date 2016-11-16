@@ -25,7 +25,10 @@ get_metric(MetricKey) ->
 init() -> {ok, undefined}.
 
 handle_metric_req(system_information, State) ->
-    {#{memory => erlang:memory(total),
+    {_, FreeMemory, TotalMemory} = imem:get_os_memory(),
+    {#{free_memory => FreeMemory,
+       total_memory => TotalMemory,
+       erlang_memory => erlang:memory(total),
        process_count => erlang:system_info(process_count),
        port_count => erlang:system_info(port_count), 
        run_queue => erlang:statistics(run_queue)}, State};
