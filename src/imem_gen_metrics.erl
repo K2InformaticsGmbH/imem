@@ -19,7 +19,8 @@
 -record(state, {impl_state :: term()
                ,mod :: atom()
                ,reductions :: integer()
-               ,system_time :: integer()}).
+               ,system_time :: integer()
+               ,system_state = normal :: atom()}).
 
 -callback init() -> {ok, term()} | {error, term()}.
 -callback handle_metric_req(MetricKey :: term(), State :: term()) -> Result :: [map()].
@@ -39,27 +40,36 @@ init([Mod]) ->
             Reductions = element(1,erlang:statistics(reductions)),
             Time = os:system_time(micro_seconds),
             {ok, #state{mod = Mod, impl_state = State, reductions = Reductions,
-                        system_time = Time}};
+                        system_time = Time, system_state = normal}};
         {error, Reason} -> {stop, Reason}
     end.
 
-handle_call({get_metric, MetricKey}, _From, #state{mod = Mod, impl_state = ImplState} = State) ->
-    MaxReductions = ?GET_CONFIG(maxReductions,[Mod],100000000,"Max number of reductions per second before considering the system as overloaded."),
-    MaxMemory = ?GET_CONFIG(maxMemory,[Mod],90,"Memory usage before considering the system as overloaded."),
-    Reductions = element(1,erlang:statistics(reductions)),
+handle_call({get_metric, MetricKey}, _From, #state{mod = Mod, impl_state = ImplState, system_state = SysState} = State) ->
     Time = os:system_time(micro_seconds),
-    ElapsedReductions = Reductions - State#state.reductions,
-    ElapsedSeconds = (Time - State#state.system_time) / 1000000,    
-    ReductionsRate = ElapsedReductions/ElapsedSeconds,
-    {_, FreeMemory, TotalMemory} = imem:get_os_memory(),
-	PctMemoryUsed = 100 - FreeMemory / TotalMemory * 100,
-    {Metric, NewImplState} = case {ReductionsRate > MaxReductions, PctMemoryUsed > MaxMemory} of
-        {true, _} -> {cpu_overload, ImplState};
-        {_, true} -> {memory_overload, ImplState};
-        _ -> Mod:handle_metric_req(MetricKey, ImplState)
-    end,
-    {reply, Metric, #state{mod = Mod, impl_state = NewImplState, reductions = Reductions,
-                           system_time = Time}}.
+    ElapsedSeconds = (Time - State#state.system_time) / 1000000,
+    case {ElapsedSeconds < 1, SysState} of
+        {true, normal} ->
+            {Metric, NewImplState} = Mod:handle_metric_req(MetricKey, ImplState),
+            {reply, Metric, State#state{impl_state = NewImplState}};
+        {true, _} -> {reply, SysState, State};
+        {false, _} ->
+            MaxReductions = ?GET_CONFIG(maxReductions,[Mod],100000000,"Max number of reductions per second before considering the system as overloaded."),
+            MaxMemory = ?GET_CONFIG(maxMemory,[Mod],90,"Memory usage before considering the system as overloaded."),
+            Reductions = element(1,erlang:statistics(reductions)),
+            ElapsedReductions = Reductions - State#state.reductions,
+            ReductionsRate = ElapsedReductions/ElapsedSeconds,
+            {_, FreeMemory, TotalMemory} = imem:get_os_memory(),
+            PctMemoryUsed = 100 - FreeMemory / TotalMemory * 100,
+            {{Metric, NewImplState}, NewSysState} = case {ReductionsRate > MaxReductions, PctMemoryUsed > MaxMemory} of
+                {true, _} -> {{cpu_overload, ImplState}, cpu_overload};
+                {_, true} -> {{memory_overload, ImplState}, memory_overload};
+                _ -> {Mod:handle_metric_req(MetricKey, ImplState), normal}
+            end,
+            {reply, Metric, State#state{impl_state = NewImplState
+                                       ,reductions = Reductions
+                                       ,system_time = Time
+                                       ,system_state = NewSysState}}
+    end.
 
 handle_cast(Unknown, State) ->
     ?Error("~p implementing ~p pid ~p received unknown cast ~p", [?MODULE, self(), Unknown]),
