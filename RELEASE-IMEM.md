@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.8 (Release Date 16.11.2016)
+=======================================
+* Pretty print records using parse transform
+* Using ``erlang:now()`` instead of ``os:timestamp()`` in datatype
+* Implemented imem_metrics system information
+
 Version 1.5.7 (Release Date 01.11.2016)
 =======================================
 * Binding Strategy for from_binterm
