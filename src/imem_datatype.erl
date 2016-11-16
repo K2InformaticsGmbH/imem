@@ -652,7 +652,7 @@ io_to_timestamp("systime",Prec) ->
 io_to_timestamp("sysdate",Prec) ->
     io_to_timestamp("now",Prec);
 io_to_timestamp("now",Prec) ->
-    {Megas,Secs,Micros} = os:timestamp(),
+    {Megas,Secs,Micros} = erlang:now(),
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
 io_to_timestamp([${|_]=Val,_Prec) ->
     case io_to_tuple(Val,3) of
