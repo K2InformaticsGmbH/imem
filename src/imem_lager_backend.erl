@@ -79,10 +79,18 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
                     Line = proplists:get_value(line, Metadata),
 
                     Pid = proplists:get_value(pid, Metadata),
-                    Fields = [P || {K,_} = P <- Metadata, K /= node , K /= application,
-                                   K /= module, K /= function, K /= line, K /= pid,
-                                   K /= imem_table, K /= stacktrace],
-                    
+                    Fields = lists:filtermap(
+                               fun({node,_})        -> false;
+                                  ({application,_}) -> false;
+                                  ({module,_})      -> false;
+                                  ({function,_})    -> false;
+                                  ({line,_})        -> false;
+                                  ({pid,_})         -> false;
+                                  ({imem_table,_})  -> false;
+                                  ({stacktrace,_})  -> false;
+                                  ({enum,V})        -> {true, V};
+                                  (_)               -> true
+                               end, Metadata),
                     LogTable = proplists:get_value(imem_table, Metadata, DefaultTable),
                     LogRecord = if LogTable == DefaultTable -> ddLog;
                                    true -> LogTable
