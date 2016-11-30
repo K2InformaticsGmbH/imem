@@ -269,7 +269,7 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
                         ?Debug("snapshot fun ~p~n", [SFunStr]),
                         case erlang:phash2(SFunStr) of
                             SHash   -> {SHash,SFun};
-                            H1      -> {H1,imem_meta:compile_fun(SFunStr)}
+                            H1      -> {H1,imem_compiler:compile(SFunStr)}
                         end
                 end
             end,

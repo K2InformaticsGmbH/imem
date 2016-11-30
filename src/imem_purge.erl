@@ -156,7 +156,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
                             case erlang:phash2(PFStr) of
                                 PH ->   {PH,PF};        % existing compiled purge fun (may be undefined)
                                 H1 ->   
-                                    case (catch imem_meta:compile_fun(PFStr)) of
+                                    case (catch imem_compiler:compile(PFStr)) of
                                         CPF when is_function(CPF) ->  
                                             {H1,CPF};   % new compiled purge fun
                                         Err ->

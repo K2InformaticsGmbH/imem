@@ -854,7 +854,7 @@ password_strength_fun() ->
            " end.">>,
          "Function to measure the effectiveness of a string as potential password."),
     ?Debug("PasswordStrength ~p", [PasswordStrengthFunStr]),
-    imem_meta:compile_fun(PasswordStrengthFunStr).
+    imem_compiler:compile(PasswordStrengthFunStr).
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).

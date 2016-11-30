@@ -88,7 +88,7 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
                 {true, EFStr} ->
                     case erlang:phash2(EFStr) of
                         EH ->   {EH,EF};
-                        H1 ->   {H1,imem_meta:compile_fun(EFStr)}
+                        H1 ->   {H1,imem_compiler:compile(EFStr)}
                     end      
             end,
             {DHash,DFun} = case {?GET_MONITOR_DUMP, ?GET_MONITOR_DUMP_FUN} of
@@ -97,7 +97,7 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
                 {true, DFStr} ->
                     case erlang:phash2(DFStr) of
                         DH ->   {DH,DF};
-                        H2 ->   {H2,imem_meta:compile_fun(DFStr)}
+                        H2 ->   {H2,imem_compiler:compile(DFStr)}
                     end      
             end,
             write_monitor(EFun,DFun),

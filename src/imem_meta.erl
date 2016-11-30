@@ -149,8 +149,7 @@
         , from_column_infos/1
         ]).
 
--export([ compile_fun/1
-        , log_to_db/5
+-export([ log_to_db/5
         , log_to_db/6
         , log_to_db/7
         , log_slow_process/6
@@ -1860,24 +1859,6 @@ atoms_ending_with(Suffix,[A|Atoms],Acc) ->
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
-
-compile_fun(Binary) when is_binary(Binary) ->
-    compile_fun(binary_to_list(Binary)); 
-compile_fun(String) when is_list(String) ->
-    try  
-        Code = case [lists:last(string:strip(String))] of
-            "." -> String;
-            _ -> String ++ "."
-        end,
-        {ok,ErlTokens,_}=erl_scan:string(Code),    
-        {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
-        {value,Fun,_}=erl_eval:exprs(ErlAbsForm,[]),    
-        Fun
-    catch
-        _:Reason ->
-            ?Error("Compiling script function ~p results in ~p",[String,Reason]), 
-            undefined
-    end.
 
 abort(Reason) ->
     imem_if_mnesia:abort(Reason).
