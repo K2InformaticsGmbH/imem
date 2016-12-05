@@ -52,7 +52,7 @@ sc_soap_send_sms_token(AppId, To) ->
                      ).
 
 sc_soap_verify_sms_token(AppId, To, Token) ->
-    sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://host:port/validateSmsToken")
+    sc_verify_sms_token( ?GET_CONFIG(smsTokenValidationServiceUrl,[AppId],"https://host:port/validateSmsToken","SMS One Time Token service URL")
                        , ?GET_CONFIG(smsTokenServiceParams,[AppId],{"user","password","xmlns"},"SMS token service parameters.")
                        , To
                        , Token

@@ -155,7 +155,6 @@
         , log_to_db/7
         , log_slow_process/6
         , failing_function/1
-        , get_config_hlk/5
         , get_config_hlk/6
         , put_config_hlk/6
         , put_config_hlk/7
