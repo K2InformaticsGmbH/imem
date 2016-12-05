@@ -145,6 +145,8 @@
         , select_rowfun_str/4   %% convert all rows to string
         ]).
 
+-safe(all).
+
 bind_arg_types() ->
     [atom_to_binary(T,utf8) || T <- ?CLM_TYPES].
 

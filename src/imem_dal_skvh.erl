@@ -147,6 +147,17 @@
 
 -export([is_row_type/2]).
 
+-safe([is_row_type,skvh_rec_to_map,map_to_skvh_rec,expand_inline_key,
+       expand_inline_key_map,expand_inline,audit_recs_time,write_history,
+       write_audit,audit_info,build_aux_table_info]).
+
+-safe([table_name/1, atom_table_name/1, audit_alias/1, atom_history_alias/1,
+       channel_ctx/1, read/3, read_siblings/3, read_shallow/3, read_deep/3,
+       read/4, readGELT/5, readGELT/6, readGELTKeys/5, readGELTHashes/5,
+       readGELTMap/5, readGT/4, readGT/5, readGE/4, readGE/5, audit_readGT/4,
+       audit_readGT/5, hist_read/3, hist_read_deleted/3, get_longest_prefix/4,
+       check_age_audit_entry/4]).
+
 -spec foldl(User :: any(), FoldFun :: function(), InputAcc :: any(),
             Channel :: binary()) -> OutPutAcc :: any().
 foldl(_User, FoldFun, InputAcc, Channel) when is_function(FoldFun, 2) ->

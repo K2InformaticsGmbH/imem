@@ -1,35 +1,89 @@
 -module(imem_compiler).
 -include("imem_seco.hrl").
 
--export([compile/1, compile/2, ctx/0]).
+-export([compile/1, compile/2, safe/1]).
 
--safe(['==','/=','=<','>','>=','>','=:=','=/=','+','-','*','/','++','--',
-       'bnot','band','bor','bxor','bsl','bsr','abs','div','rem','min','max',
-       'float','now','date','element','size','bit_size','byte_size',
-       'binary_part','phash2','md5','throw','hd','tl','setelement','round']).
 
--unsafe(['list_to_atom','binary_to_atom','list_to_pid','binary_to_term',
-         'is_pid','is_port','is_process_alive']).
+% erlang:_/0
+-safe([now/0, date/0, registered/0]).
 
--unsafesrv([start,start_link,init,handle_info,handle_call,handle_cast,
-            terminate,code_change]).
+% erlang:_/1 (default)
+-safe(['+','-','bnot',float,size,bit_size,byte_size,md5,throw,hd,tl,round,
+       length,whereis]).
 
-ctx() ->
-    #{safe =>
-      lists:foldl(
-        fun({safe, SL}, Acc) -> SL ++ Acc;
-           (_, Acc) -> Acc
-        end, [], module_info(attributes)),
-      unsafe =>
-      lists:foldl(
-        fun({unsafe, SL}, Acc) -> SL ++ Acc;
-           (_, Acc) -> Acc
-        end, [], module_info(attributes)),
-      unsafesrv =>
-      lists:foldl(
-        fun({unsafesrv, SL}, Acc) -> SL ++ Acc;
-           (_, Acc) -> Acc
-        end, [], module_info(attributes))}.
+% erlang:_/2
+-safe(['+'/2,'-'/2,'/'/2,'*'/2,'=='/2,'/='/2,'=<'/2,'>'/2,'>='/2,'>'/2,'=:='/2,
+       '=/='/2,'++'/2,'--'/2,'band'/2,'bor'/2,'bxor'/2,'bsl'/2,'bsr'/2,'div'/2,
+       'rem'/2,abs/2,min/2,max/2,binary_part/2,element/2,phash2/2,
+       process_info/2]).
+
+% erlang:_/3
+-safe([setelement/3]).
+
+% external modules (all exported functions)
+-safe([#{m => math}, #{m => lists}, #{m => proplists}]).
+
+% external {M,F,A} s
+-safe([#{m => io_lib, f => [format/2]}]).
+
+% external match {M,F,A} s
+-safe([#{m => erlang, f => [{"^is_", 1},{"_to_",1}]}]).
+
+safe() -> safe(?MODULE).
+safe(Mod) when is_atom(Mod) ->
+    DefMod = if Mod == ?MODULE -> erlang; true -> Mod end,
+    lists:usort(
+      lists:flatten(
+        lists:foldl(
+          fun({safe, [all]}, Acc) -> check_export(Mod) ++ Acc;
+             ({safe, SL}, Acc) when is_list(SL) ->
+                  lists:map(
+                    fun(F) when is_atom(F) ->
+                            if DefMod /= erlang -> check_export(DefMod, [F]);
+                               true -> {DefMod, F, 1}
+                            end;
+                       ({F,A}) when is_atom(F), is_integer(A) ->
+                            if DefMod /= erlang -> check_export(DefMod, [{F,A}]);
+                               true -> {DefMod, F, A}
+                            end;
+                       ({M,F,A}) when is_atom(M), is_atom(F), is_integer(A) ->
+                            check_export(M, F, A);
+                       (#{m := M, f := F}) when is_atom(M) ->
+                            check_export(M, F);
+                       (#{m := M}) when is_atom(M) ->
+                            check_export(M)
+                    end, SL) ++ Acc;
+             (_, Acc) -> Acc
+          end, [], Mod:module_info(attributes)))).
+
+check_export(M) ->
+    case lists:map(fun({F, A}) -> {M, F, A} end, M:module_info(exports)) of
+        [] -> ?ClientErrorNoLogging({"Nothing exported", M});
+        MFAs -> MFAs
+    end.
+
+check_export(_, []) -> [];
+check_export(M, [F|Fs]) ->
+    check_export(M, F) ++ check_export(M, Fs);
+check_export(M, {R, A}) when is_list(R), is_integer(A) ->
+    [{M, Fn, A} || {Fn, Art} <- M:module_info(exports),
+                   re:run(atom_to_list(Fn),R) /= nomatch, Art == A];
+check_export(M, {F, A}) when is_atom(F), is_integer(A) ->
+    check_export(M, F, A);
+check_export(M, F) when is_atom(F) ->
+    case lists:filtermap(
+           fun({Fun, A}) when Fun == F -> {true, {M, F, A}};
+              (_) -> false
+           end, M:module_info(exports)) of
+        [] -> ?ClientErrorNoLogging({"Not exported", {M, F}});
+        MFAs -> MFAs
+    end.
+
+check_export(M, F, A) ->
+    case erlang:function_exported(M, F, A) of
+        true -> [{M, F, A}];
+        false -> ?ClientErrorNoLogging({"Not exported", {M, F, A}})
+    end.
 
 compile(String) when is_list(String) -> compile(String,[]);
 compile(String) when is_binary(String) -> compile(binary_to_list(String)).
@@ -52,55 +106,28 @@ compile(String,Bindings) when is_list(String), is_list(Bindings) ->
     end.
 
 nonLocalHFun() ->
-    Ctx = ctx(),
+    Safe = safe(),
     fun(FSpec, Args) ->
-            nonLocalHFun(FSpec, Args, Ctx)
+            nonLocalHFun(FSpec, Args, Safe)
     end.
 
 % @doc callback function used as 'Non-local Function Handler' in
 % erl_eval:exprs/4 to restrict code injection. This callback function will
 % exit with '{restricted,{M,F}}' exit value. If the exprassion is evaluated to
 % an erlang fun, the fun will throw the same expection at runtime.
-nonLocalHFun({erlang, Fun} = FSpec, Args,
-             #{safe := SafeFuns, unsafe := UnsafeFuns}) ->
-    case lists:member(Fun, SafeFuns) of
-        true ->
-            apply(erlang, Fun, Args);
+nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
+    case lists:member({Mod, Fun, length(Args)}, SafeFuns) of
+        true -> apply(Mod, Fun, Args);
         false ->
-            case lists:member(Fun, UnsafeFuns) of
-                true ->
-                    ?SecurityException({restricted, FSpec});
+            case lists:keymember(Mod, 1, SafeFuns) of
                 false ->
-                    case re:run(atom_to_list(Fun),"^is_") of
-                        nomatch ->
-                            case re:run(atom_to_list(Fun),"_to_") of
-                                nomatch ->  ?SecurityException({restricted, FSpec});
-                                _ ->        apply(erlang, Fun, Args)
-                            end;
-                        _ ->
-                            apply(erlang, Fun, Args)
-                    end
+                    case safe(Mod) of
+                        [] -> ?SecurityException({restricted, FSpec});
+                        ModSafe ->
+                            nonLocalHFun(FSpec, Args, SafeFuns ++ ModSafe)
+                    end;
+                true -> ?SecurityException({restricted, FSpec})
             end
-    end;
-nonLocalHFun({Mod, Fun}, Args, _) when Mod==math;Mod==lists;Mod==imem_datatype;Mod==imem_json ->
-    apply(Mod, Fun, Args);
-nonLocalHFun({io_lib, Fun}, Args, _) when Fun==format ->
-    apply(io_lib, Fun, Args);
-nonLocalHFun({imem_meta, Fun}, Args, _) when Fun==log_to_db;Fun==update_index;Fun==dictionary_trigger ->
-    apply(imem_meta, Fun, Args);
-nonLocalHFun({imem_domain, Fun}, Args, Ctx) ->
-    nonLocalServerFun({imem_domain, Fun}, Args, Ctx);
-nonLocalHFun({imem_dal_skvh, Fun}, Args, _) ->
-    apply(imem_dal_skvh, Fun, Args);            % TODO: restrict to subset of functions
-nonLocalHFun({imem_index, Fun}, Args, _) ->
-    apply(imem_index, Fun, Args);               % TODO: restrict to subset of functions
-nonLocalHFun({Mod, Fun}, Args, _) ->
-    apply(imem_meta, secure_apply, [Mod, Fun, Args]).
-
-nonLocalServerFun({Mod, Fun}, Args, #{unsafesrv := UnsafeServerFuns}) ->
-    case lists:member(Fun,UnsafeServerFuns) of
-        true ->     ?SecurityException({restricted, {Mod, Fun}});
-        false ->    apply(Mod, Fun, Args)
     end.
 
 %% ----- TESTS ------------------------------------------------

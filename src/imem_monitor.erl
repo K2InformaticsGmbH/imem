@@ -45,7 +45,10 @@
 
 -export([ write_monitor/0
         , write_monitor/2
+        , write_dump/3
         ]).
+
+-safe(write_dump/3).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -170,6 +173,12 @@ write_monitor(ExtraFun,DumpFun) ->
             {error,{"cannot monitor",Err}}
     end.
 
+write_dump(File, Format, Args) ->
+    file:write_file(
+      File,
+      list_to_binary(
+        lists:flatten(
+          io_lib:format(Format, Args)))).
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).

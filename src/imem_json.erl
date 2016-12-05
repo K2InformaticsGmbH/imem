@@ -35,6 +35,8 @@
         , diff/2            %% Lists differences of two JSON objects
         ]).
 
+-safe(all).
+
 %% Unused exports
 %% TODO : Review and unciomment/remove retaled code
 %% - -export([
