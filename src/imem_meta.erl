@@ -149,8 +149,7 @@
         , from_column_infos/1
         ]).
 
--export([ compile_fun/1
-        , log_to_db/5
+-export([ log_to_db/5
         , log_to_db/6
         , log_to_db/7
         , log_slow_process/6
@@ -274,27 +273,10 @@
         , foldl/3
         ]).
 
--export([ simple_or_local_node_sharded_tables/1]).
+-export([simple_or_local_node_sharded_tables/1]).
 
--export([ secure_apply/3]).
-
--spec secure_apply(Mod :: atom(), Fun :: atom(), Args :: list()) -> any() | no_return.
-secure_apply(Mod, Fun, Args) ->
-    {ModFunList,true}
-    = imem_if_mnesia:select(?CONFIG_TABLE,
-                     [{#ddConfig{hkl=[{'_','$1',secureFunctions}|'_'],
-                                 val='$2',_='_'},[],[{{'$1','$2'}}]}]),
-    case lists:foldl(fun({M,Funs}, {false, undefined}) when M == Mod ->
-                             case lists:member(Fun, Funs) of
-                                 true -> {true, apply(Mod,Fun,Args)};
-                                 false -> {false, undefined}
-                             end;
-                        (_, {true,_}=Executed) -> Executed;
-                        (_,NotFound) -> NotFound
-                     end, {false,undefined}, ModFunList) of
-        {true, Result} -> Result;
-        _ -> ?SystemException({"Can not run in DB", {Mod, Fun}})
-    end.
+-safe([log_to_db,update_index,dictionary_trigger,data_nodes,
+       physical_table_name,get_tables_count]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -1859,24 +1841,6 @@ atoms_ending_with(Suffix,[A|Atoms],Acc) ->
 
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
-
-compile_fun(Binary) when is_binary(Binary) ->
-    compile_fun(binary_to_list(Binary)); 
-compile_fun(String) when is_list(String) ->
-    try  
-        Code = case [lists:last(string:strip(String))] of
-            "." -> String;
-            _ -> String ++ "."
-        end,
-        {ok,ErlTokens,_}=erl_scan:string(Code),    
-        {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
-        {value,Fun,_}=erl_eval:exprs(ErlAbsForm,[]),    
-        Fun
-    catch
-        _:Reason ->
-            ?Error("Compiling script function ~p results in ~p",[String,Reason]), 
-            undefined
-    end.
 
 abort(Reason) ->
     imem_if_mnesia:abort(Reason).

@@ -47,6 +47,9 @@
         , all_local_time_partitioned_tables/0
         ]).
 
+-safe([all_snap_tables,get_snap_properties,set_snap_properties,snap_log,
+       snap_err,take]).
+
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
 
@@ -269,7 +272,7 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
                         ?Debug("snapshot fun ~p~n", [SFunStr]),
                         case erlang:phash2(SFunStr) of
                             SHash   -> {SHash,SFun};
-                            H1      -> {H1,imem_meta:compile_fun(SFunStr)}
+                            H1      -> {H1,imem_compiler:compile(SFunStr)}
                         end
                 end
             end,

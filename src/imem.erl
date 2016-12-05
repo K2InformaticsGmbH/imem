@@ -32,6 +32,8 @@
         , spawn_sync_mfa/3
         ]).
 
+-safe([get_os_memory/0, get_vm_memory/0]).
+
 
 %% ====================================================================
 %% External functions

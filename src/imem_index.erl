@@ -60,6 +60,8 @@
         ,binstr_match_precompile/1
         ]).
 
+-safe(all).
+
 -define(BIN_APP,binstr_append_placeholder).
 -define(HASH_RANGES,[16#FF,16#7FFFFFFF,16#FFFFFFFF]). %% giving 8(3)/27(6)/32(8) bit/(byte) hashes
 -define(SMALLEST_TERM,-1.0e100).

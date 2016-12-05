@@ -46,6 +46,8 @@
         ]).
 
 
+-safe([string_pattern/1, string_random/3]).
+
 %% Domain stuff (ToDo: move to imem_domain)
 string_pattern(B) when is_binary(B) ->
     string_pattern(unicode:characters_to_list(B, utf8 ), [], 0).
