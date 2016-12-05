@@ -147,7 +147,7 @@ erl_value_test_() ->
                   ?_assertException(throw, {'ClientError', _}, compile(C));
               runtime ->
                   Fun = compile(C),
-                  ?_assertException(throw, {'SystemException', _}, Fun());
+                  ?_assertException(throw, {'SecurityException', _}, Fun());
               _ ->
                   ?_assertEqual(O, compile(C))
           end}
