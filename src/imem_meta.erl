@@ -276,7 +276,8 @@
 
 -export([simple_or_local_node_sharded_tables/1]).
 
--safe([log_to_db, update_index/6, dictionary_trigger, data_nodes]).
+-safe([log_to_db,update_index,dictionary_trigger,data_nodes,
+       physical_table_name,get_tables_count]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),

@@ -47,6 +47,9 @@
         , all_local_time_partitioned_tables/0
         ]).
 
+-safe([all_snap_tables,get_snap_properties,set_snap_properties,snap_log,
+       snap_err,take]).
+
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
 

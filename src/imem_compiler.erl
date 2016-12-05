@@ -9,10 +9,10 @@
 
 % erlang:_/1 (default)
 -safe(['+','-','bnot',float,size,bit_size,byte_size,md5,throw,hd,tl,round,
-       length,whereis]).
+       length,whereis,phash2]).
 
 % erlang:_/2
--safe(['+'/2,'-'/2,'/'/2,'*'/2,'=='/2,'/='/2,'=<'/2,'>'/2,'>='/2,'>'/2,'=:='/2,
+-safe(['+'/2,'-'/2,'/'/2,'*'/2,'=='/2,'/='/2,'=<'/2,'<'/2,'>='/2,'>'/2,'=:='/2,
        '=/='/2,'++'/2,'--'/2,'band'/2,'bor'/2,'bxor'/2,'bsl'/2,'bsr'/2,'div'/2,
        'rem'/2,abs/2,min/2,max/2,binary_part/2,element/2,phash2/2,
        process_info/2]).
@@ -21,10 +21,12 @@
 -safe([setelement/3]).
 
 % external modules (all exported functions)
--safe([#{m => math}, #{m => lists}, #{m => proplists}]).
+-safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re}]).
 
 % external {M,F,A} s
--safe([#{m => io_lib, f => [format/2]}]).
+-safe([#{m => io, f => [format/2]},
+       #{m => io_lib, f => [format/2]},
+       #{m => os, f => [getenv/1,getpid,system_time,timestamp,type,version]}]).
 
 % external match {M,F,A} s
 -safe([#{m => erlang, f => [{"^is_", 1},{"_to_",1}]}]).
@@ -116,17 +118,18 @@ nonLocalHFun() ->
 % exit with '{restricted,{M,F}}' exit value. If the exprassion is evaluated to
 % an erlang fun, the fun will throw the same expection at runtime.
 nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
-    case lists:member({Mod, Fun, length(Args)}, SafeFuns) of
+    ArgsLen = length(Args),
+    case lists:member({Mod, Fun, ArgsLen}, SafeFuns) of
         true -> apply(Mod, Fun, Args);
         false ->
             case lists:keymember(Mod, 1, SafeFuns) of
                 false ->
                     case safe(Mod) of
-                        [] -> ?SecurityException({restricted, FSpec});
+                        [] -> ?SecurityException({restricted, FSpec, ArgsLen});
                         ModSafe ->
                             nonLocalHFun(FSpec, Args, SafeFuns ++ ModSafe)
                     end;
-                true -> ?SecurityException({restricted, FSpec})
+                true -> ?SecurityException({restricted, FSpec, ArgsLen})
             end
     end.
 

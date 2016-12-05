@@ -38,13 +38,6 @@
           ?MODULE,__Context,__Default,__Remark,__Documentation)
        ).
    
--define(SET_SEC_FUNS(__Funs),
-        imem_meta:get_config_hlk(
-          ?CONFIG_TABLE, {element(2,application:get_application(?MODULE)),
-                          ?MODULE,secureFunctions},
-          ?MODULE, [node()], __Funs, "List of custom functions declared as safe")
-       ).
-
 -define(GET_ROWNUM_LIMIT,
         imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],200000,"Default rownum limit for SQL queries.")
        ).
