@@ -3,6 +3,14 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.5.9 (Release Date 09.12.2016)
+=======================================
+* Enum metadata property support
+* imem_gen_metrics behaviour support asynchronous requests
+* get_config_hlk support for configuration without comment removed
+* Double sms issue fixed with smsott authentication after saml
+* Fixed code inject vulnerabilities by only allowing safe functions
+
 Version 1.5.8 (Release Date 16.11.2016)
 =======================================
 * Pretty print records using parse transform
