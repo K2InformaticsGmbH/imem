@@ -158,7 +158,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 format_status(_Opt, [_PDict, _State]) -> ok.
 
-try_cleanup(MinMemFreePerCent,TableExpiryMarginSec,
+-spec try_cleanup(integer(),integer(),integer(),list()) -> any().
+try_cleanup(MinMemFreePerCent, TableExpiryMarginSec,
             MaxTableCountPercent, PartTables) ->
 	%[{time_to_part_expiry,table_size,partition_time,table}]
 	SortedPartTables = lists:sort([{imem_meta:time_to_partition_expiry(T),
