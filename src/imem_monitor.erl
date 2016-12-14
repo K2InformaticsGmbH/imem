@@ -174,11 +174,16 @@ write_monitor(ExtraFun,DumpFun) ->
     end.
 
 write_dump_log(File, Format, Args) ->
-    file:write_file(
-      "./log/"++File,
-      list_to_binary(
-        lists:flatten(
-          io_lib:format(Format, Args)))).
+    case application:get_env(lager, crash_log) of
+        undefined -> ?ClientError("Unable to determine log folder path");
+        {ok, CrashLogFile} ->
+            LogPathParts = filename:split(CrashLogFile),
+            LogPath = filename:join(lists:sublist(LogPathParts,
+                                                  length(LogPathParts) - 1)),
+            file:write_file(
+              filename:join(LogPath, File),
+              list_to_binary(lists:flatten(io_lib:format(Format, Args))))
+    end.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
