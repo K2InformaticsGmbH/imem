@@ -214,7 +214,7 @@ try_cleanup(MinMemFreePerCent, TableExpiryMarginSec,
            MaxTablesCount = MaxTablesConfig * MaxTableCountPercent / 100,
            if CurrentTableCount =< MaxTablesCount ->
                   % Nothing to drop yet
-                  ?Info("No Purge: CurrentTableCount ~p (used ~p% of ~p)",
+                  ?Debug("No Purge: CurrentTableCount ~p (used ~p% of ~p)",
                         [CurrentTableCount,
                          round(CurrentTableCount / MaxTablesConfig * 100),
                          MaxTablesConfig]);
