@@ -1565,11 +1565,11 @@ test_with_or_without_sec_part1(IsSec) ->
             ) values (
                  '{key3,''nonode@nohost''}'
                 ,'[key3a,key3b]'
-                ,'undefined'
+                ,'{1,2}'
                 ,3 
             );",  
         % ?LogDebug("Sql1c:~n~s~n", [Sql1c]),
-        ?assertEqual( [{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}]
+        ?assertEqual( [{tuple_test,{key3,nonode@nohost},[key3a,key3b],{1,2},3}]
                     , imem_sql:exec(SKey, Sql1c, 0, [{schema,imem}], IsSec)
                     ),
 
@@ -1578,7 +1578,7 @@ test_with_or_without_sec_part1(IsSec) ->
         TT1RowsExpected=
         [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}
         ,{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}
-        ,{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}
+        ,{tuple_test,{key3,nonode@nohost},[key3a,key3b],{1,2},3}
         ],
         ?assertEqual(TT1RowsExpected, TT1Rows),
 
@@ -1592,7 +1592,8 @@ test_with_or_without_sec_part1(IsSec) ->
         TT1b = exec(SKey,tt1b, 4, IsSec, "
             select
               element(1,col1)
-            , element(1,col3), element(2,col3)
+            , element(1,col3)
+            , element(2,col3)
             , col4 
             from tuple_test where col4=2"),
         ?assertEqual(ok, fetch_async(SKey,TT1b,[],IsSec)),
@@ -1603,12 +1604,12 @@ test_with_or_without_sec_part1(IsSec) ->
         O1X= {tuple_test,{keyX,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
         O2 = {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2},
         O2X= {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,b},undefined},
-        O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3},
+        O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],{1,2},3},
 
         TT1aChange = [
           [1,upd,{?EmptyMR,O1},<<"keyX">>,<<"key1">>,<<"{key1a,key1b}">>,<<"1">>] 
         , [2,upd,{?EmptyMR,O2},<<"key2">>,<<"a">>,<<"b">>,<<"">>] 
-        , [3,upd,{?EmptyMR,O3},<<"key3">>,<<"'$not_a_value'">>,<<"'$not_a_value'">>,<<"3">>]
+        , [3,upd,{?EmptyMR,O3},<<"key3">>,<<"1">>,<<"2">>,<<"3">>]
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1aChange)),
         update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
@@ -1619,7 +1620,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assert(lists:member(O2X,TT1aRows)),
         ?assert(lists:member(O3,TT1aRows)),
 
-        O4X= {tuple_test,{key4},undefined,{<<"">>,<<"">>},4},
+        O4X= {tuple_test,{key4},[],{<<"">>,<<"">>},4},
 
         TT1bChange = [[4,ins,{},<<"key4">>,<<"">>,<<"">>,<<"4">>]],
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)),
@@ -1643,8 +1644,8 @@ test_with_or_without_sec_part1(IsSec) ->
          [5,ins,{},<<"{key5,nonode@nohost}">>,<<"a5">>,<<"b5">>,<<"5">>]
         ,[6,ins,{},<<"{key6,somenode@somehost}">>,<<"">>,<<"b6">>,<<"">>]
         ],
-        O5X = {tuple_test,{key5,nonode@nohost},[a5,b5],undefined,5},
-        O6X = {tuple_test,{key6,somenode@somehost},[<<"">>,b6],undefined,undefined},
+        O5X = {tuple_test,{key5,nonode@nohost},[a5,b5],{},5},
+        O6X = {tuple_test,{key6,somenode@somehost},[<<"">>,b6],{},undefined},
         ?assertEqual(ok, update_cursor_prepare(SKey, TT2a, IsSec, TT2aChange)),
         update_cursor_execute(SKey, TT2a, IsSec, optimistic),        
         TT2aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),

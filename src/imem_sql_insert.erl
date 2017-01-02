@@ -166,7 +166,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql1a = "insert into def (col1) values ('a');",
         % ?LogDebug("Sql1a: ~p~n", [Sql1a]),
-        ?assertException(throw,{ClEr,{"Wrong data type for value, expecting type or default",{<<"a">>,string,undefined}}}, imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)),
+        ?assertException(throw,{ClEr,{"Wrong data type for value, expecting type or default",{<<"a">>,string,[]}}}, imem_sql:exec(SKey, Sql1a, 0, [{schema,imem}], IsSec)),
 
         Sql2 = "insert into def (col1) values ('\"{B}\"');",
         % ?LogDebug("Sql2: ~p~n", [Sql2]),
