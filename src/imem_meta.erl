@@ -103,6 +103,7 @@
         , host_name/1
         , node_name/1
         , node_hash/1
+        , record_hash/2
         , nodes/0
         , all_aliases/0
         , all_tables/0
@@ -276,7 +277,7 @@
 -export([simple_or_local_node_sharded_tables/1]).
 
 -safe([log_to_db,update_index,dictionary_trigger,data_nodes,
-       physical_table_name,get_tables_count]).
+       physical_table_name,get_tables_count,record_hash]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -2010,6 +2011,9 @@ nodes() ->
               end
       end, erlang:nodes()).
 
+record_hash(Rec,PosList) when is_tuple(Rec), is_list(PosList) ->
+    TupleToHash = list_to_tuple([element(N,Rec) || N <- PosList]),
+    list_to_binary(io_lib:format("~.36B",[erlang:phash2(TupleToHash)])).
 
 -spec trigger_infos(atom()|{atom(),atom()}) -> {TableType :: atom(), DefaultRecord :: tuple(), TriggerFun :: function()}.
 trigger_infos(Table) when is_atom(Table) ->
