@@ -14,6 +14,8 @@
 
 -export([get_config_hlk/6, put_config_hlk/6, put_config_hlk/7]).
 
+-export([encrypt/1, decrypt/1]).
+
 -define(CONFIG_TABLE_OPTS, [{record_name,ddConfig},{type,ordered_set}]).
 
 start_link(Params) ->
@@ -58,43 +60,43 @@ get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
     get_config_hlk(Table, Key, Owner, Context, Default);
 get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list(Context), is_atom(Owner) ->
     Remark = list_to_binary(["auto_provisioned from ",io_lib:format("~p",[Context])]),
-    case (catch imem_meta:read_hlk(Table, [Key|Context])) of
-        [] ->                                   
-            %% no value found, create global config with default value
-            catch put_config_hlk(Table, Key, Owner, [], Default, Remark),
-            Default;
-        [#ddConfig{val=Default, hkl=[Key]}] ->    
-            %% global config is relevant and matches default
-            Default;
-        [#ddConfig{val=OldVal, hkl=[Key], remark=R, owner=DefOwner}] ->
-            %% global config is relevant and differs from default
-            case binary:longest_common_prefix([R,<<"auto_provisioned">>]) of
-                16 ->
-                    %% comment starts with default comment may be overwrite
-                    case {DefOwner, Owner} of
-                        _ when
-                                  ((?MODULE     =:= DefOwner)
-                            orelse (Owner       =:= DefOwner)                            
-                            orelse (undefined   =:= DefOwner)) ->
-                            %% was created by imem_meta and/or same module
-                            %% overwrite the default
-                            catch put_config_hlk(Table, Key, Owner, [], Default, Remark),
-                            Default;
-                        _ ->
-                            %% being accessed by non creator, protect creator's config value
-                            OldVal
-                    end;
-                _ ->    
-                    %% comment was changed by user, protect his config value
-                    OldVal
-            end;
-        [#ddConfig{val=Val}] ->
-            %% config value is overridden by user, return that value
-            Val;
-        _ ->
-            %% fallback in case ddConf is deleted in a running system
-            Default
-    end.
+    decrypt(
+      case (catch imem_meta:read_hlk(Table, [Key|Context])) of
+          %% no value found, create global config with default value
+          [] ->
+              catch put_config_hlk(Table, Key, Owner, [], Default, Remark),
+              Default;
+          %% global config is relevant and matches default
+          [#ddConfig{val=Default, hkl=[Key]}] ->
+              Default;
+          %% global config is relevant and differs from default
+          [#ddConfig{val=OldVal, hkl=[Key], remark=R, owner=DefOwner}] ->
+              case binary:longest_common_prefix([R,<<"auto_provisioned">>]) of
+                  16 ->
+                      %% comment starts with default comment may be overwrite
+                      case {DefOwner, Owner} of
+                          _ when ((?MODULE     =:= DefOwner)
+                           orelse (Owner       =:= DefOwner)
+                           orelse (undefined   =:= DefOwner)) ->
+                              %% was created by imem_meta and/or same module
+                              %% overwrite the default
+                              catch put_config_hlk(Table, Key, Owner, [], Default, Remark),
+                              Default;
+                          _ ->
+                              %% being accessed by non creator, protect creator's config value
+                              OldVal
+                      end;
+                  _ ->
+                      %% comment was changed by user, protect his config value
+                      OldVal
+              end;
+          %% config value is overridden by user, return that value
+          [#ddConfig{val=Val}] ->
+              Val;
+          %% fallback in case ddConf is deleted in a running system
+          _ ->
+              Default
+      end).
 
 put_config_hlk(Table, Key, Owner, Context, Value, Remark, _Documentation) ->
     put_config_hlk(Table, Key, Owner, Context, Value, Remark).
@@ -104,6 +106,22 @@ put_config_hlk(Table, Key, Owner, Context, Value, Remark)
   when is_atom(Table), is_list(Context), is_binary(Remark) ->
     imem_meta:dirty_write(Table, #ddConfig{hkl=[Key|Context], val=Value,
                                            remark=Remark, owner=Owner}).
+
+encrypt(Val) ->
+    {_, EVal} = crypto:stream_encrypt(
+                  crypto:stream_init(
+                    rc4, atom_to_list(erlang:get_cookie())),
+                  term_to_binary(Val)),
+    [base64:encode(EVal)|{enc,0}].
+
+decrypt([B64Val|{enc, 0}]) ->
+    Val = base64:decode(B64Val),
+    {_, ValBin} = crypto:stream_decrypt(
+                      crypto:stream_init(
+                        rc4, atom_to_list(erlang:get_cookie())),
+                      Val),
+    binary_to_term(ValBin);
+decrypt(UnEncryptedVal) -> UnEncryptedVal.
 
 
 %% ----- TESTS ------------------------------------------------

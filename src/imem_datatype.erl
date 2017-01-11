@@ -1051,11 +1051,19 @@ io_to_boolean(Val) ->
     end.
 
 io_to_term(Val) ->
+    {Encrypt, Value} = case re:replace(Val, "^enc\\((.*)\\)$", "\\1",
+                                       [dotall, global]) of
+                           Val      -> {false, Val};
+                           [[Val1]] -> {true, Val1}
+                       end,
     try
-        imem_compiler:compile(Val)
+        Value1 = imem_compiler:compile(Value),
+        if Encrypt -> imem_config:encrypt(Value1);
+           true -> Value1
+        end
     catch
-        _:_ -> 
-            % ?LogDebug("Cannot convert this to erlang term: ~10000p ~10000p", [Val,erlang:get_stacktrace()]),   %% TODO:enable to check code injection
+        _:_ ->
+            %?LogDebug("Cannot convert this to erlang term: ~10000p ~10000p", [Val,erlang:get_stacktrace()]),   %% TODO:enable to check code injection
             ?ClientErrorNoLogging({})
     end.
 
