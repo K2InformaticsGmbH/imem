@@ -30,6 +30,7 @@
          {node_shard_fun,"fun(N) -> imem_meta:host_name(N) -- \"!?#*:+-\\<|>/\" end"},
          {if_sys_conf_server, true},
          {meta_server, true},
+         {config_server, true},
          {monitor_server, true},
          {proll_server, true},
          {purge_server, true},

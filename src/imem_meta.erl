@@ -23,10 +23,6 @@
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
 -define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit,[],1000,"Maximum number of rows which can be generated in first (and only) result block")).
 
--define(CONFIG_TABLE_OPTS,  [{record_name,ddConfig}
-                            ,{type,ordered_set}
-                            ]).          
-
 -define(LOG_TABLE_OPTS,     [{record_name,ddLog}
                             ,{type,ordered_set}
                             ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
@@ -392,8 +388,7 @@ init(_Args) ->
         init_create_check_table(ddNode, {record_info(fields, ddNode),?ddNode,#ddNode{}}, [], system),    
         init_create_check_table(ddSnap, {record_info(fields, ddSnap),?ddSnap,#ddSnap{}}, [], system),
         init_create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
-        init_create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
-        init_create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
+        init_create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),
         init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
         init_create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system),
         write(dual,#dual{}),
@@ -3099,7 +3094,6 @@ teardown(_) ->
     catch drop_table(?TPTEST0),
     catch drop_table(?TPTEST1),
     catch drop_table(?TPTEST2),
-    catch drop_table(test_config),
     catch drop_table(fakelog_1@),
     catch drop_table(imem_table_123),
     catch drop_table('"imem_table_123"'),
@@ -3391,26 +3385,9 @@ meta_operations(_) ->
         ?assertEqual(Schema0, read(ddSchema)),
         ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords,1000)),
 
-        ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default created, owner set
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, not_test_owner, [test_context], other_default)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default not overwritten, wrong owner
-        ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value1)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)), %% new default overwritten by owner
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [],test_value2,<<"Test Remark">>)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value3)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value2}],read(test_config)),
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context],context_value,<<"Test Remark">>)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
-        % ?LogDebug("success ~p~n", [get_config_hlk]),
-
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
-        ?assertEqual(ok, drop_table(test_config)),
 
         %?LogDebug("success ~p~n", [drop_tables]),
         ok

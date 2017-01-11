@@ -5,37 +5,16 @@
 
 -include("imem_if.hrl").
 -include("imem_if_csv.hrl").
+-include("imem_config.hrl").
 
 -define(ClientError(__Reason), ?THROW_EXCEPTION('ClientError',__Reason)).
 -define(SystemException(__Reason),  ?THROW_EXCEPTION('SystemException',__Reason)).
 -define(ConcurrencyException(__Reason),  ?THROW_EXCEPTION('ConcurrencyException',__Reason)).
 -define(UnimplementedException(__Reason),  ?THROW_EXCEPTION('UnimplementedException',__Reason)).
 
--define(CONFIG_TABLE,ddConfig).                    
 -define(LOG_TABLE,ddLog_86400@).                    %% 86400 = 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
 -define(CACHE_TABLE,ddCache@).
-
--define(GET_CONFIG(__PName,__Context,__Default,__Documentation),
-        imem_meta:get_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,lists:flatten([__Context,node()]),__Default,__Documentation)
-       ).
-
--define(PUT_CONFIG(__PName,__Context,__Default,__Remark),
-        imem_meta:put_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,__Context,__Default,__Remark)
-       ).
--define(PUT_CONFIG(__PName,__Context,__Default,__Remark,__Documentation),
-        imem_meta:put_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,__Context,__Default,__Remark,__Documentation)
-       ).
-   
--define(GET_ROWNUM_LIMIT,
-        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],200000,"Default rownum limit for SQL queries.")
-       ).
 
 -record(ddColumn,                           %% column definition    
 				  { name                    ::atom()
@@ -163,15 +142,6 @@
 				  }
 	   ).
 -define(ddSchema, [tuple,list]).
-
--record(ddConfig,                           %% config record    
-				  { hkl                     ::list()                    %% hierarchical key list [item,context1,context2,...]
-				  , val                     ::any()
-				  , owner                   ::atom()                    %% the module who owns this config
-				  , remark= <<"">>          ::binary()                  %% create comments     
-				  }
-	   ).
--define(ddConfig, [list,term,atom,binstr]).
 
 -record(ddConfigHistory,                    %% config history record    
 				  { hkl_time                ::tuple()                   %% {[item,context1,context2,...],erlang:now()}
