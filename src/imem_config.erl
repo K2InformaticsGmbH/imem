@@ -127,6 +127,23 @@ decrypt(UnEncryptedVal) -> UnEncryptedVal.
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+encrypt_test_() ->
+    {inparallel,
+     [{P,?_assertEqual(D, decrypt(encrypt(D)))}
+      || {P, D} <-
+         [{"atom",      atom},
+          {"int",       1},
+          {"float",     1.9},
+          {"ref",       make_ref()},
+          {"pid",       self()},
+          {"list",      [1,a,3.4]},
+          {"binary",    <<"binary">>},
+          {"fun",       fun() -> function end},
+          {"map",       #{a => b}},
+          {"tuple",     {1,a,3.4}}]
+     ]}.
+
 setup() ->
     ?imem_test_setup.
 
