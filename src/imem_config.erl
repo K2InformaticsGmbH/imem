@@ -14,7 +14,7 @@
 
 -export([get_config_hlk/6, put_config_hlk/6, put_config_hlk/7]).
 
--export([encrypt/1, decrypt/1]).
+-export([encrypt/1, decrypt/1, reference_resolve/1, reference_resolve/2]).
 
 -define(CONFIG_TABLE_OPTS, [{record_name,ddConfig},{type,ordered_set}]).
 
@@ -60,7 +60,8 @@ get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
     get_config_hlk(Table, Key, Owner, Context, Default);
 get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list(Context), is_atom(Owner) ->
     Remark = list_to_binary(["auto_provisioned from ",io_lib:format("~p",[Context])]),
-    decrypt(
+    reference_resolve(
+      Table,
       case (catch imem_meta:read_hlk(Table, [Key|Context])) of
           %% no value found, create global config with default value
           [] ->
@@ -123,6 +124,19 @@ decrypt([B64Val|{enc, 0}]) ->
     binary_to_term(ValBin);
 decrypt(UnEncryptedVal) -> UnEncryptedVal.
 
+reference_resolve(Term) -> reference_resolve(?CONFIG_TABLE, Term).
+
+reference_resolve(Table, [[Key|Context]|ref]) ->
+    get_config_hlk(Table, Key, none, Context, none);
+reference_resolve(Table, [_|{enc,_}] = Val) ->
+   reference_resolve(Table, decrypt(Val));
+reference_resolve(Table, Val) when is_map(Val) ->
+    maps:map(fun(_K, V) -> reference_resolve(Table, V) end, Val);
+reference_resolve(Table, Val) when is_list(Val) ->
+    lists:map(fun(V) -> reference_resolve(Table, V) end, Val);
+reference_resolve(Table, Val) when is_tuple(Val) ->
+    list_to_tuple(reference_resolve(Table, tuple_to_list(Val)));
+reference_resolve(_Table, Val) -> Val.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
