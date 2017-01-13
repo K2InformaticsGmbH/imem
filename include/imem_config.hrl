@@ -5,7 +5,7 @@
 
 -record(ddConfig,
     { hkl               ::list() % hierarchical key list [item,context1,context2,...]
-    , val               ::any()
+    , val = <<"fun(_,__Rec,__Table) -> imem_config:val(__Table,__Rec) end.">> ::any()
     , owner             ::atom() % the module who owns this config
     , remark = <<"">>   ::binary() % create comments
     }

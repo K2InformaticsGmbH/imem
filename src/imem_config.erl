@@ -2,6 +2,8 @@
 
 -include("imem.hrl").
 -include("imem_config.hrl").
+-include("imem_exception.hrl").
+-include("imem_meta.hrl").
 
 -behavior(gen_server).
 
@@ -14,9 +16,12 @@
 
 -export([get_config_hlk/6, put_config_hlk/6, put_config_hlk/7]).
 
--export([encrypt/1, decrypt/1, reference_resolve/1, reference_resolve/2]).
+-export([encrypt/1, decrypt/1, reference_resolve/1, reference_resolve/2,
+         val/2]).
 
--define(CONFIG_TABLE_OPTS, [{record_name,ddConfig},{type,ordered_set}]).
+-safe(val/2).
+
+-define(CONFIG_TABLE_OPTS, [{record_name, ddConfig}, {type, ordered_set}]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -39,7 +44,7 @@ init(_Args) ->
         process_flag(trap_exit, true),
         {ok, #state{}}
     catch
-        _Class:Reason -> {stop, {Reason,erlang:get_stacktrace()}}
+        _Class:Reason -> {stop, {Reason, erlang:get_stacktrace()}}
     end.
 
 handle_call(_Request, _From, State) -> {reply, ok, State}.
@@ -53,6 +58,38 @@ terminate(Reason, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE,
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 format_status(_Opt, [_PDict, _State]) -> ok.
+
+val(Table,#ddConfig{hkl = K, val = V} = Rec) ->
+    case imem_meta:read(Table, K) of
+        [] -> V;
+        [#ddConfig{hkl = K, val = OV}] ->
+            case {type(OV), type(V)} of
+                {T,T} -> V;
+                {OT,NT} ->
+                    case V of
+                        [FV|force] -> FV;
+                        _ ->
+                            ?Error("Attempted type conversion from ~p to ~p", [OT, NT]),
+                            ?ClientError({"Type conversion not allowed without 'force' flag", OT, NT})
+                    end
+            end
+    end.
+
+type(V) when is_atom        (V) -> atom;
+type(V) when is_binary      (V) -> binary;
+type(V) when is_bitstring   (V) -> bitstring;
+type(V) when is_boolean     (V) -> boolean;
+type(V) when is_float       (V) -> float;
+type(V) when is_function    (V) -> function;
+type(V) when is_function    (V) -> function;
+type(V) when is_integer     (V) -> integer;
+type(V) when is_list        (V) -> list;
+type(V) when is_map         (V) -> map;
+type(V) when is_pid         (V) -> pid;
+type(V) when is_port        (V) -> port;
+type(V) when is_reference   (V) -> reference;
+type(V) when is_tuple       (V) -> tuple;
+type(V) -> ?ClientError({"Value type unrecognized", V}).
 
 get_config_hlk(Table, Key, Owner, Context, Default, _Documentation) ->
     get_config_hlk(Table, Key, Owner, Context, Default).
