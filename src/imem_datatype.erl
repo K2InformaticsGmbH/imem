@@ -544,11 +544,16 @@ io_to_integer(Val,0,Prec) ->
 io_to_integer(Val,Len,undefined) ->
     io_to_integer(Val,Len,0);
 io_to_integer(Val,Len,Prec) ->
-    Value = case io_to_term(Val) of
-        V when is_integer(V) -> V;
-        V when is_float(V) ->   erlang:round(V);
-        _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
-    end,
+    Value = try 
+            binary_to_integer(Val)
+        catch 
+            _:_ -> 
+                try
+                    erlang:round(binary_to_float(Val))
+                catch 
+                    _:_ ->  ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
+                end
+        end,
     Result = if
         Prec == undefined ->    Value;
         Prec <  0 ->            erlang:round(erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec));

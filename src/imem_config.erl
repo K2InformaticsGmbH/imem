@@ -59,7 +59,7 @@ terminate(Reason, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE,
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 format_status(_Opt, [_PDict, _State]) -> ok.
 
-val(Table,#ddConfig{hkl = K, val = V} = Rec) ->
+val(Table,#ddConfig{hkl = K, val = V} ) ->
     case imem_meta:read(Table, K) of
         [] -> V;
         [#ddConfig{hkl = K, val = OV}] ->
