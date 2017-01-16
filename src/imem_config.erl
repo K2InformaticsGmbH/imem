@@ -59,17 +59,23 @@ terminate(Reason, _State) -> ?Error("~p stopping unexpectedly : ~p~n", [?MODULE,
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 format_status(_Opt, [_PDict, _State]) -> ok.
 
-val(Table,#ddConfig{hkl = K, val = V} ) ->
+val(Table, #ddConfig{hkl = K, val = V}) ->
     case imem_meta:read(Table, K) of
         [] -> V;
         [#ddConfig{hkl = K, val = OV}] ->
             case {type(OV), type(V)} of
-                {T,T} -> V;
+                {T,T} ->
+                    case V of
+                        [FV|force] -> FV;
+                        _ -> V
+                    end;
                 {OT,NT} ->
                     case V of
+                        [_|{enc,_}] -> V;
                         [FV|force] -> FV;
                         _ ->
                             ?Error("Attempted type conversion from ~p to ~p", [OT, NT]),
+                            ?Error("New value ~p", [V]),
                             ?ClientError({"Type conversion not allowed without 'force' flag", OT, NT})
                     end
             end
