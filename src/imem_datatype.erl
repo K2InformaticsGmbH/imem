@@ -572,7 +572,7 @@ io_to_integer(Val,Len,Prec) ->
 io_to_float(Val,Prec) when is_binary(Val) ->
     io_to_float(binary_to_list(Val),Prec);
 io_to_float(Val,Prec) ->
-    Value = try erlang:round(list_to_float(Val))
+    Value = try list_to_float(Val)
         catch _:_ ->
             case io_to_term(Val) of
                 V when is_float(V) ->   V;
@@ -1686,11 +1686,11 @@ data_types(_) ->
         ?assertEqual(-200, io_to_db(Item,OldInteger,integer,100,0,Def,RW,<<"300-500">>)),
         ?assertEqual(12, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"120/10.0">>)),
         ?assertEqual(12, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"120/10.0001">>)),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"1234">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"1234">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"1234"}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"1234">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,<<"-">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-">>)),
         ?assertEqual(default, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,?emptyIo)),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"-100">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-100">>)),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"9999">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"9999">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"-100"}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-100">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"9999"}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"9999">>)),
 
         % ?LogDebug("io_to_db success 5~n", []),
 
