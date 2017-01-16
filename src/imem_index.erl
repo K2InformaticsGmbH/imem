@@ -19,6 +19,7 @@
 -export([vnf_identity/1             %% identity transformation, no change of value
         ,vnf_lcase_ascii/1          %% lower case ascii, allow empty strings
         ,vnf_lcase_ascii_ne/1       %% lower case ascii non-empty
+        ,vnf_tokens/1               %% lower case asccii, tokenized, empty binaries removed (words)
         ,vnf_integer/1              %% accept integers (convert if necessary) return ?nav on failure 
         ,vnf_float/1                %% accept floats (convert if necessary) return ?nav on failure 
         ,vnf_datetime/1             %% accept Date as string in JSON format converts to erlang datetime
@@ -47,6 +48,7 @@
 
 -export([preview/8      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) -> [{Strategy,Key,Value,Stu}]
         ,preview/9      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,Cont) -> [{Strategy,Key,Value,Stu}]
+        % ,preview/4      %% (IndexTable,ID,SearchTerm,Limit) -> [{Strategy,Key,Value,Stu}]
         ]).
 
 -export([binstr_accentfold/1
@@ -65,6 +67,7 @@
 -define(BIN_APP,binstr_append_placeholder).
 -define(HASH_RANGES,[16#FF,16#7FFFFFFF,16#FFFFFFFF]). %% giving 8(3)/27(6)/32(8) bit/(byte) hashes
 -define(SMALLEST_TERM,-1.0e100).
+-define(TOKENIZERS,[<<" ">>,<<",">>,<<".">>,<<";">>,<<":">>,<<"-">>,<<"+">>,<<"&">>,<<"\\">>,<<"/">>,<<"'">>,<<"\"">>]).
 
 
 %% ===================================================================
@@ -182,6 +185,9 @@ vnf_lcase_ascii(Val) ->
             )
         )
     ].
+
+vnf_tokens(Val) -> 
+    lists:usort(binary:split(vnf_lcase_ascii(Val), ?TOKENIZERS,[global])) -- [<<>>].
 
 vnf_lcase_ascii_ne(<<"\"\"">>) -> [?nav]; 
 vnf_lcase_ascii_ne(<<>>) -> [?nav];
@@ -301,8 +307,7 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
 
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function(),map() | tuple()) -> list().
-preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf, 
-    #{<<"match_info">> := Match}) ->
+preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf, #{<<"match_info">> := Match}) ->
     {_,_,_, FromStu} = binary_to_term(base64:decode(Match)),
     preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu);
 preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vnf, FromStu) ->
@@ -324,7 +329,6 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu) ->
                     preview_execute(IndexTable, ID, Type, FilteredStrategies, NormalizedTerm, Limit, Iff, undefined, FromStu)
             end
     end.
-    %% ToDo: implement continuation search
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
     % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
