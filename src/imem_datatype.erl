@@ -1184,8 +1184,6 @@ timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec >= 6 ->
     list_to_binary(io_lib:format("~s.~6.6.0w",[datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt), Micros]));
 timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec > 0 ->
     [MStr0] = io_lib:format("~6.6.0w",[Micros]),
-    % ?Info("----MStr0 ~p~n", [MStr0]),
-    % ?Info("----Prec ~p~n", [Prec]),
     MStr1 = case list_to_integer(lists:sublist(MStr0, Prec+1, 6-Prec)) of
         0 ->    [$.|lists:sublist(MStr0, Prec)];
         _ ->    [$.|MStr0]

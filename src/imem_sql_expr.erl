@@ -283,7 +283,7 @@ bind_fun(Value) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_table(integer(), tuple(), tuple()) -> tuple().
 bind_table(Ti, BTree, X) ->
-    % ?LogDebug("bind_table ~p ~p ~p",[Ti, BTree, X]),
+    % ?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
     case bind_tab(Ti, BTree, X) of
         ?nav ->     
             false;
@@ -347,7 +347,7 @@ bind_t(A, _) ->                  bind_value(A). % TODO: may need to bind lists h
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_subtree_const(binary()|tuple()) -> list().
 bind_subtree_const(#bind{tind=0,cind=0,btree=BT}=BTree) ->
-    % ?LogDebug("Bind subtree constants~n~p~n",[BTree]),
+    % ?Info("Bind subtree constants~n~p",[BTree]),
     case bind_table(1,BT,unknown) of
         ?nav ->     ?ClientError({"Cannot bind subtree constants", BT});
         Tree ->     BTree#bind{btree=Tree}

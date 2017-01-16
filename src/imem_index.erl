@@ -48,7 +48,8 @@
 
 -export([preview/8      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) -> [{Strategy,Key,Value,Stu}]
         ,preview/9      %% (IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,Cont) -> [{Strategy,Key,Value,Stu}]
-        % ,preview/4      %% (IndexTable,ID,SearchTerm,Limit) -> [{Strategy,Key,Value,Stu}]
+        ,preview/3      %% (IndexTable,{ID,...},SearchTerm) -> [{Strategy,Key,Value,Stu}]
+        ,preview_keys/3 %% (IndexTable,{ID,Limit,Type,SearchStrategies},SearchTerm) -> [Key] unique keys, sorted by match occurence  
         ]).
 
 -export([binstr_accentfold/1
@@ -294,6 +295,34 @@ iff_binterm_list_patterns(Key, [Pattern | Patterns]) ->
 %% Index preview (fast range/full match scan in single index)
 %% ===================================================================
 
+%% @doc Standard preview match scan into an ivk index for finding first "best" matches
+-spec preview(binary()|atom(), integer()|list(),term()) -> list().
+preview(IndexTable, Options, SearchTerm) when is_binary(IndexTable) ->
+    preview(?binary_to_existing_atom(IndexTable),Options, SearchTerm);
+preview(IndexTable, ID, SearchTerm) when is_integer(ID) ->
+    preview(IndexTable, [ID,10], SearchTerm);
+preview(IndexTable, [ID], SearchTerm) ->
+    preview(IndexTable, [ID,10], SearchTerm);
+preview(IndexTable, [ID,Limit], SearchTerm) ->
+    preview(IndexTable, [ID,Limit,ivk], SearchTerm);
+preview(IndexTable, [ID,Limit,Type], SearchTerm) ->
+    preview(IndexTable, [ID,Limit,Type,[head_match, body_match, re_match]], SearchTerm);
+preview(IndexTable, [ID,Limit,Type,Strategies], SearchTerm) ->
+    preview(IndexTable, [ID,Limit,Type,Strategies,fun vnf_lcase_ascii/1], SearchTerm);
+preview(IndexTable, [ID,Limit,Type,Strategies,Vnf],SearchTerm) ->
+    preview(IndexTable, ID, Type, Strategies, SearchTerm, Limit, fun iff_true/1, Vnf, <<>>).
+
+%% @doc Standard preview match scan into an ivk index for finding first "best" matches
+-spec preview_keys(binary()|atom(), list(),term()) -> list().
+preview_keys(IndexTable, Options, SearchTerm) ->
+    prune_list([ Key || {_,Key,_,_} <- preview(IndexTable, Options, SearchTerm)]).
+
+prune_list(L) ->
+    T = ets:new(temp,[set]),
+    L1 = lists:filter(fun(X) -> ets:insert_new(T, {X,1}) end, L),
+    ets:delete(T),
+    L1.
+
 %% @doc Preview match scan into an index for finding first "best" matches
 -spec preview(atom(),integer(),atom(),list(),term(),integer(),function(),function()) -> list().
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
@@ -301,8 +330,7 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf) ->
     % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
     % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
     % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
-    % ,{split_match,<<"Key3">>,<<"Value3">>,{ID,<<"Value3">>,<<"Key3">>}}
-    % ,{re_match,<<"RE_Pattern">>,<<"Value4">>,{ID,<<"Value4">>,<<"Key4">>}}
+    % ,{re_match,<<"Key3">>,<<"Value3">>,{ID,<<"Value3">>,<<"Key3">>}}
     % ].
 
 %% @doc Preview match scan into an index for finding first "best" matches
@@ -329,12 +357,6 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu) ->
                     preview_execute(IndexTable, ID, Type, FilteredStrategies, NormalizedTerm, Limit, Iff, undefined, FromStu)
             end
     end.
-    % [{exact_match,<<"Key0">>,<<"Value0">>,{ID,<<"Value0">>,<<"Key0">>}}
-    % ,{head_match,<<"Key1">>,<<"Value1">>,{ID,<<"Value1">>,<<"Key1">>}}
-    % ,{body_match,<<"Key2">>,<<"Value2">>,{ID,<<"Value2">>,<<"Key2">>}}
-    % ,{split_match,<<"Key3">>,<<"Value3">>,{ID,<<"Value3">>,<<"Key3">>}}
-    % ,{re_match,<<"RE_Pattern">>,<<"Value4">>,{ID,<<"Value4">>,<<"Key4">>}}
-    % ].
 
 %% @doc check if the search term should be interpreted as a regular expression.
 -spec is_regexp_search(list(), term()) -> boolean().
@@ -1143,6 +1165,14 @@ string_operations(_) ->
     ?LogDebug("---TEST--- ~p", [string_operations]),
     ?assertEqual([<<"table">>], vnf_lcase_ascii(<<"täble"/utf8>>)),
     ?assertEqual([<<"tuble">>], vnf_lcase_ascii(<<"tüble"/utf8>>)).
+
+prune_list_test_() ->
+    ?LogDebug("---TEST--- ~p", [prune_list_test]),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"c">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"a">>,<<"c">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"c">>,<<"c">>,<<"c">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,,<<"b">>,<<"c">>,<<"b">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"c">>,<<"c">>,<<"b">>,<<"a">>])).
 
 binstr_accentfold_test_() ->
     %UpperCaseAcc = <<"À Á Â Ã Ä Å Æ Ç È É Ê Ë Ì Í Î Ï Ð Ñ Ò Ó Ô Õ Ö Ø Ù Ú Û Ü Ý Þ Ÿ Œ Š Ž"/utf8>>,

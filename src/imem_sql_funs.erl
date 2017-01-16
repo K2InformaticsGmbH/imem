@@ -14,7 +14,8 @@
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
-            , mfa
+            , mfa, preview, preview_keys
+            , vnf_identity,vnf_lcase_ascii,vnf_lcase_ascii_ne,vnf_tokens,vnf_integer,vnf_float,vnf_datetime,vnf_datetime_ne
             ]).
 
 -export([ filter_funs/0
@@ -96,6 +97,8 @@
         , mfa/3
         , slice/2
         , slice/3
+        , preview/3
+        , preview_keys/3
         ]).
 
 
@@ -105,6 +108,7 @@ unary_fun_bind_type(B) when is_binary(B) ->     unary_fun_bind_type(binary_to_li
 unary_fun_bind_type("to_json") ->               #bind{type=binstr,default=?nav};
 unary_fun_bind_type([$t,$o,$_|_]) ->            #bind{type=binstr,default= <<>>};
 unary_fun_bind_type([$#,_]) ->                  #bind{type=json,default= <<>>};     % #key(s), #value(s) for now
+unary_fun_bind_type([$v,$n,$f,$_|_]) ->         #bind{type=term,default= <<>>};     % vnf_.... value normalizing functions
 unary_fun_bind_type("is_integer") ->            #bind{type=integer,default=?nav};
 unary_fun_bind_type("is_float") ->              #bind{type=float,default=?nav};
 unary_fun_bind_type("is_boolean") ->            #bind{type=boolean,default=?nav};
@@ -138,6 +142,7 @@ unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
 unary_fun_result_type([$i,$s,$_|_]) ->          #bind{type=boolean,default=?nav};
 unary_fun_result_type([$#,_]) ->                #bind{type=json,default= []};     % #key(s), #value(s) for now
+unary_fun_result_type([$v,$n,$f,$_|_]) ->       #bind{type=list,default= []};     % vnf_.... value normalizing functions
 unary_fun_result_type("hd") ->                  #bind{type=term,default=undefined};
 unary_fun_result_type("last") ->                #bind{type=term,default=undefined};
 unary_fun_result_type("tl") ->                  #bind{type=list,default=[]};
@@ -242,19 +247,27 @@ binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 ternary_fun_bind_type1(B) when is_binary(B) ->  ternary_fun_bind_type1(binary_to_list(B));
 ternary_fun_bind_type1("mfa") ->                #bind{type=atom,default=?nav};
 ternary_fun_bind_type1("slice") ->              #bind{type=binstr,default=?nav};
+ternary_fun_bind_type1("preview") ->            #bind{type=binstr,default=?nav};
+ternary_fun_bind_type1("preview_keys") ->       #bind{type=binstr,default=?nav};
 ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_bind_type2(B) when is_binary(B) ->  ternary_fun_bind_type2(binary_to_list(B));
 ternary_fun_bind_type2("mfa") ->                #bind{type=atom,default=?nav};
 ternary_fun_bind_type2("slice") ->              #bind{type=integer,default=1};
+ternary_fun_bind_type2("preview") ->            #bind{type=list,default=?nav};  % or integer index id accepted
+ternary_fun_bind_type2("preview_keys") ->       #bind{type=list,default=?nav};  % or integer index id accepted
 ternary_fun_bind_type2(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_bind_type3(B) when is_binary(B) ->  ternary_fun_bind_type3(binary_to_list(B));
 ternary_fun_bind_type3("slice") ->              #bind{type=integer,default=1};
+ternary_fun_bind_type3("preview") ->            #bind{type=binstr,default=?nav};    % or integer search token accepted 
+ternary_fun_bind_type3("preview_keys") ->       #bind{type=binstr,default=?nav};    % or integer search token accepted
 ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_result_type(B) when is_binary(B) -> ternary_fun_result_type(binary_to_list(B));
 ternary_fun_result_type("slice") ->             #bind{type=binstr,default=?nav};
+ternary_fun_result_type("preview") ->           #bind{type=list,default=?nav};
+ternary_fun_result_type("preview_keys") ->      #bind{type=list,default=?nav};
 ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
 
 re_compile(?nav) -> ?nav;
@@ -385,6 +398,8 @@ expr_fun({Op, A, B}) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='bina
 %% lists module
 expr_fun({Op, A}) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
     module_fun('lists', {Op, A});
+expr_fun({Op, A}) when Op==vnf_identity;Op==vnf_lcase_ascii;Op==vnf_lcase_ascii_ne;Op==vnf_tokens;Op==vnf_integer;Op==vnf_float;Op==vnf_datetime;Op==vnf_datetime_ne ->
+    module_fun('imem_index', {Op, A});
 expr_fun({Op, A, B}) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
     module_fun('lists', {Op, A, B});
 %% maps module
@@ -445,7 +460,7 @@ expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_valu
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
 %% Ternary custom filters
-expr_fun({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice' ->
+expr_fun({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys' ->
     ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
@@ -760,7 +775,7 @@ to_integer(L) when is_list(L) -> list_to_integer(L).
 
 to_float(B) when is_binary(B) -> to_float(binary_to_list(B));
 to_float(F) when is_float(F) -> F;
-to_float(I) when is_integer(I) -> I + 1.0;
+to_float(I) when is_integer(I) -> I + 0.0;
 to_float(L) when is_list(L) -> 
     case (catch list_to_integer(L)) of
         I when is_integer(I) -> float(I);
@@ -1052,6 +1067,7 @@ ternary_fun({Op, A, B, C}) ->
     FA = expr_fun(A),
     FB = expr_fun(B),
     FC = expr_fun(C),
+    % ?Info("FA ~p FB ~p FC ~p",[FA,FB,FC]),
     ternary_fun_final( {Op, FA, FB, FC});
 ternary_fun(Value) -> Value.
 
@@ -1066,7 +1082,7 @@ ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
         true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
         CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
     end;
-ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice' ->
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys' ->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
@@ -1106,6 +1122,11 @@ remap(Val,From,To) ->
         Val == From ->  To;
         true ->         Val
     end.
+
+preview(IndexTable, Options, SearchTerm) -> imem_index:preview(IndexTable, Options, SearchTerm).
+
+preview_keys(IndexTable, Options, SearchTerm) -> imem_index:preview_keys(IndexTable, Options, SearchTerm).
+
 
 slice(<<>>,_) -> <<>>;
 slice(B,Start) when is_binary(B) -> 
