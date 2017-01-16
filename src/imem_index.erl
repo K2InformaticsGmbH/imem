@@ -1137,6 +1137,7 @@ string_test_() ->
         fun teardown/1,
         {with,  [ fun string_operations/1
                 , fun iff_functions/1
+                , fun prune_list_test/1
                 ]
         }
     }.    
@@ -1166,13 +1167,13 @@ string_operations(_) ->
     ?assertEqual([<<"table">>], vnf_lcase_ascii(<<"täble"/utf8>>)),
     ?assertEqual([<<"tuble">>], vnf_lcase_ascii(<<"tüble"/utf8>>)).
 
-prune_list_test_() ->
+prune_list_test(_) ->
     ?LogDebug("---TEST--- ~p", [prune_list_test]),
-    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"c">>])),
-    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"a">>,<<"c">>])),
-    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"c">>,<<"c">>,<<"c">>])),
-    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,,<<"b">>,<<"c">>,<<"b">>])),
-    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune([<<"a">>,<<"b">>,<<"c">>,<<"c">>,<<"b">>,<<"a">>])).
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"c">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"a">>,<<"c">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"c">>,<<"c">>,<<"c">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"b">>,<<"c">>,<<"b">>])),
+    ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"c">>,<<"c">>,<<"b">>,<<"a">>])).
 
 binstr_accentfold_test_() ->
     %UpperCaseAcc = <<"À Á Â Ã Ä Å Æ Ç È É Ê Ë Ì Í Î Ï Ð Ñ Ò Ó Ô Õ Ö Ø Ù Ú Û Ü Ý Þ Ÿ Œ Š Ž"/utf8>>,
