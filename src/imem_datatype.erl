@@ -543,16 +543,19 @@ io_to_integer(Val,0,Prec) ->
     io_to_integer(Val,undefined,Prec);
 io_to_integer(Val,Len,undefined) ->
     io_to_integer(Val,Len,0);
+io_to_integer(Val,Len,Prec) when is_binary(Val) ->
+    io_to_integer(binary_to_list(Val),Len,Prec);
 io_to_integer(Val,Len,Prec) ->
-    Value = try 
-            binary_to_integer(Val)
-        catch 
-            _:_ -> 
-                try
-                    erlang:round(binary_to_float(Val))
-                catch 
-                    _:_ ->  ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
+    Value = try  list_to_integer(Val)
+        catch _:_ -> 
+            try erlang:round(list_to_float(Val))
+            catch _:_ ->  
+                case io_to_term(Val) of
+                    V when is_integer(V) -> V;
+                    V when is_float(V) ->   erlang:round(V);
+                    _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
                 end
+            end
         end,
     Result = if
         Prec == undefined ->    Value;
@@ -566,12 +569,17 @@ io_to_integer(Val,Len,Prec) ->
         true ->                 Result
     end.
 
+io_to_float(Val,Prec) when is_binary(Val) ->
+    io_to_float(binary_to_list(Val),Prec);
 io_to_float(Val,Prec) ->
-    Value = case io_to_term(Val) of
-        V when is_float(V) ->   V;
-        V when is_integer(V) -> float(V);
-        _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{float,Prec,Val}})
-    end,
+    Value = try erlang:round(list_to_float(Val))
+        catch _:_ ->
+            case io_to_term(Val) of
+                V when is_float(V) ->   V;
+                V when is_integer(V) -> float(V);
+                _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{float,Prec,Val}})
+            end
+        end,
     if
         Prec == undefined ->    Value;
         true ->                 erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec)
