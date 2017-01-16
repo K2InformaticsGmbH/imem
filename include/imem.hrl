@@ -43,8 +43,8 @@
     -define(LogDebug(__F,__A),      ok).
     -define(LogDebug(__F),          ok).
 -else. % TEST
-    -define(Debug(__M,__F,__A),     ok).
-    -define(Debug(__F,__A),         ok).
+    -define(Debug(__M,__F,__A),     _ = __A).
+    -define(Debug(__F,__A),         _ = __A).
     -define(Debug(__F),             ok).
     -define(LogDebug(__M,__F,__A),  ?L(debug, __M, __F, __A)).
     -define(LogDebug(__F,__A),      ?L(debug, __F, __A)).
@@ -56,8 +56,8 @@
     -define(Info(__F,__A),          ?L(info, __F, __A)).
     -define(Info(__F),              ?L(info, __F)).
 -else. % TEST
-    -define(Info(__M,__F,__A),      ok).
-    -define(Info(__F,__A),          ok).
+    -define(Info(__M,__F,__A),      _ = __A).
+    -define(Info(__F,__A),          _ = __A).
     -define(Info(__F),              ok).
 -endif.
 
