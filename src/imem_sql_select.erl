@@ -16,10 +16,12 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ToDo: spawn imem_statement here and execute in its own security context (compile & run from same process)
     ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
     % ?LogDebug("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
-    {_, TableList} = lists:keyfind(from, 1, SelectSections),
-    % ?Info("TableList: ~p~n", [TableList]),
+    {_, TableList0} = lists:keyfind(from, 1, SelectSections),
+    % ?Info("TableList0: ~p~n", [TableList0]),
     Params = imem_sql:params_from_opts(Opts,ParseTree),
     % ?Info("Params: ~p~n", [Params]),
+    TableList = bind_table_names(Params, TableList0),
+    % ?Info("TableList: ~p~n", [TableList]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
     % ?LogDebug("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
@@ -70,6 +72,20 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
                 },
     {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
     {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}}.
+
+
+bind_table_names([], TableList) -> TableList;
+bind_table_names(Params, TableList) -> bind_table_names(Params, TableList, []).
+
+bind_table_names(_Params, [], Acc) -> lists:reverse(Acc);
+bind_table_names(Params, [{param,ParamKey}|Rest], Acc) ->
+    case lists:keyfind(ParamKey, 1, Params) of
+        {_,binstr,_,[T]} -> bind_table_names(Params, Rest, [T|Acc]);
+        {_,atom,_,[A]} ->   bind_table_names(Params, Rest, [atom_to_binary(A,utf8)|Acc]);
+        _ ->                ?ClientError({"Cannot resolve table name parameter",ParamKey})
+    end;
+bind_table_names(Params, [Table|Rest], Acc) -> bind_table_names(Params, Rest, [Table|Acc]). 
+
 
 
 %% TESTS ------------------------------------------------------------------
