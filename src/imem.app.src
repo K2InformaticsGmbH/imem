@@ -3,7 +3,7 @@
 {application, imem,
  [
   {description, "Replication Mnesia DB cluster"},
-  {vsn, "1.5.9"},
+  {vsn, "1.6.0"},
   {registered, []},
   {applications, [
                   kernel,

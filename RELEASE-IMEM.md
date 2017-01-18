@@ -3,6 +3,13 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.6.0 (Release Date 18.01.2017)
+=======================================
+* Improved support for escaped text in CSV files.
+* Improved speed of ``imem_datatype:io_to_integer()``
+* Add sql preview function (index scan)
+* Bind table names from parameters in sql_select
+
 Version 1.5.9 (Release Date 09.12.2016)
 =======================================
 * Enum metadata property support
