@@ -560,16 +560,25 @@ module_fun_final(Mod, {Op, A, B}) ->
     end.
 
 mod_op_1(_,_,?nav) -> ?nav;
-mod_op_1(Mod,Op,A) -> Mod:Op(A).
+mod_op_1(Mod,Op,A) -> 
+    try     Mod:Op(A)
+    catch   _:_ -> ?nav 
+    end.
 
 mod_op_2(_,_,_,?nav) -> ?nav;
 mod_op_2(_,_,?nav,_) -> ?nav;
-mod_op_2(Mod,Op,A,B) -> Mod:Op(A,B).
+mod_op_2(Mod,Op,A,B) -> 
+    try     Mod:Op(A,B)
+    catch   _:_ -> ?nav
+    end.
 
 mod_op_3(_,_,_,_,?nav) -> ?nav;
 mod_op_3(_,_,_,?nav,_) -> ?nav;
 mod_op_3(_,_,?nav,_,_) -> ?nav;
-mod_op_3(Mod,Op,A,B,C) -> Mod:Op(A,B,C).
+mod_op_3(Mod,Op,A,B,C) -> 
+    try     Mod:Op(A,B,C)
+    catch   _:_ -> ?nav
+    end.
 
 math_fun({Op, A}) ->
     math_fun_unary({Op, expr_fun(A)});
@@ -727,7 +736,10 @@ to_text(T) ->
 to_tuple(B) when is_binary(B) -> imem_datatype:io_to_tuple(B,0);
 to_tuple(T) when is_tuple(T) -> T.
 
-to_list(B) when is_binary(B) -> imem_datatype:io_to_list(B,0);
+to_list(B) when is_binary(B) -> 
+    try imem_datatype:io_to_list(B,0)
+    catch _:_ -> ?nav
+    end;
 to_list(M) when is_map(M) -> maps:to_list(M);
 to_list(L) when is_list(L) -> L.
 
@@ -741,7 +753,10 @@ to_map(B) when is_binary(B) ->
             imem_json:decode(B, [return_maps])
     end.
 
-to_term(B) when is_binary(B) -> imem_datatype:io_to_term(B);
+to_term(B) when is_binary(B) -> 
+    try imem_datatype:io_to_term(B)
+    catch _:_ -> ?nav
+    end;
 to_term(T) -> T.
 
 to_json(N) when is_number(N) -> N; 
@@ -762,16 +777,33 @@ to_json(M) when is_map(M) ->  imem_json:encode(M);
 to_json(_) -> ?nav.
 
 to_pid(T) when is_pid(T) -> T;
-to_pid(B) -> imem_datatype:io_to_pid(B).
+to_pid(B) -> 
+    try imem_datatype:io_to_pid(B)
+    catch _:_ -> ?nav
+    end.
 
 to_existing_atom(A) when is_atom(A) -> A;
-to_existing_atom(B) when is_binary(B) -> ?binary_to_existing_atom(B);
-to_existing_atom(L) when is_list(L) -> list_to_existing_atom(L).
+to_existing_atom(B) when is_binary(B) -> 
+    try ?binary_to_existing_atom(B)
+    catch _:_ -> ?nav
+    end;
+to_existing_atom(L) when is_list(L) -> 
+    try list_to_existing_atom(L)
+    catch _:_ -> ?nav
+    end;
+to_existing_atom(_) -> ?nav.
 
-to_integer(B) when is_binary(B) -> to_integer(binary_to_list(B));
+to_integer(B) when is_binary(B) -> 
+    try to_integer(binary_to_list(B))
+    catch _:_ -> ?nav
+    end;
 to_integer(I) when is_integer(I) -> I;
 to_integer(F) when is_float(F) -> erlang:round(F);
-to_integer(L) when is_list(L) -> list_to_integer(L).
+to_integer(L) when is_list(L) -> 
+    try list_to_integer(L)
+    catch _:_ -> ?nav
+    end;
+to_integer(_) -> ?nav.
 
 to_float(B) when is_binary(B) -> to_float(binary_to_list(B));
 to_float(F) when is_float(F) -> F;
@@ -782,13 +814,19 @@ to_float(L) when is_list(L) ->
         _ -> list_to_float(L)
     end.
 
-to_number(B) when is_binary(B) -> to_number(binary_to_list(B));
+to_number(B) when is_binary(B) -> 
+    try to_number(binary_to_list(B))
+    catch _:_ -> ?nav
+    end;
 to_number(F) when is_float(F) -> F;
 to_number(I) when is_integer(I) -> I;
 to_number(L) when is_list(L) -> 
     case (catch list_to_integer(L)) of
         I when is_integer(I) -> I;
-        _ -> list_to_float(L)
+        _ -> 
+            try list_to_float(L)
+            catch _:_ -> ?nav
+            end
     end.
 
 to_string(B) when is_binary(B) ->   binary_to_list(B);

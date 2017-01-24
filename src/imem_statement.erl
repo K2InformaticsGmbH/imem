@@ -832,6 +832,8 @@ generate_virtual_data(tuple,_Rec,{'==',Tag,{const,Val}},MaxSize) when is_atom(Ta
     generate_virtual(tuple,{const,Val},MaxSize);
 generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,Val,MaxSize);
+generate_virtual_data(Table,_Rec,{'==',Val,Tag},MaxSize) when is_atom(Tag) ->
+    generate_virtual(Table,Val,MaxSize);
 generate_virtual_data(Table,_Rec,{'or',{'==',Tag,V1},OrEqual},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
 % generate_virtual_data(Table,_Rec,{'and',{'or',{'==',Tag,V1},OrEqual},_},MaxSize) when is_atom(Tag) ->
