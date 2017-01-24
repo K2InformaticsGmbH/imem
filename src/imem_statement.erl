@@ -1130,6 +1130,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,Pos,Fx};
+                    {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}=B} ->    
+                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal ->   ?replace(X,Cx,maps:put(Key,NewVal,?BoundVal(B,X)))
+                            end
+                        end,     
+                        {Cx,0,Fx};
                     {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
@@ -1261,6 +1271,13 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,Pos,Fx};
+                    {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}} ->
+                        Key=KeyBind,    % imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        Fx = fun(X) -> 
+                            NewVal = imem_datatype:io_to_db(Item,<<>>,term,undefined,undefined,<<>>,false,Value),
+                            ?ins_repl(X,Cx,maps:put(Key,NewVal,#{}))
+                        end,
+                        {Cx,0,Fx};
                     {nth,Pos,#bind{tind=?MainIdx,cind=Cx,name=Name,type=Type}} when is_number(Pos) ->
                         Fx = fun(X) -> 
                             NewVal = imem_datatype:io_to_db(Item,<<>>,list_type(Type),undefined,undefined,<<>>,false,Value),

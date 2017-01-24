@@ -585,7 +585,7 @@ is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                              
 is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;       %% Vector field can be edited ??????????
 is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;     %% Vector field can be edited ??????????
 is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
-is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op==element;Op=='nth';Op==json_value -> false;  %% editable projection
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op==element;Op=='nth';Op==json_value;Op==map_get -> false;  %% editable projection
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
 is_readonly(#bind{tind=0,cind=0,type=json}) -> false;
 is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]), 
