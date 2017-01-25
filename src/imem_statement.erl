@@ -1130,23 +1130,6 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,Pos,Fx};
-                    {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}=B} ->    
-                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
-                        Fx = fun(X) -> 
-                            OldVal = Proj(X),
-                            case {Value, OldVal} of 
-                                {?navio,?nav} ->
-                                    X;                % attribute still not present
-                                {?navio,_} ->
-                                    ?replace(X,Cx,maps:remove(Key,?BoundVal(B,X)));
-                                _ ->
-                                    case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
-                                        OldVal ->   X;
-                                        NewVal ->   ?replace(X,Cx,maps:put(Key,NewVal,?BoundVal(B,X)))
-                                    end
-                            end
-                        end,     
-                        {Cx,0,Fx};
                     {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
@@ -1198,6 +1181,45 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,0,Fx};
+                    {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}=B} ->    
+                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                % attribute still not present
+                                {?navio,_} ->
+                                    ?replace(X,Cx,maps:remove(Key,?BoundVal(B,X)));
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,maps:put(Key,NewVal,?BoundVal(B,X)))
+                                    end
+                            end
+                        end,     
+                        {Cx,0,Fx};
+                    {map_get,KeyBind,{map_get,ParentKeyBind,#bind{tind=?MainIdx,cind=Cx}=B}} ->    
+                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        ParentKey=imem_sql_expr:bind_tree(ParentKeyBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                % attribute still not present
+                                {?navio,_} ->
+                                    NewParent = maps:remove(Key,maps:get(ParentKey,?BoundVal(B,X))),
+                                    ?replace(X,Cx,maps:put(ParentKey,NewParent,?BoundVal(B,X))); 
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   
+                                            X;
+                                        NewVal ->   
+                                            NewParent = maps:put(Key,NewVal,maps:get(ParentKey,?BoundVal(B,X))),
+                                            ?replace(X,Cx,maps:put(ParentKey,NewParent,?BoundVal(B,X)))
+                                    end
+                            end
+                        end,     
+                        {Cx,1,Fx};
                     {json_value,AttName,{json_value,ParentName,#bind{tind=?MainIdx,cind=Cx}=B}} -> 
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1217,7 +1239,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                     end
                             end
                         end,     
-                        {Cx,0,Fx};
+                        {Cx,1,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
                 end;
             #bind{tind=0,cind=0} ->  
