@@ -1134,9 +1134,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
-                            case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
-                                OldVal ->   X;
-                                NewVal ->   ?replace(X,Cx,maps:put(Key,NewVal,?BoundVal(B,X)))
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                % attribute still not present
+                                {?navio,_} ->
+                                    ?replace(X,Cx,maps:remove(Key,?BoundVal(B,X)));
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,maps:put(Key,NewVal,?BoundVal(B,X)))
+                                    end
                             end
                         end,     
                         {Cx,0,Fx};
@@ -1238,7 +1245,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,Recs|Values]|CList], Acc) ->
     % ?Info("ColMap~n~p~n", [ColMap]),
     % ?Info("Values~n~p~n", [Values]),
     if  
@@ -1272,7 +1279,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                         end,     
                         {Cx,Pos,Fx};
                     {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}} ->
-                        Key=KeyBind,    % imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
                         Fx = fun(X) -> 
                             NewVal = imem_datatype:io_to_db(Item,<<>>,term,undefined,undefined,<<>>,false,Value),
                             ?ins_repl(X,Cx,maps:put(Key,NewVal,#{}))
