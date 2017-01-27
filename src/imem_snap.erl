@@ -65,7 +65,7 @@
                   ,imem_meta:physical_table_name(ddPerm@)
                   ,imem_meta:physical_table_name(mproConnectionProbe@)
                   ],
-    ExcludePatterns = [<<\"Dyn@.*\">>, <<\"Dyn$\">>, <<\"Audit_.*\">>, <<\"Hist$\">>, <<\"Idx$\">>],
+    ExcludePatterns = [<<\"Dyn@.*\">>, <<\"Dyn$\">>, <<\"Audit_.*\">>, <<\"Audit$\">>, <<\"Hist$\">>, <<\"Idx$\">>],
     ExcludePred = fun(AN) -> SN = atom_to_list(AN), (lists:usort([re:run(SN, E) || E <- ExcludePatterns]) == [nomatch]) end,
     Candidates = lists:filter(ExcludePred,imem_snap:all_snap_tables() -- ExcludeList), 
     [(fun() ->
