@@ -23,6 +23,7 @@
         , restore_chunked/3
         , del_dirtree/1
         , snap_file_count/0
+        , exclude_table_pattern/1
         ]).
 
 % gen_server callbacks
@@ -57,15 +58,17 @@
 -define(GET_SNAPSHOT_CHUNK_MAX_SIZE,?GET_CONFIG(snapshotChunkMaxSize,[],500,"Maximum snapshot chunk size (number of rows).")).
 -define(GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT,?GET_CONFIG(snapshotChunkFetchTimeout,[],20000,"Timeout in msec for fetching the next chunk from DB.")).
 -define(GET_SNAPSHOT_SCRIPT,?GET_CONFIG(snapshotScript,[],true,"Do we want to use a specialized snapshot script function?")).
+-define(GET_SNAPSHOT_EXCLUSION_PATTERNS,?GET_CONFIG(snapshotExclusuionPatterns,[], 
+        ["Dyn@.*", "Dyn$", "Audit_.*", "Audit$", "Hist$", "Idx$"], "Snapshot excusion table name patterns")).
+-define(PUT_SNAPSHOT_EXCLUSION_PATTERNS(__TablePatterns, __Remark), ?PUT_CONFIG(snapshotExclusuionPatterns, [], __TablePatterns, __Remark)).
 -define(GET_SNAPSHOT_SCRIPT_FUN,?GET_CONFIG(snapshotScriptFun,[],
-<<"fun() ->
+<<"fun(ExcludePatterns) ->
     ExcludeList = [dual, ddSize, ddNode
                   ,imem_meta:physical_table_name(ddCache@)
                   ,imem_meta:physical_table_name(ddSeCo@)
                   ,imem_meta:physical_table_name(ddPerm@)
                   ,imem_meta:physical_table_name(mproConnectionProbe@)
                   ],
-    ExcludePatterns = [<<\"Dyn@.*\">>, <<\"Dyn$\">>, <<\"Audit_.*\">>, <<\"Audit$\">>, <<\"Hist$\">>, <<\"Idx$\">>],
     ExcludePred = fun(AN) -> SN = atom_to_list(AN), (lists:usort([re:run(SN, E) || E <- ExcludePatterns]) == [nomatch]) end,
     Candidates = lists:filter(ExcludePred,imem_snap:all_snap_tables() -- ExcludeList), 
     [(fun() ->
@@ -778,7 +781,7 @@ do_snapshot(SnapFun) ->
     try
         ok = case SnapFun of
             undefined -> ok;
-            SnapFun when is_function(SnapFun) -> SnapFun()
+            SnapFun when is_function(SnapFun) -> SnapFun(?GET_SNAPSHOT_EXCLUSION_PATTERNS)
         end
     catch
         _:Err ->
@@ -801,6 +804,14 @@ snap_err(P,A) -> ?Error(P,A).
 snap_file_count() ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     length(filelib:wildcard("*.{bkp,zip}",SnapDir)).
+
+exclude_table_pattern(TablePattern) when is_binary(TablePattern) ->
+    exclude_table_pattern(binary_to_list(TablePattern));
+exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
+    ExPatterns = ?GET_SNAPSHOT_EXCLUSION_PATTERNS,
+    Remark = list_to_binary("Added " ++ TablePattern ++ " at "),
+    TimeStamp = imem_datatype:timestamp_to_io(os:timestamp()),
+    ?PUT_SNAPSHOT_EXCLUSION_PATTERNS([TablePattern | ExPatterns], <<Remark/binary, TimeStamp/binary>>).
 
 
 -ifdef(TEST).
