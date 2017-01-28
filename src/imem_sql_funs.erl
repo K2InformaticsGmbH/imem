@@ -4,17 +4,19 @@
 -include("imem_sql.hrl").
 
 -define( FilterFuns, 
-            [ list, prefix_ul, safe, concat, is_nav, is_val, is_key 
+            [ list, prefix_ul, concat, is_nav, is_val, is_key 
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
-            , to_atom, to_string, to_binstr, to_integer, to_float, to_number
+            , to_atom, to_string, to_binstr, to_binary, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
             , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff, md5
-            , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice
+            , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa, preview, preview_keys
+            , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float, safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
+            , nvl_atom, nvl_binary, nvl_binstr, nvl_float, nvl_integer, nvl_json, nvl_term, nvl_tuple
             , vnf_identity,vnf_lcase_ascii,vnf_lcase_ascii_ne,vnf_tokens,vnf_integer,vnf_float,vnf_datetime,vnf_datetime_ne
             ]).
 
@@ -43,6 +45,16 @@
         , is_val/1
         , is_nav/1
         , is_key/2
+        , is_binstr/1
+        , is_binterm/1
+        , is_decimal/1
+        , is_ipaddr/1
+        , is_name/1
+        , is_json/1
+        , is_string/1
+        , is_text/1
+        , is_timestamp/1
+        , is_datetime/1
         ]).
 
 -export([ re_compile/1
@@ -56,6 +68,7 @@
         , to_number/1
         , to_string/1
         , to_binstr/1
+        , to_binary/1
         , to_json/1
         , to_atom/1
         , to_existing_atom/1
@@ -97,6 +110,10 @@
         , mfa/3
         , slice/2
         , slice/3
+        , bits/2
+        , bits/3
+        , bytes/2
+        , bytes/3
         , preview/3
         , preview_keys/3
         ]).
@@ -105,20 +122,9 @@
 filter_funs() -> ?FilterFuns.
 
 unary_fun_bind_type(B) when is_binary(B) ->     unary_fun_bind_type(binary_to_list(B));
-unary_fun_bind_type("to_json") ->               #bind{type=binstr,default=?nav};
 unary_fun_bind_type([$t,$o,$_|_]) ->            #bind{type=binstr,default= <<>>};
 unary_fun_bind_type([$#,_]) ->                  #bind{type=json,default= <<>>};     % #key(s), #value(s) for now
 unary_fun_bind_type([$v,$n,$f,$_|_]) ->         #bind{type=term,default= <<>>};     % vnf_.... value normalizing functions
-unary_fun_bind_type("is_integer") ->            #bind{type=integer,default=?nav};
-unary_fun_bind_type("is_float") ->              #bind{type=float,default=?nav};
-unary_fun_bind_type("is_boolean") ->            #bind{type=boolean,default=?nav};
-unary_fun_bind_type("is_binstr") ->             #bind{type=binstr,default= <<>>};
-unary_fun_bind_type("is_string") ->             #bind{type=string,default=[]};
-unary_fun_bind_type("is_tuple") ->              #bind{type=tuple,default=undefined};
-unary_fun_bind_type("is_list") ->               #bind{type=list,default=[]};
-unary_fun_bind_type("is_ipaddr") ->             #bind{type=ipaddr,default=undefined};
-unary_fun_bind_type("is_datetime") ->           #bind{type=datetime,default=undefined};
-unary_fun_bind_type("is_timestamp") ->          #bind{type=timestamp,default=undefined};
 unary_fun_bind_type([$i,$s,$_|_]) ->            #bind{type=term,default=undefined};
 unary_fun_bind_type("length") ->                #bind{type=list,default=[]};
 unary_fun_bind_type("hd") ->                    #bind{type=list,default=[]};
@@ -137,6 +143,27 @@ unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
 unary_fun_bind_type("md5") ->                   #bind{type=binstr,default= <<>>};
+unary_fun_bind_type("safe_atom") ->             #bind{type=atom,default=?nav};
+unary_fun_bind_type("safe_binary") ->           #bind{type=binary,default=?nav};
+unary_fun_bind_type("safe_binstr") ->           #bind{type=binstr,default=?nav};
+unary_fun_bind_type("safe_binterm") ->          #bind{type=binterm,default=?nav};
+unary_fun_bind_type("safe_boolean") ->          #bind{type=boolean,default=?nav};
+unary_fun_bind_type("safe_datetime") ->         #bind{type=datetime,default=?nav};
+unary_fun_bind_type("safe_decimal") ->          #bind{type=decimal,default=?nav};
+unary_fun_bind_type("safe_float") ->            #bind{type=float,default=?nav};
+unary_fun_bind_type("safe_function") ->         #bind{type=function,default=?nav};
+unary_fun_bind_type("safe_integer") ->          #bind{type=integer,default=?nav};
+unary_fun_bind_type("safe_ipaddr") ->           #bind{type=ipaddr,default=?nav};
+unary_fun_bind_type("safe_json") ->             #bind{type=json,default=?nav};        
+unary_fun_bind_type("safe_list") ->             #bind{type=list,default=?nav};
+unary_fun_bind_type("safe_map") ->              #bind{type=term,default=?nav};
+unary_fun_bind_type("safe_name") ->             #bind{type=binstr,default=?nav};
+unary_fun_bind_type("safe_pid") ->              #bind{type=pid,default=?nav};
+unary_fun_bind_type("safe_string") ->           #bind{type=string,default=?nav};
+unary_fun_bind_type("safe_term") ->             #bind{type=term,default=?nav};
+unary_fun_bind_type("safe_text") ->             #bind{type=binstr,default=?nav};
+unary_fun_bind_type("safe_timestamp") ->        #bind{type=timestamp,default=?nav};
+unary_fun_bind_type("safe_tuple") ->            #bind{type=tuple,default=?nav};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
@@ -161,24 +188,48 @@ unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
 unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>};
-unary_fun_result_type("to_json") ->             #bind{type=json,default=?nav};
-unary_fun_result_type(String) ->            
-    case re:run(String,"to_(.*)$",[{capture,[1],list}]) of
-        {match,["binstr"]}->                    #bind{type=binstr,default=?nav};
-        {match,["term"]}->                      #bind{type=term,default=?nav};
-        {match,["binterm"]}->                   #bind{type=binterm,default=?nav};
-        {match,["pid"]}->                       #bind{type=pid,default=?nav};
-        {match,["boolean"]}->                   #bind{type=boolean,default=?nav};
-        {match,["decimal"]}->                   #bind{type=decimal,default=?nav};
-        {match,["float"]}->                     #bind{type=float,default=?nav};
-        {match,["integer"]}->                   #bind{type=integer,default=?nav};
-        {match,["list"]}->                      #bind{type=list,default=[]};
-        {match,["name"]}->                      #bind{type=binstr,default=?nav};
-        {match,["string"]}->                    #bind{type=string,default=?nav};
-        {match,["text"]}->                      #bind{type=binstr,default=?nav};
-        {match,[Name]}->                        #bind{type=list_to_existing_atom(Name),default=undefined};
-        nomatch ->                              #bind{type=number,default=?nav}
-    end.
+unary_fun_result_type("to_atom") ->             #bind{type=atom,default=?nav};
+unary_fun_result_type("to_binary") ->           #bind{type=binary,default=?nav};
+unary_fun_result_type("to_binstr") ->           #bind{type=binstr,default=?nav};
+unary_fun_result_type("to_binterm") ->          #bind{type=binterm,default=?nav};
+unary_fun_result_type("to_boolean") ->          #bind{type=boolean,default=?nav};
+unary_fun_result_type("to_datetime") ->         #bind{type=datetime,default=?nav};
+unary_fun_result_type("to_decimal") ->          #bind{type=decimal,default=?nav};
+unary_fun_result_type("to_float") ->            #bind{type=float,default=?nav};
+unary_fun_result_type("to_integer") ->          #bind{type=integer,default=?nav};
+unary_fun_result_type("to_json") ->             #bind{type=json,default=?nav};        
+unary_fun_result_type("to_list") ->             #bind{type=list,default=[]};
+unary_fun_result_type("to_map") ->              #bind{type=term,default=?nav};
+unary_fun_result_type("to_name") ->             #bind{type=binstr,default=?nav};
+unary_fun_result_type("to_number") ->           #bind{type=number,default=?nav};
+unary_fun_result_type("to_pid") ->              #bind{type=pid,default=?nav};
+unary_fun_result_type("to_string") ->           #bind{type=string,default=?nav};
+unary_fun_result_type("to_term") ->             #bind{type=term,default=?nav};
+unary_fun_result_type("to_text") ->             #bind{type=binstr,default=?nav};
+unary_fun_result_type("to_timestamp") ->        #bind{type=timestamp,default=?nav};
+unary_fun_result_type("to_tuple") ->            #bind{type=tuple,default=?nav};
+unary_fun_result_type("safe_atom") ->           #bind{type=atom,default=?nav};
+unary_fun_result_type("safe_binary") ->         #bind{type=binary,default=?nav};
+unary_fun_result_type("safe_binstr") ->         #bind{type=binstr,default=?nav};
+unary_fun_result_type("safe_binterm") ->        #bind{type=binterm,default=?nav};
+unary_fun_result_type("safe_boolean") ->        #bind{type=boolean,default=?nav};
+unary_fun_result_type("safe_datetime") ->       #bind{type=datetime,default=?nav};
+unary_fun_result_type("safe_decimal") ->        #bind{type=decimal,default=?nav};
+unary_fun_result_type("safe_float") ->          #bind{type=float,default=?nav};
+unary_fun_result_type("safe_function") ->       #bind{type=function,default=?nav};
+unary_fun_result_type("safe_integer") ->        #bind{type=integer,default=?nav};
+unary_fun_result_type("safe_ipaddr") ->         #bind{type=ipaddr,default=?nav};
+unary_fun_result_type("safe_json") ->           #bind{type=json,default=?nav};        
+unary_fun_result_type("safe_list") ->           #bind{type=list,default=[]};
+unary_fun_result_type("safe_map") ->            #bind{type=term,default=?nav};
+unary_fun_result_type("safe_name") ->           #bind{type=binstr,default=?nav};
+unary_fun_result_type("safe_pid") ->            #bind{type=pid,default=?nav};
+unary_fun_result_type("safe_string") ->         #bind{type=string,default=?nav};
+unary_fun_result_type("safe_term") ->           #bind{type=term,default=?nav};
+unary_fun_result_type("safe_text") ->           #bind{type=binstr,default=?nav};
+unary_fun_result_type("safe_timestamp") ->      #bind{type=timestamp,default=?nav};
+unary_fun_result_type("safe_tuple") ->          #bind{type=tuple,default=?nav};
+unary_fun_result_type(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_bind_type1(B) when is_binary(B) ->   binary_fun_bind_type1(binary_to_list(B));
 binary_fun_bind_type1("element") ->             #bind{type=integer,default=?nav};
@@ -193,7 +244,19 @@ binary_fun_bind_type1("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type1("json_value") ->          #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("json_diff") ->           #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("phash2") ->              #bind{type=term,default=?nav};
+binary_fun_bind_type1("nvl_binstr") ->          #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("nvl_binary") ->          #bind{type=binary,default=?nav};
+binary_fun_bind_type1("nvl_integer") ->         #bind{type=integer,default=?nav};
+binary_fun_bind_type1("nvl_json") ->            #bind{type=json,default=?nav};
+binary_fun_bind_type1("nvl_float") ->           #bind{type=float,default=?nav};
+binary_fun_bind_type1("nvl_atom") ->            #bind{type=atom,default=?nav};
+binary_fun_bind_type1("nvl_list") ->            #bind{type=list,default=?nav};
+binary_fun_bind_type1("nvl_string") ->          #bind{type=string,default=?nav};
+binary_fun_bind_type1("nvl_term") ->            #bind{type=term,default=?nav};
+binary_fun_bind_type1("nvl_tuple") ->           #bind{type=tuple,default=?nav};
 binary_fun_bind_type1("slice") ->               #bind{type=binstr,default=?nav};
+binary_fun_bind_type1("bits") ->                #bind{type=binary,default=?nav};
+binary_fun_bind_type1("bytes") ->               #bind{type=binary,default=?nav};
 binary_fun_bind_type1("map_get") ->             #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("map_merge") ->           #bind{type=map,default= #{}};
 binary_fun_bind_type1("map_remove") ->          #bind{type=term,default=?nav};
@@ -214,7 +277,19 @@ binary_fun_bind_type2("json_obj_proj") ->       #bind{type=list,default=[]};
 binary_fun_bind_type2("json_value") ->          #bind{type=json,default=[]};
 binary_fun_bind_type2("json_diff") ->           #bind{type=json,default=?nav};
 binary_fun_bind_type2("phash2") ->              #bind{type=integer,default=27};
+binary_fun_bind_type2("nvl_atom") ->            #bind{type=atom,default=?nav};
+binary_fun_bind_type2("nvl_binary") ->          #bind{type=binary,default=?nav};
+binary_fun_bind_type2("nvl_binstr") ->          #bind{type=binstr,default=?nav};
+binary_fun_bind_type2("nvl_float") ->           #bind{type=float,default=?nav};
+binary_fun_bind_type2("nvl_integer") ->         #bind{type=integer,default=?nav};
+binary_fun_bind_type2("nvl_json") ->            #bind{type=json,default=?nav};
+binary_fun_bind_type2("nvl_list") ->            #bind{type=list,default=?nav};
+binary_fun_bind_type2("nvl_string") ->          #bind{type=string,default=?nav};
+binary_fun_bind_type2("nvl_term") ->            #bind{type=term,default=?nav};
+binary_fun_bind_type2("nvl_tuple") ->           #bind{type=tuple,default=?nav};
 binary_fun_bind_type2("slice") ->               #bind{type=integer,default=1};
+binary_fun_bind_type2("bits") ->                #bind{type=integer,default=0};
+binary_fun_bind_type2("bytes") ->               #bind{type=integer,default=0};
 binary_fun_bind_type2("map_get") ->             #bind{type=map,default= #{}};
 binary_fun_bind_type2("map_merge") ->           #bind{type=map,default= #{}};
 binary_fun_bind_type2("map_remove") ->          #bind{type=map,default= #{}};
@@ -235,7 +310,19 @@ binary_fun_result_type("json_obj_proj") ->      #bind{type=list,default=[]};
 binary_fun_result_type("json_value") ->         #bind{type=json,default=[]};
 binary_fun_result_type("json_diff") ->          #bind{type=json,default=[]};
 binary_fun_result_type("phash2") ->             #bind{type=integer,default=0};
+binary_fun_result_type("nvl_atom") ->           #bind{type=atom,default=?nav};
+binary_fun_result_type("nvl_binary") ->         #bind{type=binary,default=?nav};
+binary_fun_result_type("nvl_binstr") ->         #bind{type=binstr,default=?nav};
+binary_fun_result_type("nvl_float") ->          #bind{type=float,default=?nav};
+binary_fun_result_type("nvl_integer") ->        #bind{type=integer,default=?nav};
+binary_fun_result_type("nvl_json") ->           #bind{type=json,default=?nav};
+binary_fun_result_type("nvl_list") ->           #bind{type=list,default=?nav};
+binary_fun_result_type("nvl_string") ->         #bind{type=string,default=?nav};
+binary_fun_result_type("nvl_term") ->           #bind{type=term,default=?nav};
+binary_fun_result_type("nvl_tuple") ->          #bind{type=tuple,default=?nav};
 binary_fun_result_type("slice") ->              #bind{type=binstr,default=?nav};
+binary_fun_result_type("bits") ->               #bind{type=binary,default=?nav};
+binary_fun_result_type("bytes") ->              #bind{type=binary,default=?nav};
 binary_fun_result_type("map_get") ->            #bind{type=map,default=?nav};
 binary_fun_result_type("map_merge") ->          #bind{type=map,default=?nav};
 binary_fun_result_type("map_remove") ->         #bind{type=map,default=?nav};
@@ -247,6 +334,8 @@ binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 ternary_fun_bind_type1(B) when is_binary(B) ->  ternary_fun_bind_type1(binary_to_list(B));
 ternary_fun_bind_type1("mfa") ->                #bind{type=atom,default=?nav};
 ternary_fun_bind_type1("slice") ->              #bind{type=binstr,default=?nav};
+ternary_fun_bind_type1("bits") ->               #bind{type=binary,default=?nav};
+ternary_fun_bind_type1("bytes") ->              #bind{type=binary,default=?nav};
 ternary_fun_bind_type1("preview") ->            #bind{type=binstr,default=?nav};
 ternary_fun_bind_type1("preview_keys") ->       #bind{type=binstr,default=?nav};
 ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
@@ -254,18 +343,24 @@ ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
 ternary_fun_bind_type2(B) when is_binary(B) ->  ternary_fun_bind_type2(binary_to_list(B));
 ternary_fun_bind_type2("mfa") ->                #bind{type=atom,default=?nav};
 ternary_fun_bind_type2("slice") ->              #bind{type=integer,default=1};
+ternary_fun_bind_type2("bits") ->               #bind{type=integer,default=0};
+ternary_fun_bind_type2("bytes") ->              #bind{type=integer,default=0};
 ternary_fun_bind_type2("preview") ->            #bind{type=list,default=?nav};  % or integer index id accepted
 ternary_fun_bind_type2("preview_keys") ->       #bind{type=list,default=?nav};  % or integer index id accepted
 ternary_fun_bind_type2(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_bind_type3(B) when is_binary(B) ->  ternary_fun_bind_type3(binary_to_list(B));
 ternary_fun_bind_type3("slice") ->              #bind{type=integer,default=1};
+ternary_fun_bind_type3("bits") ->               #bind{type=integer,default=0};
+ternary_fun_bind_type3("bytes") ->              #bind{type=integer,default=0};
 ternary_fun_bind_type3("preview") ->            #bind{type=binstr,default=?nav};    % or integer search token accepted 
 ternary_fun_bind_type3("preview_keys") ->       #bind{type=binstr,default=?nav};    % or integer search token accepted
 ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_result_type(B) when is_binary(B) -> ternary_fun_result_type(binary_to_list(B));
 ternary_fun_result_type("slice") ->             #bind{type=binstr,default=?nav};
+ternary_fun_result_type("bits") ->              #bind{type=binary,default=?nav};
+ternary_fun_result_type("bytes") ->             #bind{type=binary,default=?nav};
 ternary_fun_result_type("preview") ->           #bind{type=list,default=?nav};
 ternary_fun_result_type("preview_keys") ->      #bind{type=list,default=?nav};
 ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
@@ -353,60 +448,60 @@ expr_fun(#bind{tind=0,cind=0,btree=BTree}) -> expr_fun(BTree);
 expr_fun({Op, A, B}) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='/=' ->
     comp_fun({Op, A, B}); 
 %% Mathematical expressions    
-expr_fun({'pi'}) -> math:pi();
+expr_fun({pi}) -> math:pi();
 expr_fun({Op, A}) when Op=='+';Op=='-' ->
     math_fun({Op, A}); 
-expr_fun({Op, A}) when Op=='sqrt';Op=='log';Op=='log10';Op=='exp';Op=='erf';Op=='erfc' ->
-    module_fun('math', {Op, A});
-expr_fun({Op, A}) when Op=='sin';Op=='cos';Op=='tan';Op=='asin';Op=='acos';Op=='atan' ->
-    module_fun('math', {Op, A});
-expr_fun({Op, A}) when Op=='sinh';Op=='cosh';Op=='tanh';Op=='asinh';Op=='acosh';Op=='atanh' ->
-    module_fun('math', {Op, A});
+expr_fun({Op, A}) when Op==sqrt;Op==log;Op==log10;Op==exp;Op==erf;Op==erfc ->
+    module_fun(math, {Op, A});
+expr_fun({Op, A}) when Op==sin;Op==cos;Op==tan;Op==asin;Op==acos;Op==atan ->
+    module_fun(math, {Op, A});
+expr_fun({Op, A}) when Op==sinh;Op==cosh;Op==tanh;Op==asinh;Op==acosh;Op==atanh ->
+    module_fun(math, {Op, A});
 expr_fun({Op, A, B}) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
     math_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op=='pow';Op=='atan2' ->
-    module_fun('math', {Op, A, B});
+expr_fun({Op, A, B}) when Op==pow;Op==atan2 ->
+    module_fun(math, {Op, A, B});
 %% Erlang module
-expr_fun({Op, A}) when Op=='abs';Op=='length';Op=='hd';Op=='tl';Op=='size';Op=='tuple_size';Op=='round';Op=='trunc' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='atom_to_list';Op=='binary_to_float';Op=='binary_to_integer';Op=='binary_to_list' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='bitstring_to_list';Op=='binary_to_term';Op=='bit_size';Op=='byte_size';Op=='crc32' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='float';Op=='float_to_binary';Op=='float_to_list';Op=='fun_to_list';Op=='tuple_to_list' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='integer_to_binary';Op=='integer_to_list';Op=='fun_to_list';Op=='list_to_float' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='list_to_integer';Op=='list_to_pid';Op=='list_to_tuple';Op=='phash2';Op=='pid_to_list' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='is_atom';Op=='is_binary';Op=='is_bitstring';Op=='is_boolean' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='is_float';Op=='is_function';Op=='is_integer';Op=='is_list';Op=='is_number' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A}) when Op=='is_pid';Op=='is_port';Op=='is_reference';Op=='is_tuple';Op=='md5' ->
-    module_fun('erlang', {Op, A});
-expr_fun({Op, A, B}) when Op=='is_function';Op=='is_record';Op=='atom_to_binary';Op=='binary_part' ->
-    module_fun('erlang', {Op, A, B});
-expr_fun({Op, A, B}) when  Op=='integer_to_binary';Op=='integer_to_list';Op=='list_to_binary';Op=='list_to_bitstring' ->
-    module_fun('erlang', {Op, A, B});
-expr_fun({Op, A, B}) when  Op=='list_to_integer';Op=='max';Op=='min';Op=='phash2' ->
-    module_fun('erlang', {Op, A, B});
-expr_fun({Op, A, B}) when Op=='crc32';Op=='float_to_binary';Op=='float_to_list' ->
-    module_fun('erlang', {Op, A, B});
-expr_fun({Op, A, B}) when Op=='atom_to_binary';Op=='binary_to_integer';Op=='binary_to_integer';Op=='binary_to_term' ->
-    module_fun('erlang', {Op, A, B});
+expr_fun({Op, A}) when Op==abs;Op==length;Op==hd;Op==tl;Op==size;Op==tuple_size;Op==round;Op==trunc ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==atom_to_list;Op==binary_to_float;Op==binary_to_integer;Op==binary_to_list ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==bitstring_to_list;Op==binary_to_term;Op==bit_size;Op==byte_size;Op==crc32 ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==float;Op==float_to_binary;Op==float_to_list;Op==fun_to_list;Op==tuple_to_list ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==integer_to_binary;Op==integer_to_list;Op==fun_to_list;Op==list_to_float ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==list_to_integer;Op==list_to_pid;Op==list_to_tuple;Op==phash2;Op==pid_to_list ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==is_atom;Op==is_binary;Op==is_bitstring;Op==is_boolean ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==is_atom;Op==is_binary;Op==is_boolean;Op==is_integer;Op==is_float;Op==is_function;Op==is_list;Op==is_map;Op==is_pid;Op==is_term;Op==is_tuple ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A}) when Op==is_pid;Op==is_port;Op==is_reference;Op==is_tuple;Op==md5 ->
+    module_fun(erlang, {Op, A});
+expr_fun({Op, A, B}) when Op==is_function;Op==is_record;Op==atom_to_binary;Op==binary_part ->
+    module_fun(erlang, {Op, A, B});
+expr_fun({Op, A, B}) when  Op==integer_to_binary;Op==integer_to_list;Op==list_to_binary;Op==list_to_bitstring ->
+    module_fun(erlang, {Op, A, B});
+expr_fun({Op, A, B}) when  Op==list_to_integer;Op==max;Op==min;Op==phash2 ->
+    module_fun(erlang, {Op, A, B});
+expr_fun({Op, A, B}) when Op==crc32;Op==float_to_binary;Op==float_to_list ->
+    module_fun(erlang, {Op, A, B});
+expr_fun({Op, A, B}) when Op==atom_to_binary;Op==binary_to_integer;Op==binary_to_integer;Op==binary_to_term ->
+    module_fun(erlang, {Op, A, B});
 %% lists module
-expr_fun({Op, A}) when Op=='last';Op=='reverse';Op=='sort';Op=='usort' ->
-    module_fun('lists', {Op, A});
+expr_fun({Op, A}) when Op==last;Op==reverse;Op==sort;Op==usort ->
+    module_fun(lists, {Op, A});
 expr_fun({Op, A}) when Op==vnf_identity;Op==vnf_lcase_ascii;Op==vnf_lcase_ascii_ne;Op==vnf_tokens;Op==vnf_integer;Op==vnf_float;Op==vnf_datetime;Op==vnf_datetime_ne ->
-    module_fun('imem_index', {Op, A});
-expr_fun({Op, A, B}) when Op=='nth';Op=='member';Op=='merge';Op=='nthtail';Op=='seq';Op=='sublist';Op=='subtract';Op=='usort' ->
-    module_fun('lists', {Op, A, B});
+    module_fun(imem_index, {Op, A});
+expr_fun({Op, A, B}) when Op==nth;Op==member;Op==merge;Op==nthtail;Op==seq;Op==sublist;Op==subtract;Op==usort ->
+    module_fun(lists, {Op, A, B});
 %% maps module
-expr_fun({Op, A}) when Op=='map_size' ->
-    module_fun('maps', {size, A});
-expr_fun({Op, A, B}) when Op=='map_get';Op=='map_merge';Op=='map_remove';Op=='map_with';Op=='map_without'->
-    module_fun('maps', {list_to_atom(lists:nthtail(4,atom_to_list(Op))), A, B});
+expr_fun({Op, A}) when Op==map_size ->
+    module_fun(maps, {size, A});
+expr_fun({Op, A, B}) when Op==map_get;Op==map_merge;Op==map_remove;Op==map_with;Op==map_without->
+    module_fun(maps, {list_to_atom(lists:nthtail(4,atom_to_list(Op))), A, B});
 %% Logical expressions
 expr_fun({'not', A}) ->
     case expr_fun(A) of
@@ -436,31 +531,33 @@ expr_fun({'or', A, B}) ->
         {_,_} ->        fun(X) -> ternary_or(Fa(X),Fb(X)) end
     end;
 %% Unary custom filters
-expr_fun({'safe', A}) ->
+expr_fun({Op, A}) when Op==safe_atom;Op==safe_binary;Op==safe_binstr;Op==safe_binterm;Op==safe_boolean;Op==safe_datetime;Op==safe_decimal;Op==safe_integer;Op==safe_ipaddr;Op==safe_json;Op==safe_float;Op==safe_json;Op==safe_list;Op==safe_map;Op==safe_name;Op==safe_pid;Op==safe_string;Op==safe_term;Op==safe_text;Op==safe_timestamp;Op==safe_tuple ->
     safe_fun(A);
-expr_fun({Op, A}) when Op=='to_string';Op=='to_binstr';Op=='to_binterm';Op=='to_integer';Op=='to_float';Op=='to_number'->
+expr_fun({Op, A}) when Op==to_atom;Op==to_binary;Op==to_binstr;Op==to_binterm;Op==to_boolean;Op==to_datetime;Op==to_decimal;Op==to_json;Op==to_float;Op==to_integer;Op==to_json;Op==to_list ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_atom';Op=='to_tuple';Op=='to_list';Op=='to_map';Op=='to_term';Op=='to_pid';Op=='to_name';Op=='to_text';Op=='is_nav';Op=='is_val' ->
+expr_fun({Op, A}) when Op==to_map;Op==to_name;Op==to_number;Op==to_pid;Op==to_string;Op==to_term;Op==to_text;Op==to_timestamp;Op==to_tuple ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='to_datetime';Op=='to_timestamp';Op=='to_ipaddr';Op=='to_json' ->
+expr_fun({Op, A}) when Op==from_binterm;Op==prefix_ul;Op==phash2;Op==is_nav;Op==is_val ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='from_binterm';Op=='prefix_ul';Op=='phash2' ->
+expr_fun({Op, A}) when Op==is_binstr;Op==is_binterm;Op==is_datetime;Op==is_decimal;Op==is_ipaddr;Op==is_json;Op==is_json;Op==is_name;Op==is_string;Op==is_text;Op==is_timestamp ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op=='json_to_list'->
+expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op==json_to_list->
     unary_json_fun({Op, A});
 expr_fun({Op, A}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
 %% Binary custom filters
-expr_fun({Op, A, B}) when Op=='is_member';Op=='is_like';Op=='is_regexp_like';Op=='element';Op=='concat';Op=='is_key' ->
+expr_fun({Op, A, B}) when Op==is_member;Op==is_like;Op==is_regexp_like;Op==element;Op==concat;Op==is_key ->
     binary_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='slice' ->
+expr_fun({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==slice;Op==bits;Op==bytes ->
     binary_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff' ->
+expr_fun({Op, A, B}) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op==nvl_float;Op==nvl_integer;Op==nvl_json;Op==nvl_term;Op==nvl_tuple ->
+    binary_fun({Op, A, B});
+expr_fun({Op, A, B}) when Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
 %% Ternary custom filters
-expr_fun({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys' ->
+expr_fun({Op, A, B, C}) when Op==remap;Op==mfa;Op==slice;Op==preview;Op==preview_keys;Op==bits;Op==bytes ->
     ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
@@ -483,21 +580,6 @@ safe_fun_final(A) ->
         true ->             fun(X) -> try A(X) catch _:_ -> ?nav end end;       
         ABind ->            fun(X) -> try ?BoundVal(ABind,X) catch _:_ -> ?nav end end
     end.
-
-% list_fun([],Acc,false) -> lists:reverse(Acc);
-% list_fun([],Acc,true) ->  fun(X) -> [case is_function(F) of true -> F(X); false -> F end || F <- lists:reverse(Acc)] end;
-% list_fun([A|Rest],Acc,false) -> 
-%     case bind_action(A) of 
-%         false ->        list_fun(Rest,[A|Acc],false);
-%         true ->         fun(X) -> list_fun(Rest,[A(X)|Acc],true) end;
-%         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
-%     end;
-% list_fun([A|Rest],Acc,true) -> 
-%     case bind_action(A) of 
-%         false ->        list_fun(Rest,[A|Acc],true);
-%         true ->         fun(X) -> list_fun(Rest,[A(X)|Acc],true) end;
-%         ABind ->        fun(X) -> list_fun(Rest,[?BoundVal(ABind,X)|Acc],true) end
-%     end.
 
 list_fun([],Acc) ->     Acc;
 list_fun([A],Acc) when is_list(Acc) -> 
@@ -565,6 +647,8 @@ mod_op_1(Mod,Op,A) ->
     catch   _:_ -> ?nav 
     end.
 
+mod_op_2(?MODULE,Op,?nav,B) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op==nvl_float;Op==nvl_integer;Op==nvl_json;Op==nvl_term;Op==nvl_tuple -> B;
+mod_op_2(?MODULE,Op,A,_) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op==nvl_float;Op==nvl_integer;Op==nvl_json;Op==nvl_term;Op==nvl_tuple -> A;
 mod_op_2(_,_,_,?nav) -> ?nav;
 mod_op_2(_,_,?nav,_) -> ?nav;
 mod_op_2(Mod,Op,A,B) -> 
@@ -678,13 +762,13 @@ unary_fun({Op, A}) ->
     unary_fun_final( {Op, expr_fun(A)});
 unary_fun(Value) -> Value.
 
-unary_fun_final({'is_val', A}) -> 
+unary_fun_final({is_val, A}) -> 
     case bind_action(A) of 
         false ->        is_val(A);
         true ->         fun(X) -> Ab=A(X),is_val(Ab) end;
         ABind ->        fun(X) -> Ab=?BoundVal(ABind,X),is_val(Ab) end
     end;
-unary_fun_final({'is_nav', A}) -> 
+unary_fun_final({is_nav, A}) -> 
     case bind_action(A) of 
         false ->        is_nav(A);
         true ->         fun(X) -> Ab=A(X),is_nav(Ab) end;
@@ -702,6 +786,29 @@ is_nav(_) -> false.
 
 is_val(?nav) -> false;
 is_val(_) -> true.
+
+is_binstr(A) -> is_binary(A).   % TODO: not precise enough
+
+is_binterm(A) -> is_binary(A).  % TODO: not precise enough
+
+is_datetime({{A,B,C},{D,E,F}}) when is_integer(A),is_integer(B),is_integer(C),is_integer(D),is_integer(E),is_integer(F) -> true;
+is_datetime(_) -> false.        % TODO: not precise enough
+
+is_decimal(A) -> is_integer(A).
+
+is_ipaddr({A,B,C,D}) when is_integer(A),is_integer(B),is_integer(C),is_integer(D) -> true; 
+is_ipaddr(_) -> false.          % TODO: not precise enough
+
+is_json(A) ->   is_binary(A).   % TODO: not precise enough
+
+is_name(A) ->   is_binary(A).   % TODO: not precise enough
+
+is_string(A) -> is_list(A).     % TODO: not precise enough
+
+is_text(A) ->   is_list(A).     % TODO: not precise enough
+
+is_timestamp({A,B,C}) when is_integer(A),is_integer(B),is_integer(C) -> true;
+is_timestamp(_) -> false.       % TODO: not precise enough
 
 to_atom(A) when is_atom(A) -> A;
 to_atom(B) when is_binary(B) -> ?binary_to_atom(B);
@@ -760,9 +867,9 @@ to_term(B) when is_binary(B) ->
 to_term(T) -> T.
 
 to_json(N) when is_number(N) -> N; 
-to_json('true') -> true;
-to_json('false') -> false;
-to_json('null') -> null;
+to_json(true) -> true;
+to_json(false) -> false;
+to_json(null) -> null;
 to_json(B) when is_binary(B) ->
     case catch imem_json:encode(imem_json:decode(B, [return_maps])) of 
         JO when is_binary(JO) -> JO;
@@ -841,6 +948,10 @@ to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
 to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
+to_binary(B) when is_binary(B) ->   B;
+to_binary(I) when is_integer(I) -> <<I/integer>>;
+to_binary(_) -> ?nav.
+
 to_binterm(B) when is_binary(B) ->   imem_datatype:io_to_binterm(B);
 to_binterm(T) ->                     imem_datatype:term_to_binterm(T).
 
@@ -912,7 +1023,7 @@ binary_fun(Value) -> Value.
         true -> element(__A,__B)
     end).
 
-binary_fun_final({'element', A, B})  ->
+binary_fun_final({element, A, B})  ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    ?ElementOpBlock(A,B);
         {false,true} ->     fun(X) -> Bb=B(X),?ElementOpBlock(A,Bb) end;
@@ -924,7 +1035,7 @@ binary_fun_final({'element', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),?ElementOpBlock(Ab,Bb) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),?ElementOpBlock(Ab,Bb) end
     end;
-binary_fun_final({'is_like', A, B})  ->
+binary_fun_final({is_like, A, B})  ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    re_match(like_compile(B),A);
         {false,true} ->     fun(X) -> Bb=B(X),re_match(like_compile(Bb),A) end;
@@ -936,7 +1047,7 @@ binary_fun_final({'is_like', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(like_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(like_compile(Bb),Ab) end
     end;
-binary_fun_final({'is_regexp_like', A, B})  ->
+binary_fun_final({is_regexp_like, A, B})  ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    re_match(re_compile(B),A);
         {false,true} ->     fun(X) -> Bb=B(X),re_match(re_compile(Bb),A) end;
@@ -948,7 +1059,19 @@ binary_fun_final({'is_regexp_like', A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({Op, A, B}) when Op=='to_decimal';Op=='from_decimal';Op=='add_dt';Op=='add_ts';Op=='is_member';Op=='concat';Op=='json_arr_proj';Op=='json_obj_proj';Op=='json_value';Op=='json_diff';Op=='is_key';Op=='slice' ->
+binary_fun_final({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==is_member;Op==concat;Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff;Op==is_key;Op==slice;Op==bits;Op==bytes ->
+    case {bind_action(A),bind_action(B)} of 
+        {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
+        {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
+        {false,BBind} ->    fun(X) -> Bb=?BoundVal(BBind,X),mod_op_2(?MODULE,Op,A,Bb) end;
+        {true,false} ->     fun(X) -> Ab=A(X),mod_op_2(?MODULE,Op,Ab,B) end;
+        {true,true} ->      fun(X) -> Ab=A(X),Bb=B(X),mod_op_2(?MODULE,Op,Ab,Bb) end;
+        {true,BBind} ->     fun(X) -> Ab=A(X),Bb=?BoundVal(BBind,X),mod_op_2(?MODULE,Op,Ab,Bb) end;
+        {ABind,false} ->    fun(X) -> Ab=?BoundVal(ABind,X),mod_op_2(?MODULE,Op,Ab,B) end;
+        {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),mod_op_2(?MODULE,Op,Ab,Bb) end;
+        {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_2(?MODULE,Op,Ab,Bb) end
+    end;
+binary_fun_final({Op, A, B}) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op==nvl_float;Op==nvl_integer;Op==nvl_json;Op==nvl_term;Op==nvl_tuple ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -1120,7 +1243,7 @@ ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
         true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
         CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
     end;
-ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys' ->
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys';Op=='bits';Op=='bytes' ->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
@@ -1165,7 +1288,6 @@ preview(IndexTable, Options, SearchTerm) -> imem_index:preview(IndexTable, Optio
 
 preview_keys(IndexTable, Options, SearchTerm) -> imem_index:preview_keys(IndexTable, Options, SearchTerm).
 
-
 slice(<<>>,_) -> <<>>;
 slice(B,Start) when is_binary(B) -> 
     unicode:characters_to_binary(slice(unicode:characters_to_list(B, utf8),Start));
@@ -1199,6 +1321,29 @@ slice(L,Start,Len) when is_list(L) ->
 slice(A,Start,Len) when is_atom(A) -> slice(atom_to_list(A),Start,Len);
 slice(I,Start,Len) when is_integer(I) -> slice(integer_to_list(I),Start,Len);
 slice(F,Start,Len) when is_float(F) -> slice(float_to_list(F),Start,Len).
+
+bits(<<>>,_) -> <<>>;
+bits(_,_) -> ?nav.
+
+bits(<<>>,_,_) -> <<>>;
+bits(_,_,_) -> ?nav.
+
+bytes(<<>>,_) -> <<>>;
+bytes(B,_) when is_binary(B)==false -> ?nav;
+bytes(B,Start) when Start+size(B)<0 -> B;
+bytes(B,Start) when Start>=size(B) -> <<>>;
+bytes(B,Start) when Start>=0 -> binary:part(B,Start,size(B)-Start);
+bytes(B,Start) -> binary:part(B,size(B),Start).
+
+bytes(B,_,_) when is_binary(B)==false -> ?nav;
+bytes(_,_,Len) when Len<0 -> ?nav;
+bytes(B,Start,Len) when Start<0 -> bytes_pos(B,size(B)+Start,Len);
+bytes(B,Start,Len) -> bytes_pos(B,Start,Len).
+
+bytes_pos(_,Start,_) when Start<0 -> ?nav;
+bytes_pos(B,Start,Len) when Start+Len>size(B) -> ?nav;
+bytes_pos(_,_,0) -> <<>>;
+bytes_pos(B,Start,Len) -> binary:part(B,Start,Len).
 
 mfa(Mod,Func,Args) ->
     SKey = imem_sec:have_permission(?IMEM_SKEY_GET_FUN(),{eval_mfa,Mod,Func}),
