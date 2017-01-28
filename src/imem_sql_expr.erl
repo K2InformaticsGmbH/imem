@@ -1707,7 +1707,7 @@ test_with_or_without_sec(IsSec) ->
     %% uses_filter
         ?assertEqual(true, uses_filter({'is_member', {'+','$2',1}, '$3'})),
         ?assertEqual(false, uses_filter({'==', {'+','$2',1}, '$3'})),
-        ?assertEqual(true, uses_filter({'==', {'safe',{'+','$2',1}}, '$3'})),
+        ?assertEqual(true, uses_filter({'==', {'safe_integer',{'+','$2',1}}, '$3'})),
         ?assertEqual(false, uses_filter({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, uses_filter({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
