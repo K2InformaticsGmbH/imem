@@ -1323,10 +1323,29 @@ slice(I,Start,Len) when is_integer(I) -> slice(integer_to_list(I),Start,Len);
 slice(F,Start,Len) when is_float(F) -> slice(float_to_list(F),Start,Len).
 
 bits(<<>>,_) -> <<>>;
-bits(_,_) -> ?nav.
+bits(B,_) when is_bitstring(B)==false -> ?nav;
+bits(B,Start) when Start+bit_size(B)<0 -> B;
+bits(B,Start) when Start>=bit_size(B) -> <<>>;
+bits(B,Start) when Start>=0 -> 
+    <<_:Start,Rest/bitstring>> = B,
+    Rest;
+bits(B,Start) ->
+    PrefixSize = bit_size(B)+Start,
+    <<_:PrefixSize,Rest/bitstring>> = B,
+    Rest.
 
-bits(<<>>,_,_) -> <<>>;
-bits(_,_,_) -> ?nav.
+bits(B,_,_) when is_bitstring(B)==false -> ?nav;
+bits(_,_,Len) when Len<0 -> ?nav;
+bits(B,Start,Len) when Start<0 -> bits_pos(B,bit_size(B)+Start,Len);
+bits(B,Start,Len) -> bits_pos(B,Start,Len).
+
+bits_pos(_,Start,_) when Start<0 -> ?nav;
+bits_pos(B,Start,Len) when Start+Len>bit_size(B) -> ?nav;
+bits_pos(_,_,0) -> <<>>;
+bits_pos(B,Start,Len) ->     
+    <<_:Start,Proj:Len,_/bitstring>> = B,
+    Proj.
+
 
 bytes(<<>>,_) -> <<>>;
 bytes(B,_) when is_binary(B)==false -> ?nav;
