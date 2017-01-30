@@ -14,7 +14,7 @@
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
-            , mfa, preview, preview_keys
+            , mfa, preview, preview_keys, round
             , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float, safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
             , nvl_atom, nvl_binary, nvl_binstr, nvl_float, nvl_integer, nvl_json, nvl_term, nvl_tuple
             , vnf_identity,vnf_lcase_ascii,vnf_lcase_ascii_ne,vnf_tokens,vnf_integer,vnf_float,vnf_datetime,vnf_datetime_ne
@@ -86,6 +86,7 @@
         ]).
 
 -export([ concat/2
+        , round/2
         , add_dt/2
         , add_ts/2
         , diff_dt/2
@@ -254,6 +255,7 @@ binary_fun_bind_type1("nvl_list") ->            #bind{type=list,default=?nav};
 binary_fun_bind_type1("nvl_string") ->          #bind{type=string,default=?nav};
 binary_fun_bind_type1("nvl_term") ->            #bind{type=term,default=?nav};
 binary_fun_bind_type1("nvl_tuple") ->           #bind{type=tuple,default=?nav};
+binary_fun_bind_type1("round") ->               #bind{type=number,default=?nav};
 binary_fun_bind_type1("slice") ->               #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("bits") ->                #bind{type=binary,default=?nav};
 binary_fun_bind_type1("bytes") ->               #bind{type=binary,default=?nav};
@@ -287,6 +289,7 @@ binary_fun_bind_type2("nvl_list") ->            #bind{type=list,default=?nav};
 binary_fun_bind_type2("nvl_string") ->          #bind{type=string,default=?nav};
 binary_fun_bind_type2("nvl_term") ->            #bind{type=term,default=?nav};
 binary_fun_bind_type2("nvl_tuple") ->           #bind{type=tuple,default=?nav};
+binary_fun_bind_type2("round") ->               #bind{type=integer,default=0};
 binary_fun_bind_type2("slice") ->               #bind{type=integer,default=1};
 binary_fun_bind_type2("bits") ->                #bind{type=integer,default=0};
 binary_fun_bind_type2("bytes") ->               #bind{type=integer,default=0};
@@ -320,6 +323,7 @@ binary_fun_result_type("nvl_list") ->           #bind{type=list,default=?nav};
 binary_fun_result_type("nvl_string") ->         #bind{type=string,default=?nav};
 binary_fun_result_type("nvl_term") ->           #bind{type=term,default=?nav};
 binary_fun_result_type("nvl_tuple") ->          #bind{type=tuple,default=?nav};
+binary_fun_result_type("round") ->              #bind{type=number,default=?nav};
 binary_fun_result_type("slice") ->              #bind{type=binstr,default=?nav};
 binary_fun_result_type("bits") ->               #bind{type=integer,default=?nav};
 binary_fun_result_type("bytes") ->              #bind{type=binary,default=?nav};
@@ -546,7 +550,7 @@ expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op==jso
 expr_fun({Op, A}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
 %% Binary custom filters
-expr_fun({Op, A, B}) when Op==is_member;Op==is_like;Op==is_regexp_like;Op==element;Op==concat;Op==is_key ->
+expr_fun({Op, A, B}) when Op==is_member;Op==is_like;Op==is_regexp_like;Op==element;Op==concat;Op==is_key;Op==round ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==slice;Op==bits;Op==bytes ->
     binary_fun({Op, A, B});
@@ -1059,7 +1063,7 @@ binary_fun_final({is_regexp_like, A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==is_member;Op==concat;Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff;Op==is_key;Op==slice;Op==bits;Op==bytes ->
+binary_fun_final({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==is_member;Op==concat;Op==round;Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff;Op==is_key;Op==slice;Op==bits;Op==bytes ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -1095,6 +1099,17 @@ add_ts(TS, Offset) when is_tuple(TS),is_number(Offset) ->
 concat(A, B) when is_list(A),is_list(B) -> A ++ B;
 concat(A, B) when is_map(A),is_map(B) -> maps:merge(A,B);
 concat(A, B) when is_binary(A),is_binary(B) -> <<A/binary,B/binary>>.
+
+
+round(A,0) when is_float(A) -> round(A);
+round(A,N) when is_float(A),is_integer(N), N>0 ->
+    P = math:pow(10, N),
+    round(A * P) / P;
+round(A,N) when is_float(A),is_integer(N) ->
+    P = math:pow(10, N),
+    round(round(A * P) / P);
+round(A,0) when is_integer(A) -> A;
+round(A,N) when is_integer(A),is_integer(N) -> round(A+0.0,N).
 
 is_key(K, M) when is_map(M) -> maps:is_key(K,M);
 is_key(K, L) when is_list(L) ->

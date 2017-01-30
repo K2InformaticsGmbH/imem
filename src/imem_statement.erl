@@ -1177,20 +1177,13 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             OldBin = ?BoundVal(B,X),
                             case imem_datatype:io_to_db(Item,OldVal,integer,undefined,undefined,<<>>,false,Value) of
                                 OldVal ->   X;
-                                NewInt ->
-                                    try 
-                                        if 
-                                            Start >= 0 -> 
-                                                <<Prefix:Start,_:Len,Suffix/bitstring>> = OldBin,
-                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len,Suffix/binary>>);
-                                            Start < 0 -> 
-                                                PrefixLen = bit_size(OldBin)+Start,
-                                                <<Prefix:PrefixLen,_:Len,Suffix/binary>> = OldBin,
-                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len,Suffix/binary>>)
-                                        end
-                                    catch 
-                                        _:_ -> ?ClientError({"Replacement bitstring is too long",{Item,NewInt}})
-                                    end
+                                NewInt when Start >= 0 -> 
+                                    <<Prefix:Start,_:Len,Suffix/bitstring>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:Start,NewInt:Len,Suffix/bitstring>>);
+                                NewInt when Start < 0 -> 
+                                    PrefixLen = bit_size(OldBin)+Start,
+                                    <<Prefix:PrefixLen,_:Len,Suffix/bitstring>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:PrefixLen,NewInt:Len,Suffix/bitstring>>)
                             end
                         end,     
                         {Cx,abs(Start)+1,Fx};
@@ -1201,22 +1194,15 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             OldBin = ?BoundVal(B,X),
                             case imem_datatype:io_to_db(Item,OldVal,integer,undefined,undefined,<<>>,false,Value) of
                                 OldVal ->   X;
-                                NewInt -> 
-                                    try 
-                                        if 
-                                            Start >= 0 ->
-                                                Len =  bit_size(OldBin)-Start,
-                                                <<Prefix:Start,_:Len>> = OldBin,
-                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len>>);
-                                            Start < 0 -> 
-                                                Len = -Start,
-                                                PrefixLen = bit_size(OldBin)+Start,
-                                                <<Prefix:PrefixLen,_:Len>> = OldBin,
-                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len>>)
-                                        end
-                                    catch 
-                                        _:_ -> ?ClientError({"Replacement bitstring is too long",{Item,NewInt}})
-                                    end
+                                NewInt when Start >= 0 -> 
+                                    Len =  bit_size(OldBin)-Start,
+                                    <<Prefix:Start,_:Len>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:Start,NewInt:Len>>);
+                                NewInt when Start < 0 -> 
+                                    Len = -Start,
+                                    PrefixLen = bit_size(OldBin)+Start,
+                                    <<Prefix:PrefixLen,_:Len>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:PrefixLen,NewInt:Len>>)
                             end
                         end,     
                         {Cx,abs(Start)+1,Fx};
