@@ -29,11 +29,5 @@
           ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
           ?MODULE,__Context,__Default,__Remark,__Documentation)
        ).
-   
--define(GET_ROWNUM_LIMIT,
-        imem_config:get_config_hlk(
-          ?CONFIG_TABLE, {imem,imem_sql_expr,rownumDefaultLimit},
-          imem_sql_expr, [node()], 200000,
-          "Default rownum limit for SQL queries.")).
 
 -endif. % IMEM_CONFIG_HRL

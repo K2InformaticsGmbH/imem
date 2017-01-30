@@ -35,6 +35,17 @@
         , to_guard/1
         ]).
 
+-export([ rownum_limit/0 ]).
+
+-define(GET_ROWNUM_LIMIT,
+        imem_config:get_config_hlk(
+          ?CONFIG_TABLE, {imem,imem_sql_expr,rownumDefaultLimit},
+          imem_sql_expr, [node()], 200000,
+          "Default rownum limit for SQL queries.")).
+
+%% @doc Rownumber limit exported to be used by 3rd party APPs
+rownum_limit() -> ?GET_ROWNUM_LIMIT.
+
 %% @doc Reforms the main scan specification for the select statement 
 %% by binding now known values for tables with index smaller (scan) or equal (filter) to Ti. 
 %% Ti:      Table index (?MainIdx=2,JoinTables=3,4..)
