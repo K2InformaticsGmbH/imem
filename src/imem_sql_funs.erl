@@ -321,7 +321,7 @@ binary_fun_result_type("nvl_string") ->         #bind{type=string,default=?nav};
 binary_fun_result_type("nvl_term") ->           #bind{type=term,default=?nav};
 binary_fun_result_type("nvl_tuple") ->          #bind{type=tuple,default=?nav};
 binary_fun_result_type("slice") ->              #bind{type=binstr,default=?nav};
-binary_fun_result_type("bits") ->               #bind{type=binary,default=?nav};
+binary_fun_result_type("bits") ->               #bind{type=integer,default=?nav};
 binary_fun_result_type("bytes") ->              #bind{type=binary,default=?nav};
 binary_fun_result_type("map_get") ->            #bind{type=map,default=?nav};
 binary_fun_result_type("map_merge") ->          #bind{type=map,default=?nav};
@@ -359,7 +359,7 @@ ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_result_type(B) when is_binary(B) -> ternary_fun_result_type(binary_to_list(B));
 ternary_fun_result_type("slice") ->             #bind{type=binstr,default=?nav};
-ternary_fun_result_type("bits") ->              #bind{type=binary,default=?nav};
+ternary_fun_result_type("bits") ->              #bind{type=integer,default=?nav};
 ternary_fun_result_type("bytes") ->             #bind{type=binary,default=?nav};
 ternary_fun_result_type("preview") ->           #bind{type=list,default=?nav};
 ternary_fun_result_type("preview_keys") ->      #bind{type=list,default=?nav};
@@ -1324,8 +1324,10 @@ slice(F,Start,Len) when is_float(F) -> slice(float_to_list(F),Start,Len).
 
 bits(<<>>,_) -> <<>>;
 bits(B,_) when is_bitstring(B)==false -> ?nav;
-bits(B,Start) when Start+bit_size(B)<0 -> B;
-bits(B,Start) when Start>=bit_size(B) -> <<>>;
+bits(B,Start) when Start+bit_size(B)<0 -> 
+    <<Result/bitstring>> =B,
+    Result;
+bits(B,Start) when Start>=bit_size(B) -> ?nav;
 bits(B,Start) when Start>=0 -> 
     <<_:Start,Rest/bitstring>> = B,
     Rest;
@@ -1341,11 +1343,10 @@ bits(B,Start,Len) -> bits_pos(B,Start,Len).
 
 bits_pos(_,Start,_) when Start<0 -> ?nav;
 bits_pos(B,Start,Len) when Start+Len>bit_size(B) -> ?nav;
-bits_pos(_,_,0) -> <<>>;
+bits_pos(_,_,0) -> ?nav;
 bits_pos(B,Start,Len) ->     
-    <<_:Start,Proj:Len,_/bitstring>> = B,
-    Proj.
-
+    <<_:Start,Result:Len,_/bitstring>> = B,
+    Result.
 
 bytes(<<>>,_) -> <<>>;
 bytes(B,_) when is_binary(B)==false -> ?nav;
