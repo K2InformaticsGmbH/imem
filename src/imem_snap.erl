@@ -811,7 +811,7 @@ exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     ExPatterns = ?GET_SNAPSHOT_EXCLUSION_PATTERNS,
     Remark = list_to_binary("Added " ++ TablePattern ++ " at "),
     TimeStamp = imem_datatype:timestamp_to_io(os:timestamp()),
-    ?PUT_SNAPSHOT_EXCLUSION_PATTERNS([TablePattern | ExPatterns], <<Remark/binary, TimeStamp/binary>>).
+    ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), <<Remark/binary, TimeStamp/binary>>).
 
 
 -ifdef(TEST).
