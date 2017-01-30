@@ -16,6 +16,9 @@
 
 -define(H(X), (hex(X)):16).
 
+-define(THOUSAND_SEP,$').           
+-define(USE_THOUSAND_SEP,true).     %% comment out if no thousands separation is wanted
+
 -define(BinaryMaxLen,250).          %% more represented by "..." suffix
 
 -export([ raw_type/1
@@ -546,7 +549,7 @@ io_to_integer(Val,Len,undefined) ->
 io_to_integer(Val,Len,Prec) when is_binary(Val) ->
     io_to_integer(binary_to_list(Val),Len,Prec);
 io_to_integer(Val,Len,Prec) ->
-    Value = try  list_to_integer(Val)
+    Value = try  list_to_integer(lists:delete(?THOUSAND_SEP,Val))
         catch _:_ -> 
             try erlang:round(list_to_float(Val))
             catch _:_ ->  
@@ -946,7 +949,7 @@ io_to_decimal(Val,Len,undefined) ->
 io_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
     io_to_integer(Val,Len,0);
 io_to_decimal(Val,Len,Prec) ->
-    case Val of
+    case lists:delete(?THOUSAND_SEP,Val) of
         [$-|Positive] -> Sign = [$-];
         Positive -> Sign = []
     end,
@@ -1324,8 +1327,20 @@ string_to_io(Val) when is_list(Val) ->
 string_to_io(Val) ->
     list_to_binary(lists:flatten(io_lib:format("~tp",[Val]))).      %% "\"~tp\""
 
+-ifdef (USE_THOUSAND_SEP).
+integer_to_io(Val) ->
+    list_to_binary(lists:foldl(fun integer_filter/2,[],lists:reverse(integer_to_list(Val)))).
+
+integer_filter($-,Acc) -> [$-|Acc];
+integer_filter(D,Acc) -> 
+    case (length(Acc)+1) rem 4 of
+        0 ->    [D,?THOUSAND_SEP|Acc];
+        _ ->    [D|Acc]
+    end.
+-else.
 integer_to_io(Val) ->
     list_to_binary(integer_to_list(Val)).
+-endif.
 
 %% ----- Helper Functions ---------------------------------------------
 
