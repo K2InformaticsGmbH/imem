@@ -592,11 +592,13 @@ column_map_items(_Map, Item) ->
 -spec is_readonly(#bind{}) -> boolean().
 is_readonly(#bind{tind=Ti}) when Ti > ?MainIdx -> true;
 is_readonly(#bind{tind=?MainIdx,cind=Ci}) when Ci>0 -> false;   
-is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                                      %% Vector field can be edited ??????????
-is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;       %% Vector field can be edited ??????????
-is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;     %% Vector field can be edited ??????????
-is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
+is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                                                  %% Vector field can be edited ??
+is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;                   %% Vector field can be edited ??
+is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;                 %% Vector field can be edited ??
+is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{}}}) when Op=='hd';Op=='last' -> false;             %% editable projections
 is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{}}}) when Op==element;Op=='nth';Op==json_value;Op==map_get -> false;  %% editable projections
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{}}}) when Op==bytes;Op==bits -> false;            %% editable projections
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{},#bind{}}}) when Op==bytes;Op==bits -> false;    %% editable projections
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
 is_readonly(#bind{tind=0,cind=0,type=json}) -> false;
 is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]), 
@@ -1716,7 +1718,7 @@ test_with_or_without_sec(IsSec) ->
     %% uses_filter
         ?assertEqual(true, uses_filter({'is_member', {'+','$2',1}, '$3'})),
         ?assertEqual(false, uses_filter({'==', {'+','$2',1}, '$3'})),
-        ?assertEqual(true, uses_filter({'==', {'safe',{'+','$2',1}}, '$3'})),
+        ?assertEqual(true, uses_filter({'==', {'safe_integer',{'+','$2',1}}, '$3'})),
         ?assertEqual(false, uses_filter({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, uses_filter({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 

@@ -1130,7 +1130,97 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,Pos,Fx};
-                    {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                     {bytes,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind,LenBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Len=imem_sql_expr:bind_tree(LenBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,binary,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal when size(NewVal) /= size(OldVal) ->
+                                    ?ClientError({"Wrong byte size of replacement binary",{Item,size(NewVal)}});
+                                NewVal when Start >= 0 -> 
+                                    Prefix = binary:part(OldBin,0,Start),
+                                    Suffix = binary:part(OldBin,Start+Len, size(OldBin)-Len-Start),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary,Suffix/binary>>);
+                                NewVal when Start < 0 -> 
+                                    Prefix = binary:part(OldBin,0,size(OldBin)+Start),
+                                    Suffix = binary:part(OldBin,size(OldBin)+Start+Len, size(OldBin)+Start-Len),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary,Suffix/binary>>)
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                    {bytes,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,binary,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal when Start >= 0 -> 
+                                    Prefix = binary:part(OldBin,0,Start),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary>>);
+                                NewVal when size(OldBin)+Start >= 0 -> 
+                                    Prefix = binary:part(OldBin,0,size(OldBin)+Start),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary>>);
+                                NewVal when size(OldBin)+Start < 0 -> 
+                                    ?replace(X,Cx,NewVal)
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                    {bits,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind,LenBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Len=imem_sql_expr:bind_tree(LenBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,integer,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewInt ->
+                                    try 
+                                        if 
+                                            Start >= 0 -> 
+                                                <<Prefix:Start,_:Len,Suffix/bitstring>> = OldBin,
+                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len,Suffix/binary>>);
+                                            Start < 0 -> 
+                                                PrefixLen = bit_size(OldBin)+Start,
+                                                <<Prefix:PrefixLen,_:Len,Suffix/binary>> = OldBin,
+                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len,Suffix/binary>>)
+                                        end
+                                    catch 
+                                        _:_ -> ?ClientError({"Replacement bitstring is too long",{Item,NewInt}})
+                                    end
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                    {bits,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,integer,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewInt -> 
+                                    try 
+                                        if 
+                                            Start >= 0 ->
+                                                Len =  bit_size(OldBin)-Start,
+                                                <<Prefix:Start,_:Len>> = OldBin,
+                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len>>);
+                                            Start < 0 -> 
+                                                Len = -Start,
+                                                PrefixLen = bit_size(OldBin)+Start,
+                                                <<Prefix:PrefixLen,_:Len>> = OldBin,
+                                                ?replace(X,Cx,<<Prefix/binary,NewInt:Len>>)
+                                        end
+                                    catch 
+                                        _:_ -> ?ClientError({"Replacement bitstring is too long",{Item,NewInt}})
+                                    end
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                   {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1164,7 +1254,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                 NewVal ->   ?replace(X,Cx,NewVal)
                             end
                         end,     
-                        {Cx,0,Fx};
+                        {Cx,1,Fx};
                     {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1180,7 +1270,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                     end
                             end
                         end,     
-                        {Cx,0,Fx};
+                        {Cx,1,Fx};
                     {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}=B} ->    
                         Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
                         Fx = fun(X) -> 
@@ -1197,7 +1287,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                     end
                             end
                         end,     
-                        {Cx,0,Fx};
+                        {Cx,1,Fx};
                     {map_get,KeyBind,{map_get,ParentKeyBind,#bind{tind=?MainIdx,cind=Cx}=B}} ->    
                         Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
                         ParentKey=imem_sql_expr:bind_tree(ParentKeyBind,Recs), 
@@ -1219,7 +1309,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                     end
                             end
                         end,     
-                        {Cx,1,Fx};
+                        {Cx,2,Fx};
                     {json_value,AttName,{json_value,ParentName,#bind{tind=?MainIdx,cind=Cx}=B}} -> 
                         Fx = fun(X) -> 
                             OldVal = Proj(X),

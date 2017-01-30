@@ -1873,7 +1873,7 @@ db2_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query5x1, 100, IsSec, "
             select col1 
             from member_test 
-            where safe(nth(1,col2)) = 1"
+            where safe_integer(nth(1,col2)) = 1"
             ,
             [{<<"2">>}]
         ),
@@ -1881,7 +1881,7 @@ db2_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query5x1, 100, IsSec, "
             select col1 
             from member_test 
-            where safe(nth(17,col2)) = 1"
+            where safe_integer(nth(17,col2)) = 1"
             ,
             []
         ),
