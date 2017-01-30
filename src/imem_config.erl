@@ -169,8 +169,12 @@ decrypt(UnEncryptedVal) -> UnEncryptedVal.
 
 reference_resolve(Term) -> reference_resolve(?CONFIG_TABLE, Term).
 
-reference_resolve(Table, [[Key|Context]|ref]) ->
-    get_config_hlk(Table, Key, none, Context, none);
+reference_resolve(Table, [ConfigKey|ref]) ->
+    case (catch imem_meta:read_hlk(Table, ConfigKey)) of
+        [#ddConfig{val=ResolvedRef}] ->
+            reference_resolve(Table, ResolvedRef);
+        _ -> ?ClientError({"Reference not found", ConfigKey})
+    end;
 reference_resolve(Table, [_|{enc,_}] = Val) ->
    reference_resolve(Table, decrypt(Val));
 reference_resolve(Table, Val) when is_map(Val) ->
