@@ -29,9 +29,8 @@ teardown(_) ->
     mnesia:delete_table(table),
     case erlang:whereis(imem_sup) of
         undefined -> mnesia:stop();
-        _ -> ok
-    end,
-    imem:stop().
+        _ -> imem:stop()
+    end.
 
 
 imem_mnesia_test_() ->
@@ -40,7 +39,7 @@ imem_mnesia_test_() ->
         fun setup/0,
         fun teardown/1,
         {with, [
-                % fun run_test_eunit/1
+                fun run_test_eunit/1
         ]}
         }
     }.
