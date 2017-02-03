@@ -1472,7 +1472,7 @@ db2_with_or_without_sec(IsSec) ->
         ),
         case IsSec of
             false ->    ?assertEqual([{<<"unknown">>}], R1d);
-            true ->     Acid = imem_datatype:integer_to_io(imem_seco:account_id(SKey)),
+            true ->     Acid = integer_to_binary(imem_seco:account_id(SKey)),
                         ?assertEqual([{Acid}], R1d)
         end,
 
@@ -1873,7 +1873,7 @@ db2_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query5x1, 100, IsSec, "
             select col1 
             from member_test 
-            where safe(nth(1,col2)) = 1"
+            where safe_integer(nth(1,col2)) = 1"
             ,
             [{<<"2">>}]
         ),
@@ -1881,7 +1881,7 @@ db2_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query5x1, 100, IsSec, "
             select col1 
             from member_test 
-            where safe(nth(17,col2)) = 1"
+            where safe_integer(nth(17,col2)) = 1"
             ,
             []
         ),
@@ -1953,17 +1953,17 @@ db2_with_or_without_sec(IsSec) ->
             order by v.id, c.id"
             ,
             case IsSec of
-                false ->    [{<<"1001">>,<<"1">>}
-                            ,{<<"1002">>,<<"2">>}
-                            ,{<<"1003">>,<<"3">>}
-                            ,{<<"1009">>,<<"2">>}
+                false ->    [{<<"1'001">>,<<"1">>}
+                            ,{<<"1'002">>,<<"2">>}
+                            ,{<<"1'003">>,<<"3">>}
+                            ,{<<"1'009">>,<<"2">>}
                             ];
-                true ->     [{<<"1001">>,<<"1">>}
-                            ,{<<"1002">>,<<"2">>}
-                            ,{<<"1003">>,<<"3">>}
-                            ,{<<"1009">>,<<"2">>}
-                            ,{<<"1010">>,<<"91">>}
-                            ,{<<"1013">>,<<"3">>}
+                true ->     [{<<"1'001">>,<<"1">>}
+                            ,{<<"1'002">>,<<"2">>}
+                            ,{<<"1'003">>,<<"3">>}
+                            ,{<<"1'009">>,<<"2">>}
+                            ,{<<"1'010">>,<<"91">>}
+                            ,{<<"1'013">>,<<"3">>}
                             ]
             end
         ),
@@ -1978,14 +1978,14 @@ db2_with_or_without_sec(IsSec) ->
             order by v.id, c.id"
             ,
             case IsSec of
-                false ->    [{<<"1002">>,<<"2">>}
-                            ,{<<"1003">>,<<"3">>}
-                            ,{<<"1009">>,<<"2">>}
+                false ->    [{<<"1'002">>,<<"2">>}
+                            ,{<<"1'003">>,<<"3">>}
+                            ,{<<"1'009">>,<<"2">>}
                             ];
-                true ->     [{<<"1002">>,<<"2">>}
-                            ,{<<"1003">>,<<"3">>}
-                            ,{<<"1009">>,<<"2">>}
-                            ,{<<"1013">>,<<"3">>}
+                true ->     [{<<"1'002">>,<<"2">>}
+                            ,{<<"1'003">>,<<"3">>}
+                            ,{<<"1'009">>,<<"2">>}
+                            ,{<<"1'013">>,<<"3">>}
                             ]
             end
         ),
@@ -2000,13 +2000,13 @@ db2_with_or_without_sec(IsSec) ->
             order by v.id, c.id"
             ,
             case IsSec of
-                false ->    [{<<"1001">>,<<"1">>}
-                            ,{<<"1002">>,<<"2">>}
-                            ,{<<"1009">>,<<"2">>}
+                false ->    [{<<"1'001">>,<<"1">>}
+                            ,{<<"1'002">>,<<"2">>}
+                            ,{<<"1'009">>,<<"2">>}
                             ];
-                true ->     [{<<"1001">>,<<"1">>}
-                            ,{<<"1002">>,<<"2">>}
-                            ,{<<"1009">>,<<"2">>}
+                true ->     [{<<"1'001">>,<<"1">>}
+                            ,{<<"1'002">>,<<"2">>}
+                            ,{<<"1'009">>,<<"2">>}
                             ]
             end
         ),

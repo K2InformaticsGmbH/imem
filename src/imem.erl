@@ -352,10 +352,14 @@ now() ->
 -spec get_os_memory() -> {any(), integer(), integer()}.
 get_os_memory() ->
     SysData = memsup:get_system_memory_data(),
-    FreeMem = lists:sum([M || {T, M} <- SysData, ((T =:= free_memory)
-                                                    orelse (T =:= buffered_memory)
-                                                    orelse (T =:= cached_memory))]),
-    TotalMemory = proplists:get_value(total_memory, memsup:get_system_memory_data()),
+    FreeMem = lists:foldl(
+                fun({T, M}, A)
+                      when T =:= free_memory; T =:= buffered_memory;
+                           T =:= cached_memory ->
+                        A+M;
+                   (_, A) -> A
+                end, 0, SysData),
+    TotalMemory = proplists:get_value(total_memory, SysData),
     case os:type() of
         {win32, _} = Win    -> {Win,        FreeMem,    TotalMemory};
         {unix, _} = Unix    -> {Unix,       FreeMem,    TotalMemory};
@@ -363,22 +367,21 @@ get_os_memory() ->
     end.
 
 -spec get_vm_memory() -> {any(),integer()}.
-get_vm_memory() ->    
-    case os:type() of
-        {win32, _} = Win ->
-            {Win
-            , list_to_integer(re:replace(os:cmd("wmic process where processid="++os:getpid()++" get workingsetsize | findstr /v \"WorkingSetSize\"")
-                                        ,"[[:space:]]*", "", [global, {return,list}]))
-            };
-        {unix, _} = Unix ->
-            {Unix
-            , erlang:round(element(3,get_os_memory())
-                          * list_to_float(re:replace(os:cmd("ps -p "++os:getpid()++" -o pmem="),"[[:space:]]*", "", [global, {return,list}])) / 100)
-            };
-        Unknown ->
-		       {Unknown, 0}
-    end.
-
+get_vm_memory() -> get_vm_memory(os:type()).
+get_vm_memory({win32, _} = Win) ->
+    {Win, list_to_integer(
+            re:replace(
+              os:cmd("wmic process where processid=" ++ os:getpid() ++
+                     " get workingsetsize | findstr /v \"WorkingSetSize\""),
+              "[[:space:]]*", "", [global, {return,list}]))};
+get_vm_memory({unix, _} = Unix) ->
+    {Unix, erlang:round(
+             element(3, get_os_memory())
+                        * list_to_float(
+                            re:replace(
+                              os:cmd("ps -p "++os:getpid()++" -o pmem="),
+                              "[[:space:]]*", "", [global, {return,list}])
+                           ) / 100)}.
 
 % An MFA interface that is executed in a spawned short-lived process
 % The result is synchronously collected and returned
