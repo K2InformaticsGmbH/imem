@@ -69,7 +69,10 @@
                   ,imem_meta:physical_table_name(ddPerm@)
                   ,imem_meta:physical_table_name(mproConnectionProbe@)
                   ],
-    ExcludePred = fun(AN) -> SN = atom_to_list(AN), (lists:usort([re:run(SN, E) || E <- ExcludePatterns]) == [nomatch]) end,
+    ExcludePred = fun(AN) -> 
+                      SN = atom_to_list(AN), 
+                      lists:usort([re:run(SN, E) || E <- ExcludePatterns]) == [nomatch] 
+                  end,
     Candidates = lists:filter(ExcludePred,imem_snap:all_snap_tables() -- ExcludeList), 
     [(fun() ->
         case imem_snap:get_snap_properties(T) of
@@ -812,7 +815,6 @@ exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     Remark = list_to_binary("Added " ++ TablePattern ++ " at "),
     TimeStamp = imem_datatype:timestamp_to_io(os:timestamp()),
     ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), <<Remark/binary, TimeStamp/binary>>).
-
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
