@@ -75,12 +75,7 @@
 -define(GET_SNAPSHOT_SCRIPT_FUN,
             ?GET_CONFIG(snapshotScriptFun, [],
                         <<"fun(ExcludePatterns) ->
-                            ExcludeList = [dual, ddSize, ddNode
-                                          ,imem_meta:physical_table_name(ddCache@)
-                                          ,imem_meta:physical_table_name(ddSeCo@)
-                                          ,imem_meta:physical_table_name(ddPerm@)
-                                          ,imem_meta:physical_table_name(mproConnectionProbe@)
-                                          ],
+                            ExcludeList = [dual, ddSize, ddNode | [imem_meta:physical_table_name(T) || T <- [ddCache@,ddSeCo@,ddPerm@]]],
                             ExcludePred = fun(AN) -> 
                                 SN = atom_to_list(AN),
                                 [error || E <- ExcludePatterns, re:run(SN, E) /= nomatch] == []
