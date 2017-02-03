@@ -54,52 +54,70 @@
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
 
--define(GET_SNAPSHOT_CYCLE_WAIT,?GET_CONFIG(snapshotCycleWait,[],10000,"Wait time between snapshot cycles in msec.")).
--define(GET_SNAPSHOT_CHUNK_MAX_SIZE,?GET_CONFIG(snapshotChunkMaxSize,[],500,"Maximum snapshot chunk size (number of rows).")).
--define(GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT,?GET_CONFIG(snapshotChunkFetchTimeout,[],20000,"Timeout in msec for fetching the next chunk from DB.")).
--define(GET_SNAPSHOT_SCRIPT,?GET_CONFIG(snapshotScript,[],true,"Do we want to use a specialized snapshot script function?")).
--define(GET_SNAPSHOT_EXCLUSION_PATTERNS,?GET_CONFIG(snapshotExclusuionPatterns,[], 
-        ["Dyn@.*", "Dyn$", "Audit_.*", "Audit$", "Hist$", "Idx$"], "Snapshot excusion table name patterns")).
--define(PUT_SNAPSHOT_EXCLUSION_PATTERNS(__TablePatterns, __Remark), ?PUT_CONFIG(snapshotExclusuionPatterns, [], __TablePatterns, __Remark)).
--define(GET_SNAPSHOT_SCRIPT_FUN,?GET_CONFIG(snapshotScriptFun,[],
-<<"fun(ExcludePatterns) ->
-    ExcludeList = [dual, ddSize, ddNode
-                  ,imem_meta:physical_table_name(ddCache@)
-                  ,imem_meta:physical_table_name(ddSeCo@)
-                  ,imem_meta:physical_table_name(ddPerm@)
-                  ,imem_meta:physical_table_name(mproConnectionProbe@)
-                  ],
-    ExcludePred = fun(AN) -> 
-        SN = atom_to_list(AN),
-        [error || E <- ExcludePatterns, re:run(SN, E) /= nomatch] == []
-    end,
-    Candidates = lists:filter(ExcludePred,imem_snap:all_snap_tables() -- ExcludeList), 
-    [(fun() ->
-        case imem_snap:get_snap_properties(T) of
-            {} ->               ok;
-            {Prop, Wt, St} ->
-                if
-                    St < Wt ->
-                        Res = imem_snap:take(T),
-                        [case R of
-                            {ok, T} ->
-                                Str = lists:flatten(io_lib:format(\"snapshot created for ~p\", [T])),
-                                imem_snap:snap_log(Str++\"~n\",[]),
-                                imem_meta:log_to_db(info,imem_snap,handle_info,[snapshot],Str);
-                            {error, T, Reason}  -> imem_snap:snap_err(\"snapshot of ~p failed for ~p\", [T, Reason])
-                        end || R <- Res],
-                        true = imem_snap:set_snap_properties(Prop);
-                    true ->
-                        ok % no backup needed
-                end
-        end
-      end)()
-    || T <- Candidates],
-    ok
-end.">>,"Function to perform customized snapshotting.")).
--define(GET_CLUSTER_SNAPSHOT,?GET_CONFIG(snapshotCluster,[],true,"Do we need periodic snapshotting of important tables an all nodes?")).
--define(GET_CLUSTER_SNAPSHOT_TABLES,?GET_CONFIG(snapshotClusterTables,[],[ddAccount,ddRole,ddConfig],"List of important tables to be regularily snapshotted.")).
--define(GET_CLUSTER_SNAPSHOT_TOD,?GET_CONFIG(snapshotClusterHourOfDay,[],14,"Hour of (00..23)day in which important tables must be snapshotted.")).
+-define(GET_SNAPSHOT_CYCLE_WAIT,
+            ?GET_CONFIG(snapshotCycleWait, [], 10000,
+                        "Wait time between snapshot cycles in msec.")).
+-define(GET_SNAPSHOT_CHUNK_MAX_SIZE,
+            ?GET_CONFIG(snapshotChunkMaxSize, [], 500,
+                        "Maximum snapshot chunk size (number of rows).")).
+-define(GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT,
+            ?GET_CONFIG(snapshotChunkFetchTimeout, [], 20000,
+                        "Timeout in msec for fetching the next chunk from DB.")).
+-define(GET_SNAPSHOT_SCRIPT,
+            ?GET_CONFIG(snapshotScript, [], true,
+                        "Do we want to use a specialized snapshot script function?")).
+-define(GET_SNAPSHOT_EXCLUSION_PATTERNS,
+            ?GET_CONFIG(snapshotExclusuionPatterns, [], 
+                        ["Dyn@.*", "Dyn$", "Audit_.*", "Audit$", "Hist$", "Idx$"], 
+                        "Snapshot excusion table name patterns")).
+-define(PUT_SNAPSHOT_EXCLUSION_PATTERNS(__TablePatterns, __Remark), 
+            ?PUT_CONFIG(snapshotExclusuionPatterns, [], __TablePatterns, __Remark)).
+-define(GET_SNAPSHOT_SCRIPT_FUN,
+            ?GET_CONFIG(snapshotScriptFun, [],
+                        <<"fun(ExcludePatterns) ->
+                            ExcludeList = [dual, ddSize, ddNode
+                                          ,imem_meta:physical_table_name(ddCache@)
+                                          ,imem_meta:physical_table_name(ddSeCo@)
+                                          ,imem_meta:physical_table_name(ddPerm@)
+                                          ,imem_meta:physical_table_name(mproConnectionProbe@)
+                                          ],
+                            ExcludePred = fun(AN) -> 
+                                SN = atom_to_list(AN),
+                                [error || E <- ExcludePatterns, re:run(SN, E) /= nomatch] == []
+                            end,
+                            Candidates = lists:filter(ExcludePred,imem_snap:all_snap_tables() -- ExcludeList), 
+                            [(fun() ->
+                                case imem_snap:get_snap_properties(T) of
+                                    {} ->               ok;
+                                    {Prop, Wt, St} ->
+                                        if
+                                            St < Wt ->
+                                                Res = imem_snap:take(T),
+                                                [case R of
+                                                    {ok, T} ->
+                                                        Str = lists:flatten(io_lib:format(\"snapshot created for ~p\", [T])),
+                                                        imem_snap:snap_log(Str++\"~n\",[]),
+                                                        imem_meta:log_to_db(info,imem_snap,handle_info,[snapshot],Str);
+                                                    {error, T, Reason}  -> imem_snap:snap_err(\"snapshot of ~p failed for ~p\", [T, Reason])
+                                                end || R <- Res],
+                                                true = imem_snap:set_snap_properties(Prop);
+                                            true ->
+                                                ok % no backup needed
+                                        end
+                                end
+                              end)()
+                            || T <- Candidates],
+                            ok
+                        end.">>,"Function to perform customized snapshotting.")).
+-define(GET_CLUSTER_SNAPSHOT,
+            ?GET_CONFIG(snapshotCluster, [], true,
+                        "Do we need periodic snapshotting of important tables an all nodes?")).
+-define(GET_CLUSTER_SNAPSHOT_TABLES,
+            ?GET_CONFIG(snapshotClusterTables, [], [ddAccount,ddRole,ddConfig],
+                        "List of important tables to be regularily snapshotted.")).
+-define(GET_CLUSTER_SNAPSHOT_TOD,
+            ?GET_CONFIG(snapshotClusterHourOfDay, [], 14,
+                        "Hour of (00..23)day in which important tables must be snapshotted.")).
 
 -ifdef(TEST).
     start_snap_loop() -> ok.
@@ -812,9 +830,8 @@ exclude_table_pattern(TablePattern) when is_binary(TablePattern) ->
     exclude_table_pattern(binary_to_list(TablePattern));
 exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     ExPatterns = ?GET_SNAPSHOT_EXCLUSION_PATTERNS,
-    Remark = list_to_binary("Added " ++ TablePattern ++ " at "),
-    TimeStamp = imem_datatype:timestamp_to_io(os:timestamp()),
-    ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), <<Remark/binary, TimeStamp/binary>>).
+    Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(os:timestamp())]),
+    ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), Remark).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
