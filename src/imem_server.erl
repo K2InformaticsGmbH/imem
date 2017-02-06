@@ -187,10 +187,7 @@ mfa({Ref, Mod, Fun, Args}, Transport) ->
                end,
     ?TLog("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
     ?TLog("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
-    case Ref of
-        {async, _} -> no_op;
-        _ -> send_resp(ApplyRes, Transport)
-    end,
+    send_resp(ApplyRes, Transport),
     ok. % 'ok' returned for erlimem compatibility
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->
