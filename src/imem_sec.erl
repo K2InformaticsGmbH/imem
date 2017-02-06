@@ -592,12 +592,7 @@ fetch_recs_async(SKey, Opts, Pid, Sock) ->
     imem_statement:fetch_recs_async(SKey, Pid, Sock, Opts, true).
 
 request_metric(SKey, Module, MetricKey, Ref, Sock) ->
-    case imem_seco:have_permission(SKey, [manage_system,{module,Module,execute}]) of
-        true ->
-            Module:request_metric(MetricKey, Ref, Sock);
-        false ->
-            ?SecurityException({"Request metric unauthorized", {Module,request_metric,MetricKey,SKey}})
-    end.
+    admin_exec(SKey, Module, request_metric, [MetricKey, Ref, Sock]).
 
 filter_and_sort(SKey, Pid, FilterSpec, SortSpec) ->
     imem_statement:filter_and_sort(SKey, Pid, FilterSpec, SortSpec, true).
