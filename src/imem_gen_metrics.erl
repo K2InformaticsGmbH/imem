@@ -121,9 +121,7 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
 build_reply_fun(ReqRef, ReplyTo) when is_pid(ReplyTo) ->
     fun(Result) -> ReplyTo ! {metric, ReqRef, Result} end;
-build_reply_fun(ReqRef, {Transport, Socket, Ref}) ->
+build_reply_fun(ReqRef, {_Transport, _Socket, _Ref} = Sock) ->
     fun(Result) ->
-        RespBin = term_to_binary({Ref, {metric, ReqRef, Result}}),
-        PayloadSize = byte_size(RespBin),
-        Transport:send(Socket, << PayloadSize:32, RespBin/binary >>)
+        imem_server:send_resp({metric, ReqRef, Result}, Sock)
     end.
