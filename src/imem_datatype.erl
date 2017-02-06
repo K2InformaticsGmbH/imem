@@ -549,7 +549,7 @@ io_to_integer(Val,Len,undefined) ->
 io_to_integer(Val,Len,Prec) when is_binary(Val) ->
     io_to_integer(binary_to_list(Val),Len,Prec);
 io_to_integer(Val,Len,Prec) ->
-    ValStr = re:replace(Val, ?THOUSAND_SEP, "", [global, {return, list}]),
+    ValStr = string:join(string:tokens(Val,?THOUSAND_SEP),[]),
     Value = try  list_to_integer(ValStr)
         catch _:_ -> 
             try erlang:round(list_to_float(Val))
@@ -950,7 +950,7 @@ io_to_decimal(Val,Len,undefined) ->
 io_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
     io_to_integer(Val,Len,0);
 io_to_decimal(Val,Len,Prec) ->
-    case re:replace(Val, ?THOUSAND_SEP, "", [global, {return, list}])  of
+    case string:join(string:tokens(Val,?THOUSAND_SEP),[]) of
         [$-|Positive] -> Sign = [$-];
         Positive -> Sign = []
     end,
