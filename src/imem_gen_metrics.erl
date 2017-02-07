@@ -118,6 +118,10 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
                        ,system_state = NewSysState}
     end.
 
--spec build_reply_fun(term(), pid()) -> fun().
-build_reply_fun(ReqRef, ReplyTo) ->
-    fun(Result) -> ReplyTo ! {metric, ReqRef, Result} end.
+-spec build_reply_fun(term(), pid() | tuple()) -> fun().
+build_reply_fun(ReqRef, ReplyTo) when is_pid(ReplyTo) ->
+    fun(Result) -> ReplyTo ! {metric, ReqRef, Result} end;
+build_reply_fun(ReqRef, Sock) when is_tuple(Sock) ->
+    fun(Result) ->
+        imem_server:send_resp({metric, ReqRef, Result}, Sock)
+    end.
