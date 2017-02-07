@@ -123,5 +123,5 @@ build_reply_fun(ReqRef, ReplyTo) when is_pid(ReplyTo) ->
     fun(Result) -> ReplyTo ! {metric, ReqRef, Result} end;
 build_reply_fun(ReqRef, Sock) when is_tuple(Sock) ->
     fun(Result) ->
-        imem_server:send_resp({metric, ReqRef, Result}, Sock)
+        imem_server:send_resp({erlimem_async, {metric, ReqRef, Result}}, Sock)
     end.
