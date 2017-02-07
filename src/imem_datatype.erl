@@ -16,8 +16,8 @@
 
 -define(H(X), (hex(X)):16).
 
--define(THOUSAND_SEP,$').           
--define(USE_THOUSAND_SEP,true).     %% comment out if no thousands separation is wanted
+-define(THOUSAND_SEP,[$']).         %% ' is ignored in integer strings or expressions
+-define(USE_THOUSAND_SEP,true).     %% comment out if no thousands separation is wanted on output
 
 -define(BinaryMaxLen,250).          %% more represented by "..." suffix
 
@@ -549,11 +549,12 @@ io_to_integer(Val,Len,undefined) ->
 io_to_integer(Val,Len,Prec) when is_binary(Val) ->
     io_to_integer(binary_to_list(Val),Len,Prec);
 io_to_integer(Val,Len,Prec) ->
-    Value = try  list_to_integer(lists:delete(?THOUSAND_SEP,Val))
+    ValStr = string:join(string:tokens(Val,?THOUSAND_SEP),[]),
+    Value = try  list_to_integer(ValStr)
         catch _:_ -> 
             try erlang:round(list_to_float(Val))
             catch _:_ ->  
-                case io_to_term(Val) of
+                case io_to_term(ValStr) of
                     V when is_integer(V) -> V;
                     V when is_float(V) ->   erlang:round(V);
                     _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
@@ -949,7 +950,7 @@ io_to_decimal(Val,Len,undefined) ->
 io_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
     io_to_integer(Val,Len,0);
 io_to_decimal(Val,Len,Prec) ->
-    case lists:delete(?THOUSAND_SEP,Val) of
+    case string:join(string:tokens(Val,?THOUSAND_SEP),[]) of
         [$-|Positive] -> Sign = [$-];
         Positive -> Sign = []
     end,
@@ -1334,7 +1335,7 @@ integer_to_io(Val) ->
 integer_filter($-,Acc) -> [$-|Acc];
 integer_filter(D,Acc) -> 
     case (length(Acc)+1) rem 4 of
-        0 ->    [D,?THOUSAND_SEP|Acc];
+        0 ->    [D,hd(?THOUSAND_SEP)|Acc];
         _ ->    [D|Acc]
     end.
 -else.
@@ -1595,9 +1596,9 @@ data_types(_) ->
         ?assertEqual({{2012,12,10},{8,44,7}}, io_to_datetime(<<"10.12.12 08:44:07">>)),
         ?assertEqual({{1999,12,10},{8,44,7}}, io_to_datetime(<<"10.12.99 08:44:07">>)),
         ?assertEqual({Date,{0,0,0}}, io_to_datetime(<<"today">>)),
-        ?assertEqual(LocalTime, io_to_datetime(<<"sysdate">>)),
-        ?assertEqual(LocalTime, io_to_datetime(<<"systime">>)),
-        ?assertEqual(LocalTime, io_to_datetime(<<"now">>)),
+        ?assertEqual(erlang:localtime(), io_to_datetime(<<"sysdate">>)),
+        ?assertEqual(erlang:localtime(), io_to_datetime(<<"systime">>)),
+        ?assertEqual(erlang:localtime(), io_to_datetime(<<"now">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18.8.1888 1:23:59">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"1888-08-18 1:23:59">>)),
         ?assertEqual({{2018,8,18},{1,23,59}}, io_to_datetime(<<"18-08-18 1:23:59">>)),
@@ -1699,6 +1700,9 @@ data_types(_) ->
         ?assertEqual(-200, io_to_db(Item,OldInteger,integer,100,0,Def,RW,<<"300-500">>)),
         ?assertEqual(12, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"120/10.0">>)),
         ?assertEqual(12, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"120/10.0001">>)),
+        ?assertEqual(123456789, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"123'456'789">>)),
+        ?assertEqual(-123456789, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"-123'456'789">>)),
+        ?assertEqual(1200, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"12'000/10.0">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"1234"}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"1234">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,<<"-">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-">>)),
         ?assertEqual(default, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,?emptyIo)),
