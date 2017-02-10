@@ -42,7 +42,7 @@ get_metric(Mod, MetricKey) ->
 get_metric(Mod, MetricKey, Timeout) ->
     ReqRef = erlang:make_ref(),
     gen_server:cast(Mod, {request_metric, MetricKey, ReqRef, self()}),
-    receive {metric, ReqRef, Metric} -> Metric
+    receive {metric, ReqRef, _Timestamp, Metric} -> Metric
     after Timeout -> timeout
     end.
 
@@ -120,8 +120,8 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
 
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
 build_reply_fun(ReqRef, ReplyTo) when is_pid(ReplyTo) ->
-    fun(Result) -> ReplyTo ! {metric, ReqRef, Result} end;
+    fun(Result) -> ReplyTo ! {metric, ReqRef, os:timestamp(), Result} end;
 build_reply_fun(ReqRef, Sock) when is_tuple(Sock) ->
     fun(Result) ->
-        imem_server:send_resp({metric, ReqRef, Result}, Sock)
+        imem_server:send_resp({metric, ReqRef, os:timestamp(), Result}, Sock)
     end.
