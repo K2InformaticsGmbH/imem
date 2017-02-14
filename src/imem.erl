@@ -29,10 +29,11 @@
 -export([ now/0
         , get_os_memory/0
         , get_vm_memory/0
+        , get_swap_space/0
         , spawn_sync_mfa/3
         ]).
 
--safe([get_os_memory/0, get_vm_memory/0]).
+-safe([get_os_memory/0, get_vm_memory/0, get_swap_space/0]).
 
 
 %% ====================================================================
@@ -382,6 +383,14 @@ get_vm_memory({unix, _} = Unix) ->
                               os:cmd("ps -p "++os:getpid()++" -o pmem="),
                               "[[:space:]]*", "", [global, {return,list}])
                            ) / 100)}.
+
+-spec get_swap_space() -> {integer(), integer()}.
+get_swap_space() ->
+    case maps:from_list(memsup:get_system_memory_data()) of
+        #{free_swap := FreeSwap, total_swap := TotalSwap} ->
+            {TotalSwap, FreeSwap};
+        _ -> {0, 0}
+    end.
 
 % An MFA interface that is executed in a spawned short-lived process
 % The result is synchronously collected and returned
