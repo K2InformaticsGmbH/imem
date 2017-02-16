@@ -40,9 +40,9 @@
 %% External functions
 %% ====================================================================
 start() ->
-    ok = application:load(sasl),
+    application:load(sasl),
     ok = application:set_env(sasl, sasl_error_logger, false),
-    ok = application:load(lager),
+    application:load(lager),
     ok = application:set_env(lager, handlers, [{lager_console_backend, info},
                                                {lager_file_backend, [{file, "log/error.log"},
                                                                      {level, error},
