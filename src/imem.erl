@@ -229,11 +229,7 @@ config_start_mnesia() ->
                     true -> filename:join(RootParts ++ [SDir]);
                     false ->
                         {ok, Cwd} = file:get_cwd(),
-                        LastFolder = lists:last(filename:split(Cwd)),
-                        if LastFolder =:= ".eunit" ->
-                               filename:join([Cwd, "..", SDir]);
-                           true ->  filename:join([Cwd, SDir])
-                        end
+                        filename:join([Cwd, SDir])
                 end,
     ?Info("schema path ~s~n", [SchemaDir]),
     application:set_env(mnesia, dir, SchemaDir),
