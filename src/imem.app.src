@@ -5,17 +5,18 @@
   {description, "Replication Mnesia DB cluster"},
   {vsn, "1.6.0"},
   {registered, []},
-  {applications, [
-                  kernel,
+  {applications, [kernel,
                   stdlib,
                   sasl,
                   os_mon,
                   ranch,
+                  sext,
+                  goldrush,
+                  jsx,
                   sqlparse,
                   lager,
                   erlscrypt,
-                  inets
-                 ]},
+                  inets]},
   {included_applications, [mnesia]},
   {mod, {imem, []}},
   {env, [

@@ -40,16 +40,8 @@
 %% External functions
 %% ====================================================================
 start() ->
-    application:load(sasl),
-    application:set_env(sasl, sasl_error_logger, false),
-    ok = application:start(sasl),
-    ok = application:start(os_mon),
-    ok = application:start(ranch),
-    ok = application:start(jsx),
-    sqlparse:start(),
-    ok = application:start(compiler),
-    ok = application:start(syntax_tools),
-    ok = application:start(goldrush),
+    ok = application:load(sasl),
+    ok = application:set_env(sasl, sasl_error_logger, false),
     ok = application:load(lager),
     ok = application:set_env(lager, handlers, [{lager_console_backend, info},
                                                {lager_file_backend, [{file, "log/error.log"},
@@ -63,26 +55,10 @@ start() ->
                                                                      {date, "$D0"},
                                                                      {count, 5}]}]),
     ok = application:set_env(lager, error_logger_redirect, false),
-    ok = application:start(lager),
-    erlscrypt:start(),
-    ok = application:start(inets),
-    application:start(?MODULE).
+    {ok, _} = application:ensure_all_started(?MODULE).
 
 stop() ->
-    ok = application:stop(?MODULE),
-    ok = application:stop(inets),
-    erlscrypt:stop(),
-    ok = application:stop(lager),
-    ok = application:unload(lager),
-    ok = application:stop(goldrush),
-    ok = application:stop(syntax_tools),
-    ok = application:stop(compiler),
-    ok = sqlparse:stop(),
-    ok = application:stop(jsx),
-    ok = application:stop(ranch),
-    ok = application:stop(os_mon),
-    ok = application:stop(sasl),
-    ok = application:unload(sasl).
+    ok = application:stop(?MODULE).
 
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
