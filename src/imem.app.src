@@ -13,7 +13,7 @@
             sext,
             sqlparse
         ]},
-        {description, "Replication Mnesia DB cluster"},
+        {description, "Replication cluster DB"},
         {env, [
             {erl_cluster_mgrs, []},
             {mnesia_schema_name, imem},
