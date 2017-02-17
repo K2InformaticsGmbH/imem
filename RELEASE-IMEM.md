@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.7.0 (Release Date dd.mm.yyyy)
+=======================================
+* Migration to rebar3.
+* Improved application start / stop.
+
 Version 1.6.0 (Release Date 18.01.2017)
 =======================================
 * Improved support for escaped text in CSV files.
