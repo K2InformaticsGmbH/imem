@@ -45,7 +45,7 @@ rf(Record, Fun, FieldNames) ->
     Fmt =
     lists:flatten(
       ["#",atom_to_list(Record),"{",
-       string:join([atom_to_list(F)++" = ~p" || F <- FieldNames], ", "),
+       string:join([atom_to_list(F)++" = ~p" || F <- lists:reverse(FieldNames)], ", "),
        "}"]),
     {function,1,Fun,1,
      [{clause,1,
