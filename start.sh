@@ -45,8 +45,7 @@ os_env=$os_env" -env ERL_MAX_ETS_TABLES 50"
 
 # PATHS
 paths="-pa"
-paths=$paths" $PWD/ebin"
-paths=$paths" $PWD/deps/*/ebin"
+paths=$paths" $PWD/_build/default/lib/*/ebin"
 
 # Node name
 node_name="-name $node"

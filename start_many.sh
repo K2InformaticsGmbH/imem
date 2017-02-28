@@ -7,8 +7,7 @@ if [ "$#" -ge 1 ]; then
 fi
 
 paths="-pa"
-paths=$paths" $PWD/ebin"
-paths=$paths" $PWD/deps/*/ebin"
+paths=$paths" $PWD/_build/default/lib/*/ebin"
 
 cookie="-setcookie imem"
 
