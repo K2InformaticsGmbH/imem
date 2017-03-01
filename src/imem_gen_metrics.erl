@@ -27,6 +27,7 @@
 -define(DEFAULT_REQ_TIMEOUT, 10000).
 
 -callback init() -> {ok, term()} | {error, term()}.
+-callback request_metric(MetricKey :: any()) -> noreply | {ok, any()}.
 -callback handle_metric_req(MetricKey :: term(), ReplyFun :: fun(), State :: term()) -> NewState :: term().
 -callback terminate(Reason :: term(), State :: term()) -> ok.
 
@@ -40,15 +41,21 @@ get_metric(Mod, MetricKey) ->
 
 -spec get_metric(atom(), term(), integer()) -> term() | timeout.
 get_metric(Mod, MetricKey, Timeout) ->
-    ReqRef = erlang:make_ref(),
-    gen_server:cast(Mod, {request_metric, MetricKey, ReqRef, self()}),
+    ReqRef = make_ref(),
+    gen_server:cast(Mod, {request_metric, MetricKey,
+                          build_reply_fun(ReqRef, self())}),
     receive {metric, ReqRef, _Timestamp, Metric} -> Metric
     after Timeout -> timeout
     end.
 
 -spec request_metric(atom(), term(), term(), pid()) -> ok.
 request_metric(Mod, MetricKey, ReqRef, ReplyTo) ->
-    gen_server:cast(Mod, {request_metric, MetricKey, ReqRef, ReplyTo}).
+    ReplyFun = build_reply_fun(ReqRef, ReplyTo),
+    case Mod:request_metric(MetricKey) of
+        noreply ->
+            gen_server:cast(Mod, {request_metric, MetricKey, ReplyFun});
+        {ok, Reply} -> ReplyFun(Reply)
+    end.
 
 %% Gen server callback implementations.
 init([Mod]) ->
@@ -65,10 +72,8 @@ handle_call(UnknownReq, _From, #state{mod = Mod} = State) ->
     ?Error("~p implementing ~p pid ~p received unknown call ~p", [Mod, ?MODULE, self(), UnknownReq]),
     {noreply, State}.
 
-handle_cast({request_metric, MetricKey, ReqRef, ReplyTo}, #state{} = State) ->
-    ReplyFun = build_reply_fun(ReqRef, ReplyTo),
-    NewState = internal_get_metric(MetricKey, ReplyFun, State),
-    {noreply, NewState};
+handle_cast({request_metric, MetricKey, ReplyFun}, #state{} = State) ->
+    {noreply, internal_get_metric(MetricKey, ReplyFun, State)};
 handle_cast(UnknownReq, #state{mod = Mod} = State) ->
     ?Error("~p implementing ~p pid ~p received unknown cast ~p", [Mod, ?MODULE, self(), UnknownReq]),
     {noreply, State}.
@@ -84,7 +89,8 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %% Helper functions
 -spec internal_get_metric(term(), fun(), #state{}) -> #state{}.
-internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, system_state=SysState} = State) ->
+internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState,
+                                                system_state=SysState} = State) ->
     Time = os:system_time(micro_seconds),
     ElapsedSeconds = (Time - State#state.system_time) / 1000000,
     case {ElapsedSeconds < 1, SysState} of
@@ -112,10 +118,8 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
                 _ ->
                     {Mod:handle_metric_req(MetricKey, ReplyFun, ImplState), normal}
             end,
-            State#state{impl_state = NewImplState
-                       ,reductions = Reductions
-                       ,system_time = Time
-                       ,system_state = NewSysState}
+            State#state{impl_state = NewImplState, reductions = Reductions,
+                        system_time = Time, system_state = NewSysState}
     end.
 
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
