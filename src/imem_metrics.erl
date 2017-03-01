@@ -46,6 +46,12 @@ handle_metric_req(system_information, ReplyFun, State) ->
     },
     ReplyFun(Result),
     State;
+handle_metric_req(erlang_nodes, ReplyFun, State) ->
+    ReplyFun(imem_meta:nodes()),
+    State;
+handle_metric_req(data_nodes, ReplyFun, State) ->
+    ReplyFun([#{schema => Schema, node => Node} || {Schema, Node} <- imem_meta:data_nodes()]),
+    State;
 handle_metric_req(UnknownMetric, ReplyFun, State) ->
     ?Error("Unknow metric requested ~p", [UnknownMetric]),
     ReplyFun(undefined),
