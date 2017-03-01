@@ -2104,11 +2104,11 @@ compile_json_path({jp, ParseTreeBinary}, FieldMap) when is_binary(ParseTreeBinar
     end;
 compile_json_path({jp, ParseTreeTuple}, FieldMap) when is_tuple(ParseTreeTuple) ->
     %% this is a json path, return {ParseTreeTuple,UsedFieldMap}
-    {ok, FieldList} = jpparse:roots(ParseTreeTuple),
+    {ok, FieldList} = jpparse_fold:roots(ParseTreeTuple),
     Pred = fun({Name,_Pos}) -> lists:member(Name,FieldList) end,
     case lists:filter(Pred, FieldMap) of
         [] ->
-            {ok, JsonPath} = jpparse:string(ParseTreeTuple),
+            {ok, JsonPath} = jpparse_fold:string(ParseTreeTuple),
             ?ClientError({"Unknown JSON document name in ", JsonPath});
         FM ->
             {ParseTreeTuple,FM}
