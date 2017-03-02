@@ -29,58 +29,22 @@
 -export([ now/0
         , get_os_memory/0
         , get_vm_memory/0
+        , get_swap_space/0
         , spawn_sync_mfa/3
         , priv_dir/0
         ]).
+
+-safe([get_os_memory/0, get_vm_memory/0, get_swap_space/0]).
 
 
 %% ====================================================================
 %% External functions
 %% ====================================================================
 start() ->
-    application:load(sasl),
-    application:set_env(sasl, sasl_error_logger, false),
-    ok = application:start(sasl),
-    ok = application:start(os_mon),
-    ok = application:start(ranch),
-    ok = application:start(jsx),
-    sqlparse:start(),
-    ok = application:start(compiler),
-    ok = application:start(syntax_tools),
-    ok = application:start(goldrush),
-    ok = application:load(lager),
-    ok = application:set_env(lager, handlers, [{lager_console_backend, info},
-                                               {lager_file_backend, [{file, "log/error.log"},
-                                                                     {level, error},
-                                                                     {size, 10485760},
-                                                                     {date, "$D0"},
-                                                                     {count, 5}]},
-                                               {lager_file_backend, [{file, "log/console.log"},
-                                                                     {level, info},
-                                                                     {size, 10485760},
-                                                                     {date, "$D0"},
-                                                                     {count, 5}]}]),
-    ok = application:set_env(lager, error_logger_redirect, false),
-    ok = application:start(lager),
-    erlscrypt:start(),
-    ok = application:start(inets),
-    application:start(?MODULE).
+    {ok, _} = application:ensure_all_started(?MODULE).
 
 stop() ->
-    ok = application:stop(?MODULE),
-    ok = application:stop(inets),
-    erlscrypt:stop(),
-    ok = application:stop(lager),
-    ok = application:unload(lager),
-    ok = application:stop(goldrush),
-    ok = application:stop(syntax_tools),
-    ok = application:stop(compiler),
-    ok = sqlparse:stop(),
-    ok = application:stop(jsx),
-    ok = application:stop(ranch),
-    ok = application:stop(os_mon),
-    ok = application:stop(sasl),
-    ok = application:unload(sasl).
+    ok = application:stop(?MODULE).
 
 start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
@@ -351,10 +315,14 @@ now() ->
 -spec get_os_memory() -> {any(), integer(), integer()}.
 get_os_memory() ->
     SysData = memsup:get_system_memory_data(),
-    FreeMem = lists:sum([M || {T, M} <- SysData, ((T =:= free_memory)
-                                                    orelse (T =:= buffered_memory)
-                                                    orelse (T =:= cached_memory))]),
-    TotalMemory = proplists:get_value(total_memory, memsup:get_system_memory_data()),
+    FreeMem = lists:foldl(
+                fun({T, M}, A)
+                      when T =:= free_memory; T =:= buffered_memory;
+                           T =:= cached_memory ->
+                        A+M;
+                   (_, A) -> A
+                end, 0, SysData),
+    TotalMemory = proplists:get_value(total_memory, SysData),
     case os:type() of
         {win32, _} = Win    -> {Win,        FreeMem,    TotalMemory};
         {unix, _} = Unix    -> {Unix,       FreeMem,    TotalMemory};
@@ -362,22 +330,29 @@ get_os_memory() ->
     end.
 
 -spec get_vm_memory() -> {any(),integer()}.
-get_vm_memory() ->    
-    case os:type() of
-        {win32, _} = Win ->
-            {Win
-            , list_to_integer(re:replace(os:cmd("wmic process where processid="++os:getpid()++" get workingsetsize | findstr /v \"WorkingSetSize\"")
-                                        ,"[[:space:]]*", "", [global, {return,list}]))
-            };
-        {unix, _} = Unix ->
-            {Unix
-            , erlang:round(element(3,get_os_memory())
-                          * list_to_float(re:replace(os:cmd("ps -p "++os:getpid()++" -o pmem="),"[[:space:]]*", "", [global, {return,list}])) / 100)
-            };
-        Unknown ->
-		       {Unknown, 0}
-    end.
+get_vm_memory() -> get_vm_memory(os:type()).
+get_vm_memory({win32, _} = Win) ->
+    {Win, list_to_integer(
+            re:replace(
+              os:cmd("wmic process where processid=" ++ os:getpid() ++
+                     " get workingsetsize | findstr /v \"WorkingSetSize\""),
+              "[[:space:]]*", "", [global, {return,list}]))};
+get_vm_memory({unix, _} = Unix) ->
+    {Unix, erlang:round(
+             element(3, get_os_memory())
+                        * list_to_float(
+                            re:replace(
+                              os:cmd("ps -p "++os:getpid()++" -o pmem="),
+                              "[[:space:]]*", "", [global, {return,list}])
+                           ) / 100)}.
 
+-spec get_swap_space() -> {integer(), integer()}.
+get_swap_space() ->
+    case maps:from_list(memsup:get_system_memory_data()) of
+        #{free_swap := FreeSwap, total_swap := TotalSwap} ->
+            {TotalSwap, FreeSwap};
+        _ -> {0, 0}
+    end.
 
 % An MFA interface that is executed in a spawned short-lived process
 % The result is synchronously collected and returned

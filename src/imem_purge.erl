@@ -13,80 +13,9 @@
 	MAX_TABLE_COUNT_PERCENT = 90,
 	MIN_FREE_MEM_PERCENT = 40,
 	TABLE_EXPIRY_MARGIN_SEC = -200,
-    %[{time_to_part_expiry,table_size,partition_time,table}]
-	SortedPartTables =
-	    lists:sort([{imem_meta:time_to_partition_expiry(T),
-			 imem_meta:table_size(T),
-			 lists:nth(3, imem_meta:parse_table_name(T)),
-             T}
-			|| T <- PartTables]),
-    {Os, FreeMemory, TotalMemory} = imem:get_os_memory(),
-	MemFreePerCent = FreeMemory / TotalMemory * 100,
-	%io:format(user, \"[~p] Free ~p%~n\", [Os, MemFreePerCent]),
-	if MemFreePerCent < MIN_FREE_MEM_PERCENT ->
-	       io:format(user, \"Free mem ~p% required min ~p%~n\", [MemFreePerCent, MIN_FREE_MEM_PERCENT]),
-	       %io:format(user, \"Possible purging canditate tables ~p~n\", [SortedPartTables]),
-	       MapFun = fun ({TRemain, RCnt, Class, TName} = Itm, A) ->
-				if TRemain < TABLE_EXPIRY_MARGIN_SEC ->
-				       ClassCnt = length([Spt
-							  || Spt
-								 <- SortedPartTables,
-							     element(3, Spt) =:=
-							       Class]),
-				       if ClassCnt > 1 -> [Itm | A];
-					  true -> A
-				       end;
-				   true -> A
-				end
-			end,
-	       DelCandidates = lists:foldl(MapFun, [],
-					   SortedPartTables),
-	       if DelCandidates =:= [] ->
-                %[{time_to_part_expiry,table_size,partition_time,table}]
-		      TruncCandidates = lists:sort(fun ({_, R1, _, _},
-							 {_, R2, _, _}) ->
-							    if R1 > R2 -> true;
-							       true -> false
-							    end
-						    end,
-						    SortedPartTables),
-		      [{_, _, _, T} | _] = TruncCandidates,
-              imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"truncate table\"),
-		      imem_meta:truncate_table(T),
-		      io:format(user, \"[~p] Truncated table ~p~n\", [Os, T]);
-		  true ->
-		      [{_, _, _, T} | _] = DelCandidates,
-              imem_meta:log_to_db(info, imem_meta, purgeScriptFun, [{table, T}, {memFreePerCent, MemFreePerCent}], \"drop table\"),
-		      imem_meta:drop_table(T),
-		      io:format(user, \"[~p] Deleted table ~p~n\", [Os, T])
-	       end;
-    true ->
-        {MaxTablesConfig, CurrentTableCount} = imem_meta:get_tables_count(),
-        MaxTablesCount = MaxTablesConfig * MAX_TABLE_COUNT_PERCENT / 100,
-        if CurrentTableCount =< MaxTablesCount ->
-            % Nothing to drop yet
-            io:format(user, \"No Purge: CurrentTableCount ~p (used ~p% of ~p)~n\",
-				[CurrentTableCount, round(CurrentTableCount / MaxTablesConfig * 100), MaxTablesConfig]);
-        true ->
-            SelectCount = round(CurrentTableCount - MaxTablesCount),
-            if SelectCount > 0 ->
-                ExpiredSortedPartTables = lists:filter(fun ({T, _, _, _}) ->
-                                            if T < 0 -> true; true -> false end
-                                          end,
-								          SortedPartTables),
-                RSortedPartTables = lists:sort(fun ({_, R1, _, _}, {_, R2, _, _}) ->
-                                        if R1 < R2 -> true; true -> false end
-							        end,
-							        ExpiredSortedPartTables),
-                DropCandidates = lists:sublist(RSortedPartTables, SelectCount),
-			    %[{time_to_part_expiry,table_size,partition_time,table}]
-			    io:format(user, \"Tables deleted ~p~n\",
-				       [[T || {_, _, _, T} <- DropCandidates]]),
-			    [imem_meta:drop_table(T) || {_, _, _, T} <- DropCandidates];
-            true -> io:format(user, \"This should not print~n\", [])
-            end
-        end
-	end
+	imem_purge:try_cleanup(MIN_FREE_MEM_PERCENT,
+			       TABLE_EXPIRY_MARGIN_SEC, MAX_TABLE_COUNT_PERCENT,
+			       PartTables)
 end
 ">>,"Function used for tailoring the purge strategy to the system's needs.")).
 
@@ -113,6 +42,10 @@ end
         , code_change/3
         , format_status/2
         ]).
+
+-export([try_cleanup/4]).
+
+-safe(try_cleanup/4).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -155,7 +88,7 @@ handle_info(purge_partitioned_tables, State=#state{purgeFun=PF,purgeHash=PH,purg
                             case erlang:phash2(PFStr) of
                                 PH ->   {PH,PF};        % existing compiled purge fun (may be undefined)
                                 H1 ->   
-                                    case (catch imem_meta:compile_fun(PFStr)) of
+                                    case (catch imem_compiler:compile(PFStr)) of
                                         CPF when is_function(CPF) ->  
                                             {H1,CPF};   % new compiled purge fun
                                         Err ->
@@ -224,3 +157,89 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 format_status(_Opt, [_PDict, _State]) -> ok.
+
+-spec try_cleanup(integer(),integer(),integer(),list()) -> any().
+try_cleanup(MinMemFreePerCent, TableExpiryMarginSec,
+            MaxTableCountPercent, PartTables) ->
+	%[{time_to_part_expiry,table_size,partition_time,table}]
+	SortedPartTables = lists:sort([{imem_meta:time_to_partition_expiry(T),
+                                    imem_meta:table_size(T),
+                                    lists:nth(3, imem_meta:parse_table_name(T)),
+                                    T} || T <- PartTables]),
+	{Os, FreeMemory, TotalMemory} = imem:get_os_memory(),
+	MemFreePerCent = FreeMemory / TotalMemory * 100,
+	%?Info("[~p] Free ~p%", [Os, MemFreePerCent]),
+	if MemFreePerCent < MinMemFreePerCent ->
+           ?Info("Free mem ~p% required min ~p%",
+                 [MemFreePerCent, MinMemFreePerCent]),
+	       %?Info("Possible purging canditate tables ~p",
+           %      [SortedPartTables]),
+	       DelCandidates =
+           lists:foldl(
+             fun ({TRemain, _RCnt, Class, _TName} = Itm, A) ->
+                     if TRemain < TableExpiryMarginSec ->
+                            ClassCnt =
+                            length([Spt || Spt <- SortedPartTables,
+                                           element(3, Spt) =:= Class]),
+                            if ClassCnt > 1 -> [Itm | A];
+                               true -> A
+                            end;
+                        true -> A
+                     end
+             end, [], SortedPartTables),
+           case DelCandidates of
+               [] ->
+                   %[{time_to_part_expiry,table_size,partition_time,table}]
+                   [{_, _, _, T} | _] =
+                   lists:sort(fun ({_,R1,_,_}, {_,R2,_,_}) when R1>R2 -> true;
+                                  (_, _) -> false
+                              end, SortedPartTables),
+                   imem_meta:log_to_db(
+                     info, imem_meta, purgeScriptFun,
+                     [{table, T}, {memFreePerCent, MemFreePerCent}],
+                     "truncate table"),
+                   % imem_meta:truncate_table(T),
+                   % ?Info("[~p] Truncated table ~p", [Os, T]);
+                   ?Info("[~p] table ~p need truncation", [Os, T]);
+              [{_, _, _, T} | _] ->
+                   imem_meta:log_to_db(
+                     info, imem_meta, purgeScriptFun,
+                     [{table, T}, {memFreePerCent, MemFreePerCent}],
+                     "drop table"),
+                   imem_meta:drop_table(T),
+                   ?Info("[~p] Deleted table ~p", [Os, T])
+           end;
+       true ->
+	       {MaxTablesConfig, CurrentTableCount} = imem_meta:get_tables_count(),
+           MaxTablesCount = MaxTablesConfig * MaxTableCountPercent / 100,
+           if CurrentTableCount =< MaxTablesCount ->
+                  % Nothing to drop yet
+                  ?Debug("No Purge: CurrentTableCount ~p (used ~p% of ~p)",
+                        [CurrentTableCount,
+                         round(CurrentTableCount / MaxTablesConfig * 100),
+                         MaxTablesConfig]);
+              true ->
+                  SelectCount = round(CurrentTableCount - MaxTablesCount),
+                  if SelectCount > 0 ->
+                         ExpiredSortedPartTables =
+                         lists:filter(
+                           fun ({T,_,_,_}) ->
+                                   if T < 0 -> true;
+                                      true -> false
+                                   end
+                           end, SortedPartTables),
+                         RSortedPartTables =
+                         lists:sort(
+                           fun ({_,R1,_,_}, {_,R2,_,_}) when R1 < R2 -> true;
+                               (_, _) -> false
+                           end, ExpiredSortedPartTables),
+                         DropCandidates =
+                         [T || {_,_,_,T} <-
+                      %[{time_to_part_expiry,table_size,partition_time,table}]
+                               lists:sublist(RSortedPartTables, SelectCount)],
+                         ?Info("Tables deleted ~p", [DropCandidates]),
+                         [imem_meta:drop_table(T) || T <- DropCandidates];
+                     true -> ?Info("This should not print")
+                  end
+           end
+    end.

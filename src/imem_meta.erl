@@ -23,10 +23,6 @@
 -define(META_OPTS,[purge_delay,trigger]). % table options only used in imem_meta and above
 -define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit,[],1000,"Maximum number of rows which can be generated in first (and only) result block")).
 
--define(CONFIG_TABLE_OPTS,  [{record_name,ddConfig}
-                            ,{type,ordered_set}
-                            ]).          
-
 -define(LOG_TABLE_OPTS,     [{record_name,ddLog}
                             ,{type,ordered_set}
                             ,{purge_delay,430000}        %% 430000 = 5 Days - 2000 sec
@@ -103,6 +99,7 @@
         , host_name/1
         , node_name/1
         , node_hash/1
+        , record_hash/2
         , nodes/0
         , all_aliases/0
         , all_tables/0
@@ -149,13 +146,11 @@
         , from_column_infos/1
         ]).
 
--export([ compile_fun/1
-        , log_to_db/5
+-export([ log_to_db/5
         , log_to_db/6
         , log_to_db/7
         , log_slow_process/6
         , failing_function/1
-        , get_config_hlk/5
         , get_config_hlk/6
         , put_config_hlk/6
         , put_config_hlk/7
@@ -275,27 +270,10 @@
         , foldl/3
         ]).
 
--export([ simple_or_local_node_sharded_tables/1]).
+-export([simple_or_local_node_sharded_tables/1]).
 
--export([ secure_apply/3]).
-
--spec secure_apply(Mod :: atom(), Fun :: atom(), Args :: list()) -> any() | no_return.
-secure_apply(Mod, Fun, Args) ->
-    {ModFunList,true}
-    = imem_if_mnesia:select(?CONFIG_TABLE,
-                     [{#ddConfig{hkl=[{'_','$1',secureFunctions}|'_'],
-                                 val='$2',_='_'},[],[{{'$1','$2'}}]}]),
-    case lists:foldl(fun({M,Funs}, {false, undefined}) when M == Mod ->
-                             case lists:member(Fun, Funs) of
-                                 true -> {true, apply(Mod,Fun,Args)};
-                                 false -> {false, undefined}
-                             end;
-                        (_, {true,_}=Executed) -> Executed;
-                        (_,NotFound) -> NotFound
-                     end, {false,undefined}, ModFunList) of
-        {true, Result} -> Result;
-        _ -> ?SystemException({"Can not run in DB", {Mod, Fun}})
-    end.
+-safe([log_to_db,update_index,dictionary_trigger,data_nodes,
+       physical_table_name,get_tables_count,record_hash]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -410,8 +388,7 @@ init(_Args) ->
         init_create_check_table(ddNode, {record_info(fields, ddNode),?ddNode,#ddNode{}}, [], system),    
         init_create_check_table(ddSnap, {record_info(fields, ddSnap),?ddSnap,#ddSnap{}}, [], system),
         init_create_check_table(ddSchema, {record_info(fields, ddSchema),?ddSchema, #ddSchema{}}, [], system),    
-        init_create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),    
-        init_create_check_table(?CONFIG_TABLE, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system),
+        init_create_check_table(ddSize, {record_info(fields, ddSize),?ddSize, #ddSize{}}, [], system),
         init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
         init_create_table(dual, {record_info(fields, dual),?dual, #dual{}}, [], system),
         write(dual,#dual{}),
@@ -1861,24 +1838,6 @@ atoms_ending_with(Suffix,[A|Atoms],Acc) ->
 %% one to one from imme_if -------------- HELPER FUNCTIONS ------
 
 
-compile_fun(Binary) when is_binary(Binary) ->
-    compile_fun(binary_to_list(Binary)); 
-compile_fun(String) when is_list(String) ->
-    try  
-        Code = case [lists:last(string:strip(String))] of
-            "." -> String;
-            _ -> String ++ "."
-        end,
-        {ok,ErlTokens,_}=erl_scan:string(Code),    
-        {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
-        {value,Fun,_}=erl_eval:exprs(ErlAbsForm,[]),    
-        Fun
-    catch
-        _:Reason ->
-            ?Error("Compiling script function ~p results in ~p",[String,Reason]), 
-            undefined
-    end.
-
 abort(Reason) ->
     imem_if_mnesia:abort(Reason).
 
@@ -2047,6 +2006,9 @@ nodes() ->
               end
       end, erlang:nodes()).
 
+record_hash(Rec,PosList) when is_tuple(Rec), is_list(PosList) ->
+    TupleToHash = list_to_tuple([element(N,Rec) || N <- PosList]),
+    list_to_binary(io_lib:format("~.36B",[erlang:phash2(TupleToHash)])).
 
 -spec trigger_infos(atom()|{atom(),atom()}) -> {TableType :: atom(), DefaultRecord :: tuple(), TriggerFun :: function()}.
 trigger_infos(Table) when is_atom(Table) ->
@@ -3132,7 +3094,6 @@ teardown(_) ->
     catch drop_table(?TPTEST0),
     catch drop_table(?TPTEST1),
     catch drop_table(?TPTEST2),
-    catch drop_table(test_config),
     catch drop_table(fakelog_1@),
     catch drop_table(imem_table_123),
     catch drop_table('"imem_table_123"'),
@@ -3424,26 +3385,9 @@ meta_operations(_) ->
         ?assertEqual(Schema0, read(ddSchema)),
         ?assertEqual({Schema0,true}, select(ddSchema,?MatchAllRecords,1000)),
 
-        ?assertEqual(ok, create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default created, owner set
-        ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, not_test_owner, [test_context], other_default)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],read(test_config)), %% default not overwritten, wrong owner
-        ?assertEqual(test_value1,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value1)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value1}],read(test_config)), %% new default overwritten by owner
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [],test_value2,<<"Test Remark">>)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value3)),
-        ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value2}],read(test_config)),
-        ?assertEqual(ok, put_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context],context_value,<<"Test Remark">>)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
-        ?assertEqual(context_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context,details], test_value)),
-        ?assertEqual(test_value2,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [another_context,details], another_value)),
-        % ?LogDebug("success ~p~n", [get_config_hlk]),
-
         ?assertEqual(ok, drop_table(meta_table_3)),
         ?assertEqual(ok, drop_table(meta_table_2)),
         ?assertEqual(ok, drop_table(meta_table_1)),
-        ?assertEqual(ok, drop_table(test_config)),
 
         %?LogDebug("success ~p~n", [drop_tables]),
         ok

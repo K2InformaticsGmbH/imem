@@ -1,51 +1,16 @@
 -ifndef(IMEM_META_HRL).
 -define(IMEM_META_HRL, true).
 
+-compile({parse_transform, imem_rec_pretty_pt}).
+
+-include("imem_exception.hrl").
 -include("imem_if.hrl").
 -include("imem_if_csv.hrl").
+-include("imem_config.hrl").
 
--define(ClientError(__Reason), ?THROW_EXCEPTION('ClientError',__Reason)).
--define(SystemException(__Reason),  ?THROW_EXCEPTION('SystemException',__Reason)).
--define(ConcurrencyException(__Reason),  ?THROW_EXCEPTION('ConcurrencyException',__Reason)).
--define(UnimplementedException(__Reason),  ?THROW_EXCEPTION('UnimplementedException',__Reason)).
-
--define(CONFIG_TABLE,ddConfig).                    
 -define(LOG_TABLE,ddLog_86400@).                    %% 86400 = 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
 -define(CACHE_TABLE,ddCache@).
-
--define(GET_CONFIG(__PName,__Context,__Default),
-        imem_meta:get_config_hlk(
-          ?CONFIG_TABLE, {element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,lists:flatten([__Context,node()]),__Default)
-       ).
--define(GET_CONFIG(__PName,__Context,__Default,__Documentation),
-        imem_meta:get_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,lists:flatten([__Context,node()]),__Default,__Documentation)
-       ).
-
--define(PUT_CONFIG(__PName,__Context,__Default,__Remark),
-        imem_meta:put_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,__Context,__Default,__Remark)
-       ).
--define(PUT_CONFIG(__PName,__Context,__Default,__Remark,__Documentation),
-        imem_meta:put_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,__Context,__Default,__Remark,__Documentation)
-       ).
-   
--define(SET_SEC_FUNS(__Funs),
-        imem_meta:get_config_hlk(
-          ?CONFIG_TABLE, {element(2,application:get_application(?MODULE)),
-                          ?MODULE,secureFunctions},
-          ?MODULE, [node()], __Funs, "List of custom functions declared as safe")
-       ).
-
--define(GET_ROWNUM_LIMIT,
-        imem_meta:get_config_hlk(?CONFIG_TABLE,{imem,imem_sql_expr,rownumDefaultLimit},imem_sql_expr,[node()],200000,"Default rownum limit for SQL queries.")
-       ).
 
 -record(ddColumn,                           %% column definition    
 				  { name                    ::atom()
@@ -174,15 +139,6 @@
 	   ).
 -define(ddSchema, [tuple,list]).
 
--record(ddConfig,                           %% config record    
-				  { hkl                     ::list()                    %% hierarchical key list [item,context1,context2,...]
-				  , val                     ::any()
-				  , owner                   ::atom()                    %% the module who owns this config
-				  , remark= <<"">>          ::binary()                  %% create comments     
-				  }
-	   ).
--define(ddConfig, [list,term,atom,binstr]).
-
 -record(ddConfigHistory,                    %% config history record    
 				  { hkl_time                ::tuple()                   %% {[item,context1,context2,...],erlang:now()}
 				  , val                     ::any()                     
@@ -267,52 +223,5 @@
 					]).
 
 -define(VirtualTables, [ddSize|?DataTypes]).
-
--define(THROW_EXCEPTION(__Ex,__Reason),
-	(fun(_Reason) ->
-		__Level = case __Ex of
-			'UnimplementedException' -> warning;
-			'ConcurrencyException' ->   warning;
-			'ClientError' ->            warning;
-			_ ->                        error
-		end,
-		_Rsn = _Reason,
-		{__Head,__Fields} = case _Rsn of
-			__Rsn when is_tuple(__Rsn) ->
-				[__H|__R] = tuple_to_list(__Rsn),
-				case __R of
-					[]  -> {__H,[]};
-					__R when is_tuple(__R) ->
-						__RL = tuple_to_list(__R),
-						{__H, lists:zip([list_to_atom("ep"++integer_to_list(__N)) || __N <- lists:seq(1,length(__RL))], __RL)};
-					__R -> {__H,__R}
-				end;
-			__Else -> {__Level,[{ep1,__Else}]}
-		end,            
-		__Message = if 
-			is_atom(__Head) -> list_to_binary(atom_to_list(__Head));
-			is_list(__Head) -> list_to_binary(__Head);
-			true            -> <<"invalid exception head">>
-		end,
-		{_, {_,[_|__ST]}} = (catch os:timestamp(1)),
-		{__Module,__Function,__Line} = imem_meta:failing_function(__ST),
-		__LogRec = #ddLog{logLevel=__Level,pid=self()
-                          ,module=__Module,function=__Function,line=__Line
-						  ,node=node(),fields=[{ex,__Ex}|__Fields]
-						  ,message= __Message,stacktrace = __ST},
-		__DbResult = {fun() -> __Level end(), (catch imem_meta:write_log(__LogRec))},
-		case __DbResult of 
-			{warning, ok} ->	ok;
-			{warning, _} ->		lager:warning("[_IMEM_] {~p,~p,~p} ~s~n~p~n~p",[__Module,__Function,__Line,__Message,__Fields,__ST]);
-			{error, ok} ->		ok;
-			{error, _} ->		lager:error("[_IMEM_] {~p,~p,~p} ~s~n~p~n~p",[__Module,__Function,__Line,__Message,__Fields,__ST]);
-			_ ->				ok
-		end,
-		case __Ex of
-			'SecurityViolation' ->  exit({__Ex,_Reason});
-			_ ->                    throw({__Ex,_Reason})
-		end
-	end)(__Reason)
-).
 
 -endif.

@@ -99,7 +99,7 @@ lead({Mega,Secs,_}) ->
 
 off() -> round(200*random:uniform())-100.
 
-follow(Xp,Yp,X,Y,_,_) -> {(Xp+X+off()) div 2, (Yp+Y+off()) div 2}.
+follow(Xp,Yp,X,Y,_,_) -> {(Xp+Xp+Xp+X+off()) div 4, (Yp+Yp+Yp+Y+off()) div 4}.
 
 instruct_the_children(_, _, _, _, []) -> ok;
 instruct_the_children(X, Y, T, W, Pids) ->

@@ -9,21 +9,15 @@
 -define(rawTypeIo,binary).
 -define(emptyIo,<<>>).
 
--define(SAFE_ERLANG_FUNCTIONS,['==','/=','=<','>','>=','>','=:=','=/=',
-                               '+','-','*','/','++','--','bnot','band','bor',
-                               'bxor','bsl','bsr','abs','div','rem',
-                               'min','max','float','now','date','element',
-                               'size','bit_size','byte_size','binary_part',
-                               'phash2','md5','throw','hd','tl','setelement','round']).
--define(UNSAFE_ERLANG_FUNCTIONS,['list_to_atom','binary_to_atom','list_to_pid','binary_to_term','is_pid','is_port','is_process_alive']).
--define(UNSAFE_SERVER_FUNCTIONS,[start,start_link,init,handle_info,handle_call,handle_cast,terminate,code_change]).
-
 -define(ROWFUN_EXTENSIONS,[{<<"nodef">>,1}
                           ,{<<"item1">>,1},{<<"item2">>,1},{<<"item3">>,1},{<<"item4">>,1}
                           ,{<<"item5">>,1},{<<"item6">>,1},{<<"item7">>,1},{<<"item8">>,1},{<<"item9">>,1}
                           ]).
 
 -define(H(X), (hex(X)):16).
+
+-define(THOUSAND_SEP,[$']).         %% ' is ignored in integer strings or expressions
+-define(USE_THOUSAND_SEP,true).     %% comment out if no thousands separation is wanted on output
 
 -define(BinaryMaxLen,250).          %% more represented by "..." suffix
 
@@ -153,6 +147,8 @@
 -export([ select_rowfun_raw/1   %% return rows in raw erlang db format
         , select_rowfun_str/4   %% convert all rows to string
         ]).
+
+-safe(all).
 
 bind_arg_types() ->
     [atom_to_binary(T,utf8) || T <- ?CLM_TYPES].
@@ -550,12 +546,21 @@ io_to_integer(Val,0,Prec) ->
     io_to_integer(Val,undefined,Prec);
 io_to_integer(Val,Len,undefined) ->
     io_to_integer(Val,Len,0);
+io_to_integer(Val,Len,Prec) when is_binary(Val) ->
+    io_to_integer(binary_to_list(Val),Len,Prec);
 io_to_integer(Val,Len,Prec) ->
-    Value = case io_to_term(Val) of
-        V when is_integer(V) -> V;
-        V when is_float(V) ->   erlang:round(V);
-        _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
-    end,
+    ValStr = string:join(string:tokens(Val,?THOUSAND_SEP),[]),
+    Value = try  list_to_integer(ValStr)
+        catch _:_ -> 
+            try erlang:round(list_to_float(Val))
+            catch _:_ ->  
+                case io_to_term(ValStr) of
+                    V when is_integer(V) -> V;
+                    V when is_float(V) ->   erlang:round(V);
+                    _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{integer,Len,Prec,Val}})
+                end
+            end
+        end,
     Result = if
         Prec == undefined ->    Value;
         Prec <  0 ->            erlang:round(erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec));
@@ -568,12 +573,17 @@ io_to_integer(Val,Len,Prec) ->
         true ->                 Result
     end.
 
+io_to_float(Val,Prec) when is_binary(Val) ->
+    io_to_float(binary_to_list(Val),Prec);
 io_to_float(Val,Prec) ->
-    Value = case io_to_term(Val) of
-        V when is_float(V) ->   V;
-        V when is_integer(V) -> float(V);
-        _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{float,Prec,Val}})
-    end,
+    Value = try list_to_float(Val)
+        catch _:_ ->
+            case io_to_term(Val) of
+                V when is_float(V) ->   V;
+                V when is_integer(V) -> float(V);
+                _ ->                    ?ClientErrorNoLogging({"Data conversion format error",{float,Prec,Val}})
+            end
+        end,
     if
         Prec == undefined ->    Value;
         true ->                 erlang:round(math:pow(10, Prec) * Value) * math:pow(10,-Prec)
@@ -652,7 +662,7 @@ io_to_timestamp("systime",Prec) ->
 io_to_timestamp("sysdate",Prec) ->
     io_to_timestamp("now",Prec);
 io_to_timestamp("now",Prec) ->
-    {Megas,Secs,Micros} = os:timestamp(),
+    {Megas,Secs,Micros} = erlang:now(),
     {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec)))};
 io_to_timestamp([${|_]=Val,_Prec) ->
     case io_to_tuple(Val,3) of
@@ -940,7 +950,7 @@ io_to_decimal(Val,Len,undefined) ->
 io_to_decimal(Val,Len,0) ->         %% use fixed point arithmetic with implicit scaling factor
     io_to_integer(Val,Len,0);
 io_to_decimal(Val,Len,Prec) ->
-    case Val of
+    case string:join(string:tokens(Val,?THOUSAND_SEP),[]) of
         [$-|Positive] -> Sign = [$-];
         Positive -> Sign = []
     end,
@@ -1058,23 +1068,31 @@ io_to_boolean(Val) ->
     end.
 
 io_to_term(Val) ->
+    {Encrypt, Value} = case re:replace(Val, "^enc\\((.*)\\)$", "\\1",
+                                       [dotall, global]) of
+                           Val      -> {false, Val};
+                           [[Val1]] -> {true, Val1}
+                       end,
     try
-        erl_value(Val)
+        Value1 = imem_compiler:compile(Value),
+        if Encrypt -> imem_config:encrypt(Value1);
+           true -> Value1
+        end
     catch
-        _:_ -> 
-            % ?LogDebug("Cannot convert this to erlang term: ~10000p ~10000p", [Val,erlang:get_stacktrace()]),   %% TODO:enable to check code injection
+        _:_ ->
+            %?LogDebug("Cannot convert this to erlang term: ~10000p ~10000p", [Val,erlang:get_stacktrace()]),   %% TODO:enable to check code injection
             ?ClientErrorNoLogging({})
     end.
 
 io_to_binterm(Val) ->
     try
-        sext:encode(erl_value(Val))
+        sext:encode(imem_compiler:compile(Val))
     catch
         _:_ -> ?ClientErrorNoLogging({})
     end.
 
 io_to_fun(Str) ->
-    Fun = erl_value(Str),
+    Fun = imem_compiler:compile(Str),
     if
         is_function(Fun) ->
             Fun;
@@ -1083,7 +1101,7 @@ io_to_fun(Str) ->
     end.
 
 io_to_fun(Str,Len) ->
-    Fun = erl_value(Str),
+    Fun = imem_compiler:compile(Str),
     if
         Len == undefined ->     Fun;
         is_function(Fun,Len) -> Fun;
@@ -1092,79 +1110,13 @@ io_to_fun(Str,Len) ->
     end.
 
 io_to_fun(Str,Len,Bindings) ->
-    Fun = erl_value(Str,Bindings),
+    Fun = imem_compiler:compile(Str,Bindings),
     if
         Len == undefined ->     Fun;
         is_function(Fun,Len) -> Fun;
         true ->
             ?ClientErrorNoLogging({"Data conversion format error",{'fun',Len,Str,Bindings}})
     end.
-
-erl_value(String) when is_binary(String) -> erl_value(binary_to_list(String),[]);
-erl_value(String) when is_list(String) -> erl_value(String,[]).
-
-erl_value(String,Bindings) when is_binary(String), is_list(Bindings) ->
-    erl_value(binary_to_list(String),Bindings);
-erl_value(String,Bindings) when is_list(String), is_list(Bindings) ->
-    Code = case [lists:last(string:strip(String))] of
-        "." -> String;
-        _ -> String ++ "."
-    end,
-    {ok,ErlTokens,_} = erl_scan:string(Code),
-    {ok,ErlAbsForm} = erl_parse:parse_exprs(ErlTokens),
-    case catch erl_eval:exprs(ErlAbsForm, Bindings, none,
-                              {value, fun nonLocalHFun/2}) of
-        {value,Value,_} -> Value;
-        {Ex, Exception} when Ex == 'SystemException'; Ex == 'SecurityException' ->
-            ?SecurityException({"Potentially harmful code", Exception});
-        {'EXIT', Error} -> ?ClientErrorNoLogging({"Term compile error", Error})
-    end.
-
-% @doc callback function used as 'Non-local Function Handler' in
-% erl_eval:exprs/4 to restrict code injection. This callback function will
-% exit with '{restricted,{M,F}}' exit value. If the exprassion is evaluated to
-% an erlang fun, the fun will throw the same expection at runtime.
-nonLocalHFun({erlang, Fun} = FSpec, Args) ->
-    case lists:member(Fun,?SAFE_ERLANG_FUNCTIONS) of
-        true ->
-            apply(erlang, Fun, Args);
-        false ->
-            case lists:member(Fun,?UNSAFE_ERLANG_FUNCTIONS) of
-                true ->
-                    ?SecurityException({restricted, FSpec});
-                false ->
-                    case re:run(atom_to_list(Fun),"^is_") of
-                        nomatch ->
-                            case re:run(atom_to_list(Fun),"_to_") of
-                                nomatch ->  ?SecurityException({restricted, FSpec});
-                                _ ->        apply(erlang, Fun, Args)
-                            end;
-                        _ ->
-                            apply(erlang, Fun, Args)
-                    end
-            end
-    end;
-nonLocalHFun({Mod, Fun}, Args) when Mod==math;Mod==lists;Mod==imem_datatype;Mod==imem_json ->
-    apply(Mod, Fun, Args);
-nonLocalHFun({io_lib, Fun}, Args) when Fun==format ->
-    apply(io_lib, Fun, Args);
-nonLocalHFun({imem_meta, Fun}, Args) when Fun==log_to_db;Fun==update_index;Fun==dictionary_trigger ->
-    apply(imem_meta, Fun, Args);
-nonLocalHFun({imem_domain, Fun}, Args) ->
-    nonLocalServerFun({imem_domain, Fun}, Args);
-nonLocalHFun({imem_dal_skvh, Fun}, Args) ->
-    apply(imem_dal_skvh, Fun, Args);            % TODO: restrict to subset of functions
-nonLocalHFun({imem_index, Fun}, Args) ->
-    apply(imem_index, Fun, Args);               % TODO: restrict to subset of functions
-nonLocalHFun({Mod, Fun}, Args) ->
-    apply(imem_meta, secure_apply, [Mod, Fun, Args]).
-
-nonLocalServerFun({Mod, Fun}, Args) ->
-    case lists:member(Fun,?UNSAFE_SERVER_FUNCTIONS) of
-        true ->     ?SecurityException({restricted, {Mod, Fun}});
-        false ->    apply(Mod, Fun, Args)
-    end.
-
 
 %% ----- CAST Data from DB to string ------------------
 
@@ -1236,8 +1188,6 @@ timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec >= 6 ->
     list_to_binary(io_lib:format("~s.~6.6.0w",[datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt), Micros]));
 timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec > 0 ->
     [MStr0] = io_lib:format("~6.6.0w",[Micros]),
-    % ?Info("----MStr0 ~p~n", [MStr0]),
-    % ?Info("----Prec ~p~n", [Prec]),
     MStr1 = case list_to_integer(lists:sublist(MStr0, Prec+1, 6-Prec)) of
         0 ->    [$.|lists:sublist(MStr0, Prec)];
         _ ->    [$.|MStr0]
@@ -1378,8 +1328,20 @@ string_to_io(Val) when is_list(Val) ->
 string_to_io(Val) ->
     list_to_binary(lists:flatten(io_lib:format("~tp",[Val]))).      %% "\"~tp\""
 
+-ifdef (USE_THOUSAND_SEP).
+integer_to_io(Val) ->
+    list_to_binary(lists:foldl(fun integer_filter/2,[],lists:reverse(integer_to_list(Val)))).
+
+integer_filter($-,Acc) -> [$-|Acc];
+integer_filter(D,Acc) -> 
+    case (length(Acc)+1) rem 4 of
+        0 ->    [D,hd(?THOUSAND_SEP)|Acc];
+        _ ->    [D|Acc]
+    end.
+-else.
 integer_to_io(Val) ->
     list_to_binary(integer_to_list(Val)).
+-endif.
 
 %% ----- Helper Functions ---------------------------------------------
 
@@ -1524,30 +1486,6 @@ hex(X) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
-erl_value_test_() ->
-    {inparallel,
-     [{C, case O of
-              'SystemException' ->
-                  ?_assertException(throw, {'SecurityException', _}, erl_value(C));
-              'ClientError' ->
-                  ?_assertException(throw, {'ClientError', _}, erl_value(C));
-              runtime ->
-                  Fun = erl_value(C),
-                  ?_assertException(throw, {'SystemException', _}, Fun());
-              _ ->
-                  ?_assertEqual(O, erl_value(C))
-          end}
-      || {C,O} <-
-         [
-          {"{1,2}", {1,2}},
-          {"(fun() -> 1 + 2 end)()", 3},
-          {"(fun() -> A end)()", 'ClientError'},
-          {"os:cmd(\"pwd\")", 'SystemException'},
-          {"(fun() -> apply(filelib, ensure_dir, [\"pwd\"]) end)()",'SystemException'},
-          {"fun() -> os:cmd(\"pwd\") end", runtime}
-         ]
-     ]}.
-
 db_test_() ->
     {
         setup,
@@ -1658,9 +1596,9 @@ data_types(_) ->
         ?assertEqual({{2012,12,10},{8,44,7}}, io_to_datetime(<<"10.12.12 08:44:07">>)),
         ?assertEqual({{1999,12,10},{8,44,7}}, io_to_datetime(<<"10.12.99 08:44:07">>)),
         ?assertEqual({Date,{0,0,0}}, io_to_datetime(<<"today">>)),
-        ?assertEqual(LocalTime, io_to_datetime(<<"sysdate">>)),
-        ?assertEqual(LocalTime, io_to_datetime(<<"systime">>)),
-        ?assertEqual(LocalTime, io_to_datetime(<<"now">>)),
+        ?assertEqual(erlang:localtime(), io_to_datetime(<<"sysdate">>)),
+        ?assertEqual(erlang:localtime(), io_to_datetime(<<"systime">>)),
+        ?assertEqual(erlang:localtime(), io_to_datetime(<<"now">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"18.8.1888 1:23:59">>)),
         ?assertEqual({{1888,8,18},{1,23,59}}, io_to_datetime(<<"1888-08-18 1:23:59">>)),
         ?assertEqual({{2018,8,18},{1,23,59}}, io_to_datetime(<<"18-08-18 1:23:59">>)),
@@ -1762,11 +1700,14 @@ data_types(_) ->
         ?assertEqual(-200, io_to_db(Item,OldInteger,integer,100,0,Def,RW,<<"300-500">>)),
         ?assertEqual(12, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"120/10.0">>)),
         ?assertEqual(12, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"120/10.0001">>)),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"1234">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"1234">>)),
+        ?assertEqual(123456789, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"123'456'789">>)),
+        ?assertEqual(-123456789, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"-123'456'789">>)),
+        ?assertEqual(1200, io_to_db(Item,OldInteger,integer,20,0,Def,RW,<<"12'000/10.0">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"1234"}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"1234">>)),
         ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,<<"-">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-">>)),
         ?assertEqual(default, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,?emptyIo)),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"-100">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-100">>)),
-        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,<<"9999">>}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"9999">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"-100"}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"-100">>)),
+        ?assertException(throw, {ClEr,{"Data conversion format error",{0,{integer,3,1,"9999"}}}}, io_to_db(Item,OldInteger,integer,Len,Prec,Def,RW,<<"9999">>)),
 
         % ?LogDebug("io_to_db success 5~n", []),
 

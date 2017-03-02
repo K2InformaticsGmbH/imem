@@ -62,90 +62,38 @@ start_link(Args) ->
 %%          ignore                          |
 %%          {error, Reason}
 %% --------------------------------------------------------------------
+
 init(_StartArgs) ->
     {ok, ImemTimeout} = application:get_env(imem_timeout),
     ?Info("~p starting children with timeout ~p~n", [?MODULE, ImemTimeout]),
 
     Children =
-    % imem_if_mnesia
-    [?CHILD(imem_if_mnesia, worker, [], ImemTimeout)]
-    ++
-    % imem_if_csv
-    [?CHILD(imem_if_csv, worker, [], ImemTimeout)]
-    ++
-    % imem_meta
-    case application:get_env(meta_server) of
-        {ok, true} -> [?CHILD(imem_meta, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p meta_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_if_sys_conf
-    case application:get_env(if_sys_conf_server) of
-        {ok, true} -> [?CHILD(imem_if_sys_conf, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p if_sys_conf_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_monitor
-    case application:get_env(monitor_server) of
-        {ok, true} -> [?CHILD(imem_monitor, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p monitor_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_proll
-    case application:get_env(proll_server) of
-        {ok, true} -> [?CHILD(imem_proll, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p proll_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_purge
-    case application:get_env(purge_server) of
-        {ok, true} -> [?CHILD(imem_purge, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p purge_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_client
-    case application:get_env(client_server) of
-        {ok, true} -> [?CHILD(imem_client, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p client_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_seco
-    case application:get_env(seco_server) of
-        {ok, true} -> [?CHILD(imem_seco, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p seco_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_domain
-    case application:get_env(domain_server) of
-        {ok, true} -> [?CHILD(imem_domain, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p domain_server disabled~n", [?MODULE]),
-            []
-    end
-    ++
-    % imem_snap
-    case application:get_env(snap_server) of
-        {ok, true} -> [?CHILD(imem_snap, worker, [], ImemTimeout)];
-        _ ->
-            ?Info("~p snap_server disabled~n", [?MODULE]),
-            []
-    end,
-
-    {ok, {{one_for_one, 3, 10}, Children}}.
+    [?CHILD(imem_if_mnesia, worker, [], ImemTimeout),
+     ?CHILD(imem_if_csv,    worker, [], ImemTimeout),
+     ?CHILD(imem_metrics,   worker, [], ImemTimeout)
+     | lists:filtermap(
+         fun({E,M}) ->
+                 case application:get_env(E) of
+                     {ok, true} -> {true, ?CHILD(M, worker, [], ImemTimeout)};
+                     _ ->
+                         ?Info("~p ~p disabled~n", [E, ?MODULE]),
+                         false
+                 end
+         end,
+         [{meta_server,         imem_meta},
+          {config_server,       imem_config},
+          {if_sys_conf_server,  imem_if_sys_conf},
+          {monitor_server,      imem_monitor},
+          {proll_server,        imem_proll},
+          {purge_server,        imem_purge},
+          {client_server,       imem_client},
+          {seco_server,         imem_seco},
+          {domain_server,       imem_domain},
+          {snap_server,         imem_snap}])],
+    {ok,
+     {#{strategy => one_for_one, intensity => 3, period => 10},
+      Children
+     }}.
 
 %% ====================================================================
 %% Internal functions

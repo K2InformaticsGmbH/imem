@@ -10,7 +10,10 @@
 %% -define(CSV_MAX_LINE_SIZE,?GET_CONFIG(csvMaxLineSize,[], 10000000, "Maximum number of bytes to read for a single csv line")).
 
 -define(CSV_BLOCK_SIZE, 4096).
--define(CSV_MAX_LINE_SIZE,10000000).
+-define(CSV_MAX_LINE_SIZE, 10000000).
+-define(CSV_DELIMITER, <<$">>).
+-define(CSV_DELIMITER2, <<$",$">>).     % CSV escape of "
+-define(CSV_DELIMITER3, <<$\\,$">>).    % Erlang escape of "
 
 -define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding, skip])).
 -define(ALL_CSV_SCHEMA_TOKENS, [ {<<"crlf">>,lineSeparator,<<"\r\n">>}
@@ -59,8 +62,8 @@ file_info(FilePattern, #{lineSeparator := _} = Opts, BinData) ->
 file_info(FilePattern, Opts, <<>>) ->
     file_info(FilePattern, Opts, file_sample(FilePattern,Opts));
 file_info(FilePattern, Opts, BinData) ->
-    CRLFs = count_char_seq(BinData, "\r\n"),
-    LFs = count_char_seq(BinData, "\n"),
+    CRLFs = count_char_seq(BinData, <<"\r\n">>),
+    LFs = count_char_seq(BinData, <<"\n">>),
     LineSeparator = if
         LFs == 0 ->     <<"\n">>;
         CRLFs == LFs -> <<"\r\n">>;
@@ -73,7 +76,7 @@ file_info_col_sep(FilePattern, #{columnSeparator := _} = Opts, BinData) ->
 file_info_col_sep(FilePattern, Opts, <<>>) ->
     file_info_col_sep(FilePattern, Opts, file_sample(FilePattern,Opts));
 file_info_col_sep(FilePattern, #{lineSeparator := LineSeparator} = Opts, BinData) ->
-    Rows = binary:split(BinData, LineSeparator, [global]),
+    Rows = delimited_split(BinData, LineSeparator),
     SepCounts = [{count_char_seq(BinData,Sep),Sep} || Sep <- [<<"\t">>,<<";">>,<<",">>,<<"|">>,<<":">>]],
     SepList = [S || {_,S} <- lists:reverse(lists:usort(SepCounts))],
     file_info_col_count(FilePattern, pick_col_separator(Rows, Opts, SepList), BinData).
@@ -121,7 +124,7 @@ file_info_col_count(FilePattern, Opts, <<>>) ->
     file_info_col_names(FilePattern, Opts, file_sample(FilePattern,Opts));
 file_info_col_count(FilePattern, #{ lineSeparator := LineSeparator
                            , columnSeparator := ColumnSeparator} = Opts, BinData) ->
-    Rows = binary:split(BinData, LineSeparator, [global]),
+    Rows = delimited_split(BinData, LineSeparator),
     RowsSplitBySep = split_cols(Rows, ColumnSeparator),
     NewOpts = case column_count(RowsSplitBySep) of
         false ->                    Opts#{columnCount => 1};    
@@ -137,7 +140,7 @@ file_info_col_names(FilePattern, #{ header := true
                            , lineSeparator := LineSeparator
                            , columnSeparator := ColumnSeparator
                            , columnCount := ColumnCount} = Opts, BinData) ->
-    Rows = binary:split(BinData, LineSeparator, [global]),
+    Rows = delimited_split(BinData, LineSeparator),
     RowsSplitBySep = split_cols(Rows, ColumnSeparator),
     Columns = 
         case lists:foldl(
@@ -191,7 +194,7 @@ file_sample(_FilePattern, Opts, _Files, {ok, Io}) ->
     Data = case byte_size(D0) of
         ?CSV_BLOCK_SIZE ->  
             {ok, D1} = read_line_or_more(Io, ?CSV_BLOCK_SIZE, ?CSV_BLOCK_SIZE, ?CSV_MAX_LINE_SIZE, LineSeparator),
-            case binary:split(D1, LineSeparator, [global]) of
+            case delimited_split(D1, LineSeparator) of
                 [<<>>] ->   D0;
                 [D2|_] ->   <<D0/binary,D2/binary,LineSeparator/binary>>  % ToDo: concat all except last for more statistics
             end;
@@ -233,7 +236,6 @@ schema_to_opts([Token|Tokens], Opts) ->
             end
     end.
 
-
 binary_ends_with(<<>>,_) -> false;
 binary_ends_with(_,<<>>) -> false;
 binary_ends_with(Bin,End) ->
@@ -245,21 +247,61 @@ binary_ends_with(Bin,End) ->
         true ->                 (binary:part(Bin,{BinSize,-EndSize}) == End)
     end.
 
-count_char_seq(D, Le) ->
-    case re:run(D, Le, [global]) of
-        nomatch -> 0;
-        {match, Les} -> length(Les)
-    end.
+count_char_seq(Subject, Pattern) ->
+    % case re:run(Subject, Pattern, [global]) of
+    %     nomatch -> 0;
+    %     {match, Les} -> length(Les)
+    % end.
+    length(binary:matches(Subject, Pattern)).
 
 split_cols(Rows, SplitWith) ->
     SplitRows = lists:foldl(
                   fun(Row, Acc) ->
-                          Acc ++ [binary:split(Row, SplitWith, [global])]
+                          Acc ++ [delimited_split(Row, SplitWith)]
                   end, [], Rows),
     case lists:flatten(SplitRows) of
-        Rows -> [];
-        _ -> SplitRows
+        Rows  ->    [];
+        _  ->       SplitRows
     end.
+
+unquote(<<>>) -> <<>>;
+unquote(?CSV_DELIMITER) -> ?CSV_DELIMITER;
+unquote(?CSV_DELIMITER2) -> <<>>;
+unquote(?CSV_DELIMITER3) -> ?CSV_DELIMITER3;
+unquote(Bin) when is_binary(Bin) ->
+    BinSize = byte_size(Bin),
+    MinSize = byte_size(?CSV_DELIMITER2),
+    if 
+        BinSize =< MinSize ->   
+            Bin;
+        true ->                 
+            DelSize = byte_size(?CSV_DELIMITER),
+            case {binary:part(Bin,{0,DelSize}),binary:part(Bin,{BinSize,-DelSize})} of
+                {?CSV_DELIMITER,?CSV_DELIMITER} ->
+                    binary:replace(binary:replace(binary:part(Bin,{1,BinSize-2}),?CSV_DELIMITER2,?CSV_DELIMITER),?CSV_DELIMITER3,?CSV_DELIMITER);
+                _ -> Bin
+            end
+    end.
+
+count_delimiter(S, Delimiter) -> 
+    Del = count_char_seq(S, Delimiter),
+    DelDel = count_char_seq(S, ?CSV_DELIMITER2),
+    SlashDel = count_char_seq(S, ?CSV_DELIMITER3),
+    Del-DelDel-DelDel-SlashDel.  
+
+delimited_split(Bin, Separator) -> delimited_split(Bin, Separator, ?CSV_DELIMITER).
+
+delimited_split(Bin, Separator, Delimiter) ->
+    delimited_join(binary:split(Bin, [Separator],[global]), Separator, Delimiter, 0, []).
+
+delimited_join([], _Separator, _Delimiter, _Level, Acc) -> lists:reverse(Acc);
+delimited_join([S|Splits], Separator, Delimiter, 0, Acc) ->
+    NewAcc = [S|Acc],
+    delimited_join(Splits, Separator, Delimiter, count_delimiter(S, Delimiter) rem 2, NewAcc);
+delimited_join([S|Splits], Separator, Delimiter, 1, Acc) ->
+    Existing = hd(Acc),
+    NewAcc = [<<Existing/binary,Separator/binary,S/binary>>|tl(Acc)],
+    delimited_join(Splits, Separator, Delimiter, (1 + count_delimiter(S, Delimiter)) rem 2, NewAcc).
 
 column_count(Rows) ->
     case lists:foldl(
@@ -414,7 +456,7 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSk
     LastFile = (Files == []),
     case read_line_or_more(Io, Pos, BlockSize, MaxLineSize, LineSeparator) of
         {ok, Bin} -> 
-            AllLines = binary:split(Bin, [LineSeparator],[global]),
+            AllLines = delimited_split(Bin, LineSeparator),
             {Lines,FileRead} = case {binary_ends_with(Bin,LineSeparator), byte_size(Bin) rem BlockSize} of
                 {true, 0} -> 
                     {lists:droplast(AllLines),false};   % drop trailing empty split
@@ -440,7 +482,7 @@ read_blocks(Io, [File|Files], CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSk
                     end;
                 CS when is_binary(CS) ->
                     fun(Line,{P,Recs}) ->
-                        StrFields = [change_encoding(L, Encoding, utf8) || L <- binary:split(Line, [CS],[global])],
+                        StrFields = [unquote(change_encoding(L, Encoding, utf8)) || L <- delimited_split(Line, CS)],
                         LineSize = byte_size(Line)+LSL,
                         WithSizeFields = case length(StrFields) of
                             ColumnCount ->
@@ -542,16 +584,27 @@ continuation(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped,
 
 change_encoding(Data, From, From) ->
     Data;
-change_encoding(Data, From, To) ->
-    case unicode:characters_to_binary(Data, From, To) of
+change_encoding(Data, ansi, To) ->
+    case unicode:characters_to_binary(Data, latin1, To) of
         {incomplete,Encoded, Rest} ->
-            Encoded ++ change_encoding(Rest, From, To);
-        {error, _, _} ->
-            ?Error("Error wile enoding from  ~p to ~p", [From, To]),
-            error("Error while changing encoding");
-        List ->
-            List
-    end.
+            Encoded ++ change_encoding(Rest, latin1, To);
+        {error, ConvertedData, RestData} ->
+            After = last_binary_bytes(ConvertedData,10),
+            Before = first_binary_bytes(RestData,10),
+            ?Error("Error wile encoding from ~p to ~p after ~p before ~p", [ansi, To, After, Before]),
+            error("Error while changing encoding. Please consult ddLog");
+        Binary when is_binary(Binary) ->
+            Binary
+    end.    
+
+last_binary_bytes(B,Len) when is_binary(B), size(B) >= Len -> binary:part(B, size(B)-Len, Len);
+last_binary_bytes(B,_) when is_binary(B) -> B;
+last_binary_bytes(_,_) -> <<"not_a_binary">>.
+
+first_binary_bytes(B,Len) when is_binary(B), size(B) >= Len -> binary:part(B, 0, Len);
+first_binary_bytes(B,_) when is_binary(B) -> B;
+first_binary_bytes(_,_) -> <<"not_a_binary">>.
+
 
 %% TESTS ------------------------------------------------------------------
 -ifdef(TEST).
@@ -580,6 +633,36 @@ test_csv_1(_) ->
     try
         ?LogDebug("---TEST---"),
 
+        ?assertEqual(<<>>,first_binary_bytes(<<>>,4)), 
+        ?assertEqual(<<>>,last_binary_bytes(<<>>,4)), 
+        ?assertEqual(<<"123">>,first_binary_bytes(<<"123">>,4)), 
+        ?assertEqual(<<"123">>,last_binary_bytes(<<"123">>,4)), 
+        ?assertEqual(<<"1234">>,first_binary_bytes(<<"1234">>,4)), 
+        ?assertEqual(<<"1234">>,last_binary_bytes(<<"1234">>,4)), 
+        ?assertEqual(<<"The ">>,first_binary_bytes(<<"The quick brown Fox jumps over the lazy Dog.">>,4)), 
+        ?assertEqual(<<"Dog.">>,last_binary_bytes(<<"The quick brown Fox jumps over the lazy Dog.">>,4)), 
+
+        ?assertEqual(0,count_char_seq(<<10,13>>, <<13,10>>)),
+        ?assertEqual(1,count_char_seq(<<10,13,10,13>>, <<13,10>>)),
+        ?assertEqual(0,count_char_seq(<<34>>, <<92,34>>)),
+
+        ?assertEqual(0,count_delimiter(<<>>, <<$">>)),
+        ?assertEqual(0,count_delimiter(<<"123">>, <<$">>)),
+        ?assertEqual(1,count_char_seq(<<$">>, <<$">>)),
+        ?assertEqual(0,count_char_seq(<<$">>, <<$",$">>)),
+        ?assertEqual(0,count_char_seq(<<$">>, <<$\\,$">>)),
+        ?assertEqual(1,count_delimiter(<<$">>, <<$">>)),
+        ?assertEqual(1,count_delimiter(<<"123\"abc">>, <<$">>)),
+        ?assertEqual(2,count_delimiter(<<$",$a,$">>, <<$">>)),
+        ?assertEqual(2,count_delimiter(<<"123\"abc\"567">>, <<$">>)),
+        ?assertEqual(0,count_delimiter(<<$",$">>, <<$">>)),
+        ?assertEqual(2,count_delimiter(<<"123",$",13,10,$","abc">>, <<$">>)),
+        ?assertEqual(2,count_delimiter(<<"123\"",13,10,"\"abc">>, <<$">>)),
+        ?assertEqual([<<>>], delimited_split(<<"">>, <<10>>, <<$">>)),
+        ?assertEqual([<<"abc",13>>,<<"ABC">>], delimited_split(<<"abc",13,10,"ABC">>, <<10>>, <<$">>)),
+        ?assertEqual([<<"ab\"c",13,10,"AB\"C">>], delimited_split(<<"ab\"c",13,10,"AB\"C">>, <<13,10>>, <<$">>)),
+        ?assertEqual([<<"ab\"c",13,10,"AB\"C">>], delimited_split(<<"ab\"c",13,10,"AB\"C">>, <<13,10>>, <<$">>)),
+
         % ?LogDebug("schema ~p", [imem_meta:schema()]),
         ?assertEqual([],imem_statement:receive_raw()),
 
@@ -594,7 +677,7 @@ test_csv_1(_) ->
         ?assertEqual(2,column_count([[a],[1,2]])),
         ?assertEqual(2,column_count([[a],[1,2],[<<>>]])),
 
-        Rows1 = binary:split(Bin1, <<"\r\n">>, [global]),
+        Rows1 = delimited_split(Bin1, <<"\r\n">>),
         RowsSplitBySep1 = split_cols(Rows1, <<"\t">>),
         ?assertEqual([[<<"Col1">>,<<"Col2">>]
                      ,[<<"A1">>,<<"1">>]
@@ -651,7 +734,7 @@ test_csv_1(_) ->
                     ),
 
         Bin2 = <<"A\r\nCol1\tCol2\r\nA1\t1\r\nA2\t2">>,
-        Rows2 = binary:split(Bin2, <<"\r\n">>, [global]),
+        Rows2 = delimited_split(Bin2, <<"\r\n">>),
         RowsSplitBySep2 = split_cols(Rows2, <<"\t">>),
         ?assertEqual([[<<"A">>]
                      ,[<<"Col1">>,<<"Col2">>]

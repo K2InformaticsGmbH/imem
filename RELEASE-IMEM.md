@@ -3,6 +3,33 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.6.0 (Release Date 18.01.2017)
+=======================================
+* Improved support for escaped text in CSV files.
+* Improved speed of ``imem_datatype:io_to_integer()``
+* Add sql preview function (index scan)
+* Bind table names from parameters in sql_select
+
+Version 1.5.9 (Release Date 09.12.2016)
+=======================================
+* Enum metadata property support
+* imem_gen_metrics behaviour support asynchronous requests
+* get_config_hlk support for configuration without comment removed
+* Double sms issue fixed with smsott authentication after saml
+* Fixed code inject vulnerabilities by only allowing safe functions
+
+Version 1.5.8 (Release Date 16.11.2016)
+=======================================
+* Pretty print records using parse transform
+* Using ``erlang:now()`` instead of ``os:timestamp()`` in datatype
+* Implemented imem_metrics system information
+
+Version 1.5.7 (Release Date 01.11.2016)
+=======================================
+* Binding Strategy for from_binterm
+* Auto purge only local shards on low memory
+* Fixed like operation not working on strings containing ~n
+
 Version 1.5.6 (Release Date 19.10.2016)
 =======================================
 * Cluster snapshot fixes #101 and #102

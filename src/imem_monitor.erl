@@ -14,7 +14,18 @@
 
 -define(GET_MONITOR_CYCLE_WAIT,?GET_CONFIG(monitorCycleWait,[],10000,"Wait time between monitor cycles in msec")).
 -define(GET_MONITOR_EXTRA,?GET_CONFIG(monitorExtra,[],true,"Does monitor call an Extra function to augment the monitored status data?")).
--define(GET_MONITOR_EXTRA_FUN,?GET_CONFIG(monitorExtraFun,[],<<"fun(_) -> [{time,os:timestamp()}] end.">>,"Function which can be called in every monitor cycle to augment the monitor data.")).
+-define(GET_MONITOR_EXTRA_FUN,
+        ?GET_CONFIG(monitorExtraFun, [],
+<<"fun(Row) ->
+  {_, FreeMemory, TotalMemory} = imem:get_os_memory(),
+  MemFreePerCent = 1.0e-2 * erlang:round(10000 * FreeMemory / TotalMemory),
+  {_, VOutMem} = imem:get_vm_memory(),
+  VInMem = element(4, Row),
+  [{mem_diff, VOutMem - VInMem},
+   {mem_free_pct, MemFreePerCent},
+   {vm_process_mem, VOutMem},
+   {data_nodes, length(imem_meta:data_nodes())}]
+ end.">>, "Function which can be called in every monitor cycle to augment the monitor data.")).
 -define(GET_MONITOR_DUMP,?GET_CONFIG(monitorDump,[],true,"Should the monitor status be written to a file on disk?")).
 -define(GET_MONITOR_DUMP_FUN,?GET_CONFIG(monitorDumpFun,[],<<"">>,"Function used to dump the monitor data to disk.")).
 
@@ -45,7 +56,10 @@
 
 -export([ write_monitor/0
         , write_monitor/2
+        , write_dump_log/3
         ]).
+
+-safe(write_dump_log/3).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -88,7 +102,7 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
                 {true, EFStr} ->
                     case erlang:phash2(EFStr) of
                         EH ->   {EH,EF};
-                        H1 ->   {H1,imem_meta:compile_fun(EFStr)}
+                        H1 ->   {H1,imem_compiler:compile(EFStr)}
                     end      
             end,
             {DHash,DFun} = case {?GET_MONITOR_DUMP, ?GET_MONITOR_DUMP_FUN} of
@@ -97,7 +111,7 @@ handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHa
                 {true, DFStr} ->
                     case erlang:phash2(DFStr) of
                         DH ->   {DH,DF};
-                        H2 ->   {H2,imem_meta:compile_fun(DFStr)}
+                        H2 ->   {H2,imem_compiler:compile(DFStr)}
                     end      
             end,
             write_monitor(EFun,DFun),
@@ -170,6 +184,17 @@ write_monitor(ExtraFun,DumpFun) ->
             {error,{"cannot monitor",Err}}
     end.
 
+write_dump_log(File, Format, Args) ->
+    case application:get_env(lager, crash_log) of
+        undefined -> ?ClientError("Unable to determine log folder path");
+        {ok, CrashLogFile} ->
+            LogPathParts = filename:split(CrashLogFile),
+            LogPath = filename:join(lists:sublist(LogPathParts,
+                                                  length(LogPathParts) - 1)),
+            file:write_file(
+              filename:join(LogPath, File),
+              list_to_binary(lists:flatten(io_lib:format(Format, Args))))
+    end.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).

@@ -187,7 +187,7 @@ mfa({Ref, Mod, Fun, Args}, Transport) ->
                end,
     ?TLog("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
     ?TLog("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
-    send_resp(ApplyRes, Transport),
+    send_resp({reply, ApplyRes}, Transport),
     ok. % 'ok' returned for erlimem compatibility
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->
@@ -197,6 +197,10 @@ args(R, fetch_recs_async, A, {_,_,R} = T) ->
 args(R, fetch_recs_async, A, {_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
     ?TLog("fetch_recs_async, Args for direct~n ~p~n", [Args]),
+    Args;
+args(R, request_metric, A, {_, _, R} = T) ->
+    Args = A ++ [T],
+    ?TLog("request_metric, Args for TCP~n ~p~n", [Args]),
     Args;
 args(_, _F, A, _) ->
     ?TLog("~p(~p)~n", [_F, A]),

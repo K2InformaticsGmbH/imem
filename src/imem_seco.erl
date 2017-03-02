@@ -550,8 +550,14 @@ auth_step(SeCo, {access,NetworkCtx}) when is_map(NetworkCtx) ->
         _ ->
             authenticate_fail(SeCo, "Account name conflict", true)                      
     end,
-    AuthFactors = [access|SeCo#ddSeCo.authFactors],
-    auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=NewSessionCtx, accountName=AccountName1, accountId=AccountId1});
+    case lists:member(access, SeCo#ddSeCo.authFactors) of
+        false ->
+            AuthFactors = [access|SeCo#ddSeCo.authFactors],
+            auth_step_succeed(SeCo#ddSeCo{authFactors=AuthFactors, sessionCtx=NewSessionCtx, accountName=AccountName1, accountId=AccountId1});
+        true ->
+            AuthRequireFun = get_auth_fun(SeCo),
+            {SKey, [{A,#{accountName=>AccountName0}} || A <- AuthRequireFun(SeCo#ddSeCo.authFactors, SessionCtx#ddSessionCtx.networkCtx)]}
+    end;
 auth_step(SeCo, {pwdmd5,{Name,Token}}) ->
     #ddSeCo{skey=SKey, accountId=AccountId0, authFactors=AFs} = SeCo, % may not yet exist in ddSeco@
     case if_select_account_by_name(SKey, Name) of
@@ -612,11 +618,10 @@ authenticate_fail(SeCo, ErrorTerm, true) ->
 authenticate_fail(_SeCo, ErrorTerm, false) ->
     ?SecurityException(ErrorTerm).
 
--spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
-auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
+get_auth_fun(#ddSeCo{sessionCtx=SessionCtx} = SeCo) ->
     AuthRequireFunStr = ?GET_CONFIG(authenticateRequireFun,[SessionCtx#ddSessionCtx.appId],?REQUIRE_PWDMD5,"Function which defines authentication requirements depending on current authentication step."),
     CacheKey = {?MODULE,authenticateRequireFun,AuthRequireFunStr},
-    AuthRequireFun = case imem_cache:read(CacheKey) of 
+    case imem_cache:read(CacheKey) of 
         [] ->
             case imem_datatype:io_to_fun(AuthRequireFunStr) of
                 CF when is_function(CF,2) ->
@@ -627,7 +632,11 @@ auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountI
             end;    
         [AF] when is_function(AF,2) -> AF;
         Err1 -> authenticate_fail(SeCo,{"Invalid authenticatonRequireFun", Err1}, true)
-    end,
+    end.
+
+-spec auth_step_succeed(ddSeCoKey()) -> ddSeCoKey() | [ddCredRequest()] | no_return(). 
+auth_step_succeed(#ddSeCo{skey=SKey, accountName=AccountName, accountId=AccountId, sessionCtx=SessionCtx, authFactors=AFs} = SeCo) ->
+    AuthRequireFun = get_auth_fun(SeCo),
     case AuthRequireFun(AFs,SessionCtx#ddSessionCtx.networkCtx) of
         [] ->   
             case if_read(ddAccountDyn, AccountId) of
@@ -854,7 +863,7 @@ password_strength_fun() ->
            " end.">>,
          "Function to measure the effectiveness of a string as potential password."),
     ?Debug("PasswordStrength ~p", [PasswordStrengthFunStr]),
-    imem_meta:compile_fun(PasswordStrengthFunStr).
+    imem_compiler:compile(PasswordStrengthFunStr).
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).

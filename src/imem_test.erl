@@ -20,7 +20,7 @@ sort([]) -> [].
 p([]) -> [[]];
 p(L) -> [ [H|T] || H <- L, T <- p(L--[H])].
 
--ifdef(TEST).
+-ifdef(SPECIALTEST).
 
 -include("imem_seco.hrl").
 
@@ -62,13 +62,13 @@ test(_) ->
         SeEx = 'SecurityException',
         SeVi = 'SecurityViolation',
 
-        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
+        ?LogDebug("schema ~p~n", [imem_meta:schema()]),
+        ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
         ?assertEqual(true, is_atom(imem_meta:schema())),
         ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
         ?assertEqual([imem_meta:node_shard()], imem_meta:node_shards()),
 
-        % ?LogDebug("~p:test_database~n", [?MODULE]),
+        ?LogDebug("~p:test_database~n", [?MODULE]),
 
         ?assert(1 =< imem_meta:table_size(ddAccount)),       %% pre_generated admin account
         ?assert(1 =< imem_meta:table_size(ddRole)),          %% pre_generated admin role
@@ -76,9 +76,9 @@ test(_) ->
         ?assert(0 =< imem_meta:table_size(ddPerm@)),
         ?assert(0 =< imem_meta:table_size(ddQuota@)),
         ?assert(6 =< imem_meta:table_size(ddTable)),
-        % ?LogDebug("success ~p~n", [minimum_table_sizes]),
+        ?LogDebug("success ~p~n", [minimum_table_sizes]),
 
-        % ?LogDebug("~p:test_admin_login~n", [?MODULE]),
+        ?LogDebug("~p:test_admin_login~n", [?MODULE]),
 
         SeCoTableSize = imem_meta:table_size(ddSeCo@),
         PermTableSize = imem_meta:table_size(ddPerm@),
@@ -90,22 +90,22 @@ test(_) ->
         User = #ddAccount{id=UserId,name=UserName,credentials=[UserCred],fullName= <<"TestAdmin">>},
 
         SeCoAdmin0=?imem_test_admin_login(),
-        % ?LogDebug("success ~p~n", [admin_login]),
+        ?LogDebug("success ~p~n", [admin_login]),
         ?assertEqual(PermTableSize + 1, imem_sec:table_size(SeCoAdmin0, ddPerm@)),
         ?assertEqual(SeCoTableSize + 1, imem_sec:table_size(SeCoAdmin0, ddSeCo@)),
         ?assertEqual(PermTableSize + 2, imem_sec:table_size(SeCoAdmin0, ddPerm@)),
-        % ?LogDebug("success ~p~n", [seco_table_size]), 
+        ?LogDebug("success ~p~n", [seco_table_size]), 
         imem_seco ! {'DOWN', simulated_reference, process, self(), simulated_exit},
-        timer:sleep(2000),
+        timer:sleep(500),
         ?assertEqual(SeCoTableSize + 0, imem_meta:table_size(ddSeCo@)),
-        % ?LogDebug("success ~p~n", [seco_table_size]), 
+        ?LogDebug("success ~p~n", [seco_table_size]), 
         ?assertException(throw,{'SecurityException',{"Not logged in", SeCoAdmin0}}, imem_sec:table_size(SeCoAdmin0, ddSeCo@)),
         ?assertException(throw,{'SecurityException',{"Not logged in", SeCoAdmin0}}, imem_account:create(SeCoAdmin0, User)),
-        % ?LogDebug("success ~p~n", [admin_logged_out]),
+        ?LogDebug("success ~p~n", [admin_logged_out]),
         SeCoAdmin1=?imem_test_admin_login(),
-        % ?LogDebug("success ~p~n", [admin_re_login]),
+        ?LogDebug("success ~p~n", [admin_re_login]),
         ?assertEqual(SeCoTableSize + 1, imem_sec:table_size(SeCoAdmin1, ddSeCo@)),
-        % ?LogDebug("success ~p~n", [seco_table_size]), 
+        ?LogDebug("success ~p~n", [seco_table_size]), 
         AllTablesAdmin = imem_sec:all_tables(SeCoAdmin1),
         ?assertEqual(true, lists:member(ddAccount,AllTablesAdmin)),
         ?assertEqual(true, lists:member(ddRole,AllTablesAdmin)),
@@ -113,31 +113,31 @@ test(_) ->
         ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddSeCo@),AllTablesAdmin)),
         ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddQuota@),AllTablesAdmin)),
         ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddPerm@),AllTablesAdmin)),
-        % ?LogDebug("success ~p~n", [all_tables_admin]), 
+        ?LogDebug("success ~p~n", [all_tables_admin]), 
 
         ?assertEqual(ok, imem_account:create(SeCoAdmin1, User)),
-        % ?LogDebug("success ~p~n", [account_create_user]),
+        ?LogDebug("success ~p~n", [account_create_user]),
         ?assertEqual(ok, imem_role:grant_permission(SeCoAdmin1, UserId, manage_accounts)),
         ?assertEqual(ok, imem_role:grant_permission(SeCoAdmin1, UserId, {ddQuota,select})),
-        % ?LogDebug("success ~p~n", [create_test_admin_permissions]), 
+        ?LogDebug("success ~p~n", [create_test_admin_permissions]), 
      
-        % ?LogDebug("~p:test_authentication~n", [?MODULE]),
+        ?LogDebug("~p:test_authentication~n", [?MODULE]),
 
         SeCo0=imem_seco:authenticate(someSessionId, UserName, UserCred),
         ?assertEqual(true, is_integer(SeCo0)),
-        % ?LogDebug("success ~p ~p~n", [test_admin_authentication,SeCo0]), 
+        ?LogDebug("success ~p ~p~n", [test_admin_authentication,SeCo0]), 
         ?assertExit({SeVi,{"Not logged in",SeCo0}}, imem_sec:table_size(SeCo0, ddSeCo@)),
-        % ?LogDebug("success ~p~n", [table_access_unauthorized]), 
+        ?LogDebug("success ~p~n", [table_access_unauthorized]), 
         ?assertException(throw,{SeEx,{?PasswordChangeNeeded, UserId}}, imem_seco:login(SeCo0)),
-        % ?LogDebug("success ~p~n", [new_password]),
+        ?LogDebug("success ~p~n", [new_password]),
         SeCo1=imem_seco:authenticate(someSessionId, UserName, UserCred), 
         ?assertEqual(true, is_integer(SeCo1)),
-        % ?LogDebug("success ~p ~p~n", [test_admin_authentication,SeCo1]), 
+        ?LogDebug("success ~p ~p~n", [test_admin_authentication,SeCo1]), 
         ?assertEqual(SeCo1, imem_seco:change_credentials(SeCo1, UserCred, UserCredNew)),
-        % ?LogDebug("success ~p~n", [password_changed]), 
+        ?LogDebug("success ~p~n", [password_changed]), 
         ?assertException(throw, {SeEx,{"Select unauthorized",{ddSeCo@,SeCo1}}}, imem_sec:table_size(SeCo1, ddSeCo@)),
         ?assertExit({SeVi,{"Not logged in",SeCo0}}, imem_sec:table_size(SeCo0, ddSeCo@)),
-        % ?LogDebug("success ~p~n", [table_access_rejected_after_logout]),
+        ?LogDebug("success ~p~n", [table_access_rejected_after_logout]),
         AllTablesUser = imem_sec:all_tables(SeCo1),
         ?assertEqual(false, lists:member(ddAccount,AllTablesUser)),
         ?assertEqual(false, lists:member(ddRole,AllTablesUser)),
@@ -145,7 +145,7 @@ test(_) ->
         ?assertEqual(false, lists:member(imem_meta:physical_table_name(ddSeCo@),AllTablesUser)),
         ?assertEqual(false, lists:member(imem_meta:physical_table_name(ddPerm@),AllTablesUser)),
         ?assertEqual(false, lists:member(imem_meta:physical_table_name(ddQuota@),AllTablesUser)),
-        % ?LogDebug("success ~p~n", [all_tables_user]), 
+        ?LogDebug("success ~p~n", [all_tables_user]), 
 
         ?assertEqual(true, imem_seco:have_permission(SeCo1, manage_accounts)), 
         ?assertEqual(false, imem_seco:have_permission(SeCo1, manage_bananas)), 

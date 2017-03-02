@@ -49,9 +49,15 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) w
     end,
     {Default,Opts} = case lists:keyfind(default, 1, COpts) of
         false ->
-            case lists:member('not null', COpts) of
-                true ->     {?nav,lists:delete('not null',COpts)};
-                false ->    {undefined,COpts}
+            case {lists:member('not null', COpts),T} of
+                {true,_} ->         {?nav,lists:delete('not null',COpts)};
+                {false,binary} ->   {<<>>,COpts};
+                {false,binstr} ->   {<<>>,COpts};
+                {false,string} ->   {[],COpts};
+                {false,list} ->     {[],COpts};
+                {false,tuple} ->    {{},COpts};
+                {false,map} ->      {#{},COpts};
+                {false,_} ->        {undefined,COpts}
             end;
         {_,Bin} ->  
             Str = binary_to_list(Bin),

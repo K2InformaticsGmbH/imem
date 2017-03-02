@@ -2,20 +2,21 @@
 %% ex: ft=erlang
 {application, imem,
  [
-  {description, "Replication Mnesia DB cluster"},
-  {vsn, "1.5.6"},
+  {description, "Replication cluster DB"},
+  {vsn, "1.6.0"},
   {registered, []},
-  {applications, [
-                  kernel,
+  {applications, [kernel,
                   stdlib,
                   sasl,
                   os_mon,
                   ranch,
+                  sext,
+                  goldrush,
+                  jsx,
                   sqlparse,
                   lager,
                   erlscrypt,
-                  inets
-                 ]},
+                  inets]},
   {included_applications, [mnesia]},
   {mod, {imem, []}},
   {env, [
@@ -30,6 +31,7 @@
          {node_shard_fun,"fun(N) -> imem_meta:host_name(N) -- \"!?#*:+-\\<|>/\" end"},
          {if_sys_conf_server, true},
          {meta_server, true},
+         {config_server, true},
          {monitor_server, true},
          {proll_server, true},
          {purge_server, true},

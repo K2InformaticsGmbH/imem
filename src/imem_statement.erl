@@ -772,9 +772,9 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     % ?LogDebug("Join ~p table ~p~n", [Ti,Table]),
     % ?LogDebug("Rec used for join bind~n~p~n", [Rec]),
     {SSpec,_TailSpec,FilterFun} = imem_sql_expr:bind_scan(Ti,Rec,JoinSpec),
-    % ?LogDebug("SSpec for join~n~p~n", [SSpec]),
-    % ?LogDebug("TailSpec for join~n~p~n", [_TailSpec]),
-    % ?LogDebug("FilterFun for join~n~p~n", [FilterFun]),
+    % ?Info("SSpec for join~n~p~n", [SSpec]),
+    % ?Info("TailSpec for join~n~p~n", [_TailSpec]),
+    % ?Info("FilterFun for join~n~p~n", [FilterFun]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
     case imem_meta:select(Table, SSpec, MaxSize) of
         {[], true} ->   [];
@@ -831,6 +831,8 @@ generate_virtual_data(Table,_Rec,{'and',{is_member,Tag, Items},_},MaxSize) when 
 generate_virtual_data(tuple,_Rec,{'==',Tag,{const,Val}},MaxSize) when is_atom(Tag),is_tuple(Val) ->
     generate_virtual(tuple,{const,Val},MaxSize);
 generate_virtual_data(Table,_Rec,{'==',Tag,Val},MaxSize) when is_atom(Tag) ->
+    generate_virtual(Table,Val,MaxSize);
+generate_virtual_data(Table,_Rec,{'==',Val,Tag},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,Val,MaxSize);
 generate_virtual_data(Table,_Rec,{'or',{'==',Tag,V1},OrEqual},MaxSize) when is_atom(Tag) ->
     generate_virtual(Table,[V1|vals_from_or_equal(Tag,OrEqual)],MaxSize);
@@ -1128,7 +1130,83 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,Pos,Fx};
-                    {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                     {bytes,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind,LenBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Len=imem_sql_expr:bind_tree(LenBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,binary,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal when size(NewVal) /= size(OldVal) ->
+                                    ?ClientError({"Wrong byte size of replacement binary",{Item,size(NewVal)}});
+                                NewVal when Start >= 0 -> 
+                                    Prefix = binary:part(OldBin,0,Start),
+                                    Suffix = binary:part(OldBin,Start+Len, size(OldBin)-Len-Start),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary,Suffix/binary>>);
+                                NewVal when Start < 0 -> 
+                                    Prefix = binary:part(OldBin,0,size(OldBin)+Start),
+                                    Suffix = binary:part(OldBin,size(OldBin)+Start+Len, size(OldBin)+Start-Len),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary,Suffix/binary>>)
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                    {bytes,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,binary,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewVal when Start >= 0 -> 
+                                    Prefix = binary:part(OldBin,0,Start),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary>>);
+                                NewVal when size(OldBin)+Start >= 0 -> 
+                                    Prefix = binary:part(OldBin,0,size(OldBin)+Start),
+                                    ?replace(X,Cx,<<Prefix/binary,NewVal/binary>>);
+                                NewVal when size(OldBin)+Start < 0 -> 
+                                    ?replace(X,Cx,NewVal)
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                    {bits,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind,LenBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Len=imem_sql_expr:bind_tree(LenBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,integer,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewInt when Start >= 0 -> 
+                                    <<Prefix:Start,_:Len,Suffix/bitstring>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:Start,NewInt:Len,Suffix/bitstring>>);
+                                NewInt when Start < 0 -> 
+                                    PrefixLen = bit_size(OldBin)+Start,
+                                    <<Prefix:PrefixLen,_:Len,Suffix/bitstring>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:PrefixLen,NewInt:Len,Suffix/bitstring>>)
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                    {bits,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                        Start=imem_sql_expr:bind_tree(StartBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            OldBin = ?BoundVal(B,X),
+                            case imem_datatype:io_to_db(Item,OldVal,integer,undefined,undefined,<<>>,false,Value) of
+                                OldVal ->   X;
+                                NewInt when Start >= 0 -> 
+                                    Len =  bit_size(OldBin)-Start,
+                                    <<Prefix:Start,_:Len>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:Start,NewInt:Len>>);
+                                NewInt when Start < 0 -> 
+                                    Len = -Start,
+                                    PrefixLen = bit_size(OldBin)+Start,
+                                    <<Prefix:PrefixLen,_:Len>> = OldBin,
+                                    ?replace(X,Cx,<<Prefix:PrefixLen,NewInt:Len>>)
+                            end
+                        end,     
+                        {Cx,abs(Start)+1,Fx};
+                   {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1162,7 +1240,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                 NewVal ->   ?replace(X,Cx,NewVal)
                             end
                         end,     
-                        {Cx,0,Fx};
+                        {Cx,1,Fx};
                     {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1178,7 +1256,46 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                     end
                             end
                         end,     
-                        {Cx,0,Fx};
+                        {Cx,1,Fx};
+                    {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}=B} ->    
+                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                % attribute still not present
+                                {?navio,_} ->
+                                    ?replace(X,Cx,maps:remove(Key,?BoundVal(B,X)));
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   X;
+                                        NewVal ->   ?replace(X,Cx,maps:put(Key,NewVal,?BoundVal(B,X)))
+                                    end
+                            end
+                        end,     
+                        {Cx,1,Fx};
+                    {map_get,KeyBind,{map_get,ParentKeyBind,#bind{tind=?MainIdx,cind=Cx}=B}} ->    
+                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        ParentKey=imem_sql_expr:bind_tree(ParentKeyBind,Recs), 
+                        Fx = fun(X) -> 
+                            OldVal = Proj(X),
+                            case {Value, OldVal} of 
+                                {?navio,?nav} ->
+                                    X;                % attribute still not present
+                                {?navio,_} ->
+                                    NewParent = maps:remove(Key,maps:get(ParentKey,?BoundVal(B,X))),
+                                    ?replace(X,Cx,maps:put(ParentKey,NewParent,?BoundVal(B,X))); 
+                                _ ->
+                                    case imem_datatype:io_to_db(Item,OldVal,term,undefined,undefined,<<>>,false,Value) of
+                                        OldVal ->   
+                                            X;
+                                        NewVal ->   
+                                            NewParent = maps:put(Key,NewVal,maps:get(ParentKey,?BoundVal(B,X))),
+                                            ?replace(X,Cx,maps:put(ParentKey,NewParent,?BoundVal(B,X)))
+                                    end
+                            end
+                        end,     
+                        {Cx,2,Fx};
                     {json_value,AttName,{json_value,ParentName,#bind{tind=?MainIdx,cind=Cx}=B}} -> 
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1198,7 +1315,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                     end
                             end
                         end,     
-                        {Cx,0,Fx};
+                        {Cx,1,Fx};
                     Other ->    ?SystemException({"Internal error, bad projection binding",{Item,Other}})
                 end;
             #bind{tind=0,cind=0} ->  
@@ -1226,7 +1343,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,_|Values]|CList], Acc) ->
+update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,Recs|Values]|CList], Acc) ->
     % ?Info("ColMap~n~p~n", [ColMap]),
     % ?Info("Values~n~p~n", [Values]),
     if  
@@ -1259,6 +1376,13 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,Pos,Fx};
+                    {map_get,KeyBind,#bind{tind=?MainIdx,cind=Cx}} ->
+                        Key=imem_sql_expr:bind_tree(KeyBind,Recs), 
+                        Fx = fun(X) -> 
+                            NewVal = imem_datatype:io_to_db(Item,<<>>,term,undefined,undefined,<<>>,false,Value),
+                            ?ins_repl(X,Cx,maps:put(Key,NewVal,#{}))
+                        end,
+                        {Cx,0,Fx};
                     {nth,Pos,#bind{tind=?MainIdx,cind=Cx,name=Name,type=Type}} when is_number(Pos) ->
                         Fx = fun(X) -> 
                             NewVal = imem_datatype:io_to_db(Item,<<>>,list_type(Type),undefined,undefined,<<>>,false,Value),
@@ -1565,11 +1689,11 @@ test_with_or_without_sec_part1(IsSec) ->
             ) values (
                  '{key3,''nonode@nohost''}'
                 ,'[key3a,key3b]'
-                ,'undefined'
+                ,'{1,2}'
                 ,3 
             );",  
         % ?LogDebug("Sql1c:~n~s~n", [Sql1c]),
-        ?assertEqual( [{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}]
+        ?assertEqual( [{tuple_test,{key3,nonode@nohost},[key3a,key3b],{1,2},3}]
                     , imem_sql:exec(SKey, Sql1c, 0, [{schema,imem}], IsSec)
                     ),
 
@@ -1578,7 +1702,7 @@ test_with_or_without_sec_part1(IsSec) ->
         TT1RowsExpected=
         [{tuple_test,{key1,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1}
         ,{tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2}
-        ,{tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3}
+        ,{tuple_test,{key3,nonode@nohost},[key3a,key3b],{1,2},3}
         ],
         ?assertEqual(TT1RowsExpected, TT1Rows),
 
@@ -1592,7 +1716,8 @@ test_with_or_without_sec_part1(IsSec) ->
         TT1b = exec(SKey,tt1b, 4, IsSec, "
             select
               element(1,col1)
-            , element(1,col3), element(2,col3)
+            , element(1,col3)
+            , element(2,col3)
             , col4 
             from tuple_test where col4=2"),
         ?assertEqual(ok, fetch_async(SKey,TT1b,[],IsSec)),
@@ -1603,12 +1728,12 @@ test_with_or_without_sec_part1(IsSec) ->
         O1X= {tuple_test,{keyX,nonode@nohost},[key1a,key1b,key1c],{key1,{key1a,key1b}},1},
         O2 = {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,'B2'},2},
         O2X= {tuple_test,{key2,somenode@somehost},[key2a,key2b,3,4],{a,b},undefined},
-        O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],undefined,3},
+        O3 = {tuple_test,{key3,nonode@nohost},[key3a,key3b],{1,2},3},
 
         TT1aChange = [
           [1,upd,{?EmptyMR,O1},<<"keyX">>,<<"key1">>,<<"{key1a,key1b}">>,<<"1">>] 
         , [2,upd,{?EmptyMR,O2},<<"key2">>,<<"a">>,<<"b">>,<<"">>] 
-        , [3,upd,{?EmptyMR,O3},<<"key3">>,<<"'$not_a_value'">>,<<"'$not_a_value'">>,<<"3">>]
+        , [3,upd,{?EmptyMR,O3},<<"key3">>,<<"1">>,<<"2">>,<<"3">>]
         ],
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1aChange)),
         update_cursor_execute(SKey, TT1b, IsSec, optimistic),        
@@ -1619,7 +1744,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assert(lists:member(O2X,TT1aRows)),
         ?assert(lists:member(O3,TT1aRows)),
 
-        O4X= {tuple_test,{key4},undefined,{<<"">>,<<"">>},4},
+        O4X= {tuple_test,{key4},[],{<<"">>,<<"">>},4},
 
         TT1bChange = [[4,ins,{},<<"key4">>,<<"">>,<<"">>,<<"4">>]],
         ?assertEqual(ok, update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)),
@@ -1643,8 +1768,8 @@ test_with_or_without_sec_part1(IsSec) ->
          [5,ins,{},<<"{key5,nonode@nohost}">>,<<"a5">>,<<"b5">>,<<"5">>]
         ,[6,ins,{},<<"{key6,somenode@somehost}">>,<<"">>,<<"b6">>,<<"">>]
         ],
-        O5X = {tuple_test,{key5,nonode@nohost},[a5,b5],undefined,5},
-        O6X = {tuple_test,{key6,somenode@somehost},[<<"">>,b6],undefined,undefined},
+        O5X = {tuple_test,{key5,nonode@nohost},[a5,b5],{},5},
+        O6X = {tuple_test,{key6,somenode@somehost},[<<"">>,b6],{},undefined},
         ?assertEqual(ok, update_cursor_prepare(SKey, TT2a, IsSec, TT2aChange)),
         update_cursor_execute(SKey, TT2a, IsSec, optimistic),        
         TT2aRows1 = lists:sort(if_call_mfa(IsSec,read,[SKey, tuple_test])),

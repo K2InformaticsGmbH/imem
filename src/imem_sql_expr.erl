@@ -35,6 +35,17 @@
         , to_guard/1
         ]).
 
+-export([ rownum_limit/0 ]).
+
+-define(GET_ROWNUM_LIMIT,
+        imem_config:get_config_hlk(
+          ?CONFIG_TABLE, {imem,imem_sql_expr,rownumDefaultLimit},
+          imem_sql_expr, [node()], 200000,
+          "Default rownum limit for SQL queries.")).
+
+%% @doc Rownumber limit exported to be used by 3rd party APPs
+rownum_limit() -> ?GET_ROWNUM_LIMIT.
+
 %% @doc Reforms the main scan specification for the select statement 
 %% by binding now known values for tables with index smaller (scan) or equal (filter) to Ti. 
 %% Ti:      Table index (?MainIdx=2,JoinTables=3,4..)
@@ -44,8 +55,8 @@
 -spec bind_scan(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_scan(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?LogDebug("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?LogDebug("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
@@ -62,8 +73,8 @@ bind_scan(Ti,X,ScanSpec0) ->
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
             {STree2,FTree} = split_filter_from_guard(STree1),
-            % ?LogDebug("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
-            % ?LogDebug("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
+            % ?Info("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
+            % ?Info("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
             SSpec1 = [{SHead, [to_guard(STree2)], [Result]}],
             FilterFun1 = imem_sql_funs:filter_fun(FTree),
             case Ti of
@@ -212,6 +223,8 @@ bind_eval({list,L}) when is_list(L) ->
             BTL 
     end;
 bind_eval(L) when is_list(L) ->     [bind_eval(Ele) || Ele <- L];
+bind_eval({from_binterm, {to_binterm,A}}) ->       bind_eval(A); 
+bind_eval({to_binterm, {from_binterm,A}}) ->       bind_eval(A); 
 bind_eval({'or', true, _}) ->       true; 
 bind_eval({'or', _, true}) ->       true; 
 bind_eval({'or', false, false}) ->  false; 
@@ -281,7 +294,7 @@ bind_fun(Value) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_table(integer(), tuple(), tuple()) -> tuple().
 bind_table(Ti, BTree, X) ->
-    % ?LogDebug("bind_table ~p ~p ~p",[Ti, BTree, X]),
+    % ?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
     case bind_tab(Ti, BTree, X) of
         ?nav ->     
             false;
@@ -295,6 +308,10 @@ bind_tab(Ti, #bind{tind=0,cind=0,btree=BT}, X) -> bind_eval(bind_tab(Ti, BT, X))
 bind_tab(Ti, #bind{tind=Tind}=Bind, X) when Tind<Ti -> bind_value(?BoundVal(Bind,X));
 bind_tab(_ , #bind{}=Bind, _) ->        Bind;
 bind_tab(Ti, {Op,A}, X) ->              bind_eval({Op,bind_tab(Ti,A,X)}); %% unary functions and operators
+bind_tab(Ti, {Op,A,{from_binterm,#bind{tind=Ti,cind=2,btree=undefined}=B}}, X) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='\=' ->
+                                        bind_eval({Op,bind_tab(Ti,{to_binterm,A},X),bind_tab(Ti,B,X)});
+bind_tab(Ti, {Op,{from_binterm,#bind{tind=Ti,cind=2,btree=undefined}=A},B}, X) when Op=='==';Op=='>';Op=='>=';Op=='<';Op=='=<';Op=='\=' ->
+                                        bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,{to_binterm,B},X)});
 bind_tab(Ti, {Op,A,B}, X) ->            bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X)}); %% binary functions/op.
 bind_tab(Ti, {Op,A,B,C}, X) ->          bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X)});
 bind_tab(Ti, {Op,A,B,C,D}, X) ->        bind_eval({Op,bind_tab(Ti,A,X),bind_tab(Ti,B,X),bind_tab(Ti,C,X),bind_tab(Ti,D,X)});
@@ -341,7 +358,7 @@ bind_t(A, _) ->                  bind_value(A). % TODO: may need to bind lists h
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_subtree_const(binary()|tuple()) -> list().
 bind_subtree_const(#bind{tind=0,cind=0,btree=BT}=BTree) ->
-    % ?LogDebug("Bind subtree constants~n~p~n",[BTree]),
+    % ?Info("Bind subtree constants~n~p",[BTree]),
     case bind_table(1,BT,unknown) of
         ?nav ->     ?ClientError({"Cannot bind subtree constants", BT});
         Tree ->     BTree#bind{btree=Tree}
@@ -575,11 +592,13 @@ column_map_items(_Map, Item) ->
 -spec is_readonly(#bind{}) -> boolean().
 is_readonly(#bind{tind=Ti}) when Ti > ?MainIdx -> true;
 is_readonly(#bind{tind=?MainIdx,cind=Ci}) when Ci>0 -> false;   
-is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                                      %% Vector field can be edited ??????????
-is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;       %% Vector field can be edited ??????????
-is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;     %% Vector field can be edited ??????????
-is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{tind=?MainIdx}}}) when Op=='hd';Op=='last' -> false;        %% editable projection
-is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{tind=?MainIdx}}}) when Op==element;Op=='nth';Op==json_value -> false;  %% editable projection
+is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                                                  %% Vector field can be edited ??
+is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;                   %% Vector field can be edited ??
+is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;                 %% Vector field can be edited ??
+is_readonly(#bind{tind=0,cind=0,btree={Op,#bind{}}}) when Op=='hd';Op=='last' -> false;             %% editable projections
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{}}}) when Op==element;Op=='nth';Op==json_value;Op==map_get -> false;  %% editable projections
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{}}}) when Op==bytes;Op==bits -> false;            %% editable projections
+is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{},#bind{}}}) when Op==bytes;Op==bits -> false;    %% editable projections
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
 is_readonly(#bind{tind=0,cind=0,type=json}) -> false;
 is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]), 
@@ -1699,7 +1718,7 @@ test_with_or_without_sec(IsSec) ->
     %% uses_filter
         ?assertEqual(true, uses_filter({'is_member', {'+','$2',1}, '$3'})),
         ?assertEqual(false, uses_filter({'==', {'+','$2',1}, '$3'})),
-        ?assertEqual(true, uses_filter({'==', {'safe',{'+','$2',1}}, '$3'})),
+        ?assertEqual(true, uses_filter({'==', {'safe_integer',{'+','$2',1}}, '$3'})),
         ?assertEqual(false, uses_filter({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, uses_filter({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 

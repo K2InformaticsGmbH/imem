@@ -42,9 +42,9 @@ get_mod(Mod) when is_atom(Mod) ->
 get_mod({Mod, ModBin}) when is_binary(ModBin) ->
     case beam_lib:chunks(ModBin, [abstract_code]) of
         {ok, {Mod, [{abstract_code, {_ASTV,AC}}]}} ->
-            %% io:fwrite("~s~n", [erl_prettypr:format(erl_syntax:form_list(AC))]),
-            %% AST = erl_syntax:form_list(AC),
-            %% file:write_file("dump.ast",list_to_binary(io_lib:format("~p", [AST]))),
+            % io:fwrite("~s~n", [erl_prettypr:format(erl_syntax:form_list(AC))]),
+            % AST = erl_syntax:form_list(AC),
+            % file:write_file("dump.ast",list_to_binary(io_lib:format("~p", [AST]))),
             find(erl_syntax:form_list(AC));
         Else -> error(Else)
     end.
@@ -52,11 +52,9 @@ get_mod({Mod, ModBin}) when is_binary(ModBin) ->
 find({tree,form_list,{attr,0,[],none},Comps}) ->
     find(Comps, []).
 find([], Acc) -> Acc;
-% get_config_hlk(_, Key, _, Context, Default)
-% put_config_hlk(_, Key, _, Context, Value, _)
 % get_config_hlk(_, Key, _, Context, Default, Documentation)
 % put_config_hlk(_, Key, _, Context, Value, _, Documentation)
-find([{call,_,{remote,_,{atom,_,imem_meta},{atom,_,get_config_hlk}},
+find([{call,_,{remote,_,{atom,_,imem_config},{atom,_,get_config_hlk}},
        [_,Key,_,_,Default|Rest]} | Comps], Acc) ->
     find(
       Comps,
@@ -68,7 +66,7 @@ find([{call,_,{remote,_,{atom,_,imem_meta},{atom,_,get_config_hlk}},
                   _ -> []
               end]) | Acc]
        ));
-find([C|Comps], Acc) when is_atom(C); is_integer(C); is_float(C) ->
+find([C|Comps], Acc) when is_atom(C); is_integer(C); is_float(C); is_map(C) ->
     find(Comps, Acc);
 find([C|Comps], Acc) -> find(Comps, find(C, Acc));
 find(C, Acc) when is_tuple(C) -> find(tuple_to_list(C), Acc).
