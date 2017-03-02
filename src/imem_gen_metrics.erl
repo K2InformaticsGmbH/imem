@@ -89,8 +89,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %% Helper functions
 -spec internal_get_metric(term(), fun(), #state{}) -> #state{}.
-internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState,
-                                                system_state=SysState} = State) ->
+internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, system_state=SysState} = State) ->
     Time = os:system_time(micro_seconds),
     ElapsedSeconds = (Time - State#state.system_time) / 1000000,
     case {ElapsedSeconds < 1, SysState} of
@@ -118,8 +117,10 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState,
                 _ ->
                     {Mod:handle_metric_req(MetricKey, ReplyFun, ImplState), normal}
             end,
-            State#state{impl_state = NewImplState, reductions = Reductions,
-                        system_time = Time, system_state = NewSysState}
+            State#state{impl_state = NewImplState
+                       ,reductions = Reductions
+                       ,system_time = Time
+                       , system_state = NewSysState}
     end.
 
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
