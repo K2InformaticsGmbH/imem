@@ -120,7 +120,7 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
             State#state{impl_state = NewImplState
                        ,reductions = Reductions
                        ,system_time = Time
-                       , system_state = NewSysState}
+                       ,system_state = NewSysState}
     end.
 
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
