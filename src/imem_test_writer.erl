@@ -46,10 +46,17 @@
         ]).
 
 % sample usage for demo:
-% imem_test_writer:start(1000). % 1 second event loop
-% imem_test_writer:stop().
-% imem_test_writer:wait(100).
-% l(imem_test_writer).          % module load -> apply the patch
+-ifdef(DEMO_CONSOLE).
+
+% 1 second event loop
+imem_test_writer:start(1000).
+imem_test_writer:stop().
+imem_test_writer:wait(100).
+
+% module load -> apply the patch
+l(imem_test_writer).
+
+-endif. % DEMO_CONSOLE
 
 % gen_server behavior callback exports
 
