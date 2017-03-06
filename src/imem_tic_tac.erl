@@ -41,6 +41,7 @@
         , play/2
         , state/0
         , print/0
+        , gen/3
         ]).
 
 % sample usage for demo:
@@ -336,169 +337,808 @@ is_win(Board, Width, Height, Run, Periodic, Player) ->
 
 -spec win(Board::binary(), Width::integer(), Height::integer(), Run::integer(), Periodic::boolean(), Player::integer()) -> boolean().
 win(Board, 3, 3, 3, false, Player) -> win_333(Board, Player);
-win(Board, 4, 4, 4, false, Player) -> win_444(Board, Player);
+win(Board, 4, 3, 3, false, Player) -> win_433(Board, Player);
 win(Board, 4, 4, 3, false, Player) -> win_443(Board, Player);
-win(Board, 5, 5, 5, false, Player) -> win_555(Board, Player);
-win(Board, 5, 5, 4, false, Player) -> win_554(Board, Player);
+win(Board, 4, 4, 4, false, Player) -> win_444(Board, Player);
+win(Board, 5, 3, 3, false, Player) -> win_533(Board, Player);
+win(Board, 5, 4, 3, false, Player) -> win_543(Board, Player);
+win(Board, 5, 4, 4, false, Player) -> win_544(Board, Player);
 win(Board, 5, 5, 3, false, Player) -> win_553(Board, Player);
+win(Board, 5, 5, 4, false, Player) -> win_554(Board, Player);
+win(Board, 5, 5, 5, false, Player) -> win_555(Board, Player);
+win(Board, 6, 3, 3, false, Player) -> win_633(Board, Player);
+win(Board, 6, 4, 3, false, Player) -> win_643(Board, Player);
+win(Board, 6, 4, 4, false, Player) -> win_644(Board, Player);
+win(Board, 6, 5, 3, false, Player) -> win_653(Board, Player);
+win(Board, 6, 5, 4, false, Player) -> win_654(Board, Player);
+win(Board, 6, 5, 5, false, Player) -> win_655(Board, Player);
+win(Board, 6, 6, 3, false, Player) -> win_663(Board, Player);
+win(Board, 6, 6, 4, false, Player) -> win_664(Board, Player);
+win(Board, 6, 6, 5, false, Player) -> win_665(Board, Player);
+win(Board, 6, 6, 6, false, Player) -> win_666(Board, Player);
+win(Board, 7, 6, 4, false, Player) -> win_764(Board, Player);
 win(_Board, _Width, _Height, _Run, _Periodic, _Player) -> false. % TODO: implement all board sizes
 
-win_555(<<       P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_555(<<_:40,  P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_555(<<_:80,  P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:0, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:16, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:24, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:56, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:64, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:72, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:80, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:112, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:120, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:128, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:136, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:168, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:176, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:184, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:192, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:224, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:232, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:240, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:248, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:280, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:288, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:296, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:304, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_764(<<_:0, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:56, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:112, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:8, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:64, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:120, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:16, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:72, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:128, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:24, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:80, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:136, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:32, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:88, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:144, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:40, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:96, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:152, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:104, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:160, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_764(<<_:0, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:56, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:112, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:8, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:64, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:120, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:16, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:72, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:128, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:24, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:80, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:136, P:8, _:56, P:8, _:56, P:8, _:56, P:8, _/binary>>, P) -> true;
+win_764(<<_:24, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:80, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:136, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:32, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:88, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:144, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:96, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:152, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:48, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:104, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(<<_:160, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_764(_, _) -> false.
+
+win_666(<<_:0, P:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_666(<<_:48, P:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_666(<<_:96, P:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_666(<<_:144, P:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_666(<<_:192, P:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_666(<<_:240, P:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_666(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_666(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_666(<<_:16, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_666(<<_:24, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_666(<<_:32, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_666(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_666(<<_:0, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_666(<<_:40, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_666(_, _) -> false.
+
+win_665(<<_:0, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:48, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:56, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:96, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:104, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:144, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:152, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:192, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:200, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:240, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:248, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_665(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:48, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:56, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:16, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:64, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:24, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:72, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:32, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:80, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:88, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_665(<<_:0, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_665(<<_:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_665(<<_:8, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_665(<<_:56, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_665(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_665(<<_:80, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_665(<<_:40, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_665(<<_:88, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_665(_, _) -> false.
+
+win_664(<<_:0, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:16, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:48, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:56, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:64, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:96, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:104, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:112, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:144, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:152, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:160, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:192, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:200, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:208, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:240, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:248, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:256, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_664(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:48, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:96, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:56, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:104, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:16, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:64, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:112, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:24, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:72, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:120, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:32, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:80, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:128, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:88, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:136, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_664(<<_:0, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:96, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:8, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:56, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:104, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:16, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:64, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:112, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_664(<<_:24, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:72, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:120, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:80, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:128, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:40, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:88, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(<<_:136, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_664(_, _) -> false.
+
+win_663(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:16, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:24, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:56, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:64, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:72, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:104, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:112, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:120, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:144, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:152, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:160, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:168, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:192, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:200, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:208, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:216, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:240, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:248, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:256, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:264, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_663(<<_:0, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:48, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:96, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:144, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:8, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:56, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:104, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:152, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:16, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:64, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:112, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:160, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:24, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:72, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:120, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:168, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:32, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:80, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:128, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:176, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:88, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:136, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:184, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_663(<<_:0, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:96, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:144, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:8, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:56, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:104, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:152, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:16, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:64, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:112, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:160, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:24, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:72, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:120, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:168, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_663(<<_:16, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:64, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:112, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:160, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:24, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:72, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:120, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:168, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:80, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:128, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:176, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:40, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:88, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:136, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(<<_:184, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_663(_, _) -> false.
+
+win_655(<<_:0, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:8, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:48, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:56, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:96, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:104, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:144, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:152, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:192, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:200, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_655(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_655(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_655(<<_:16, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_655(<<_:24, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_655(<<_:32, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_655(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_655(<<_:0, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_655(<<_:8, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_655(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_655(<<_:40, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_655(_, _) -> false.
+
+win_654(<<_:0, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:16, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:48, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:56, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:64, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:96, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:104, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:112, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:144, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:152, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:160, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:192, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:200, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:208, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_654(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:48, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:56, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:16, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:64, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:24, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:72, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:32, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:80, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:88, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_654(<<_:0, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_654(<<_:48, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_654(<<_:8, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_654(<<_:56, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_654(<<_:16, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_654(<<_:64, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_654(<<_:24, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_654(<<_:72, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_654(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_654(<<_:80, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_654(<<_:40, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_654(<<_:88, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_654(_, _) -> false.
+
+win_653(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:16, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:24, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:56, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:64, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:72, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:104, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:112, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:120, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:144, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:152, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:160, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:168, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:192, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:200, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:208, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:216, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_653(<<_:0, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:48, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:96, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:8, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:56, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:104, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:16, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:64, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:112, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:24, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:72, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:120, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:32, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:80, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:128, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:88, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:136, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_653(<<_:0, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:96, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:8, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:56, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:104, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:16, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:64, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:112, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:24, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:72, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:120, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_653(<<_:16, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:64, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:112, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:24, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:72, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:120, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:80, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:128, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:40, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:88, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(<<_:136, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_653(_, _) -> false.
+
+
+win_644(<<_:0, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:16, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:48, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:56, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:64, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:96, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:104, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:112, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:144, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:152, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:160, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_644(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_644(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_644(<<_:16, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_644(<<_:24, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_644(<<_:32, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_644(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_644(<<_:0, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_644(<<_:8, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_644(<<_:16, P:8, _:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_644(<<_:24, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_644(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_644(<<_:40, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_644(_, _) -> false.
+
+win_643(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:16, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:24, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:56, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:64, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:72, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:104, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:112, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:120, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:144, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:152, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:160, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:168, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_643(<<_:0, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:48, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:8, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:56, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:16, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:64, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:24, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:72, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:32, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:80, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:88, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_643(<<_:0, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:48, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:8, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:56, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:16, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:64, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:24, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:72, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_643(<<_:16, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(<<_:64, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(<<_:24, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(<<_:72, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(<<_:80, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(<<_:40, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(<<_:88, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_643(_, _) -> false.
+
+win_633(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:16, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:24, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:56, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:64, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:72, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:104, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:112, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:120, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_633(<<_:0, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_633(<<_:8, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_633(<<_:16, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_633(<<_:24, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_633(<<_:32, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_633(<<_:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_633(<<_:0, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_633(<<_:8, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_633(<<_:16, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_633(<<_:24, P:8, _:48, P:8, _:48, P:8, _/binary>>, P) -> true;
+win_633(<<_:16, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_633(<<_:24, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_633(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_633(<<_:40, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_633(_, _) -> false.
+
+win_555(<<_:0, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_555(<<_:40, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_555(<<_:80, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_555(<<_:120, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_555(<<_:160, P:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_555(<<       P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_555(<<_:8,   P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_555(<<_:16,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_555(<<_:24,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_555(<<_:32,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_555(<<P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_555(<<_:0, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_555(<<_:8, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_555(<<_:16, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_555(<<_:24, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_555(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_555(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
 win_555(<<_:32, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_555(_, _) -> false.  % TODO: implement other win patterns
+win_555(_, _) -> false.
 
-win_554(<<       P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_554(<<_:8,   P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_554(<<_:40,  P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_554(<<_:48,  P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_554(<<_:80,  P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_554(<<_:88,  P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_554(<<_:0, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_554(<<_:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_554(<<_:40, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_554(<<_:48, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_554(<<_:80, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_554(<<_:88, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_554(<<_:120, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_554(<<_:128, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_554(<<_:160, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_554(<<_:168, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_554(<<       P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:8,   P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:16,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:24,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:32,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:40,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:48,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:56,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:64,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<_:72,  P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_554(<<       P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_554(<<_:8,   P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_554(<<_:40,  P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_554(<<_:24,  P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_554(<<_:32,  P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_554(<<_:72,  P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_554(_, _) -> false.  % TODO: implement other win patterns
+win_554(<<_:0, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:40, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:8, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:48, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:16, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:56, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:24, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:64, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:72, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_554(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_554(<<_:40, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_554(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_554(<<_:48, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_554(<<_:24, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_554(<<_:64, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_554(<<_:32, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_554(<<_:72, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_554(_, _) -> false.
 
-% gen(W,H,R) -> 
-%     lists:flatten([ gen_hor(W,H,R,H,W-R,[])
-%                   , gen_ver(W,H,R,W,H-R,[])
-%                   , gen_bck(W,H,R,W-R,H-R,[])
-%                   , gen_fwd(W,H,R,W-R,H-R,[])
-%                   ]).
-
-% gen_hor(_,_,_,-1,-1,Acc) -> Acc; 
-% gen_hor(X,Y,R,Y,O,Acc) -> Acc; 
-
-
-win_553(<<       P:8, P:8, P:8, _/binary>>, P) -> true;
-win_553(<<_:8,   P:8, P:8, P:8, _/binary>>, P) -> true;
-win_553(<<_:16,  P:8, P:8, P:8, _/binary>>, P) -> true;
-
-win_553(<<_:40,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_553(<<_:48,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_553(<<_:56,  P:8, P:8, P:8, _/binary>>, P) -> true;
-
-win_553(<<_:80,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_553(<<_:88,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_553(<<_:96,  P:8, P:8, P:8, _/binary>>, P) -> true;
-
+win_553(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:16, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:40, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:56, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:80, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:88, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_553(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_553(<<_:120, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_553(<<_:128, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_553(<<_:136, P:8, P:8, P:8, _/binary>>, P) -> true;
-
 win_553(<<_:160, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_553(<<_:168, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_553(<<_:176, P:8, P:8, P:8, _/binary>>, P) -> true;
-
-win_553(<<       P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:8,   P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:16,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:24,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:32,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:40,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:48,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:56,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:64,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:72,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:80,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:88,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_553(<<_:96,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:0, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:40, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:80, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:8, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:48, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:88, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:16, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:56, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:96, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:24, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:64, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
 win_553(<<_:104, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:72, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
 win_553(<<_:112, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_553(<<_:0, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:80, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:8, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:48, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:88, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:16, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:56, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:96, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_553(<<_:16, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:56, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:96, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:64, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:104, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:32, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:72, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(<<_:112, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_553(_, _) -> false.
 
-win_553(<<       P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:8,   P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:16,  P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:40,  P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:48,  P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:56,  P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:80,  P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:88,  P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
-win_553(<<_:96,  P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_544(<<_:0, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:8, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:40, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:48, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:80, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:88, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:120, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:128, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_544(<<_:0, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_544(<<_:8, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_544(<<_:16, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_544(<<_:24, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_544(<<_:32, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_544(<<_:0, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_544(<<_:8, P:8, _:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_544(<<_:24, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_544(<<_:32, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_544(_, _) -> false.
 
-win_553(<<_:16,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:24,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:32,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:56,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:64,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:72,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:136, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:144, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(<<_:152, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_553(_, _) -> false.  % TODO: implement other win patterns
+win_543(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:16, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:40, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:56, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:80, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:88, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:120, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:128, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:136, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_543(<<_:0, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:40, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:8, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:48, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:16, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:56, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:24, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:64, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:72, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_543(<<_:0, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_543(<<_:40, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_543(<<_:8, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_543(<<_:48, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_543(<<_:16, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_543(<<_:56, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_543(<<_:16, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_543(<<_:56, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_543(<<_:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_543(<<_:64, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_543(<<_:32, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_543(<<_:72, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_543(_, _) -> false.
 
-win_444(<<      P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:16, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:40, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:56, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:80, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:88, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_533(<<_:0, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_533(<<_:8, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_533(<<_:16, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_533(<<_:24, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_533(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_533(<<_:0, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_533(<<_:8, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_533(<<_:16, P:8, _:40, P:8, _:40, P:8, _/binary>>, P) -> true;
+win_533(<<_:16, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_533(<<_:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_533(<<_:32, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_533(_, _) -> false.
+
+win_444(<<_:0, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_444(<<_:32, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_444(<<_:64, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_444(<<_:92, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_444(<<      P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_444(<<_:8,  P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_444(<<_:96, P:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_444(<<_:0, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_444(<<_:8, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
 win_444(<<_:16, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
 win_444(<<_:24, P:8, _:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_444(<<      P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_444(<<_:0, P:8, _:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
 win_444(<<_:24, P:8, _:16, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
-win_444(_, _) -> false.  % TODO: implement other win patterns
+win_444(_, _) -> false.
 
-win_443(<<       P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<_:8,   P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<_:32,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<_:40,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<_:64,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<_:72,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<_:92,  P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<_:100, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_443(<<       P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<_:8,   P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<_:16,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<_:24,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<_:32,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<_:40,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<_:48,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<_:56,  P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
-win_443(<<       P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_443(<<_:8,   P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_443(<<_:32,  P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
-win_443(<<_:16,  P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
-win_443(<<_:24,  P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
-win_443(<<_:56,  P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
-win_443(_, _) -> false.  % TODO: implement other win patterns
+win_443(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:32, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:40, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:64, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:72, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:96, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:104, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_443(<<_:0, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:32, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:8, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:40, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:16, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:48, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:56, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_443(<<_:0, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_443(<<_:32, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_443(<<_:8, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_443(<<_:40, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_443(<<_:16, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_443(<<_:48, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_443(<<_:24, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_443(<<_:56, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_443(_, _) -> false.
 
-win_333(<<      P:8, P:8, P:8, _/binary>>, P) -> true;
+win_433(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_433(<<_:8, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_433(<<_:32, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_433(<<_:40, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_433(<<_:64, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_433(<<_:72, P:8, P:8, P:8, _/binary>>, P) -> true;
+win_433(<<_:0, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_433(<<_:8, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_433(<<_:16, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_433(<<_:24, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_433(<<_:0, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_433(<<_:8, P:8, _:32, P:8, _:32, P:8, _/binary>>, P) -> true;
+win_433(<<_:16, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_433(<<_:24, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_433(_, _) -> false.
+
+win_333(<<_:0, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_333(<<_:24, P:8, P:8, P:8, _/binary>>, P) -> true;
 win_333(<<_:48, P:8, P:8, P:8, _/binary>>, P) -> true;
-win_333(<<      P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
-win_333(<<_:8,  P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_333(<<_:0, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
+win_333(<<_:8, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
 win_333(<<_:16, P:8, _:16, P:8, _:16, P:8, _/binary>>, P) -> true;
-win_333(<<P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
+win_333(<<_:0, P:8, _:24, P:8, _:24, P:8, _/binary>>, P) -> true;
 win_333(<<_:16, P:8, _:8, P:8, _:8, P:8, _/binary>>, P) -> true;
-win_333(_Board, _Player) -> false. 
+win_333(_, _) -> false.
 
+gen(W,H,R) -> io:format("~s~s~s~s~s",[ 
+                     gen_hor(W, H, R)
+                   , gen_ver(W, H, R)
+                   , gen_bck(W, H, R)
+                   , gen_fwd(W, H, R)
+                   , gen_else(W, H, R)
+                   ]).
+
+skip(Pos) -> list_to_binary([$_,$:] ++ integer_to_list(8*Pos) ++ [$,,32]).
+
+gen_hor(W, H, R) -> [g_hor(W, H, R, Y, O) || Y <- lists:seq(0,H-1), O <- lists:seq(0,W-R)]. 
+
+g_hor(W, H, R, Y, O) ->
+    WW = W + $0,
+    HH = H + $0,
+    RR = R + $0,
+    SV = skip(Y*W+O), 
+    RV = binary:copy(<<"P:8, ">>, R),
+    <<"win_", WW:8, HH:8, RR:8, "(<<", SV/binary, RV/binary, "_/binary>>, P) -> true;\n">>.
+
+gen_ver(W, H, R) -> [g_ver(W, H, R, X, O) || X <- lists:seq(0,W-1), O <- lists:seq(0,H-R)]. 
+
+g_ver(W, H, R, X, O) ->
+    WW = W + $0,
+    HH = H + $0,
+    RR = R + $0,
+    SV = skip(O*W+X),
+    SP = skip(W-1), 
+    RV = binary:copy(<<SP/binary, "P:8, ">>, R-1),
+    <<"win_", WW:8, HH:8, RR:8, "(<<", SV/binary, "P:8, ", RV/binary, "_/binary>>, P) -> true;\n">>.
+
+gen_bck(W, H, R) -> [g_bck(W, H, R, X, O) || X <- lists:seq(0,W-R), O <- lists:seq(0,H-R)]. 
+
+g_bck(W, H, R, X, O) ->
+    WW = W + $0,
+    HH = H + $0,
+    RR = R + $0,
+    SV = skip(O*W+X),
+    SP = skip(W), 
+    RV = binary:copy(<<SP/binary, "P:8, ">>, R-1),
+    <<"win_", WW:8, HH:8, RR:8, "(<<", SV/binary, "P:8, ", RV/binary, "_/binary>>, P) -> true;\n">>.
+
+gen_fwd(W, H, R) -> [g_fwd(W, H, R, X, O) || X <- lists:seq(R-1,W-1), O <- lists:seq(0,H-R)]. 
+
+g_fwd(W, H, R, X, O) ->
+    WW = W + $0,
+    HH = H + $0,
+    RR = R + $0,
+    SV = skip(O*W+X),
+    SP = skip(W-2), 
+    RV = binary:copy(<<SP/binary, "P:8, ">>, R-1),
+    <<"win_", WW:8, HH:8, RR:8, "(<<", SV/binary, "P:8, ", RV/binary, "_/binary>>, P) -> true;\n">>.
+
+gen_else(W, H, R) ->
+    WW = W + $0,
+    HH = H + $0,
+    RR = R + $0,
+    <<"win_", WW:8, HH:8, RR:8, "(_, _) -> false.\n">>.
 
 play_bot(Player, #state{board=Board, width=Width, height=Height, next=Player, gravity=Gravity} = State) ->
     Options = put_options(Board, Width, Height, Gravity),
