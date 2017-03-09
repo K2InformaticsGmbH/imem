@@ -35,7 +35,7 @@
             {snap_server, true},
             {tcp_server, true},
             {client_server, true},
-            {tcp_ip, "0.0.0.0"},
+            {tcp_ip, "127.0.0.1"},
             {tcp_port, 8124},
             {ssl, [{certfile, "priv/certs/server.crt"},
                 {keyfile, "priv/certs/server.key"},
