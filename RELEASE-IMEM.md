@@ -3,6 +3,18 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.6.1 (Release Data 09.03.2017)
+=======================================
+* Added support for async request metrics from remote connection
+* Implemented driven sync reply
+* Ranch dependency upgraded to 1.3.2
+* 127.0.0.1 set as default listener address 
+* Implemented snapshot exclusion pattern as function inside imem_snap
+* Implemented sql function round
+* replaced safe sql funciton for typed version safe_<datatype> i.e.: (safe_atom, safe_binstr, ...) 
+* Implmeented projection update/insert for map_get
+* Added maps, binary and strings modules to the list of safe sql functions.
+
 Version 1.6.0 (Release Date 18.01.2017)
 =======================================
 * Improved support for escaped text in CSV files.
