@@ -12,6 +12,7 @@
 
 -export([init/0
         ,handle_metric_req/3
+        ,request_metric/1
         ,terminate/2
         ]).
 
@@ -30,6 +31,9 @@ get_metric(MetricKey, Timeout) ->
 -spec request_metric(term(), term(), pid()) -> ok.
 request_metric(MetricKey, ReqRef, ReplyTo) ->
     imem_gen_metrics:request_metric(?MODULE, MetricKey, ReqRef, ReplyTo).
+
+-spec request_metric(any()) -> {ok, any()} | noreply.
+request_metric(_) -> noreply.
 
 %% imem_gen_metrics callback
 init() -> {ok, undefined}.
