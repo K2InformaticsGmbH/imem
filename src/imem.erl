@@ -15,11 +15,6 @@
         , stop/0
         ]).
 
-% test interface
--export([ start_test_writer/1
-        , stop_test_writer/0]
-        ).
-
 % application callbacks
 -export([ start/2
         , stop/1
@@ -288,20 +283,6 @@ set_start_time(Node) ->
                    ?MODULE, start_time,
                    {rpc:call(Node, erlang, now, []), Node})
     end.
-
-% start/stop test writer
-start_test_writer(Param) ->
-    {ok, ImemTimeout} = application:get_env(imem, imem_timeout),
-    {ok, SupPid} = supervisor:start_child(imem_sup, {imem_test_writer
-                                                    , {imem_test_writer, start_link, [Param]}
-                                                    , permanent, ImemTimeout, worker, [imem_test_writer]}),
-    [?Info("imem process ~p started pid ~p~n", [_Mod, _Pid]) || {_Mod,_Pid,_,_} <- supervisor:which_children(imem_sup)],
-    {ok, SupPid}.
-stop_test_writer() ->
-    ok = supervisor:terminate_child(imem_sup, imem_test_writer),
-    ok = supervisor:delete_child(imem_sup, imem_test_writer),
-    [?Info("imem process ~p started pid ~p~n", [_Mod, _Pid]) || {_Mod,_Pid,_,_} <- supervisor:which_children(imem_sup)].
-
 
 now() ->
     erlang:now().

@@ -1,5 +1,7 @@
 {application, imem,
     [
+        {description, "Replication cluster DB"},
+        {vsn, "1.7.0"},
         {applications, [
             inets,
             kernel,
@@ -7,13 +9,13 @@
             sasl,
             stdlib,
             erlscrypt,
+            goldrush,
             jsx,
             lager,
             ranch,
             sext,
             sqlparse
         ]},
-        {description, "Replication cluster DB"},
         {env, [
             {erl_cluster_mgrs, []},
             {mnesia_schema_name, imem},
@@ -43,6 +45,5 @@
             ]}
         ]},
         {included_applications, [mnesia]},
-        {mod, {imem, []}},
-        {vsn, "1.7.0"}
+        {mod, {imem, []}}
     ]}.
