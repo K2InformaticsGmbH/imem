@@ -7,6 +7,7 @@
             kernel,
             os_mon,
             sasl,
+            ssl,
             stdlib,
             erlscrypt,
             goldrush,

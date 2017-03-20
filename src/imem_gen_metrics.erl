@@ -44,7 +44,7 @@ get_metric(Mod, MetricKey, Timeout) ->
     ReqRef = make_ref(),
     gen_server:cast(Mod, {request_metric, MetricKey,
                           build_reply_fun(ReqRef, self())}),
-    receive {metric, ReqRef, _Timestamp, Metric} -> Metric
+    receive {metric, ReqRef, _Timestamp, _Node, Metric} -> Metric
     after Timeout -> timeout
     end.
 
@@ -125,8 +125,8 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
 
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
 build_reply_fun(ReqRef, ReplyTo) when is_pid(ReplyTo) ->
-    fun(Result) -> ReplyTo ! {metric, ReqRef, os:timestamp(), Result} end;
+    fun(Result) -> ReplyTo ! {metric, ReqRef, os:timestamp(), node(), Result} end;
 build_reply_fun(ReqRef, Sock) when is_tuple(Sock) ->
     fun(Result) ->
-        imem_server:send_resp({metric, ReqRef, os:timestamp(), Result}, Sock)
+        imem_server:send_resp({metric, ReqRef, os:timestamp(), node(), Result}, Sock)
     end.
