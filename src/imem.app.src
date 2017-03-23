@@ -9,6 +9,7 @@
                   stdlib,
                   sasl,
                   os_mon,
+                  ssl,
                   ranch,
                   sext,
                   goldrush,
