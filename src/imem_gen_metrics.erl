@@ -54,7 +54,9 @@ request_metric(Mod, MetricKey, ReqRef, ReplyTo) ->
     case Mod:request_metric(MetricKey) of
         noreply ->
             gen_server:cast(Mod, {request_metric, MetricKey, ReplyFun});
-        {ok, Reply} -> ReplyFun(Reply)
+        {ok, Reply} ->
+            ReplyFun(Reply),
+            ok
     end.
 
 %% Gen server callback implementations.
