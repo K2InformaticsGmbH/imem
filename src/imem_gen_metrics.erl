@@ -21,7 +21,8 @@
 -record(state, {impl_state :: term()
                ,mod :: atom()
                ,reductions :: integer()
-               ,system_time :: integer()
+               ,last_system_check :: integer()
+               ,last_request :: integer()
                ,system_state = normal :: atom()}).
 
 -define(DEFAULT_REQ_TIMEOUT, 10000).
@@ -66,7 +67,7 @@ init([Mod]) ->
             Reductions = element(1,erlang:statistics(reductions)),
             Time = os:system_time(micro_seconds),
             {ok, #state{mod = Mod, impl_state = State, reductions = Reductions,
-                        system_time = Time, system_state = normal}};
+                        last_system_check = Time, system_state = normal}};
         {error, Reason} -> {stop, Reason}
     end.
 
@@ -91,16 +92,26 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %% Helper functions
 -spec internal_get_metric(term(), fun(), #state{}) -> #state{}.
-internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, system_state=SysState} = State) ->
+internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState} = State) ->
     Time = os:system_time(micro_seconds),
-    ElapsedSeconds = (Time - State#state.system_time) / 1000000,
-    case {ElapsedSeconds < 1, SysState} of
+    ElapsedSeconds = (Time - State#state.last_system_check) / 1000000,
+    case {ElapsedSeconds < 1, State#state.system_state} of
+        {_, eval_crash_suspend} ->
+            case is_crash_suspend_timeout((Time - State#state.last_request) / 1000000) of
+                true ->
+                    ReplyFun(eval_crash_suspend),
+                    State;
+                false ->
+                    internal_get_metric(MetricKey, ReplyFun, State#state{system_state = normal})
+            end;
         {true, normal} ->
-            NewImplState = Mod:handle_metric_req(MetricKey, ReplyFun, ImplState),
-            State#state{impl_state = NewImplState};
-        {true, _} ->
+            {NewImplState, NewSysState} = safe_request_metric(Mod, MetricKey, ReplyFun, ImplState),
+            State#state{impl_state = NewImplState
+                       ,system_state = NewSysState
+                       ,last_request = Time};
+        {true, SysState} ->
             ReplyFun(SysState),
-            State;
+            State#state{last_request = Time};
         {false, _} ->
             MaxReductions = ?GET_CONFIG(maxReductions,[Mod],100000000,"Max number of reductions per second before considering the system as overloaded."),
             MaxMemory = ?GET_CONFIG(maxMemory,[Mod],90,"Memory usage before considering the system as overloaded."),
@@ -117,12 +128,25 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
                     ReplyFun(memory_overload),
                     {ImplState, memory_overload};
                 _ ->
-                    {Mod:handle_metric_req(MetricKey, ReplyFun, ImplState), normal}
+                    safe_request_metric(Mod, MetricKey, ReplyFun, ImplState)
             end,
             State#state{impl_state = NewImplState
                        ,reductions = Reductions
-                       ,system_time = Time
+                       ,last_system_check = Time
+                       ,last_request = Time
                        ,system_state = NewSysState}
+    end.
+
+-spec safe_request_metric(atom(), term(), fun(), term()) -> {term(), atom()}.
+safe_request_metric(Mod, MetricKey, ReplyFun, ImplState) ->
+    try Mod:handle_metric_req(MetricKey, ReplyFun, ImplState) of
+        NewImplState -> {NewImplState, normal}
+    catch
+        Error:Reason ->
+            ?Error("~p:~p crash on metric request, called as ~p:handle_metric_req(~p, ~p, ~p)~n~p~n",
+                [Error, Reason, Mod, MetricKey, ReplyFun, ImplState, erlang:get_stacktrace()]),
+            ReplyFun(eval_crash),
+            {ImplState, eval_crash_suspend}
     end.
 
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
@@ -132,3 +156,10 @@ build_reply_fun(ReqRef, Sock) when is_tuple(Sock) ->
     fun(Result) ->
         imem_server:send_resp({imem_async, {metric, ReqRef, os:timestamp(), node(), Result}}, Sock)
     end.
+
+-spec is_crash_suspend_timeout(integer()) -> boolean().
+is_crash_suspend_timeout(ElapsedSeconds) when ElapsedSeconds > 2 ->
+    % Minimum suspend time after a crash is 2 seconds regardless of configuration.
+    SuspendTimeout = ?GET_CONFIG(evalCrashTimeout, [], 10, "Seconds the agent will refuse to respond after an evaluation crash, minimum value 2."),
+    ElapsedSeconds < SuspendTimeout;
+is_crash_suspend_timeout(_ElapsedSeconds) -> true.
