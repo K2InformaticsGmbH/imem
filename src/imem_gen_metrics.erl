@@ -43,8 +43,7 @@ get_metric(Mod, MetricKey) ->
 -spec get_metric(atom(), term(), integer()) -> term() | timeout.
 get_metric(Mod, MetricKey, Timeout) ->
     ReqRef = make_ref(),
-    gen_server:cast(Mod, {request_metric, MetricKey,
-                          build_reply_fun(ReqRef, self())}),
+    metric_cast(Mod, MetricKey, build_reply_fun(ReqRef, self())),
     receive {metric, ReqRef, _Timestamp, _Node, Metric} -> Metric
     after Timeout -> timeout
     end.
@@ -54,12 +53,22 @@ request_metric(Mod, MetricKey, ReqRef, ReplyTo) ->
     ReplyFun = build_reply_fun(ReqRef, ReplyTo),
     case Mod:request_metric(MetricKey) of
         noreply ->
-            gen_server:cast(Mod, {request_metric, MetricKey, ReplyFun});
+            metric_cast(Mod, MetricKey, ReplyFun);
         {noreply, NewMetricKey} ->
-            gen_server:cast(Mod, {request_metric, NewMetricKey, ReplyFun});
+            metric_cast(Mod, NewMetricKey, ReplyFun);
         {ok, Reply} ->
             ReplyFun(Reply),
             ok
+    end.
+
+-spec metric_cast(atom(), term(), fun()) -> ok.
+metric_cast(Mod, MetricKey, ReplyFun) ->
+    case whereis(Mod) of
+        P when not is_pid(P) ->
+            ReplyFun({error, no_proc}),
+            ok;
+        _ ->
+            gen_server:cast(Mod, {request_metric, MetricKey, ReplyFun})
     end.
 
 %% Gen server callback implementations.
