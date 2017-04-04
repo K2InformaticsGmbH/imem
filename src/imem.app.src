@@ -3,7 +3,7 @@
 {application, imem,
  [
   {description, "Replication cluster DB"},
-  {vsn, "1.6.1"},
+  {vsn, "1.6.2"},
   {registered, []},
   {applications, [kernel,
                   stdlib,
