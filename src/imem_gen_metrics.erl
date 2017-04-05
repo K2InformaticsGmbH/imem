@@ -82,16 +82,25 @@ init([Mod]) ->
         {error, Reason} -> {stop, Reason}
     end.
 
+handle_call({impl, Req}, From, #state{mod = Mod, impl_state = ImplState} = State) ->
+    {Reply, ImplState1} = impl_mfa(Mod, handle_call, [Req, From], ImplState),
+    {reply, Reply, State#state{impl_state = ImplState1}};
 handle_call(UnknownReq, _From, #state{mod = Mod} = State) ->
     ?Error("~p implementing ~p pid ~p received unknown call ~p", [Mod, ?MODULE, self(), UnknownReq]),
-    {noreply, State}.
+    {reply, {error, badreq}, State}.
 
+handle_cast({impl, Req}, #state{mod = Mod, impl_state = ImplState} = State) ->
+    {_, ImplState1} = impl_mfa(Mod, handle_cast, [Req], ImplState),
+    {noreply, State#state{impl_state = ImplState1}};
 handle_cast({request_metric, MetricKey, ReplyFun}, #state{} = State) ->
     {noreply, internal_get_metric(MetricKey, ReplyFun, State)};
 handle_cast(UnknownReq, #state{mod = Mod} = State) ->
     ?Error("~p implementing ~p pid ~p received unknown cast ~p", [Mod, ?MODULE, self(), UnknownReq]),
     {noreply, State}.
 
+handle_info({impl, Info}, #state{mod = Mod, impl_state = ImplState} = State) ->
+    {_, ImplState1} = impl_mfa(Mod, handle_info, [Info], ImplState),
+    {noreply, State#state{impl_state = ImplState1}};
 handle_info(Message, State) ->
     ?Error("~p doesn't message unexpected: ~p", [?MODULE, Message]),
     {noreply, State}.
@@ -100,6 +109,20 @@ terminate(Reason, #state{mod=Mod, impl_state=ImplState}) ->
     Mod:terminate(Reason, ImplState).
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+impl_mfa(Mod, Fun, Args, State) ->
+    try apply(Mod, Fun, lists:concat([Args, [State]])) of
+        {reply,   IR,       IS}    -> {IR,               IS};
+        {reply,   IR,       IS, _} -> {IR,               IS};
+        {noreply,           IS}    -> {noreply,          IS};
+        {noreply,           IS, _} -> {noreply,          IS};
+        {stop,    IRsn,     IS}    -> {{stop, IRsn},     IS};
+        {stop,    IRsn, IR, IS}    -> {{stop, IRsn, IR}, IS}
+    catch
+        Class:Exception ->
+            ?Error("CRASH ~p:~p(~p, ~p) -> ~p", [Mod, Fun, Args, State, {Class,Exception}]),
+            {{error, {Class, Exception}}, State}
+    end.
 
 %% Helper functions
 -spec internal_get_metric(term(), fun(), #state{}) -> #state{}.
