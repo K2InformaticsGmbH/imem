@@ -17,7 +17,6 @@
 -define(H(X), (hex(X)):16).
 
 -define(THOUSAND_SEP,[$']).         %% ' is ignored in integer strings or expressions
--define(USE_THOUSAND_SEP,true).     %% comment out if no thousands separation is wanted on output
 
 -define(BinaryMaxLen,250).          %% more represented by "..." suffix
 
@@ -1328,7 +1327,7 @@ string_to_io(Val) when is_list(Val) ->
 string_to_io(Val) ->
     list_to_binary(lists:flatten(io_lib:format("~tp",[Val]))).      %% "\"~tp\""
 
--ifdef (USE_THOUSAND_SEP).
+-ifdef(USE_THOUSAND_SEP).
 integer_to_io(Val) ->
     list_to_binary(lists:foldl(fun integer_filter/2,[],lists:reverse(integer_to_list(Val)))).
 

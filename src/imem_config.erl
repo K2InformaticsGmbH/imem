@@ -179,8 +179,8 @@ reference_resolve(Table, [_|{enc,_}] = Val) ->
    reference_resolve(Table, decrypt(Val));
 reference_resolve(Table, Val) when is_map(Val) ->
     maps:map(fun(_K, V) -> reference_resolve(Table, V) end, Val);
-reference_resolve(Table, Val) when is_list(Val) ->
-    lists:map(fun(V) -> reference_resolve(Table, V) end, Val);
+reference_resolve(Table, [V|T]) ->
+    [reference_resolve(Table, V) | reference_resolve(Table, T)];
 reference_resolve(Table, Val) when is_tuple(Val) ->
     list_to_tuple(reference_resolve(Table, tuple_to_list(Val)));
 reference_resolve(_Table, Val) -> Val.

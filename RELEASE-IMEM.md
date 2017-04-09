@@ -3,6 +3,29 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.6.2 (Release Data 06.04.2017)
+=======================================
+* Added node information to the metric results
+* metric modification support for noreply path
+* Implemented safe callback function and suspend agent execution of metric for at least 2 seconds after a crash
+* fixed return value of request_metric on behaviour as the caller expect it to be ok, and the metric result should be sent as message
+* Changed request_metric from imem_sec to use imem_gen_metrics and pass the callback module as a parameter
+* [`sqlparse-2.0.0`](https://github.com/K2InformaticsGmbH/sqlparse/releases/tag/2.0.0)
+* [`jpparse-1.0.0`](https://github.com/K2InformaticsGmbH/jpparse/releases/tag/1.0.0)
+* [Bug Fixes](https://github.com/K2InformaticsGmbH/imem/issues?q=is%3Aclosed+milestone%3A1.6.2)
+
+Version 1.6.1 (Release Data 09.03.2017)
+=======================================
+* Added support for async request metrics from remote connection
+* Implemented driven sync reply
+* Ranch dependency upgraded to 1.3.2
+* 127.0.0.1 set as default listener address 
+* Implemented snapshot exclusion pattern as function inside imem_snap
+* Implemented sql function round
+* replaced safe sql funciton for typed version safe_<datatype> i.e.: (safe_atom, safe_binstr, ...) 
+* Implmeented projection update/insert for map_get
+* Added maps, binary and strings modules to the list of safe sql functions.
+
 Version 1.6.0 (Release Date 18.01.2017)
 =======================================
 * Improved support for escaped text in CSV files.
