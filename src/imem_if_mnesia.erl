@@ -102,10 +102,10 @@
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
-                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = os:timestamp()}),
+                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:timestamp()}),
                     ok;
                 [] ->
-                    __Now = os:timestamp(),
+                    __Now = erlang:timestamp(),
                     true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now}),
                     ok
             end
@@ -223,8 +223,8 @@ field_pick_mapped(Tup,Pointers) when is_tuple(Tup) ->
     catch list_to_tuple([E || P <- Pointers, {I,E} <- lists:zip(lists:seq(1,length(EL)),EL),P==I]);    
 field_pick_mapped(_,_) -> {}.
 
-meta_field_value(<<"systimestamp">>) -> os:timestamp();
-meta_field_value(systimestamp) -> os:timestamp();
+meta_field_value(<<"systimestamp">>) -> ?TRANS_TIME;
+meta_field_value(systimestamp) -> ?TRANS_TIME;
 meta_field_value(<<"user">>) -> <<"unknown">>;
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(<<"sysdate">>) -> calendar:local_time();

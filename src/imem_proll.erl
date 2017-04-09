@@ -79,7 +79,7 @@ handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
                     % ?Info("Partition rolling collect result ~p",[AL]), 
                     PL = try
                         %% collect list of missing partitions
-                        {Mega,Sec,Micro} = os:timestamp(),
+                        {Mega,Sec,Micro} = erlang:timestamp(),
                         Intvl = PCW div 1000,
                         CandidateTimes = [{Mega,Sec,Micro},{Mega,Sec+Intvl,Micro},{Mega,Sec+Intvl+Intvl,Micro}],
                         missing_partitions(AL,CandidateTimes)

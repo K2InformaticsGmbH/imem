@@ -101,6 +101,7 @@
         , node_hash/1
         , record_hash/2
         , nodes/0
+        , now/0
         , all_aliases/0
         , all_tables/0
         , tables_starting_with/1
@@ -273,7 +274,7 @@
 -export([simple_or_local_node_sharded_tables/1]).
 
 -safe([log_to_db,update_index,dictionary_trigger,data_nodes,
-       physical_table_name,get_tables_count,record_hash]).
+       physical_table_name,get_tables_count,record_hash,now]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -501,6 +502,10 @@ dictionary_trigger(OldRec,NewRec,T,_User,_TrOpts) when T==ddTable; T==ddAlias ->
 
 %% ------ META implementation -------------------------------------------------------
 
+
+% Monotonic, adapted, per node unique timestamp with microsecond resolution and OS-dependent precision
+-spec now() -> {integer(),integer(),integer(),integer()}. 
+now() -> ?TRANS_TIME.
 
 % is_system_table({_S,Table,_A}) -> is_system_table(Table);   % TODO: May depend on Schema
 is_system_table({_,Table}) -> 
@@ -841,7 +846,7 @@ module_with_table_api(M) ->
             end
     end.
 
-create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
+create_physical_standard_table(TableAlias, ColInfos, Opts0, Owner) ->
     MySchema = schema(),
     TableName = physical_table_name(TableAlias),
     case TableName of
@@ -879,10 +884,11 @@ create_physical_standard_table(TableAlias,ColInfos,Opts0,Owner) ->
                 [#ddAlias{}] ->
                     ?ClientError({"Create table fails because columns or owner do not match with ddAlias",TableAlias});
                 [] ->
-                    case [ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if_mnesia:read(ddAlias),S==MySchema] of
+                    case [ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if_mnesia:read(ddAlias), S==MySchema] of
                         [] ->           
                             ok;
-                        ParsedTNs ->    
+                        ParsedTNs ->
+                            SameName =     
                             case length([ BB || [_,_,BB,_,_,_,_] <- ParsedTNs, BB==B]) of
                                 0 ->    ok;
                                 _ ->    ?ClientError({"Name conflict (different rolling period) in ddAlias",TableAlias})
@@ -1432,8 +1438,8 @@ purge_time_partitioned_table(TableAlias, Opts) ->
             ?ClientError({"Table to be purged does not exist",TableAlias});
         [TableName|_] ->
             KeepTime = case proplists:get_value(purge_delay, Opts) of
-                undefined ->    os:timestamp();
-                Seconds ->      {Mega,Secs,Micro} = os:timestamp(),
+                undefined ->    erlang:timestamp();
+                Seconds ->      {Mega,Secs,Micro} = erlang:timestamp(),
                                 {Mega,Secs-Seconds,Micro}
             end,
             KeepName = partitioned_table_name(TableAlias,KeepTime),
@@ -1600,7 +1606,7 @@ time_to_partition_expiry(Table) when is_list(Table) ->
         [_Schema,_Dot,_BaseName,_,"",_Aterate,_Shard] ->
             ?ClientError({"Not a time partitioned table",Table});     
         [_Schema,_Dot,_BaseName,"_",Number,_Aterate,_Shard] ->
-            {Mega,Secs,_} = os:timestamp(),
+            {Mega,Secs,_} = erlang:timestamp(),
             list_to_integer(Number) - Mega * 1000000 - Secs
     end.
 
@@ -1629,13 +1635,13 @@ physical_table_name(TableAlias) when is_atom(TableAlias) ->
 physical_table_name(TableAlias) when is_list(TableAlias) ->
     case lists:reverse(TableAlias) of
         [$@|_] ->       
-            partitioned_table_name(TableAlias,os:timestamp());    % node sharded alias, maybe time sharded
+            partitioned_table_name(TableAlias,erlang:timestamp());    % node sharded alias, maybe time sharded
         [$_,$@|_] ->    
-            partitioned_table_name(TableAlias,os:timestamp());    % time sharded only
+            partitioned_table_name(TableAlias,erlang:timestamp());    % time sharded only
         _ ->
             case lists:member($@,TableAlias) of            
                 false ->    list_to_atom(TableAlias);           % simple table
-                true ->     partitioned_table_name(TableAlias,os:timestamp())     % maybe node sharded alias
+                true ->     partitioned_table_name(TableAlias,erlang:timestamp())     % maybe node sharded alias
             end
     end.
 
@@ -1717,6 +1723,8 @@ partitioned_table_name(TableAlias,Key) ->
 
 partitioned_table_name_str(TableAlias,Key) when is_atom(TableAlias) ->
     partitioned_table_name_str(atom_to_list(TableAlias),Key);
+partitioned_table_name_str(TableAlias, {Mega,Sec,Micro,_}) when is_list(TableAlias) ->
+    partitioned_table_name_str(TableAlias, {Mega,Sec,Micro});
 partitioned_table_name_str(TableAlias,Key) when is_list(TableAlias) ->
     TableAliasRev = lists:reverse(TableAlias),
     case TableAliasRev of
@@ -1888,7 +1896,7 @@ when is_atom(Level)
     , is_list(Fields)
     , is_binary(Message)
     , is_list(StackTrace) ->
-    LogRec = #ddLog{logTime=imem:now(),logLevel=Level,pid=self()
+    LogRec = #ddLog{logTime=?TRANS_TIME,logLevel=Level,pid=self()
                     ,module=Module,function=Function,line=Line,node=node()
                     ,fields=Fields,message=Message,stacktrace=StackTrace
                     },
@@ -3467,7 +3475,7 @@ meta_partitions(_) ->
 
         TimePartTable0 = physical_table_name(?TPTEST0),
         % ?LogDebug("TimePartTable ~p~n", [TimePartTable0]),
-        ?assertEqual(TimePartTable0, physical_table_name(?TPTEST0,os:timestamp())),
+        ?assertEqual(TimePartTable0, physical_table_name(?TPTEST0,erlang:timestamp())),
         ?assertEqual(ok, create_check_table(?TPTEST0, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable0)),
         ?assertEqual(0, table_size(TimePartTable0)),
@@ -3478,21 +3486,26 @@ meta_partitions(_) ->
         % ?LogDebug("Alias0 ~p~n", [[ element(2,A) || A <- Alias0]]),
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- Alias0])),
 
-% FIXME: Currently failing in travis
-%        ?assertException(throw, {'ClientError',{"Name conflict (different rolling period) in ddAlias",?TPTEST2}}, create_check_table(?TPTEST2, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
-
+        ?assertException( throw
+                        , {'ClientError', {"Name conflict (different rolling period) in ddAlias", tpTest_100@}}
+                        , create_check_table( ?TPTEST2
+                                             , {record_info(fields, ddLog), ?ddLog, #ddLog{}}
+                                             , [{record_name,ddLog},{type,ordered_set}]
+                                             , system
+                                             )
+                        ),  
         ?assert(lists:member({schema(),?TPTEST0},[element(2,A) || A <- read(ddAlias)])),
 
-        LogRec = #ddLog{logTime= imem:now(),logLevel=info,pid=self()
-                            ,module=?MODULE,function=meta_partitions,node=node()
-                            ,fields=[],message= <<"some log message">>},
-
+        LogRec = #ddLog{ logTime=?TRANS_TIME, logLevel=info, pid=self()
+                       , module=?MODULE, function=meta_partitions, node=node()
+                       , fields=[], message= <<"some log message">>
+                       },
         ?assertEqual(ok, write(?TPTEST0, LogRec)),
         ?assertEqual(1, table_size(TimePartTable0)),
         ?assertEqual(0, purge_table(?TPTEST0)),
-        {Megs,Secs,Mics} = imem:now(),
+        {Megs, Secs, Mics, _Cnt} = ?TRANS_TIME,
         FutureSecs = Megs*1000000 + Secs + 2000,
-        Future = {FutureSecs div 1000000,FutureSecs rem 1000000,Mics}, 
+        Future = {FutureSecs div 1000000, FutureSecs rem 1000000, Mics, ?UNIQUE_INTEGER}, 
         LogRecF = LogRec#ddLog{logTime=Future},
         ?assertEqual(ok, write(?TPTEST0, LogRecF)),
         % ?LogDebug("physical_table_names ~p~n", [physical_table_names(?TPTEST0)]),
@@ -3510,12 +3523,12 @@ meta_partitions(_) ->
 
         TimePartTable1 = physical_table_name(?TPTEST1),
         ?assertEqual(tpTest1_1999999998@_, TimePartTable1),
-        ?assertEqual(TimePartTable1, physical_table_name(?TPTEST1,os:timestamp())),
-        ?assertEqual(ok, create_check_table(?TPTEST1, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertEqual(TimePartTable1, physical_table_name(?TPTEST1,erlang:timestamp())),
+        ?assertEqual(ok, create_check_table(?TPTEST1, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, [{record_name,ddLog}, {type,ordered_set}], system)),
         ?assertEqual(ok, check_table(TimePartTable1)),
         ?assertEqual([TimePartTable1],physical_table_names(?TPTEST1)),
         ?assertEqual(0, table_size(TimePartTable1)),
-        ?assertEqual(ok, create_check_table(?TPTEST1, {record_info(fields, ddLog),?ddLog, #ddLog{}}, [{record_name,ddLog},{type,ordered_set}], system)),
+        ?assertEqual(ok, create_check_table(?TPTEST1, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, [{record_name,ddLog}, {type,ordered_set}], system)),
 
         Alias1 = read(ddAlias),
         % ?LogDebug("Alias1 ~p~n", [[ element(2,A) || A <- Alias1]]),
@@ -3524,13 +3537,13 @@ meta_partitions(_) ->
         ?assertEqual(ok, write(?TPTEST1, LogRec)),
         ?assertEqual(1, table_size(TimePartTable1)),
         ?assertEqual(0, purge_table(?TPTEST1)),
-        LogRecP = LogRec#ddLog{logTime={900,0,0}},  
+        LogRecP = LogRec#ddLog{logTime={900, 0, 0, ?UNIQUE_INTEGER}},  
         % ?LogDebug("Big Partition Tables before back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
-        % Error3 = {error,{'ClientError',{"Table already exists",tpTest1_1999999998@_}}},     % cannot create past partitions
+        Error3 = {error,{'ClientError',{"Table already exists",tpTest1_1999999998@_}}},     % cannot create past partitions
         % ?assertException(throw,{'ClientError',{"Table partition cannot be created",{tpTest1_999999999@_,Error3}}},write(?TPTEST1, LogRecP)),
         ?assertEqual(ok, write(?TPTEST1, LogRecP)),
         % ?LogDebug("Big Partition Tables after back-insert~n~p~n", [physical_table_names(?TPTEST1)]),
-        LogRecFF = LogRec#ddLog{logTime={2900,0,0}},  
+        LogRecFF = LogRec#ddLog{logTime={2900, 0, 0, ?UNIQUE_INTEGER}},  
         ?assertEqual(ok, write(?TPTEST1, LogRecFF)),
         % ?LogDebug("Big Partition Tables after forward-insert~n~p~n", [physical_table_names(?TPTEST1)]),
         ?assertEqual(3,length(physical_table_names(?TPTEST1))),     % another partition created
@@ -3546,21 +3559,21 @@ meta_partitions(_) ->
         ?assertEqual([],physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,0]),
 
-        ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog),?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
+        ?assertEqual(ok, create_check_table(fakelog_1@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),    
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,0,1]),
         FL1 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL1,created]),
-        ?assertEqual(1,FL1),
-        LogRec3 = #ddLog{logTime=os:timestamp(),logLevel=debug,pid=self()
+        ?assertEqual(1, FL1),
+        LogRec3 = #ddLog{logTime=erlang:timestamp(),logLevel=debug,pid=self()
                         ,module=?MODULE,function=test,node=node()
                         ,fields=[],message= <<>>,stacktrace=[]
-                    },
+                    },  % using 3-tuple timestamp here for backward compatibility test
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3)), % one record to first partition
         timer:sleep(920),   % was 1050
         _FL2 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@, _FL2, written]), 
 
-        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=os:timestamp()})), % one record to second partition
+        ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=erlang:timestamp()})), % one record to second partition
         FL3 = length(physical_table_names(fakelog_1@)),
         % ?LogDebug("success ~p ~p ~p~n", [fakelog_1@,FL3,written]), 
         ?assert(FL3 >= 3),

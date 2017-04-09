@@ -142,19 +142,18 @@ write_monitor() -> write_monitor(undefined,undefined).
 
 write_monitor(ExtraFun,DumpFun) ->
     try  
-        Now = os:timestamp(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
-        Moni0 = #ddMonitor{ time=Now
-                         , node = node()
-                         , memory=erlang:memory(total)
-                         , process_count=erlang:system_info(process_count)          
-                         , port_count=erlang:system_info(port_count)
-                         , run_queue=erlang:statistics(run_queue)
-                         , wall_clock=element(1,erlang:statistics(wall_clock))
-                         , reductions=element(1,erlang:statistics(reductions))
-                         , input_io=Input
-                         , output_io=Output
-                         },
+        Moni0 = #ddMonitor{ time=?TRANS_TIME
+                          , node=node()
+                          , memory=erlang:memory(total)
+                          , process_count=erlang:system_info(process_count)          
+                          , port_count=erlang:system_info(port_count)
+                          , run_queue=erlang:statistics(run_queue)
+                          , wall_clock=element(1,erlang:statistics(wall_clock))
+                          , reductions=element(1,erlang:statistics(reductions))
+                          , input_io=Input
+                          , output_io=Output
+                          },
         Moni1 = case ExtraFun of
             undefined -> 
                 Moni0;

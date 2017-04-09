@@ -68,6 +68,7 @@
         , update/4
         , merge/3
         , merge/4
+        , now/1
         , remove/3
         , remove/4
         , write/3
@@ -149,7 +150,11 @@ if_is_system_table(SKey,Table) when is_binary(Table) ->
         _:_ -> false
     end.
 
-%% imem_if but security context added --- META INFORMATION ------
+%% imem_meta but security context added --- META INFORMATION ------
+
+now(SKey) ->
+    seco_authorized(SKey),
+    imem_meta:now().
 
 schema(SKey) ->
     seco_authorized(SKey),

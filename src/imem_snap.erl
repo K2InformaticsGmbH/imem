@@ -173,7 +173,7 @@ init(_) ->
     {ok,#state{snapdir = SnapshotDir}}.
 
 create_clean_dir(Prefix) ->
-    {_,_,Us} = Now = os:timestamp(),
+    {_,_,Us} = Now = erlang:timestamp(),
     {{Y,M,D},{H,Mn,S}} = calendar:now_to_local_time(Now),
     Sec = S + Us / 1000000,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -191,7 +191,7 @@ create_clean_dir(Prefix) ->
     BackupDir.
 
 cluster_snap(Tabs, '$replace_with_timestamp', Dir) ->
-    cluster_snap(Tabs, os:timestamp(), Dir);
+    cluster_snap(Tabs, erlang:timestamp(), Dir);
 cluster_snap([], {_,_,_} = StartTime, Dir) ->
     ZipFile = filename:join(filename:dirname(Dir), filename:basename(Dir)++".zip"),
     ZipCandidates = [begin
@@ -209,8 +209,8 @@ cluster_snap([], {_,_,_} = StartTime, Dir) ->
             ok = file:del_dir(Dir),
             ?Info("cluster snapshot ~s", [ZipFile])
     end,
-    ?Info("cluster snapshot took ~pms",
-          [timer:now_diff(os:timestamp(), StartTime) div 1000]),
+    ?Info("cluster snapshot took ~p ms",
+          [timer:now_diff(erlang:timestamp(), StartTime) div 1000]),
     erlang:send_after(
       1000, ?MODULE,
       {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp',
@@ -254,7 +254,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                      end;
                  _ ->
                      ClusterSnapHour = ?GET_CLUSTER_SNAPSHOT_TOD,
-                     case calendar:now_to_local_time(os:timestamp()) of
+                     case calendar:now_to_local_time(erlang:timestamp()) of
                          {{_,_,_},{ClusterSnapHour,_,_}} ->
                              if Dir == '$create_when_needed' ->
                                     ?Info("cluster snapshot ~p", [Tables]);
@@ -356,7 +356,7 @@ zip({files, SnapFiles}) ->
     if ZipCandidates =:= [] -> ok;
         true ->
             {{Y,M,D}, {H,Mn,S}} = calendar:local_time(),
-            Sec = S + element(3, os:timestamp()) / 1000000,
+            Sec = S + element(3, erlang:timestamp()) / 1000000,
             ZipFileName = re:replace(lists:flatten(["snapshot_"
                                          , io_lib:format("~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Y,M,D,H,Mn,Sec])
                                          , ".zip"
@@ -812,7 +812,7 @@ get_snap_properties(Tab) ->
     end.
 
 set_snap_properties(Prop) ->
-    ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap= os:timestamp()}).
+    ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap= erlang:timestamp()}).
 
 snap_log(_P,_A) -> ?Info(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
@@ -825,7 +825,7 @@ exclude_table_pattern(TablePattern) when is_binary(TablePattern) ->
     exclude_table_pattern(binary_to_list(TablePattern));
 exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     ExPatterns = ?GET_SNAPSHOT_EXCLUSION_PATTERNS,
-    Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(os:timestamp())]),
+    Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(erlang:timestamp())]),
     ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), Remark).
 
 -ifdef(TEST).

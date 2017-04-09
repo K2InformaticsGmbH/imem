@@ -301,38 +301,33 @@ atom_audit_alias(Channel) -> binary_to_existing_atom(audit_alias(Channel),utf8).
 %% Key: 	Timestamp of change
 %% returns:	audit table name as atom 
 -spec audit_table_name(list(),term()) -> atom().
-audit_table_name(Channel,Key) when is_list(Channel) -> 
-	imem_meta:partitioned_table_name(Channel ++ ?AUDIT_SUFFIX,Key).
+audit_table_name(Channel, Key) when is_list(Channel) -> 
+	imem_meta:partitioned_table_name(Channel ++ ?AUDIT_SUFFIX, Key).
 
 audit_table_time(Channel) ->
-    	{AuditTab,TransTime} = audit_table_time(?TRANS_TIME_GET,Channel),
+    	{AuditTab, TransTime} = audit_table_time(?TRANS_TIME_GET, Channel),
         ?TRANS_TIME_PUT(TransTime),
-        {AuditTab,TransTime}.
+        {AuditTab, TransTime}.
 
-audit_table_time(TransTime,CH) ->
-	ATName = audit_table_name(CH,TransTime),
+audit_table_time({_,_,_,TCnt}=TransTime, CH) ->
+	ATName = audit_table_name(CH, TransTime),
 	case imem_meta:last(ATName) of 
 		'$end_of_table' ->	 
-			{ATName,TransTime};
+			{ATName, TransTime}; % audit is empty, any TransTime accepted 
+        {_,_,_} ->   
+            {ATName, TransTime}; % audit is of old format, TransTime accepted 
 		LastLog when (LastLog >= TransTime) andalso (element(3,LastLog) < 999999) ->
-			{ATName,{element(1,LastLog),element(2,LastLog),element(3,LastLog)+1}};
+			{ATName, {element(1,LastLog), element(2,LastLog), element(3,LastLog)+1, TCnt}};
 		LastLog when (LastLog >= TransTime) andalso (element(2,LastLog) < 999999) ->
-			audit_table_time({element(1,LastLog),element(2,LastLog)+1,0},CH);
+			audit_table_time({element(1,LastLog), element(2,LastLog)+1, 0, TCnt}, CH);
 		LastLog when (LastLog >= TransTime) ->
-			audit_table_time({element(1,LastLog)+1,0,0},CH);
+			audit_table_time({element(1,LastLog)+1, 0, 0, TCnt}, CH);
 		_ -> 
-		 	{ATName,TransTime}
+		 	{ATName, TransTime} % last audit key is smaller than TransTime, accepted
 	end.
 
-audit_table_next(ATName,TransTime,CH) -> 
-	case TransTime of 
-		{M,S,Mic} when Mic < 999999 ->
-			{ATName,{M,S,Mic+1}};
-		{M,S,999999} when S < 999999 ->
-			audit_table_time({M,S+1,0},CH);
-		{M,999999,999999} ->
-			audit_table_time({M+1,0,0},CH)
-	end.
+audit_table_next(ATName, {M, S, Mic, _Cnt} , _CH) -> 
+    {ATName, {M, S, Mic, ?UNIQUE_INTEGER}}. % next bigger key for same double transaction
 
 is_row_type(map, R) when is_map(R) -> R;
 is_row_type(map, R) when is_list(R) -> 
@@ -524,37 +519,51 @@ build_aux_table_info(Table) ->
 	{AuditTable,TransTime} = audit_table_time(Channel),
     {AuditTable,HistoryTable,TransTime,Channel}.
 
-% truncate table
 audit_info(User,_Channel,AuditTable,TransTime,{},{}) ->
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=sext:encode(undefined),
-                             ovalue=undefined,nvalue=undefined,cuser=User}}];
-% delete old rec
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=sext:encode(undefined),
+                             ovalue=undefined,
+                             nvalue=undefined,
+                             cuser=User}}
+    ];  % truncate table
 audit_info(User,_Channel,AuditTable,TransTime,OldRec,{}) ->
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=element(2,OldRec),
-                             ovalue=element(3,OldRec),nvalue=undefined,
-                             cuser=User}}];
-% insert new rec
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=element(2,OldRec),
+                             ovalue=element(3,OldRec),
+                             nvalue=undefined,
+                             cuser=User}}
+    ];  % delete old rec
 audit_info(User,_Channel,AuditTable,TransTime,{},NewRec) ->
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=element(2,NewRec),
-                             ovalue=undefined,nvalue=element(3,NewRec),
-                             cuser=User}}];
-% update value
-audit_info(User,_Channel,AuditTable,TransTime,OldRec,NewRec)
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=element(2,NewRec),
+                             ovalue=undefined,
+                             nvalue=element(3,NewRec),
+                             cuser=User}}
+    ];  % insert new rec
+audit_info(User, _Channel, AuditTable, TransTime, OldRec, NewRec)
   when element(2,OldRec) == element(2,NewRec) ->
     OldKey = element(2,OldRec),
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=OldKey,
-                             ovalue=element(3,OldRec),nvalue=element(3,NewRec),
-                             cuser=User}}];
-% delete and insert
-audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec) ->
-    {AuditTable1, TransTime1} = audit_table_next(AuditTable,TransTime,Channel),
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=OldKey,
+                             ovalue=element(3,OldRec),
+                             nvalue=element(3,NewRec),
+                             cuser=User}}
+    ];  % update value
+audit_info(User, Channel, AuditTable, TransTime, OldRec, NewRec) ->
+    {AuditTable1, TransTime1} = audit_table_next(AuditTable, TransTime, Channel),
     OldKey = element(2,OldRec),
     NewKey = element(2,NewRec),
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=OldKey,
-                             ovalue=element(3,OldRec),nvalue=undefined,
-                             cuser=User}},
-     {AuditTable1, #skvhAudit{time=TransTime1,ckey=NewKey,ovalue=undefined,
-                              nvalue=element(3,NewRec),cuser=User}}].
+    [{AuditTable,  #skvhAudit{time=TransTime, 
+                              ckey=OldKey,
+                              ovalue=element(3,OldRec),
+                              nvalue=undefined,
+                              cuser=User}},
+     {AuditTable1, #skvhAudit{time=TransTime1, 
+                              ckey=NewKey,
+                              ovalue=undefined,
+                              nvalue=element(3,NewRec),
+                              cuser=User}}
+    ].  % delete and insert
 
 audit_recs_time(A) when is_record(A, skvhAudit) -> A#skvhAudit.time;
 audit_recs_time({_,A}) when is_record(A, skvhAudit) -> A#skvhAudit.time;
@@ -566,12 +575,9 @@ audit_write_noop(User, Channel, Key) ->
         [] -> no_op;
         [#{cvalue := Value}] ->
             AuditNoop = fun() ->
-                {AuditTable, TransTime} = audit_table_time(
-                    binary_to_list(Channel)),
-                SkvhRec = #skvhTable{ckey = imem_datatype:term_to_binterm(Key),
-                                      cvalue = Value},
-                AuditInfo = audit_info(User,Channel,AuditTable,TransTime,
-                    SkvhRec,SkvhRec),
+                {AuditTable, TransTime} = audit_table_time(binary_to_list(Channel)),
+                SkvhRec = #skvhTable{ckey=imem_datatype:term_to_binterm(Key), cvalue=Value},
+                AuditInfo = audit_info(User, Channel, AuditTable, TransTime, SkvhRec,SkvhRec),
                 write_audit(AuditInfo)
             end,
             imem_meta:return_atomic(imem_meta:transaction(AuditNoop))
@@ -579,13 +585,14 @@ audit_write_noop(User, Channel, Key) ->
 
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
-    ok = imem_meta:write(AuditTable,Rec),
+    ok = imem_meta:write(AuditTable, Rec),
     write_audit(Rest).
 
 write_history(_HistoryTable, []) -> ok;
-write_history(HistoryTable, [{_AuditTable,#skvhAudit{time=T,ckey=K,
-                                                     ovalue=O,nvalue=N,
-                                                     cuser=U}}|Rest]) ->
+write_history(HistoryTable, [{ _AuditTable
+                             , #skvhAudit{time=T, ckey=K, ovalue=O, nvalue=N, cuser=U}
+                             } | Rest
+                            ]) ->
     if O == N andalso N == undefined ->
         ok = imem_meta:truncate_table(HistoryTable);
         true -> ok
@@ -963,7 +970,7 @@ hist_read_deleted(User, Channel, DecodedKey) ->
 
 -spec prune_history(ddEntityId(), binary()) -> list().
 prune_history(User, Channel) ->
-    Time = os:timestamp(),
+    Time = erlang:timestamp(),
     HistoryTable = ?HIST_FROM_STR(binary_to_list(Channel)),
     PruneFun = fun(#{ckey := Key, cvalue := Value}, _) ->
         EKey = imem_datatype:term_to_binterm(Key),
@@ -1489,7 +1496,7 @@ skvh_operations(_) ->
 
         ?assertEqual([], read(system, ?Channel, [["1"]])),
 
-        BeforeInsert = imem:now(), %% os:timestamp(), % erlang:now(),
+        BeforeInsert = ?TRANS_TIME, 
 
         ?assertEqual(Map1, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
         ?assertEqual(Map2, insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
@@ -1525,7 +1532,7 @@ skvh_operations(_) ->
         Map4Upd = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 150}">>, chash => <<"1RZ299">>},
         Map5Upd = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 400}">>, chash => <<"1DKGDA">>},
 
-        BeforeUpdate = imem:now(), %% os:timestamp(), % erlang:now(),
+        BeforeUpdate = ?TRANS_TIME, 
 
         %% Update using single maps
         Map1Done = update(system, ?Channel, Map1Upd),
@@ -1562,7 +1569,7 @@ skvh_operations(_) ->
         ?assertEqual([Map4, Map5], readGELT(system, ?Channel, MidleKey, LastKey, 10)),
         ?assertEqual([], readGELT(system, ?Channel, LastKey, [LastKey | "1"], 10)),
 
-        BeforeRemove = imem:now(), %% os:timestamp(), % erlang:now(),
+        BeforeRemove = ?TRANS_TIME, 
 
         %% Tests removing rows
         ?assertEqual(Map1Done, remove(system, ?Channel, Map1Done)),
@@ -1600,7 +1607,7 @@ skvh_operations(_) ->
         ResultAuditRemoves = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, ?Channel, BeforeRemove, 3)],
         ?assertEqual([AuditRemove1, AuditRemove2, AuditRemove3], ResultAuditRemoves),
 
-        % ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),   % may not work with os:timestamp()
+        % ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),   % may not work 
         ?assertEqual([], audit_readGT(system, ?Channel, <<"2100-01-01">>, 100)),
         ?assertEqual(11, length(audit_readGT(system, ?Channel, <<"1970-01-01">>, 100))),
 

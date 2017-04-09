@@ -89,7 +89,7 @@ handle_info({mnesia_table_event, {write, CtrlTable,
         if State#state.reader_pid == undefined ->
                Parent = self(),
                spawn(fun() ->
-                             StartTime = os:timestamp(),
+                             StartTime = erlang:timestamp(),
                              random_read_process(Parent, State#state.channel
                                                  , ReadDelay, (State#state.ltrc)#loadOutput.keys
                                                  , {StartTime, StartTime, 0})
@@ -118,7 +118,7 @@ handle_info({mnesia_table_event, {write, CtrlTable,
         if State#state.audit_reader_pid == undefined ->
                Parent = self(),
                spawn(fun() ->
-                             StartTime = os:timestamp(),
+                             StartTime = erlang:timestamp(),
                              audit_read_process(Parent, State#state.channel
                                                , ReadDelay, Key, Limit
                                                , {StartTime, StartTime, 0})
@@ -141,7 +141,7 @@ handle_info({keys, Keys}, #state{ltrc = LTRec} = State) ->
     {noreply, State#state{ltrc = NewLTRec}};
 
 handle_info({read, Count, TDiffSec, Key, Value}, State) ->
-    NewLTRec = (State#state.ltrc)#loadOutput{ time = os:timestamp()
+    NewLTRec = (State#state.ltrc)#loadOutput{ time = erlang:timestamp()
                                    , totalread = Count
                                    , rate = Count / TDiffSec
                                    , lastItem = Key
@@ -152,7 +152,7 @@ handle_info({read, Count, TDiffSec, Key, Value}, State) ->
 handle_info({read_audit, Count, TDiffSec, Value}, State) ->
     NewLTRec = (State#state.ltra)#loadOutput{
                                    operation = audit
-                                   , time = os:timestamp()
+                                   , time = erlang:timestamp()
                                    , totalread = Count
                                    , rate = Count / TDiffSec
                                    , lastValue = Value },
@@ -190,7 +190,7 @@ keys_read_process(Parent, Channel, KeyRegex, FromKey, Limit) ->
 random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Count}) ->
     Key = lists:nth(random:uniform(length(Keys)), Keys),
     {ok, Value} = imem_dal_skvh:read(system, Channel, <<"value">>, Key),
-    Now = os:timestamp(),
+    Now = erlang:timestamp(),
     TDiffUs = timer:now_diff(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if (TDiffUs > 1000000) ->
                                        Parent ! {read, Count+1, timer:now_diff(Now, StartTime) / 1000000, Key, Value},
@@ -206,7 +206,7 @@ random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Co
 audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {StartTime, LastUpdate, Count}) ->
     {ok, Values} = imem_dal_skvh:audit_readGT(system, Channel, <<"tkvuquadruple">>, Key, Limit),
     NewCount = Count + length(Values),
-    Now = os:timestamp(),
+    Now = erlang:timestamp(),
     {NewLastUpdate, NewCount} = if length(Values) > 0->
                                        Parent ! {read_audit, NewCount, timer:now_diff(Now,StartTime) / 1000000, lists:last(Values)},
                                        {Now, NewCount};

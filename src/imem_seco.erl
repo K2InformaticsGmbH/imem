@@ -336,7 +336,7 @@ drop_seco_tables(SKey) ->
 
 seco_create(AppId,SessionId) -> 
     SessionCtx = #ddSessionCtx{appId=AppId, sessionId=SessionId},
-    SeCo = #ddSeCo{pid=self(), sessionCtx=SessionCtx, authTime=os:timestamp()},
+    SeCo = #ddSeCo{pid=self(), sessionCtx=SessionCtx, authTime=erlang:timestamp()},
     SKey = erlang:phash2(SeCo), 
     SeCo#ddSeCo{skey=SKey}.
 

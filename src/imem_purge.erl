@@ -123,7 +123,7 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
                 false ->
                     ok;             %% no purge delay in table create options, do not purge this file
                 {purge_delay,PD} ->
-                    {Mega,Sec,_} = os:timestamp(),
+                    {Mega,Sec,_} = erlang:timestamp(),
                     PurgeEnd=1000000*Mega+Sec-PD,
                     [_,_,_,"_",PE,"@",_] = imem_meta:parse_table_name(Tab),
                     PartitionEnd=list_to_integer(PE),

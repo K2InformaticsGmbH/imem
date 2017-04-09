@@ -22,6 +22,7 @@
 
 % library functions
 -export([ now/0
+        , unique_integer/0
         , get_os_memory/0
         , get_vm_memory/0
         , get_swap_space/0
@@ -52,19 +53,16 @@ start(_Type, StartArgs) ->
             ?Info("joining cluster with ~p~n", [CMNodes]),
             ok = join_erl_cluster(CMNodes)
     end,
-
-    % Setting a start time for the first node in cluster
-    % or started without CMs
     case application:get_env(start_time) of
         undefined ->
-            ok = application:set_env(?MODULE,start_time,{os:timestamp(),node()});
+            % Setting a start time for the first node in cluster
+            % or started without CMs
+            ok = application:set_env(?MODULE,start_time,{erlang:timestamp(),node()});
         _ -> ok
     end,
-
-    % If in a cluser wait for other IMEM nodes to complete a full boot before
+    % If in a cluster, wait for other IMEM nodes to complete a full boot before
     % starting mnesia to serialize IMEM start in a cluster
     wait_remote_imem(),
-
     % Sets max_ets_tables application env parameter with maximum value either
     % configured with ERL_MAX_ETS_TABLES OS environment variable or to default
     % 1400
@@ -74,7 +72,6 @@ start(_Type, StartArgs) ->
                false -> 1400;
                MaxEtsTablesStr -> list_to_integer(MaxEtsTablesStr)
            end),
-
     % Mnesia should be loaded but not started
     AppInfo = application:info(),
     RunningMnesia = lists:member(mnesia,
@@ -281,16 +278,25 @@ set_start_time(Node) ->
         {ok, {_,TimeKeeper}} ->
             ok = application:set_env(
                    ?MODULE, start_time,
-                   {rpc:call(TimeKeeper, erlang, now, []), TimeKeeper});
+                   {rpc:call(TimeKeeper, erlang, timestamp, []), TimeKeeper});
         undefined ->
             ok = application:set_env(
                    ?MODULE, start_time,
-                   {rpc:call(Node, erlang, now, []), Node})
+                   {rpc:call(Node, erlang, timestamp, []), Node})
     end.
 
-now() ->
-    erlang:now().
+% Monotonic, adapted, per node unique timestamp
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TRANS_TIME
+-spec now() -> {integer(),integer(),integer(),integer()}. 
+now() -> 
+    {Mega, Sec, Micro} = erlang:timestamp(),
+    {Mega, Sec, Micro, erlang:unique_integer([monotonic, positive])}.
 
+
+% Unique integer per imem node (VM)
+% referenced with macro ?UNIQUE_INTEGER
+unique_integer() -> erlang:unique_integer([monotonic, positive]).
 
 -spec get_os_memory() -> {any(), integer(), integer()}.
 get_os_memory() ->

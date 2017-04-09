@@ -68,7 +68,7 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
         true ->
             Level = lager_msg:severity_as_int(LagerMsg),
             %{Date, Time} = lager_msg:timestamp(LagerMsg),
-            Date = erlang:now(),
+            Date = erlang:timestamp(),
             Message = lager_msg:message(LagerMsg),
             Metadata = lager_msg:metadata(LagerMsg),
             Mod = proplists:get_value(module, Metadata),
