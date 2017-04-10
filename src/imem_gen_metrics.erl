@@ -85,8 +85,8 @@ init([Mod]) ->
 handle_call({impl, Req}, From, #state{mod = Mod, impl_state = ImplState} = State) ->
     {Reply, ImplState1} = impl_mfa(Mod, handle_call, [Req, From], ImplState),
     {reply, Reply, State#state{impl_state = ImplState1}};
-handle_call(UnknownReq, _From, #state{mod = Mod} = State) ->
-    ?Error("~p implementing ~p pid ~p received unknown call ~p", [Mod, ?MODULE, self(), UnknownReq]),
+handle_call(UnknownReq, From, #state{mod = Mod} = State) ->
+    ?Error("~p unexpected handle_call ~p from ~p", [Mod, UnknownReq, From]),
     {reply, {error, badreq}, State}.
 
 handle_cast({impl, Req}, #state{mod = Mod, impl_state = ImplState} = State) ->
@@ -95,14 +95,14 @@ handle_cast({impl, Req}, #state{mod = Mod, impl_state = ImplState} = State) ->
 handle_cast({request_metric, MetricKey, ReplyFun}, #state{} = State) ->
     {noreply, internal_get_metric(MetricKey, ReplyFun, State)};
 handle_cast(UnknownReq, #state{mod = Mod} = State) ->
-    ?Error("~p implementing ~p pid ~p received unknown cast ~p", [Mod, ?MODULE, self(), UnknownReq]),
+    ?Error("~p unexpected handle_cast ~p", [Mod, UnknownReq]),
     {noreply, State}.
 
 handle_info({impl, Info}, #state{mod = Mod, impl_state = ImplState} = State) ->
     {_, ImplState1} = impl_mfa(Mod, handle_info, [Info], ImplState),
     {noreply, State#state{impl_state = ImplState1}};
-handle_info(Message, State) ->
-    ?Error("~p doesn't message unexpected: ~p", [?MODULE, Message]),
+handle_info(Message, #state{mod = Mod} = State) ->
+    ?Error("~p unexpected handle_info ~p", [Mod, Message]),
     {noreply, State}.
 
 terminate(Reason, #state{mod=Mod, impl_state=ImplState}) ->
