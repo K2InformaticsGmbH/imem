@@ -53,7 +53,7 @@ start_link(Params) ->
                               list_to_binary(
                                 io_lib:format(
                                   "Installed at ~p on ~s",
-                                  [node(), imem_datatype:timestamp_to_io(erlang:timestamp())]
+                                  [node(), imem_datatype:timestamp_to_io(?TIMESTAMP)]
                                  ))),
                            ImemSslDefault ++
                            proplists:delete(keyfile, proplists:delete(certfile, Opts));

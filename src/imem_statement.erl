@@ -194,20 +194,20 @@ handle_call({set_seco, SKey}, _From, State) ->
     % ?LogDebug("Putting SKey ~p to process dict of statement ~p",[SKey,self()]),
     {reply,ok,State#state{seco=SKey, isSec=true}};
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
-    STT = erlang:timestamp(),
+    STT = ?TIMESTAMP,
     {Reply, UpdatePlan1} = try
         {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.colMap, ChangeList)}
     catch
         _:Reason ->  
-            imem_meta:log_to_db(error,?MODULE,handle_call,[{reason,Reason},{changeList,ChangeList}],"update_cursor_prepare error"),
+            imem_meta:log_to_db(error, ?MODULE, handle_call, [{reason,Reason}, {changeList,ChangeList}], "update_cursor_prepare error"),
             {{error,Reason}, []}
     end,
-    imem_meta:log_slow_process(?MODULE,update_cursor_prepare,STT,100,4000,[{table,hd(Stmt#statement.tables)},{rows,length(ChangeList)}]),    
+    imem_meta:log_slow_process(?MODULE, update_cursor_prepare, STT, 100, 4000, [{table,hd(Stmt#statement.tables)},{rows,length(ChangeList)}]),    
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR}=FetchCtx0,
     % ?Debug("UpdateMetaRec ~p~n", [MR]),
-    STT = erlang:timestamp(),
+    STT = ?TIMESTAMP,
     Reply = try 
         % case FetchCtx0#fetchCtx.monref of
         %     undefined ->    ok;
@@ -244,10 +244,10 @@ handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey
             {error,Reason,erlang:get_stacktrace()}
     end,
     % ?Debug("update_cursor_execute result ~p~n", [Reply]),
-    imem_meta:log_slow_process(?MODULE,update_cursor_execute,STT,100,4000,[{table,hd(Stmt#statement.tables)},{rows,length(UpdatePlan)}]),    
+    imem_meta:log_slow_process(?MODULE, update_cursor_execute, STT, 100, 4000, [{table, hd(Stmt#statement.tables)}, {rows, length(UpdatePlan)}]),    
     {reply, Reply, State};    
 handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From, #state{statement=Stmt}=State) ->
-    STT = erlang:timestamp(),
+    STT = ?TIMESTAMP,
     #statement{stmtParse={select,SelectSections}, colMap=ColMap, fullMap=FullMap} = Stmt,
     {_, WhereTree} = lists:keyfind(where, 1, SelectSections),
     % ?LogDebug("SelectSections~n~p~n", [SelectSections]),
@@ -282,7 +282,7 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From
             {error,Reason}
     end,
     % ?LogDebug("replace_sort result ~p~n", [Reply]),
-    imem_meta:log_slow_process(?MODULE,filter_and_sort,STT,100,4000,[{table,hd(Stmt#statement.tables)},{filter_spec,FilterSpec},{sort_spec,SortSpec}]),    
+    imem_meta:log_slow_process(?MODULE, filter_and_sort, STT, 100, 4000, [{table, hd(Stmt#statement.tables)}, {filter_spec, FilterSpec}, {sort_spec, SortSpec}]),    
     {reply, Reply, State};
 handle_call({fetch_close, _IsSec, _SKey}, _From, #state{statement=Stmt,fetchCtx=FetchCtx0}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_call,[{from,_From},{status,Status}],"fetch_close"),
@@ -1483,7 +1483,7 @@ receive_recs(StmtResult, Complete, Timeout) ->
 
 receive_recs(#stmtResult{stmtRef=StmtRef}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
-            R ->    % ?Debug("~p got:~n~p~n", [erlang:now(),R]),
+            R ->    % ?Debug("~p got:~n~p~n", [?TIMESTAMP,R]),
                     R
         after Timeout ->
             stop
@@ -2356,7 +2356,7 @@ receive_tuples(StmtResult, Complete) ->
 
 receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
-            R ->    % ?Debug("~p got:~n~p~n", [erlang:now(),R]),
+            R ->    % ?Debug("~p got:~n~p~n", [?TIMESTAMP,R]),
                     R
         after Timeout ->
             stop
@@ -2423,12 +2423,5 @@ exec(SKey, _Id, BS, IsSec, Opts, Sql) ->
 
 fetch_async(SKey, StmtResult, Opts, IsSec) ->
     ?assertEqual(ok, fetch_recs_async(SKey, StmtResult#stmtResult.stmtRef, {self(), make_ref()}, Opts, IsSec)).
-
-    % {M1,S1,Mic1} = erlang:now(),
-    % {M2,S2,Mic2} = erlang:now(),
-    % Count = length(Result),
-    % Delta = Mic2 - Mic1 + 1000000 * ((S2-S1) + 1000000 * (M2-M1)),
-    % Message = io_lib:format("fetch_recs latency per record: ~p usec",[Delta div Count]),
-    % imem_meta:log_to_db(debug,?MODULE,fetch_recs,[{rec_count,Count},{fetch_duration,Delta}], Message),
 
 -endif.

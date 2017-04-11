@@ -46,11 +46,11 @@
 
 -export([ offset_datetime/3
         , offset_timestamp/3
-        , musec_diff/1              %% UTC time difference in microseconds towards erlang:timestamp()
+        , musec_diff/1              %% UTC time difference in microseconds towards ?TIMESTAMP
         , musec_diff/2              %% UTC time difference in microseconds
-        , msec_diff/1               %% UTC time difference in milliseconds towards erlang:timestamp()
+        , msec_diff/1               %% UTC time difference in milliseconds towards ?TIMESTAMP
         , msec_diff/2               %% UTC time difference in milliseconds
-        , sec_diff/1                %% UTC time difference in milliseconds towards erlang:timestamp()
+        , sec_diff/1                %% UTC time difference in milliseconds towards ?TIMESTAMP
         , sec_diff/2                %% UTC time difference in milliseconds
         ]).
 
@@ -663,12 +663,13 @@ io_to_timestamp("systime",Prec) ->
 io_to_timestamp("sysdate",Prec) ->
     io_to_timestamp("now",Prec);
 io_to_timestamp("now",Prec) ->
-    {Megas, Secs, Micros, Cnt} = ?TRANS_TIME,
-    {Megas, Secs, erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec))), Cnt};
+    {Secs, Micros, Node, Cnt} = ?TIME_UID,
+    {Secs, erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec))), Node, Cnt};
 io_to_timestamp([${|_]=Val,_Prec) ->
     case io_to_tuple(Val, undefined) of
-        {Meg,Sec,Mic} when is_integer(Meg), is_integer(Sec), is_integer(Mic) -> {Meg,Sec,Mic,?UNIQUE_INTEGER};
-        {Meg,Sec,Mic,Cnt} when is_integer(Meg), is_integer(Sec), is_integer(Mic), is_integer(Cnt) -> {Meg,Sec,Mic,Cnt}
+        {Sec,Mic} when is_integer(Sec), is_integer(Mic) -> {Sec, Mic , node(), ?INTEGER_UID};
+        {Meg,Sec,Mic} when is_integer(Meg), is_integer(Sec), is_integer(Mic) -> {1000000 * Meg + Sec, Mic , node(), ?INTEGER_UID};
+        {Sec,Mic,Node,Cnt} when is_integer(Sec), is_integer(Mic), is_integer(Cnt) -> {Sec,Mic,Node,Cnt}
     end;
 io_to_timestamp(Val0,6) ->
     Val = re:replace(re:replace(Val0, "T", " ", [{return, list}]), "Z$", "", [{return, list}]),
@@ -715,27 +716,25 @@ io_to_timestamp(Val0,6) ->
                 end
         end,
         {Meg,Sec, 0} = utc_seconds_to_now(local_datetime_to_utc_seconds({Date, Time})),
-        {Meg,Sec,round(1000000*Micro),?UNIQUE_INTEGER}
+        {1000000 * Meg + Sec, round(1000000*Micro), node(), ?INTEGER_UID}
     catch
         _:{'ClientError',Reason} -> ?ClientErrorNoLogging({"Data conversion format error",{timestamp,Val,Reason}});
         _:Reason ->  ?ClientErrorNoLogging({"Data conversion format error",{timestamp,Val,Reason}})
     end;
 io_to_timestamp(Val,Prec) when Prec == 0 ->
-    {Megas,Secs,Micros,Cnt} = io_to_timestamp(Val,6),
+    {Secs,Micros,Node,Cnt} = io_to_timestamp(Val,6),
     if
         (Micros >= 500000) and (Secs == 999999) ->
-            {Megas+1,0,0,Cnt};
-        Micros >= 500000 ->
-            {Megas,Secs+1,0,Cnt};
+            {Secs+1,0,Node,Cnt};
         true ->
-            {Megas,Secs,0,Cnt}
+            {Secs,0,Node,Cnt}
     end;
 io_to_timestamp(Val,Prec) when Prec > 0 ->
-    {Megas,Secs,Micros,Cnt} = io_to_timestamp(Val,6),
-    {Megas,Secs,erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec))),Cnt};
+    {Secs, Micros, Node, Cnt} = io_to_timestamp(Val,6),
+    {Secs, erlang:round(erlang:round(math:pow(10, Prec-6) * Micros) * erlang:round(math:pow(10,6-Prec))),Node, Cnt};
 io_to_timestamp(Val,Prec) when Prec =< 0 ->
-    {Megas,Secs,_,Cnt} = io_to_timestamp(Val),
-    {Megas,erlang:round(erlang:round(math:pow(10, -Prec) * Secs) * erlang:round(math:pow(10,Prec))),0,Cnt}.
+    {Secs, _, Node, Cnt} = io_to_timestamp(Val),
+    {erlang:round(erlang:round(math:pow(10, -Prec) * Secs) * erlang:round(math:pow(10,Prec))),0, Node, Cnt}.
 
 io_to_datetime(B) when is_binary(B) ->
     io_to_datetime(binary_to_list(B));
@@ -1252,51 +1251,46 @@ offset_timestamp('-', TS, Offset) when Offset < 0.0 ->
     offset_timestamp('+', TS, -Offset);
 offset_timestamp(_, TS, Offset) when Offset < 5.787e-12 ->
     TS;
-offset_timestamp('+', {Mega,Sec,Micro,_}, Offset) -> 
-    offset_timestamp('+', {Mega,Sec,Micro}, Offset);
-offset_timestamp('+', {Mega,Sec,Micro}, Offset) ->
+offset_timestamp('+', {Sec, Micro, _, _}, Offset) -> 
+    offset_timestamp('+', {Sec, Micro}, Offset);
+offset_timestamp('+', {Sec, Micro}, Offset) ->
     NewMicro = Micro + round(Offset*8.64e10),
     NewSec = Sec + NewMicro div 1000000,
-    NewMega = Mega + NewSec div 1000000,
-    {NewMega, NewSec rem 1000000, NewMicro rem 1000000};
-offset_timestamp('-', {Mega,Sec,Micro,_}, Offset) ->
-    offset_timestamp('-', {Mega,Sec,Micro}, Offset);
-offset_timestamp('-', {Mega,Sec,Micro}, Offset) ->
-    NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 + Mega * 1000000000000,
+    {NewSec rem 1000000, NewMicro rem 1000000};
+offset_timestamp('-', {Sec, Micro, _, _}, Offset) ->
+    offset_timestamp('-', {Sec, Micro}, Offset);
+offset_timestamp('-', {Sec, Micro}, Offset) ->
+    NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 ,
     Mi = NewMicro rem 1000000,
     NewSec = (NewMicro-Mi) div 1000000,
     Se = NewSec rem 1000000,
-    NewMega = (NewSec-Se) div 1000000,
-    {NewMega, Se, Mi};
+    {Se, Mi};
 offset_timestamp(OP, TS, Offset) ->
     ?ClientErrorNoLogging({"Illegal timestamp offset operation",{OP,TS,Offset}}).
 
-musec_diff({Mega,Sec,Micro,_}) -> musec_diff({Mega,Sec,Micro},erlang:timestamp());
-musec_diff(TS1) -> musec_diff(TS1,erlang:timestamp()).
+musec_diff({Sec, Micro, _, _}) -> musec_diff({Sec, Micro}, ?TIMESTAMP);
+musec_diff(TS1) -> musec_diff(TS1, ?TIMESTAMP).
 
-musec_diff({Mega1,Sec1,Micro1,_},{Mega2,Sec2,Micro2,_}) -> musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2});
-musec_diff({Mega1,Sec1,Micro1,_},{Mega2,Sec2,Micro2}) -> musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2});
-musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2,_}) -> musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2});
-musec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
-    Micro2 - Micro1 + 1000000 *(Sec2 - Sec1) + 1000000000000 * (Mega2 - Mega1).
+musec_diff({Sec1, Micro1, _, _}, {Sec2, Micro2, _, _}) ->   musec_diff({Sec1, Micro1}, {Sec2, Micro2});
+musec_diff({Sec1, Micro1, _, _}, {Sec2, Micro2}) ->         musec_diff({Sec1, Micro1}, {Sec2, Micro2});
+musec_diff({Sec1, Micro1},       {Sec2, Micro2, _, _}) ->   musec_diff({Sec1, Micro1}, {Sec2, Micro2});
+musec_diff({Sec1, Micro1},       {Sec2, Micro2}) ->         Micro2 - Micro1 + 1000000*(Sec2 - Sec1).
 
-msec_diff({Mega,Sec,Micro,_}) -> msec_diff({Mega,Sec,Micro},erlang:timestamp());
-msec_diff(TS1) -> msec_diff(TS1,erlang:timestamp()).
+msec_diff({Sec, Micro, _, _}) -> msec_diff({Sec, Micro}, ?TIMESTAMP);
+msec_diff(TS1) -> msec_diff(TS1, ?TIMESTAMP).
 
-msec_diff({Mega1,Sec1,Micro1,_},{Mega2,Sec2,Micro2,_}) -> msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2});
-msec_diff({Mega1,Sec1,Micro1,_},{Mega2,Sec2,Micro2}) -> msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2});
-msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2,_}) -> msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2});
-msec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro2}) ->
-    Micro2 div 1000 - Micro1 div 1000 + 1000 *(Sec2 - Sec1) + 1000000000 * (Mega2 - Mega1).
+msec_diff({Sec1, Micro1, _, _}, {Sec2, Micro2, _, _}) ->    msec_diff({Sec1, Micro1}, {Sec2, Micro2});
+msec_diff({Sec1, Micro1, _, _}, {Sec2, Micro2}) ->          msec_diff({Sec1, Micro1}, {Sec2, Micro2});
+msec_diff({Sec1, Micro1},       {Sec2, Micro2, _, _}) ->    msec_diff({Sec1, Micro1}, {Sec2, Micro2});
+msec_diff({Sec1, Micro1},       {Sec2, Micro2}) ->          (Micro2 - Micro1) div 1000 + 1000*(Sec2 - Sec1).
 
-sec_diff({Mega,Sec,Micro,_}) -> sec_diff({Mega,Sec,Micro},erlang:timestamp());
-sec_diff(TS1) -> sec_diff(TS1,erlang:timestamp()).
+sec_diff({Sec, Micro, _, _}) -> sec_diff({Sec, Micro}, ?TIMESTAMP);
+sec_diff(TS1) -> sec_diff(TS1, ?TIMESTAMP).
 
-sec_diff({Mega1,Sec1,Micro1,_},{Mega2,Sec2,Micro1,_}) -> sec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro1});
-sec_diff({Mega1,Sec1,Micro1,_},{Mega2,Sec2,Micro1}) -> sec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro1});
-sec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro1,_}) -> sec_diff({Mega1,Sec1,Micro1},{Mega2,Sec2,Micro1});
-sec_diff({Mega1,Sec1,_},{Mega2,Sec2,_}) ->
-    Sec2 - Sec1 + 1000000 * (Mega2 - Mega1).
+sec_diff({Sec1, Micro1, _, _}, {Sec2, Micro2, _, _}) ->     sec_diff({Sec1, Micro1}, {Sec2, Micro2});
+sec_diff({Sec1, Micro1, _, _}, {Sec2, Micro2}) ->           sec_diff({Sec1, Micro1}, {Sec2, Micro2});
+sec_diff({Sec1, Micro1},       {Sec2, Micro2, _, _}) ->     sec_diff({Sec1, Micro1}, {Sec2, Micro2});
+sec_diff({Sec1, _Micro1},      {Sec2, _Micro2}) ->          Sec2 - Sec1.
 
 ipaddr_to_io(IpAddr) ->
     list_to_binary(inet_parse:ntoa(IpAddr)).
@@ -1580,41 +1574,41 @@ data_types(_) ->
         ?assertException(throw,{ClEr,{"parse_month","1900"}}, parse_date_us("1900/02/01")),
         ?assertException(throw,{ClEr,{"Cannot handle dates before 1970"}},local_datetime_to_utc_seconds({{1900, 01, 01}, {00, 00, 00}})),
 
-        ?assertEqual(<<"{1,2,1234}">>, timestamp_to_io({1,2,1234},3,erlang)),
-        ?assertEqual(<<"{1,2,1234,321}">>, timestamp_to_io({1,2,1234,321},3,erlang)),
-        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1,2,1234},3,raw)),
-        ?assertEqual(<<"000001000002001234321">>, timestamp_to_io({1,2,1234,321},3,raw)),
+        ?assertEqual(<<"{1000002,1234}">>, timestamp_to_io({1000002,1234},3,erlang)),
+        ?assertEqual(<<"{1000002,1234,n,321}">>, timestamp_to_io({1000002,1234,n,321},3,erlang)),
+        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1000002,1234},3,raw)),
+        ?assertEqual(<<"000001000002001234n321">>, timestamp_to_io({1000002,1234,n,321},3,raw)),
         case local_datetime_to_utc_seconds({{1970, 01, 01}, {00, 00, 00}}) of
             2208985200 ->    %% DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,0,123456},0)),        %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,0,123456,321},0)),    %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,0},0)),                    %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,0,321},0)),                %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,0,123000},3)),           %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,0,123000,321},3)),       %% with DLS offset CH
-                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1,2,123456},6)),        %% with DLS offset CH
-                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1,2,123456,321},6));    %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,123456},0)),              %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,123456,n,321},0)),        %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0},0)),                          %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,n,321},0)),                    %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,123000},3)),                 %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,123000,n,321},3)),           %% with DLS offset CH
+                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1000002,123456},6)),        %% with DLS offset CH
+                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1000002,123456,n,321},6));  %% with DLS offset CH
             _ ->    
                 ok
         end,
         % ?LogDebug("timestamp_to_io success~n", []),
-        ?assertMatch({1,2,12345,_}, io_to_timestamp(<<"{1,2,12345}">>,0)),
-        ?assertEqual({1,2,12345,321}, io_to_timestamp(<<"{1,2,12345,321}">>,0)),
+        ?assertMatch({1000002,12345,_,_}, io_to_timestamp(<<"{1000002,12345}">>,0)),
+        ?assertEqual({1000002,12345,n,321}, io_to_timestamp(<<"{1000002,12345,n,321}">>,0)),
         case local_datetime_to_utc_seconds({{1970, 01, 01}, {00, 00, 00}}) of
             2208985200 ->    %% DLS offset CH
-                ?assertMatch({0,0,0,_}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),           %% with DLS offset CH
-                ?assertMatch({0,-3600,0,_}, io_to_timestamp(<<"01.01.1970">>,0)),                       %% with DLS offset CH
-                ?assertMatch({0,-3600,0,_}, io_to_timestamp(<<"1970-01-01">>)),                         %% with DLS offset CH
-                ?assertMatch({162,946800,0,_}, io_to_timestamp(<<"1975-03-02">>)),                      %% with DLS offset CH
-                ?assertMatch({1,2,123456,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset CH
-                ?assertMatch({1,2,123456,_}, io_to_timestamp(<<"12.01.70 14:46:42.123456">>,undefined)),    %% with DLS offset CH
-                ?assertMatch({1,2,123456,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,6)),      %% with DLS offset CH
-                ?assertMatch({1,2,123000,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),      %% with DLS offset CH
-                ?assertMatch({1,2,123456,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset CH
-                ?assertMatch({1,3,0,_}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),           %% with DLS offset CH
-                ?assertMatch({1,2,123000,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),      %% with DLS offset CH
-                ?assertMatch({1,2,100000,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,1)),      %% with DLS offset CH
-                ?assertMatch({587,863439,585000,_}, io_to_timestamp(<<"1988-8-18T01:23:59.585Z">>));    %% with DLS offset CH
+                ?assertMatch({0,0,_,_}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),           %% with DLS offset CH
+                ?assertMatch({-3600,0,_,_}, io_to_timestamp(<<"01.01.1970">>,0)),                       %% with DLS offset CH
+                ?assertMatch({-3600,0,_,_}, io_to_timestamp(<<"1970-01-01">>)),                         %% with DLS offset CH
+                ?assertMatch({162946800,0,_,_}, io_to_timestamp(<<"1975-03-02">>)),                     %% with DLS offset CH
+                ?assertMatch({1000002,123456,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset CH
+                ?assertMatch({1000002,123456,_,_}, io_to_timestamp(<<"12.01.70 14:46:42.123456">>,undefined)),    %% with DLS offset CH
+                ?assertMatch({1000002,123456,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,6)),      %% with DLS offset CH
+                ?assertMatch({1000002,123000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),      %% with DLS offset CH
+                ?assertMatch({1000002,123456,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset CH
+                ?assertMatch({1000003,0,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),           %% with DLS offset CH
+                ?assertMatch({1000002,123000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),      %% with DLS offset CH
+                ?assertMatch({1000002,100000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,1)),      %% with DLS offset CH
+                ?assertMatch({587863439,585000,_,_}, io_to_timestamp(<<"1988-8-18T01:23:59.585Z">>));   %% with DLS offset CH
             _ ->
                 ok
         end,
@@ -1938,7 +1932,7 @@ data_types(_) ->
         ?assertEqual({{2000,1,28},{12,12,14}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/60.0)),
         ?assertEqual({{2000,1,28},{12,13,13}}, offset_datetime('-', {{2000,1,28},{12,13,14}}, 1.0/24.0/3600.0)),
 
-        ENow = erlang:timestamp(),
+        ENow = ?TIMESTAMP,
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('+', ENow, 1.0),-1.0)),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 1.0),1.0)),
         ?assertEqual(ENow, offset_timestamp('+', offset_timestamp('-', ENow, 0.1),0.1)),
@@ -1972,7 +1966,7 @@ data_types(_) ->
         ?assertEqual(true, is_term_or_fun_text([1,2,3])),
         ?assertEqual(true, is_term_or_fun_text("fun")),
         ?assertEqual(true, is_term_or_fun_text("fun()-> ok end.")),
-        ?assertEqual(true, is_term_or_fun_text(<<"fun(X,Y)-> erlang:timestamp() end.">>)),
+        ?assertEqual(true, is_term_or_fun_text(<<"fun(X,Y)-> math:pi() end.">>)),
         % TODO: Behavior inconsistant between erl_eval:exprs/2 and erl_eval:exprs/3,4
         %?assertEqual(false, is_term_or_fun_text(<<"fun()-> A end.">>)),
         ?assertEqual(true, is_term_or_fun_text("fun()-> A end")),

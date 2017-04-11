@@ -80,6 +80,10 @@
         , return_atomic/1
         , lock/2
         , abort/1
+        , integer_uid/0
+        , time_uid/0
+        , timestamp/0
+        , timestamp_diff/2
         ]).
 
 -export([ first/1
@@ -102,10 +106,10 @@
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
-                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = erlang:timestamp()}),
+                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write=?TIMESTAMP}),
                     ok;
                 [] ->
-                    __Now = erlang:timestamp(),
+                    __Now = ?TIMESTAMP,
                     true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now}),
                     ok
             end
@@ -128,6 +132,34 @@ disc_schema_nodes(Schema) when is_atom(Schema) ->
 
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
+
+% Monotonic, adapted, non-unique timestamp
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIMESTAMP
+-spec timestamp() -> ddTimestamp().
+timestamp() -> 
+    SystemTime = erlang:system_time(1000000),
+    {SystemTime div 1000000, SystemTime rem 1000000}.
+
+% Monotonic, adapted, non-unique timestamp difference
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIMESTAMP_DIFF
+-spec timestamp_diff(ddTimestamp(),ddTimestamp()) -> integer().
+timestamp_diff({Sec1, Micro1}, {Sec2, Micro2}) -> 1000000*(Sec2-Sec1)+Micro2-Micro1.
+
+% Monotonic, adapted, unique timestamp
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIME_UID
+-spec time_uid() -> ddTimeUID(). 
+time_uid() -> 
+    {Secs, Micros} = timestamp(),
+    {Secs, Micros, node(), erlang:unique_integer([monotonic, positive])}.
+
+% Unique integer per imem node (VM)
+% referenced with macro ?INTEGER_UID
+-spec integer_uid() -> integer().
+integer_uid() -> erlang:unique_integer([monotonic, positive]).
+
 
 return_atomic_list({atomic, L}) when is_list(L) -> L;
 return_atomic_list({aborted,{throw,{Exception,Reason}}}) -> throw({Exception,Reason});
@@ -152,7 +184,7 @@ abort(Reason) -> mnesia:abort(Reason).
 
 % init and store transaction time
 trans_time_init() ->
-    erlang:put(?TRANS_TIME_NAME,?TRANS_TIME).
+    erlang:put(?TRANS_TIME_NAME,?TIME_UID).
 
 transaction(Function) when is_atom(Function) ->
     case mnesia:is_transaction() of
@@ -223,8 +255,8 @@ field_pick_mapped(Tup,Pointers) when is_tuple(Tup) ->
     catch list_to_tuple([E || P <- Pointers, {I,E} <- lists:zip(lists:seq(1,length(EL)),EL),P==I]);    
 field_pick_mapped(_,_) -> {}.
 
-meta_field_value(<<"systimestamp">>) -> ?TRANS_TIME;
-meta_field_value(systimestamp) -> ?TRANS_TIME;
+meta_field_value(<<"systimestamp">>) -> ?TIME_UID;
+meta_field_value(systimestamp) -> ?TIME_UID;
 meta_field_value(<<"user">>) -> <<"unknown">>;
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(<<"sysdate">>) -> calendar:local_time();

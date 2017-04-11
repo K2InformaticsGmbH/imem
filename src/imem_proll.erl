@@ -19,7 +19,7 @@
 -behavior(gen_server).
 
 -record(state, {
-                 prollList=[]               :: list({atom(),atom()})        %% list({TableAlias,TableName})
+                 prollList=[]               :: list({atom(),atom()})        %% list({TableAlias, TableName})
                }
        ).
 
@@ -79,9 +79,9 @@ handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
                     % ?Info("Partition rolling collect result ~p",[AL]), 
                     PL = try
                         %% collect list of missing partitions
-                        {Mega,Sec,Micro} = erlang:timestamp(),
+                        {Sec,Micro} = ?TIMESTAMP,
                         Intvl = PCW div 1000,
-                        CandidateTimes = [{Mega,Sec,Micro},{Mega,Sec+Intvl,Micro},{Mega,Sec+Intvl+Intvl,Micro}],
+                        CandidateTimes = [{Sec, Micro}, {Sec+Intvl, Micro}, {Sec+Intvl+Intvl, Micro}],
                         missing_partitions(AL,CandidateTimes)
                     catch
                         _:Reason -> ?Error("Partition rolling collect failed with reason ~p~n",[Reason])
@@ -94,7 +94,7 @@ handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
             erlang:send_after(10000, self(), roll_partitioned_tables),
             {noreply, State}
     end;
-handle_info({roll_partitioned_tables,ProllCycleWait,ProllItemWait}, State=#state{prollList=[{TableAlias,TableName}|Rest]}) ->
+handle_info({roll_partitioned_tables,ProllCycleWait,ProllItemWait}, State=#state{prollList=[{TableAlias, TableName}|Rest]}) ->
     % process one proll candidate
     NextWait = case imem_if_mnesia:read(ddAlias,{imem_meta:schema(), TableAlias}) of
         [] ->   
@@ -115,7 +115,7 @@ handle_info({roll_partitioned_tables,ProllCycleWait,ProllItemWait}, State=#state
                     ?PROLL_ERROR_WAIT
             end
     end,  
-    erlang:send_after(NextWait, self(), {roll_partitioned_tables,ProllCycleWait,ProllItemWait}),
+    erlang:send_after(NextWait, self(), {roll_partitioned_tables, ProllCycleWait, ProllItemWait}),
     {noreply, State#state{prollList=Rest}};
 handle_info({roll_partitioned_tables,ProllCycleWait,_}, State=#state{prollList=[]}) ->
     % ?Info("Partition rolling completed",[]), 
@@ -142,12 +142,12 @@ missing_partitions(_, [], _, Acc) -> lists:reverse(Acc);
 missing_partitions(AL, [_|Times], [], Acc) ->
     missing_partitions(AL, Times, AL, Acc);
 missing_partitions(AL, [Next|Times], [TableAlias|Rest], Acc0) ->
-    TableName = imem_meta:partitioned_table_name(TableAlias,Next),
+    TableName = imem_meta:partitioned_table_name(TableAlias, Next),
     Acc1 = case catch(imem_meta:check_table(TableName)) of
         ok ->   
             Acc0;
         {'ClientError',{"Table does not exist",TableName}} -> 
-            [{TableAlias,TableName}|Acc0];
+            [{TableAlias, TableName}|Acc0];
         Error ->  
             ?Error("Rolling time partition collection ~p failed with reason ~p~n",[TableName, Error]),
             Acc0

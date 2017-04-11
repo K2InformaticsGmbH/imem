@@ -1,8 +1,13 @@
 -ifndef(IMEM_IF_HRL).
 -define(IMEM_IF_HRL, true).
 
--type ddTimestamp() :: 'undefined' | {integer(), integer(), integer(), integer()}.  % {Mega,Secs,Micro,UniqueInteger}
+-type ddTimeUID() :: 'undefined' | {integer(), integer(), atom(), integer()}.   % {Secs,Micro,Node,UniqueInteger}
+-type ddTimestamp() :: 'undefined' | {integer(), integer()}.                    % {Secs,Micro}
 -type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
+-type ddString() :: list().
+-type ddBinStr() :: binary().
+-type ddError() :: tuple().
+-type ddOptions() :: list().
 
 -record(snap_properties, { table
                          , last_write
@@ -10,14 +15,16 @@
                          }).
 -define(SNAP_ETS_TAB, snap_timer_tab).
 
--define(NoRec, {}).                      %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
+-define(NoRec, {}).                                 %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
 
--define(TRANS_TIME, imem:now()).                                    % Timestamp generator -> {Megas,Secs,Micros,Counter}
+-define(INTEGER_UID, imem_if_mnesia:integer_uid()).                 % unique integer per imem node and reboot, used in timestamp generator or for other purposes 
+-define(TIME_UID, imem_if_mnesia:time_uid()).                       % Unique timestamp generator -> {Secs,Micros,Node,Counter}
+-define(TIMESTAMP, imem_if_mnesia:timestamp()).                     % Monotonic (non-unique) timestamp generator per node and reboot -> {Secs,Micros}
+-define(TIMESTAMP_DIFF(__A,__B), imem_if_mnesia:timestamp_diff(__A,__B)). % Time difference in Microseconds
+
 -define(TRANS_TIME_NAME,imem_if_transaction_time).                  % name of process variable for transaction time
 -define(TRANS_TIME_PUT(__TT),erlang:put(?TRANS_TIME_NAME,__TT)).    % store updated transaction time
 -define(TRANS_TIME_GET,erlang:get(?TRANS_TIME_NAME)).               % retrieve stored transaction time
-
--define(UNIQUE_INTEGER, imem:unique_integer()).                     % unique integer per imem node and reboot, used in timestamp generator or for other purposes 
 
 -define(MatchAllRecords,[{'$1', [], ['$_']}]).
 -define(MatchAllKeys,[{'$1', [], [{element,2,'$1'}]}]).

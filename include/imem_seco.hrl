@@ -70,7 +70,7 @@
                     , accountName               :: ddIdentity()       %% account name
                     , accountId                 :: ddEntityId()
                     , authFactors=[]            :: [atom()]           %% checked auth factors see ddCredential() 
-                    , authTime                  :: ddTimestamp()      %% (re)authentication timestamp erlang:now()
+                    , authTime                  :: ddTimestamp()      %% (re)authentication timestamp ?TIMESTAMP
                     , authState                 :: ddAuthState()      %% authentication state
                     , authOpts = []             :: list()             %% for proprietary extensions
                     }     

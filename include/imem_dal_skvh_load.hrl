@@ -18,7 +18,7 @@
                   { operation = channel     ::atom()
                   , keycounter = 0          ::integer()
                   , keys = []               ::list()
-                  , time                    ::any() 
+                  , time                    ::ddTimestamp() 
                   , totalread = 0           ::integer()
                   , rate = 0                ::float()                  
                   , lastItem                ::any()

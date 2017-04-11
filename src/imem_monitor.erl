@@ -143,7 +143,7 @@ write_monitor() -> write_monitor(undefined,undefined).
 write_monitor(ExtraFun,DumpFun) ->
     try  
         {{input,Input},{output,Output}} = erlang:statistics(io),
-        Moni0 = #ddMonitor{ time=?TRANS_TIME
+        Moni0 = #ddMonitor{ time=?TIME_UID
                           , node=node()
                           , memory=erlang:memory(total)
                           , process_count=erlang:system_info(process_count)          
