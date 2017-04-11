@@ -58,7 +58,7 @@ handle_metric_req(data_nodes, ReplyFun, State) ->
     State;
 handle_metric_req(UnknownMetric, ReplyFun, State) ->
     ?Error("Unknow metric requested ~p", [UnknownMetric]),
-    ReplyFun(undefined),
+    ReplyFun({error, unknown_metric}),
     State.
 
 terminate(_Reason, _State) -> ok.

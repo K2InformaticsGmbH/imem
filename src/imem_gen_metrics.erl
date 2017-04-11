@@ -179,7 +179,7 @@ safe_request_metric(Mod, MetricKey, ReplyFun, ImplState) ->
         Error:Reason ->
             ?Error("~p:~p crash on metric request, called as ~p:handle_metric_req(~p, ~p, ~p)~n~p~n",
                 [Error, Reason, Mod, MetricKey, ReplyFun, ImplState, erlang:get_stacktrace()]),
-            ReplyFun(eval_crash),
+            ReplyFun({error, {eval_crash, Reason}}),
             {ImplState, eval_crash_suspend}
     end.
 
