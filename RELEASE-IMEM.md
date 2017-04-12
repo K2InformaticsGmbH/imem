@@ -3,7 +3,7 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
-Version 1.6.2 (Release Data 06.04.2017)
+Version 1.6.2 (Release Data 12.04.2017)
 =======================================
 * Added node information to the metric results
 * metric modification support for noreply path
