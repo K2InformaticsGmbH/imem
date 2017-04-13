@@ -725,7 +725,7 @@ create_table(TableAlias, Columns, Opts) ->
 create_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
-    create_physical_table(TableAlias,ColumnInfos,Opts,Owner);
+    create_physical_table(TableAlias, ColumnInfos, Opts, Owner);
 create_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->   
     Conv = fun(X) ->
         case X#ddColumn.name of
@@ -733,10 +733,10 @@ create_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
             B -> X#ddColumn{name=?binary_to_atom(B)} 
         end
     end,
-    create_physical_table(qualified_new_table_name(TableAlias),lists:map(Conv,ColumnInfos),Opts,Owner);
+    create_physical_table(qualified_new_table_name(TableAlias), lists:map(Conv, ColumnInfos), Opts, Owner);
 create_table(TableAlias, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
-    create_physical_table(qualified_new_table_name(TableAlias),ColumnInfos,Opts,Owner).
+    create_physical_table(qualified_new_table_name(TableAlias), ColumnInfos, Opts, Owner).
 
 -spec create_check_table(ddTable(), ddTableMeta(), ddOptions()) -> {ok, ddTable()}.
 create_check_table(TableAlias, Columns, Opts) ->
@@ -823,8 +823,8 @@ create_physical_table(TableAlias, ColInfos, Opts0, Owner) ->
     Opts1 = norm_opts(Opts0),
     TypeMod = module_from_type_opts(Opts1),
     case {TypeMod, length(ColInfos)} of
-        {undefined,0} ->    ?ClientError({"No columns given in create table", TableAlias});
-        {undefined,1} ->    ?ClientError({"No value column given in create table, add dummy value column", TableAlias});
+        {undefined, 0} ->   ?ClientError({"No columns given in create table", TableAlias});
+        {undefined, 1} ->   ?ClientError({"No value column given in create table, add dummy value column", TableAlias});
         _ ->                ok % no such check for module defined tables
     end,
     CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColInfos, name)],
@@ -914,11 +914,12 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                 imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
                 imem_if_mnesia:write(ddTable, DDTableRow)
             catch
-                throw:{'ClientError',{"Table already exists", PTN}} ->
+                throw:{'ClientError',{"Table already exists", PTN}} = Reason ->
                     case imem_if_mnesia:read(ddTable, {MySchema, PTN}) of
                         [] ->   imem_if_mnesia:write(ddTable, DDTableRow); % ddTable dictionary data was missing
                         _ ->    ok
-                    end
+                    end,
+                    throw(Reason)
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
             {ok, PTN};
@@ -951,7 +952,7 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                 imem_if_mnesia:write(ddTable, DDTableRow),
                 imem_if_mnesia:write(ddAlias, DDAliasRow)
             catch
-                throw:{'ClientError',{"Table already exists", PTN}} ->
+                throw:{'ClientError',{"Table already exists", PTN}} = Reason ->
                     case imem_if_mnesia:read(ddTable, {MySchema, PTN}) of
                         [] ->   imem_if_mnesia:write(ddTable, DDTableRow); % ddTable meta data was missing
                         _ ->    ok
@@ -959,7 +960,8 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                     case imem_if_mnesia:read(ddAlias, {MySchema, TableAlias}) of
                         [] ->   imem_if_mnesia:write(ddAlias, DDAliasRow); % ddAlias meta data was missing
                         _ ->    ok
-                    end
+                    end,
+                    throw(Reason)
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, TableAlias}),
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
@@ -1935,11 +1937,11 @@ qualified_table_name(Table) when is_binary(Table) ->
     qualified_table_name(imem_sql_expr:binstr_to_qname2(Table)).
 
 -spec qualified_new_table_name(ddTable()) -> ddQualifiedTable().
-qualified_new_table_name({undefined,Table}) when is_atom(Table) ->              {schema(), Table};
-qualified_new_table_name({undefined,Table}) when is_binary(Table) ->            {schema(), binary_to_atom(Table, utf8)};
-qualified_new_table_name({Schema,Table}) when is_atom(Schema),is_atom(Table) -> {Schema, Table};
-qualified_new_table_name({S,T}) when is_binary(S),is_binary(T) ->               {binary_to_atom(S, utf8), binary_to_atom(T, utf8)};
-qualified_new_table_name(Table) when is_atom(Table) ->                          {schema(), Table};
+qualified_new_table_name({undefined, Table}) when is_atom(Table) ->               {schema(), Table};
+qualified_new_table_name({undefined, Table}) when is_binary(Table) ->             {schema(), binary_to_atom(Table, utf8)};
+qualified_new_table_name({Schema, Table}) when is_atom(Schema), is_atom(Table) -> {Schema, Table};
+qualified_new_table_name({S, T}) when is_binary(S), is_binary(T) ->               {binary_to_atom(S, utf8), binary_to_atom(T, utf8)};
+qualified_new_table_name(Table) when is_atom(Table) ->                            {schema(), Table};
 qualified_new_table_name(Table) when is_binary(Table) ->
     qualified_new_table_name(imem_sql_expr:binstr_to_qname2(Table)).
 
@@ -2702,10 +2704,6 @@ dirty_write(TableAlias, Record) ->
                 false ->
                     ?ClientError({"Table does not exist",T})
             end
-        %     ;
-        % _Class:Reason ->
-        %     ?Debug("Dirty write error ~p:~p~n", [_Class,Reason]),
-        %     throw(Reason)
     end. 
 
 insert(TableAlias, Row) ->

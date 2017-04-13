@@ -1979,11 +1979,11 @@ test_with_or_without_sec_part2(IsSec) ->
             , 0, [{schema,imem}], IsSec)),
 
         ?assertEqual(ok, if_call_mfa(IsSec,truncate_table,[SKey, def])),
-        ?assertEqual(0,imem_meta:table_size(def)),
+        ?assertEqual(0, imem_meta:table_size(def)),
         ?assertEqual(ok, insert_range(SKey, 10, def, imem, IsSec)),
-        ?assertEqual(10,imem_meta:table_size(def)),
+        ?assertEqual(10, imem_meta:table_size(def)),
 
-        SR3a = exec(SKey,query3a, 10, IsSec, "
+        SR3a = exec(SKey, query3a, 10, IsSec, "
             select rownum, t1.col2, t2.col2, t3.col2 
             from def t1, def t2, def t3 
             where t1.col2 < t2.col2 
@@ -1996,30 +1996,30 @@ test_with_or_without_sec_part2(IsSec) ->
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, close(SKey, SR3a)),
 
-        SR3b = exec(SKey,query3b, 10, IsSec, "
+        SR3b = exec(SKey, query3b, 10, IsSec, "
             select rownum, t1.col2, t2.col2, t3.col2 
             from def t1, def t2, def t3 
             where t1.col2 < t2.col2 
             and t2.col2 < t3.col2
             and t3.col2 < 6"
         ),
-        ?assertEqual(ok, fetch_async(SKey,SR3b,[],IsSec)),
+        ?assertEqual(ok, fetch_async(SKey, SR3b, [], IsSec)),
         Cube3b = receive_tuples(SR3b,true),
         ?assertEqual(10, length(Cube3b)),
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, close(SKey, SR3b)),
 
-        SR3c = exec(SKey,query3c, 10, IsSec, "
+        SR3c = exec(SKey, query3c, 10, IsSec, "
             select rownum, t1.col2, t2.col2, t3.col2 
             from def t1, def t2, def t3 
             where t1.col2 < t2.col2 
             and t2.col2 < t3.col2
             and t3.col2 < 7"
         ),
-        ?assertEqual(ok, fetch_async(SKey,SR3c,[],IsSec)),
-        Cube3c1 = receive_tuples(SR3c,true),
+        ?assertEqual(ok, fetch_async(SKey, SR3c, [], IsSec)),
+        Cube3c1 = receive_tuples(SR3c, true),
         ?assertEqual(20, length(Cube3c1)),      %% TODO: Treaming join evaluation needed to keep this down at 10
-        ?assertEqual(lists:seq(1,20), lists:sort([ list_to_integer(binary_to_list(element(1,Res))) || Res <- Cube3c1])),
+        ?assertEqual(lists:seq(1,20), lists:sort([list_to_integer(binary_to_list(element(1, Res))) || Res <- Cube3c1])),
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, close(SKey, SR3c)),
 
@@ -2027,16 +2027,16 @@ test_with_or_without_sec_part2(IsSec) ->
             select rownum 
             from def t1, def t2, def t3"
         ),
-        ?assertEqual(ok, fetch_async(SKey,SR3d,[],IsSec)),
+        ?assertEqual(ok, fetch_async(SKey, SR3d, [], IsSec)),
 %        [?assertEqual(100, length(receive_tuples(SR3d,false))) || _ <- lists:seq(1,9)],   %% TODO: should come in chunks
-        ?assertEqual(1000, length(receive_tuples(SR3d,true))),
+        ?assertEqual(1000, length(receive_tuples(SR3d, true))),
         ?assertEqual(ok, close(SKey, SR3d)),
 
         SR3e = exec(SKey,query3e, 10, IsSec, "
             select rownum 
             from def, def, def, def"
         ),
-        ?assertEqual(ok, fetch_async(SKey,SR3e,[],IsSec)),
+        ?assertEqual(ok, fetch_async(SKey, SR3e, [], IsSec)),
         % ?assertEqual(10000, length(receive_tuples(SR3e,true))),           %% 50 ms is not enough to fetch 10'000 rows
         % ?assertEqual(10000, length(receive_tuples(SR3e,true,1500,[]))),   %% works but times out the test
         ?assertEqual(ok, close(SKey, SR3e)),                                %% test for stmt teardown while joining big result
@@ -2045,8 +2045,8 @@ test_with_or_without_sec_part2(IsSec) ->
             select col1 from def;"
         ),
         try
-            ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
-            List4a = receive_tuples(SR4,false),
+            ?assertEqual(ok, fetch_async(SKey, SR4, [], IsSec)),
+            List4a = receive_tuples(SR4, false),
             ?assertEqual(5, length(List4a)),
             % ?LogDebug("trying to insert one row before fetch complete~n", []),
             ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
@@ -2063,10 +2063,10 @@ test_with_or_without_sec_part2(IsSec) ->
             List4d = receive_tuples(SR4,tail),
             ?assertEqual(12, length(List4d)),
             % ?LogDebug("12 tail rows received in single packets~n", []),
-            ?assertEqual(ok, fetch_async(SKey,SR4,[],IsSec)),
+            ?assertEqual(ok, fetch_async(SKey, SR4, [], IsSec)),
             Result4e = receive_raw(),
             % ?LogDebug("reject received ~n~p~n", [Result4e]),
-            [{StmtRef4, {error, {ClEr,Reason4e}}}] = Result4e, 
+            [{StmtRef4, {error, {ClEr, Reason4e}}}] = Result4e, 
             ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again",Reason4e),
             ?assertEqual(StmtRef4,SR4#stmtResult.stmtRef),
             ?assertEqual(ok, fetch_close(SKey, SR4, IsSec)),
@@ -2077,7 +2077,7 @@ test_with_or_without_sec_part2(IsSec) ->
         end,
 
         SR5 = exec(SKey,query5, 100, IsSec, "
-            select to_name(qname) from all_tables"
+            select to_name(qname) from all_tables where element(1,qname) = to_atom('imem')"
         ),
         try
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
@@ -2349,12 +2349,12 @@ test_with_or_without_sec_part3(IsSec) ->
 
 
 receive_tuples(StmtResult, Complete) ->
-    receive_tuples(StmtResult,Complete,80,[]).
+    receive_tuples(StmtResult, Complete, 120, []).
 
 % receive_tuples(StmtResult, Complete, Timeout) ->
 %     receive_tuples(StmtResult, Complete, Timeout,[]).
 
-receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Timeout,Acc) ->    
+receive_tuples(#stmtResult{stmtRef=StmtRef, rowFun=RowFun} = StmtResult, Complete, Timeout, Acc) ->    
     case receive
             R ->    % ?Debug("~p got:~n~p~n", [?TIMESTAMP,R]),
                     R
@@ -2365,19 +2365,19 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
             Unchecked = case Acc of
                 [] ->                       
 %                    [{StmtRef,[],Complete}];
-                    throw({no_response,{expecting,Complete}});
-                [{StmtRef,{_,Complete}}|_] -> 
+                    throw({no_response, {expecting, Complete}});
+                [{StmtRef, {_, Complete}}|_] -> 
                     lists:reverse(Acc);
-                [{StmtRef,{L1,C1}}|_] ->
-                    throw({bad_complete,{StmtRef,{L1,C1}}});
+                [{StmtRef, {L1, C1}}|_] ->
+                    throw({bad_complete, {StmtRef, {L1, C1}}});
                 Res ->                      
-                    throw({bad_receive,lists:reverse(Res)})
+                    throw({bad_receive, lists:reverse(Res)})
             end,
             case lists:usort([element(1, SR) || SR <- Unchecked]) of
                 [StmtRef] -> 
                     % ?LogDebug("Unchecked receive result :~n~p~n",[Unchecked]),               
                     List = lists:flatten([element(1,element(2, T)) || T <- Unchecked]),
-                    RT = result_tuples(List,RowFun),
+                    RT = result_tuples(List, RowFun),
                     if 
                         length(RT) =< 10 ->
                             % ?LogDebug("Received:~n~p~n", [RT])
@@ -2388,10 +2388,10 @@ receive_tuples(#stmtResult{stmtRef=StmtRef,rowFun=RowFun}=StmtResult,Complete,Ti
                     end,            
                     RT;
                 StmtRefs ->
-                    throw({bad_stmtref,lists:delete(StmtRef, StmtRefs)})
+                    throw({bad_stmtref, lists:delete(StmtRef, StmtRefs)})
             end;
         {_,Result} ->   
-            receive_tuples(StmtResult,Complete,Timeout,[Result|Acc])
+            receive_tuples(StmtResult, Complete, Timeout, [Result|Acc])
     end.
 
 % result_lists(List,RowFun) when is_list(List), is_function(RowFun) ->  

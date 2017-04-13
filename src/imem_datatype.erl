@@ -1179,30 +1179,28 @@ timestamp_to_io(TS,undefined) ->
 timestamp_to_io(TS,Prec) ->
     timestamp_to_io(TS,Prec,eu).
 
-timestamp_to_io(TS,undefined,Fmt) ->
-    timestamp_to_io(TS,6,Fmt);
-timestamp_to_io({Megas,Secs,Micros,Cnt},_Prec,raw) ->
-    list_to_binary(io_lib:format("~6.6.0w~6.6.0w~6.6.0w~p",[Megas,Secs,Micros,Cnt]));
-timestamp_to_io({Megas,Secs,Micros},_Prec,raw) ->
-    list_to_binary(io_lib:format("~6.6.0w~6.6.0w~6.6.0w",[Megas,Secs,Micros]));
-timestamp_to_io(TS,_Prec,erlang) ->
+timestamp_to_io(TS, undefined, Fmt) ->
+    timestamp_to_io(TS, 6, Fmt);
+timestamp_to_io({Secs, Micros, Node, Cnt}, _Prec, raw) ->
+    list_to_binary(io_lib:format("~12.12.0w~6.6.0w~p~p",[Secs, Micros, Node, Cnt]));
+timestamp_to_io({Secs, Micros}, _Prec, raw) ->
+    list_to_binary(io_lib:format("~12.12.0w~6.6.0w",[Secs, Micros]));
+timestamp_to_io(TS,_Prec, erlang) ->
     term_to_io(TS);
-timestamp_to_io({Megas,Secs,Micros,_},Prec,Fmt) -> timestamp_to_io({Megas,Secs,Micros},Prec,Fmt);
-timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec >= 6 ->
-    list_to_binary(io_lib:format("~s.~6.6.0w",[datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt), Micros]));
-timestamp_to_io({Megas,Secs,Micros},Prec,Fmt) when Prec > 0 ->
-    [MStr0] = io_lib:format("~6.6.0w",[Micros]),
+timestamp_to_io({Secs, Micros,_, _}, Prec, Fmt) -> timestamp_to_io({Secs, Micros}, Prec, Fmt);
+timestamp_to_io({Secs, Micros}, Prec, Fmt) when Prec >= 6 ->
+    list_to_binary(io_lib:format("~s.~6.6.0w",[datetime_to_io(calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, 0}), Fmt), Micros]));
+timestamp_to_io({Secs, Micros}, Prec, Fmt) when Prec > 0 ->
+    [MStr0] = io_lib:format("~6.6.0w", [Micros]),
     MStr1 = case list_to_integer(lists:sublist(MStr0, Prec+1, 6-Prec)) of
         0 ->    [$.|lists:sublist(MStr0, Prec)];
         _ ->    [$.|MStr0]
     end,
-    list_to_binary(io_lib:format("~s~s",[datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt),MStr1]));
-timestamp_to_io({Megas,Secs,0},_,Fmt) ->
-    datetime_to_io(calendar:now_to_local_time({Megas,Secs,0}),Fmt);
-timestamp_to_io({Megas,Secs,Micros},_,Fmt) ->
-    timestamp_to_io({Megas,Secs,Micros},6,Fmt).
-
-
+    list_to_binary(io_lib:format("~s~s",[datetime_to_io(calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, 0}), Fmt), MStr1]));
+timestamp_to_io({Secs, 0}, _, Fmt) ->
+    datetime_to_io(calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, 0}), Fmt);
+timestamp_to_io({Secs, Micros}, _, Fmt) ->
+    timestamp_to_io({Secs, Micros}, 6, Fmt).
 
 decimal_to_io(Val,undefined) ->
     decimal_to_io(Val,0);
@@ -1256,17 +1254,14 @@ offset_timestamp('+', {Sec, Micro, _, _}, Offset) ->
 offset_timestamp('+', {Sec, Micro}, Offset) ->
     NewMicro = Micro + round(Offset*8.64e10),
     NewSec = Sec + NewMicro div 1000000,
-    {NewSec rem 1000000, NewMicro rem 1000000};
+    {NewSec, NewMicro rem 1000000};
 offset_timestamp('-', {Sec, Micro, _, _}, Offset) ->
     offset_timestamp('-', {Sec, Micro}, Offset);
 offset_timestamp('-', {Sec, Micro}, Offset) ->
-    NewMicro = Micro - round(Offset*8.64e10) + Sec * 1000000 ,
-    Mi = NewMicro rem 1000000,
-    NewSec = (NewMicro-Mi) div 1000000,
-    Se = NewSec rem 1000000,
-    {Se, Mi};
+    NewMicro = 1000000 * Sec + Micro - round(Offset*8.64e10),
+    {NewMicro div 1000000, NewMicro rem 1000000};
 offset_timestamp(OP, TS, Offset) ->
-    ?ClientErrorNoLogging({"Illegal timestamp offset operation",{OP,TS,Offset}}).
+    ?ClientErrorNoLogging({"Illegal timestamp offset operation", {OP, TS, Offset}}).
 
 musec_diff({Sec, Micro, _, _}) -> musec_diff({Sec, Micro}, ?TIMESTAMP);
 musec_diff(TS1) -> musec_diff(TS1, ?TIMESTAMP).
@@ -1574,26 +1569,26 @@ data_types(_) ->
         ?assertException(throw,{ClEr,{"parse_month","1900"}}, parse_date_us("1900/02/01")),
         ?assertException(throw,{ClEr,{"Cannot handle dates before 1970"}},local_datetime_to_utc_seconds({{1900, 01, 01}, {00, 00, 00}})),
 
-        ?assertEqual(<<"{1000002,1234}">>, timestamp_to_io({1000002,1234},3,erlang)),
-        ?assertEqual(<<"{1000002,1234,n,321}">>, timestamp_to_io({1000002,1234,n,321},3,erlang)),
-        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1000002,1234},3,raw)),
-        ?assertEqual(<<"000001000002001234n321">>, timestamp_to_io({1000002,1234,n,321},3,raw)),
+        ?assertEqual(<<"{1000002,1234}">>, timestamp_to_io({1000002, 1234}, 3, erlang)),
+        ?assertEqual(<<"{1000002,1234,n,321}">>, timestamp_to_io({1000002, 1234, n, 321}, 3, erlang)),
+        ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1000002, 1234}, 3, raw)),
+        ?assertEqual(<<"000001000002001234n321">>, timestamp_to_io({1000002, 1234, n, 321}, 3, raw)),
         case local_datetime_to_utc_seconds({{1970, 01, 01}, {00, 00, 00}}) of
             2208985200 ->    %% DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,123456},0)),              %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0,123456,n,321},0)),        %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0},0)),                          %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0,0,n,321},0)),                    %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,123000},3)),                 %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0,123000,n,321},3)),           %% with DLS offset CH
-                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1000002,123456},6)),        %% with DLS offset CH
-                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1000002,123456,n,321},6));  %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0, 123456}, 0)),              %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0, 123456, n, 321}, 0)),        %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0, 0}, 0)),                          %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0, 0, n, 321}, 0)),                    %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0, 123000}, 3)),                 %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0, 123000, n, 321}, 3)),           %% with DLS offset CH
+                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1000002, 123456}, 6)),        %% with DLS offset CH
+                ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1000002, 123456, n, 321}, 6));  %% with DLS offset CH
             _ ->    
                 ok
         end,
         % ?LogDebug("timestamp_to_io success~n", []),
-        ?assertMatch({1000002,12345,_,_}, io_to_timestamp(<<"{1000002,12345}">>,0)),
-        ?assertEqual({1000002,12345,n,321}, io_to_timestamp(<<"{1000002,12345,n,321}">>,0)),
+        ?assertMatch({1000002, 12345, _, _}, io_to_timestamp(<<"{1000002,12345}">>,0)),
+        ?assertEqual({1000002, 12345, n, 321}, io_to_timestamp(<<"{1000002,12345,n,321}">>,0)),
         case local_datetime_to_utc_seconds({{1970, 01, 01}, {00, 00, 00}}) of
             2208985200 ->    %% DLS offset CH
                 ?assertMatch({0,0,_,_}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),           %% with DLS offset CH
@@ -1605,7 +1600,7 @@ data_types(_) ->
                 ?assertMatch({1000002,123456,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,6)),      %% with DLS offset CH
                 ?assertMatch({1000002,123000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),      %% with DLS offset CH
                 ?assertMatch({1000002,123456,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,undefined)),  %% with DLS offset CH
-                ?assertMatch({1000003,0,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),           %% with DLS offset CH
+                ?assertMatch({1000002,0,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),           %% with DLS offset CH
                 ?assertMatch({1000002,123000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),      %% with DLS offset CH
                 ?assertMatch({1000002,100000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,1)),      %% with DLS offset CH
                 ?assertMatch({587863439,585000,_,_}, io_to_timestamp(<<"1988-8-18T01:23:59.585Z">>));   %% with DLS offset CH
