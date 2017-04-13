@@ -384,20 +384,20 @@ channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_skvh(ddEntityId(),binary()|atom()) -> ok | no_return().
+-spec create_check_skvh(ddEntityId(),binary()|atom()) -> ok.
 create_check_skvh(UserId, Channel) ->
     %% TODO : Possible future validation, Ignored for now
     create_check_skvh(UserId, Channel, [audit,history]).
 
--spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok | no_return().
+-spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok.
 create_check_skvh(_UserId, Channel, Options) ->
     create_check_channel(Channel, Options).
 
--spec create_check_channel(binary()|atom()) ->  ok | no_return().
+-spec create_check_channel(binary()|atom()) ->  ok.
 create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
--spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok | no_return().
+-spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok.
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
     CreateAudit = proplists:get_value(audit, Options, false),
@@ -460,17 +460,20 @@ create_check_channel(Channel, Options) ->
     imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, "")),
     ok.
 
--spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
-create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
-    create_table(list_to_binary(atom_to_list(Name)),[],_TOpts,Owner);
-create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
+-spec create_table(ddSimpleTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddString()}.
+create_table(Name, [], _TOpts, Owner) when is_atom(Name) ->
+    create_table(list_to_binary(atom_to_list(Name)), [], _TOpts, Owner);
+create_table(Channel, [], TOpts, Owner) when is_list(Channel) ->
+    create_table(list_to_binary(Channel), [], TOpts, Owner);
+create_table(Channel, [], _TOpts, Owner) when is_binary(Channel) ->
     Tab = binary_to_atom(table_name(Channel),utf8),
-    ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
+    {ok, PTN} = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
-    ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history],"")),
+    {ok, _} = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history], "")),
     HC = list_to_atom(?HIST(Channel)),
-    ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
+    {ok, _} = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner),
+    {ok, PTN}.
 
 add_if(F, Opts, Code) ->
     case lists:member(F,Opts) of
@@ -1671,7 +1674,7 @@ skvh_operations(_) ->
         ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
         % ?LogDebug("success drop ~p", [skvhTestHist]),
 
-        ?assertEqual(ok, create_table(skvhTest,[],[],system)),
+        ?assertMatch({ok, _}, create_table(skvhTest,[],[],system)),
         % ?LogDebug("starting ~p", [drop_table]),
         ?assertEqual(ok, drop_table(skvhTest)),
         % ?LogDebug("success ~p~n", [drop_table]),
@@ -1690,31 +1693,31 @@ skvh_concurrency(_) ->
         ?LogDebug("---TEST---~p()", [skvh_concurrency]),
 
         TestKey = ["sum"],
-        % CreateResult = [create_table(Ch,[],[],system) || Ch <- ?Channels],  % serialized version
+        % CreateResult = [create_table(Ch, [], [], system) || Ch <- ?Channels],  % serialized version
         Self = self(),
         TabCount = length(?Channels),
-        [spawn(fun() -> Self ! {Ch,create_table(Ch,[],[],system)} end) || Ch <- ?Channels],
+        [spawn(fun() -> Self ! {Ch, create_table(Ch, [], [], system)} end) || Ch <- ?Channels],
         % ?LogDebug("success ~p", [bulk_create_spawned]),
-        CreateResult = receive_results(TabCount,[]),
+        CreateResult = receive_results(TabCount, []),
         ?assertEqual(TabCount, length(CreateResult)),
-        ?assertEqual([ok], lists:usort([ R || {_,R} <- CreateResult])),
+        ?assertEqual([ok], lists:usort([ R || {_,{R,_}} <- CreateResult])),
         % ?LogDebug("success ~p~n", [bulk_create_tables]),
 
-        [spawn(fun() -> Self ! {Ch,insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
+        [spawn(fun() -> Self ! {Ch, insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
         % ?LogDebug("success ~p", [bulk_insert_spawned]),
-        InitResult = receive_results(TabCount,[]),
+        InitResult = receive_results(TabCount, []),
         ?assertEqual(TabCount, length(InitResult)),
         % ?LogDebug("success ~p~n", [bulk_insert]),
 
-        [spawn(fun() -> Self ! {N1,update_test(hd(?Channels),TestKey,N1)} end) || N1 <- lists:seq(1,10)],
+        [spawn(fun() -> Self ! {N1, update_test(hd(?Channels), TestKey, N1)} end) || N1 <- lists:seq(1, 10)],
         % ?LogDebug("success ~p", [bulk_update_spawned]),
-        UpdateResult = receive_results(10,[]),
+        UpdateResult = receive_results(10, []),
         ?assertEqual(10, length(UpdateResult)),
         ?assertMatch([{skvhTable,_,<<"55">>,_}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
         % ?LogDebug("success ~p~n", [bulk_update]),
 
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
-        [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
+        [spawn(fun() -> Self ! {Ch, drop_table(Ch)} end) || Ch <- ?Channels],
         % ?LogDebug("success ~p", [bulk_drop_spawned]),
         {timeout, 10, fun() -> ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])])) end},
         % ?LogDebug("success ~p~n", [bulk_drop_tables]),
@@ -1727,7 +1730,7 @@ skvh_concurrency(_) ->
     end,
     ok.
 
-update_test(Ch,Key,N) ->
+update_test(Ch, Key, N) ->
     Upd = fun() ->
         [RowMap] = read(system, Ch, [Key]),
         CVal = list_to_integer(binary_to_list(maps:get(cvalue,RowMap))) + N,

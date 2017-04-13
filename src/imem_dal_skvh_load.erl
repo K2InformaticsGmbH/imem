@@ -32,30 +32,27 @@ start(Channel, Id) when is_binary(Channel) andalso is_integer(Id) ->
 
 init([Channel, CtrlTable, OutputTable]) ->
     catch imem_meta:drop_table(CtrlTable),
-    ok = imem_meta:create_table(CtrlTable, {record_info(fields, loadControl),?loadControl,#loadControl{}}
-                           , [{record_name,loadControl}], system),
+    {ok, _} = imem_meta:create_table(CtrlTable, {record_info(fields, loadControl),?loadControl,#loadControl{}}, [{record_name,loadControl}], system),
     ok = imem_if_mnesia:write(CtrlTable, #loadControl{}),
-    ok = imem_if_mnesia:write(CtrlTable, #loadControl{ operation = audit
-                                              , keyregex = <<"01.01.1970 00:00:00">>}),
+    ok = imem_if_mnesia:write(CtrlTable, #loadControl{ operation = audit, keyregex = <<"01.01.1970 00:00:00">>}),
     ok = imem_if_mnesia:subscribe({table, CtrlTable, detailed}),
     catch imem_meta:drop_table(OutputTable),
-    ok = imem_meta:create_table(OutputTable, {record_info(fields, loadOutput),?loadOutput,#loadOutput{}}
-                           , [{record_name,loadOutput}], system),
+    {ok, _} = imem_meta:create_table(OutputTable, {record_info(fields, loadOutput),?loadOutput,#loadOutput{}}, [{record_name,loadOutput}], system),
     ok = imem_if_mnesia:write(OutputTable, #loadOutput{}),
     ok = imem_if_mnesia:write(OutputTable, #loadOutput{operation = audit}),
     Self = self(),
     F = fun(F) ->
             catch imem_if_mnesia:subscribe({table, schema}),
             receive
-                {mnesia_table_event,{delete,{schema,CtrlTable,_},_}} ->
-                    Self ! {die,{table_dropped,CtrlTable}};
-                {mnesia_table_event,{delete,{schema,OutputTable,_},_}} ->
-                    Self ! {die,{table_dropped,OutputTable}};
+                {mnesia_table_event, {delete, {schema, CtrlTable, _}, _}} ->
+                    Self ! {die, {table_dropped, CtrlTable}};
+                {mnesia_table_event, {delete, {schema, OutputTable, _}, _}} ->
+                    Self ! {die, {table_dropped, OutputTable}};
                 _ -> F(F)
             end
         end,
     spawn(fun() -> F(F) end),
-    {ok, #state{ctrl_table=CtrlTable, output_table = OutputTable, channel = Channel}}.
+    {ok, #state{ctrl_table=CtrlTable, output_table=OutputTable, channel=Channel}}.
 
 handle_call(Req, _From, State) -> io:format(user, "Unknown handle_call ~p~n", [Req]), {ok, Req, State}.
 handle_cast(Msg, State) -> io:format(user, "Unknown handle_cast ~p~n", [Msg]), {noreply, State}.

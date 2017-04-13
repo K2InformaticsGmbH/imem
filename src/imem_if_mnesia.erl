@@ -364,6 +364,7 @@ check_local_table_copy(Table) ->
 
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
+-spec create_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
 create_table(Table, ColumnNames, Opts) ->
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
@@ -375,26 +376,28 @@ create_table(Table, ColumnNames, Opts) ->
 
 is_system_table(_) -> false.
 
-create_local_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_local_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_local_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- ColumnNames],
     CompleteOpts = add_attribute(Cols, Opts) -- [{scope,local}],
     create_table(Table, CompleteOpts).
 
-create_schema_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_schema_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_schema_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,schema}],
     create_local_table(Table,ColumnNames,CompleteOpts).
 
-create_cluster_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_cluster_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_cluster_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     %% ToDo: may need to pull from another imem schema first and initiate sync
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,cluster}],
     create_local_table(Table,ColumnNames,CompleteOpts).
 
-create_table(Table, Opts) when is_list(Table) ->
-    create_table(list_to_atom(Table), Opts);
+-spec create_table(ddMnesiaTable(), ddOptions()) -> ok.
 create_table(Table, Opts) when is_atom(Table) ->
     % ?LogDebug("imem_if_mnesia create table ~p ~p",[Table,Opts]),
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
@@ -419,6 +422,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             return_atomic_ok(Result)
     end.
 
+-spec wait_table_tries([ddMnesiaTable()], {integer(), integer()}) -> ok.
 wait_table_tries(Tables, {0, _}) ->
     ?ClientErrorNoLogging({"Loading table(s) timeout~p", Tables});
 wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
@@ -429,20 +433,22 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
         {error, Reason} ->              ?ClientErrorNoLogging({"Error loading table~p", Reason})
     end.
 
+-spec drop_table(ddMnesiaTable()) -> ok.
 drop_table(Table) when is_atom(Table) ->
-    case imem:spawn_sync_mfa(mnesia,delete_table,[Table]) of
+    case imem:spawn_sync_mfa(mnesia, delete_table, [Table]) of
         ok ->                           
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
         {atomic,ok} ->                  
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
-        {aborted,{no_exists,Table}} ->  
+        {aborted,{no_exists, Table}} ->  
             ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                        
             ?SystemExceptionNoLogging(Error)
     end.
 
+-spec create_index(ddMnesiaTable(), ddColumnName()) -> ok.
 create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->

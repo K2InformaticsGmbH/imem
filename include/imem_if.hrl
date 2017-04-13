@@ -7,7 +7,12 @@
 -type ddString() :: list().
 -type ddBinStr() :: binary().
 -type ddError() :: tuple().
--type ddOptions() :: list().
+-type ddOption() :: atom() | {atom(), any()}.
+-type ddOptions() :: [ddOption()].
+-type ddMnesiaTable() :: atom().
+-type ddMnesiaIndex() :: atom().
+-type ddColumnName() :: atom() | binary().
+-type ddColumnList() :: [ddColumnName()].
 
 -record(snap_properties, { table
                          , last_write

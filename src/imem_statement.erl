@@ -1606,7 +1606,7 @@ test_with_or_without_sec_part1(IsSec) ->
 
         %% test table tuple_test
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, "
             create table fun_test (
                 col0 integer
               , col1 integer default fun(_,Rec) -> element(2,Rec)*element(2,Rec) end.
@@ -1646,7 +1646,7 @@ test_with_or_without_sec_part1(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table fun_test;", 0, [{schema,imem}], IsSec)),
         % ?LogDebug("dropped table ~p~n", [fun_test]),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, "
             create table tuple_test (
             col1 tuple, 
             col2 list,
@@ -1785,7 +1785,7 @@ test_with_or_without_sec_part1(IsSec) ->
 
         %% test table def
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, "
             create table def (
                 col1 varchar2(10), 
                 col2 integer
@@ -1971,7 +1971,7 @@ test_with_or_without_sec_part2(IsSec) ->
 
         catch imem_meta:drop_table(def),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, "
             create table def (
                 col1 varchar2(10), 
                 col2 integer
@@ -2081,9 +2081,9 @@ test_with_or_without_sec_part2(IsSec) ->
         ),
         try
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
-            List5a = receive_tuples(SR5,true),
-            ?assert(lists:member({<<"imem.def">>},List5a)),
-            ?assert(lists:member({<<"imem.ddTable">>},List5a)),
+            List5a = receive_tuples(SR5, true),
+            ?assert(lists:member({<<"imem.def">>}, List5a)),
+            ?assert(lists:member({<<"imem.ddTable">>}, List5a)),
             % ?LogDebug("first read success (async)~n", []),
             ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
             [{StmtRef5, {error, Reason5a}}] = receive_raw(),
@@ -2203,7 +2203,7 @@ test_with_or_without_sec_part3(IsSec) ->
 
         catch imem_meta:drop_table(def),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, "
             create table def (
                 col1 varchar2(10), 
                 col2 integer

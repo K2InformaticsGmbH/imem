@@ -23,18 +23,16 @@
 		).
 
 -type ddEntityId() :: 	integer() | atom().
--type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
+-type ddType() ::		atom() | tuple() | list().         	% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 
 -type ddSchema() :: atom() | binary().
--type ddMnesiaTable() :: atom().
--type ddSimpleTable() :: ddMnesiaTable() | ddBinStr() | ddString().
--type ddQualifiedTable() :: {ddSchema(), ddSimpleTable()}.
--type ddTable() :: ddSimpleTable() | ddQualifiedTable().
+-type ddSimpleTable() :: ddMnesiaTable() | ddBinStr() | ddString().	% does not include a schema name
+-type ddQualifiedTable() :: {ddSchema(), ddSimpleTable()}.	% does include a schema name
+-type ddTable() :: ddSimpleTable() | ddQualifiedTable().	% may or may not include a schema name
+-type ddIndex() :: binary() | integer() | ddMnesiaIndex().	% binstr name or integer id or mnesia column (atom) 
 
--type ddColumnName() :: atom() | binary().
 -type ddColumnType() :: atom().
 -type ddColumnDefault() :: any().
--type ddColumnList() :: [ddColumnName()].
 -type ddTypeList() :: [ddColumnType()].
 -type ddDefaultList() :: [ddColumnDefault()].
 -type ddTableMeta() :: [#ddColumn{}] | {ddColumnList(), ddTypeList(), ddDefaultList()}.
