@@ -592,7 +592,7 @@ fetch_recs_async(SKey, Opts, Pid, Sock) ->
     imem_statement:fetch_recs_async(SKey, Pid, Sock, Opts, true).
 
 request_metric(SKey, Module, MetricKey, Ref, Sock) ->
-    admin_exec(SKey, Module, request_metric, [MetricKey, Ref, Sock]).
+    admin_exec(SKey, imem_gen_metrics, request_metric, [Module, MetricKey, Ref, Sock]).
 
 filter_and_sort(SKey, Pid, FilterSpec, SortSpec) ->
     imem_statement:filter_and_sort(SKey, Pid, FilterSpec, SortSpec, true).

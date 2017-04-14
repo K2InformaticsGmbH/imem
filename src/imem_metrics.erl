@@ -51,14 +51,17 @@ handle_metric_req(system_information, ReplyFun, State) ->
     ReplyFun(Result),
     State;
 handle_metric_req(erlang_nodes, ReplyFun, State) ->
-    ReplyFun(imem_meta:nodes()),
+    {ok, RequiredNodes} = application:get_env(imem, erl_cluster_mgrs),
+    ReplyFun(#{nodes => [node() | imem_meta:nodes()], required_nodes => RequiredNodes}),
     State;
 handle_metric_req(data_nodes, ReplyFun, State) ->
-    ReplyFun([#{schema => Schema, node => Node} || {Schema, Node} <- imem_meta:data_nodes()]),
+    {ok, RequiredNodes} = application:get_env(imem, erl_cluster_mgrs),
+    DataNodes = [#{schema => Schema, node => Node} || {Schema, Node} <- imem_meta:data_nodes()],
+    ReplyFun(#{data_nodes => DataNodes, required_nodes => RequiredNodes}),
     State;
 handle_metric_req(UnknownMetric, ReplyFun, State) ->
     ?Error("Unknow metric requested ~p", [UnknownMetric]),
-    ReplyFun(undefined),
+    ReplyFun({error, unknown_metric}),
     State.
 
 terminate(_Reason, _State) -> ok.
