@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.7.0 (Release Date 20.03.2017)
+=======================================
+* Migration to rebar3.
+* Improved application start / stop.
+
 Version 1.6.2 (Release Data 12.04.2017)
 =======================================
 * Added node information to the metric results

@@ -36,16 +36,15 @@ SET os_env=-env ERL_MAX_ETS_TABLES 50
 
 REM PATHS
 SET paths=-pa
-SET paths=%paths% %cd%\ebin
-SET paths=%paths% %cd%\deps\edown\ebin
-SET paths=%paths% %cd%\deps\erlscrypt\ebin
-SET paths=%paths% %cd%\deps\goldrush\ebin
-SET paths=%paths% %cd%\deps\jpparse\ebin
-SET paths=%paths% %cd%\deps\jsx\ebin
-SET paths=%paths% %cd%\deps\lager\ebin
-SET paths=%paths% %cd%\deps\ranch\ebin
-SET paths=%paths% %cd%\deps\sext\ebin
-SET paths=%paths% %cd%\deps\sqlparse\ebin
+SET paths=%paths% %cd%\_build\default\lib\erlscrypt\ebin
+SET paths=%paths% %cd%\_build\default\lib\goldrush\ebin
+SET paths=%paths% %cd%\_build\default\lib\imem\ebin
+SET paths=%paths% %cd%\_build\default\lib\jpparse\ebin
+SET paths=%paths% %cd%\_build\default\lib\jsx\ebin
+SET paths=%paths% %cd%\_build\default\lib\lager\ebin
+SET paths=%paths% %cd%\_build\default\lib\ranch\ebin
+SET paths=%paths% %cd%\_build\default\lib\sext\ebin
+SET paths=%paths% %cd%\_build\default\lib\sqlparse\ebin
 
 REM Node name
 SET node_name=-name %node%

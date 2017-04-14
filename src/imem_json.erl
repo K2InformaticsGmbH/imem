@@ -293,9 +293,9 @@ eval(Tree,[{Name,Object}|_] = Binds)
         MatchedObject -> encode(MatchedObject)
     end;
 eval(Tree,Binds) ->
-    case jpparse:foldbu(fun jpp_walk/3
-                        , Binds
-                        , Tree) of
+    case jpparse_fold:foldbu(fun jpp_walk/3
+                             , Binds
+                             , Tree) of
         {error, {nomatch, Reason}} -> {nomatch, Reason};
         {error, Error} -> {error, Error};
         [{Tree, Object}|_] -> Object;
