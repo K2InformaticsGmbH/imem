@@ -397,7 +397,7 @@ db1_with_or_without_sec(IsSec) ->
 
     %% test ddSysConf schema access
 
-        ?assertEqual(ok,imem_if_sys_conf:create_sys_conf("../src")),
+        ?assertEqual(ok, imem_if_sys_conf:create_sys_conf("../src")),
 
         R9a = exec_fetch_sort(SKey, query9a, 100, IsSec, "
             select * 
@@ -415,7 +415,7 @@ db1_with_or_without_sec(IsSec) ->
         
     %% test table def
 
-        ?assertEqual(ok, imem_sql:exec(SKey,
+        ?assertMatch({ok,_}, imem_sql:exec(SKey,
             "create table def (
                 col1 integer, 
                 col2 varchar2(2000), 
@@ -1344,7 +1344,7 @@ db2_with_or_without_sec(IsSec) ->
             false ->    none
         end,
 
-        ?assertEqual(ok, imem_sql:exec(SKey,
+        ?assertMatch({ok,_}, imem_sql:exec(SKey,
             "create table def (
                 col1 integer, 
                 col2 varchar2(2000), 
@@ -1357,7 +1357,7 @@ db2_with_or_without_sec(IsSec) ->
 
     %% test table member_test
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
+        ?assertMatch({ok,_}, imem_sql:exec(SKey, "
             create table member_test (
                   col1 integer
                 , col2 list
@@ -1406,10 +1406,15 @@ db2_with_or_without_sec(IsSec) ->
             true ->     ?assertEqual(2, length(L5))
         end,
 
-        R0 = exec_fetch_sort(SKey, query0, 100, IsSec, "
+        R0 = exec_fetch_sort(SKey, query0, AllTableCount + 1, IsSec, "
             select * from ddTable"
         ),
-        ?assertEqual(AllTableCount, length(R0)),
+        ?assertEqual(AllTableCount, length(R0)), 
+
+        R0a = exec_fetch_sort(SKey, query0a, 100, IsSec, "
+            select * from ddTable where rownum <= 10"
+        ),
+        ?assertEqual(10, length(R0a)), 
 
         exec_fetch_sort_equal(SKey, query0c, 100, IsSec, "
             select 1 from dual"
@@ -1418,13 +1423,13 @@ db2_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query0d, 100, IsSec, "
-            select list(1,to_atom('b'),3.14,to_string('4')) from dual"
+            select list(1, to_atom('b'), 3.14, to_string('4')) from dual"
             ,
             [{<<"[1,b,3.14,\"4\"]">>}]
         ),
 
         exec_fetch_sort_equal(SKey, query0e, 100, IsSec, "
-            select tuple(1,to_binstr('2'),3,4) from dual"
+            select tuple(1, to_binstr('2'), 3, 4) from dual"
             ,
             [{<<"{1,<<\"2\">>,3,4}">>}]
         ),
@@ -1476,7 +1481,7 @@ db2_with_or_without_sec(IsSec) ->
                         ?assertEqual([{Acid}], R1d)
         end,
 
-        R1e = exec_fetch_sort(SKey, query1e, 100, IsSec, "
+        R1e = exec_fetch_sort(SKey, query1e, AllTableCount + 1, IsSec, "
             select all_tables.* 
             from all_tables 
             where owner = 'system'"
@@ -1731,10 +1736,10 @@ db2_with_or_without_sec(IsSec) ->
             [{<<"1">>},{<<"4">>}]
         ),
 
-        R5k = exec_fetch_sort(SKey, query5k, 100, IsSec, "
+        R5k = exec_fetch_sort(SKey, query5k, AllTableCount + 1, IsSec, "
             select to_name(qname) 
             from ddTable
-            where is_member(to_tuple('{virtual,true}'),opts)"
+            where is_member(to_tuple('{virtual, true}'), opts)"
         ),
         % ?assert(length(R5k) >= 18),
         ?assert(length(R5k) == 0),      % not used any more for DataTypes
@@ -1743,10 +1748,10 @@ db2_with_or_without_sec(IsSec) ->
         ?assertNot(lists:member({"imem.ddTable"},R5k)),
         ?assertNot(lists:member({"imem.ddTable"},R5k)),
 
-        R5l = exec_fetch_sort(SKey, query5l, 100, IsSec, "
+        R5l = exec_fetch_sort(SKey, query5l, AllTableCount + 1, IsSec, "
             select to_name(qname) 
             from ddTable
-            where not is_member(to_tuple('{virtual,true}'),opts)"
+            where not is_member(to_tuple('{virtual, true}'), opts)"
         ),
         ?assert(length(R5l) >= 5),
         ?assertNot(lists:member({<<"imem.atom">>},R5l)),
@@ -1754,7 +1759,7 @@ db2_with_or_without_sec(IsSec) ->
         ?assert(lists:member({<<"imem.ddTable">>},R5l)),
         ?assert(lists:member({<<"imem.ddAccount">>},R5l)),
 
-        R5m = exec_fetch_sort(SKey, query5m, 100, IsSec, "
+        R5m = exec_fetch_sort(SKey, query5m, AllTableCount + 1, IsSec, "
             select 
                 to_name(qname),  
                 item2(item) as field,  
@@ -1763,7 +1768,7 @@ db2_with_or_without_sec(IsSec) ->
                 item5(item) as prec,   
                 item6(item) as def
             from ddTable, list
-            where is_member(item,columns)"
+            where is_member(item, columns)"
         ),
         ?assert(length(R5m) >= 5),
 
@@ -1799,14 +1804,14 @@ db2_with_or_without_sec(IsSec) ->
             []
         ),
 
-        R5r = exec_fetch_sort(SKey, query5r, 100, IsSec, "
+        R5r = exec_fetch_sort(SKey, query5r, AllTableCount + 1, IsSec, "
             select to_name(qname), size, memory 
             from ddTable, ddSize
             where element(2,qname) = name "
         ),
         ?assert(length(R5r) > 0),
 
-        R5s = exec_fetch_sort(SKey, query5s, 100, IsSec, "
+        R5s = exec_fetch_sort(SKey, query5s, AllTableCount + 1, IsSec, "
             select to_name(qname), nodef(tte) 
             from ddTable, ddSize
             where name = element(2,qname)"
@@ -1814,7 +1819,7 @@ db2_with_or_without_sec(IsSec) ->
         ?assertEqual(length(R5s),length(R5r)),
         % ?LogDebug("Full Result R5s: ~n~p~n", [R5s]),
 
-        R5t = exec_fetch_sort(SKey, query5t, 100, IsSec, "
+        R5t = exec_fetch_sort(SKey, query5t, AllTableCount + 1, IsSec, "
             select to_name(qname), tte 
             from ddTable, ddSize
             where element(2,qname) = name 
@@ -1824,7 +1829,7 @@ db2_with_or_without_sec(IsSec) ->
         ?assert(length(R5t) > 0),
         ?assert(length(R5t) < length(R5s)),
 
-        R5u = exec_fetch_sort(SKey, query5u, 100, IsSec, "
+        R5u = exec_fetch_sort(SKey, query5u, AllTableCount + 1, IsSec, "
             select to_name(qname), tte 
             from ddTable, ddSize
             where element(2,qname) = name 
@@ -1835,7 +1840,7 @@ db2_with_or_without_sec(IsSec) ->
         ?assert(length(R5u) < length(R5s)),
         ?assert(length(R5t) + length(R5u) == length(R5s)),
 
-        R5v = exec_fetch_sort(SKey, query5v, 100, IsSec, "
+        R5v = exec_fetch_sort(SKey, query5v, AllTableCount + 1, IsSec, "
             select to_name(qname), size, tte 
             from ddTable, ddSize
             where element(2,qname) = name 
@@ -1886,7 +1891,7 @@ db2_with_or_without_sec(IsSec) ->
             []
         ),
 
-        ?assertEqual(ok, imem_sql:exec(SKey,"
+        ?assertMatch({ok,_}, imem_sql:exec(SKey,"
             create table ddCmdTest (
                 id integer,
                 owner userid,
@@ -1894,7 +1899,7 @@ db2_with_or_without_sec(IsSec) ->
                 \"roles\" list
             );", 0, [{schema,imem}], IsSec)),
 
-        ?assertEqual(ok, imem_sql:exec(SKey,"
+        ?assertMatch({ok,_}, imem_sql:exec(SKey,"
             create table ddViewTest (
                 id integer, 
                 owner userid,

@@ -665,32 +665,33 @@ column_info_items(_Info, Item) ->
 column_names(Infos)->
     [list_to_atom(lists:flatten(io_lib:format("~p", [N]))) || #ddColumn{name=N} <- Infos].
 
+-spec column_infos(ddTable()) -> ddTableMeta().
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
-column_infos({?CSV_SCHEMA_PATTERN = S,FileName}) when is_binary(FileName) ->
+column_infos({?CSV_SCHEMA_PATTERN=S, FileName}) when is_binary(FileName) ->
     [ #ddColumn{name=N,type=T,default=D} || {N,T,D} <- ?CSV_DEFAULT_INFO]
      ++ [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({S,FileName})];
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
     S= try 
         ?binary_to_existing_atom(Schema)
     catch 
-        _:_ -> ?ClientError({"Schema does not exist",Schema})
+        _:_ -> ?ClientError({"Schema does not exist", Schema})
     end,
     T = try 
         ?binary_to_existing_atom(TableAlias)
     catch 
-        _:_ -> ?ClientError({"Table does not exist",TableAlias})
+        _:_ -> ?ClientError({"Table does not exist", TableAlias})
     end,        
     column_infos({S,T});
-column_infos({Schema,TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
+column_infos({Schema, TableAlias}) when is_atom(Schema), is_atom(TableAlias) ->
     case lists:member(TableAlias, ?DataTypes) of
         true -> 
             [#ddColumn{name=item, type=TableAlias, len=0, prec=0, default=undefined}
             ,#ddColumn{name=itemkey, type=binstr, len=0, prec=0, default=undefined}
             ];
         false ->
-            case imem_if_mnesia:read(ddTable,{Schema, physical_table_name(TableAlias)}) of
-                [] ->                       ?ClientError({"Table does not exist",{Schema,TableAlias}}); 
+            case imem_if_mnesia:read(ddTable, {Schema, physical_table_name(TableAlias)}) of
+                [] ->                       ?ClientError({"Table does not exist", {Schema, TableAlias}}); 
                 [#ddTable{columns=CI}] ->   CI
             end
     end;  
@@ -717,11 +718,11 @@ from_column_infos([#ddColumn{}|_] = ColumnInfos) ->
     DefaultRecord = list_to_tuple([rec|column_info_items(ColumnInfos, default)]),
     {ColumnNames, ColumnTypes, DefaultRecord}.
 
--spec create_table(ddTable(), ddTableMeta(), ddOptions()) -> {ok, ddTable()}.
+-spec create_table(ddTable(), ddTableMeta(), ddOptions()) -> {ok, ddQualifiedTable()}.
 create_table(TableAlias, Columns, Opts) ->
     create_table(TableAlias, Columns, Opts, #ddTable{}#ddTable.owner).
 
--spec create_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddTable()} | ddError().
+-spec create_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddQualifiedTable()} | ddError().
 create_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
@@ -738,11 +739,11 @@ create_table(TableAlias, ColumnNames, Opts, Owner) ->
     ColumnInfos = column_infos(ColumnNames),
     create_physical_table(qualified_new_table_name(TableAlias), ColumnInfos, Opts, Owner).
 
--spec create_check_table(ddTable(), ddTableMeta(), ddOptions()) -> {ok, ddTable()}.
+-spec create_check_table(ddTable(), ddTableMeta(), ddOptions()) -> {ok, ddQualifiedTable()}.
 create_check_table(TableAlias, Columns, Opts) ->
     create_check_table(TableAlias, Columns, Opts, (#ddTable{})#ddTable.owner).
 
--spec create_check_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddTable()}.
+-spec create_check_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddQualifiedTable()}.
 create_check_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
     Conv = fun(X) ->
         case X#ddColumn.name of
@@ -755,15 +756,16 @@ create_check_table(TableAlias, [#ddColumn{}|_]=ColumnInfos, Opts, Owner) ->
 create_check_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, Owner) ->
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
-    {ok, PartitionName} = create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner),
-    check_table(PartitionName),
-    check_table_meta(PartitionName, {ColumnNames, ColumnTypes, DefaultRecord}),
-    {ok, PartitionName}.
+    {ok, QName} = create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner),
+    ?LogDebug("QName ~p",[QName]),
+    check_table(QName), 
+    check_table_meta(QName, {ColumnNames, ColumnTypes, DefaultRecord}),
+    {ok, QName}.
 
 create_sys_conf(Path) ->
     imem_if_sys_conf:create_sys_conf(Path).    
 
--spec create_check_physical_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddTable()}.
+-spec create_check_physical_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddQualifiedTable()}.
 create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner) when is_atom(TableAlias) ->
     create_check_physical_table({schema(), TableAlias}, ColumnInfos, Opts, Owner);    
 create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner) when is_binary(TableAlias) ->
@@ -780,14 +782,14 @@ create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0,Owner) when
                     create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner);
                 [#ddTable{opts=Opts1, owner=Owner}] ->
                     catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
-                    {ok, PTN};
+                    {ok, {Schema, PTN}};
                 [#ddTable{opts=Old, owner=Owner}] ->
                     OldOpts = lists:sort(lists:keydelete(purge_delay, 1, Old)),
                     NewOpts = lists:sort(lists:keydelete(purge_delay, 1, Opts1)),
                     case NewOpts of
                         OldOpts ->
                             catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
-                            {ok, PTN};
+                            {ok, {Schema, PTN}};
                         _ ->
                             catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
                             Diff = (OldOpts -- NewOpts)  ++ (NewOpts -- OldOpts),
@@ -801,7 +803,7 @@ create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0,Owner) when
             ?UnimplementedException({"Create/check table in foreign schema", {Schema, TableAlias}})
     end.
 
--spec create_physical_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddTable()}.
+-spec create_physical_table(ddTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddQualifiedTable()}.
 create_physical_table({Schema, TableAlias, _Alias}, ColumnInfos, Opts, Owner) ->
     create_physical_table({Schema, TableAlias}, ColumnInfos, Opts, Owner);
 create_physical_table({Schema, TableAlias}, ColumnInfos, Opts, Owner) ->
@@ -876,7 +878,7 @@ module_with_table_api(M) ->
             end
     end.
 
--spec create_mnesia_table(ddSimpleTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddMnesiaTable()}.
+-spec create_mnesia_table(ddSimpleTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddQualifiedTable()}.
 create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_binary(TableAlias) ->
     create_mnesia_table(binary_to_atom(TableAlias, utf8), ColInfos, Opts0, Owner);
 create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_list(TableAlias) ->
@@ -895,7 +897,7 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                     imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}])
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
-            {ok, PTN};
+            {ok, {MySchema, PTN}};
         ?CACHE_TABLE ->     % create it, even if ddTable is not yet there, register it if missing)
             DDTableRow = #ddTable{qname={MySchema, PTN}, columns=ColInfos, opts=Opts0, owner=Owner},
             case (catch imem_if_mnesia:read(ddTable, {MySchema, PTN})) of
@@ -906,7 +908,7 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                     imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}])
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
-            {ok, PTN};
+            {ok, {MySchema, PTN}};
         TableAlias ->
             %% not a time or node sharded table
             DDTableRow = #ddTable{qname={MySchema, PTN}, columns=ColInfos, opts=Opts0, owner=Owner},
@@ -922,7 +924,7 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                     throw(Reason)
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
-            {ok, PTN};
+            {ok, {MySchema, PTN}};
         _ ->
             %% Time or node sharded table, check if ddAlias parameters match (if alias record already exists)
             Opts = case imem_if_mnesia:read(ddAlias, {MySchema, TableAlias}) of
@@ -965,14 +967,14 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, TableAlias}),
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
-            {ok, PTN}
+            {ok, {MySchema, PTN}}
     end.
 
--spec create_table_sys_conf(ddMnesiaTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddMnesiaTable()}.
+-spec create_table_sys_conf(ddMnesiaTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddQualifiedTable()}.
 create_table_sys_conf(TableName, ColumnInfos, Opts, Owner) when is_atom(TableName) ->
     DDTableRow = #ddTable{qname={ddSysConf, TableName}, columns=ColumnInfos, opts=Opts, owner=Owner},
     return_atomic_ok(imem_if_mnesia:write(ddTable, DDTableRow)),
-    {ok, TableName}.
+    {ok, {ddSysConf, TableName}}.
 
 
 -spec get_trigger(ddTable()) -> undefined | ddString().

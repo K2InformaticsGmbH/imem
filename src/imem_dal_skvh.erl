@@ -467,13 +467,13 @@ create_table(Channel, [], TOpts, Owner) when is_list(Channel) ->
     create_table(list_to_binary(Channel), [], TOpts, Owner);
 create_table(Channel, [], _TOpts, Owner) when is_binary(Channel) ->
     Tab = binary_to_atom(table_name(Channel),utf8),
-    {ok, PTN} = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
+    {ok, QTN} = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
     {ok, _} = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
     ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history], "")),
     HC = list_to_atom(?HIST(Channel)),
     {ok, _} = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner),
-    {ok, PTN}.
+    {ok, QTN}.
 
 add_if(F, Opts, Code) ->
     case lists:member(F,Opts) of
