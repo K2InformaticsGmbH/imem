@@ -3,9 +3,10 @@
 
 -type ddTimeUID() :: 'undefined' | {integer(), integer(), atom(), integer()}.   % {Secs,Micro,Node,UniqueInteger}
 -type ddTimestamp() :: 'undefined' | {integer(), integer()}.                    % {Secs,Micro}
--type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
+-type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}. % {{Y, M, D}, {Hour, Min, Sec}}
 -type ddString() :: list().
 -type ddBinStr() :: binary().
+-type ddIo() :: ddBinStr() | ddString().
 -type ddError() :: tuple().
 -type ddOption() :: atom() | {atom(), any()}.
 -type ddOptions() :: [ddOption()].

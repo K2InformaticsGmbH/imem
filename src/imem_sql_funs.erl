@@ -9,7 +9,7 @@
             , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
             , to_atom, to_string, to_binstr, to_binary, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
-            , to_decimal, from_decimal, to_timestamp, to_datetime, to_ipaddr
+            , to_decimal, from_decimal, to_timestamp, to_time, to_datetime, to_ipaddr
             , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff, md5
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
             , map_size, map_get, map_merge, map_remove, map_with, map_without
@@ -79,6 +79,7 @@
         , to_pid/1
         , to_binterm/1
         , to_timestamp/1
+        , to_time/1
         , to_datetime/1
         , to_ipaddr/1
         , to_name/1
@@ -208,6 +209,7 @@ unary_fun_result_type("to_string") ->           #bind{type=string,default=?nav};
 unary_fun_result_type("to_term") ->             #bind{type=term,default=?nav};
 unary_fun_result_type("to_text") ->             #bind{type=binstr,default=?nav};
 unary_fun_result_type("to_timestamp") ->        #bind{type=timestamp,default=?nav};
+unary_fun_result_type("to_time") ->             #bind{type=timestamp,default=?nav}; % ToDo: Type=time
 unary_fun_result_type("to_tuple") ->            #bind{type=tuple,default=?nav};
 unary_fun_result_type("safe_atom") ->           #bind{type=atom,default=?nav};
 unary_fun_result_type("safe_binary") ->         #bind{type=binary,default=?nav};
@@ -539,7 +541,7 @@ expr_fun({Op, A}) when Op==safe_atom;Op==safe_binary;Op==safe_binstr;Op==safe_bi
     safe_fun(A);
 expr_fun({Op, A}) when Op==to_atom;Op==to_binary;Op==to_binstr;Op==to_binterm;Op==to_boolean;Op==to_datetime;Op==to_decimal;Op==to_json;Op==to_float;Op==to_integer;Op==to_json;Op==to_list ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op==to_map;Op==to_name;Op==to_number;Op==to_pid;Op==to_string;Op==to_term;Op==to_text;Op==to_timestamp;Op==to_tuple ->
+expr_fun({Op, A}) when Op==to_map;Op==to_name;Op==to_number;Op==to_pid;Op==to_string;Op==to_term;Op==to_text;Op==to_timestamp;Op==to_time;Op==to_tuple ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op==from_binterm;Op==prefix_ul;Op==phash2;Op==is_nav;Op==is_val ->
     unary_fun({Op, A});
@@ -811,7 +813,9 @@ is_string(A) -> is_list(A).     % TODO: not precise enough
 
 is_text(A) ->   is_list(A).     % TODO: not precise enough
 
-is_timestamp({A,B,C}) when is_integer(A),is_integer(B),is_integer(C) -> true;
+is_timestamp({A, B, C, D}) when is_integer(A), is_integer(B), is_atom(C), is_integer(D) -> true;
+is_timestamp({A, B}) when is_integer(A), is_integer(B) -> true;
+is_timestamp({A, B, C}) when is_integer(A), is_integer(B), is_integer(C) -> true;   % remove later
 is_timestamp(_) -> false.       % TODO: not precise enough
 
 to_atom(A) when is_atom(A) -> A;
@@ -956,24 +960,34 @@ to_binary(B) when is_binary(B) ->   B;
 to_binary(I) when is_integer(I) -> <<I/integer>>;
 to_binary(_) -> ?nav.
 
-to_binterm(B) when is_binary(B) ->   imem_datatype:io_to_binterm(B);
-to_binterm(T) ->                     imem_datatype:term_to_binterm(T).
+to_binterm(B) when is_binary(B) ->  imem_datatype:io_to_binterm(B);
+to_binterm(T) ->                    imem_datatype:term_to_binterm(T).
 
-to_datetime(B) when is_binary(B) ->  imem_datatype:io_to_datetime(B);
-to_datetime(L) when is_list(L) ->    imem_datatype:io_to_datetime(L);
-to_datetime(T) when is_tuple(T) ->   T.
+to_datetime(B) when is_binary(B) -> imem_datatype:io_to_datetime(B);
+to_datetime(L) when is_list(L) ->   imem_datatype:io_to_datetime(L);
+to_datetime(T) when is_tuple(T) ->  T.
 
-to_timestamp(B) when is_binary(B) -> imem_datatype:io_to_timestamp(B);
-to_timestamp(L) when is_list(L) ->   imem_datatype:io_to_timestamp(L);
-to_timestamp(T) when is_tuple(T) ->  T.
+to_timestamp(B) when is_binary(B)-> imem_datatype:io_to_timestamp(B);
+to_timestamp(L) when is_list(L) ->  imem_datatype:io_to_timestamp(L);   
+to_timestamp({Secs, Micros})  ->    {Secs, Micros, node(), 0};
+to_timestamp({Megas, Secs, Micros}) -> {1000000*Megas+Secs, Micros, node(), 0};  % remove later
+to_timestamp({Secs, Micros, Node, Cnt}) -> {Secs, Micros, Node, Cnt}.
 
-to_ipaddr(B) when is_binary(B) ->    imem_datatype:io_to_ipaddr(B);
-to_ipaddr(L) when is_list(L) ->      imem_datatype:io_to_ipaddr(L);
-to_ipaddr(T) when is_tuple(T) ->     T.
+to_time(B) when is_binary(B) ->     Time = imem_datatype:io_to_timestamp(B),
+                                    {element(1, Time), element(2, Time)};
+to_time(L) when is_list(L) ->       Time = imem_datatype:io_to_timestamp(L),
+                                    {element(1, Time), element(2, Time)};
+to_time({Secs, Micros})  ->         {Secs, Micros};
+to_time({Megas, Secs, Micros})  ->  {1000000*Megas+Secs, Micros};  % remove later
+to_time({Secs, Micros, _, _})->     {Secs, Micros}.
 
-from_binterm(B)  ->                  imem_datatype:binterm_to_term(B).
+to_ipaddr(B) when is_binary(B) ->   imem_datatype:io_to_ipaddr(B);
+to_ipaddr(L) when is_list(L) ->     imem_datatype:io_to_ipaddr(L);
+to_ipaddr(T) when is_tuple(T) ->    T.
 
-prefix_ul(L) when is_list(L) ->      L ++ <<255>>. % improper list [...|<<255>>]
+from_binterm(B)  ->                 imem_datatype:binterm_to_term(B).
+
+prefix_ul(L) when is_list(L) ->     L ++ <<255>>. % improper list [...|<<255>>]
 
 unary_json_fun({_, {const,A}}) when is_tuple(A) ->
     ?nav;
@@ -1090,11 +1104,17 @@ binary_fun_final({Op, A, B}) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op=
 binary_fun_final(BTree) ->
     ?UnimplementedException({"Unsupported filter function",{BTree}}).
 
-add_dt(DT, Offset) when is_tuple(DT),is_number(Offset) -> 
-    imem_datatype:offset_datetime('+',DT,Offset).   %% Offset in (fractions of) days
+-spec add_dt(ddDatetime(), number()) -> ddDatetime(). 
+add_dt(DT, Offset) when is_tuple(DT),is_number(Offset) -> imem_datatype:offset_datetime('+', DT, Offset).   %% Offset by (fractions of) days
 
-add_ts(TS, Offset) when is_tuple(TS),is_number(Offset) -> 
-    imem_datatype:offset_timestamp('+',TS,Offset).  %% Offset in (fractions of) days
+-spec diff_dt(ddDatetime(), ddDatetime()) -> float(). 
+diff_dt(A, B) when is_tuple(A), is_tuple(B) -> imem_datatype:datetime_diff(B, A).                           %% Difference in (fractions of) days
+
+-spec add_ts(ddTimeUID() | ddTimestamp() | {integer(), integer(), integer()}, number()) -> ddTimestamp(). 
+add_ts(TS, Offset) when is_tuple(TS),is_number(Offset) ->  imem_datatype:offset_timestamp('+', TS, Offset). %% Offset by (fractions of) days
+
+-spec diff_ts(ddTimeUID() | ddTimestamp() | {integer(), integer(), integer()}, ddTimeUID() | ddTimestamp() | {integer(), integer(), integer()}) -> float(). 
+diff_ts(TS1, TS2) ->      imem_datatype:usec_diff(TS1, TS2)/86400000000.0.                                  %% Difference in (fractions of) days
 
 concat(A, B) when is_list(A),is_list(B) -> A ++ B;
 concat(A, B) when is_map(A),is_map(B) -> maps:merge(A,B);
@@ -1187,12 +1207,6 @@ safe_value(Name,PL) ->
             % ?Info("Unsafe JSON attribute ~p in ~p",[Name,PL]),
             ?nav
     end.
-
-diff_dt(A,B) when is_tuple(A),is_tuple(B) -> 
-    (calendar:datetime_to_gregorian_seconds(A)-calendar:datetime_to_gregorian_seconds(B))/86400.0.
-
-diff_ts({AM,AS,AMicro},{BM,BS,BMicro}) -> 
-    (1000000*(AM-BM)+AS-BS+0.000001*(AMicro-BMicro))/86400.0.
 
 from_decimal(I,0) when is_integer(I) -> I; 
 from_decimal(I,P) when is_integer(I),is_integer(P),(P>0) -> 
