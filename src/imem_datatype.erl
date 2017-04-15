@@ -1577,24 +1577,24 @@ data_types(_) ->
 
         Dt1 = io_to_datetime(<<"01.01.2017 01:00:00">>),
         Ts1 = io_to_timestamp(<<"01.01.2017 01:00:00.1234">>),
-        ?LogDebug("Dt1 ~p", [Dt1]),        
-        ?LogDebug("Ts1 ~p", [Ts1]),
+        % ?LogDebug("Dt1 ~p", [Dt1]),        
+        % ?LogDebug("Ts1 ~p", [Ts1]),
         Dt1Str = datetime_to_io(Dt1),
         Ts1Str = timestamp_to_io(Ts1),
         ?assertEqual(Dt1Str, binary:part(Ts1Str, 0, 19)),
 
         Dt2 = io_to_datetime(<<"01.05.2017 01:00:00">>),
         Ts2 = io_to_timestamp(<<"01.05.2017 01:00:00.1234">>),
-        ?LogDebug("Dt2 ~p", [Dt2]),        
-        ?LogDebug("Ts2 ~p", [Ts2]),
+        % ?LogDebug("Dt2 ~p", [Dt2]),        
+        % ?LogDebug("Ts2 ~p", [Ts2]),
         Dt2Str = datetime_to_io(Dt2),
         Ts2Str = timestamp_to_io(Ts2),
         ?assertEqual(Dt2Str, binary:part(Ts2Str, 0, 19)),
 
         DtNow = io_to_datetime(<<"now">>),
         TsNow = io_to_timestamp(<<"now">>),
-        ?LogDebug("DtNow ~p", [DtNow]),        
-        ?LogDebug("TsNow ~p", [TsNow]),
+        % ?LogDebug("DtNow ~p", [DtNow]),        
+        % ?LogDebug("TsNow ~p", [TsNow]),
         DtNowStr = datetime_to_io(DtNow),
         TsNowStr = timestamp_to_io(TsNow),
         ?assertEqual(binary:part(DtNowStr, 0, 13), binary:part(TsNowStr, 0, 13)),
@@ -1603,7 +1603,7 @@ data_types(_) ->
         ?assertEqual(<<"{1000002,1234,n,321}">>, timestamp_to_io({1000002, 1234, n, 321}, 3, erlang)),        %% precision ignored for erlang
         ?assertEqual(<<"000001000002001234">>, timestamp_to_io({1000002, 1234}, 3, raw)),                     %% precision ignored for raw
         ?assertEqual(<<"000001000002001234n321">>, timestamp_to_io({1000002, 1234, n, 321}, 3, raw)),         %% precision ignored for raw
-        case local_datetime_to_utc1970_seconds({{1970, 01, 01}, {00, 00, 00}}) of
+        case local_datetime_to_utc1970_seconds({{1970, 01, 01}, {01, 00, 00}}) of
             0 ->    %% DLS offset CH
                 ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0, 123456}, 0)),              %% with DLS offset CH
                 ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0, 123456, n, 321}, 0)),        %% with DLS offset CH
@@ -1619,8 +1619,8 @@ data_types(_) ->
         % ?LogDebug("timestamp_to_io success~n", []),
         ?assertMatch({1000002, 12345, _, _}, io_to_timestamp(<<"{1000002,12345}">>,0)),
         ?assertEqual({1000002, 12345, n, 321}, io_to_timestamp(<<"{1000002,12345,n,321}">>,0)),
-        % case local_datetime_to_utc1970_seconds({{1970, 01, 01}, {00, 00, 00}}) of
-        %    0 ->    %% DLS offset CH
+        case local_datetime_to_utc1970_seconds({{1970, 01, 01}, {01, 00, 00}}) of
+            0 ->    %% DLS offset CH
                 ?assertMatch({0,0,_,_}, io_to_timestamp(<<"01.01.1970 01:00:00.000000">>,0)),           %% with DLS offset CH
                 ?assertMatch({-3600,0,_,_}, io_to_timestamp(<<"01.01.1970">>,0)),                       %% with DLS offset CH
                 ?assertMatch({-3600,0,_,_}, io_to_timestamp(<<"1970-01-01">>)),                         %% with DLS offset CH
@@ -1633,10 +1633,10 @@ data_types(_) ->
                 ?assertMatch({1000002,0,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.654321">>,0)),           %% with DLS offset CH
                 ?assertMatch({1000002,123000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,3)),      %% with DLS offset CH
                 ?assertMatch({1000002,100000,_,_}, io_to_timestamp(<<"12.01.1970 14:46:42.123456">>,1)),      %% with DLS offset CH
-        %        ?assertMatch({587863439,585000,_,_}, io_to_timestamp(<<"1988-8-18T01:23:59.585Z">>));   %% with DLS offset CH
-        %    _ ->
-        %        ok
-        % end,
+                ?assertMatch({587863439,585000,_,_}, io_to_timestamp(<<"1988-8-18T01:23:59.585Z">>));   %% with DLS offset CH
+            _ ->
+                ok
+        end,
         % ?LogDebug("io_to_timestamp success~n", []),
 
         ?assertEqual(list_to_pid("<0.44.0>"), io_to_pid("<0.44.0>")),
