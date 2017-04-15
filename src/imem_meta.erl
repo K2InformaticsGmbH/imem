@@ -757,7 +757,7 @@ create_check_table(TableAlias, {ColumnNames, ColumnTypes, DefaultRecord}, Opts, 
     [_|Defaults] = tuple_to_list(DefaultRecord),
     ColumnInfos = column_infos(ColumnNames, ColumnTypes, Defaults),
     {ok, QName} = create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner),
-    ?LogDebug("QName ~p",[QName]),
+    % ?LogDebug("QName ~p",[QName]),
     check_table(QName), 
     check_table_meta(QName, {ColumnNames, ColumnTypes, DefaultRecord}),
     {ok, QName}.

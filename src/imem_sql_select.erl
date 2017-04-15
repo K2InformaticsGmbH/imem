@@ -2272,8 +2272,8 @@ exec_fetch_sort(SKey, _Id, BS, IsSec, Sql) ->
     RT.
 
 % exec_fetch(SKey,Id, BS, IsSec, Sql) ->
-%     ?LogDebug("~n", []),
-%     ?LogDebug("~p : ~s~n", [Id,Sql]),
+%     % ?LogDebug("~n", []),
+%     % ?LogDebug("~p : ~s~n", [Id,Sql]),
 %     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema,imem}], IsSec),
 %     ?assertEqual(ok, RetCode),
 %     #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun} = StmtResult,
