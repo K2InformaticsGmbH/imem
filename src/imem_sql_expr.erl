@@ -1590,8 +1590,12 @@ sort_fun_impl(string,F,<<"desc">>) ->
 sort_fun_impl(timestamp,F,<<"desc">>) -> 
     fun(X) -> 
         case F(X) of 
-            {Meg,Sec,Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
-                {-Meg,-Sec,-Micro};
+            {Sec, Micro} when is_integer(Sec), is_integer(Micro)->
+                {-Sec, -Micro};
+            {Meg, Sec, Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
+                {-1000000*Meg-Sec, -Micro};
+            {Sec, Micro, Node, Cnt} when is_integer(Cnt), is_integer(Sec), is_integer(Micro)->
+                {-Sec, -Micro, Node, -Cnt};
             V -> V
         end    
     end;
