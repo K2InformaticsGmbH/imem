@@ -7,6 +7,9 @@
 
 -export([ schema/1
         , schema/2
+        , integer_uid/1
+        , time_uid/1
+        , time/1
         , data_nodes/1
         , all_tables/1
         , is_readable_table/2
@@ -68,7 +71,6 @@
         , update/4
         , merge/3
         , merge/4
-        , now/1
         , remove/3
         , remove/4
         , write/3
@@ -152,9 +154,23 @@ if_is_system_table(SKey,Table) when is_binary(Table) ->
 
 %% imem_meta but security context added --- META INFORMATION ------
 
-now(SKey) ->
+% Monotonic, unique per node restart integer
+-spec integer_uid(ddSeCoKey()) -> integer().
+integer_uid(SKey) -> 
     seco_authorized(SKey),
-    imem_meta:now().
+    imem_meta:integer_uid().
+
+% Monotonic, adapted, unique timestamp with microsecond resolution and OS-dependent precision
+-spec time_uid(ddSeCoKey()) -> ddTimeUID().
+time_uid(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:time_uid().
+
+% Monotonic, adapted timestamp with microsecond resolution and OS-dependent precision
+-spec time(ddSeCoKey()) -> ddTimestamp().
+time(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:time().
 
 schema(SKey) ->
     seco_authorized(SKey),

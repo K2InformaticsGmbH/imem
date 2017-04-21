@@ -103,6 +103,7 @@
         , nodes/0
         , integer_uid/0
         , time_uid/0
+        , time/0
         , all_aliases/0
         , all_tables/0
         , tables_starting_with/1
@@ -526,6 +527,10 @@ integer_uid() -> ?INTEGER_UID.
 % Monotonic, adapted, unique timestamp with microsecond resolution and OS-dependent precision
 -spec time_uid() -> ddTimeUID().
 time_uid() -> ?TIME_UID.
+
+% Monotonic, adapted timestamp with microsecond resolution and OS-dependent precision
+-spec time() -> ddTimestamp().
+time() -> ?TIMESTAMP.
 
 % is_system_table({_S,Table,_A}) -> is_system_table(Table);   % TODO: May depend on Schema
 is_system_table({_,Table}) -> 
@@ -2456,14 +2461,14 @@ read({ddSysConf,Table}, _Key) ->
     ?UnimplementedException({"Cannot read from ddSysConf schema, use DDerl GUI instead",Table});
 read({_Schema,Table}, Key) ->
     read(Table, Key);
-read(ddNode,Node) when is_atom(Node) ->
-    case rpc:call(Node,erlang,statistics,[wall_clock],?DDNODE_TIMEOUT) of
-        {WC,WCDiff} when is_integer(WC), is_integer(WCDiff) ->
-            case rpc:call(Node,erlang,now,[],?DDNODE_TIMEOUT) of
-                {Meg,Sec,Mic} when is_integer(Meg),is_integer(Sec),is_integer(Mic) ->                        
+read(ddNode, Node) when is_atom(Node) ->
+    case rpc:call(Node, erlang, statistics, [wall_clock], ?DDNODE_TIMEOUT) of
+        {WC, WCDiff} when is_integer(WC), is_integer(WCDiff) ->
+            case rpc:call(Node, imem_meta, time, [], ?DDNODE_TIMEOUT) of
+                {Sec, Mic} when is_integer(Sec), is_integer(Mic) ->                        
                     [#ddNode{ name=Node
                              , wall_clock=WC
-                             , time={Meg,Sec,Mic}
+                             , time={Sec, Mic}
                              , extra=[]     
                              }       
                     ];

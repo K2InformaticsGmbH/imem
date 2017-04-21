@@ -120,7 +120,7 @@
 				  , extra                   ::list()      
 				  }
 	   ).
--define(ddNode, [atom,integer,timestamp,list]).
+-define(ddNode, [atom, integer, timestamp, list]).
 
 -record(ddSnap,                             %% snapshot
 				  { file                    ::binary()                  %% snapshot file name
