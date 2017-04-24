@@ -1,7 +1,9 @@
 -ifndef(IMEM_IF_HRL).
 -define(IMEM_IF_HRL, true).
 
--type ddTimeUID() :: 'undefined' | {integer(), integer(), atom(), integer()}.   % {Secs,Micro,Node,UniqueInteger}
+-define(ERL_MIN_TERM,-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999).  %% Placeholder for minimum erlang term sorted range initialisations (compromise)            
+
+-type ddTimeUID() :: 'undefined' | ?ERL_MIN_TERM | {integer(), integer(), atom(), integer()}.   % {Secs,Micro,Node,UniqueInteger} see ?ERL_MIN_TERM
 -type ddTimestamp() :: 'undefined' | {integer(), integer()}.                    % {Secs,Micro}
 -type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}. % {{Y, M, D}, {Hour, Min, Sec}}
 -type ddString() :: list().
@@ -22,7 +24,6 @@
 -define(SNAP_ETS_TAB, snap_timer_tab).
 
 -define(NoRec, {}).                     %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
--define(ERL_MIN_TERM, -1.0e100).        %% Placeholder for minimum erlang term sorted range initialisations (compromise)            
 
 -define(INTEGER_UID, imem_if_mnesia:integer_uid()).                 % unique integer per imem node and reboot, used in timestamp generator or for other purposes 
 -define(TIME_UID, imem_if_mnesia:time_uid()).                       % Unique timestamp generator -> {Secs,Micros,Node,Counter}
