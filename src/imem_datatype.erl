@@ -55,6 +55,7 @@
         , sec_diff/2                %% UTC time difference in milliseconds
         , local_datetime_to_utc1970_seconds/1
         , local_datetime_to_utc1900_seconds/1
+        , timestamp_to_local_datetime/1
         ]).
 
 %   datatypes
@@ -904,6 +905,11 @@ local_datetime_to_utc1970_seconds({Date, Time}) ->
             calendar:datetime_to_gregorian_seconds(DstDateTimeUTC) - 62167219200
     end.
 
+-spec timestamp_to_local_datetime(ddTimestamp() | ddTimeUID() | {integer(), integer(), integer()}) -> ddDatetime().
+timestamp_to_local_datetime({Secs, Micros, _, _}) -> timestamp_to_local_datetime({Secs, Micros});
+timestamp_to_local_datetime({Secs, Micros}) -> timestamp_to_local_datetime({Secs div 1000000, Secs rem 1000000, Micros});
+timestamp_to_local_datetime({Megas, Secs, _}) -> calendar:now_to_local_time({Megas, Secs, 0}).
+
 validate_date(Date) ->
     case calendar:valid_date(Date) of
         true ->     Date;
@@ -1202,16 +1208,16 @@ timestamp_to_io({Megas, Secs, Micros}, Prec, Fmt) ->
 timestamp_to_io({Secs, Micros,_, _}, Prec, Fmt) -> 
     timestamp_to_io({Secs, Micros}, Prec, Fmt);
 timestamp_to_io({Secs, Micros}, Prec, Fmt) when Prec >= 6 ->
-    list_to_binary(io_lib:format("~s.~6.6.0w",[datetime_to_io(calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, 0}), Fmt), Micros]));
+    list_to_binary(io_lib:format("~s.~6.6.0w",[datetime_to_io(timestamp_to_local_datetime({Secs, 0}), Fmt), Micros]));
 timestamp_to_io({Secs, Micros}, Prec, Fmt) when Prec > 0 ->
     [MStr0] = io_lib:format("~6.6.0w", [Micros]),
     MStr1 = case list_to_integer(lists:sublist(MStr0, Prec+1, 6-Prec)) of
         0 ->    [$.|lists:sublist(MStr0, Prec)];
         _ ->    [$.|MStr0]
     end,
-    list_to_binary(io_lib:format("~s~s",[datetime_to_io(calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, 0}), Fmt), MStr1]));
+    list_to_binary(io_lib:format("~s~s",[datetime_to_io(timestamp_to_local_datetime({Secs, 0}), Fmt), MStr1]));
 timestamp_to_io({Secs, 0}, _, Fmt) ->
-    datetime_to_io(calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, 0}), Fmt);
+    datetime_to_io(timestamp_to_local_datetime({Secs, 0}), Fmt);
 timestamp_to_io({Secs, Micros}, _, Fmt) ->
     timestamp_to_io({Secs, Micros}, 6, Fmt).
 
