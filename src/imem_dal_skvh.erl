@@ -47,10 +47,10 @@
 -define(skvhHist,  [binterm,list]).
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
-                    { time                    :: ddTimeUID()			%% ?TIME_UID
+                    { time = ?ERL_MIN_TERM    :: ddTimeUID() | ?ERL_MIN_TERM       %% ?TIME_UID
                     , ckey = ?nav             :: binary()|?nav			
-                    , ovalue               	  :: binary()|undefined		%% old value
-                    , nvalue               	  :: binary()|undefined		%% new value
+                    , ovalue               	  :: binary()|undefined		           %% old value
+                    , nvalue               	  :: binary()|undefined		           %% new value
                     , cuser=unknown 		  :: ddEntityId()|unknown
                     }
        ).

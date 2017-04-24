@@ -21,7 +21,8 @@
                          }).
 -define(SNAP_ETS_TAB, snap_timer_tab).
 
--define(NoRec, {}).                                 %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
+-define(NoRec, {}).                     %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
+-define(ERL_MIN_TERM, -1.0e100).        %% Placeholder for minimum erlang term sorted range initialisations (compromise)            
 
 -define(INTEGER_UID, imem_if_mnesia:integer_uid()).                 % unique integer per imem node and reboot, used in timestamp generator or for other purposes 
 -define(TIME_UID, imem_if_mnesia:time_uid()).                       % Unique timestamp generator -> {Secs,Micros,Node,Counter}
