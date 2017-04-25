@@ -10,7 +10,9 @@ parse_transform(Forms, _Options) ->
           fun({attribute,_,record,{Record,RFields}}, {Funcs, Exprts}) ->
                   FieldNames = [case R of
                                     {record_field,_,{atom,_,N}} -> N;
-                                    {record_field,_,{atom,_,N},_} -> N
+                                    {record_field,_,{atom,_,N},_} -> N;
+                                    {typed_record_field,{record_field,_,{atom,_,N}},_} -> N;
+                                    {typed_record_field,{record_field,_,{atom,_,N},_},_} -> N
                                 end || R <- RFields],
                   Fun = list_to_atom(atom_to_list(Record)++"_pretty"),
                   {[rf(Record, Fun, FieldNames) | Funcs],

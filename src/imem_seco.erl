@@ -747,7 +747,7 @@ find_re_hash(SeCo, Account, NewToken, [Type|Types]) ->
 
 re_hash( _ , {?PWD_HASH,_}, Token, Token, _) -> ok;   %% re_hash not needed, already using target hash
 re_hash(SeCo, FoundCred, OldToken, NewToken, Account) ->
-    Salt = crypto:rand_bytes(?SALT_BYTES),
+    Salt = crypto:strong_rand_bytes(?SALT_BYTES),
     Hash = hash(?PWD_HASH, Salt, NewToken),
     NewCreds = [{?PWD_HASH,{Salt,Hash}} | lists:delete(FoundCred,Account#ddAccount.credentials)],
     NewAccount = case NewToken of
