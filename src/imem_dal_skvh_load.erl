@@ -188,7 +188,7 @@ keys_read_process(Parent, Channel, KeyRegex, FromKey, Limit) ->
     end.
 
 random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Count}) ->
-    Key = lists:nth(random:uniform(length(Keys)), Keys),
+    Key = lists:nth(rand:uniform(length(Keys)), Keys),
     {ok, Value} = imem_dal_skvh:read(system, Channel, <<"value">>, Key),
     Now = os:timestamp(),
     TDiffUs = timer:now_diff(Now, LastUpdate),
