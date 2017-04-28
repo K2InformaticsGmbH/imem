@@ -899,8 +899,10 @@ init(_) ->
         [DiscSchemaNode|_] ->
             ?Info("adding ~p to schema ~p on ~p~n",
                   [node(), SchemaName, DiscSchemaNode]),
+            MnesiaNodes = [node() | ClusterManagers],
+            {ok, _} = mnesia:change_config(extra_db_nodes, MnesiaNodes),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config,
-                               [extra_db_nodes, [node() | ClusterManagers]])
+                               [extra_db_nodes, MnesiaNodes])
     end,
     {ok, NodeType} = application:get_env(mnesia_node_type),
     ?Info("mnesia node type is '~p'~n", [NodeType]),
