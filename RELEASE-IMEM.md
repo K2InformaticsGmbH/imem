@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.6.3 (Release Data 28.04.2017)
+=======================================
+* OTP 19 support
+* [lager-3.4.2](https://github.com/K2InformaticsGmbH/lager/tree/3.4.2)
+* [Clustering between OTP18 and OTP19 fixed](https://github.com/K2InformaticsGmbH/imem/commit/b1f873fc763649a4d0d22a8e3750a18bb92f03fa)
+
 Version 1.6.2 (Release Data 12.04.2017)
 =======================================
 * Added node information to the metric results
