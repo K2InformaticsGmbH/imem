@@ -32,7 +32,7 @@
        ).
 
 -record(skvhCL,                           	  %% value change log    
-                    { time                    :: ddTimestamp()			%% erlang:now()
+                    { time                    :: ddTimeUID()			%% ?TIME_UID
                     , ovalue               	  :: binary()|undefined		%% old value
                     , nvalue               	  :: binary()|undefined		%% new value
                     , cuser=unknown 		  :: ddEntityId()|unknown
@@ -47,10 +47,10 @@
 -define(skvhHist,  [binterm,list]).
 
 -record(skvhAudit,                            %% sorted key value hash audit table    
-                    { time                    :: ddTimestamp()			%% erlang:now()
+                    { time = ?ERL_MIN_TERM    :: ddTimeUID()                %% ?TIME_UID
                     , ckey = ?nav             :: binary()|?nav			
-                    , ovalue               	  :: binary()|undefined		%% old value
-                    , nvalue               	  :: binary()|undefined		%% new value
+                    , ovalue               	  :: binary()|undefined		    %% old value
+                    , nvalue               	  :: binary()|undefined		    %% new value
                     , cuser=unknown 		  :: ddEntityId()|unknown
                     }
        ).
@@ -301,38 +301,33 @@ atom_audit_alias(Channel) -> binary_to_existing_atom(audit_alias(Channel),utf8).
 %% Key: 	Timestamp of change
 %% returns:	audit table name as atom 
 -spec audit_table_name(list(),term()) -> atom().
-audit_table_name(Channel,Key) when is_list(Channel) -> 
-	imem_meta:partitioned_table_name(Channel ++ ?AUDIT_SUFFIX,Key).
+audit_table_name(Channel, Key) when is_list(Channel) -> 
+	imem_meta:partitioned_table_name(Channel ++ ?AUDIT_SUFFIX, Key).
 
 audit_table_time(Channel) ->
-    	{AuditTab,TransTime} = audit_table_time(?TRANS_TIME_GET,Channel),
+    	{AuditTab, TransTime} = audit_table_time(?TRANS_TIME_GET, Channel),
         ?TRANS_TIME_PUT(TransTime),
-        {AuditTab,TransTime}.
+        {AuditTab, TransTime}.
 
-audit_table_time(TransTime,CH) ->
-	ATName = audit_table_name(CH,TransTime),
+audit_table_time({Sec, Mic, Node, TCnt}=TransTime, CH) ->
+	ATName = audit_table_name(CH, TransTime),
 	case imem_meta:last(ATName) of 
 		'$end_of_table' ->	 
-			{ATName,TransTime};
-		LastLog when (LastLog >= TransTime) andalso (element(3,LastLog) < 999999) ->
-			{ATName,{element(1,LastLog),element(2,LastLog),element(3,LastLog)+1}};
+			{ATName, TransTime}; % audit is empty, any TransTime accepted 
+        {_,_,_} ->   
+            {ATName, TransTime}; % audit is of old format, TransTime accepted 
+        TransTime ->
+            {ATName, {Sec,Mic,Node,?INTEGER_UID}}; % I see my own audit write. May not occur
 		LastLog when (LastLog >= TransTime) andalso (element(2,LastLog) < 999999) ->
-			audit_table_time({element(1,LastLog),element(2,LastLog)+1,0},CH);
+			{ATName, {element(1,LastLog), element(2,LastLog)+1, Node, TCnt}}; % count usec up
 		LastLog when (LastLog >= TransTime) ->
-			audit_table_time({element(1,LastLog)+1,0,0},CH);
+			audit_table_time({element(1,LastLog)+1, 0, Node, TCnt}, CH); % partition might change
 		_ -> 
-		 	{ATName,TransTime}
+		 	{ATName, TransTime} % last audit key is smaller than TransTime, accepted
 	end.
 
-audit_table_next(ATName,TransTime,CH) -> 
-	case TransTime of 
-		{M,S,Mic} when Mic < 999999 ->
-			{ATName,{M,S,Mic+1}};
-		{M,S,999999} when S < 999999 ->
-			audit_table_time({M,S+1,0},CH);
-		{M,999999,999999} ->
-			audit_table_time({M+1,0,0},CH)
-	end.
+audit_table_next(ATName, {Sec, Mic, Node, _Cnt} , _CH) -> 
+    {ATName, {Sec, Mic, Node, ?INTEGER_UID}}. % next bigger key for double transaction
 
 is_row_type(map, R) when is_map(R) -> R;
 is_row_type(map, R) when is_list(R) -> 
@@ -370,7 +365,7 @@ channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
     end,
     Audit = try
         A = list_to_existing_atom(?AUDIT(Channel)),
-        AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
+        AP = imem_meta:partitioned_table_name_str(A,?TIME_UID),
         imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
         A
     catch _:_ ->  ignored
@@ -389,20 +384,20 @@ channel_ctx(Channel) when is_binary(Channel); is_atom(Channel) ->
 %% Channel: Binary string of channel name (preferrably upper case or camel case)
 %% returns: provisioning record with table aliases to be used for data queries
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
--spec create_check_skvh(ddEntityId(),binary()|atom()) -> ok | no_return().
+-spec create_check_skvh(ddEntityId(),binary()|atom()) -> ok.
 create_check_skvh(UserId, Channel) ->
     %% TODO : Possible future validation, Ignored for now
     create_check_skvh(UserId, Channel, [audit,history]).
 
--spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok | no_return().
+-spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok.
 create_check_skvh(_UserId, Channel, Options) ->
     create_check_channel(Channel, Options).
 
--spec create_check_channel(binary()|atom()) ->  ok | no_return().
+-spec create_check_channel(binary()|atom()) ->  ok.
 create_check_channel(Channel) ->
     create_check_channel(Channel, [audit,history]).
 
--spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok | no_return().
+-spec create_check_channel(binary()|atom(), [atom()|{atom(),any()}]) -> ok.
 create_check_channel(Channel, Options) ->
 	Main = table_name(Channel),
     CreateAudit = proplists:get_value(audit, Options, false),
@@ -434,7 +429,7 @@ create_check_channel(Channel, Options) ->
         CreateAudit ->
             try
                 A = list_to_existing_atom(?AUDIT(Channel)),
-                AP = imem_meta:partitioned_table_name_str(A,?TRANS_TIME),
+                AP = imem_meta:partitioned_table_name_str(A,?TIME_UID),
                 imem_meta:check_local_table_copy(list_to_existing_atom(AP)),     %% throws if table is not locally resident
                 A
             catch 
@@ -465,17 +460,20 @@ create_check_channel(Channel, Options) ->
     imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, "")),
     ok.
 
--spec create_table(binary()|atom(),list(),list(),atom()|integer) -> ok.
-create_table(Name,[],_TOpts,Owner) when is_atom(Name) ->
-    create_table(list_to_binary(atom_to_list(Name)),[],_TOpts,Owner);
-create_table(Channel,[],_TOpts,Owner) when is_binary(Channel) ->
+-spec create_table(ddSimpleTable(), ddTableMeta(), ddOptions(), ddEntityId()) -> {ok, ddString()}.
+create_table(Name, [], _TOpts, Owner) when is_atom(Name) ->
+    create_table(list_to_binary(atom_to_list(Name)), [], _TOpts, Owner);
+create_table(Channel, [], TOpts, Owner) when is_list(Channel) ->
+    create_table(list_to_binary(Channel), [], TOpts, Owner);
+create_table(Channel, [], _TOpts, Owner) when is_binary(Channel) ->
     Tab = binary_to_atom(table_name(Channel),utf8),
-    ok = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
+    {ok, QTN} = imem_meta:create_table(Tab, {record_info(fields, skvhTable),?skvhTable, #skvhTable{}}, ?TABLE_OPTS, Owner),
     AC = list_to_atom(?AUDIT(Channel)),
-    ok = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
-    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history],"")),
+    {ok, _} = imem_meta:create_table(AC, {record_info(fields, skvhAudit),?skvhAudit, #skvhAudit{}}, ?AUDIT_OPTS, Owner),
+    ok = imem_meta:create_or_replace_trigger(binary_to_atom(Channel,utf8), skvh_trigger_fun_str([audit,history], "")),
     HC = list_to_atom(?HIST(Channel)),
-    ok = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner).
+    {ok, _} = imem_meta:create_table(HC, {record_info(fields, skvhHist),?skvhHist, #skvhHist{}}, ?HIST_OPTS, Owner),
+    {ok, QTN}.
 
 add_if(F, Opts, Code) ->
     case lists:member(F,Opts) of
@@ -524,37 +522,51 @@ build_aux_table_info(Table) ->
 	{AuditTable,TransTime} = audit_table_time(Channel),
     {AuditTable,HistoryTable,TransTime,Channel}.
 
-% truncate table
 audit_info(User,_Channel,AuditTable,TransTime,{},{}) ->
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=sext:encode(undefined),
-                             ovalue=undefined,nvalue=undefined,cuser=User}}];
-% delete old rec
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=sext:encode(undefined),
+                             ovalue=undefined,
+                             nvalue=undefined,
+                             cuser=User}}
+    ];  % truncate table
 audit_info(User,_Channel,AuditTable,TransTime,OldRec,{}) ->
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=element(2,OldRec),
-                             ovalue=element(3,OldRec),nvalue=undefined,
-                             cuser=User}}];
-% insert new rec
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=element(2,OldRec),
+                             ovalue=element(3,OldRec),
+                             nvalue=undefined,
+                             cuser=User}}
+    ];  % delete old rec
 audit_info(User,_Channel,AuditTable,TransTime,{},NewRec) ->
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=element(2,NewRec),
-                             ovalue=undefined,nvalue=element(3,NewRec),
-                             cuser=User}}];
-% update value
-audit_info(User,_Channel,AuditTable,TransTime,OldRec,NewRec)
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=element(2,NewRec),
+                             ovalue=undefined,
+                             nvalue=element(3,NewRec),
+                             cuser=User}}
+    ];  % insert new rec
+audit_info(User, _Channel, AuditTable, TransTime, OldRec, NewRec)
   when element(2,OldRec) == element(2,NewRec) ->
     OldKey = element(2,OldRec),
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=OldKey,
-                             ovalue=element(3,OldRec),nvalue=element(3,NewRec),
-                             cuser=User}}];
-% delete and insert
-audit_info(User,Channel,AuditTable,TransTime,OldRec,NewRec) ->
-    {AuditTable1, TransTime1} = audit_table_next(AuditTable,TransTime,Channel),
+    [{AuditTable, #skvhAudit{time=TransTime,
+                             ckey=OldKey,
+                             ovalue=element(3,OldRec),
+                             nvalue=element(3,NewRec),
+                             cuser=User}}
+    ];  % update value
+audit_info(User, Channel, AuditTable, TransTime, OldRec, NewRec) ->
+    {AuditTable1, TransTime1} = audit_table_next(AuditTable, TransTime, Channel),
     OldKey = element(2,OldRec),
     NewKey = element(2,NewRec),
-    [{AuditTable, #skvhAudit{time=TransTime,ckey=OldKey,
-                             ovalue=element(3,OldRec),nvalue=undefined,
-                             cuser=User}},
-     {AuditTable1, #skvhAudit{time=TransTime1,ckey=NewKey,ovalue=undefined,
-                              nvalue=element(3,NewRec),cuser=User}}].
+    [{AuditTable,  #skvhAudit{time=TransTime, 
+                              ckey=OldKey,
+                              ovalue=element(3,OldRec),
+                              nvalue=undefined,
+                              cuser=User}},
+     {AuditTable1, #skvhAudit{time=TransTime1, 
+                              ckey=NewKey,
+                              ovalue=undefined,
+                              nvalue=element(3,NewRec),
+                              cuser=User}}
+    ].  % delete and insert
 
 audit_recs_time(A) when is_record(A, skvhAudit) -> A#skvhAudit.time;
 audit_recs_time({_,A}) when is_record(A, skvhAudit) -> A#skvhAudit.time;
@@ -566,12 +578,9 @@ audit_write_noop(User, Channel, Key) ->
         [] -> no_op;
         [#{cvalue := Value}] ->
             AuditNoop = fun() ->
-                {AuditTable, TransTime} = audit_table_time(
-                    binary_to_list(Channel)),
-                SkvhRec = #skvhTable{ckey = imem_datatype:term_to_binterm(Key),
-                                      cvalue = Value},
-                AuditInfo = audit_info(User,Channel,AuditTable,TransTime,
-                    SkvhRec,SkvhRec),
+                {AuditTable, TransTime} = audit_table_time(binary_to_list(Channel)),
+                SkvhRec = #skvhTable{ckey=imem_datatype:term_to_binterm(Key), cvalue=Value},
+                AuditInfo = audit_info(User, Channel, AuditTable, TransTime, SkvhRec,SkvhRec),
                 write_audit(AuditInfo)
             end,
             imem_meta:return_atomic(imem_meta:transaction(AuditNoop))
@@ -579,13 +588,14 @@ audit_write_noop(User, Channel, Key) ->
 
 write_audit([]) -> ok;
 write_audit([{AuditTable, #skvhAudit{} = Rec}|Rest]) ->
-    ok = imem_meta:write(AuditTable,Rec),
+    ok = imem_meta:write(AuditTable, Rec),
     write_audit(Rest).
 
 write_history(_HistoryTable, []) -> ok;
-write_history(HistoryTable, [{_AuditTable,#skvhAudit{time=T,ckey=K,
-                                                     ovalue=O,nvalue=N,
-                                                     cuser=U}}|Rest]) ->
+write_history(HistoryTable, [{ _AuditTable
+                             , #skvhAudit{time=T, ckey=K, ovalue=O, nvalue=N, cuser=U}
+                             } | Rest
+                            ]) ->
     if O == N andalso N == undefined ->
         ok = imem_meta:truncate_table(HistoryTable);
         true -> ok
@@ -958,25 +968,22 @@ hist_read(User, Channel, [DecodedKey | DecodedKeys]) ->
 
 -spec hist_read_deleted(ddEntityId(), binary(), term()) -> binary().
 hist_read_deleted(User, Channel, DecodedKey) ->
-[#{cvhist := [#{ovalue := Value} |_]}] = hist_read(User, Channel, [DecodedKey]),
+    [#{cvhist := [#{ovalue := Value} |_]}] = hist_read(User, Channel, [DecodedKey]),
     Value.
 
 -spec prune_history(ddEntityId(), binary()) -> list().
 prune_history(User, Channel) ->
-    Time = os:timestamp(),
+    Time = ?TIME_UID,
     HistoryTable = ?HIST_FROM_STR(binary_to_list(Channel)),
     PruneFun = fun(#{ckey := Key, cvalue := Value}, _) ->
         EKey = imem_datatype:term_to_binterm(Key),
         {HistTime, OValue, NValue, CUser} = case 
             hist_read(User, Channel, [Key]) of
-            [] ->
-                {Time, undefined, Value, User};
-            [#{cvhist := Hist}] ->
-                    prune_cvhist(Hist, Value, Time, User)
+            [] ->                   {Time, undefined, Value, User};
+            [#{cvhist := Hist}] ->  prune_cvhist(Hist, Value, Time, User)
         end,
         imem_meta:write(HistoryTable, 
-            #skvhHist{ckey=EKey, cvhist=[#skvhCL{time=HistTime, ovalue=OValue,
-                                                 nvalue=NValue, cuser=CUser}]})
+            #skvhHist{ckey=EKey, cvhist=[#skvhCL{time=HistTime, ovalue=OValue, nvalue=NValue, cuser=CUser}]})
     end,
     foldl(User, PruneFun, [], Channel).
 
@@ -984,8 +991,7 @@ prune_history(User, Channel) ->
 prune_cvhist([], Value, Time, User) -> {Time, undefined, Value, User};
 prune_cvhist([#{nvalue := V, ovalue := V}|Rest], Value, Time, User) ->
     prune_cvhist(Rest, Value, Time, User);
-prune_cvhist([#{nvalue := NVal, ovalue := OVal, time := HistTime, 
-                       cuser := CUser} | _], NVal, _, _) ->
+prune_cvhist([#{nvalue := NVal, ovalue := OVal, time := HistTime, cuser := CUser} | _], NVal, _, _) ->
     {HistTime, OVal, NVal, CUser};
 prune_cvhist([#{nvalue := NVal}| _], Value, Time, User) ->
     {Time, NVal, Value, User}.
@@ -1387,7 +1393,7 @@ skvh_operations(_) ->
 
         %% audit_write_noop test
         write(system, ?Channel, [1, k], <<"{\"a\":\"a\"}">>),
-        Time = erlang:now(),
+        Time = ?TIME_UID,
         ok = audit_write_noop(system, ?Channel, [1,k]),
         AudNoop = audit_readGT(system, ?Channel, Time, 10),
         ?assertEqual(1, length(AudNoop)),
@@ -1456,8 +1462,7 @@ skvh_operations(_) ->
 {<<\"52015\">>,<<\"SMS-SUB-52015\">>,<<\"AaaEnabled\">>}	false">>,
 		TabRes1 = write(system, ?Channel, KVtab),
         ?assertEqual({ok,[<<"2FAJ6">>,<<"G8J8Y">>]}, TabRes1),
-        KVLong = 
-<<"{<<\"52015\">>,<<>>,<<\"AllowedContentTypes\">>}	\"audio/amr;audio/mp3;audio/x-rmf;audio/x-beatnic-rmf;audio/sp-midi;audio/imelody;audio/smaf;audio/rmf;text/x-imelody;text/x-vcalendar;text/x-vcard;text/xml;text/html;text/plain;text/x-melody;image/png;image/vnd.wap.wbmp;image/bmp;image/gif;image/ief;image/jpeg;image/jpg;image/tiff;image/x-xwindowdump;image/vnd.nokwallpaper;application/smil;application/postscript;application/rtf;application/x-tex;application/x-texinfo;application/x-troff;audio/basic;audio/midi;audio/x-aifc;audio/x-aiff;audio/x-mpeg;audio/x-wav;video/3gpp;video/mpeg;video/quicktime;video/x-msvideo;video/x-rn-mp4;video/x-pn-realvideo;video/mpeg4;multipart/related;multipart/mixed;multipart/alternative;message/rfc822;application/vnd.oma.drm.message;application/vnd.oma.dm.message;application/vnd.sem.mms.protected;application/vnd.sonyericsson.mms-template;application/vnd.smaf;application/xml;video/mp4;\"">>,
+        KVLong = <<"{<<\"52015\">>,<<>>,<<\"AllowedContentTypes\">>}	\"audio/amr;audio/mp3;audio/x-rmf;audio/x-beatnic-rmf;audio/sp-midi;audio/imelody;audio/smaf;audio/rmf;text/x-imelody;text/x-vcalendar;text/x-vcard;text/xml;text/html;text/plain;text/x-melody;image/png;image/vnd.wap.wbmp;image/bmp;image/gif;image/ief;image/jpeg;image/jpg;image/tiff;image/x-xwindowdump;image/vnd.nokwallpaper;application/smil;application/postscript;application/rtf;application/x-tex;application/x-texinfo;application/x-troff;audio/basic;audio/midi;audio/x-aifc;audio/x-aiff;audio/x-mpeg;audio/x-wav;video/3gpp;video/mpeg;video/quicktime;video/x-msvideo;video/x-rn-mp4;video/x-pn-realvideo;video/mpeg4;multipart/related;multipart/mixed;multipart/alternative;message/rfc822;application/vnd.oma.drm.message;application/vnd.oma.dm.message;application/vnd.sem.mms.protected;application/vnd.sonyericsson.mms-template;application/vnd.smaf;application/xml;video/mp4;\"">>,
         ?assertEqual({ok,[<<"206MFE">>]}, write(system, ?Channel, KVLong)),
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
@@ -1489,7 +1494,7 @@ skvh_operations(_) ->
 
         ?assertEqual([], read(system, ?Channel, [["1"]])),
 
-        BeforeInsert = imem:now(), %% os:timestamp(), % erlang:now(),
+        BeforeInsert = ?TIME_UID, 
 
         ?assertEqual(Map1, insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
         ?assertEqual(Map2, insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
@@ -1525,7 +1530,7 @@ skvh_operations(_) ->
         Map4Upd = #{ckey => ["1", "c"], cvalue => <<"{\"testKey\": \"c\", \"testNumber\": 150}">>, chash => <<"1RZ299">>},
         Map5Upd = #{ckey => ["1", "d"], cvalue => <<"{\"testKey\": \"d\", \"testNumber\": 400}">>, chash => <<"1DKGDA">>},
 
-        BeforeUpdate = imem:now(), %% os:timestamp(), % erlang:now(),
+        BeforeUpdate = ?TIME_UID, 
 
         %% Update using single maps
         Map1Done = update(system, ?Channel, Map1Upd),
@@ -1562,7 +1567,7 @@ skvh_operations(_) ->
         ?assertEqual([Map4, Map5], readGELT(system, ?Channel, MidleKey, LastKey, 10)),
         ?assertEqual([], readGELT(system, ?Channel, LastKey, [LastKey | "1"], 10)),
 
-        BeforeRemove = imem:now(), %% os:timestamp(), % erlang:now(),
+        BeforeRemove = ?TIME_UID, 
 
         %% Tests removing rows
         ?assertEqual(Map1Done, remove(system, ?Channel, Map1Done)),
@@ -1600,7 +1605,7 @@ skvh_operations(_) ->
         ResultAuditRemoves = [AuditRow#{time := {0,0,0}} || AuditRow  <- audit_readGT(system, ?Channel, BeforeRemove, 3)],
         ?assertEqual([AuditRemove1, AuditRemove2, AuditRemove3], ResultAuditRemoves),
 
-        % ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),   % may not work with os:timestamp()
+        % ?assertEqual([], audit_readGT(system, ?Channel, <<"now">>, 100)),   % may not work 
         ?assertEqual([], audit_readGT(system, ?Channel, <<"2100-01-01">>, 100)),
         ?assertEqual(11, length(audit_readGT(system, ?Channel, <<"1970-01-01">>, 100))),
 
@@ -1669,7 +1674,7 @@ skvh_operations(_) ->
         ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
         % ?LogDebug("success drop ~p", [skvhTestHist]),
 
-        ?assertEqual(ok, create_table(skvhTest,[],[],system)),
+        ?assertMatch({ok, _}, create_table(skvhTest,[],[],system)),
         % ?LogDebug("starting ~p", [drop_table]),
         ?assertEqual(ok, drop_table(skvhTest)),
         % ?LogDebug("success ~p~n", [drop_table]),
@@ -1688,31 +1693,31 @@ skvh_concurrency(_) ->
         ?LogDebug("---TEST---~p()", [skvh_concurrency]),
 
         TestKey = ["sum"],
-        % CreateResult = [create_table(Ch,[],[],system) || Ch <- ?Channels],  % serialized version
+        % CreateResult = [create_table(Ch, [], [], system) || Ch <- ?Channels],  % serialized version
         Self = self(),
         TabCount = length(?Channels),
-        [spawn(fun() -> Self ! {Ch,create_table(Ch,[],[],system)} end) || Ch <- ?Channels],
+        [spawn(fun() -> Self ! {Ch, create_table(Ch, [], [], system)} end) || Ch <- ?Channels],
         % ?LogDebug("success ~p", [bulk_create_spawned]),
-        CreateResult = receive_results(TabCount,[]),
+        CreateResult = receive_results(TabCount, []),
         ?assertEqual(TabCount, length(CreateResult)),
-        ?assertEqual([ok], lists:usort([ R || {_,R} <- CreateResult])),
+        ?assertEqual([ok], lists:usort([ R || {_,{R,_}} <- CreateResult])),
         % ?LogDebug("success ~p~n", [bulk_create_tables]),
 
-        [spawn(fun() -> Self ! {Ch,insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
+        [spawn(fun() -> Self ! {Ch, insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
         % ?LogDebug("success ~p", [bulk_insert_spawned]),
-        InitResult = receive_results(TabCount,[]),
+        InitResult = receive_results(TabCount, []),
         ?assertEqual(TabCount, length(InitResult)),
         % ?LogDebug("success ~p~n", [bulk_insert]),
 
-        [spawn(fun() -> Self ! {N1,update_test(hd(?Channels),TestKey,N1)} end) || N1 <- lists:seq(1,10)],
+        [spawn(fun() -> Self ! {N1, update_test(hd(?Channels), TestKey, N1)} end) || N1 <- lists:seq(1, 10)],
         % ?LogDebug("success ~p", [bulk_update_spawned]),
-        UpdateResult = receive_results(10,[]),
+        UpdateResult = receive_results(10, []),
         ?assertEqual(10, length(UpdateResult)),
         ?assertMatch([{skvhTable,_,<<"55">>,_}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
         % ?LogDebug("success ~p~n", [bulk_update]),
 
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
-        [spawn(fun() -> Self ! {Ch,drop_table(Ch)} end) || Ch <- ?Channels],
+        [spawn(fun() -> Self ! {Ch, drop_table(Ch)} end) || Ch <- ?Channels],
         % ?LogDebug("success ~p", [bulk_drop_spawned]),
         {timeout, 10, fun() -> ?assertEqual([ok], lists:usort([ R || {_,R} <- receive_results(TabCount,[])])) end},
         % ?LogDebug("success ~p~n", [bulk_drop_tables]),
@@ -1725,7 +1730,7 @@ skvh_concurrency(_) ->
     end,
     ok.
 
-update_test(Ch,Key,N) ->
+update_test(Ch, Key, N) ->
     Upd = fun() ->
         [RowMap] = read(system, Ch, [Key]),
         CVal = list_to_integer(binary_to_list(maps:get(cvalue,RowMap))) + N,

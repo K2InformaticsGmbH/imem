@@ -224,7 +224,7 @@ config_operations(_) ->
     try 
         ?LogDebug("---TEST--- ~p()", [config_operations]),
 
-        ?assertEqual(ok, imem_meta:create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
+        ?assertMatch({ok,_}, imem_meta:create_table(test_config, {record_info(fields, ddConfig),?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
         ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, test_owner, [test_context], test_value)),
         ?assertMatch([#ddConfig{hkl=[{?MODULE,test_param}],val=test_value}],imem_meta:read(test_config)), %% default created, owner set
         ?assertEqual(test_value,get_config_hlk(test_config, {?MODULE,test_param}, not_test_owner, [test_context], other_default)),

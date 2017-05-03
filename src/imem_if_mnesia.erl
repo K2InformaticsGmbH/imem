@@ -80,6 +80,10 @@
         , return_atomic/1
         , lock/2
         , abort/1
+        , integer_uid/0
+        , time_uid/0
+        , timestamp/0
+        , timestamp_diff/2
         ]).
 
 -export([ first/1
@@ -102,10 +106,10 @@
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
-                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = os:timestamp()}),
+                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write=?TIMESTAMP}),
                     ok;
                 [] ->
-                    __Now = os:timestamp(),
+                    __Now = ?TIMESTAMP,
                     true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now}),
                     ok
             end
@@ -128,6 +132,34 @@ disc_schema_nodes(Schema) when is_atom(Schema) ->
 
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
+
+% Monotonic, adapted, non-unique timestamp
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIMESTAMP
+-spec timestamp() -> ddTimestamp().
+timestamp() -> 
+    SystemTime = erlang:system_time(1000000),
+    {SystemTime div 1000000, SystemTime rem 1000000}.
+
+% Monotonic, adapted, non-unique timestamp difference
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIMESTAMP_DIFF
+-spec timestamp_diff(ddTimestamp(),ddTimestamp()) -> integer().
+timestamp_diff({Sec1, Micro1}, {Sec2, Micro2}) -> 1000000*(Sec2-Sec1)+Micro2-Micro1.
+
+% Monotonic, adapted, unique timestamp
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIME_UID
+-spec time_uid() -> ddTimeUID(). 
+time_uid() -> 
+    {Secs, Micros} = timestamp(),
+    {Secs, Micros, node(), erlang:unique_integer([monotonic, positive])}.
+
+% Unique integer per imem node (VM)
+% referenced with macro ?INTEGER_UID
+-spec integer_uid() -> integer().
+integer_uid() -> erlang:unique_integer([monotonic, positive]).
+
 
 return_atomic_list({atomic, L}) when is_list(L) -> L;
 return_atomic_list({aborted,{throw,{Exception,Reason}}}) -> throw({Exception,Reason});
@@ -152,7 +184,7 @@ abort(Reason) -> mnesia:abort(Reason).
 
 % init and store transaction time
 trans_time_init() ->
-    erlang:put(?TRANS_TIME_NAME,?TRANS_TIME).
+    erlang:put(?TRANS_TIME_NAME,?TIME_UID).
 
 transaction(Function) when is_atom(Function) ->
     case mnesia:is_transaction() of
@@ -223,8 +255,8 @@ field_pick_mapped(Tup,Pointers) when is_tuple(Tup) ->
     catch list_to_tuple([E || P <- Pointers, {I,E} <- lists:zip(lists:seq(1,length(EL)),EL),P==I]);    
 field_pick_mapped(_,_) -> {}.
 
-meta_field_value(<<"systimestamp">>) -> os:timestamp();
-meta_field_value(systimestamp) -> os:timestamp();
+meta_field_value(<<"systimestamp">>) -> ?TIME_UID;
+meta_field_value(systimestamp) -> ?TIME_UID;
 meta_field_value(<<"user">>) -> <<"unknown">>;
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(<<"sysdate">>) -> calendar:local_time();
@@ -332,6 +364,7 @@ check_local_table_copy(Table) ->
 
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
+-spec create_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
 create_table(Table, ColumnNames, Opts) ->
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
@@ -343,26 +376,28 @@ create_table(Table, ColumnNames, Opts) ->
 
 is_system_table(_) -> false.
 
-create_local_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_local_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_local_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- ColumnNames],
     CompleteOpts = add_attribute(Cols, Opts) -- [{scope,local}],
     create_table(Table, CompleteOpts).
 
-create_schema_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_schema_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_schema_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,schema}],
     create_local_table(Table,ColumnNames,CompleteOpts).
 
-create_cluster_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_cluster_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_cluster_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     %% ToDo: may need to pull from another imem schema first and initiate sync
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,cluster}],
     create_local_table(Table,ColumnNames,CompleteOpts).
 
-create_table(Table, Opts) when is_list(Table) ->
-    create_table(list_to_atom(Table), Opts);
+-spec create_table(ddMnesiaTable(), ddOptions()) -> ok.
 create_table(Table, Opts) when is_atom(Table) ->
     % ?LogDebug("imem_if_mnesia create table ~p ~p",[Table,Opts]),
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
@@ -387,6 +422,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             return_atomic_ok(Result)
     end.
 
+-spec wait_table_tries([ddMnesiaTable()], {integer(), integer()}) -> ok.
 wait_table_tries(Tables, {0, _}) ->
     ?ClientErrorNoLogging({"Loading table(s) timeout~p", Tables});
 wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
@@ -397,20 +433,22 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
         {error, Reason} ->              ?ClientErrorNoLogging({"Error loading table~p", Reason})
     end.
 
+-spec drop_table(ddMnesiaTable()) -> ok.
 drop_table(Table) when is_atom(Table) ->
-    case imem:spawn_sync_mfa(mnesia,delete_table,[Table]) of
+    case imem:spawn_sync_mfa(mnesia, delete_table, [Table]) of
         ok ->                           
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
         {atomic,ok} ->                  
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
-        {aborted,{no_exists,Table}} ->  
+        {aborted,{no_exists, Table}} ->  
             ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                        
             ?SystemExceptionNoLogging(Error)
     end.
 
+-spec create_index(ddMnesiaTable(), ddColumnName()) -> ok.
 create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
