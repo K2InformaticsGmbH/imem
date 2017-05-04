@@ -3,13 +3,17 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
-Version 1.6.3 (Release Data 28.04.2017)
+Version 1.7.0 (Release Date 03.05.2017)
+=======================================
+* Added new time methods to replace deprecated erlang:now 
+
+Version 1.6.3 (Release Date 28.04.2017)
 =======================================
 * OTP 19 support
 * [lager-3.4.2](https://github.com/K2InformaticsGmbH/lager/tree/3.4.2)
 * [Clustering between OTP18 and OTP19 fixed](https://github.com/K2InformaticsGmbH/imem/commit/b1f873fc763649a4d0d22a8e3750a18bb92f03fa)
 
-Version 1.6.2 (Release Data 12.04.2017)
+Version 1.6.2 (Release Date 12.04.2017)
 =======================================
 * Added node information to the metric results
 * metric modification support for noreply path
@@ -21,7 +25,7 @@ Version 1.6.2 (Release Data 12.04.2017)
 * [`jpparse-1.0.0`](https://github.com/K2InformaticsGmbH/jpparse/releases/tag/1.0.0)
 * [Bug Fixes](https://github.com/K2InformaticsGmbH/imem/issues?q=is%3Aclosed+milestone%3A1.6.2)
 
-Version 1.6.1 (Release Data 09.03.2017)
+Version 1.6.1 (Release Date 09.03.2017)
 =======================================
 * Added support for async request metrics from remote connection
 * Implemented driven sync reply
