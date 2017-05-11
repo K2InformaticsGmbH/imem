@@ -180,11 +180,7 @@ test_with_or_without_sec(IsSec) ->
         % Creating and loading some data into index_test table
         catch imem_meta:drop_table(idx_index_test),
         catch imem_meta:drop_table(index_test),
-        ?assertEqual(ok
-                     , imem_sql:exec(
-                         SKey
-                         , "create table index_test (col1 integer, col2 binstr not null);"
-                         , 0, imem, IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table index_test (col1 integer, col2 binstr not null);", 0, imem, IsSec)),
         [_] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         ?assertEqual(0, if_call_mfa(IsSec, table_size, [SKey, index_test])),
         TableData =

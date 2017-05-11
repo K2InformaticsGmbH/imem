@@ -9,6 +9,6 @@
                   , itemBin ::binary()
                   }
        ).
--define(ddSysConf, [atom,binstr,binary]).
+-define(ddSysConf, [atom, binstr, binary]).
 
 -endif.

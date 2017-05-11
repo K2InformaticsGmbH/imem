@@ -157,13 +157,13 @@ test_with_or_without_sec(IsSec) ->
                     {ddColumn,col2,integer,undefined,undefined,12,[]},
                     {ddColumn,col3,list,undefined,undefined,[],[]}
                 ],
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
         % ?LogDebug("Meta table~n~p~n", [Meta]),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
         ?assertEqual(Expected,element(3,Meta)),    
 
-        ?assertEqual(ok, imem_sql:exec(SKey, 
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, 
             "create cluster table truncate_test (col1 integer, col2 string);", 0, imem, IsSec)),
         if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,1,""}]),
         if_call_mfa(IsSec, write,[SKey,truncate_test,{truncate_test,2,"abc"}]),
@@ -178,15 +178,15 @@ test_with_or_without_sec(IsSec) ->
 
         Sql30 = "create loCal SeT table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
         % ?LogDebug("Sql30: ~p~n", [Sql30]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
         _TableDef = if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(),key_test}]),
         % ?LogDebug("TableDef: ~p~n", [_TableDef]),
 
         Sql40 = "create someType table def (col1 varchar2(10) not null, col2 integer);",
-        ?assertException(throw, {ClEr,{"Unsupported table option",{type,<<"someType">>}}}, imem_sql:exec(SKey, Sql40, 0, imem, IsSec)),
+        ?assertException(throw, {ClEr,{"Unsupported option", {type, <<"someType">>}}}, imem_sql:exec(SKey, Sql40, 0, imem, IsSec)),
         Sql41 = "create imem_meta table skvhTEST();",
-        ?assertException(throw, {ClEr,{"Invalid module name for table type",{type,imem_meta}}}, imem_sql:exec(SKey, Sql41, 0, imem, IsSec)),
+        ?assertException(throw, {ClEr,{"Invalid module name for table type", {type, imem_meta}}}, imem_sql:exec(SKey, Sql41, 0, imem, IsSec)),
         % ?LogDebug("Sql41: ~p~n", [Sql41]),
 
         Sql97 = "drop table key_test;",

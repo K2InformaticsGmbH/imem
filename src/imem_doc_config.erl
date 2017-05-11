@@ -45,37 +45,38 @@ get_mod({Mod, ModBin}) when is_binary(ModBin) ->
             % io:fwrite("~s~n", [erl_prettypr:format(erl_syntax:form_list(AC))]),
             % AST = erl_syntax:form_list(AC),
             % file:write_file("dump.ast",list_to_binary(io_lib:format("~p", [AST]))),
-            find(erl_syntax:form_list(AC));
+            {ok, App} = application:get_application(Mod),
+            find(App, Mod, erl_syntax:form_list(AC));
         Else -> error(Else)
     end.
 
-find({tree,form_list,{attr,0,[],none},Comps}) ->
-    find(Comps, []).
-find([], Acc) -> Acc;
+find(App, Mod, {tree,form_list,{attr,0,[],none},Comps}) ->
+    find(App, Mod, Comps, []).
+find(_App, _Mod, [], Acc) -> Acc;
 % get_config_hlk(_, Key, _, Context, Default, Documentation)
 % put_config_hlk(_, Key, _, Context, Value, _, Documentation)
-find([{call,_,{remote,_,{atom,_,imem_config},{atom,_,get_config_hlk}},
+find(App, Mod, [{call,_,{remote,_,{atom,_,imem_config},{atom,_,get_config_hlk}},
        [_,Key,_,_,Default|Rest]} | Comps], Acc) ->
     find(
-      Comps,
+      App, Mod, Comps,
       lists:usort(
         [list_to_tuple(
-           [ast2term(Key), ast2term(Default)
+           [ast2term(App, Mod, Key), ast2term(App, Mod, Default)
             | case Rest of
-                  [Doc] -> [ast2term(Doc)];
+                  [Doc] -> [ast2term(App, Mod, Doc)];
                   _ -> []
               end]) | Acc]
        ));
-find([C|Comps], Acc) when is_atom(C); is_integer(C); is_float(C); is_map(C) ->
-    find(Comps, Acc);
-find([C|Comps], Acc) -> find(Comps, find(C, Acc));
-find(C, Acc) when is_tuple(C) -> find(tuple_to_list(C), Acc).
+find(App, Mod, [C|Comps], Acc) when is_atom(C); is_integer(C); is_float(C); is_map(C) ->
+    find(App, Mod, Comps, Acc);
+find(App, Mod, [C|Comps], Acc) -> find(App, Mod, Comps, find(App, Mod, C, Acc));
+find(App, Mod, C, Acc) when is_tuple(C) -> find(App, Mod, tuple_to_list(C), Acc).
 
-ast2term({var,_,Var}) -> error({unsupported_var,Var});
-ast2term(AST) ->
+ast2term(App, Mod, {var,_,_Var}) -> {App, Mod, unknown_key};
+ast2term(App, Mod, AST) ->
     try
         {value, Value, _} = erl_eval:expr(erl_syntax:revert(AST),[]),
         Value
     catch
-        _:_ -> '$unknown'
+        _:_ -> {App, Mod, unknown_key}
     end.
