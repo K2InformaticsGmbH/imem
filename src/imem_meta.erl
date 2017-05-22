@@ -104,6 +104,7 @@
         , integer_uid/0
         , time_uid/0
         , time/0
+        , seconds_since_epoch/1
         , all_aliases/0
         , all_tables/0
         , tables_starting_with/1
@@ -531,6 +532,9 @@ time_uid() -> ?TIME_UID.
 % Monotonic, adapted timestamp with microsecond resolution and OS-dependent precision
 -spec time() -> ddTimestamp().
 time() -> ?TIMESTAMP.
+
+-spec seconds_since_epoch(ddTimestamp() | ddTimeUID() | ddDatetime() | {integer(),integer(),integer()}) -> undefined | integer().
+seconds_since_epoch(Time) -> imem_datatype:seconds_since_epoch(Time).
 
 % is_system_table({_S,Table,_A}) -> is_system_table(Table);   % TODO: May depend on Schema
 is_system_table({_,Table}) -> 
@@ -1875,7 +1879,7 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
             case catch list_to_integer(lists:reverse(RN)) of
                 P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
                     % timestamp partitiond and node sharded table alias
-                    PartitionEnd=integer_to_list(P*(element(1, Key) div P + 1)),    % {Sec,...}
+                    PartitionEnd=integer_to_list(P*(seconds_since_epoch(Key) div P + 1)),    % {Sec,...}
                     Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
                     {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
                     lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard());
@@ -1889,7 +1893,7 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
             case catch list_to_integer(lists:reverse(RN)) of
                 P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
                     % timestamp partitioned global (not node sharded) table alias
-                    PartitionEnd=integer_to_list(P*(element(1, Key) div P + 1)),    % {Sec,...}
+                    PartitionEnd=integer_to_list(P*(seconds_since_epoch(Key) div P + 1)),    % {Sec,...}
                     Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
                     {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
                     lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@_" );
@@ -1911,7 +1915,7 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
                             case catch list_to_integer(lists:reverse(RN)) of
                                 P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
                                     % timestamp partitiond and node sharded table alias
-                                    PartitionEnd=integer_to_list(P*(element(1, Key) div P + 1)),    % {Sec,...}
+                                    PartitionEnd=integer_to_list(P*(seconds_since_epoch(Key) div P + 1)),    % {Sec,...}
                                     Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
                                     {BaseName,_} = lists:split(length(N)-length(RN), N),
                                     lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ S);
