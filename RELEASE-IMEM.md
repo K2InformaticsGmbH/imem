@@ -3,18 +3,29 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
-Version 1.6.2 (Release Data 06.04.2017)
+Version 1.7.0 (Release Date 03.05.2017)
+=======================================
+* Added new time methods to replace deprecated erlang:now 
+
+Version 1.6.3 (Release Date 28.04.2017)
+=======================================
+* OTP 19 support
+* [lager-3.4.2](https://github.com/K2InformaticsGmbH/lager/tree/3.4.2)
+* [Clustering between OTP18 and OTP19 fixed](https://github.com/K2InformaticsGmbH/imem/commit/b1f873fc763649a4d0d22a8e3750a18bb92f03fa)
+
+Version 1.6.2 (Release Date 12.04.2017)
 =======================================
 * Added node information to the metric results
 * metric modification support for noreply path
 * Implemented safe callback function and suspend agent execution of metric for at least 2 seconds after a crash
 * fixed return value of request_metric on behaviour as the caller expect it to be ok, and the metric result should be sent as message
 * Changed request_metric from imem_sec to use imem_gen_metrics and pass the callback module as a parameter
+* Required nodes reutrned with elrang and data nodes metrics
 * [`sqlparse-2.0.0`](https://github.com/K2InformaticsGmbH/sqlparse/releases/tag/2.0.0)
 * [`jpparse-1.0.0`](https://github.com/K2InformaticsGmbH/jpparse/releases/tag/1.0.0)
 * [Bug Fixes](https://github.com/K2InformaticsGmbH/imem/issues?q=is%3Aclosed+milestone%3A1.6.2)
 
-Version 1.6.1 (Release Data 09.03.2017)
+Version 1.6.1 (Release Date 09.03.2017)
 =======================================
 * Added support for async request metrics from remote connection
 * Implemented driven sync reply

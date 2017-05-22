@@ -125,7 +125,7 @@ test_with_or_without_sec(IsSec) ->
 
         SKey=?imem_test_admin_login(),
 
-        ?assertEqual(ok, imem_sql:exec(SKey, "
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, "
             create table fun_test (
                 col0 integer default 12
               , col1 integer default fun(_,Rec) -> element(2,Rec)*element(2,Rec) end.
@@ -147,7 +147,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql1 = "create table def (col1 string, col2 integer, col3 term);",
         % ?LogDebug("Sql1: ~p~n", [Sql1]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql1, 0, [{schema,imem}], IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql1, 0, [{schema,imem}], IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
 
         [_Meta1] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
@@ -182,7 +182,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql2d = "create table def (col1 varchar2(10), col2 integer, col3 term);",
         % ?LogDebug("Sql2d: ~p~n", [Sql2d]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql2d, 0, [{schema,imem}], IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql2d, 0, [{schema,imem}], IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, def])),
 
         Sql3 = "insert into def (col1,col2) values ('C', 7+1);",  
@@ -254,7 +254,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql20 = "create table not_null (col1 varchar2 not null, col2 integer not null);",
         % ?LogDebug("Sql20: ~p~n", [Sql20]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql20, 0, [{schema,imem}], IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql20, 0, [{schema,imem}], IsSec)),
 
         [_Meta2] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,not_null}]),
         % ?LogDebug("Meta table not_null:~n~p~n", [_Meta2]),
@@ -275,7 +275,7 @@ test_with_or_without_sec(IsSec) ->
 
         Sql30 = "create table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
         % ?LogDebug("Sql30: ~p~n", [Sql30]),
-        ?assertEqual(ok, imem_sql:exec(SKey, Sql30, 0, [{schema,imem}], IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql30, 0, [{schema,imem}], IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, key_test])),
         _TableDef = if_call_mfa(IsSec, read, [SKey, key_test, {imem_meta:schema(),key_test}]),
         % ?LogDebug("TableDef: ~p~n", [_TableDef]),

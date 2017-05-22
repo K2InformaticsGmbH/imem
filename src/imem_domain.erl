@@ -150,7 +150,7 @@ string_new_random(StrDomain, _ChrDomain, <<>>) ->
     ok = imem_meta:write(ddDomTrans, #ddDomTrans{domKey={StrDomain, <<>>}, domTrans={StrDomain, <<>>}, domPattern=[], opts=[]}),
     <<>>;
 string_new_random(StrDomain, ChrDomain, BStr) ->
-    {StrDomain, K} = imem_meta:dirty_next(ddDomSample,{StrDomain, random:uniform()}),
+    {StrDomain, K} = imem_meta:dirty_next(ddDomSample,{StrDomain, rand:uniform()}),
     [#ddDomSample{domPattern=DP,opts=Opts}] = imem_meta:read(ddDomSample,{StrDomain,K}),
     Res = string_random_chars(StrDomain, ChrDomain, Opts, DP),
     ok = imem_meta:write(ddDomTrans, #ddDomTrans{domKey={StrDomain, BStr}, domTrans={StrDomain, Res}, domPattern=DP, opts=Opts}),
@@ -166,13 +166,13 @@ string_random_chars(StrDomain, ChrDomain, Opts, [Ch|Rest], Acc) when Ch==32;Ch==
 string_random_chars(StrDomain, ChrDomain, Opts, [Ch|Rest], Acc) when Ch==$(;Ch==$);Ch==$_;Ch==$&;Ch==$0 ->
     string_random_chars(StrDomain, ChrDomain, Opts, Rest, [Ch|Acc]);
 string_random_chars(StrDomain, ChrDomain, Opts, [$9|Rest], Acc) ->
-    string_random_chars(StrDomain, ChrDomain, Opts, Rest, [$0 + random:uniform(9)|Acc]);
+    string_random_chars(StrDomain, ChrDomain, Opts, Rest, [$0 + rand:uniform(9)|Acc]);
 string_random_chars(StrDomain, ChrDomain, Opts, [Ch|Rest], Acc) when Ch==$A;Ch==$a ->
-    {ChrDomain, K} = imem_meta:dirty_next(ddDomSample,{ChrDomain, random:uniform()}),
+    {ChrDomain, K} = imem_meta:dirty_next(ddDomSample,{ChrDomain, rand:uniform()}),
     [#ddDomSample{domPattern=DomPattern,domMin=DomMin}] = imem_meta:read(ddDomSample,{ChrDomain,K}),
     RanCh = case DomPattern of 
-        alfaAsciiChar when Ch==$A ->  64 + random:uniform(25);
-        alfaAsciiChar when Ch==$a ->  96 + random:uniform(25);
+        alfaAsciiChar when Ch==$A ->  64 + rand:uniform(25);
+        alfaAsciiChar when Ch==$a ->  96 + rand:uniform(25);
         unicodeChar ->                DomMin    % opts=Opts not used for now
     end,
     string_random_chars(StrDomain, ChrDomain, Opts, Rest, [RanCh|Acc]).

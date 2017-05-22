@@ -336,7 +336,7 @@ drop_seco_tables(SKey) ->
 
 seco_create(AppId,SessionId) -> 
     SessionCtx = #ddSessionCtx{appId=AppId, sessionId=SessionId},
-    SeCo = #ddSeCo{pid=self(), sessionCtx=SessionCtx, authTime=os:timestamp()},
+    SeCo = #ddSeCo{pid=self(), sessionCtx=SessionCtx, authTime=?TIMESTAMP},
     SKey = erlang:phash2(SeCo), 
     SeCo#ddSeCo{skey=SKey}.
 
@@ -747,7 +747,7 @@ find_re_hash(SeCo, Account, NewToken, [Type|Types]) ->
 
 re_hash( _ , {?PWD_HASH,_}, Token, Token, _) -> ok;   %% re_hash not needed, already using target hash
 re_hash(SeCo, FoundCred, OldToken, NewToken, Account) ->
-    Salt = crypto:rand_bytes(?SALT_BYTES),
+    Salt = crypto:strong_rand_bytes(?SALT_BYTES),
     Hash = hash(?PWD_HASH, Salt, NewToken),
     NewCreds = [{?PWD_HASH,{Salt,Hash}} | lists:delete(FoundCred,Account#ddAccount.credentials)],
     NewAccount = case NewToken of

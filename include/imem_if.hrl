@@ -1,8 +1,21 @@
 -ifndef(IMEM_IF_HRL).
 -define(IMEM_IF_HRL, true).
 
--type ddTimestamp() :: 'undefined' | {integer(), integer(), integer()}.
--type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}.
+-define(ERL_MIN_TERM,-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999).  %% Placeholder for minimum erlang term sorted range initialisations (compromise)            
+
+-type ddTimeUID() :: 'undefined' | ?ERL_MIN_TERM | {integer(), integer(), atom(), integer()}.   % {Secs,Micro,Node,UniqueInteger} see ?ERL_MIN_TERM
+-type ddTimestamp() :: 'undefined' | {integer(), integer()}.                    % {Secs,Micro}
+-type ddDatetime() :: 'undefined' | {{integer(), integer(), integer()},{integer(), integer(), integer()}}. % {{Y, M, D}, {Hour, Min, Sec}}
+-type ddString() :: list().
+-type ddBinStr() :: binary().
+-type ddIo() :: ddBinStr() | ddString().
+-type ddError() :: tuple().
+-type ddOption() :: atom() | {atom(), any()}.
+-type ddOptions() :: [ddOption()].
+-type ddMnesiaTable() :: atom().
+-type ddMnesiaIndex() :: atom().
+-type ddColumnName() :: atom() | binary().
+-type ddColumnList() :: [ddColumnName()].
 
 -record(snap_properties, { table
                          , last_write
@@ -10,9 +23,13 @@
                          }).
 -define(SNAP_ETS_TAB, snap_timer_tab).
 
--define(NoRec, {}).                      %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
+-define(NoRec, {}).                     %% Placeholder for nothing where a table record could stand (old record for insert / new record for delete)
 
--define(TRANS_TIME, imem:now()).                                    % Timestamp generator -> {Megas,Secs,Micros},  could be erlhlc:next_now/0)
+-define(INTEGER_UID, imem_if_mnesia:integer_uid()).                 % unique integer per imem node and reboot, used in timestamp generator or for other purposes 
+-define(TIME_UID, imem_if_mnesia:time_uid()).                       % Unique timestamp generator -> {Secs,Micros,Node,Counter}
+-define(TIMESTAMP, imem_if_mnesia:timestamp()).                     % Monotonic (non-unique) timestamp generator per node and reboot -> {Secs,Micros}
+-define(TIMESTAMP_DIFF(__A,__B), imem_if_mnesia:timestamp_diff(__A,__B)). % Time difference in Microseconds
+
 -define(TRANS_TIME_NAME,imem_if_transaction_time).                  % name of process variable for transaction time
 -define(TRANS_TIME_PUT(__TT),erlang:put(?TRANS_TIME_NAME,__TT)).    % store updated transaction time
 -define(TRANS_TIME_GET,erlang:get(?TRANS_TIME_NAME)).               % retrieve stored transaction time

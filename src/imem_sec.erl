@@ -7,6 +7,9 @@
 
 -export([ schema/1
         , schema/2
+        , integer_uid/1
+        , time_uid/1
+        , time/1
         , data_nodes/1
         , all_tables/1
         , is_readable_table/2
@@ -149,7 +152,25 @@ if_is_system_table(SKey,Table) when is_binary(Table) ->
         _:_ -> false
     end.
 
-%% imem_if but security context added --- META INFORMATION ------
+%% imem_meta but security context added --- META INFORMATION ------
+
+% Monotonic, unique per node restart integer
+-spec integer_uid(ddSeCoKey()) -> integer().
+integer_uid(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:integer_uid().
+
+% Monotonic, adapted, unique timestamp with microsecond resolution and OS-dependent precision
+-spec time_uid(ddSeCoKey()) -> ddTimeUID().
+time_uid(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:time_uid().
+
+% Monotonic, adapted timestamp with microsecond resolution and OS-dependent precision
+-spec time(ddSeCoKey()) -> ddTimestamp().
+time(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:time().
 
 schema(SKey) ->
     seco_authorized(SKey),
@@ -252,16 +273,16 @@ table_record_name(SKey, Table) ->
 table_size(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_size(Table);
-        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
+        false ->    ?SecurityException({"Select unauthorized", {Table, SKey}})
     end.
 
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
-        false ->    ?SecurityException({"Subscribe unauthorized", {Table,SKey}})
+        false ->    ?SecurityException({"Subscribe unauthorized", {Table, SKey}})
     end;
 subscribe(SKey, EventCategory) ->
-    ?SecurityException({"Unsupported event category", {EventCategory,SKey}}).
+    ?SecurityException({"Unsupported event category", {EventCategory, SKey}}).
 
 unsubscribe(_SKey, EventCategory) ->
     imem_meta:unsubscribe(EventCategory).
@@ -283,7 +304,7 @@ create_table(SKey, Table, RecordInfo, Opts) ->
     end,
     case Owner of
         false ->
-            ?SecurityException({"Create table unauthorized", {Table,SKey}});
+            ?SecurityException({"Create table unauthorized", {Table, SKey}});
         Owner ->
             imem_meta:create_table(Table, RecordInfo, Opts, Owner)
     end.
@@ -309,7 +330,7 @@ create_check_table(SKey, Table, RecordInfo, Opts) ->
                     B -> X#ddColumn{name=?binary_to_atom(B)} 
                 end
             end,
-            imem_meta:create_check_table(imem_meta:qualified_new_table_name(Table), lists:map(Conv,RecordInfo), Opts, Owner)
+            imem_meta:create_check_table(imem_meta:qualified_new_table_name(Table), lists:map(Conv, RecordInfo), Opts, Owner)
     end.
 
 create_sys_conf(SKey, Path) ->
@@ -1038,13 +1059,13 @@ test(_) ->
         % ?LogDebug("success ~p~n", [user_authentication]), 
         ?assertEqual(SeCoUser, change_credentials(SeCoUser, {pwdmd5,<<"PasswordMd5">>}, {pwdmd5,<<"NewPasswordMd5">>})),
         % ?LogDebug("success ~p~n", [password_changed]), 
-        Type123a = {[a,b,c],[term,term,term],{user_table_123,undefined,undefined,undefined}},
-        Type123b = {[a,b,a],[term,term,term],{user_table_123,undefined,undefined,undefined}},
-        Type123c = {[a,b,x],[term,term,term],{user_table_123,undefined,undefined,undefined}},
-        ?assertEqual(ok, create_table(SeCoUser, user_table_123, Type123a, [])),
+        Type123a = {[a, b, c], [term, term, term], {user_table_123, undefined, undefined, undefined}},
+        Type123b = {[a, b, a], [term, term, term], {user_table_123, undefined, undefined, undefined}},
+        Type123c = {[a, b, x], [term, term, term], {user_table_123, undefined, undefined, undefined}},
+        ?assertMatch({ok, _}, create_table(SeCoUser, user_table_123, Type123a, [])),
         % ?LogDebug("success ~p~n", [create_user_table]),
-        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, Type123b, [])),
-        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, Type123c, [])),
+        ?assertException(throw, {ClEr, {"Table already exists", user_table_123}}, create_table(SeCoUser, user_table_123, Type123b, [])),
+        ?assertException(throw, {ClEr, {"Table already exists", user_table_123}}, create_table(SeCoUser, user_table_123, Type123c, [])),
         % ?LogDebug("success ~p~n", [create_user_table]),
         ?assertEqual(0, table_size(SeCoUser, user_table_123)),
         % ?LogDebug("success ~p~n", [own_table_size]),

@@ -32,30 +32,27 @@ start(Channel, Id) when is_binary(Channel) andalso is_integer(Id) ->
 
 init([Channel, CtrlTable, OutputTable]) ->
     catch imem_meta:drop_table(CtrlTable),
-    ok = imem_meta:create_table(CtrlTable, {record_info(fields, loadControl),?loadControl,#loadControl{}}
-                           , [{record_name,loadControl}], system),
+    {ok, _} = imem_meta:create_table(CtrlTable, {record_info(fields, loadControl),?loadControl,#loadControl{}}, [{record_name,loadControl}], system),
     ok = imem_if_mnesia:write(CtrlTable, #loadControl{}),
-    ok = imem_if_mnesia:write(CtrlTable, #loadControl{ operation = audit
-                                              , keyregex = <<"01.01.1970 00:00:00">>}),
+    ok = imem_if_mnesia:write(CtrlTable, #loadControl{ operation = audit, keyregex = <<"01.01.1970 00:00:00">>}),
     ok = imem_if_mnesia:subscribe({table, CtrlTable, detailed}),
     catch imem_meta:drop_table(OutputTable),
-    ok = imem_meta:create_table(OutputTable, {record_info(fields, loadOutput),?loadOutput,#loadOutput{}}
-                           , [{record_name,loadOutput}], system),
+    {ok, _} = imem_meta:create_table(OutputTable, {record_info(fields, loadOutput),?loadOutput,#loadOutput{}}, [{record_name,loadOutput}], system),
     ok = imem_if_mnesia:write(OutputTable, #loadOutput{}),
     ok = imem_if_mnesia:write(OutputTable, #loadOutput{operation = audit}),
     Self = self(),
     F = fun(F) ->
             catch imem_if_mnesia:subscribe({table, schema}),
             receive
-                {mnesia_table_event,{delete,{schema,CtrlTable,_},_}} ->
-                    Self ! {die,{table_dropped,CtrlTable}};
-                {mnesia_table_event,{delete,{schema,OutputTable,_},_}} ->
-                    Self ! {die,{table_dropped,OutputTable}};
+                {mnesia_table_event, {delete, {schema, CtrlTable, _}, _}} ->
+                    Self ! {die, {table_dropped, CtrlTable}};
+                {mnesia_table_event, {delete, {schema, OutputTable, _}, _}} ->
+                    Self ! {die, {table_dropped, OutputTable}};
                 _ -> F(F)
             end
         end,
     spawn(fun() -> F(F) end),
-    {ok, #state{ctrl_table=CtrlTable, output_table = OutputTable, channel = Channel}}.
+    {ok, #state{ctrl_table=CtrlTable, output_table=OutputTable, channel=Channel}}.
 
 handle_call(Req, _From, State) -> io:format(user, "Unknown handle_call ~p~n", [Req]), {ok, Req, State}.
 handle_cast(Msg, State) -> io:format(user, "Unknown handle_cast ~p~n", [Msg]), {noreply, State}.
@@ -89,7 +86,7 @@ handle_info({mnesia_table_event, {write, CtrlTable,
         if State#state.reader_pid == undefined ->
                Parent = self(),
                spawn(fun() ->
-                             StartTime = os:timestamp(),
+                             StartTime = ?TIMESTAMP,
                              random_read_process(Parent, State#state.channel
                                                  , ReadDelay, (State#state.ltrc)#loadOutput.keys
                                                  , {StartTime, StartTime, 0})
@@ -118,7 +115,7 @@ handle_info({mnesia_table_event, {write, CtrlTable,
         if State#state.audit_reader_pid == undefined ->
                Parent = self(),
                spawn(fun() ->
-                             StartTime = os:timestamp(),
+                             StartTime = ?TIMESTAMP,
                              audit_read_process(Parent, State#state.channel
                                                , ReadDelay, Key, Limit
                                                , {StartTime, StartTime, 0})
@@ -141,7 +138,7 @@ handle_info({keys, Keys}, #state{ltrc = LTRec} = State) ->
     {noreply, State#state{ltrc = NewLTRec}};
 
 handle_info({read, Count, TDiffSec, Key, Value}, State) ->
-    NewLTRec = (State#state.ltrc)#loadOutput{ time = os:timestamp()
+    NewLTRec = (State#state.ltrc)#loadOutput{ time = ?TIMESTAMP
                                    , totalread = Count
                                    , rate = Count / TDiffSec
                                    , lastItem = Key
@@ -152,7 +149,7 @@ handle_info({read, Count, TDiffSec, Key, Value}, State) ->
 handle_info({read_audit, Count, TDiffSec, Value}, State) ->
     NewLTRec = (State#state.ltra)#loadOutput{
                                    operation = audit
-                                   , time = os:timestamp()
+                                   , time = ?TIMESTAMP
                                    , totalread = Count
                                    , rate = Count / TDiffSec
                                    , lastValue = Value },
@@ -171,6 +168,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 terminate(_Reason, _State) -> ok.
 
+
 keys_read_process(Parent, Channel, KeyRegex, FromKey, Limit) ->
     {ok, Keys} = imem_dal_skvh:readGT(system, Channel, <<"key">>, FromKey, Limit),
     FilteredKeys = [K || K <- Keys, re:run(K, KeyRegex) /= nomatch],
@@ -188,12 +186,12 @@ keys_read_process(Parent, Channel, KeyRegex, FromKey, Limit) ->
     end.
 
 random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Count}) ->
-    Key = lists:nth(random:uniform(length(Keys)), Keys),
+    Key = lists:nth(rand:uniform(length(Keys)), Keys),
     {ok, Value} = imem_dal_skvh:read(system, Channel, <<"value">>, Key),
-    Now = os:timestamp(),
-    TDiffUs = timer:now_diff(Now, LastUpdate),
+    Now = ?TIMESTAMP,
+    TDiffUs = ?TIMESTAMP_DIFF(Now, LastUpdate),
     {NewLastUpdate, NewCount} = if (TDiffUs > 1000000) ->
-                                       Parent ! {read, Count+1, timer:now_diff(Now, StartTime) / 1000000, Key, Value},
+                                       Parent ! {read, Count+1, ?TIMESTAMP_DIFF(Now, StartTime) / 1000000, Key, Value},
                                        {Now, Count + 1};
                                  true ->
                                        {LastUpdate, Count + 1}
@@ -206,9 +204,9 @@ random_read_process(Parent, Channel, ReadDelay, Keys, {StartTime, LastUpdate, Co
 audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {StartTime, LastUpdate, Count}) ->
     {ok, Values} = imem_dal_skvh:audit_readGT(system, Channel, <<"tkvuquadruple">>, Key, Limit),
     NewCount = Count + length(Values),
-    Now = os:timestamp(),
+    Now = ?TIMESTAMP,
     {NewLastUpdate, NewCount} = if length(Values) > 0->
-                                       Parent ! {read_audit, NewCount, timer:now_diff(Now,StartTime) / 1000000, lists:last(Values)},
+                                       Parent ! {read_audit, NewCount, ?TIMESTAMP_DIFF(Now, StartTime) / 1000000, lists:last(Values)},
                                        {Now, NewCount};
                                  true ->
                                        {LastUpdate, NewCount}
@@ -220,6 +218,5 @@ audit_read_process(Parent, Channel, ReadDelay, Key, Limit, {StartTime, LastUpdat
                                lists:nth(1, re:split(lists:last(Values), "\t"));
                            true -> Key
                         end,
-              audit_read_process(Parent, Channel, ReadDelay, NextKey
-                                 , Limit, {StartTime, NewLastUpdate, NewCount})
+              audit_read_process(Parent, Channel, ReadDelay, NextKey, Limit, {StartTime, NewLastUpdate, NewCount})
     end.

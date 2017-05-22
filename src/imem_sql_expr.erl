@@ -1590,8 +1590,12 @@ sort_fun_impl(string,F,<<"desc">>) ->
 sort_fun_impl(timestamp,F,<<"desc">>) -> 
     fun(X) -> 
         case F(X) of 
-            {Meg,Sec,Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
-                {-Meg,-Sec,-Micro};
+            {Sec, Micro} when is_integer(Sec), is_integer(Micro)->
+                {-Sec, -Micro};
+            {Meg, Sec, Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
+                {-1000000*Meg-Sec, -Micro};
+            {Sec, Micro, Node, Cnt} when is_integer(Cnt), is_integer(Sec), is_integer(Micro)->
+                {-Sec, -Micro, Node, -Cnt};
             V -> V
         end    
     end;
@@ -1763,13 +1767,13 @@ test_with_or_without_sec(IsSec) ->
                     , #ddColumn{name=b2, type=float, len=8, prec=3}   %% value
                     ],
 
-        ?assertEqual(ok, imem_sql:exec(anySKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "imem", IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(anySKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),    
 
-        ?assertEqual(ok, imem_sql:exec(anySKey, "create table meta_table_2 (a integer, b2 float);", 0, "imem", IsSec)),
+        ?assertMatch({ok, _}, imem_sql:exec(anySKey, "create table meta_table_2 (a integer, b2 float);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_2])),    
 
-        ?assertEqual(ok, imem_sql:exec(anySKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
+        ?assertMatch({ok,_}, imem_sql:exec(anySKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
         ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),    
         % ?LogDebug("success ~p~n", [create_tables]),
 

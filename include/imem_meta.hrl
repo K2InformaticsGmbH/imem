@@ -23,20 +23,19 @@
 		).
 
 -type ddEntityId() :: 	integer() | atom().
--type ddType() ::		atom() | tuple() | list().         %% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
+-type ddType() ::		atom() | tuple() | list().         	% term | list | tuple | integer | float | binary | string | ref | pid | ipaddr                  
 
--type schema() :: atom()|binary().
--type simpleTable() :: atom()|binary().
--type qualifiedTable() :: {schema(),simpleTable()}.
--type table() :: simpleTable()|qualifiedTable().
+-type ddSchema() :: atom() | binary().
+-type ddSimpleTable() :: ddMnesiaTable() | ddBinStr() | ddString().	% does not include a schema name
+-type ddQualifiedTable() :: {ddSchema(), ddSimpleTable()}.	% does include a schema name
+-type ddTable() :: ddSimpleTable() | ddQualifiedTable().	% may or may not include a schema name
+-type ddIndex() :: binary() | integer() | ddMnesiaIndex().	% binstr name or integer id or mnesia column (atom) 
 
--type columnName() :: atom()|binary().
--type columnType() :: atom().
--type columnDefault() :: any().
--type columnList() :: [columnName()].
--type typeList() :: [columnType()].
--type defaultList() :: [columnDefault()].
--type tableMeta() :: columnName()|{columnList(),typeList(),defaultList()}|[#ddColumn{}].
+-type ddColumnType() :: atom().
+-type ddColumnDefault() :: any().
+-type ddTypeList() :: [ddColumnType()].
+-type ddDefaultList() :: [ddColumnDefault()].
+-type ddTableMeta() :: [#ddColumn{}] | {ddColumnList(), ddTypeList(), ddDefaultList()}.
 
 -record(ddIdxDef, %% record definition for index definition              
 				  { id      :: integer()    %% index id within the table
@@ -100,7 +99,7 @@
 -define(ddTable, [tuple,list,list,userid,boolean]).
 
 -record(ddLog,                              %% log table    
-				  { logTime                 ::ddTimestamp()             %% erlang timestamp {Mega,Sec,Micro}
+				  { logTime                 ::ddTimeUID()           % ?TIME_UID
 				  , logLevel                ::atom()
 				  , pid                     ::pid()      
 				  , module                  ::atom()
@@ -117,17 +116,17 @@
 -record(ddNode,                             %% node    
 				  { name                    ::atom()                    %% erlang node name
 				  , wall_clock              ::integer()                 %% erlang:statistics(wall_clock)
-				  , time                    ::ddTimestamp()             %% erlang:now()
+				  , time                    ::ddTimestamp()             %% ?TIMESTAMP
 				  , extra                   ::list()      
 				  }
 	   ).
--define(ddNode, [atom,integer,timestamp,list]).
+-define(ddNode, [atom, integer, timestamp, list]).
 
 -record(ddSnap,                             %% snapshot
 				  { file                    ::binary()                  %% snapshot file name
 				  , type                    ::bkp|zip                   %% snapshot file type
 				  , size                    ::integer()                 %% snapshot file size in bytes
-				  , lastModified            ::ddTimestamp()             %% erlang:now()
+				  , lastModified            ::ddTimestamp()             %% ?TIMESTAMP
 				  }
 	   ).
 -define(ddSnap, [binstr,atom,integer,datetime]).
@@ -139,17 +138,8 @@
 	   ).
 -define(ddSchema, [tuple,list]).
 
--record(ddConfigHistory,                    %% config history record    
-				  { hkl_time                ::tuple()                   %% {[item,context1,context2,...],erlang:now()}
-				  , val                     ::any()                     
-				  , remark= <<"">>          ::binary()                  %% comments     
-				  , user                    ::integer()                     
-				  }
-	   ).
--define(ddConfigHistory, [{list,timestamp},term,binstr,integer]).
-
 -record(ddMonitor,                          %% monitor    
-				  { time                    ::ddTimestamp()             %% erlang:now()
+				  { time                    ::ddTimeUID()           	%% ?TIME_UID
 				  , node                    ::atom()                    %% erlang node name
 				  , memory=0                ::integer()                 %% erlang:memory(total)
 				  , process_count=0         ::integer()                 %% erlang:system_info(process_count)          
@@ -159,7 +149,7 @@
 				  , reductions=0            ::integer()                 %% erlang:statistics(reductions)
 				  , input_io=0              ::integer()                 %% erlang:statistics(Item :: io)
 				  , output_io=0             ::integer()                 %% erlang:statistics(Item :: io)
-				  , extra=[]                ::list()      
+				  , extra=[]                ::list()      				%% application dependent proplist
 				  }
 	   ).
 -define(ddMonitor, [timestamp,atom,integer,integer,integer,integer,integer,integer,integer,integer,list]).
