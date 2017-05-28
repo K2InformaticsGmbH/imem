@@ -879,18 +879,21 @@ to_json(true) -> true;
 to_json(false) -> false;
 to_json(null) -> null;
 to_json(B) when is_binary(B) ->
-    case catch imem_json:encode(imem_json:decode(B, [return_maps])) of 
-        JO when is_binary(JO) -> JO;
-        _ ->    B
+    try 
+        imem_json:decode(B)
+    catch _:_ -> B
     end;
-to_json(L) when is_list(L) ->
-    case catch imem_json:encode(L) of 
-        JO when is_binary(JO) -> JO;
-        _ ->    ?nav
+to_json(L) when is_list(L) -> L;
+    % case catch imem_json:encode(L) of 
+    %     JO when is_binary(JO) -> JO;
+    %     _ ->    ?nav
+    % end;
+to_json(M) when is_map(M) ->  
+    try 
+        imem_json:to_proplist(M)
+    catch _:_ ->  ?nav
     end;
-to_json(M) when is_map(M) ->  imem_json:encode(M);
 to_json(_) -> ?nav.
-
 to_pid(T) when is_pid(T) -> T;
 to_pid(B) -> 
     try imem_datatype:io_to_pid(B)
