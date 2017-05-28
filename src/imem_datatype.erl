@@ -1162,6 +1162,7 @@ db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
             (Type == json) andalso Val == ?nav ->           binstr_to_io(<<>>);
             (Type == json) andalso is_integer(Val) ->       integer_to_io(Val);
             (Type == json) andalso is_float(Val) ->         float_to_io(Val,Prec,NumFmt);
+            (Type == json) andalso is_binary(Val) ->        binstr_to_io(Val);            
             (Type == json) ->                               imem_json:encode(Val);
             true -> term_to_io(Val)
         end
