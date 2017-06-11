@@ -6,7 +6,7 @@
 -define( FilterFuns, 
             [ list, prefix_ul, concat, is_nav, is_val, is_key 
             , is_member, is_like, is_regexp_like, to_name, to_text
-            , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
+            , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple, list_to_binstr
             , to_atom, to_string, to_binstr, to_binary, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_time, to_datetime, to_ipaddr
@@ -84,6 +84,7 @@
         , to_ipaddr/1
         , to_name/1
         , to_text/1
+        , list_to_binstr/1
         ]).
 
 -export([ concat/2
@@ -142,6 +143,7 @@ unary_fun_bind_type("bit_size") ->              #bind{type=binary,default= <<>>}
 unary_fun_bind_type("map_size") ->              #bind{type=map,default= #{}};
 unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
 unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
+unary_fun_bind_type("list_to_binstr") ->        #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
 unary_fun_bind_type("md5") ->                   #bind{type=binstr,default= <<>>};
@@ -193,6 +195,7 @@ unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>}
 unary_fun_result_type("to_atom") ->             #bind{type=atom,default=?nav};
 unary_fun_result_type("to_binary") ->           #bind{type=binary,default=?nav};
 unary_fun_result_type("to_binstr") ->           #bind{type=binstr,default=?nav};
+unary_fun_result_type("list_to_binstr") ->      #bind{type=binstr,default=?nav};
 unary_fun_result_type("to_binterm") ->          #bind{type=binterm,default=?nav};
 unary_fun_result_type("to_boolean") ->          #bind{type=boolean,default=?nav};
 unary_fun_result_type("to_datetime") ->         #bind{type=datetime,default=?nav};
@@ -539,7 +542,7 @@ expr_fun({'or', A, B}) ->
 %% Unary custom filters
 expr_fun({Op, A}) when Op==safe_atom;Op==safe_binary;Op==safe_binstr;Op==safe_binterm;Op==safe_boolean;Op==safe_datetime;Op==safe_decimal;Op==safe_integer;Op==safe_ipaddr;Op==safe_json;Op==safe_float;Op==safe_json;Op==safe_list;Op==safe_map;Op==safe_name;Op==safe_pid;Op==safe_string;Op==safe_term;Op==safe_text;Op==safe_timestamp;Op==safe_tuple ->
     safe_fun(A);
-expr_fun({Op, A}) when Op==to_atom;Op==to_binary;Op==to_binstr;Op==to_binterm;Op==to_boolean;Op==to_datetime;Op==to_decimal;Op==to_json;Op==to_float;Op==to_integer;Op==to_json;Op==to_list ->
+expr_fun({Op, A}) when Op==to_atom;Op==to_binary;Op==to_binstr;Op==list_to_binstr;Op==to_binterm;Op==to_boolean;Op==to_datetime;Op==to_decimal;Op==to_json;Op==to_float;Op==to_integer;Op==to_json;Op==to_list ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op==to_map;Op==to_name;Op==to_number;Op==to_pid;Op==to_string;Op==to_term;Op==to_text;Op==to_timestamp;Op==to_time;Op==to_tuple ->
     unary_fun({Op, A});
@@ -958,6 +961,11 @@ to_binstr(I) when is_integer(I) -> list_to_binary(integer_to_list(I));
 to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
 to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
+
+list_to_binstr(X) -> 
+    try list_to_binary(io_lib:format("~s", [X]))
+    catch _:_ -> ?nav
+    end.
 
 to_binary(B) when is_binary(B) ->   B;
 to_binary(I) when is_integer(I) -> <<I/integer>>;
