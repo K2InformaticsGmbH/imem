@@ -3634,15 +3634,18 @@ meta_partitions(_) ->
 
         ?assert(lists:member({schema(), ?TPTEST0}, [element(2, A) || A <- read(ddAlias)])),
 
+        ?assert(lists:member({schema(), ?TPTEST0}, [element(2, A) || A <- read(ddAlias)])),
+        ?assertNot(lists:member({schema(), ?TPTEST2}, [element(2, A) || A <- read(ddAlias)])),
+
+        % ?LogDebug("parsed table names ~p", [[ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if_mnesia:read(ddAlias), S==schema()]]),
         ?assertException( throw
-                        , {'ClientError', {"Name conflict (different rolling period) in ddAlias", tpTest_100@}}
+                        , {'ClientError', {"Name conflict (different rolling period) in ddAlias", ?TPTEST2}}
                         , create_check_table( ?TPTEST2
                                              , {record_info(fields, ddLog), ?ddLog, #ddLog{}}
                                              , [{record_name,ddLog},{type,ordered_set}]
                                              , system
                                              )
                         ),  
-        ?assert(lists:member({schema(), ?TPTEST0}, [element(2, A) || A <- read(ddAlias)])),
 
         LogRec = #ddLog{ logTime=?TIME_UID, logLevel=info, pid=self()
                        , module=?MODULE, function=meta_partitions, node=node()
@@ -3713,7 +3716,7 @@ meta_partitions(_) ->
         ?assert(length(physical_table_names(fakelog_1@)) >= 2), % created by partition rolling
         ?assertEqual(ok, dirty_write(fakelog_1@, LogRec3#ddLog{logTime=?TIMESTAMP})), % can write to second partition (maybe third)
         FL3Tables = physical_table_names(fakelog_1@),
-        % ?LogDebug("Tables written ~p~n~p", [fakelog_1@, FL3Tables]), 
+        ?LogDebug("Tables written ~p~n~p", [fakelog_1@, FL3Tables]), 
         ?assert(length(FL3Tables) >= 3),
         timer:sleep(999),
         ?assert(length(physical_table_names(fakelog_1@)) >= 4),
