@@ -791,6 +791,12 @@ write(User, Cmd, SkvhCtx, [{K,V}|KVPairs], Acc)  ->
 	#skvhTable{chash=Hash} = imem_meta:merge(SkvhCtx#skvhCtx.mainAlias,#skvhTable{ckey=K,cvalue=V},User),
 	write(User,Cmd, SkvhCtx, KVPairs, [Hash|Acc]).
 
+%% delete for list of term keys
+delete(User, Channel, [_ | _] = Keys) when is_binary(Channel) ->
+    EKeys = [imem_datatype:term_to_binterm(K) || K <- Keys],
+    Cmd = [delete,User,Channel,Keys],
+    delete(User, Cmd, channel_ctx(Channel), EKeys, []);
+%% delete for io keys seperated by new line
 delete(User, Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 
 	Cmd = [delete,User,Channel,KeyTable],
 	delete(User, Cmd, channel_ctx(Channel), io_key_table_to_term_list(KeyTable), []).
