@@ -124,7 +124,7 @@ end
 
 -define(imem_test_admin_login, fun() -> 
     ?imem_test_admin_drop(),    
-    {pwdmd5,__Token} = imem_seco:create_credentials(pwdmd5,crypto:rand_bytes(50)),
+    {pwdmd5,__Token} = imem_seco:create_credentials(pwdmd5,crypto:strong_rand_bytes(50)),
     __AcId = imem_account:make_id(),
     imem_meta:write( ddAccount
                    , #ddAccount{ id=__AcId
