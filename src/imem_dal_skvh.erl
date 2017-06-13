@@ -1351,6 +1351,10 @@ skvh_operations(_) ->
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+        
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, [[1,a], [1,b], [1,c]])),
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
         % ?LogDebug("audit trail~n~p~n", [Aud]),
