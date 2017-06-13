@@ -24,6 +24,9 @@
         , del_dirtree/1
         , snap_file_count/0
         , exclude_table_pattern/1
+        , suspend_snap_loop/0
+        , start_snap_loop/0
+        , restart_snap_loop/0
         ]).
 
 % gen_server callbacks
