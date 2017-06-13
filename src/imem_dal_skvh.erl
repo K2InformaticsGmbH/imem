@@ -1358,10 +1358,10 @@ skvh_operations(_) ->
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
         % ?LogDebug("audit trail~n~p~n", [Aud]),
-        ?assertEqual(6, length(Aud)),
+        ?assertEqual(12, length(Aud)),
         {ok,Aud1} = audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
         % ?LogDebug("audit trail~n~p~n", [Aud1]),
-        ?assertEqual(6, length(Aud1)),
+        ?assertEqual(12, length(Aud1)),
         {ok,Aud2} = audit_readGT(system, ?Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
         timer:sleep(10), % windows wall clock may be 17ms behind
