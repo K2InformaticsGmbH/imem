@@ -8,7 +8,7 @@ Clustered in-memory database based on MNESIA with simple SQL layer.
 * Logging mechanism for time partitioned tables with automatic data ageing.
 * Snapshot/restore functions giving limited persistance gurantees, useful for consistent cold starts.
 
-####For changing the partition time of rolling tables
+#### For changing the partition time of rolling tables
 
 1. partition time in the dderl tables are saved in seconds.So 86400 corresponds to a day
 2. on [line 14 in imem_proll.erl](https://github.com/K2InformaticsGmbH/imem/blob/master/src/imem_proll.erl#L14) change the value of GET_PROLL_CYCLE_WAIT to 1 sec (replace 100000 to 1000)
