@@ -32,8 +32,9 @@ parse_transform(Forms, _Options) ->
                         _ -> false
                     end
             end, lists:zip(Functions, Exports))),
-        %io:format("UsedFunctions ~p~nUsedExports ~p~n",
-        %          [UsedFunctions, UsedExports]),
+        io:format("Forms ~p~n", [Forms]),
+        io:format("UsedFunctions ~p~nUsedExports ~p~n",
+                  [UsedFunctions, UsedExports]),
         case ins_exprts(UsedExports, Forms) of
             Forms -> Forms;
             Forms1 ->
