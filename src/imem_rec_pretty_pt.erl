@@ -8,27 +8,37 @@ parse_transform(Forms, _Options) ->
         {Functions, Exports} =
         lists:foldl(
           fun({attribute,_,record,{Record,RFields}}, {Funcs, Exports}) ->
-                  FieldNames =
-                  [case R of
-                       {record_field,_,{atom,_,N}} -> N;
-                       {record_field,_,{atom,_,N},_} -> N;
-                       {typed_record_field,{record_field,_,{atom,_,N}},_} -> N;
-                       {typed_record_field,{record_field,_,{atom,_,N},_},_} ->
-                           N
-                   end || R <- RFields],
-                  Fun = list_to_atom(atom_to_list(Record)++"_pretty"),
-                  {[rf(Record, Fun, FieldNames) | Funcs],
-                   [{attribute,1,export,[{Fun,1}]} | Exports]};
+                 FieldNames =
+                 [case R of
+                      {record_field,_,{atom,_,N}} -> N;
+                      {record_field,_,{atom,_,N},_} -> N;
+                      {typed_record_field,{record_field,_,{atom,_,N}},_} -> N;
+                      {typed_record_field,{record_field,_,{atom,_,N},_},_} ->
+                          N
+                  end || R <- RFields],
+                 Fun = list_to_atom(atom_to_list(Record)++"_pretty"),
+                 {[rf(Record, Fun, FieldNames) | Funcs],
+                  [{attribute,1,export,[{Fun,1}]} | Exports]};
              (_, Acc) -> Acc
           end, {[], []}, Forms),
         RecFuns = [F || {attribute,1,export,[{F,1}]} <- Exports],
-        io:format(user, "Functions ~p~n", [RecFuns]),
-        io:format(user, "Forms ~p~n", [Forms]),
-        case ins_exprts(Exports, Forms) of
+        CalledRecFuns = calls(Forms, RecFuns),
+        {UsedFunctions, UsedExports} =
+        lists:unzip(
+          lists:filter(
+            fun({{function,1,F,1,_}, {attribute,1,export,[{F,1}]}}) ->
+                    case lists:member(F, CalledRecFuns) of
+                        true -> true;
+                        _ -> false
+                    end
+            end, lists:zip(Functions, Exports))),
+        io:format("UsedFunctions ~p~nUsedExports ~p~n",
+                  [UsedFunctions, UsedExports]),
+        case ins_exprts(UsedExports, Forms) of
             Forms -> Forms;
             Forms1 ->
                 [{eof,_} = EOF | Rest] = lists:reverse(Forms1),
-                lists:reverse([EOF|Functions]++Rest)
+                lists:reverse([EOF|UsedFunctions]++Rest)
         end
     catch
         _:Error ->
@@ -37,15 +47,36 @@ parse_transform(Forms, _Options) ->
             Forms
     end.
 
-calls(Forms) -> calls(Forms, []).
-calls([], Acc) -> Acc;
-calls([{attribute,_,_,_}|Rest], Acc) -> calls(Rest, Acc);
-calls([{function,_,_,_,FBody}|Rest], Acc) -> calls(Rest, calls(FBody, Acc));
-calls([{clause,_,_,_,CBody}|Rest], Acc) -> calls(Rest, calls(CBody, Acc));
-calls([{call,_,{remote,_,_,_},CBody}|Rest], Acc) ->
-    calls(Rest, calls(CBody, Acc));
-calls([{cons,_,Cons,CTail}|Rest], Acc) ->
-    calls(Rest, calls(Cons, Acc));
+calls(Forms, RecFuns) -> calls(Forms, [], RecFuns).
+calls([], Acc, _RecFuns) -> lists:usort(Acc);
+calls([Head|Rest], Acc, RecFuns) ->
+    calls(Rest,
+          case filter_call(Head, RecFuns) of
+              skip -> Acc;
+              Calls when is_list(Calls) -> Calls ++ Acc;
+              Call -> [Call | Acc]
+          end, RecFuns).
+
+filter_call({function,_,_,_,FBody}, RecFuns) ->
+    calls(FBody, RecFuns);
+filter_call({clause,_,_,_,CBody}, RecFuns) ->
+    calls(CBody, RecFuns);
+filter_call({call,_,{atom,_,Fn},_}, RecFuns) ->
+    case lists:member(Fn, RecFuns) of
+        true -> Fn;
+        _ -> skip
+    end;
+filter_call({call,_,{remote,_,_,_},CBody}, RecFuns) ->
+    calls(CBody, RecFuns);
+filter_call({call,_,{'fun',_,{clauses,Clauses}},CBody}, RecFuns) ->
+    calls(Clauses, RecFuns) ++ calls(CBody, RecFuns);
+filter_call({tuple,_,Tuple}, RecFuns) ->
+    calls(Tuple, RecFuns);
+filter_call({cons,_,Cons,CTail}, RecFuns) ->
+    calls([CTail, Cons], RecFuns);
+filter_call(_Other, _RecFuns) ->
+    %io:format("SKIP ~p~n", [_Other]),
+    skip.
 
 ins_exprts(Exports, [_|_] = Forms) ->
     case lists:usort([lists:member(E, Forms) || E <- Exports]) of
