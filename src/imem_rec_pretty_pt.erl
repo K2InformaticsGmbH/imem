@@ -24,7 +24,7 @@ parse_transform(Forms, _Options) ->
         CalledRecFuns = calls(Forms, RecFuns),
         UsedFunctions = maps:values(maps:with(CalledRecFuns, Functions)),
         [{eof,_} = EOF | Rest] = lists:reverse(Forms),
-        lists:reverse([EOF|UsedFunctions]++Rest)
+        lists:reverse([EOF|UsedFunctions] ++ (Rest -- UsedFunctions))
     catch
         _:Error ->
             ?L("parse transform failed~n~p~n~p~n",
