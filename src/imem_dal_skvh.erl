@@ -128,6 +128,7 @@
         , get_longest_prefix/4
         , check_age_audit_entry/4 %% (User, Channel, Key, TS1)      returns the records if there is any for the key after the timestamp TS1
         , audit_write_noop/3 %% (User, Channel, Key)                creates an entry in audit table for channel wehere nvalue and ovalue are the same
+        , range_replace/5    %% (User, Channel, Key1, Key2, KVTable)  replaces all the data in the range Key1 to K2 with KVTable
         ]).
 
 -export([build_aux_table_info/1,
@@ -1075,6 +1076,31 @@ read_with_limit(Cmd, SkvhCtx, Item, MatchFunction, Limit) ->
 		true ->					project_result(Cmd, L, Item)
 	end.
 
+range_replace(User, Channel, CKey1, CKey2, KVTuples) when is_binary(Channel) ->
+    range_replace(User, atom_table_name(Channel), CKey1, CKey2, KVTuples);
+range_replace(User, TableName, CKey1, CKey2, KVTuples) ->
+    CKey1E = term_key_to_binterm(CKey1),
+    CKey2E = term_key_to_binterm(CKey2),
+    KVTuplesE = [{term_key_to_binterm(Key), Value} || {Key, Value} <- KVTuples],
+    imem_meta:transaction(fun range_replace_internal/5, [User, TableName, CKey1E, CKey2E, KVTuplesE]).
+
+range_replace_internal(User, TableName, done, _EndKey, RemainingKVs) ->
+    [imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value}, User) || {Key, Value} <- RemainingKVs];
+range_replace_internal(User, TableName, CurrentKey, EndKey, KVTuples) ->
+    {NKey, Tuples} = case imem_meta:next(TableName, CurrentKey) of
+        '$end_of_table' -> {done, KVTuples};
+        NextKey when NextKey > EndKey -> {done, KVTuples};
+        NextKey -> 
+            case lists:keytake(NextKey, 1, KVTuples) of
+                false -> 
+                    imem_meta:delete(TableName, NextKey),
+                    {NextKey, KVTuples};
+                {value, {Key, Value}, NewKVTuples} -> 
+                    imem_meta:merge(TableName, #skvhTable{ckey = Key, cvalue = Value}, User),
+                    {NextKey, NewKVTuples}
+            end
+    end,
+    range_replace_internal(User, TableName, NKey, EndKey, Tuples).
 
 deleteGELT(User, Channel, CKey1, CKey2, Limit) when is_binary(Channel), is_binary(CKey1), is_binary(CKey2) ->
 	Cmd = [deleteGELT, User, Channel, CKey1, CKey2, Limit],
@@ -1410,6 +1436,15 @@ skvh_operations(_) ->
         [#{cvhist := Hist3}] = hist_read(system, ?Channel, [[1,k]]),
         ?assertEqual(1, length(Hist3)),
         ?assertMatch([#{ovalue := undefined, nvalue := <<"{\"a\":\"a\"}">>}], Hist3),
+
+        %% range_replace test
+        write(system, ?Channel, ["a", "1"], <<"{\"a\":\"1\"}">>),
+        write(system, ?Channel, ["a", "2"], <<"{\"a\":\"2\"}">>),
+        write(system, ?Channel, ["a", "3"], <<"{\"a\":\"5\"}">>),
+        write(system, ?Channel, ["a", "4"], <<"{\"a\":\"4\"}">>),
+        range_replace(system, ?Channel, ["a"], ["a" | <<255>>], [{["a", "3"], <<"{\"a\":\"3\"}">>}]),
+        Rows = readGELT(system, ?Channel, ["a"], ["a" | <<255>>], 1),
+        ?assertMatch([#{ckey := ["a","3"], cvalue := <<"{\"a\":\"3\"}">>}], Rows),
 
 		?assertEqual(ok,imem_meta:truncate_table(skvhTest)),
 		?assertEqual(1,length(imem_meta:read(skvhTestHist))),
