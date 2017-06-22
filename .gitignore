@@ -11,4 +11,9 @@ deps
 *@*/
 snapshot/
 .rebar/
-priv/*.dll
+*.pdb
+priv/*
+nanots_vs/.vs
+nanots_vs/Debug
+nanots_vs/*.filters
+nanots_vs/*.db
