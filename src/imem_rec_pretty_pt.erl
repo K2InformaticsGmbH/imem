@@ -5,33 +5,26 @@
 
 parse_transform(Forms, _Options) ->
     try
-        {Functions, Exports} =
+        Functions =
         lists:foldl(
-          fun({attribute,_,record,{Record,RFields}}, {Funcs, Exports}) ->
-                  FieldNames = [case R of
-                                    {record_field,_,{atom,_,N}} -> N;
-                                    {record_field,_,{atom,_,N},_} -> N;
-                                    {typed_record_field,{record_field,_,{atom,_,N}},_} -> N;
-                                    {typed_record_field,{record_field,_,{atom,_,N},_},_} -> N
-                                end || R <- RFields],
-                  Fun = list_to_atom(atom_to_list(Record)++"_pretty"),
-                  {[rf(Record, Fun, FieldNames) | Funcs],
-                   [{attribute,1,export,[{Fun,1}]} | Exports]};
+          fun({attribute,_,record,{Record,RFields}}, Funcs) ->
+                 FieldNames =
+                 [case R of
+                      {record_field,_,{atom,_,N}} -> N;
+                      {record_field,_,{atom,_,N},_} -> N;
+                      {typed_record_field,{record_field,_,{atom,_,N}},_} -> N;
+                      {typed_record_field,{record_field,_,{atom,_,N},_},_} ->
+                          N
+                  end || R <- RFields],
+                 RecFun = list_to_atom(atom_to_list(Record)++"_pretty"),
+                 Funcs#{RecFun => rf(Record, RecFun, FieldNames)};
              (_, Acc) -> Acc
-          end, {[], []}, Forms),
-        case ins_exprts(Exports, Forms) of
-            Forms -> Forms;
-            Forms1 ->
-                [{eof,_} = EOF | Rest] = lists:reverse(Forms1),
-                lists:reverse([EOF|Functions]++Rest)
-                %case lists:reverse(Forms1) of
-                %    [{eof,_} = EOF | Rest] ->
-                %        lists:reverse([EOF|Functions]++Rest);
-                %    RevForms ->
-                %        ?L("RevForms ~p~n", [RevForms]),
-                %        Forms
-                %end
-        end
+          end, #{}, Forms),
+        RecFuns = maps:keys(Functions),
+        CalledRecFuns = calls(Forms, RecFuns),
+        UsedFunctions = maps:values(maps:with(CalledRecFuns, Functions)),
+        [{eof,_} = EOF | Rest] = lists:reverse(Forms),
+        lists:reverse([EOF|UsedFunctions] ++ (Rest -- UsedFunctions))
     catch
         _:Error ->
             ?L("parse transform failed~n~p~n~p~n",
@@ -39,25 +32,25 @@ parse_transform(Forms, _Options) ->
             Forms
     end.
 
-ins_exprts(Exports, [_|_] = Forms) ->
-    case lists:usort([lists:member(E, Forms) || E <- Exports]) of
-        [false] -> ins_exprts(Exports, {[], Forms});
-        _ -> Forms
+calls(Forms, RecFuns) -> calls(Forms, [], RecFuns).
+calls([], Acc, _RecFuns) -> lists:usort(Acc);
+calls({call,_,{atom,_,Fn},_}, Acc, RecFuns) ->
+    case lists:member(Fn, RecFuns) of
+        true -> [Fn | Acc];
+        _ -> Acc
     end;
-ins_exprts([], {Heads,Tail}) -> lists:reverse(Heads)++Tail;
-ins_exprts(Exports, {Heads, []}) ->
-    [{attribute,_,file,_} = F, {attribute,_,module,_} = M | R] = lists:reverse(Heads),
-    [F,M|Exports++R];
-ins_exprts(Exports, {Heads, [{attribute,_,export,_} = E | Tail]}) ->
-    ins_exprts([], {[E | Exports] ++ Heads, Tail});
-ins_exprts(Exports, {Heads, [F | Tail]}) ->
-    ins_exprts(Exports, {[F | Heads], Tail}).
+calls([Head|Rest], Acc, RecFuns) ->
+    calls(Rest, calls(Head, Acc, RecFuns), RecFuns);
+calls(Tuple, Acc, RecFuns) when is_tuple(Tuple) ->
+    calls(tuple_to_list(Tuple), Acc, RecFuns);
+calls(_, Acc, _RecFuns) -> Acc.
 
 rf(Record, Fun, FieldNames) ->
     Fmt =
     lists:flatten(
       ["#",atom_to_list(Record),"{",
-       string:join([atom_to_list(F)++" = ~p" || F <- lists:reverse(FieldNames)], ", "),
+       string:join([atom_to_list(F)++" = ~p"
+                    || F <- lists:reverse(FieldNames)], ", "),
        "}"]),
     {function,1,Fun,1,
      [{clause,1,
