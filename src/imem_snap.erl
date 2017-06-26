@@ -24,6 +24,9 @@
         , del_dirtree/1
         , snap_file_count/0
         , exclude_table_pattern/1
+        , suspend_snap_loop/0
+        , start_snap_loop/0
+        , restart_snap_loop/0
         ]).
 
 % gen_server callbacks
@@ -238,7 +241,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
     {noreply,
      case ?GET_CLUSTER_SNAPSHOT of
          true ->
-             {{Y,M,D},{H,_,_}} = calendar:local_time(),
+             {{Y,M,D},{H,_,_}} = imem_datatype:timestamp_to_local_datetime(imem_meta:time()),
              {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
              ZipFilePattern = lists:flatten(io_lib:format("backup_snapshot_~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
              BackupDir = filename:absname(SnapDir),
@@ -248,14 +251,13 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                          true -> State;
                          _ ->
                              erlang:send_after(
-                               1000, ?MODULE,
+                               60 * 1000, ?MODULE,
                                {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
                              State#state{csnap_pid = (#state{})#state.csnap_pid}
                      end;
                  _ ->
-                     ClusterSnapHour = ?GET_CLUSTER_SNAPSHOT_TOD,
-                     case calendar:local_time() of
-                         {{_,_,_},{ClusterSnapHour,_,_}} ->
+                     case ?GET_CLUSTER_SNAPSHOT_TOD of
+                         H ->
                              if Dir == '$create_when_needed' ->
                                     ?Info("cluster snapshot ~p", [Tables]);
                                 true -> ok
@@ -266,7 +268,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                                  true -> State;
                                  _ ->
                                      erlang:send_after(
-                                       1000, ?MODULE,
+                                       60 * 1000, ?MODULE,
                                        {cluster_snap, Tables, '$replace_with_timestamp', '$create_when_needed'}),
                                      State#state{csnap_pid = (#state{})#state.csnap_pid}
                              end

@@ -56,6 +56,7 @@
         , local_datetime_to_utc1970_seconds/1
         , local_datetime_to_utc1900_seconds/1
         , timestamp_to_local_datetime/1
+        , seconds_since_epoch/1
         ]).
 
 %   datatypes
@@ -910,6 +911,13 @@ timestamp_to_local_datetime({Secs, Micros, _, _}) -> timestamp_to_local_datetime
 timestamp_to_local_datetime({Secs, Micros}) -> timestamp_to_local_datetime({Secs div 1000000, Secs rem 1000000, Micros});
 timestamp_to_local_datetime({Megas, Secs, _}) -> calendar:now_to_local_time({Megas, Secs, 0}).
 
+-spec seconds_since_epoch(ddTimestamp() | ddTimeUID() | ddDatetime() | {integer(),integer(),integer()}) -> undefined | integer().
+seconds_since_epoch(undefined) -> undefined;
+seconds_since_epoch({Secs, Micros}) when is_integer(Secs), is_integer(Micros) -> Secs;
+seconds_since_epoch({Secs, _Micros, _Node, _UID}) when is_integer(Secs) -> Secs;
+seconds_since_epoch({Mega, Secs, _Micros}) when is_integer(Mega), is_integer(Secs) -> 1000000*Mega+Secs;
+seconds_since_epoch({Date, Time}) when is_tuple(Date), is_tuple(Time) -> local_datetime_to_utc1970_seconds({Date, Time}). 
+
 validate_date(Date) ->
     case calendar:valid_date(Date) of
         true ->     Date;
@@ -1154,6 +1162,7 @@ db_to_io(Type, Prec, DateFmt, NumFmt, _StringFmt, Val) ->
             (Type == json) andalso Val == ?nav ->           binstr_to_io(<<>>);
             (Type == json) andalso is_integer(Val) ->       integer_to_io(Val);
             (Type == json) andalso is_float(Val) ->         float_to_io(Val,Prec,NumFmt);
+            (Type == json) andalso is_binary(Val) ->        binstr_to_io(Val);            
             (Type == json) ->                               imem_json:encode(Val);
             true -> term_to_io(Val)
         end

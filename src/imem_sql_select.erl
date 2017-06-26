@@ -243,7 +243,7 @@ db1_with_or_without_sec(IsSec) ->
                 ?assert(imem_seco:have_permission(SKey, {eval_mfa,imem_sql_funs,filter_funs})),
                 exec_fetch_sort_equal(SKey, query3p1, 100, IsSec, Sql3p1
                     ,
-                    [{<<"list">>},{<<"list_to_tuple">>}]
+                    [{<<"list">>},{<<"list_to_binstr">>},{<<"list_to_tuple">>}]
                 ),
                 exec_fetch_sort_equal(SKey, query3p2, 100, IsSec, "
                     select item, hd(mfa('imem_sql_funs', 'filter_funs', '[]')) 
