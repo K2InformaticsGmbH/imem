@@ -46,8 +46,8 @@
 %% @doc Rownumber limit exported to be used by 3rd party APPs
 rownum_limit() -> ?GET_ROWNUM_LIMIT.
 
-%% @doc Reforms the main scan specification for the select statement 
-%% by binding now known values for tables with index smaller (scan) or equal (filter) to Ti. 
+%% @doc Reforms the main scan specification for the select statement
+%% by binding now known values for tables with index smaller (scan) or equal (filter) to Ti.
 %% Ti:      Table index (?MainIdx=2,JoinTables=3,4..)
 %% X:       Tuple structure known so far e.g. {{MetaRec},{MainRec}} for main table scan (Ti=2)
 %% ScanSpec:Scan specification record to be reworked and updated
@@ -84,7 +84,7 @@ bind_scan(Ti,X,ScanSpec0) ->
     end.
 
 %% @doc Reforms the main scan specification for a select statement on a virtual table
-%% by binding now known values for tables with index smaller (scan) or equal (filter) to Ti. 
+%% by binding now known values for tables with index smaller (scan) or equal (filter) to Ti.
 %% Ti:      Table index (JoinTables=3,4..)
 %% X:       Tuple structure known so far e.g. {{MetaRec},{MainRec},{MainTab}} for first join table
 %% ScanSpec:Scan specification record to be reworked and updated
@@ -109,7 +109,7 @@ bind_virtual(Ti,X,ScanSpec0) ->
             % ?LogDebug("SGuard after scan (~p) bind :~n~p~n", [Ti,to_guard(STree1)]),
             %% TODO: splitting into generator conditions and filter conditions
             %% For now, we assume that we only have generator conditions which define
-            %% the raw virtual rows (e.g. is_member() or item >=1 and item <=10) 
+            %% the raw virtual rows (e.g. is_member() or item >=1 and item <=10)
             SSpec1 = [{SHead, [STree1], [Result]}],             % was [to_guard(STree1)]
             FilterFun1 = imem_sql_funs:filter_fun(STree1),
             % ?LogDebug("FilterFun 1 ~p", [FilterFun1]),
@@ -137,14 +137,14 @@ uses_bind(_,_) -> false.
 % uses_bind(Ti,Ci,{_,A,B,C,D}) -> uses_bind(Ti,Ci,A) orelse uses_bind(Ti,Ci,B) orelse uses_bind(Ti,Ci,C)  orelse uses_bind(Ti,Ci,D);
 % uses_bind(_,_,_) -> false.
 
-%% Does this guard use the rownum meta field? If yes, return the comparison expression.   
+%% Does this guard use the rownum meta field? If yes, return the comparison expression.
 rownum_match({_,R}) ->                  rownum_match(R);
 rownum_match({_,?RownumBind,_}=C1) ->   C1;
 rownum_match({_,_,?RownumBind}=C2) ->   C2;
 rownum_match({_,L,R}) ->                case rownum_match(L) of
                                             false ->    rownum_match(R);
                                             Else ->     Else
-                                        end;    
+                                        end;
 rownum_match(_) ->                      false.
 
 %% Does expression tree contain operators which can generate data?
@@ -158,7 +158,7 @@ uses_operator(Op,{Op,_}) ->         true;
 uses_operator(Op,{Op,_,_}) ->       true;
 uses_operator(Op,{Op,_,_,_}) ->     true;
 uses_operator(Op,{Op,_,_,_,_}) ->   true;
-uses_operator(Op,[A|Rest]) ->       
+uses_operator(Op,[A|Rest]) ->
     case uses_operator(Op,A) of
         false ->    uses_operator(Op,Rest);
         true ->     true
@@ -188,7 +188,7 @@ uses_filter(BTree,[Op|Ops]) ->
 bind_value({const,Tup}) when is_tuple(Tup) -> {const,Tup};
 bind_value(#bind{} = Tup) ->                  Tup;
 bind_value(Tup) when is_tuple(Tup) ->         {const,Tup};
-bind_value(Other) ->                          Other.   
+bind_value(Other) ->                          Other.
 
 %% Is this expression tree completely bound?
 bind_done({list,[]}) -> true;   % ToDo: may need to abandon concept of tagged lists and use plain lists instead
@@ -215,27 +215,27 @@ bind_done(_) -> true.
 bind_eval({_, ?nav}) ->             ?nav;
 % Binary eval rules
 bind_eval({list,L}) when is_list(L) ->
-    BTL = [ bind_eval(Ele) || Ele <- L], 
+    BTL = [ bind_eval(Ele) || Ele <- L],
     case lists:usort([bind_done(El)|| El <- BTL]) of
         [false|_] ->    %% cannot simplify tree list here
-            {list,BTL};  
+            {list,BTL};
         [true] ->     %% BTree evaluates to a list of values
-            BTL 
+            BTL
     end;
 bind_eval(L) when is_list(L) ->     [bind_eval(Ele) || Ele <- L];
-bind_eval({from_binterm, {to_binterm,A}}) ->       bind_eval(A); 
-bind_eval({to_binterm, {from_binterm,A}}) ->       bind_eval(A); 
-bind_eval({'or', true, _}) ->       true; 
-bind_eval({'or', _, true}) ->       true; 
-bind_eval({'or', false, false}) ->  false; 
-bind_eval({'or', Left, false}) ->   Left;           % bind_eval(Left); 
-bind_eval({'or', false, Right}) ->  Right;          % bind_eval(Right); 
-bind_eval({'and', false, _}) ->     false; 
-bind_eval({'and', _, false}) ->     false; 
-bind_eval({'and', true, true}) ->   true; 
-bind_eval({'and', Left, true}) ->   Left;           % bind_eval(Left); 
-bind_eval({'and', true, Right}) ->  Right;          % bind_eval(Right); 
-bind_eval({'not', true}) ->         false; 
+bind_eval({from_binterm, {to_binterm,A}}) ->       bind_eval(A);
+bind_eval({to_binterm, {from_binterm,A}}) ->       bind_eval(A);
+bind_eval({'or', true, _}) ->       true;
+bind_eval({'or', _, true}) ->       true;
+bind_eval({'or', false, false}) ->  false;
+bind_eval({'or', Left, false}) ->   Left;           % bind_eval(Left);
+bind_eval({'or', false, Right}) ->  Right;          % bind_eval(Right);
+bind_eval({'and', false, _}) ->     false;
+bind_eval({'and', _, false}) ->     false;
+bind_eval({'and', true, true}) ->   true;
+bind_eval({'and', Left, true}) ->   Left;           % bind_eval(Left);
+bind_eval({'and', true, Right}) ->  Right;          % bind_eval(Right);
+bind_eval({'not', true}) ->         false;
 bind_eval({'not', false}) ->        true;
 bind_eval({'not', {'/=', Left, Right}}) -> {'==', Left, Right};
 bind_eval({'not', {'==', Left, Right}}) -> {'/=', Left, Right};
@@ -243,33 +243,33 @@ bind_eval({'not', {'=<', Left, Right}}) -> {'>',  Left, Right};
 bind_eval({'not', {'<', Left, Right}}) ->  {'>=', Left, Right};
 bind_eval({'not', {'>=', Left, Right}}) -> {'<',  Left, Right};
 bind_eval({'not', {'>', Left, Right}}) ->  {'=<', Left, Right};
-bind_eval({_, A, B}) when A==?nav;B==?nav -> ?nav; 
-bind_eval({'or', Same, Same}) ->    Same;           % bind_eval(Same); 
-bind_eval({'and', Same, Same}) ->    Same;          % bind_eval(Same); 
-bind_eval({'or', {'and', C, B}, A}) ->  
+bind_eval({_, A, B}) when A==?nav;B==?nav -> ?nav;
+bind_eval({'or', Same, Same}) ->    Same;           % bind_eval(Same);
+bind_eval({'and', Same, Same}) ->    Same;          % bind_eval(Same);
+bind_eval({'or', {'and', C, B}, A}) ->
     case {uses_filter(C),uses_filter(B),uses_filter(A)} of
         {true,false,false} ->       {'and', {'or', C, A}, {'or', A, B}};
         {false,true,false} ->       {'and', {'or', B, A}, {'or', C, A}};
         _ ->                        {'or', {'and', C, B}, A}
     end;
-bind_eval({'and', {'and', C, B}, A}) ->  
+bind_eval({'and', {'and', C, B}, A}) ->
     case {uses_filter(C),uses_filter(B),uses_filter(A)} of
         {true,false,false} ->       {'and', C, {'and', A, B}};
         {false,true,false} ->       {'and', B, {'and', C, A}};
         _ ->                        {'and', {'and', C, B}, A}
     end;
-bind_eval({'or', B, A} = G) ->  
+bind_eval({'or', B, A} = G) ->
     case {uses_filter(B),uses_filter(A)} of
         {false,true} ->             {'or', A, B};
         _ ->                        G
     end;
-bind_eval({'and', B, A} = G) ->  
+bind_eval({'and', B, A} = G) ->
     case {uses_filter(B),uses_filter(A)} of
         {false,true} ->             {'and', A, B};
         _ ->                        G
     end;
 % Operators and functions with 3 parameters
-bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav; 
+bind_eval({_, A, B, C}) when A==?nav;B==?nav;C==?nav -> ?nav;
 % Functions with 4 parameters
 bind_eval({_, A, B, C, D}) when A==?nav;B==?nav;C==?nav;D==?nav -> ?nav;
 bind_eval(BTree) ->
@@ -279,14 +279,14 @@ bind_eval(BTree) ->
     end.
 
 bind_fun(L) when is_list(L) ->
-    [bind_fun(I) || I <- L]; 
-bind_fun(BTF) when is_function(BTF) -> 
+    [bind_fun(I) || I <- L];
+bind_fun(BTF) when is_function(BTF) ->
     bind_value(BTF(anything));
-bind_fun(Value) -> 
+bind_fun(Value) ->
     bind_value(Value).
 
 
-%% @doc Binds unbound variables for Table Ti in a condition tree, means that all variables  
+%% @doc Binds unbound variables for Table Ti in a condition tree, means that all variables
 %% for tables with index smaller than Ti must be bound to values.
 %% Ti:      Table index (?MainIdx=2,JoinTables=3,4..)
 %% BTree:   Bind tree expression to be simplified by binding values to unbound variables.
@@ -296,10 +296,10 @@ bind_fun(Value) ->
 bind_table(Ti, BTree, X) ->
     % ?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
     case bind_tab(Ti, BTree, X) of
-        ?nav ->     
+        ?nav ->
             false;
         B ->
-            % ?LogDebug("bind_table result ~p",[B]),        
+            % ?LogDebug("bind_table result ~p",[B]),
             B
     end.
 
@@ -319,7 +319,7 @@ bind_tab(Ti, L, X) when is_list(L) ->   [bind_eval(bind_tab(Ti, E, X)) || E <- L
 bind_tab(_ , A, _) ->                   bind_value(A).
 
 
-%% @doc Transforms an expression tree into a matchspec guard by replacing bind records with their tag value.  
+%% @doc Transforms an expression tree into a matchspec guard by replacing bind records with their tag value.
 %% BTree:   Bind tree expression to be simplified by binding values to unbound variables.
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec to_guard(tuple()) -> tuple().
@@ -330,7 +330,7 @@ to_guard({Op,A,B}) ->           {Op,to_guard(A),to_guard(B)}; %% binary function
 to_guard({Op,A,B,C}) ->         {Op,to_guard(A),to_guard(B),to_guard(C)};
 to_guard({Op,A,B,C,D}) ->       {Op,to_guard(A),to_guard(B),to_guard(C),to_guard(D)};
 % to_guard(L) when is_list(L) ->  [bind_value(I) || I <- L];  % means that lists must be constants in guards
-to_guard(L) when is_list(L) ->  [to_guard(I) || I <- L];  
+to_guard(L) when is_list(L) ->  [to_guard(I) || I <- L];
 to_guard(A) ->                  A.
 
 %% @doc Binds all unbound variables in an expression tree in one pass.
@@ -353,7 +353,7 @@ bind_t(A, _) ->                  bind_value(A). % TODO: may need to bind lists h
 
 
 %% @doc Reforms the select field expression tree by evaluating
-%% constant terms in subtree (leaving header bind in place). 
+%% constant terms in subtree (leaving header bind in place).
 %% BTree:   Expression bind tree, to be simplified and transformed
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_subtree_const(binary()|tuple()) -> list().
@@ -367,7 +367,7 @@ bind_subtree_const(BTree) ->
     BTree.
 
 %% @doc Reforms the where clause boolean expression tree by pruning off
-%% terms which can only be known in the (next) join operation. 
+%% terms which can only be known in the (next) join operation.
 %% Ti:      Table Index
 %% WBTree:  where clause bind tree, to be simplified and transformed
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
@@ -409,7 +409,7 @@ prune_eval(BTree) -> bind_eval(BTree).
 %% @doc Reforms the where clause bind tree for the whole select into
 %% a database access description. DB access is done in a mnesia range query
 %% (described by a mnesia matchspec) and an optional filter function to be
-%% applied on the intermediate mnesia result. 
+%% applied on the intermediate mnesia result.
 %% WBTree:  Where clause bind tree, to be simplified and transformed
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec main_spec(#bind{}, list(#bind{})) -> #scanSpec{}.
@@ -421,12 +421,12 @@ main_spec(WBTree, FullMap) ->
     scan_spec(?MainIdx, PrunedTree, FullMap).
 
 %% @doc Reforms the where clause bind tree for the whole select into
-%% a database access description for all necessary join steps. 
+%% a database access description for all necessary join steps.
 %% Ti:      Table Index for the table to be joined
 %% WBTree:  Where clause bind tree, to be simplified and transformed
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec join_specs(integer(), #bind{}, list(#bind{})) -> list(#scanSpec{}).
-join_specs(Ti, WBTree, FullMap) -> 
+join_specs(Ti, WBTree, FullMap) ->
     join_specs(Ti, WBTree, FullMap, []).
 
 join_specs(?MainIdx, _, _, Acc)-> Acc;  %% done when looking at main table
@@ -444,7 +444,7 @@ join_specs(Ti, WBTree, FullMap, Acc)->
 %% Removes any optional rownum SQL condition by pretending that rownum = 1 (first row).
 %% The guard simplification will simplify the resulting condition into a true/false for
 %% the whole fetch. The limit given in the SQL is parsed out and passed to the scan spec
-%% where it will be used to clip the result rows. 
+%% where it will be used to clip the result rows.
 %% Guards:  Where clause bind tree, wrapped into a list, to be transformed to a scan spec
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec scan_spec(integer(), list(), list(#bind{})) -> #scanSpec{}.
@@ -468,7 +468,7 @@ scan_spec(Ti,STree0,FullMap) ->
     end,
     % ?LogDebug("STree0 (~p)~n~p~n", [Ti,to_guard(STree0)]),
     case {uses_generator(STree0),uses_bind(Ti-1,STree0),uses_filter(STree0)} of
-        {false,false,true} ->     
+        {false,false,true} ->
             %% we can do the split upfront here and pre-calculate SSpec, TailSpec and FilterFun
             {STree1,FTree} = split_filter_from_guard(STree0),
             % ?LogDebug("STree1 after split (~p)~n~p~n", [Ti,to_guard(STree1)]),
@@ -476,15 +476,15 @@ scan_spec(Ti,STree0,FullMap) ->
             SSpec = [{MatchHead, [to_guard(STree1)], ['$_']}],
             TailSpec = if Ti==?MainIdx -> ets:match_spec_compile(SSpec); true -> true end,
             FilterFun = imem_sql_funs:filter_fun(FTree),  %% TODO: Use bind tree and implicit binding
-            #scanSpec{sspec=SSpec,stree=true,tailSpec=TailSpec,ftree=true,filterFun=FilterFun,limit=Limit}; 
-        {true,false,true} ->     
-            %% we need a generator function, depending on meta binds at fetch time, cannot precalculate 
+            #scanSpec{sspec=SSpec,stree=true,tailSpec=TailSpec,ftree=true,filterFun=FilterFun,limit=Limit};
+        {true,false,true} ->
+            %% we need a generator function, depending on meta binds at fetch time, cannot precalculate
             SSpec = [{MatchHead, [undefined], ['$_']}],       %% will be split and reworked at fetch time
-            #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit}; 
-        {_,true,true} ->     
+            #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit};
+        {_,true,true} ->
             %% we may  need a filter function, depending on meta binds at fetch time
             SSpec = [{MatchHead, [undefined], ['$_']}],       %% will be split and reworked at fetch time
-            #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit}; 
+            #scanSpec{sspec=SSpec,stree=STree0,tailSpec=undefined,ftree=undefined,filterFun=undefined,limit=Limit};
         {_,false,false} ->
             %% we don't need filters and pre-calculate SSpec, TailSpec and FilterFun
             SSpec = [{MatchHead, [to_guard(STree0)], ['$_']}],
@@ -515,7 +515,7 @@ binstr_to_qname(Bin) when is_binary(Bin) ->
 %% <<"Schema.Table">> -> {<<"Schema">>,<<"Table">>}
 %% throws   ?ClientError
 -spec binstr_to_qname2(binary()) -> {undefined|binary(),binary()}.
-binstr_to_qname2(Bin) when is_binary(Bin) ->    
+binstr_to_qname2(Bin) when is_binary(Bin) ->
     case binstr_to_qname(Bin) of
         [T] ->      {undefined, T};
         [S,T] ->    {S, T};
@@ -540,17 +540,17 @@ binstr_to_qname3(Bin) when is_binary(Bin) ->
 %% throws   ?ClientError
 -spec qname2_to_binstr({undefined|binary(),binary()}) -> binary().
 qname2_to_binstr({undefined,N}) when is_binary(N) -> N;
-qname2_to_binstr({T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]). 
+qname2_to_binstr({T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]).
 
 %% @doc Convert a "field qualified name" of 3 levels into a binary string.
 %% <<"Schema.Table.Field">> -> {'Schema','Table','Field'}
 %% throws   ?ClientError
 -spec qname3_to_binstr({undefined|binary(),undefined|binary(),undefined|binary()}) -> binary().
-qname3_to_binstr({undefined,T,undefined}) when is_binary(T) -> T; 
-qname3_to_binstr({S,T,undefined}) when is_binary(S),is_binary(T) -> list_to_binary([S,".",T]); 
+qname3_to_binstr({undefined,T,undefined}) when is_binary(T) -> T;
+qname3_to_binstr({S,T,undefined}) when is_binary(S),is_binary(T) -> list_to_binary([S,".",T]);
 qname3_to_binstr({undefined,undefined,N}) when is_binary(N) -> N;
-qname3_to_binstr({undefined,T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]); 
-qname3_to_binstr({S,T,N}) when is_binary(S),is_binary(T),is_binary(N) -> list_to_binary([S,".",T,".",N]). 
+qname3_to_binstr({undefined,T,N}) when is_binary(T),is_binary(N) -> list_to_binary([T, ".", N]);
+qname3_to_binstr({S,T,N}) when is_binary(S),is_binary(T),is_binary(N) -> list_to_binary([S,".",T,".",N]).
 
 to_binstr(B) when is_binary(B) ->   B;
 to_binstr(I) when is_integer(I) -> list_to_binary(integer_to_list(I));
@@ -560,7 +560,7 @@ to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
 %% @doc Projects by name one record field out of a list of column maps.
 %% Map:     list of bind items
-%% Field:   atomic name in the record or constructed convenience field qname 
+%% Field:   atomic name in the record or constructed convenience field qname
 -spec column_map_items(list(#bind{}),atom()) -> list().
 column_map_items(Map, tag) ->
     [C#bind.tag || C <- Map];
@@ -591,7 +591,7 @@ column_map_items(_Map, Item) ->
 
 -spec is_readonly(#bind{}) -> boolean().
 is_readonly(#bind{tind=Ti}) when Ti > ?MainIdx -> true;
-is_readonly(#bind{tind=?MainIdx,cind=Ci}) when Ci>0 -> false;   
+is_readonly(#bind{tind=?MainIdx,cind=Ci}) when Ci>0 -> false;
 is_readonly(#bind{tind=?MainIdx,cind=0}) -> false;                                                  %% Vector field can be edited ??
 is_readonly(#bind{tind=0,cind=0,btree={_,#bind{tind=?MainIdx,cind=0}}}) -> false;                   %% Vector field can be edited ??
 is_readonly(#bind{tind=0,cind=0,btree={_,_,#bind{tind=?MainIdx,cind=0}}}) -> false;                 %% Vector field can be edited ??
@@ -601,11 +601,11 @@ is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{}}}) when Op==bytes;Op==bits -
 is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{},#bind{}}}) when Op==bytes;Op==bits -> false;    %% editable projections
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
 is_readonly(#bind{tind=0,cind=0,type=json}) -> false;
-is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]), 
+is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]),
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.
-%% Unnecessary meta fields will be purged later and remaining meta field bind positions 
+%% Unnecessary meta fields will be purged later and remaining meta field bind positions
 %% are corrected (not yet implemented).
 %% Tables:  given as list of parse tree 'from' descriptions. Table names are converted to physical table names.
 %% throws   ?ClientError
@@ -623,20 +623,20 @@ column_map_meta_fields([Name|Names], Ti, Acc) ->
     #ddColumn{type=Type,len=Len,prec=P,default=D} = imem_meta:meta_field_info(Name),
     S = ?atom_to_binary(imem_meta:schema()),
     Tag = list_to_atom(lists:flatten([$$,integer_to_list(?MetaIdx),integer_to_list(Cindex)])),
-    Bind=#bind{schema=S,table=?MetaTab,alias=?MetaTab,name=Name,tind=Ti,cind=Cindex,type=Type,len=Len,prec=P,default=D,tag=Tag}, 
+    Bind=#bind{schema=S,table=?MetaTab,alias=?MetaTab,name=Name,tind=Ti,cind=Cindex,type=Type,len=Len,prec=P,default=D,tag=Tag},
     column_map_meta_fields(Names, Ti, [Bind|Acc]).
 
 -spec column_map_param_fields(list(atom()), integer(), list(#bind{})) -> list(#bind{}).
 column_map_param_fields([], _Ti, Acc) -> lists:reverse(Acc);
 column_map_param_fields([Param|Params], Ti, Acc) ->
     case imem_datatype:is_datatype(element(?ParamTypeIdx,Param)) of
-        true -> 
+        true ->
             N = element(?ParamNameIdx,Param),           %% Parameter name as binary in first element of triple
             Type = element(?ParamTypeIdx,Param),   %% Parameter type (imem datatype) as second element
             Prec = element(?ParamPrecisionIdx,Param),  %% Parameter precision (for decimals)
             Cindex = length(Acc) + 1,       %% Ci of next param field, appended to meta fields
             Tag = list_to_atom(lists:flatten([$$,integer_to_list(?MetaIdx),integer_to_list(Cindex)])),
-            Bind=#bind{table=?ParamTab,alias=?ParamTab,name=N,tind=Ti,cind=Cindex,type=Type,prec=Prec,tag=Tag}, 
+            Bind=#bind{table=?ParamTab,alias=?ParamTab,name=N,tind=Ti,cind=Cindex,type=Type,prec=Prec,tag=Tag},
             column_map_param_fields(Params, Ti, [Bind|Acc]);
         false ->
             ?ClientError({"Invalid data type for parameter",{element(1,Param),element(2,Param)}})
@@ -661,9 +661,9 @@ column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
                 _ ->        ?ClientError({"A CSV table can only be the first table in a join", T})
             end,
             imem_meta:column_infos({S,T});
-        _ ->    
+        _ ->
             % case Ti of
-            %     ?MainIdx ->      
+            %     ?MainIdx ->
             %         case imem_meta:is_virtual_table(?binary_to_atom(T)) of
             %             true ->     ?ClientError({"Virtual table can only be joined", T});
             %             false ->    ok
@@ -675,8 +675,8 @@ column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
     Binds = [ #bind{schema=S,table=T,alias=A,tind=Ti,cind=Ci
                    ,type=Type,len=Len,prec=P,name=to_binstr(N)
                    ,default=D,tag=list_to_atom(lists:flatten([$$,integer_to_list(Ti),integer_to_list(Ci)]))
-                   } 
-          || {Ci, #ddColumn{name=N,type=Type,len=Len,prec=P,default=D}} <- 
+                   }
+          || {Ci, #ddColumn{name=N,type=Type,len=Len,prec=P,default=D}} <-
           lists:zip(lists:seq(?FirstIdx,length(Cols)+1), Cols)
         ],
     column_map_table_fields(Tables, Ti+1, Acc ++ Binds).
@@ -685,8 +685,8 @@ column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
 %% Bind records will be tagged with integers corresponding to the position in the select list (1..n).
 %% Bind records for metadata values will have tind=?MetaIdx and cind>0
 %% Expressions or functions will have tind=0 and cind=0 and are stored in btree as values or fun()
-%% Names pointing to table records have binds with tind>0 and cind=0. 
-%% Constant tuple values are wrapped with {const,Tup}   
+%% Names pointing to table records have binds with tind>0 and cind=0.
+%% Constant tuple values are wrapped with {const,Tup}
 %% Columns: list of field names or sql expression tuples (extended by erlang expression types)
 %% FullMap: list of #bind{}, one per declared field for involved tables
 %% Acc:     list of bind records
@@ -739,7 +739,7 @@ column_map_columns([{as, Expr, Alias}=PTree|Columns], FullMap, Acc) ->
     column_map_columns(Columns, FullMap, [Bind#bind{alias=Alias,readonly=R,ptree=PTree}|Acc]);
 column_map_columns([PTree|Columns], FullMap, Acc) ->
     % ?LogDebug("column_map 9 ~p ~p ~p~n", [PTree, is_binary(PTree),is_integer(PTree)]),
-    case expr(PTree,FullMap,#bind{}) of 
+    case expr(PTree,FullMap,#bind{}) of
         #bind{name=?Star} = CMap ->
             %% one * column retured for expansion
             column_map_columns([CMap|Columns], FullMap, Acc);
@@ -759,8 +759,8 @@ column_map_columns(Columns, FullMap, Acc) ->
 column_map_lookup(QN3,FullMap) ->
     case field_map_lookup(QN3,FullMap) of
         #bind{type=term,btree={from_binterm,Bind}} ->   Bind;   %% represent as binterm to the rowfuns
-        Other ->                                        Other   
-    end.                                
+        Other ->                                        Other
+    end.
 
 field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
     % ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,Name]),
@@ -772,7 +772,7 @@ field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
                    end,
     Pred = fun(__FM) ->
         ((NameIn == undefined) orelse (NameInString == string:to_lower(binary_to_list(__FM#bind.name))))
-        andalso ((Table == undefined) orelse (Table == __FM#bind.alias)) 
+        andalso ((Table == undefined) orelse (Table == __FM#bind.alias))
         andalso ((Schema == undefined) orelse (Schema == __FM#bind.schema))
     end,
     Bmatch = lists:filter(Pred, FullMap),
@@ -790,28 +790,28 @@ field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
     % ?LogDebug("column_map matching tables ~p~n", [Bmatch]),
     Tcount = length(lists:usort([{B#bind.schema, B#bind.alias} || B <- Bmatch])),
     % ?Debug("column_map matching table count ~p~n", [Tcount]),
-    if 
+    if
         (Tcount==0) andalso (Schema == undefined) andalso (Name /= undefined) ->
             case imem_datatype:strip_dquotes(Name) of
-                Name -> %% Maybe we got a table name {undefined,Schema,Table}  
+                Name -> %% Maybe we got a table name {undefined,Schema,Table}
                         field_map_lookup({Table,Name,undefined},FullMap);
                 UQN ->  %% try first with unquoted Name
                         field_map_lookup({Schema,Table,UQN},FullMap)
-            end;                        
+            end;
         (Tcount==0) andalso (Name == undefined) ->
             ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
         (Tcount==0) ->
             case imem_datatype:strip_dquotes(Name) of
                 Name -> ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
-                UQN ->  ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,UQN]), 
+                UQN ->  ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,UQN]),
                         field_map_lookup({Schema,Table,UQN},FullMap)
             end;
         (Tcount > 1) ->
             ?ClientError({"Ambiguous field or table name", qname3_to_binstr(QN3)});
-        (Name == undefined) ->         
+        (Name == undefined) ->
             Bind = hd(Bmatch),
             Bind#bind{type=tuple,cind=0};       %% bind to whole table record
-        true ->    
+        true ->
             binterm_arg_conv(hd(Bmatch))
     end.
 
@@ -819,47 +819,47 @@ binterm_arg_conv(#bind{type=binterm} = Bind) ->
     %% db field encoded as binary, must be decoded to term in where tree
     %% this conversion is removed for simple column expressions in column_map_lookup
     Bind#bind{tind=0,cind=0,type=term,btree={from_binterm,Bind}};
-binterm_arg_conv(Bind) -> 
+binterm_arg_conv(Bind) ->
     %% no transformation needed
-    Bind.    
+    Bind.
 
-%% 
+%%
 %% @doc Convert a parse tree item (hierarchical tree of binstr names, atom operators and erlang values)
 %% to an expression tree with embedded bind structures. Similar to ETS matchspec guards but using #bind{}
-%% instead of simple atomic v#bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}ariable names like '$1'or '$123'. Constant tuple values are wrapped with {const,Tup}   
+%% instead of simple atomic v#bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}ariable names like '$1'or '$123'. Constant tuple values are wrapped with {const,Tup}
 %% PTree:   ParseTree, binary text or tuple correcponding to a field name, a constant field value or an expression which can
-%%          depend on other constants or field variables      
+%%          depend on other constants or field variables
 %% FullMap: List of #bind{}, one per declared field for involved tables
 %% BindTemplate:    Bind record signalling the expected datatype properties of the expression to be evaluated.
-%% 
+%%
 -spec expr(list(),list(#bind{}),#bind{}) -> list(#bind{}).
 %% throws ?ClientError, ?UnimplementedException
-expr(PTree, FullMap, BindTemplate) when is_binary(PTree) -> 
+expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
     case {imem_datatype:strip_squotes(PTree),BindTemplate} of
         {PTree,_} ->
             %% This is not a string, must be a name or a number
             case (catch list_to_float(binary_to_list(PTree))) of
-                V when is_float(V) -> 
+                V when is_float(V) ->
                     #bind{tind=0,cind=0,type=float,readonly=true,btree=V};
                 _ ->
                     case (catch list_to_integer(binary_to_list(PTree))) of
-                        I when is_integer(I) ->  
+                        I when is_integer(I) ->
                             #bind{tind=0,cind=0,type=integer,readonly=true,btree=I};
                         _ ->
                             {S,T,N} = binstr_to_qname3(PTree),
                             case N of
-                                ?Star ->    
+                                ?Star ->
                                     #bind{schema=S,table=T,name=?Star};
                                 _ ->
                                     case BindTemplate#bind.type of
-                                        json -> 
+                                        json ->
                                             case (catch field_map_lookup({S,T,N},FullMap)) of
-                                                #bind{} = B ->  B;              % binding for resolved relational name has priority 
+                                                #bind{} = B ->  B;              % binding for resolved relational name has priority
                                                 _ ->            PTree           % leave json attribute name as binary
-                                            end;           
-                                        _ ->    
+                                            end;
+                                        _ ->
                                             field_map_lookup({S,T,N},FullMap)  %% N could be a table name here
-                                    end 
+                                    end
                             end
                     end
             end;
@@ -874,14 +874,14 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
             % ?Info("~p guessing for ~p -> ~p ~p",[T,B,Type,ValWrap]),
             #bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}
     end;
-expr({param,Name}, FullMap, _) when is_binary(Name) -> 
+expr({param,Name}, FullMap, _) when is_binary(Name) ->
     field_map_lookup({undefined,?ParamTab,Name},FullMap);
-expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) -> 
+expr({'fun',<<"list">>,L}, FullMap, _) when is_list(L) ->
     % #bind{type=list,btree=[expr(A,FullMap,#bind{type=term}) || A <- L]};
     #bind{type=list,btree={list,[expr(A,FullMap,#bind{type=term}) || A <- L]}};
-expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) -> 
+expr({'fun',<<"tuple">>,L}, FullMap, _) when is_list(L) ->
     #bind{type=tuple,btree={list_to_tuple,{list,[expr(A,FullMap,#bind{type=term}) || A <- L]}}};
-expr({'fun',Fname,[A]}=PTree, FullMap, _) -> 
+expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
     case imem_datatype:is_rowfun_extension(Fname,1) of
         true ->
             {S,T,N} = binstr_to_qname3(A),
@@ -889,57 +889,57 @@ expr({'fun',Fname,[A]}=PTree, FullMap, _) ->
             CMapA#bind{func=binary_to_existing_atom(Fname,utf8), ptree=PTree};
         false ->
             case imem_sql_funs:unary_fun_bind_type(Fname) of
-                undefined ->    
+                undefined ->
                     ?UnimplementedException({"Unsupported unary sql function", Fname});
                 BT ->
-                    try            
+                    try
                         Func = binary_to_existing_atom(Fname,utf8),
                         CMapA = expr(A,FullMap,BT),
                         #bind{type=Type} = imem_sql_funs:unary_fun_result_type(Fname),
                         #bind{type=Type,btree={Func,CMapA}}
                     catch
-                        _:{'ClientError',Reason} -> 
+                        _:{'ClientError',Reason} ->
                             ?ClientError(Reason);
-                        _:_ -> 
+                        _:_ ->
                             ?UnimplementedException({"Bad parameter for unary sql function", Fname})
                     end
             end
-    end;        
-expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) -> 
-    expr({'fun',<<"is_regexp_like">>,[A,B]}, FullMap, BT); 
-expr({'||',A,B}, FullMap, _) -> 
+    end;
+expr({'fun',<<"regexp_like">>,[A,B]}, FullMap, BT) ->
+    expr({'fun',<<"is_regexp_like">>,[A,B]}, FullMap, BT);
+expr({'||',A,B}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=binstr}),
     CMapB = expr(B,FullMap,#bind{type=binstr}),
     expr_concat(CMapA, CMapB);
-expr({'fun',<<"is_prefix">>,[A,B]}, FullMap, _) -> 
+expr({'fun',<<"is_prefix">>,[A,B]}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
     CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
     CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
     CMpLow = expr_comp('>=',CMapB,CMapA),
     CMpHigh = expr_comp('<',CMapB,CMapC),
     #bind{type=boolean,btree={'and',CMpLow,CMpHigh}};
-expr({'fun',<<"is_true_prefix">>,[A,B]}, FullMap, _) -> 
+expr({'fun',<<"is_true_prefix">>,[A,B]}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
     CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
     CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
     CMpLow = expr_comp('>',CMapB,CMapA),
     CMpHigh = expr_comp('<',CMapB,CMapC),
     #bind{type=boolean,btree={'and',CMpLow,CMpHigh}};
-expr({'fun',<<"is_prefix1">>,[A,B]}, FullMap, _) -> 
+expr({'fun',<<"is_prefix1">>,[A,B]}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
     CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
     CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
     CMpLow = expr_comp('>',CMapB,CMapA),
     CMpHigh = expr_comp('<',CMapB,CMapC),
     #bind{type=boolean,btree={'and',{'and',CMpLow,CMpHigh},{'==',{'length',CMapB},{'+',{'length',CMapA},1}}}};
-expr({'fun',<<"is_prefix2">>,[A,B]}, FullMap, _) -> 
+expr({'fun',<<"is_prefix2">>,[A,B]}, FullMap, _) ->
     CMapA = expr(A,FullMap,#bind{type=list,default= ?nav}),
     CMapB = expr(B,FullMap,#bind{type=list,default= ?nav}),
     CMapC = expr({'fun',<<"prefix_ul">>,[A]},FullMap,#bind{type=list,default= ?nav}),
     CMpLow = expr_comp('>',CMapB,CMapA),
     CMpHigh = expr_comp('<',CMapB,CMapC),
     #bind{type=boolean,btree={'and',{'and',CMpLow,CMpHigh},{'==',{'length',CMapB},{'+',{'length',CMapA},2}}}};
-expr({'fun',Fname,[A,B]}, FullMap, _) -> 
+expr({'fun',Fname,[A,B]}, FullMap, _) ->
     CMapA = case imem_sql_funs:binary_fun_bind_type1(Fname) of
         undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
         BA ->           expr(A,FullMap,BA)
@@ -948,14 +948,14 @@ expr({'fun',Fname,[A,B]}, FullMap, _) ->
         undefined ->    ?UnimplementedException({"Unsupported binary sql function", Fname});
         BB ->           expr(B,FullMap,BB)
     end,
-    try 
+    try
         Func = binary_to_existing_atom(Fname,utf8),
         #bind{type=Type} = imem_sql_funs:binary_fun_result_type(Fname),
         #bind{type=Type,btree={Func,CMapA,CMapB}}
     catch
         _:_ -> ?UnimplementedException({"Unsupported binary sql function", Fname})
     end;
-expr({'fun',Fname,[A,B,C]}, FullMap, _) -> 
+expr({'fun',Fname,[A,B,C]}, FullMap, _) ->
     CMapA = case imem_sql_funs:ternary_fun_bind_type1(Fname) of
         undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
         BA ->           expr(A,FullMap,BA)
@@ -968,7 +968,7 @@ expr({'fun',Fname,[A,B,C]}, FullMap, _) ->
         undefined ->    ?UnimplementedException({"Unsupported ternary sql function", Fname});
         CC ->           expr(C,FullMap,CC)
     end,
-    try 
+    try
         Func = binary_to_existing_atom(Fname,utf8),
         #bind{type=Type} = imem_sql_funs:ternary_fun_result_type(Fname),
         #bind{type=Type,btree={Func,CMapA,CMapB,CMapC}}
@@ -1008,13 +1008,13 @@ expr({':',A,B}, FullMap, _) ->
 expr({Op,A}, FullMap, _) when Op=='+';Op=='-' ->
     CMapA = expr(A,FullMap,#bind{type=number,default=?nav}),
     #bind{type=number,btree={Op,CMapA}};
-expr({Op,A,B}, FullMap, BT) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' -> 
-    CMapA = expr(A, FullMap, default_to_number(BT)),     
+expr({Op,A,B}, FullMap, BT) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
+    CMapA = expr(A, FullMap, default_to_number(BT)),
     CMapB = expr(B, FullMap, default_to_number(BT)),
     % ?LogDebug("CMapA ~p~n",[CMapA]),
-    % ?LogDebug("CMapB ~p~n",[CMapB]),    
+    % ?LogDebug("CMapB ~p~n",[CMapB]),
     case {CMapA#bind.tind, CMapB#bind.tind} of
-        {0,0} -> 
+        {0,0} ->
             expr_math(Op, CMapA, CMapB, BT);
         {0,_} when CMapB#bind.type==datetime;CMapB#bind.type==timestamp ->
             case CMapA#bind.type of
@@ -1063,13 +1063,13 @@ expr({Op, A, B}, FullMap, _) when Op=='and';Op=='or' ->
 expr({'between', A, Low, High}, FullMap, BT) ->
     expr({'and', {'>=',A,Low}, {'<=',A,High}}, FullMap, BT);
 expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op=='<>' ->
-    CMapA = expr(A,FullMap,#bind{type=binstr}), 
-    CMapB = expr(B,FullMap,#bind{type=binstr}),         
+    CMapA = expr(A,FullMap,#bind{type=binstr}),
+    CMapB = expr(B,FullMap,#bind{type=binstr}),
     % ?Info("Comparison ~p CMapA~n~p", [Op,CMapA]),
     % ?Info("Comparison ~p CMapB~n~p", [Op,CMapB]),
     BTree = case {CMapA#bind.tind, CMapB#bind.tind} of
-        {0,0} -> 
-            case CMapA#bind.type > CMapB#bind.type of    
+        {0,0} ->
+            case CMapA#bind.type > CMapB#bind.type of
                 true->      expr_comp(reverse(Op), CMapB, CMapA);
                 false ->    expr_comp(Op, CMapA, CMapB)
             end;
@@ -1086,7 +1086,7 @@ expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op==
                 false ->    expr_comp(Op, CMapA, CMapB1)
             end;
         {_,_} ->
-            case CMapA#bind.type > CMapB#bind.type of    
+            case CMapA#bind.type > CMapB#bind.type of
                 true->      expr_comp(reverse(Op), CMapB, CMapA);
                 false ->    expr_comp(Op, CMapA, CMapB)
             end
@@ -1109,12 +1109,12 @@ expr({'regexp_like',Str,Pat,<<>>}, FullMap, _) ->
     CMapA = expr(Str,FullMap,#bind{type=binstr,default=?nav}),
     CMapB = expr(Pat,FullMap,#bind{type=binstr,default=?nav}),
     #bind{type=boolean,btree={'is_regexp_like', CMapA, CMapB}};
-expr({list,L},FullMap,BT) when is_list(L) -> 
+expr({list,L},FullMap,BT) when is_list(L) ->
     CMapL = [expr(A,FullMap,BT) || A <- L],
     #bind{type=list,btree={list,CMapL}};
 expr(RawExpr, _FullMap0, _Type) when is_tuple(RawExpr) ->
     ?UnimplementedException({"Unsupported sql expression", RawExpr});
-expr(Val,_,_) -> 
+expr(Val,_,_) ->
     Val.
 
 default_to_number(#bind{type=datetime}=BT) -> BT;
@@ -1142,9 +1142,9 @@ expr_math(Op, CMapA, CMapB, BT) ->
     case C={CMapA#bind.type,CMapB#bind.type,Op,BT#bind.type} of
         {decimal,_,_,_} ->
             ?UnimplementedException({"Unsupported number conversion", C});
-        {_,decimal,_,_} -> 
+        {_,decimal,_,_} ->
             ?UnimplementedException({"Unsupported number conversion", C});
-        {_,_,_,decimal} -> 
+        {_,_,_,decimal} ->
             ?UnimplementedException({"Unsupported number conversion", C});
         {_,_,'/',_} ->
             #bind{type=float,btree={Op,CMapA,CMapB}};
@@ -1168,7 +1168,7 @@ expr_time(Op, CMapA, CMapB, BT) ->
             #bind{type=float,btree={'diff_dt',CMapA,CMapB}};
         {timestamp,timestamp,'-', T} when T==integer;T==float;T==number;T==undefined->
             #bind{type=float,btree={'diff_ts',CMapA,CMapB}};
-        {_,_,_,RT} when RT/=timestamp, RT/=datetime, RT/=binstr -> 
+        {_,_,_,RT} when RT/=timestamp, RT/=datetime, RT/=binstr ->
             ?ClientError({"Invalid time arithmetic", C});
         {datetime,T,'+',_} when T==integer;T==float;T==number ->
             #bind{type=datetime,btree={'add_dt',CMapA,CMapB}};
@@ -1203,23 +1203,23 @@ expr_comp('<=', A, B) -> expr_comp('=<', A, B);
 
 
 expr_comp(Op, #bind{type=term,btree={from_binterm,CMapA}},#bind{type=term,btree={from_binterm,CMapB}}) ->
-    {Op, CMapA, CMapB};                           
+    {Op, CMapA, CMapB};
 expr_comp(Op, #bind{type=term,btree={from_binterm,CMapA}},#bind{btree=BTree}=CMapB) ->
-    {Op, CMapA, CMapB#bind{btree={to_binterm,BTree}}};                           
+    {Op, CMapA, CMapB#bind{btree={to_binterm,BTree}}};
 expr_comp(Op, #bind{type=term,btree=BTree}=CMapA, #bind{type=term,btree={from_binterm,CMapB}}) ->
-    {Op, CMapA#bind{btree={to_binterm,BTree}}, CMapB};                           
+    {Op, CMapA#bind{btree={to_binterm,BTree}}, CMapB};
 expr_comp(Op, #bind{type=T}=CMapA, #bind{type=T}=CMapB) ->
     {Op, CMapA, CMapB};                           %% equal types, direct comparison
 expr_comp(Op, #bind{type=binstr,btree=BTA}, #bind{type=string}=CMapB) ->
-    {Op, binstr_to_string(BTA), CMapB};                           
+    {Op, binstr_to_string(BTA), CMapB};
 expr_comp(Op, #bind{type=decimal,prec=0}=CMapA, #bind{type=integer}=CMapB) ->
-    {Op, CMapA, CMapB}; 
+    {Op, CMapA, CMapB};
 expr_comp(Op, #bind{type=decimal}=CMapA, #bind{type=integer}=CMapB) ->
-    {Op, CMapA, integer_to_decimal(CMapB,CMapA#bind.prec)};  %% convert integer to decimal before comparing   
+    {Op, CMapA, integer_to_decimal(CMapB,CMapA#bind.prec)};  %% convert integer to decimal before comparing
 expr_comp(Op, #bind{type=decimal}=CMapA, #bind{type=T}=CMapB) when T==float;T==integer;T==number ->
     {Op, decimal_to_float(CMapA,CMapA#bind.prec), CMapB};    %% convert decimal to float before comparing
 expr_comp(Op, #bind{type=T}=CMapA, #bind{type=number}=CMapB) when T==float;T==integer ->
-    {Op, CMapA, CMapB};                           %% compatible types, direct comparison 
+    {Op, CMapA, CMapB};                           %% compatible types, direct comparison
 expr_comp(Op, CMapA, CMapB) ->
     {Op, CMapA, CMapB}.                           %% erlang can compare anything
     %% ?ClientError({"Incompatible types for comparison",{Op, n_or_t(CMapA), n_or_t(CMapB)}}).
@@ -1233,24 +1233,24 @@ binstr_to_string(#bind{btree=BTree}=B) -> B#bind{type=string,btree={'to_string',
 % string_to_binstr(S) when is_list(S) -> list_to_binary(S);
 % string_to_binstr(#bind{btree=BTree}=S) -> S#bind{type=binstr,btree={'to_binstr',BTree}}.
 
-integer_to_decimal(I , 0) when is_integer(I)-> 
+integer_to_decimal(I , 0) when is_integer(I)->
     I;
-integer_to_decimal(I , Prec) when is_integer(I), is_integer(Prec), Prec>=0 -> 
+integer_to_decimal(I , Prec) when is_integer(I), is_integer(Prec), Prec>=0 ->
     erlang:round(math:pow(10, Prec)) * I;
-integer_to_decimal(#bind{btree=BTree}=I,0) -> 
+integer_to_decimal(#bind{btree=BTree}=I,0) ->
     I#bind{type=integer,btree=BTree};
-integer_to_decimal(#bind{btree=BTree}=I,Prec) when is_integer(Prec), Prec>=0 -> 
+integer_to_decimal(#bind{btree=BTree}=I,Prec) when is_integer(Prec), Prec>=0 ->
     M = erlang:round(math:pow(10, Prec)),
     I#bind{type=decimal,prec=Prec,btree={'*',M,BTree}};
 integer_to_decimal(_ , _) -> ?nav.
 
-decimal_to_float(D , 0) when is_integer(D) -> 
+decimal_to_float(D , 0) when is_integer(D) ->
     D;
-decimal_to_float(D , Prec) when is_integer(D), is_integer(Prec), Prec>=0 -> 
+decimal_to_float(D , Prec) when is_integer(D), is_integer(Prec), Prec>=0 ->
     math:pow(10, -Prec) * D;
-decimal_to_float(#bind{btree=BTree}=D, 0)  -> 
+decimal_to_float(#bind{btree=BTree}=D, 0)  ->
     D#bind{type=float,btree=BTree};
-decimal_to_float(#bind{btree=BTree}=D,Prec) when is_integer(Prec), Prec>=0 -> 
+decimal_to_float(#bind{btree=BTree}=D,Prec) when is_integer(Prec), Prec>=0 ->
     F = math:pow(10, -Prec),
     D#bind{type=float,btree={'*',F,BTree}};
 decimal_to_float(_ , _) -> ?nav.
@@ -1309,14 +1309,14 @@ sort_spec_item(Expr,Direction,_FullMap,ColMap) ->
             [ Tag || #bind{tag=Tag} <- ColMap, Tag==CP];     %% Index to select column given
         _ ->
             case [ Tag || #bind{tag=Tag,alias=A} <- ColMap, A==Expr] of
-                [] ->   
+                [] ->
                     case [ Tag || #bind{tag=Tag,ptree=PTree} <- ColMap, PTree==Expr] of
-                        [] ->   [sqlparse:pt_to_string({fields,[Expr]})]; 
+                        [] ->   [sqlparse:pt_to_string({fields,[Expr]})];
                         TT ->   TT      %% parse tree found (identical to select expression)
                     end;
                 TA ->
                     TA  %% select column alias given
-            end  
+            end
     end,
     case IDs of
         [] ->   ?UnimplementedException({"Unknown sort field name", Expr});
@@ -1332,47 +1332,47 @@ sort_fun_item(Expr,Direction,FullMap,ColMap) ->
             [ B || #bind{tag=Tag}=B <- ColMap, Tag==CP];     %% Index to select column given
         _ ->
             case [ B || #bind{alias=A}=B <- ColMap, A==Expr] of
-                [] ->   
+                [] ->
                     case [ B || #bind{alias=PTree}=B <- ColMap, PTree==Expr] of
                         [] ->
                             case bind_subtree_const(expr(Expr,FullMap,#bind{})) of
-                                #bind{tind=0,cind=0,btree=BT}=B0 -> 
+                                #bind{tind=0,cind=0,btree=BT}=B0 ->
                                     [B0#bind{func=imem_sql_funs:expr_fun(BT)}];
                                 B1 ->
                                     [B1]
-                            end; 
+                            end;
                         BT ->
                             BT  %% parse tree found (identical to select expression)
                     end;
                 BA ->
                     BA  %% select column alias given
-            end  
+            end
     end,
     case ML of
-        [] ->   
+        [] ->
             ?UnimplementedException({"Unsupported sort expression or unknown sort field name", Expr});
-        [#bind{tind=0,cind=0,type=Type,func=Func}] when is_function(Func) ->    
+        [#bind{tind=0,cind=0,type=Type,func=Func}] when is_function(Func) ->
             sort_fun_impl(Type,Func,Direction);
         [#bind{tind=0,cind=0,type=Type,func=Func}] ->  %% TODO: constant, could be ignored in sort
-            F = fun(_) -> Func end, 
+            F = fun(_) -> Func end,
             sort_fun_impl(Type,F,Direction);
-        [#bind{type=Type}=Bind] ->    
-            Func = fun(X) -> ?BoundVal(Bind,X) end, 
+        [#bind{type=Type}=Bind] ->
+            Func = fun(X) -> ?BoundVal(Bind,X) end,
             sort_fun_impl(Type,Func,Direction);
-        _ ->    
+        _ ->
             ?ClientError({"Ambiguous column name in order by clause", Expr})
     end.
 
 filter_reorder({Idx,[Pref|Vals]}) ->
-    case Vals --[?NavString] of 
+    case Vals --[?NavString] of
         Vals -> {Idx,[Pref|Vals]};
         V ->    {Idx,[Pref,?NavString|V]}
     end.
 
-filter_spec_where(?NoMoreFilter, _, WhereTree) -> 
+filter_spec_where(?NoMoreFilter, _, WhereTree) ->
     WhereTree;
 filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree) ->
-    % ?Info("filter_spec_where ColMap ~p",[ColMap]),    
+    % ?Info("filter_spec_where ColMap ~p",[ColMap]),
     FCond = filter_condition(filter_reorder(ColF), ColMap),
     % ?Info("filter_spec_where ColF ~p FCond ~p",[ColF,FCond]),
     filter_spec_where({FType,ColFs}, ColMap, WhereTree, FCond).
@@ -1383,7 +1383,7 @@ filter_spec_where(?NoMoreFilter, _, WhereTree, LeftTree) ->
     {'and', LeftTree, WhereTree};
 filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree, LeftTree) ->
     FCond = filter_condition(filter_reorder(ColF), ColMap),
-    filter_spec_where({FType,ColFs}, ColMap, WhereTree, {FType,LeftTree,FCond}).    
+    filter_spec_where({FType,ColFs}, ColMap, WhereTree, {FType,LeftTree,FCond}).
 
 filter_condition({Idx,[<<"$in$">>,?NavString]}, ColMap) ->
     {Name,_Value} = filter_name_value(in,Idx,?NavString,ColMap),
@@ -1395,9 +1395,9 @@ filter_condition({Idx,[<<"$in$">>,?NavString|Vals]}, ColMap) ->
     {Name,_Values} = filter_name_value(in,Idx,?NavString,ColMap),
     {'or',{'fun',<<"is_nav">>,[Name]},filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap) ->
-    % ?Info("filter_condition Vals ~p",[Vals]),   
+    % ?Info("filter_condition Vals ~p",[Vals]),
     {Name,Values} = filter_name_value(in,Idx,Vals,ColMap),
-    % ?Info("filter_condition Name ~p, Values ~p",[Name,Values]),   
+    % ?Info("filter_condition Name ~p, Values ~p",[Name,Values]),
     {'in',Name,{'list',Values}};
 filter_condition({Idx,[<<"$not_in$">>,?NavString]}, ColMap) ->
     {Name,_Value} = filter_name_value(in,Idx,?NavString,ColMap),
@@ -1413,19 +1413,19 @@ filter_condition({Idx,[<<"$not_in$">>|Vals]}, ColMap) ->
     {'not',{'in',Name,{'list',Values}}};
 filter_condition({Idx,[<<"$like$">>|Vals]}, ColMap) ->
     {Name,Values} = filter_name_value(like,Idx,Vals,ColMap),
-    Conditions = [{'like',Name,Val} || Val <- Values],      
+    Conditions = [{'like',Name,Val} || Val <- Values],
     or_like_expr(Conditions);
 filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
     {Name,Values} = filter_name_value(like,Idx,Vals,ColMap),
-    Conditions = [{'like',Name,Val} || Val <- Values],      
+    Conditions = [{'like',Name,Val} || Val <- Values],
     and_not_like_expr(Conditions).
 
 filter_name_value(F,Idx,Vals,ColMap) ->
     % ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
-    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap), 
+    #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap),
     Tag = "Col" ++ integer_to_list(Idx),
     % ?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
-    Name = case {Ti,Ci,PTree} of 
+    Name = case {Ti,Ci,PTree} of
         {0,0,{as,PTA,_}} -> sqlparse:pt_to_string({fields,[PTA]});
         {0,0,PT} ->         sqlparse:pt_to_string({fields,[PT]});
         _ ->                qname3_to_binstr({S,T,N})
@@ -1444,7 +1444,7 @@ filter_value_tree(in,_,decimal,_,P,_,Val)  ->
     {'fun',<<"to_decimal">>,[imem_datatype:add_squotes(imem_sql:escape_sql(Val)),P]};
 filter_value_tree(in,_Tag,binstr,_L,_P,_D,Val) ->
     imem_datatype:add_squotes(imem_sql:escape_sql(Val));
-filter_value_tree(in,_,T,_,_,_,Val) when T=='integer';T=='float';T=='number';T==userid -> 
+filter_value_tree(in,_,T,_,_,_,Val) when T=='integer';T=='float';T=='number';T==userid ->
     Val;
 filter_value_tree(in,_,T,_,_,_,Val) ->
     Type = ?atom_to_binary(T),
@@ -1462,30 +1462,30 @@ sort_spec_order([],_,_) -> [];
 sort_spec_order(SortSpec,FullMap,ColMap) ->
     sort_spec_order(SortSpec,FullMap,ColMap,[]).
 
-sort_spec_order([],_,_,Acc) -> 
-    lists:reverse(Acc);        
+sort_spec_order([],_,_,Acc) ->
+    lists:reverse(Acc);
 sort_spec_order([SS|SortSpecs],FullMap,ColMap, Acc) ->
     sort_spec_order(SortSpecs,FullMap,ColMap,[sort_order(SS,FullMap,ColMap)|Acc]).
 
 sort_order({Ti,Ci,Direction},FullMap,_ColMap) ->
-    %% SortSpec given referencing FullMap Ti,Ci    
+    %% SortSpec given referencing FullMap Ti,Ci
     case [{S,T,A,N} || #bind{tind=Tind,cind=Cind,schema=S,table=T,alias=A,name=N} <- FullMap, Tind==Ti, Cind==Ci] of
-        [{_,Tab,Tab,Name}] ->  
+        [{_,Tab,Tab,Name}] ->
             {Name,Direction};
-        [{_,_,Alias,Name}] ->  
+        [{_,_,Alias,Name}] ->
             {qname2_to_binstr({Alias,Name}),Direction};
-        _ ->       
+        _ ->
             ?ClientError({"Bad sort field reference", {Ti,Ci}})
     end;
 sort_order({Cp,Direction},_FullMap,_ColMap) when is_integer(Cp) ->
-    %% SortSpec given referencing ColMap position    
+    %% SortSpec given referencing ColMap position
     %% #bind{alias=A} = lists:nth(Cp,ColMap),
     %% {A,Direction};
     {list_to_binary(integer_to_list(Cp)),Direction};
 sort_order({CName,Direction},_,_) ->
     {CName,Direction}.
 
-sort_spec_fun([],_,_) -> 
+sort_spec_fun([],_,_) ->
     fun(_X) -> {} end;
 sort_spec_fun(SortSpec,FullMap,ColMap) ->
     SortFuns = sort_spec_fun(SortSpec,FullMap,ColMap,[]),
@@ -1496,74 +1496,74 @@ sort_spec_fun([SS|SortSpecs],FullMap,ColMap,Acc) ->
     sort_spec_fun(SortSpecs,FullMap,ColMap,[sort_fun_any(SS,FullMap,ColMap)|Acc]).
 
 sort_fun_any({Ti,Ci,Direction},FullMap,_) ->
-    %% SortSpec given referencing FullMap Ti,Ci    
+    %% SortSpec given referencing FullMap Ti,Ci
     case [B || #bind{tind=Tind,cind=Cind}=B <- FullMap, Tind==Ti, Cind==Ci] of
         [Bind] ->
-            Func = fun(X) -> ?BoundVal(Bind,X) end, 
+            Func = fun(X) -> ?BoundVal(Bind,X) end,
             sort_fun_impl(Bind#bind.type,Func,Direction);
-        Else ->     
+        Else ->
             ?ClientError({"Bad sort field binding", Else})
     end;
 sort_fun_any({Cp,Direction},_,ColMap) when is_integer(Cp) ->
     %% SortSpec given referencing ColMap position
     case lists:nth(Cp,ColMap) of
-        #bind{tind=0,cind=0,type=T,func=Func} when is_function(Func) -> 
+        #bind{tind=0,cind=0,type=T,func=Func} when is_function(Func) ->
             sort_fun_impl(T,Func,Direction);
         #bind{tind=0,cind=0,type=T,func=Func} ->
-            F = fun(_) -> Func end, 
+            F = fun(_) -> Func end,
             sort_fun_impl(T,F,Direction);
-        Bind -> 
-            Func = fun(X) -> ?BoundVal(Bind,X) end, 
+        Bind ->
+            Func = fun(X) -> ?BoundVal(Bind,X) end,
             sort_fun_impl(Bind#bind.type,Func,Direction)
     end.
 
-sort_fun_impl(atom,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
+sort_fun_impl(atom,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
             A when is_atom(A) ->
                 [ -Item || Item <- atom_to_list(A)] ++ [?MaxChar];
             V -> V
         end
     end;
-sort_fun_impl(binstr,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
+sort_fun_impl(binstr,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
             B when is_binary(B) ->
                 [ -Item || Item <- binary_to_list(B)] ++ [?MaxChar];
             V -> V
         end
     end;
-sort_fun_impl(binterm,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
+sort_fun_impl(binterm,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
             B when is_binary(B) ->
                 [ -Item || Item <- binary_to_list(B)] ++ [?MaxChar];
             V -> V
         end
     end;
 sort_fun_impl(boolean,F,<<"desc">>) ->
-    fun(X) -> 
+    fun(X) ->
         V = F(X),
         case V of
             true ->         false;
             false ->        true;
             _ ->            V
-        end 
+        end
     end;
-sort_fun_impl(datetime,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
-            {{Y,M,D},{Hh,Mm,Ss}} when is_integer(Y), is_integer(M), is_integer(D), is_integer(Hh), is_integer(Mm), is_integer(Ss) -> 
+sort_fun_impl(datetime,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
+            {{Y,M,D},{Hh,Mm,Ss}} when is_integer(Y), is_integer(M), is_integer(D), is_integer(Hh), is_integer(Mm), is_integer(Ss) ->
                 {{-Y,-M,-D},{-Hh,-Mm,-Ss}};
             V -> V
-        end 
+        end
     end;
 sort_fun_impl(decimal,F,<<"desc">>) -> sort_fun_impl(number,F,<<"desc">>);
 sort_fun_impl(float,F,<<"desc">>) ->   sort_fun_impl(number,F,<<"desc">>);
 sort_fun_impl(integer,F,<<"desc">>) -> sort_fun_impl(number,F,<<"desc">>);
-sort_fun_impl(ipadr,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
+sort_fun_impl(ipadr,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
             {A,B,C,D} when is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
                 {-A,-B,-C,-D};
             {A,B,C,D,E,F,G,H} when is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
@@ -1572,24 +1572,24 @@ sort_fun_impl(ipadr,F,<<"desc">>) ->
         end
     end;
 sort_fun_impl(number,F,<<"desc">>) ->
-    fun(X) -> 
+    fun(X) ->
         V = F(X),
         case is_number(V) of
             true ->         (-V);
             false ->        V
-        end 
+        end
     end;
-sort_fun_impl(string,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
+sort_fun_impl(string,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
             [H|T] when is_integer(H) ->
                 [ -Item || Item <- [H|T]] ++ [?MaxChar];
             V -> V
         end
     end;
-sort_fun_impl(timestamp,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
+sort_fun_impl(timestamp,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
             {Sec, Micro} when is_integer(Sec), is_integer(Micro)->
                 {-Sec, -Micro};
             {Meg, Sec, Micro} when is_integer(Meg), is_integer(Sec), is_integer(Micro)->
@@ -1597,43 +1597,43 @@ sort_fun_impl(timestamp,F,<<"desc">>) ->
             {Sec, Micro, Node, Cnt} when is_integer(Cnt), is_integer(Sec), is_integer(Micro)->
                 {-Sec, -Micro, Node, -Cnt};
             V -> V
-        end    
+        end
     end;
 sort_fun_impl({atom,atom},F,<<"desc">>) ->
-    fun(X) -> 
-        case F(X) of 
+    fun(X) ->
+        case F(X) of
             {T,A} when is_atom(T), is_atom(A) ->
                 {[ -ItemT || ItemT <- atom_to_list(T)] ++ [?MaxChar]
                 ,[ -ItemA || ItemA <- atom_to_list(A)] ++ [?MaxChar]
                 };
             V -> V
-        end    
+        end
     end;
 sort_fun_impl({atom,integer},F,<<"desc">>) ->    sort_fun_impl({atom,number},F,<<"desc">>);
 sort_fun_impl({atom,decimal},F,<<"desc">>) ->    sort_fun_impl({atom,number},F,<<"desc">>);
 sort_fun_impl({atom,float},F,<<"desc">>) ->      sort_fun_impl({atom,number},F,<<"desc">>);
 sort_fun_impl({atom,userid},F,<<"desc">>) ->     sort_fun_impl({atom,number},F,<<"desc">>);
 sort_fun_impl({atom,number},F,<<"desc">>) ->
-    fun(X) -> 
-        case F(X) of 
+    fun(X) ->
+        case F(X) of
             {T,N} when is_atom(T), is_number(N) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-N};
             V -> V
-        end    
+        end
     end;
 sort_fun_impl({atom,ipaddr},F,<<"desc">>) ->
-    fun(X) -> 
-        case F(X) of 
+    fun(X) ->
+        case F(X) of
             {T,{A,B,C,D}} when is_atom(T), is_integer(A), is_integer(B), is_integer(C), is_integer(D) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D};
             {T,{A,B,C,D,E,F,G,H}} when is_atom(T),is_integer(A), is_integer(B), is_integer(C), is_integer(D), is_integer(E), is_integer(F), is_integer(G), is_integer(H) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar],-A,-B,-C,-D,-E,-F,-G,-H};
-            V -> V   
-        end    
+            V -> V
+        end
     end;
-sort_fun_impl(tuple,F,<<"desc">>) -> 
-    fun(X) -> 
-        case F(X) of 
+sort_fun_impl(tuple,F,<<"desc">>) ->
+    fun(X) ->
+        case F(X) of
             {T,A} when is_atom(T), is_atom(A) ->
                 {[ -ItemT || ItemT <- atom_to_list(T)] ++ [?MaxChar]
                 ,[ -ItemA || ItemA <- atom_to_list(A)] ++ [?MaxChar]
@@ -1647,7 +1647,7 @@ sort_fun_impl(tuple,F,<<"desc">>) ->
             {T,R} when is_atom(T) ->
                 {[ -Item || Item <- atom_to_list(T)] ++ [?MaxChar], R};
             V -> V
-        end    
+        end
     end;
 sort_fun_impl(userid,F,<<"desc">>) ->    sort_fun_impl(number,F,<<"desc">>);
 sort_fun_impl(Type,_F,<<"desc">>) ->     ?UnimplementedException({"Unsupported datatype for sort desc", Type});
@@ -1664,13 +1664,13 @@ sort_fun_impl(_,F,_) ->                  F.
 
 -include_lib("eunit/include/eunit.hrl").
 
-setup() -> 
+setup() ->
     ?imem_test_setup.
 
 teardown(_) ->
-    catch imem_meta:drop_table(meta_table_3), 
-    catch imem_meta:drop_table(meta_table_2), 
-    catch imem_meta:drop_table(meta_table_1), 
+    catch imem_meta:drop_table(meta_table_3),
+    catch imem_meta:drop_table(meta_table_2),
+    catch imem_meta:drop_table(meta_table_1),
     ?imem_test_teardown.
 
 db1_test_() ->
@@ -1680,7 +1680,7 @@ db1_test_() ->
         fun teardown/1,
         {with, [fun test_without_sec/1]}
     }.
-    
+
 % db2_test_() ->
 %     {
 %         setup,
@@ -1689,10 +1689,10 @@ db1_test_() ->
 %         {with, [fun test_with_sec/1]}
 %     }.
 
-test_without_sec(_) -> 
+test_without_sec(_) ->
     test_with_or_without_sec(false).
 
-% test_with_sec(_) -> 
+% test_with_sec(_) ->
 %     test_with_or_without_sec(true).  % ToDo: create table needs login etc. May not be worth it.
 
 test_with_or_without_sec(IsSec) ->
@@ -1726,7 +1726,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(false, uses_filter({'or', {'==','$2',1}, {'==','$3',1}})),
         ?assertEqual(true, uses_filter({'and', {'==','$2',1}, {'is_member',1,'$3'}})),
 
-        % BTreeSample = 
+        % BTreeSample =
         %     {'>',{ bind,2,7,<<"imem">>,<<"ddAccount">>,<<"ddAccount">>,<<"lastLoginTime">>,
         %            datetime,undefined,undefined,undefined,false,undefined,undefined,undefined,'$27'}
         %         ,{ bind,0,0,undefined,undefined,undefined,undefined,datetime,0,0,undefined,false,undefined,undefined
@@ -1768,13 +1768,13 @@ test_with_or_without_sec(IsSec) ->
                     ],
 
         ?assertMatch({ok, _}, imem_sql:exec(anySKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "imem", IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),    
+        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),
 
         ?assertMatch({ok, _}, imem_sql:exec(anySKey, "create table meta_table_2 (a integer, b2 float);", 0, "imem", IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_2])),    
+        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_2])),
 
         ?assertMatch({ok,_}, imem_sql:exec(anySKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),    
+        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),
         % ?LogDebug("success ~p~n", [create_tables]),
 
         Table1 =    <<"imem.meta_table_1">>,
@@ -1810,10 +1810,10 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(MetaFieldCount+3, length(AliasMap1)),
         % ?LogDebug("success ~p~n", [alias_map_1]),
 
-        AliasMap123 = column_map_tables([Alias1,Alias2,Table3],imem_meta:meta_field_list(),[]),    
-        %% select from 
-        %%            meta_table_1 as alias1        (a char, b1 char    , c1 char)
-        %%          , imem.meta_table1 as alias2    (a char, b1 char    , c1 char)
+        AliasMap123 = column_map_tables([Alias1,Alias2,Table3],imem_meta:meta_field_list(),[]),
+        %% select from
+        %%            meta_table_1 alias1           (a char, b1 char    , c1 char)
+        %%          , imem.meta_table1 alias2       (a char, b1 char    , c1 char)
         %%          , meta_table_3                  (a char, b3 integer , c1 char)
         % ?LogDebug("AliasMap123~n~p~n", [AliasMap123]),
         ?assertEqual(MetaFieldCount+9, length(AliasMap123)),
@@ -1866,7 +1866,7 @@ test_with_or_without_sec(IsSec) ->
         % ?LogDebug("success ~p~n", [columns_13_join]),
 
         Cmap3 = column_map_columns([<<"*">>], FullMap123),
-        % ?LogDebug("ColMap3 ~p~n", [Cmap3]),        
+        % ?LogDebug("ColMap3 ~p~n", [Cmap3]),
         ?assertEqual(8, length(Cmap3)),
         ?assertEqual(lists:sort(Cmap3), Cmap3),
         % ?LogDebug("success ~p~n", [columns_123_join]),
@@ -1875,14 +1875,14 @@ test_with_or_without_sec(IsSec) ->
         % ?LogDebug("AliasMap1~n~p~n", [AliasMap1]),
 
         Abind1 = column_map_columns([<<"*">>],AliasMap1),
-        % ?LogDebug("AliasBind1~n~p~n", [Abind1]),        
+        % ?LogDebug("AliasBind1~n~p~n", [Abind1]),
 
         Abind2 = column_map_columns([<<"alias1.*">>],AliasMap1),
-        % ?LogDebug("AliasBind2~n~p~n", [Abind2]),        
+        % ?LogDebug("AliasBind2~n~p~n", [Abind2]),
         ?assertEqual(Abind1, Abind2),
 
         Abind3 = column_map_columns([<<"imem.alias1.*">>],AliasMap1),
-        % ?LogDebug("AliasBind3~n~p~n", [Abind3]),        
+        % ?LogDebug("AliasBind3~n~p~n", [Abind3]),
         ?assertEqual(Abind1, Abind3),
 
         ?assertEqual(3, length(Abind1)),
@@ -1964,7 +1964,7 @@ test_with_or_without_sec(IsSec) ->
         Class:Reason ->  ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
         ?assert( true == "all tests completed")
     end,
-    ok. 
+    ok.
 
 if_call_mfa(IsSec,Fun,Args) ->
     case IsSec of
