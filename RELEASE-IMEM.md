@@ -3,6 +3,14 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.7.1 (Release Date 27.07.2017)
+=======================================
+* OTP 20
+* Backward compatibility added for partition name calculation based on key.
+* Added list_to_binstr sql function
+* Export start, suspend and restart in imem_snap
+* Using new imem_meta monotinic time to check if snapshot is required and reduced the check frequency to 60 seconds.
+
 Version 1.7.0 (Release Date 03.05.2017)
 =======================================
 * Added new time methods to replace deprecated erlang:now 
