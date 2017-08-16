@@ -102,8 +102,11 @@
         , record_hash/2
         , nodes/0
         , integer_uid/0
+        , integer_uid/1
         , time_uid/0
+        , time_uid/1
         , time/0
+        , time/1
         , seconds_since_epoch/1
         , all_aliases/0
         , all_tables/0
@@ -525,13 +528,22 @@ dictionary_trigger(OldRec, NewRec, T, _User, _TrOpts) when T==ddTable; T==ddAlia
 -spec integer_uid() -> integer().
 integer_uid() -> ?INTEGER_UID.
 
+-spec integer_uid(any()) -> integer().
+integer_uid(_Dummy) -> ?INTEGER_UID.
+
 % Monotonic, adapted, unique timestamp with microsecond resolution and OS-dependent precision
 -spec time_uid() -> ddTimeUID().
 time_uid() -> ?TIME_UID.
 
+-spec time_uid(any()) -> ddTimeUID().
+time_uid(_Dummy) -> ?TIME_UID.
+
 % Monotonic, adapted timestamp with microsecond resolution and OS-dependent precision
 -spec time() -> ddTimestamp().
 time() -> ?TIMESTAMP.
+
+-spec time(any()) -> ddTimestamp().
+time(_Dummy) -> ?TIMESTAMP.
 
 -spec seconds_since_epoch(ddTimestamp() | ddTimeUID() | ddDatetime() | {integer(),integer(),integer()}) -> undefined | integer().
 seconds_since_epoch(Time) -> imem_datatype:seconds_since_epoch(Time).

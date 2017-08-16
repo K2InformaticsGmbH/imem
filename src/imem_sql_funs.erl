@@ -14,7 +14,7 @@
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
-            , mfa, preview, preview_keys, round
+            , mfa, preview, preview_keys, round, integer_uid, time_uid
             , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float, safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
             , nvl_atom, nvl_binary, nvl_binstr, nvl_float, nvl_integer, nvl_json, nvl_term, nvl_tuple
             , vnf_identity,vnf_lcase_ascii,vnf_lcase_ascii_ne,vnf_tokens,vnf_integer,vnf_float,vnf_datetime,vnf_datetime_ne
@@ -168,6 +168,8 @@ unary_fun_bind_type("safe_term") ->             #bind{type=term,default=?nav};
 unary_fun_bind_type("safe_text") ->             #bind{type=binstr,default=?nav};
 unary_fun_bind_type("safe_timestamp") ->        #bind{type=timestamp,default=?nav};
 unary_fun_bind_type("safe_tuple") ->            #bind{type=tuple,default=?nav};
+unary_fun_bind_type("integer_uid") ->           #bind{type=term,default=?nav};
+unary_fun_bind_type("time_uid") ->              #bind{type=term,default=?nav};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
@@ -186,6 +188,8 @@ unary_fun_result_type("tuple_size") ->          #bind{type=integer,default=?nav}
 unary_fun_result_type("byte_size") ->           #bind{type=integer,default=?nav};
 unary_fun_result_type("bit_size") ->            #bind{type=integer,default=?nav};
 unary_fun_result_type("map_size") ->            #bind{type=integer,default=?nav};
+unary_fun_result_type("integer_uid") ->         #bind{type=integer,default=?nav};
+unary_fun_result_type("time_uid") ->            #bind{type=timestamp,default=?nav};
 unary_fun_result_type("from_decimal") ->        #bind{type=float,default=?nav};
 unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
 unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
@@ -504,6 +508,8 @@ expr_fun({Op, A}) when Op==last;Op==reverse;Op==sort;Op==usort ->
     module_fun(lists, {Op, A});
 expr_fun({Op, A}) when Op==vnf_identity;Op==vnf_lcase_ascii;Op==vnf_lcase_ascii_ne;Op==vnf_tokens;Op==vnf_integer;Op==vnf_float;Op==vnf_datetime;Op==vnf_datetime_ne ->
     module_fun(imem_index, {Op, A});
+expr_fun({Op, A}) when Op==integer_uid;Op==time_uid;Op==time ->
+    module_fun(imem_meta, {Op, A});
 expr_fun({Op, A, B}) when Op==nth;Op==member;Op==merge;Op==nthtail;Op==seq;Op==sublist;Op==subtract;Op==usort ->
     module_fun(lists, {Op, A, B});
 %% maps module
