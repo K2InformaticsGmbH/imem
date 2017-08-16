@@ -62,7 +62,7 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) w
         {_,Bin} ->  
             Str = binary_to_list(Bin),
             FT = case re:run(Str, "fun\\((.*)\\)[ ]*\->(.*)end.", [global, {capture, [1,2], list}]) of
-                {match,[[_Params,Body]]} ->
+                {match,[[_Params,_Body]]} ->
                     % ?LogDebug("Str ~p~n", [Str]),
                     % ?LogDebug("Params ~p~n", [_Params]),
                     % ?LogDebug("Body ~p~n", [Body]),
