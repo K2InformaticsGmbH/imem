@@ -1150,7 +1150,9 @@ concat(A, B) when is_list(A),is_list(B) -> A ++ B;
 concat(A, B) when is_map(A),is_map(B) -> maps:merge(A,B);
 concat(A, B) when is_binary(A),is_binary(B) -> <<A/binary,B/binary>>.
 
-trunc(A) -> trunc(A,0).
+trunc(A) when is_number(A) -> trunc(A,0);
+trunc(A) when is_tuple(A) -> trunc(A,86400);
+trunc(_) -> ?nav.
 
 trunc(A,0) when is_float(A) -> erlang:trunc(A);
 trunc(A,N) when is_float(A),is_integer(N), N>0 ->
