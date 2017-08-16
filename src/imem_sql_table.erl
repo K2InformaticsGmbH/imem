@@ -66,16 +66,16 @@ create_table(SKey, Table, TOpts, [{Name, Type, COpts}|Columns], IsSec, ColMap) w
                     % ?LogDebug("Str ~p~n", [Str]),
                     % ?LogDebug("Params ~p~n", [_Params]),
                     % ?LogDebug("Body ~p~n", [Body]),
-                    try 
-                        imem_datatype:io_to_term(Body)
-                    catch _:_ -> 
+                    %  try 
+                    %     imem_datatype:io_to_term(Body)
+                    % catch _:_ -> 
                         try 
                             imem_datatype:io_to_fun(Str,undefined),
                             Bin
                         catch _:Reason -> 
                             ?ClientError({"Bad default fun",Reason})
-                        end
-                    end;
+                        end;
+                    % end;
                 nomatch ->  
                     imem_datatype:io_to_term(Str)
             end,
