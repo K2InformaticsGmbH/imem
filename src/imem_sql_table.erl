@@ -155,7 +155,7 @@ test_with_or_without_sec(IsSec) ->
         Expected = 
                 [   {ddColumn,col1,binstr,10,undefined,?nav,[]},
                     {ddColumn,col2,integer,undefined,undefined,12,[]},
-                    {ddColumn,col3,list,undefined,undefined,[],[]}
+                    {ddColumn,col3,list,undefined,undefined,<<"fun() -> [] end.">>,[]}
                 ],
         ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
         [Meta] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,def}]),
