@@ -2174,7 +2174,7 @@ node_hash(Node) when is_atom(Node) ->
 nodes() ->
     lists:filter(
       fun(Node) ->
-              case rpc:call(Node, erlang, system_info, [version], 1000) of
+              case rpc:call(Node, erlang, system_info, [version], 1500) of
                   {badrpc, _} -> false;
                   _ -> true
               end
