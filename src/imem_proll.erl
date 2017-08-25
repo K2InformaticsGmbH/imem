@@ -9,7 +9,7 @@
 -define(PROLL_ERROR_WAIT,1000).                                             %% 1000 = 1 sec
 -define(GET_PROLL_CYCLE_WAIT,?GET_CONFIG(prollCycleWait,[],1000,"Wait time in msec between partition rolls.")).     %% 1000 = 1 sec
 -else.
--define(PROLL_FIRST_WAIT,10000).                                            %% 10000 = 10 sec
+-define(PROLL_FIRST_WAIT,30000).                                            %% 30000 = 30 sec
 -define(PROLL_ERROR_WAIT,1000).                                             %% 1000 = 1 sec
 -define(GET_PROLL_CYCLE_WAIT,?GET_CONFIG(prollCycleWait,[],100000,"Wait time in msec between partition rolls.")).   %% 100000 = 100 sec
 -endif. %TEST
@@ -66,32 +66,22 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info(roll_partitioned_tables, State=#state{prollList=[]}) ->
-    % restart proll cycle by collecting list of partition name candidates
-    case ?GET_PROLL_CYCLE_WAIT of
-        PCW when (is_integer(PCW) andalso PCW >= 1000) ->    
-            Pred = fun imem_meta:is_time_partitioned_alias/1,
-            case lists:usort(lists:filter(Pred,imem_meta:all_aliases())) of
-                [] ->   
-                    % ?Info("Partition rolling collect result~n",[]), 
-                    erlang:send_after(PCW, self(), roll_partitioned_tables),
-                    {noreply, State};
-                AL ->   
-                    % ?Info("Partition rolling collect result ~p",[AL]), 
-                    PL = try
-                        %% collect list of missing partitions
-                        {Sec,Micro} = ?TIMESTAMP,
-                        Intvl = PCW div 1000,
-                        CandidateTimes = [{Sec, Micro}, {Sec+Intvl, Micro}, {Sec+Intvl+Intvl, Micro}],
-                        missing_partitions(AL,CandidateTimes)
-                    catch
-                        _:Reason -> ?Error("Partition rolling collect failed with reason ~p~n",[Reason])
-                    end,
-                    % ?Info("Partition rolling about to create missing partitions ~p",[PL]), 
-                    handle_info({roll_partitioned_tables, PCW, ?GET_PROLL_ITEM_WAIT}, State#state{prollList=PL})   
+    % checking if this is the firs node in all of nodes as
+    % partition rolling has to be done by one node at a time.
+    case node() == hd(lists:usort([node() | imem_meta:nodes()])) of
+        true ->
+            % restart proll cycle by collecting list of partition name candidates
+            case ?GET_PROLL_CYCLE_WAIT of
+                PCW when (is_integer(PCW) andalso PCW >= 1000) ->
+                    ProllList = get_proll_list(PCW),
+                    handle_info({roll_partitioned_tables, PCW, ?GET_PROLL_ITEM_WAIT}, State#state{prollList=ProllList});
+                Other ->
+                    ?Error("Partition rolling bad cycle period ~p",[Other]),
+                    erlang:send_after(10000, self(), roll_partitioned_tables),
+                    {noreply, State}
             end;
-        Other ->  
-            ?Error("Partition rolling bad cycle period ~p",[Other]), 
-            erlang:send_after(10000, self(), roll_partitioned_tables),
+        false ->
+            erlang:send_after(?PROLL_FIRST_WAIT, self(), roll_partitioned_tables),
             {noreply, State}
     end;
 handle_info({roll_partitioned_tables,ProllCycleWait,ProllItemWait}, State=#state{prollList=[{TableAlias, TableName}|Rest]}) ->
@@ -134,11 +124,29 @@ code_change(_OldVsn, State, _Extra) ->
 
 format_status(_Opt, [_PDict, _State]) -> ok.
 
+get_proll_list(PCW) ->
+    Pred = fun imem_meta:is_time_partitioned_alias/1,
+    case lists:usort(lists:filter(Pred,imem_meta:all_aliases())) of
+        [] ->  [];
+        AL ->
+            % ?Info("Partition rolling collect result ~p",[AL]),
+            try
+                %% collect list of missing partitions
+                {Sec,Micro} = ?TIMESTAMP,
+                Intvl = PCW div 1000,
+                CandidateTimes = [{Sec, Micro}, {Sec+Intvl, Micro}, {Sec+Intvl+Intvl, Micro}],
+                missing_partitions(AL,CandidateTimes)
+            catch
+                _:Reason ->
+                    ?Error("Partition rolling collect failed with reason ~p~n",[Reason]),
+                    []
+            end
+    end.
 
 missing_partitions(AL, CandidateTimes) ->
     missing_partitions(AL, CandidateTimes, AL, []).
 
-missing_partitions(_, [], _, Acc) -> lists:reverse(Acc);
+missing_partitions(_, [], _, Acc) -> lists:usort(Acc);
 missing_partitions(AL, [_|Times], [], Acc) ->
     missing_partitions(AL, Times, AL, Acc);
 missing_partitions(AL, [Next|Times], [TableAlias|Rest], Acc0) ->
