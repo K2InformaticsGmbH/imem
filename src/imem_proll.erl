@@ -20,8 +20,7 @@
 
 -record(state, {
                  prollList=[]               :: list({atom(),atom()})        %% list({TableAlias, TableName})
-               }
-       ).
+               }).
 
 -export([ start_link/1
         ]).

@@ -24,8 +24,7 @@ end
 -record(state, { purgeList=[]               :: list()
                , purgeFun = undefined       :: any()
                , purgeHash = undefined      :: any()
-               }
-       ).
+               }).
 
 -export([ start_link/1
         ]).
@@ -129,11 +128,10 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
             (PartitionEnd >= PurgeEnd) ->
               ok;     %% too young, do not purge this file  
             true ->                     
-              ?Info("Purge time partition ~p~n",[Tab]), %% cannot log here
               % FreedMemory = table_memory(Tab),
               % Fields = [{table,Tab},{table_size,table_size(Tab)},{table_memory,FreedMemory}],   
               % log_to_db(info,?MODULE,purge_time_partitioned_table,Fields,"purge table"), %% cannot log here
-              catch imem_meta:drop_table(Tab)
+              purge_partitioned_table(Tab)
           end
       end
   end,  
@@ -239,4 +237,20 @@ try_cleanup(MinMemFreePerCent, TableExpiryMarginSec, MaxTableCountPercent, PartT
             true -> ?Info("This should not print")
           end
       end
+  end.
+
+%% All node sharded tables can be dropped but all other shareded tables
+%% should ony be dropped by only one node in the cluster
+-spec purge_partitioned_table(atom()) -> ok | no_op.
+purge_partitioned_table(Table) ->
+  IsPurgeTable =
+  case imem_meta:is_local_node_sharded_table(Table) of
+    true -> true;
+    false -> node() == hd(lists:usort([node() | imem_meta:nodes()]))
+  end,
+  if
+    IsPurgeTable ->
+      ?Info("Purge time partition ~p~n",[Table]),
+      catch imem_meta:drop_table(Table);
+    true -> no_op
   end.
