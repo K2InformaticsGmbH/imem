@@ -319,7 +319,7 @@ format({restore, RestoreRes}) ->
         _T = if is_atom(T) -> atom_to_list(T); true -> T end,
         case Res of
            {I,E,A} ->
-               ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, _T, length(I), length(E), length(A)]);
+               ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, _T, I, E, A]);
            Error -> ?P("~*s ~p~n", [-FLen, _T, Error])
         end
     end
