@@ -3,10 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
-Version 1.8.0 (Release Date DD.MM.2017)
+Version 1.8.0 (Release Date 11.09.2017)
 =======================================
 * Migration to rebar3.
 * Improved application start / stop.
+* purge/proll logic re-worked
 
 Version 1.7.0 (Release Date 03.05.2017)
 =======================================

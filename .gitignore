@@ -1,4 +1,6 @@
 *@*
+*.swp
+.rebar
 _build
 Csv*.txt
 erl_crash.dump
