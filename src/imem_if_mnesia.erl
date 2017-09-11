@@ -636,13 +636,11 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 {aborted, Reason} ->
                                     exit(Reason);
                                 {Rows, Contd1} ->
-                                    % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
+                                    % ?LogDebug("[~p] select got rows~n~p~n~p",[Pid,Rows,Contd1]),
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?sot,?eot|Rows]};
-                                        true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
+                                           Pid ! {row, [?sot,?eot|Rows]};
+                                       true ->
                                             Pid ! {row, [?sot|Rows]},
                                             F(F,Contd1)
                                     end
@@ -658,10 +656,8 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
                                             Pid ! {row, [?eot|Rows]};
                                         true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
                                             Pid ! {row, Rows},
                                             F(F,Contd1)
                                     end
