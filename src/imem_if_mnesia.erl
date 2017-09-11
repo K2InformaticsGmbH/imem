@@ -276,7 +276,7 @@ schema() ->
 
 schema(Node) ->
     %% schema identifier of remote imem node in the same erlang cluster
-    case rpc:call(Node, mnesia, system_info, [directory], 1000) of
+    case rpc:call(Node, mnesia, system_info, [directory], 1500) of
         {badrpc, _} = Error -> Error;
         MnesiaDirectory ->
             [Schema|_] = re:split(filename:basename(MnesiaDirectory), "[.]", [{return, list}]),

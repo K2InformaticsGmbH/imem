@@ -102,8 +102,11 @@
         , record_hash/2
         , nodes/0
         , integer_uid/0
+        , integer_uid/1
         , time_uid/0
+        , time_uid/1
         , time/0
+        , time/1
         , seconds_since_epoch/1
         , all_aliases/0
         , all_tables/0
@@ -525,13 +528,22 @@ dictionary_trigger(OldRec, NewRec, T, _User, _TrOpts) when T==ddTable; T==ddAlia
 -spec integer_uid() -> integer().
 integer_uid() -> ?INTEGER_UID.
 
+-spec integer_uid(any()) -> integer().
+integer_uid(_Dummy) -> ?INTEGER_UID.
+
 % Monotonic, adapted, unique timestamp with microsecond resolution and OS-dependent precision
 -spec time_uid() -> ddTimeUID().
 time_uid() -> ?TIME_UID.
 
+-spec time_uid(any()) -> ddTimeUID().
+time_uid(_Dummy) -> ?TIME_UID.
+
 % Monotonic, adapted timestamp with microsecond resolution and OS-dependent precision
 -spec time() -> ddTimestamp().
 time() -> ?TIMESTAMP.
+
+-spec time(any()) -> ddTimestamp().
+time(_Dummy) -> ?TIMESTAMP.
 
 -spec seconds_since_epoch(ddTimestamp() | ddTimeUID() | ddDatetime() | {integer(),integer(),integer()}) -> undefined | integer().
 seconds_since_epoch(Time) -> imem_datatype:seconds_since_epoch(Time).
@@ -2162,7 +2174,7 @@ node_hash(Node) when is_atom(Node) ->
 nodes() ->
     lists:filter(
       fun(Node) ->
-              case rpc:call(Node, erlang, system_info, [version], 1000) of
+              case rpc:call(Node, erlang, system_info, [version], 1500) of
                   {badrpc, _} -> false;
                   _ -> true
               end
@@ -3059,7 +3071,7 @@ lock(LockItem, LockKind) ->
     imem_if_mnesia:lock(LockItem, LockKind).
 
 get_tables_count() ->
-    {ok, MaxEtsNoTables} = application:get_env(max_ets_tables),
+    {ok, MaxEtsNoTables} = application:get_env(imem, max_ets_tables),
     {MaxEtsNoTables, length(mnesia:system_info(tables))}.
 
 -spec sql_jp_bind(Sql::string()) -> {NewSql::string(), BindParamsMeta::[{BindParam::binary(), BindType::atom(), JPPath::string()}]}.
