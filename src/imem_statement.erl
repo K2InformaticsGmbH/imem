@@ -1802,7 +1802,7 @@ test_with_or_without_sec_part1(IsSec) ->
         SR0 = exec(SKey,query0, 15, IsSec, "select * from def;"),
         try
             ?assertEqual(ok, fetch_async(SKey,SR0,[],IsSec)),
-            List0 = receive_tuples(SR0,true),
+            List0 = receive_tuples(SR0,false),  % was true, MNESIA in erlang 20 does not allow to preview the end
             ?assertEqual(15, length(List0)),
             ?assertEqual([], receive_raw())
         after
@@ -1991,7 +1991,7 @@ test_with_or_without_sec_part2(IsSec) ->
             and t3.col2 < 5"
         ),
         ?assertEqual(ok, fetch_async(SKey,SR3a,[],IsSec)),
-        Cube3a = receive_tuples(SR3a,true),
+        Cube3a = receive_tuples(SR3a,false),  % was true, MNESIA in Erlang 20 does not allow any more to detect the end
         ?assertEqual(4, length(Cube3a)),
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, close(SKey, SR3a)),
@@ -2004,7 +2004,7 @@ test_with_or_without_sec_part2(IsSec) ->
             and t3.col2 < 6"
         ),
         ?assertEqual(ok, fetch_async(SKey, SR3b, [], IsSec)),
-        Cube3b = receive_tuples(SR3b,true),
+        Cube3b = receive_tuples(SR3b,false),  % was true, MNESIA in Erlang 20 does not allow any more to detect the end
         ?assertEqual(10, length(Cube3b)),
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, close(SKey, SR3b)),
@@ -2017,8 +2017,8 @@ test_with_or_without_sec_part2(IsSec) ->
             and t3.col2 < 7"
         ),
         ?assertEqual(ok, fetch_async(SKey, SR3c, [], IsSec)),
-        Cube3c1 = receive_tuples(SR3c, true),
-        ?assertEqual(20, length(Cube3c1)),      %% TODO: Treaming join evaluation needed to keep this down at 10
+        Cube3c1 = receive_tuples(SR3c, false),  % was true, MNESIA in Erlang 20 does not allow any more to detect the end
+        ?assertEqual(20, length(Cube3c1)),      %% TODO: streaming join evaluation needed to keep this down at 10
         ?assertEqual(lists:seq(1,20), lists:sort([list_to_integer(binary_to_list(element(1, Res))) || Res <- Cube3c1])),
         ?assertEqual([], receive_raw()),
         ?assertEqual(ok, close(SKey, SR3c)),
@@ -2028,8 +2028,9 @@ test_with_or_without_sec_part2(IsSec) ->
             from def t1, def t2, def t3"
         ),
         ?assertEqual(ok, fetch_async(SKey, SR3d, [], IsSec)),
-%        [?assertEqual(100, length(receive_tuples(SR3d,false))) || _ <- lists:seq(1,9)],   %% TODO: should come in chunks
-        ?assertEqual(1000, length(receive_tuples(SR3d, true))),
+        % [?assertEqual(100, length(receive_tuples(SR3d,false))) || _ <- lists:seq(1,9)],   %% TODO: should come in chunks
+        ?assertEqual(1000, length(receive_tuples(SR3d, false))),            % was true, cuanhed for MNESIA in Erlang 20
+        ?assertEqual([], receive_raw()),
         ?assertEqual(ok, close(SKey, SR3d)),
 
         SR3e = exec(SKey,query3e, 10, IsSec, "
@@ -2041,25 +2042,29 @@ test_with_or_without_sec_part2(IsSec) ->
         % ?assertEqual(10000, length(receive_tuples(SR3e,true,1500,[]))),   %% works but times out the test
         ?assertEqual(ok, close(SKey, SR3e)),                                %% test for stmt teardown while joining big result
 
+        ?assertEqual(10, imem_meta:table_size(def)),
+
         SR4 = exec(SKey,query4, 5, IsSec, "
             select col1 from def;"
         ),
         try
             ?assertEqual(ok, fetch_async(SKey, SR4, [], IsSec)),
             List4a = receive_tuples(SR4, false),
-            ?assertEqual(5, length(List4a)),
+            ?assertEqual(5, length(List4a)),                                % first 5 rows
             % ?LogDebug("trying to insert one row before fetch complete~n", []),
-            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
+            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),      % overwrite, still 10 rows in table, 5 fetched so far
             % ?LogDebug("completed insert one row before fetch complete~n", []),
             ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),
-            List4b = receive_tuples(SR4,true),
-            ?assertEqual(5, length(List4b)),
-            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
+            List4b = receive_tuples(SR4,false),                             % was true, changed for MNESIA in Erlang 20
+            ?assertEqual(5, length(List4b)),                                % 10 rows now in table, 10 fetched so far
+            ?assertEqual(ok, fetch_async(SKey,SR4,[{tail_mode,true}],IsSec)),  
+            [{_,{[],true}}] = receive_raw(),                                % forced cursor into tail mode now (needed with erlang 20)
+            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),      % overwrite, still 10 rows now in table, 11 fetched so far
             List4c = receive_tuples(SR4,tail),
-            ?assertEqual(1, length(List4c)),
-            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),
-            ?assertEqual(ok, insert_range(SKey, 11, def, imem, IsSec)),
-            ?assertEqual(11,imem_meta:table_size(def)),
+            ?assertEqual(1, length(List4c)),                                % 10 rows in table, 12 fetched so far
+            ?assertEqual(ok, insert_range(SKey, 1, def, imem, IsSec)),      % 1 overwrite, still 10 rows in table, 12 fetched so far
+            ?assertEqual(ok, insert_range(SKey, 11, def, imem, IsSec)),     % 10 overwrites + 1 insert, 11 rows now in table, 12 fetched so far
+            ?assertEqual(11,imem_meta:table_size(def)),                     % 11 rows in table
             List4d = receive_tuples(SR4,tail),
             ?assertEqual(12, length(List4d)),
             % ?LogDebug("12 tail rows received in single packets~n", []),

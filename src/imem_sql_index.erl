@@ -428,7 +428,7 @@ print_indices(IsSec, SKey, Schema, Table) ->
     _Indices = lists:flatten(
                    [[" ", binary_to_list(I#ddIdxDef.name), " -> "
                      , string:join(
-                         [binary_to_list(element(2, jpparse:string(Pl)))
+                         [binary_to_list(element(2, jpparse_fold:string(Pl)))
                           || Pl <- I#ddIdxDef.pl]
                          , " | ")
                      , "\n"]

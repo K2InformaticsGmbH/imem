@@ -95,8 +95,8 @@ create_sys_conf(Path) ->
             || File <- filelib:wildcard("*.*", Path)],
             ok;
         false ->
-            DirPath = filname:dirname(Path),
-            File = list_to_atom("\"" ++ filname:basename(Path) ++ "\""),
+            DirPath = filename:dirname(Path),
+            File = list_to_atom("\"" ++ filename:basename(Path) ++ "\""),
             case gen_server:call(?MODULE, {add, DirPath, File}) of
                 {ok, {ddSysConf, _}} -> ok;
                 {error, Reason} ->
