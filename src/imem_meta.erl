@@ -3071,7 +3071,7 @@ lock(LockItem, LockKind) ->
     imem_if_mnesia:lock(LockItem, LockKind).
 
 get_tables_count() ->
-    {ok, MaxEtsNoTables} = application:get_env(max_ets_tables),
+    {ok, MaxEtsNoTables} = application:get_env(imem, max_ets_tables),
     {MaxEtsNoTables, length(mnesia:system_info(tables))}.
 
 -spec sql_jp_bind(Sql::string()) -> {NewSql::string(), BindParamsMeta::[{BindParam::binary(), BindType::atom(), JPPath::string()}]}.
