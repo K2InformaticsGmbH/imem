@@ -2,6 +2,8 @@
 *.swp
 .rebar
 _build
+.rebar3/
+ebin/
 Csv*.txt
 erl_crash.dump
 log
