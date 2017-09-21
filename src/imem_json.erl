@@ -13,7 +13,7 @@
 -include("imem_json.hrl").
 
 % Binary(string) to Json En/Decode interface APIs
--export([encode/1, decode/1, decode/2]).
+-export([encode/1, encode/2, decode/1, decode/2]).
 
 %% Standard data type operations, inspired by maps operations
 -export([ find/2
@@ -51,6 +51,9 @@ decode(Json, Opts) -> jsx:decode(Json, lists:usort([strict|Opts])).
 
 -spec encode(data_object()) -> Json :: binary().
 encode(Json) -> jsx:encode(Json).
+
+-spec encode(data_object(), Opts :: list()) -> Json :: binary().
+encode(Json, Opts) -> jsx:encode(Json, Opts).
 %% ===================================================================
 
 %% ===================================================================
