@@ -119,8 +119,6 @@ init(ListenerPid, Socket, Transport, Opts) ->
                                       , [self(), inet_parse:ntoa(Address)
                                          , Port])),
     ?Debug(Str++"~n", []),
-    imem_meta:log_to_db(debug,?MODULE,init
-                        ,[ListenerPid, Socket, Transport, Opts], Str),
     ok = ranch:accept_ack(ListenerPid),
     % Linkinking TCP socket
     % for easy lookup
