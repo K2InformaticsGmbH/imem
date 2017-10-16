@@ -2,7 +2,7 @@
 %% ex: ft=erlang
 {application, imem, [
     {description, "Replication cluster DB"},
-    {vsn, "1.8.0"},
+    {vsn, "1.8.1"},
     {applications, [
         inets,
         kernel,
