@@ -440,7 +440,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query9b, 100, IsSec, "
-            select col2.|#keys|
+            select col2|#keys|
             from def
             "
             ,
@@ -455,7 +455,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query9c, 100, IsSec, "
-            select col2.|#values|
+            select col2|#values|
             from def
             "
             ,
@@ -466,7 +466,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query9d, 100, IsSec, "
-            select col2.|{}|
+            select col2|{}|
             from def
             "
             ,
@@ -477,7 +477,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query9e, 100, IsSec, "
-            select col2.|{name,age}|
+            select col2|{name,age}|
             from def
             "
             ,
@@ -488,7 +488,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query9f, 100, IsSec, "
-            select col2.|{name,noattr}|
+            select col2|{name,noattr}|
             from def
             "
             ,
@@ -504,7 +504,7 @@ db1_with_or_without_sec(IsSec) ->
         % ?LogDebug("Test table def :~n~p~n", [imem_meta:read(def)]),
 
         exec_fetch_sort_equal(SKey, query10a, 100, IsSec, "
-            select col2.|[]|
+            select col2|[]|
             from def
             "
             ,
@@ -517,7 +517,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query10b, 100, IsSec, "
-            select is_list(col2.|[]|)
+            select is_list(col2|[]|)
             from def
             "
             ,
@@ -530,7 +530,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query10c, 100, IsSec, "
-            select col2.|[1,3]|
+            select col2|[1,3]|
             from def
             "
             ,
@@ -543,7 +543,7 @@ db1_with_or_without_sec(IsSec) ->
         ),
 
         exec_fetch_sort_equal(SKey, query10d, 100, IsSec, "
-            select col2.|[0]|
+            select col2|[0]|
             from def
             "
             ,
@@ -558,7 +558,7 @@ db1_with_or_without_sec(IsSec) ->
         exec_fetch_sort_equal(SKey, query10e, 100, IsSec, "
             select col1 
             from def
-            where col2.|[1,3]| = to_list('[1,3]')
+            where col2|[1,3]| = to_list('[1,3]')
             "
             ,
             [{<<"3">>}
