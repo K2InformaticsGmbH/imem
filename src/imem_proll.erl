@@ -165,4 +165,3 @@ missing_partitions(AL, [Next|Times], IsHeadOfCluster, [TableAlias|Rest], Acc0) -
             Acc0
     end,
     missing_partitions(AL, [Next|Times], IsHeadOfCluster, Rest, Acc1).
-
