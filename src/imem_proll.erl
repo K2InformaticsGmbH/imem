@@ -153,7 +153,7 @@ missing_partitions(AL, [Next|Times], IsHeadInCluster, [TableAlias|Rest], Acc0) -
                 true -> [{TableAlias, TableName}|Acc0];
                 false ->
                     % check if the table is local table then each node have
-                    % to create their not partitioned table
+                    % to create their node partitioned table
                     case imem_meta:is_local_time_partitioned_table(TableName) of
                         true -> [{TableAlias, TableName}|Acc0];
                         false -> Acc0
