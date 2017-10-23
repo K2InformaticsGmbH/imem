@@ -126,8 +126,9 @@ get_proll_list(PCW) ->
                 {Sec,Micro} = ?TIMESTAMP,
                 Intvl = PCW div 1000,
                 CandidateTimes = [{Sec, Micro}, {Sec+Intvl, Micro}, {Sec+Intvl+Intvl, Micro}],
-                IsHeadInCluster = node() == hd(lists:usort([node() | imem_meta:nodes()])),
-                missing_partitions(AL,CandidateTimes,IsHeadInCluster)
+                DataNodes = [DN || {_, DN} <- imem_meta:data_nodes()],
+                IsHeadOfCluster = node() == hd(lists:sort(DataNodes)),
+                missing_partitions(AL,CandidateTimes,IsHeadOfCluster)
             catch
                 _:Reason ->
                     ?Error("Partition rolling collect failed with reason ~p~n",[Reason]),
@@ -135,13 +136,13 @@ get_proll_list(PCW) ->
             end
     end.
 
-missing_partitions(AL, CandidateTimes, IsHeadInCluster) ->
-    missing_partitions(AL, CandidateTimes, IsHeadInCluster, AL, []).
+missing_partitions(AL, CandidateTimes, IsHeadOfCluster) ->
+    missing_partitions(AL, CandidateTimes, IsHeadOfCluster, AL, []).
 
 missing_partitions(_, [], _, _, Acc) -> lists:usort(Acc);
-missing_partitions(AL, [_|Times], IsHeadInCluster, [], Acc) ->
-    missing_partitions(AL, Times, IsHeadInCluster, AL, Acc);
-missing_partitions(AL, [Next|Times], IsHeadInCluster, [TableAlias|Rest], Acc0) ->
+missing_partitions(AL, [_|Times], IsHeadOfCluster, [], Acc) ->
+    missing_partitions(AL, Times, IsHeadOfCluster, AL, Acc);
+missing_partitions(AL, [Next|Times], IsHeadOfCluster, [TableAlias|Rest], Acc0) ->
     TableName = imem_meta:partitioned_table_name(TableAlias, Next),
     Acc1 = case catch(imem_meta:check_table(TableName)) of
         ok ->   
@@ -149,7 +150,7 @@ missing_partitions(AL, [Next|Times], IsHeadInCluster, [TableAlias|Rest], Acc0) -
         {'ClientError',{"Table does not exist",TableName}} -> 
             % checking if this is the first node in all of nodes as
             % partition rolling has to be done by one node at a time.
-            case IsHeadInCluster of
+            case IsHeadOfCluster of
                 true -> [{TableAlias, TableName}|Acc0];
                 false ->
                     % check if the table is local table then each node have
@@ -163,5 +164,4 @@ missing_partitions(AL, [Next|Times], IsHeadInCluster, [TableAlias|Rest], Acc0) -
             ?Error("Rolling time partition collection ~p failed with reason ~p~n",[TableName, Error]),
             Acc0
     end,
-    missing_partitions(AL, [Next|Times], IsHeadInCluster, Rest, Acc1).
-
+    missing_partitions(AL, [Next|Times], IsHeadOfCluster, Rest, Acc1).
