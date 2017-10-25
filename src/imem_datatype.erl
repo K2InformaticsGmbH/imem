@@ -1333,7 +1333,7 @@ ipaddr_to_io(IpAddr) ->
     list_to_binary(inet_parse:ntoa(IpAddr)).
 
 float_to_io(Val,_Prec,_NumFmt) ->
-    list_to_binary(float_to_list(Val)).                    %% ToDo: implement rounding to db precision
+    float_to_binary(Val, [{decimals, 15}, compact]).    %% ToDo: implement rounding to db precision
 
 boolean_to_io(T) ->
     list_to_binary(io_lib:format("~p",[T])).
@@ -1580,6 +1580,14 @@ data_types(_) ->
         ?assertEqual(<<"12300000">>, decimal_to_io(123,-5)),
         ?assertEqual(<<"-12300000">>, decimal_to_io(-123,-5)),
         % ?LogDebug("decimal_to_io success~n", []),
+
+        ?assertEqual(<<"1.5">>, float_to_io(1.5, 0, {prec, 0})),
+        ?assertEqual(<<"-1.5">>, float_to_io(-1.5, 0, {prec, 0})),
+        ?assertEqual(<<"1.5">>, float_to_io(1.50000000, 0, {prec, 0})),
+        ?assertEqual(<<"-1.5">>, float_to_io(-1.50000000, 0, {prec, 0})),
+        ?assertEqual(<<"1.50000001">>, float_to_io(1.50000001, 0, {prec, 0})),
+        ?assertEqual(<<"-1.50000001">>, float_to_io(-1.50000001, 0, {prec, 0})),
+        % ?LogDebug("float_to_io success~n"),
 
         ?assertEqual(<<"0.0.0.0">>, ipaddr_to_io({0,0,0,0})),
         ?assertEqual(<<"1.2.3.4">>, ipaddr_to_io({1,2,3,4})),
