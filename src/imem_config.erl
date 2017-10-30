@@ -182,8 +182,8 @@ reference_resolve(Table, [ConfigKey|ref], Resolved) ->
             end;
         true -> ?ClientError({"Circular reference detected", ConfigKey})
     end;
-reference_resolve(Table, [_|{enc,_}] = Val, _Resolved) ->
-   reference_resolve(Table, decrypt(Val));
+reference_resolve(Table, [_|{enc,_}] = Val, Resolved) ->
+   reference_resolve(Table, decrypt(Val), Resolved);
 reference_resolve(Table, Val, Resolved) when is_map(Val) ->
     maps:map(fun(_K, V) -> reference_resolve(Table, V, Resolved) end, Val);
 reference_resolve(Table, [V|T], Resolved) ->
