@@ -169,21 +169,28 @@ decrypt(UnEncryptedVal) -> UnEncryptedVal.
 
 reference_resolve(Term) -> reference_resolve(?CONFIG_TABLE, Term).
 
-reference_resolve(Table, [ConfigKey|ref]) ->
-    case (catch imem_meta:read_hlk(Table, ConfigKey)) of
-        [#ddConfig{val=ResolvedRef}] ->
-            reference_resolve(Table, ResolvedRef);
-        _ -> ?ClientError({"Reference not found", ConfigKey})
+reference_resolve(Table, Term) ->
+    reference_resolve(Table, Term, []).
+
+reference_resolve(Table, [ConfigKey|ref], Resolved) ->
+    case lists:member(ConfigKey, Resolved) of
+        false ->
+            case (catch imem_meta:read_hlk(Table, ConfigKey)) of
+                [#ddConfig{val=ResolvedRef}] ->
+                    reference_resolve(Table, ResolvedRef, [ConfigKey | Resolved]);
+                _ -> ?ClientError({"Reference not found", ConfigKey})
+            end;
+        true -> ?ClientError({"Circular reference detected", ConfigKey})
     end;
-reference_resolve(Table, [_|{enc,_}] = Val) ->
+reference_resolve(Table, [_|{enc,_}] = Val, _Resolved) ->
    reference_resolve(Table, decrypt(Val));
-reference_resolve(Table, Val) when is_map(Val) ->
-    maps:map(fun(_K, V) -> reference_resolve(Table, V) end, Val);
-reference_resolve(Table, [V|T]) ->
-    [reference_resolve(Table, V) | reference_resolve(Table, T)];
-reference_resolve(Table, Val) when is_tuple(Val) ->
-    list_to_tuple(reference_resolve(Table, tuple_to_list(Val)));
-reference_resolve(_Table, Val) -> Val.
+reference_resolve(Table, Val, Resolved) when is_map(Val) ->
+    maps:map(fun(_K, V) -> reference_resolve(Table, V, Resolved) end, Val);
+reference_resolve(Table, [V|T], Resolved) ->
+    [reference_resolve(Table, V, Resolved) | reference_resolve(Table, T, Resolved)];
+reference_resolve(Table, Val, Resolved) when is_tuple(Val) ->
+    list_to_tuple(reference_resolve(Table, tuple_to_list(Val), Resolved));
+reference_resolve(_Table, Val, _Resolved) -> Val.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
