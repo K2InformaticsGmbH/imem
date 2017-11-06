@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.8.1 (Release Date 16.10.2017)
+=======================================
+* OTP-20.1
+* Erlscrypt to version
+* Exoprted decode/2 function to imem_json to allow options.
+
 Version 1.8.0 (Release Date 11.09.2017)
 =======================================
 * Migration to rebar3.
