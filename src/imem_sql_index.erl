@@ -221,7 +221,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2_name on index_test (col2:NAME);"
+                         , "create index i_col2_name on index_test (col2|:NAME|);"
                          , 0, imem, IsSec)),
         [Meta3] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         {value, {index, [DdIdx2, DdIdx1, DdIdx]}} =
@@ -233,7 +233,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2_surname on index_test (col2:SURNAME)"
+                         , "create index i_col2_surname on index_test (col2|:SURNAME|)"
                            " filter_with fun(X) -> imem_index:iff_true(X) end.;"
                          , 0, imem, IsSec)),
         [Meta4] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
