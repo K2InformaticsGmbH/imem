@@ -246,7 +246,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2_age on index_test (col2:AGE);"
+                         , "create index i_col2_age on index_test (col2|:AGE|);"
                          , 0, imem, IsSec)),
         [Meta5] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         {value, {index, [DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
@@ -258,7 +258,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2_name_age on index_test (col2:NAME|col2:AGE)"
+                         , "create index i_col2_name_age on index_test (col2|:NAME|, col2|:AGE|)"
                            " norm_with fun(X) -> imem_index:vnf_lcase_ascii_ne(X) end."
                            " filter_with fun(X) -> imem_index:iff_true(X) end."
                            ";"
@@ -273,7 +273,7 @@ test_with_or_without_sec(IsSec) ->
         ?assertEqual(ok
                      , imem_sql:exec(
                          SKey
-                         , "create index i_col2_surname_col1 on index_test (col2:SURNAME|col1);"
+                         , "create index i_col2_surname_col1 on index_test (col2|:SURNAME|, col1);"
                          , 0, imem, IsSec)),
         [Meta7] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         {value, {index, [DdIdx6, DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
@@ -286,7 +286,7 @@ test_with_or_without_sec(IsSec) ->
                      , imem_sql:exec(
                          SKey
                          , "create index i_all on index_test"
-                           " (col1 | col2 | col2:NAME | col2:SURNAME | col2:AGE);"
+                           " (col1, col2, col2|:NAME|, col2|:SURNAME|, col2|:AGE|);"
                          , 0, imem, IsSec)),
         [Meta8] = if_call_mfa(IsSec, read, [SKey, ddTable, {imem,index_test}]),
         {value, {index, [DdIdx7, DdIdx6, DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
@@ -304,7 +304,7 @@ test_with_or_without_sec(IsSec) ->
                            }
                          , imem_sql:exec(
                              SKey
-                             , "create index i_col2_age on index_test (col2:AGE);"
+                             , "create index i_col2_age on index_test (col2|:AGE|);"
                              , 0, imem, IsSec)),
 
         %
