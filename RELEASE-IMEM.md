@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.8.2 (Release Date 10.11.2017)
+=======================================
+* sext-1.4.1
+* fixes for node sharded tables [#175](https://github.com/K2InformaticsGmbH/imem/issues/175)
+
 Version 1.8.1 (Release Date 16.10.2017)
 =======================================
 * OTP-20.1
