@@ -186,10 +186,13 @@ reference_resolve(Table, [_|{enc,_}] = Val, Resolved) ->
    reference_resolve(Table, decrypt(Val), Resolved);
 reference_resolve(Table, Val, Resolved) when is_map(Val) ->
     maps:map(fun(_K, V) -> reference_resolve(Table, V, Resolved) end, Val);
-reference_resolve(Table, [[ConfigKey|ref] = V|T], Resolved) ->
-    [reference_resolve(Table, V, Resolved) | reference_resolve(Table, T, [ConfigKey | Resolved])];
 reference_resolve(Table, [V|T], Resolved) ->
-    [reference_resolve(Table, V, Resolved) | reference_resolve(Table, T, Resolved)];
+    NewResolved =
+    case V of
+        [ConfigKey | ref] -> [ConfigKey | Resolved];
+        _ -> Resolved
+    end,
+    [reference_resolve(Table, V, Resolved) | reference_resolve(Table, T, NewResolved)];
 reference_resolve(Table, Val, Resolved) when is_tuple(Val) ->
     list_to_tuple(reference_resolve(Table, tuple_to_list(Val), Resolved));
 reference_resolve(_Table, Val, _Resolved) -> Val.
