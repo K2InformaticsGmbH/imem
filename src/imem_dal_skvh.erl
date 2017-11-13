@@ -791,6 +791,12 @@ write(User, Cmd, SkvhCtx, [{K,V}|KVPairs], Acc)  ->
 	#skvhTable{chash=Hash} = imem_meta:merge(SkvhCtx#skvhCtx.mainAlias,#skvhTable{ckey=K,cvalue=V},User),
 	write(User,Cmd, SkvhCtx, KVPairs, [Hash|Acc]).
 
+%% delete for list of term keys
+delete(User, Channel, [_ | _] = Keys) when is_binary(Channel) ->
+    EKeys = [imem_datatype:term_to_binterm(K) || K <- Keys],
+    Cmd = [delete,User,Channel,Keys],
+    delete(User, Cmd, channel_ctx(Channel), EKeys, []);
+%% delete for io keys seperated by new line
 delete(User, Channel, KeyTable) when is_binary(Channel), is_binary(KeyTable) -> 
 	Cmd = [delete,User,Channel,KeyTable],
 	delete(User, Cmd, channel_ctx(Channel), io_key_table_to_term_list(KeyTable), []).
@@ -1345,13 +1351,17 @@ skvh_operations(_) ->
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, <<"[1,a]",10,"[1,b]",13,10,"[1,c]",10>>)),
+        
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, write(system, ?Channel, <<"[1,a]",9,"123456",10,"[1,b]",9,"234567",13,10,"[1,c]",9,"345678">>)),
+
+        ?assertEqual({ok,[<<"1EXV0I">>,<<"BFFHP">>,<<"ZCZ28">>]}, delete(system, ?Channel, [[1,a], [1,b], [1,c]])),
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
         % ?LogDebug("audit trail~n~p~n", [Aud]),
-        ?assertEqual(6, length(Aud)),
+        ?assertEqual(12, length(Aud)),
         {ok,Aud1} = audit_readGT(system, ?Channel,<<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
         % ?LogDebug("audit trail~n~p~n", [Aud1]),
-        ?assertEqual(6, length(Aud1)),
+        ?assertEqual(12, length(Aud1)),
         {ok,Aud2} = audit_readGT(system, ?Channel,<<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
         timer:sleep(10), % windows wall clock may be 17ms behind
