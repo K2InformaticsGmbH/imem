@@ -33,6 +33,9 @@
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
 
+%% parse transform fix
+test() -> eunit:test().
+
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS - TEST SUITE
 %%--------------------------------------------------------------------
