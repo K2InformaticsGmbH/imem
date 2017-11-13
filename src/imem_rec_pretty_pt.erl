@@ -24,13 +24,22 @@ parse_transform(Forms, _Options) ->
         CalledRecFuns = calls(Forms, RecFuns),
         UsedFunctions = maps:values(maps:with(CalledRecFuns, Functions)),
         [{eof,_} = EOF | Rest] = lists:reverse(Forms),
-        lists:reverse([EOF|UsedFunctions] ++ (Rest -- UsedFunctions))
+        lists:reverse([EOF|add_funs(Rest, UsedFunctions)] ++ Rest)
     catch
         _:Error ->
             ?L("parse transform failed~n~p~n~p~n",
                [Error, erlang:get_stacktrace()]),
             Forms
     end.
+
+add_funs(Forms, Funs) -> add_funs(Forms, Funs, []).
+add_funs(_, [], Acc) -> lists:reverse(Acc);
+add_funs(Forms, [{function,_,Fn,_,_}=F|Funs], Acc) ->
+    add_funs(Forms, Funs,
+             case lists:keymember(Fn, 3, Forms) of
+                 true -> Acc;
+                 false -> [F|Acc]
+             end).
 
 calls(Forms, RecFuns) -> calls(Forms, [], RecFuns).
 calls([], Acc, _RecFuns) -> lists:usort(Acc);
@@ -43,7 +52,7 @@ calls([Head|Rest], Acc, RecFuns) ->
     calls(Rest, calls(Head, Acc, RecFuns), RecFuns);
 calls(Tuple, Acc, RecFuns) when is_tuple(Tuple) ->
     calls(tuple_to_list(Tuple), Acc, RecFuns);
-calls(_, Acc, _RecFuns) -> Acc.
+calls(_, Acc, _RecFuns) -> lists:usort(Acc).
 
 rf(Record, Fun, FieldNames) ->
     Fmt =
