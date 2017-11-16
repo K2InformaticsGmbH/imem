@@ -63,6 +63,7 @@
         , write/2
         , dirty_write/2
         , delete/2
+        , dirty_delete/2
         , delete_object/2
         , update_tables/2
         , update_bound_counter/6
@@ -574,6 +575,9 @@ delete_object(Table, Row) when is_atom(Table) ->
 
 dirty_select(Table, MatchSpec) when is_atom(Table) ->
     mnesia:dirty_select(Table, MatchSpec).
+
+dirty_delete(Table, Key) when is_atom(Table) ->
+    mnesia:dirty_delete(Table, Key).
 
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of

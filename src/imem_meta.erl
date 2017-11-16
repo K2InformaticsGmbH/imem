@@ -226,6 +226,7 @@
         , dirty_index_read/3    
         , dirty_write/2
         , delete/2              %% delete row by key
+        , dirty_delete/2        %% delete row by key
         , delete_object/2       %% delete single row in bag table 
         , abort/1               %% abort transaction with a message
         ]).
@@ -2890,6 +2891,11 @@ delete({_Schema,TableAlias}, Key) ->
     delete(TableAlias, Key);             %% ToDo: may depend on schema
 delete(TableAlias, Key) ->
     imem_if_mnesia:delete(physical_table_name(TableAlias,Key), Key).
+
+dirty_delete({_Schema,TableAlias}, Key) ->
+    dirty_delete(TableAlias, Key);             %% ToDo: may depend on schema
+dirty_delete(TableAlias, Key) ->
+    imem_if_mnesia:dirty_delete(physical_table_name(TableAlias,Key), Key).
 
 delete_object({_Schema,TableAlias}, Row) ->
     delete_object(TableAlias, Row);             %% ToDo: may depend on schema
