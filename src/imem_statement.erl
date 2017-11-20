@@ -2243,14 +2243,14 @@ test_with_or_without_sec_part3(IsSec) ->
             {ok, Sql8b, SF8b} = Result8a,
             Sorted8b = [{<<"1">>,<<"1">>},{<<"10">>,<<"10">>},{<<"11">>,<<"11">>},{<<"2">>,<<"2">>},{<<"3">>,<<"3">>}],
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8b)),
-            Expected8b = "select col1 as c1, col2 from def where col1 < '4' order by col1 asc",
+            Expected8b = "select col1 c1, col2 from def where col1 < '4' order by col1 asc",
             ?assertEqual(Expected8b, string:strip(binary_to_list(Sql8b))),
 
             {ok, Sql8c, SF8c} = filter_and_sort(SKey, SR8, {'and',[{1,[<<"$in$">>,<<"1">>,<<"2">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>}], [1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8c)),
             % ?LogDebug("Sql8c ~n~p~n", [Sql8c]),
-            %% Expected8c = "select col1 as c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
-            Expected8c = "select col1 as c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
+            %% Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
+            Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
             ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
             {ok, Sql8d, SF8d} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2], IsSec),
@@ -2263,8 +2263,8 @@ test_with_or_without_sec_part3(IsSec) ->
             {ok, Sql8e, SF8e} = filter_and_sort(SKey, SR8, {'or',[{1,[<<"$in$">>,<<"3">>]},{2,[<<"$in$">>,<<"3">>]}]}, [{?MainIdx,2,<<"asc">>},{?MainIdx,3,<<"desc">>}], [2,1], IsSec),
             ?assertEqual(Sorted8b, result_tuples_sort(List8a,SR8#stmtResult.rowFun, SF8e)),
             % ?LogDebug("Sql8e ~n~p~n", [Sql8e]),
-            %% Expected8e = "select col2, col1 as c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
-            Expected8e = "select col2, col1 as c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
+            %% Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
+            Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
             ?assertEqual(Expected8e, string:strip(binary_to_list(Sql8e))),
 
             ?assertEqual(ok, fetch_close(SKey, SR8, IsSec))
