@@ -1,4 +1,4 @@
-imem [![Build Status](https://travis-ci.org/K2InformaticsGmbH/imem.svg?branch=rebar3)](https://travis-ci.org/K2InformaticsGmbH/imem)
+imem [![Build Status](https://travis-ci.org/K2InformaticsGmbH/imem.svg?branch=master)](https://travis-ci.org/K2InformaticsGmbH/imem)
 ====
 
 Clustered in-memory database based on MNESIA with simple SQL layer.
