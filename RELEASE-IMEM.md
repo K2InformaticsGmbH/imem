@@ -3,6 +3,13 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.9.0 (Release Date 20.11.2017)
+=======================================
+* Fixed decimals when using datatype to convert from float to io
+* Skvh delete using keys as terms
+* Implemented circular reference for imem_config
+* sqlparse to version 3.0.0
+
 Version 1.8.2 (Release Date 10.11.2017)
 =======================================
 * sext-1.4.1
