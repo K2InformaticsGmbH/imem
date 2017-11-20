@@ -1,20 +1,16 @@
 %%%-------------------------------------------------------------------
-%%% File        : imem_dal_skvh_SUITE.erl
-%%% Description : Testing imem_dal_skvh.
+%%% File        : imem_dal_skvh_ct.erl
+%%% Description : Common testing imem_dal_skvh.
 %%%
 %%% Created     : 09.11.2017
 %%%
 %%% Copyright (C) 2017 K2 Informatics GmbH
 %%%-------------------------------------------------------------------
 
--module(imem_dal_skvh_SUITE).
+-module(imem_dal_skvh_ct).
+-include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
--export([
-    all/0,
-    end_per_suite/1,
-    init_per_suite/1,
-    suite/0
-]).
 -export([
     skvh_concurrency/1,
     skvh_operations/1
@@ -27,70 +23,16 @@
 -define(HIST_SUFFIX, "Hist").
 -define(HIST(__Channel), binary_to_list(__Channel) ++ ?HIST_SUFFIX).
 
--include_lib("common_test/include/ct.hrl").
 -define(NODEBUG, true).
--include_lib("eunit/include/eunit.hrl").
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
-
-%% - %% parse transform fix
-%% - test() -> eunit:test().
-
-%%--------------------------------------------------------------------
-%% COMMON TEST CALLBACK FUNCTIONS - TEST SUITE
-%%--------------------------------------------------------------------
-
-all() ->
-    [
-        skvh_concurrency,
-        skvh_operations
-    ].
-
-suite() ->
-    [
-        {timetrap, {minutes, 10}}
-    ].
-
-init_per_suite(Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:init_per_suite - Start ===>~n", []),
-    ?imem_test_setup,
-    catch imem_meta:drop_table(mapChannel),
-    catch imem_meta:drop_table(lstChannel),
-    catch imem_meta:drop_table(binChannel),
-    catch imem_meta:drop_table(noOptsChannel),
-    catch imem_meta:drop_table(noHistoryHChannel),
-    catch imem_meta:drop_table(skvhTest),
-    catch imem_meta:drop_table(skvhTestAudit_86400@_),
-    catch imem_meta:drop_table(skvhTestHist),
-    [begin
-         catch imem_meta:drop_table(binary_to_atom(imem_dal_skvh:table_name(Ch), utf8)),
-         catch imem_meta:drop_table(list_to_atom(?AUDIT(Ch))),
-         catch imem_meta:drop_table(list_to_atom(?HIST(Ch)))
-     end
-        || Ch <- ?Channels
-    ],
-    timer:sleep(50),
-    Config.
-
-end_per_suite(_Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:end_per_suite - Start ===>~n", []),
-    catch imem_meta:drop_table(mapChannel),
-    catch imem_meta:drop_table(lstChannel),
-    catch imem_meta:drop_table(binChannel),
-    catch imem_meta:drop_table(noOptsChannel),
-    catch imem_meta:drop_table(noHistoryHChannel),
-    catch imem_meta:drop_table(skvhTest),
-    catch imem_meta:drop_table(skvhTestAudit_86400@_),
-    catch imem_meta:drop_table(skvhTestHist),
-    ?imem_test_teardown,
-    ok.
 
 %%====================================================================
 %% Test Cases.
 %%====================================================================
 
 skvh_concurrency(_Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:skvh_concurrency - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_concurrency/1 - Start ===>~n", []),
     try
         ?LogDebug("---TEST---~p()", [skvh_concurrency]),
 
@@ -125,7 +67,7 @@ skvh_concurrency(_Config) ->
         [spawn(fun() ->
             Self ! {Ch, imem_dal_skvh:drop_table(Ch)} end) || Ch <- ?Channels],
         % ?LogDebug("success ~p", [bulk_drop_spawned]),
-        {timeout, 10, fun() ->
+        _ = {timeout, 10, fun() ->
             ?assertEqual([ok], lists:usort([R || {_, R} <- receive_results(TabCount, [])])) end},
         % ?LogDebug("success ~p~n", [bulk_drop_tables]),
         ok
@@ -138,7 +80,7 @@ skvh_concurrency(_Config) ->
     ok.
 
 skvh_operations(_Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:skvh_operations - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_operations/1 - Start ===>~n", []),
     try
         ?LogDebug("---TEST---~p()", [skvh_operations]),
 

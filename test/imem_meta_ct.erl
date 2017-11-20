@@ -1,4 +1,14 @@
+%%%-------------------------------------------------------------------
+%%% File        : imem_meta_ct.erl
+%%% Description : Common testing imem_meta.
+%%%
+%%% Created     : 09.11.2017
+%%%
+%%% Copyright (C) 2017 K2 Informatics GmbH
+%%%-------------------------------------------------------------------
+
 -module(imem_meta_ct).
+-include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
@@ -20,8 +30,12 @@
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
 
+%%====================================================================
+%% Test Cases.
+%%====================================================================
+
 meta_concurrency(_Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:meta_concurrency - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_concurrency/1 - Start ===>~n", []),
     try
         ?LogDebug("---TEST--- ~p()", [meta_concurrency]),
 
@@ -51,7 +65,7 @@ meta_concurrency(_Config) ->
     ok.
 
 meta_operations(_Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:meta_operations - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_operations/1 - Start ===>~n", []),
     try
         ?LogDebug("---TEST--- ~p()", [meta_operations]),
 
@@ -320,7 +334,7 @@ meta_operations(_Config) ->
     ok.
 
 meta_partitions(_Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:meta_partitions - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_partitions/1 - Start ===>~n", []),
     try
         ?LogDebug("---TEST--- ~p()", [meta_partitions]),
 
@@ -438,7 +452,7 @@ meta_partitions(_Config) ->
         timer:sleep(999),
         ?assert(length(imem_meta:physical_table_names(fakelog_1@)) >= 4),
         % ?LogDebug("success ~p~n", [roll_partitioned_table]),
-        {timeout, 5, fun() ->
+        _ = {timeout, 5, fun() ->
             ?assertEqual(ok, imem_meta:drop_table(fakelog_1@)) end},
         % ?LogDebug("success ~p~n", [drop_table]),
         ok
@@ -451,7 +465,7 @@ meta_partitions(_Config) ->
     ok.
 
 meta_preparations(_Config) ->
-    ?debugFmt(?MODULE_STRING ++ "~n:meta_preparations - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_preparations/1 - Start ===>~n", []),
     try
         ?LogDebug("---TEST--- ~p()", [meta_preparations]),
 
