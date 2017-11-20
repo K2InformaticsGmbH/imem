@@ -23,7 +23,7 @@ parse_transform(Forms, _Options) ->
         RecFuns = maps:keys(Functions),
         CalledRecFuns = calls(Forms, RecFuns),
         UsedFunctions = maps:values(maps:with(CalledRecFuns, Functions)),
-        [{eof,_} = EOF | Rest] = lists:reverse(Forms),
+        [{eof,_} = EOF | Rest] = move_eof_to_top(Forms),
         lists:reverse([EOF|add_funs(Rest, UsedFunctions)] ++ Rest)
     catch
         _:Error ->
@@ -31,6 +31,12 @@ parse_transform(Forms, _Options) ->
                [Error, erlang:get_stacktrace()]),
             Forms
     end.
+
+move_eof_to_top(Forms) -> move_eof_to_top(Forms, []).
+move_eof_to_top([{eof,_} = EOF | Rest], Acc) ->
+    [EOF | lists:reverse(Rest) ++ Acc];
+move_eof_to_top([Form | Rest], Acc) ->
+    move_eof_to_top(Rest, [Form | Acc]).
 
 add_funs(Forms, Funs) -> add_funs(Forms, Funs, []).
 add_funs(_, [], Acc) -> lists:reverse(Acc);
