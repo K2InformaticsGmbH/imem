@@ -107,64 +107,26 @@ groups() ->
 
 init_per_group(imem_dal_skvh = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [Group]),
-    ?imem_test_setup,
-    catch imem_meta:drop_table(mapChannel),
-    catch imem_meta:drop_table(lstChannel),
-    catch imem_meta:drop_table(binChannel),
-    catch imem_meta:drop_table(noOptsChannel),
-    catch imem_meta:drop_table(noHistoryHChannel),
-    catch imem_meta:drop_table(skvhTest),
-    catch imem_meta:drop_table(skvhTestAudit_86400@_),
-    catch imem_meta:drop_table(skvhTestHist),
-    [begin
-         catch imem_meta:drop_table(binary_to_atom(imem_dal_skvh:table_name(Ch), utf8)),
-         catch imem_meta:drop_table(list_to_atom(?AUDIT(Ch))),
-         catch imem_meta:drop_table(list_to_atom(?HIST(Ch)))
-     end
-        || Ch <- ?Channels
-    ],
-    timer:sleep(50),
-    Config;
+    imem_dal_skvh_ct:init_per_group(Config);
 init_per_group(imem_meta = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [Group]),
-    ?imem_test_setup,
-    Config;
+    imem_meta_ct:init_per_group(Config);
 init_per_group(_Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [_Group]),
     Config.
 
-end_per_group(imem_dal_skvh = Group, _Config) ->
+end_per_group(imem_dal_skvh = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
-    catch imem_meta:drop_table(mapChannel),
-    catch imem_meta:drop_table(lstChannel),
-    catch imem_meta:drop_table(binChannel),
-    catch imem_meta:drop_table(noOptsChannel),
-    catch imem_meta:drop_table(noHistoryHChannel),
-    catch imem_meta:drop_table(skvhTest),
-    catch imem_meta:drop_table(skvhTestAudit_86400@_),
-    catch imem_meta:drop_table(skvhTestHist),
-    ?imem_test_teardown,
-    ok;
-end_per_group(imem_meta = Group, _Config) ->
+    imem_dal_skvh_ct:end_per_group(Config);
+end_per_group(imem_meta = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
-    catch imem_meta:drop_table(meta_table_3),
-    catch imem_meta:drop_table(meta_table_2),
-    catch imem_meta:drop_table(meta_table_1),
-    catch imem_meta:drop_table(?TPTEST0),
-    catch imem_meta:drop_table(?TPTEST1),
-    catch imem_meta:drop_table(?TPTEST2),
-    catch imem_meta:drop_table(fakelog_1@),
-    catch imem_meta:drop_table(imem_table_123),
-    catch imem_meta:drop_table('"imem_table_123"'),
-    % imem_meta:delete(ddAlias, {imem,tpTest_1492087000@nohost}),
-    ?imem_test_teardown,
-    ok;
+    imem_meta_ct:end_per_group(Config);
 end_per_group(_Group, _Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [_Group]),
     ok.
 
 %%====================================================================
-%% Test Cases.
+%% Test Cases: imem_meta.
 %%====================================================================
 
 meta_concurrency(Config) ->
@@ -182,6 +144,10 @@ meta_partitions(Config) ->
 meta_preparations(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_preparations/1 - Start ===>~n", []),
     imem_meta_ct:meta_preparations(Config).
+
+%%====================================================================
+%% Test Cases: imem_dal_skvh.
+%%====================================================================
 
 skvh_concurrency(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_concurrency/1 - Start ===>~n", []),
