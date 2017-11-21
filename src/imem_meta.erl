@@ -205,6 +205,8 @@
         , select/3              %% select with limit
         , select_sort/2
         , select_sort/3
+        , ets/2
+        , select_count/2
         , modify/8              %% parameterized insert/update/merge/remove
         , modify/9              %% parameterized insert/update/merge/remove with trigger options
         , insert/2              %% apply defaults, write row if key does not exist, apply trigger
@@ -2598,6 +2600,17 @@ select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(Table, MatchSpec) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec).
+
+ets(Fun, Args) ->
+    imem_if_mnesia:ets(Fun, Args).
+
+select_count({ddSysConf,Table}, _MatchSpec) ->
+    % imem_if_sys_conf:select_count(physical_table_name(Table), MatchSpec);
+    ?UnimplementedException({"Cannot select_count from ddSysConf schema, use DDerl GUI instead",Table});
+select_count({_Schema,Table}, MatchSpec) ->
+    select_count(Table, MatchSpec);           %% ToDo: may depend on schema
+select_count(Table, MatchSpec) ->
+    imem_if_mnesia:select_count(physical_table_name(Table), MatchSpec).
 
 dirty_select(Table, MatchSpec) ->
     imem_if_mnesia:dirty_select(physical_table_name(Table), MatchSpec).
