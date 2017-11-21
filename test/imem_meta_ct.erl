@@ -38,7 +38,6 @@
 
 init_per_group(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/1 - Start ===>~n", []),
-    ?imem_test_setup,
     Config.
 
 end_per_group(_Config) ->
@@ -53,7 +52,6 @@ end_per_group(_Config) ->
     catch imem_meta:drop_table(imem_table_123),
     catch imem_meta:drop_table('"imem_table_123"'),
     % imem_meta:delete(ddAlias, {imem,tpTest_1492087000@nohost}),
-    ?imem_test_teardown,
     ok.
 
 %%====================================================================
