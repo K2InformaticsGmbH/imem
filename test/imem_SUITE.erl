@@ -31,6 +31,7 @@
 ]).
 
 -define(NODEBUG, true).
+-include_lib("imem.hrl").
 
 %%--------------------------------------------------------------------
 %% Returns the list of all test cases and test case groups
@@ -60,10 +61,12 @@ suite() ->
 
 init_per_suite(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_suite/1 - Start ===>~n", []),
+    ?imem_test_setup,
     Config.
 
 end_per_suite(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_suite/1 - Start ===>~n", []),
+    ?imem_test_teardown,
     ok.
 
 %%--------------------------------------------------------------------

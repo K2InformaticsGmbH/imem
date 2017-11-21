@@ -35,7 +35,6 @@
 
 init_per_group(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/1 - Start ===>~n", []),
-    ?imem_test_setup,
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
@@ -64,7 +63,6 @@ end_per_group(_Config) ->
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
-    ?imem_test_teardown,
     ok.
 
 %%====================================================================
