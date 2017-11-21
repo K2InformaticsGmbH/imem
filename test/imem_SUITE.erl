@@ -26,8 +26,8 @@
     meta_operations/1,
     meta_partitions/1,
     meta_preparations/1,
-    skhv_concurrency/1,
-    skhv_operations/1
+    skvh_concurrency/1,
+    skvh_operations/1
 ]).
 
 -define(NODEBUG, true).
@@ -50,7 +50,7 @@
 all() ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":all/0 - Start ===>~n", []),
     [
-        {group, imem_dal_skhv},
+        {group, imem_dal_skvh},
         {group, imem_meta}
     ].
 
@@ -84,10 +84,10 @@ groups() ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":groups/0 - Start ===>~n", []),
     [
         {
-            imem_dal_skhv, [],
+            imem_dal_skvh, [],
             [
-                skhv_concurrency,
-                skhv_operations
+                skvh_concurrency,
+                skvh_operations
             ]
         },
         {
@@ -105,7 +105,7 @@ groups() ->
 %% Group related setup and teardown functions.
 %%--------------------------------------------------------------------
 
-init_per_group(imem_dal_skhv = Group, Config) ->
+init_per_group(imem_dal_skvh = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [Group]),
     ?imem_test_setup,
     catch imem_meta:drop_table(mapChannel),
@@ -133,7 +133,7 @@ init_per_group(_Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [_Group]),
     Config.
 
-end_per_group(imem_dal_skhv = Group, _Config) ->
+end_per_group(imem_dal_skvh = Group, _Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
@@ -183,10 +183,10 @@ meta_preparations(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_preparations/1 - Start ===>~n", []),
     imem_meta_ct:meta_preparations(Config).
 
-skhv_concurrency(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skhv_concurrency/1 - Start ===>~n", []),
+skvh_concurrency(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_concurrency/1 - Start ===>~n", []),
     imem_dal_skvh_ct:skvh_concurrency(Config).
 
-skhv_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skhv_operations/1 - Start ===>~n", []),
+skvh_operations(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_operations/1 - Start ===>~n", []),
     imem_dal_skvh_ct:skvh_operations(Config).
