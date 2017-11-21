@@ -31,16 +31,6 @@
 ]).
 
 -define(NODEBUG, true).
--include_lib("imem.hrl").
-
--define(AUDIT_SUFFIX, "Audit_86400@_").
--define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
--define(Channels, [<<"skvhTest", N>> || N <- lists:seq($0, $9)]).
--define(HIST_SUFFIX, "Hist").
--define(HIST(__Channel), binary_to_list(__Channel) ++ ?HIST_SUFFIX).
--define(TPTEST0, tpTest_1000@).
--define(TPTEST1, tpTest1_999999999@_).
--define(TPTEST2, tpTest_100@).
 
 %%--------------------------------------------------------------------
 %% Returns the list of all test cases and test case groups
