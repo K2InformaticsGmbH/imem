@@ -76,6 +76,8 @@
 -export([ transaction/1
         , transaction/2
         , transaction/3
+        , ets/2
+        , select_count/2
         , return_atomic_list/1
         , return_atomic_ok/1
         , return_atomic/1
@@ -1063,6 +1065,12 @@ mnesia_atomic(Fun, [_|_] = Args)
               ok;
         Error -> Error
     end.
+
+ets(Fun, Args) ->
+    mnesia:ets(Fun, Args).
+
+select_count(Tab, MatchSpec) ->
+    ets(fun ets:select_count/2, [Tab, MatchSpec]).
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
