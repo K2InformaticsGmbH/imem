@@ -12,6 +12,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
+    end_per_group/1,
+    init_per_group/1,
     skvh_concurrency/1,
     skvh_operations/1
 ]).
@@ -26,6 +28,44 @@
 -define(NODEBUG, true).
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
+
+%%--------------------------------------------------------------------
+%% Group related setup and teardown functions.
+%%--------------------------------------------------------------------
+
+init_per_group(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/1 - Start ===>~n", []),
+    ?imem_test_setup,
+    catch imem_meta:drop_table(mapChannel),
+    catch imem_meta:drop_table(lstChannel),
+    catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
+    catch imem_meta:drop_table(skvhTest),
+    catch imem_meta:drop_table(skvhTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhTestHist),
+    [begin
+         catch imem_meta:drop_table(binary_to_atom(imem_dal_skvh:table_name(Ch), utf8)),
+         catch imem_meta:drop_table(list_to_atom(?AUDIT(Ch))),
+         catch imem_meta:drop_table(list_to_atom(?HIST(Ch)))
+     end
+        || Ch <- ?Channels
+    ],
+    timer:sleep(50),
+    Config.
+
+end_per_group(_Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/1 - Start ===>~n", []),
+    catch imem_meta:drop_table(mapChannel),
+    catch imem_meta:drop_table(lstChannel),
+    catch imem_meta:drop_table(binChannel),
+    catch imem_meta:drop_table(noOptsChannel),
+    catch imem_meta:drop_table(noHistoryHChannel),
+    catch imem_meta:drop_table(skvhTest),
+    catch imem_meta:drop_table(skvhTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhTestHist),
+    ?imem_test_teardown,
+    ok.
 
 %%====================================================================
 %% Test Cases.
