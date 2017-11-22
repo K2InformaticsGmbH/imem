@@ -100,9 +100,6 @@ groups() ->
 init_per_group(imem_dal_skvh = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_dal_skvh_ct:init_per_group(Config);
-init_per_group(imem_meta = Group, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [Group]),
-    imem_meta_ct:init_per_group(Config);
 init_per_group(_Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [_Group]),
     Config.

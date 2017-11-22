@@ -13,7 +13,6 @@
 
 -export([
     end_per_group/1,
-    init_per_group/1,
     meta_concurrency/1,
     meta_operations/1,
     meta_partitions/1,
@@ -35,10 +34,6 @@
 %%--------------------------------------------------------------------
 %% Group related setup and teardown functions.
 %%--------------------------------------------------------------------
-
-init_per_group(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/1 - Start ===>~n", []),
-    Config.
 
 end_per_group(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/1 - Start ===>~n", []),
