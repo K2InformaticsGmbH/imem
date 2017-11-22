@@ -30,8 +30,6 @@
     skvh_operations/1
 ]).
 
--define(NODEBUG, true).
-
 %%--------------------------------------------------------------------
 %% Returns the list of all test cases and test case groups
 %% in the test suite module to be executed.
