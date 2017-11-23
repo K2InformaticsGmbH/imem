@@ -91,29 +91,30 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHash=DH} = State) ->
+get_mon_fun(extra, Fun, Hash) ->
+    get_mon_fun({extra, ?GET_MONITOR_EXTRA}, Fun, Hash);
+get_mon_fun({extra, true}, Fun, Hash) ->
+    get_mon_fun(?GET_MONITOR_EXTRA_FUN, Fun, Hash);
+get_mon_fun(dump, Fun, Hash) ->
+    get_mon_fun({dump, ?GET_MONITOR_DUMP}, Fun, Hash);
+get_mon_fun({dump, true}, Fun, Hash) ->
+    get_mon_fun(?GET_MONITOR_DUMP_FUN, Fun, Hash);
+get_mon_fun({_, false}, _, _) -> {undefined, undefined};
+get_mon_fun(<<>>, _, _) -> {undefined, undefined};
+get_mon_fun(FunStr, Fun, Hash) ->
+    case erlang:phash2(FunStr) of
+        Hash ->     {Hash, Fun};
+        NewHash ->  {NewHash, imem_compiler:compile(FunStr)}
+    end.
+
+handle_info(imem_monitor_loop, #state{extraFun=ExtraFun, extraHash=ExtraHash,
+                                      dumpFun=DumpFun, dumpHash=DumpHash} = State) ->
     % save one imem_monitor record and trigger the next one
     % ?Debug("imem_monitor_loop start~n",[]),
     case ?GET_MONITOR_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
-            {EHash,EFun} = case {?GET_MONITOR_EXTRA, ?GET_MONITOR_EXTRA_FUN} of
-                {false, _} ->       {undefined,undefined};
-                {true, <<"">>} ->   {undefined,undefined};
-                {true, EFStr} ->
-                    case erlang:phash2(EFStr) of
-                        EH ->   {EH,EF};
-                        H1 ->   {H1,imem_compiler:compile(EFStr)}
-                    end      
-            end,
-            {DHash,DFun} = case {?GET_MONITOR_DUMP, ?GET_MONITOR_DUMP_FUN} of
-                {false, _} ->       {undefined,undefined};
-                {true, <<"">>} ->   {undefined,undefined};
-                {true, DFStr} ->
-                    case erlang:phash2(DFStr) of
-                        DH ->   {DH,DF};
-                        H2 ->   {H2,imem_compiler:compile(DFStr)}
-                    end      
-            end,
+            {EHash, EFun} = get_mon_fun(extra, ExtraFun, ExtraHash),
+            {DHash, DFun} = get_mon_fun(dump, DumpFun, DumpHash),
             write_monitor(EFun,DFun),
             erlang:send_after(MCW, self(), imem_monitor_loop),
             {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
