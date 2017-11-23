@@ -91,22 +91,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-get_mon_fun(extra, Fun, Hash) ->
-    get_mon_fun({extra, ?GET_MONITOR_EXTRA}, Fun, Hash);
-get_mon_fun({extra, true}, Fun, Hash) ->
-    get_mon_fun(?GET_MONITOR_EXTRA_FUN, Fun, Hash);
-get_mon_fun(dump, Fun, Hash) ->
-    get_mon_fun({dump, ?GET_MONITOR_DUMP}, Fun, Hash);
-get_mon_fun({dump, true}, Fun, Hash) ->
-    get_mon_fun(?GET_MONITOR_DUMP_FUN, Fun, Hash);
-get_mon_fun({_, false}, _, _) -> {undefined, undefined};
-get_mon_fun(<<>>, _, _) -> {undefined, undefined};
-get_mon_fun(FunStr, Fun, Hash) ->
-    case erlang:phash2(FunStr) of
-        Hash ->     {Hash, Fun};
-        NewHash ->  {NewHash, imem_compiler:compile(FunStr)}
-    end.
-
 handle_info(imem_monitor_loop, #state{extraFun=ExtraFun, extraHash=ExtraHash,
                                       dumpFun=DumpFun, dumpHash=DumpHash} = State) ->
     % save one imem_monitor record and trigger the next one
@@ -138,6 +122,22 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 
 %% ------ MONITOR implementation -------------------------------------------------------
+
+get_mon_fun(extra, Fun, Hash) ->
+    get_mon_fun({extra, ?GET_MONITOR_EXTRA}, Fun, Hash);
+get_mon_fun({extra, true}, Fun, Hash) ->
+    get_mon_fun(?GET_MONITOR_EXTRA_FUN, Fun, Hash);
+get_mon_fun(dump, Fun, Hash) ->
+    get_mon_fun({dump, ?GET_MONITOR_DUMP}, Fun, Hash);
+get_mon_fun({dump, true}, Fun, Hash) ->
+    get_mon_fun(?GET_MONITOR_DUMP_FUN, Fun, Hash);
+get_mon_fun({_, false}, _, _) -> {undefined, undefined};
+get_mon_fun(<<>>, _, _) -> {undefined, undefined};
+get_mon_fun(FunStr, Fun, Hash) ->
+    case erlang:phash2(FunStr) of
+        Hash ->     {Hash, Fun};
+        NewHash ->  {NewHash, imem_compiler:compile(FunStr)}
+    end.
 
 write_monitor() -> write_monitor(undefined,undefined).
 
