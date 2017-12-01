@@ -397,7 +397,7 @@ db1_with_or_without_sec(IsSec) ->
 
     %% test ddSysConf schema access
 
-        ?assertEqual(ok, imem_if_sys_conf:create_sys_conf("_build/default/lib/imem/src/")),
+        ?assertEqual(ok, imem_if_sys_conf:create_sys_conf("_build/test/lib/imem/src/")),
 
         R9a = exec_fetch_sort(SKey, query9a, 100, IsSec, "
             select * 
