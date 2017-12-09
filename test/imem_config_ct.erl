@@ -39,8 +39,6 @@ end_per_group(_Config) ->
 config_operations(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
     try
-        ?LogDebug("---TEST--- ~p()", [config_operations]),
-
         ?assertMatch({ok, _}, imem_meta:create_table(test_config, {record_info(fields, ddConfig), ?ddConfig, #ddConfig{}}, ?CONFIG_TABLE_OPTS, system)),
         ?assertEqual(test_value, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [test_context], test_value)),
         ?assertMatch([#ddConfig{hkl = [{?MODULE, test_param}], val = test_value}], imem_meta:read(test_config)), %% default created, owner set
@@ -55,14 +53,14 @@ config_operations(_Config) ->
         ?assertEqual(context_value, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [test_context], test_value)),
         ?assertEqual(context_value, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [test_context, details], test_value)),
         ?assertEqual(test_value2, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [another_context, details], another_value)),
-        % ?LogDebug("success ~p~n", [imem_config:get_config_hlk]),
 
         ?assertEqual(ok, imem_meta:drop_table(test_config)),
+
         ok
     catch
         Class:Reason ->
             timer:sleep(100),
-            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw({Class, Reason})
     end,
     ok.

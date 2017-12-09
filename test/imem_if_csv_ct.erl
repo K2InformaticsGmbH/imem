@@ -32,8 +32,6 @@
 test_csv_1(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_csv_1/1 - Start ===>~n", []),
     try
-        ?LogDebug("---TEST---"),
-
         ?assertEqual(<<>>, imem_if_csv:first_binary_bytes(<<>>, 4)),
 
         ?assertEqual(<<>>, imem_if_csv:last_binary_bytes(<<>>, 4)),
@@ -312,11 +310,12 @@ test_csv_1(_Config) ->
         }
             , imem_if_csv:select({<<"csv$skip6">>, CsvFileName}, ?MATCH_ALL_1_COL, 100, read)
         ),
+
         ok
     catch
         Class:Reason ->
             timer:sleep(100),
-            ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             ?assert(true == "all tests completed")
     end,
     ok.     

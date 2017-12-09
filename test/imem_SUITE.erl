@@ -137,7 +137,7 @@ init_per_group(_Group, Config) ->
 
 end_per_group(imem_config = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
-    imem_config:end_per_group(Config);
+    imem_config_ct:end_per_group(Config);
 end_per_group(imem_dal_skvh = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_dal_skvh_ct:end_per_group(Config);

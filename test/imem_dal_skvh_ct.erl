@@ -74,47 +74,38 @@ end_per_group(_Config) ->
 skvh_concurrency(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_concurrency/1 - Start ===>~n", []),
     try
-        ?LogDebug("---TEST---~p()", [skvh_concurrency]),
-
         TestKey = ["sum"],
         % CreateResult = [create_table(Ch, [], [], system) || Ch <- ?Channels],  % serialized version
         Self = self(),
         TabCount = length(?Channels),
         [spawn(fun() ->
             Self ! {Ch, imem_dal_skvh:create_table(Ch, [], [], system)} end) || Ch <- ?Channels],
-        % ?LogDebug("success ~p", [bulk_create_spawned]),
         CreateResult = receive_results(TabCount, []),
         ?assertEqual(TabCount, length(CreateResult)),
         ?assertEqual([ok], lists:usort([R || {_, {R, _}} <- CreateResult])),
-        % ?LogDebug("success ~p~n", [bulk_create_tables]),
 
         [spawn(fun() ->
             Self ! {Ch, imem_dal_skvh:insert(system, Ch, TestKey, <<"0">>)} end) || Ch <- ?Channels],
-        % ?LogDebug("success ~p", [bulk_insert_spawned]),
         InitResult = receive_results(TabCount, []),
         ?assertEqual(TabCount, length(InitResult)),
-        % ?LogDebug("success ~p~n", [bulk_insert]),
 
         [spawn(fun() ->
             Self ! {N1, update_test(hd(?Channels), TestKey, N1)} end) || N1 <- lists:seq(1, 10)],
-        % ?LogDebug("success ~p", [bulk_update_spawned]),
         UpdateResult = receive_results(10, []),
         ?assertEqual(10, length(UpdateResult)),
         ?assertMatch([{skvhTable, _, <<"55">>, _}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
-        % ?LogDebug("success ~p~n", [bulk_update]),
 
         % DropResult = [drop_table(Ch) || Ch <- ?Channels],         % serialized version
         [spawn(fun() ->
             Self ! {Ch, imem_dal_skvh:drop_table(Ch)} end) || Ch <- ?Channels],
-        % ?LogDebug("success ~p", [bulk_drop_spawned]),
         _ = {timeout, 10, fun() ->
             ?assertEqual([ok], lists:usort([R || {_, R} <- receive_results(TabCount, [])])) end},
-        % ?LogDebug("success ~p~n", [bulk_drop_tables]),
+
         ok
     catch
         Class:Reason ->
             timer:sleep(100),
-            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw({Class, Reason})
     end,
     ok.
@@ -122,8 +113,6 @@ skvh_concurrency(_Config) ->
 skvh_operations(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_operations/1 - Start ===>~n", []),
     try
-        ?LogDebug("---TEST---~p()", [skvh_operations]),
-
         ClEr = 'ClientError',
 
         ?assertMatch(ok, imem_dal_skvh:create_check_channel(<<"mapChannel">>, [{type, map}])),
@@ -194,16 +183,13 @@ skvh_operations(_Config) ->
         ?assertEqual({ok, [KVa, <<"[1,ab]", 9, "undefined">>, KVb, KVc]}, imem_dal_skvh:read(system, ?Channel, <<"kvpair">>, <<"[1,a]", 13, 10, "[1,ab]", 13, 10, "[1,b]", 10, "[1,c]">>)),
 
         Dat = imem_meta:read(skvhTest),
-        % ?LogDebug("TEST data ~n~p~n", [Dat]),
         ?assertEqual(3, length(Dat)),
 
         ?assertEqual({ok, [<<"1EXV0I">>, <<"BFFHP">>, <<"ZCZ28">>]}, imem_dal_skvh:delete(system, ?Channel, <<"[1,a]", 10, "[1,b]", 13, 10, "[1,c]", 10>>)),
 
         Aud = imem_meta:read(skvhTestAudit_86400@_),
-        % ?LogDebug("audit trail~n~p~n", [Aud]),
         ?assertEqual(6, length(Aud)),
         {ok, Aud1} = imem_dal_skvh:audit_readGT(system, ?Channel, <<"tkvuquadruple">>, <<"{0,0,0}">>, <<"100">>),
-        % ?LogDebug("audit trail~n~p~n", [Aud1]),
         ?assertEqual(6, length(Aud1)),
         {ok, Aud2} = imem_dal_skvh:audit_readGT(system, ?Channel, <<"tkvtriple">>, <<"{0,0,0}">>, 4),
         ?assertEqual(4, length(Aud2)),
@@ -218,7 +204,6 @@ skvh_operations(_Config) ->
         ?assertEqual(Aud1, Aud5),
 
         Hist = imem_meta:read(skvhTestHist),
-        % ?LogDebug("audit trail~n~p~n", [Hist]),
         ?assertEqual(3, length(Hist)),
 
         ?assertEqual({ok, [<<"[1,a]", 9, "undefined">>]}, imem_dal_skvh:read(system, ?Channel, <<"kvpair">>, <<"[1,a]">>)),
@@ -266,8 +251,6 @@ skvh_operations(_Config) ->
 
         ?assertEqual(ok, imem_meta:truncate_table(skvhTest)),
         ?assertEqual(1, length(imem_meta:read(skvhTestHist))),
-
-        % ?LogDebug("audit trail~n~p~n", [imem_meta:read(skvhTestAudit_86400@_)]),
 
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
 
@@ -519,24 +502,18 @@ skvh_operations(_Config) ->
         %% Get the last value of a deleted object with key
         ?assertEqual(maps:get(cvalue, Map1Upd), imem_dal_skvh:hist_read_deleted(system, ?Channel, maps:get(ckey, Map1))),
 
-        % ?LogDebug("starting ~p", [drop_table123]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTest)),
-        % ?LogDebug("success drop ~p", [skvhTest]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
-        % ?LogDebug("success drop ~p", [skvhTestAudit_86400@_]),
         ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
-        % ?LogDebug("success drop ~p", [skvhTestHist]),
 
         ?assertMatch({ok, _}, imem_dal_skvh:create_table(skvhTest, [], [], system)),
-        % ?LogDebug("starting ~p", [drop_table]),
         ?assertEqual(ok, imem_dal_skvh:drop_table(skvhTest)),
-        % ?LogDebug("success ~p~n", [drop_table]),
-        ok
 
+        ok
     catch
         Class:Reason ->
             timer:sleep(100),
-            ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
+            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
             throw({Class, Reason})
     end,
     ok.
@@ -561,7 +538,7 @@ receive_results(N, Acc) ->
                     receive_results(N - 1, [Result | Acc])
             end
     after 4000 ->
-        ?LogDebug("Result timeout ~p", [4000]),
+        ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Result timeout ~p", [4000]),
         Acc
     end.
 
