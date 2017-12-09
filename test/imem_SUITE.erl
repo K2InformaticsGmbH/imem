@@ -32,7 +32,9 @@
     meta_concurrency/1,
     meta_operations/1,
     meta_partitions/1,
-    meta_preparations/1
+    meta_preparations/1,
+    monitor_operations/1,
+    sec_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -49,7 +51,9 @@ all() ->
         {group, imem_if_csv},
         {group, imem_if_mnesia},
         {group, imem_import},
-        {group, imem_meta}
+        {group, imem_meta},
+        {group, imem_monitor},
+        {group, imem_sec}
     ].
 
 %%--------------------------------------------------------------------
@@ -131,6 +135,18 @@ groups() ->
                 meta_partitions,
                 meta_concurrency
             ]
+        },
+        {
+            imem_monitor, [],
+            [
+                monitor_operations
+            ]
+        },
+        {
+            imem_sec, [],
+            [
+                sec_test
+            ]
         }
     ].
 
@@ -160,6 +176,9 @@ end_per_group(imem_import = Group, Config) ->
 end_per_group(imem_meta = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_meta_ct:end_per_group(Config);
+end_per_group(imem_sec = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_sec_ct:end_per_group(Config);
 end_per_group(_Group, _Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [_Group]),
     ok.
@@ -197,7 +216,7 @@ dal_skvh_operations(Config) ->
 %%====================================================================
 
 if_csv_test_csv_1(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":if_csv_test_csv_1/1 - Start ===>~n", []),
     imem_if_csv_ct:test_csv_1(Config).
 
 %%====================================================================
@@ -205,7 +224,7 @@ if_csv_test_csv_1(Config) ->
 %%====================================================================
 
 if_mnesia_table_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":if_mnesia_table_operations/1 - Start ===>~n", []),
     imem_if_mnesia_ct:table_operations(Config).
 
 %%====================================================================
@@ -213,11 +232,11 @@ if_mnesia_table_operations(Config) ->
 %%====================================================================
 
 import_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":import_test_with_sec/1 - Start ===>~n", []),
     imem_import_ct:test_with_sec(Config).
 
 import_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":import_test_without_sec/1 - Start ===>~n", []),
     imem_import_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -239,3 +258,19 @@ meta_partitions(Config) ->
 meta_preparations(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_preparations/1 - Start ===>~n", []),
     imem_meta_ct:meta_preparations(Config).
+
+%%====================================================================
+%% Test Cases: imem_monitor.
+%%====================================================================
+
+monitor_operations(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":monitor_operations/1 - Start ===>~n", []),
+    imem_monitor_ct:monitor_operations(Config).
+
+%%====================================================================
+%% Test Cases: imem_sec.
+%%====================================================================
+
+sec_test(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sec_test/1 - Start ===>~n", []),
+    imem_sec_ct:test(Config).
