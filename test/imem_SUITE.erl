@@ -27,6 +27,8 @@
     dal_skvh_operations/1,
     if_csv_test_csv_1/1,
     if_mnesia_table_operations/1,
+    import_test_with_sec/1,
+    import_test_without_sec/1,
     meta_concurrency/1,
     meta_operations/1,
     meta_partitions/1,
@@ -46,6 +48,7 @@ all() ->
         {group, imem_dal_skvh},
         {group, imem_if_csv},
         {group, imem_if_mnesia},
+        {group, imem_import},
         {group, imem_meta}
     ].
 
@@ -114,6 +117,13 @@ groups() ->
             ]
         },
         {
+            imem_import, [],
+            [
+                import_test_with_sec,
+                import_test_without_sec
+            ]
+        },
+        {
             imem_meta, [],
             [
                 meta_operations,
@@ -144,6 +154,9 @@ end_per_group(imem_dal_skvh = Group, Config) ->
 end_per_group(imem_if_mnesia = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_if_mnesia_ct:end_per_group(Config);
+end_per_group(imem_import = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_import_ct:end_per_group(Config);
 end_per_group(imem_meta = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_meta_ct:end_per_group(Config);
@@ -194,6 +207,18 @@ if_csv_test_csv_1(Config) ->
 if_mnesia_table_operations(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
     imem_if_mnesia_ct:table_operations(Config).
+
+%%====================================================================
+%% Test Cases: imem_import.
+%%====================================================================
+
+import_test_with_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    imem_import_ct:test_with_sec(Config).
+
+import_test_without_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    imem_import_ct:test_without_sec(Config).
 
 %%====================================================================
 %% Test Cases: imem_meta.
