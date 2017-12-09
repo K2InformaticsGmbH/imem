@@ -23,12 +23,14 @@
 -export([
     cache_test_without_sec/1,
     config_operations/1,
+    dal_skvh_concurrency/1,
+    dal_skvh_operations/1,
+    if_csv_test_csv_1/1,
+    if_mnesia_table_operations/1,
     meta_concurrency/1,
     meta_operations/1,
     meta_partitions/1,
-    meta_preparations/1,
-    skvh_concurrency/1,
-    skvh_operations/1
+    meta_preparations/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -42,6 +44,8 @@ all() ->
         {group, imem_cache},
         {group, imem_config},
         {group, imem_dal_skvh},
+        {group, imem_if_csv},
+        {group, imem_if_mnesia},
         {group, imem_meta}
     ].
 
@@ -93,8 +97,20 @@ groups() ->
         {
             imem_dal_skvh, [],
             [
-                skvh_concurrency,
-                skvh_operations
+                dal_skvh_concurrency,
+                dal_skvh_operations
+            ]
+        },
+        {
+            imem_if_csv, [],
+            [
+                if_csv_test_csv_1
+            ]
+        },
+        {
+            imem_if_mnesia, [],
+            [
+                if_mnesia_table_operations
             ]
         },
         {
@@ -125,6 +141,9 @@ end_per_group(imem_config = Group, Config) ->
 end_per_group(imem_dal_skvh = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_dal_skvh_ct:end_per_group(Config);
+end_per_group(imem_if_mnesia = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_if_mnesia_ct:end_per_group(Config);
 end_per_group(imem_meta = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_meta_ct:end_per_group(Config);
@@ -149,6 +168,34 @@ cache_test_without_sec(Config) ->
     imem_cache_ct:test_without_sec(Config).
 
 %%====================================================================
+%% Test Cases: imem_dal_skvh.
+%%====================================================================
+
+dal_skvh_concurrency(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":dal_skvh_concurrency/1 - Start ===>~n", []),
+    imem_dal_skvh_ct:skvh_concurrency(Config).
+
+dal_skvh_operations(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":dal_skvh_operations/1 - Start ===>~n", []),
+    imem_dal_skvh_ct:skvh_operations(Config).
+
+%%====================================================================
+%% Test Cases: imem_if_csv.
+%%====================================================================
+
+if_csv_test_csv_1(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    imem_if_csv_ct:test_csv_1(Config).
+
+%%====================================================================
+%% Test Cases: imem_if_mnesia.
+%%====================================================================
+
+if_mnesia_table_operations(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    imem_if_mnesia_ct:table_operations(Config).
+
+%%====================================================================
 %% Test Cases: imem_meta.
 %%====================================================================
 
@@ -167,15 +214,3 @@ meta_partitions(Config) ->
 meta_preparations(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_preparations/1 - Start ===>~n", []),
     imem_meta_ct:meta_preparations(Config).
-
-%%====================================================================
-%% Test Cases: imem_dal_skvh.
-%%====================================================================
-
-skvh_concurrency(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_concurrency/1 - Start ===>~n", []),
-    imem_dal_skvh_ct:skvh_concurrency(Config).
-
-skvh_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":skvh_operations/1 - Start ===>~n", []),
-    imem_dal_skvh_ct:skvh_operations(Config).

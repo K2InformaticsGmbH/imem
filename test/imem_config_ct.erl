@@ -2,7 +2,7 @@
 %%% File        : imem_config_ct.erl
 %%% Description : Common testing imem_config.
 %%%
-%%% Created     : 09.11.2017
+%%% Created     : 09.12.2017
 %%%
 %%% Copyright (C) 2017 K2 Informatics GmbH
 %%%-------------------------------------------------------------------
@@ -37,6 +37,7 @@ end_per_group(_Config) ->
 %%====================================================================
 
 config_operations(_Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
     try
         ?LogDebug("---TEST--- ~p()", [config_operations]),
 
