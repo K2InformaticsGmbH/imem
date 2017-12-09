@@ -8,6 +8,7 @@
 %%%-------------------------------------------------------------------
 
 -module(imem_meta_ct).
+
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
@@ -28,6 +29,7 @@
 -define(TPTEST2, tpTest_100@).
 
 -define(NODEBUG, true).
+
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
 

@@ -20,8 +20,9 @@
     suite/0
 ]).
 
-
 -export([
+    cache_test_without_sec/1,
+    config_operations/1,
     meta_concurrency/1,
     meta_operations/1,
     meta_partitions/1,
@@ -38,6 +39,8 @@
 all() ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":all/0 - Start ===>~n", []),
     [
+        {group, imem_cache},
+        {group, imem_config},
         {group, imem_dal_skvh},
         {group, imem_meta}
     ].
@@ -76,6 +79,18 @@ groups() ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":groups/0 - Start ===>~n", []),
     [
         {
+            imem_cache, [],
+            [
+                cache_test_without_sec
+            ]
+        },
+        {
+            imem_config, [],
+            [
+                config_operations
+            ]
+        },
+        {
             imem_dal_skvh, [],
             [
                 skvh_concurrency,
@@ -104,6 +119,9 @@ init_per_group(_Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/2 - ~p - Start ===>~n", [_Group]),
     Config.
 
+end_per_group(imem_config = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_config:end_per_group(Config);
 end_per_group(imem_dal_skvh = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_dal_skvh_ct:end_per_group(Config);
@@ -113,6 +131,22 @@ end_per_group(imem_meta = Group, Config) ->
 end_per_group(_Group, _Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [_Group]),
     ok.
+
+%%====================================================================
+%% Test Cases: imem_config.
+%%====================================================================
+
+config_operations(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    imem_config_ct:config_operations(Config).
+
+%%====================================================================
+%% Test Cases: imem_cache.
+%%====================================================================
+
+cache_test_without_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":cache_test_without_sec/1 - Start ===>~n", []),
+    imem_cache_ct:test_without_sec(Config).
 
 %%====================================================================
 %% Test Cases: imem_meta.

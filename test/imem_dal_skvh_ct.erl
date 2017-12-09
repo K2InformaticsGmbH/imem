@@ -8,6 +8,7 @@
 %%%-------------------------------------------------------------------
 
 -module(imem_dal_skvh_ct).
+
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
@@ -26,6 +27,7 @@
 -define(HIST(__Channel), binary_to_list(__Channel) ++ ?HIST_SUFFIX).
 
 -define(NODEBUG, true).
+
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
 
