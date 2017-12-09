@@ -3,6 +3,10 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 1.9.1 (Release Date 23.11.2017)
+=======================================
+* APIs `ets`, `select_count` [#184](https://github.com/K2InformaticsGmbH/imem/issues/184)
+
 Version 1.9.0 (Release Date 20.11.2017)
 =======================================
 * Fixed decimals when using datatype to convert from float to io
