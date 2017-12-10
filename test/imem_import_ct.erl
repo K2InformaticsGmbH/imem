@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
-%%% File        : imem_config_ct.erl
-%%% Description : Common testing imem_config.
+%%% File        : imem_import_ct.erl
+%%% Description : Common testing imem_import.
 %%%
 %%% Created     : 09.12.2017
 %%%
@@ -43,8 +43,8 @@ end_per_group(_Config) ->
 test_with_or_without_sec(IsSec) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_with_or_without_sec/1 - Start ===>~n", []),
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "schema ~p~n", [imem_meta:schema()]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "data nodes ~p~n", [imem_meta:data_nodes()]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":schema ~p~n", [imem_meta:schema()]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":data nodes ~p~n", [imem_meta:data_nodes()]),
     ?assertEqual(true, is_atom(imem_meta:schema())),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
 
@@ -53,14 +53,14 @@ test_with_or_without_sec(IsSec) ->
                _ -> ok
            end,
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "~p:test_mnesia~n", [?MODULE]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~p:test_mnesia~n", [?MODULE]),
 
     ?assertEqual(true, is_atom(imem_meta:schema())),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [schema]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [schema]),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [data_nodes]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [data_nodes]),
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "~p:import from string~n", [?MODULE]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~p:import from string~n", [?MODULE]),
 
     Imp1 = "
         table_name\n
@@ -83,7 +83,7 @@ test_with_or_without_sec(IsSec) ->
     % ?assertEqual(ok, imem_meta:drop_table(import_test_3)),
     % ?assertEqual(ok, imem_meta:drop_table(import_test_2)),
     % ?assertEqual(ok, imem_meta:drop_table(import_test_1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [drop_tables]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [drop_tables]),
 
     case IsSec of
         true -> ?imem_logout(SKey);

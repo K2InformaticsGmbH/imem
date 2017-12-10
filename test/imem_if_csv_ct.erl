@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% File        : imem_cache_ct.erl
+%%% File        : imem_if_csv_ct.erl
 %%% Description : Common testing imem_if_csv.
 %%%
 %%% Created     : 09.12.2017

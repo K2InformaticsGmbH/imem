@@ -38,8 +38,8 @@ test_snapshot(_Config) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
 
     Take = imem_snap:take(ddTable),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "take snapshots :~n~p~n", [Take]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":take snapshots :~n~p~n", [Take]),
     ?assert(lists:member("ddTable", ?FILENAMES("*" ++ ?BKP_EXTN, SnapDir))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "snapshot tests completed!~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":snapshot tests completed!~n", []),
 
     ok.

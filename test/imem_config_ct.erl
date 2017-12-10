@@ -55,7 +55,7 @@ config_operations(_Config) ->
     ?assertEqual(context_value, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [test_context], test_value)),
     ?assertEqual(context_value, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [test_context, details], test_value)),
     ?assertEqual(test_value2, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [another_context, details], another_value)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [get_config_hlk]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [get_config_hlk]),
 
     ?assertEqual(ok, imem_meta:drop_table(test_config)),
 
