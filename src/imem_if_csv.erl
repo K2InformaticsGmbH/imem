@@ -15,7 +15,7 @@
 -define(CSV_DELIMITER2, <<$",$">>).     % CSV escape of "
 -define(CSV_DELIMITER3, <<$\\,$">>).    % Erlang escape of "
 
--define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding, skip])).
+-define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding, skip]).
 -define(ALL_CSV_SCHEMA_TOKENS, [ {<<"crlf">>,lineSeparator,<<"\r\n">>}
                                , {<<"lf">>,lineSeparator,<<"\n">>}
                                , {<<"tab">>,columnSeparator,<<"\t">>}

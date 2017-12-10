@@ -34,7 +34,9 @@
     meta_partitions/1,
     meta_preparations/1,
     monitor_operations/1,
-    sec_test/1
+    sec_test/1,
+    seco_test/1,
+    snap_test_snapshot/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -53,7 +55,9 @@ all() ->
         {group, imem_import},
         {group, imem_meta},
         {group, imem_monitor},
-        {group, imem_sec}
+        {group, imem_sec},
+        {group, imem_seco},
+        {group, imem_snap}
     ].
 
 %%--------------------------------------------------------------------
@@ -147,6 +151,18 @@ groups() ->
             [
                 sec_test
             ]
+        },
+        {
+            imem_seco, [],
+            [
+                seco_test
+            ]
+        },
+        {
+            imem_snap, [],
+            [
+                snap_test_snapshot
+            ]
         }
     ].
 
@@ -179,6 +195,9 @@ end_per_group(imem_meta = Group, Config) ->
 end_per_group(imem_sec = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_sec_ct:end_per_group(Config);
+end_per_group(imem_seco = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_seco_ct:end_per_group(Config);
 end_per_group(_Group, _Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [_Group]),
     ok.
@@ -274,3 +293,19 @@ monitor_operations(Config) ->
 sec_test(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sec_test/1 - Start ===>~n", []),
     imem_sec_ct:test(Config).
+
+%%====================================================================
+%% Test Cases: imem_seco.
+%%====================================================================
+
+seco_test(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sec_test/1 - Start ===>~n", []),
+    imem_seco_ct:test(Config).
+
+%%====================================================================
+%% Test Cases: imem_snap.
+%%====================================================================
+
+snap_test_snapshot(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sec_test/1 - Start ===>~n", []),
+    imem_snap_ct:test_snapshot(Config).

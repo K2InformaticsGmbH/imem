@@ -30,6 +30,11 @@ monitor_operations(_Config) ->
 
     ?assertEqual(ok, imem_monitor:write_monitor()),
     MonRecs = imem_meta:read(?MONITOR_TABLE),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "MonRecs count ~p~n", [length(MonRecs)]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "MonRecs last ~p~n", [lists:last(MonRecs)]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "MonRecs[1] ~p~n", [hd(MonRecs)]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "MonRecs ~p~n", [MonRecs]),
     ?assert(length(MonRecs) > 0),
+    %?LogDebug("success ~p~n", [monitor]),
 
     ok.

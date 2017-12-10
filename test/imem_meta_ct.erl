@@ -68,11 +68,14 @@ meta_concurrency(_Config) ->
     ?assertEqual(ok, imem_meta:write(T_m_c, {T_m_c, Key, 0})),
     [spawn(fun() ->
         Self ! {N, read_write_test(T_m_c, Key, N)} end) || N <- lists:seq(1, 10)],
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p", [read_write_spawned]),
     ReadWriteResult = receive_results(10, []),
     ?assertEqual(10, length(ReadWriteResult)),
     ?assertEqual([{T_m_c, Key, 55}], imem_meta:read(T_m_c, Key)),
     ?assertEqual([{atomic, ok}], lists:usort([R || {_, R} <- ReadWriteResult])),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [bulk_read_write]),
     ?assertEqual(ok, imem_meta:drop_table(T_m_c)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [drop_table]),
 
     ok.
 
@@ -81,6 +84,8 @@ meta_operations(_Config) ->
 
     ClEr = 'ClientError',
     SyEx = 'SystemException',
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "schema ~p~n", [imem_meta:schema()]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "data nodes ~p~n", [imem_meta:data_nodes()]),
     ?assertEqual(true, is_atom(imem_meta:schema())),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
     ?assertEqual([imem_meta:node_shard()], imem_meta:node_shards()),
@@ -96,14 +101,17 @@ meta_operations(_Config) ->
 
     Now = ?TIME_UID,
     LogCount1 = imem_meta:table_size(?LOG_TABLE),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "ddLog@ count ~p~n", [LogCount1]),
     Fields = [{test_criterium_1, value1}, {test_criterium_2, value2}],
     LogRec0 = #ddLog{logTime = Now, logLevel = info, pid = self()
         , module = ?MODULE, function = meta_operations, node = node()
         , fields = Fields, message = <<"some log message">>},
     ?assertEqual(ok, imem_meta:write(?LOG_TABLE, LogRec0)),
     LogCount2 = imem_meta:table_size(?LOG_TABLE),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "ddLog@ count ~p~n", [LogCount2]),
     ?assert(LogCount2 > LogCount1),
     _Log1 = imem_meta:read(?LOG_TABLE, Now),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "ddLog@ content ~p~n", [_Log1]),
     ?assertEqual(ok, imem_meta:log_to_db(info, ?MODULE, test, [{test_3, value3}, {test_4, value4}], "Message")),
     ?assertEqual(ok, imem_meta:log_to_db(info, ?MODULE, test, [{test_3, value3}, {test_4, value4}], [])),
     ?assertEqual(ok, imem_meta:log_to_db(info, ?MODULE, test, [{test_3, value3}, {test_4, value4}], [stupid_error_message, 1])),
@@ -111,6 +119,7 @@ meta_operations(_Config) ->
     LogCount2a = imem_meta:table_size(?LOG_TABLE),
     ?assert(LogCount2a >= LogCount2 + 4),
 
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "~p:test_database_operations~n", [?MODULE]),
     Types1 = [#ddColumn{name = a, type = string, len = 10}     %% key
         , #ddColumn{name = b1, type = binstr, len = 20}    %% value 1
         , #ddColumn{name = c1, type = string, len = 30}    %% value 2
@@ -134,6 +143,7 @@ meta_operations(_Config) ->
     ?assertMatch({ok, _}, imem_meta:create_table(meta_table_1, Types1, [])),
     ?assertEqual(ok, imem_meta:create_index(meta_table_1, [])),
     ?assertMatch(ok, imem_meta:check_table(meta_table_1Idx)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "ddTable for meta_table_1~n~p~n", [imem_meta:read(ddTable, {imem_meta:schema(), meta_table_1})]),
     ?assertEqual(ok, imem_meta:drop_index(meta_table_1)),
     ?assertException(throw, {'ClientError', {"Table does not exist", meta_table_1Idx}}, imem_meta:check_table(meta_table_1Idx)),
     ?assertEqual(ok, imem_meta:create_index(meta_table_1, [])),
@@ -227,6 +237,8 @@ meta_operations(_Config) ->
     ?assertEqual({'ClientError', {"Table does not exist", meta_table_1Idx}}
         , imem_meta:drop_index(meta_table_1)),
 
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "meta_table_1 ~n~p", [imem_meta:read(meta_table_1)]),
+
     Idx4Def = #ddIdxDef{id = 4, name = <<"integer index on b1">>, type = ivk, pl = [<<"c1">>], vnf = <<"fun imem_index:vnf_integer/1">>},
     ?assertEqual(ok, imem_meta:create_or_replace_index(meta_table_1, [Idx4Def])),
     ?assertEqual(3, length(imem_meta:read(meta_table_1Idx))),
@@ -243,6 +255,7 @@ meta_operations(_Config) ->
     Vnf5 = <<"fun(__X) -> case imem_index:vnf_integer(__X) of ['$not_a_value'] -> ['$not_a_value']; [__V] -> [2*__V] end end">>,
     Idx5Def = #ddIdxDef{id = 5, name = <<"integer times 2 on b1">>, type = ivk, pl = [<<"c1">>], vnf = Vnf5},
     ?assertEqual(ok, imem_meta:create_or_replace_index(meta_table_1, [Idx5Def])),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "meta_table_1Idx ~n~p", [imem_meta:read(meta_table_1Idx)]),
     IdxExpect5 = [{ddIndex, {5, 2, "meta"}, 0}
         , {ddIndex, {5, 4, "meta1"}, 0}
         , {ddIndex, {5, 6, "json1"}, 0}
@@ -253,6 +266,7 @@ meta_operations(_Config) ->
     ?assertMatch({ok, _}, imem_meta:create_table(meta_table_2, Types2, [])),
 
     ?assertMatch({ok, _}, imem_meta:create_table(meta_table_3, {[a, ?nav], [datetime, term], {meta_table_3, ?nav, undefined}}, [])),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [create_table_not_null]),
     Trig = <<"fun(O,N,T,U,TO) -> imem_meta:log_to_db(debug,imem_meta,trigger,[{table,T},{old,O},{new,N},{user,U},{tropts,TO}],\"trigger\") end.">>,
     ?assertEqual(ok, imem_meta:create_or_replace_trigger(meta_table_3, Trig)),
     ?assertEqual(Trig, imem_meta:get_trigger(meta_table_3)),
@@ -273,6 +287,7 @@ meta_operations(_Config) ->
     ?assertEqual(LogCount3 + 1, imem_meta:table_size(?LOG_TABLE)),  %% trigger inserted one line
     ?assertException(throw, {ClEr, {"Not null constraint violation", {meta_table_3, _}}}, imem_meta:insert(meta_table_3, {meta_table_3, ?nav, undefined})),
     ?assertEqual(LogCount3 + 2, imem_meta:table_size(?LOG_TABLE)),  %% error inserted one line
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [not_null_constraint]),
     ?assertEqual({meta_table_3, {{2000, 1, 1}, {12, 45, 55}}, undefined}, imem_meta:update(meta_table_3, {{meta_table_3, {{2000, 1, 1}, {12, 45, 55}}, undefined}, {meta_table_3, {{2000, 01, 01}, {12, 45, 55}}, ?nav}})),
     ?assertEqual(1, imem_meta:table_size(meta_table_3)),
     ?assertEqual(LogCount3 + 3, imem_meta:table_size(?LOG_TABLE)),  %% trigger inserted one line
@@ -283,12 +298,14 @@ meta_operations(_Config) ->
     ?assertEqual(1, imem_meta:table_size(meta_table_3)),
     ?assertEqual(LogCount3 + 5, imem_meta:table_size(?LOG_TABLE)),  %% trigger inserted one line
     ?assertEqual(ok, imem_meta:drop_trigger(meta_table_3)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "meta_table_3 before update~n~p", [imem_meta:read(meta_table_3)]),
     Trans3 = fun() ->
         %% key update
         imem_meta:update(meta_table_3, {{meta_table_3, {{2000, 01, 01}, {12, 45, 55}}, undefined}, {meta_table_3, {{2000, 01, 01}, {12, 45, 56}}, "alternative"}}),
         imem_meta:insert(meta_table_3, {meta_table_3, {{2000, 01, 01}, {12, 45, 57}}, ?nav})         %% return last result only
              end,
     ?assertEqual({meta_table_3, {{2000, 1, 1}, {12, 45, 57}}, undefined}, imem_meta:return_atomic(imem_meta:transaction(Trans3))),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "meta_table_3 after update~n~p", [imem_meta:read(meta_table_3)]),
     ?assertEqual(2, imem_meta:table_size(meta_table_3)),
     ?assertEqual(LogCount3 + 5, imem_meta:table_size(?LOG_TABLE)),  %% no trigger, no more log
 
@@ -305,8 +322,11 @@ meta_operations(_Config) ->
     ?assertEqual([meta_table_1, meta_table_1Idx, meta_table_2, meta_table_3], lists:sort(imem_meta:tables_starting_with(meta_table_))),
 
     _DdNode0 = imem_meta:read(ddNode),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "ddNode0 ~p~n", [_DdNode0]),
     _DdNode1 = imem_meta:read(ddNode, node()),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "ddNode1 ~p~n", [_DdNode1]),
     _DdNode2 = imem_meta:select(ddNode, ?MatchAllRecords),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "ddNode2 ~p~n", [_DdNode2]),
 
     Schema0 = [{ddSchema, {imem_meta:schema(), node()}, []}],
     ?assertEqual(Schema0, imem_meta:read(ddSchema)),
@@ -315,6 +335,8 @@ meta_operations(_Config) ->
     ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
     ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
     ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
+
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [drop_tables]),
 
     ok.
 
@@ -337,8 +359,10 @@ meta_partitions(_Config) ->
 
     ?assertNot(lists:member({imem_meta:schema(), ?TPTEST0}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
     TimePartTable0 = imem_meta:physical_table_name(?TPTEST0),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "TimePartTable ~p~n", [TimePartTable0]),
     ?assertEqual(TimePartTable0, imem_meta:physical_table_name(?TPTEST0, ?TIMESTAMP)),
     ?assertMatch({ok, _}, imem_meta:create_check_table(?TPTEST0, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, [{record_name, ddLog}, {type, ordered_set}], system)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Alias0 ~p~n", [[element(2, A) || A <- imem_meta:read(ddAlias)]]),
     ?assertEqual(ok, imem_meta:check_table(TimePartTable0)),
     ?assertEqual(0, imem_meta:table_size(TimePartTable0)),
     ?assertEqual([TimePartTable0], imem_meta:physical_table_names(?TPTEST0)),
@@ -349,6 +373,7 @@ meta_partitions(_Config) ->
     ?assert(lists:member({imem_meta:schema(), ?TPTEST0}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
     ?assertNot(lists:member({imem_meta:schema(), ?TPTEST2}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
 
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "parsed table names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
     ?assertException(throw
         , {'ClientError', {"Name conflict (different rolling period) in ddAlias", ?TPTEST2}}
         , imem_meta:create_check_table(?TPTEST2
@@ -368,15 +393,18 @@ meta_partitions(_Config) ->
     {Secs, Mics, Node, _} = ?TIME_UID,
     LogRecF = LogRec#ddLog{logTime = {Secs + 2000, Mics, Node, ?INTEGER_UID}},
     ?assertEqual(ok, imem_meta:write(?TPTEST0, LogRecF)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "physical_table_names ~p~n", [imem_meta:physical_table_names(?TPTEST0)]),
     ?assertEqual(0, imem_meta:purge_table(?TPTEST0, [{purge_delay, 10000}])),
     ?assertEqual(0, imem_meta:purge_table(?TPTEST0)),
     PurgeResult = imem_meta:purge_table(?TPTEST0, [{purge_delay, -3000}]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "PurgeResult ~p~n", [PurgeResult]),
     ?assert(PurgeResult > 0),
     ?assertEqual(0, imem_meta:purge_table(?TPTEST0)),
     ?assertEqual(ok, imem_meta:drop_table(?TPTEST0)),
     ?assertEqual([], imem_meta:physical_table_names(?TPTEST0)),
     Alias0a = imem_meta:read(ddAlias),
     ?assertEqual(false, lists:member({imem_meta:schema(), ?TPTEST0}, [element(2, A) || A <- Alias0a])),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [?TPTEST0]),
 
     TimePartTable1 = imem_meta:physical_table_name(?TPTEST1),
     ?assertEqual(tpTest1_1999999998@_, TimePartTable1),
@@ -388,6 +416,7 @@ meta_partitions(_Config) ->
     ?assertMatch({ok, _}, imem_meta:create_check_table(?TPTEST1, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, [{record_name, ddLog}, {type, ordered_set}], system)),
 
     Alias1 = imem_meta:read(ddAlias),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Alias1 ~p~n", [[element(2, A) || A <- Alias1]]),
     ?assert(lists:member({imem_meta:schema(), ?TPTEST1}, [element(2, A) || A <- Alias1])),
 
     ?assertEqual(ok, imem_meta:write(?TPTEST1, LogRec)),
@@ -395,20 +424,24 @@ meta_partitions(_Config) ->
     ?assertEqual(0, imem_meta:purge_table(?TPTEST1)),
     LogRecP = LogRec#ddLog{logTime = {900000000, 0, node(), ?INTEGER_UID}},  % ?TIME_UID format
     ?assertEqual(ok, imem_meta:write(?TPTEST1, LogRecP)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Big Partition Tables after back-insert~n~p", [imem_meta:physical_table_names(?TPTEST1)]),
     LogRecFF = LogRec#ddLog{logTime = {2900000000, 0}},    % using 2-tuple ?TIMESTAMP format here for backward compatibility test
     ?assertEqual(ok, imem_meta:write(?TPTEST1, LogRecFF)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Big Partition Tables after forward-insert~n~p", [imem_meta:physical_table_names(?TPTEST1)]),
     ?assertEqual(3, length(imem_meta:physical_table_names(?TPTEST1))),     % another partition created
     ?assert(imem_meta:purge_table(?TPTEST1) > 0),
     ?assertEqual(ok, imem_meta:drop_table(?TPTEST1)),
     Alias1a = imem_meta:read(ddAlias),
     ?assertEqual(false, lists:member({imem_meta:schema(), ?TPTEST1}, [element(2, A) || A <- Alias1a])),
     ?assertEqual([], imem_meta:physical_table_names(?TPTEST1)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [?TPTEST1]),
 
     ?assertEqual({error, {"Table template not found in ddAlias", dummy_table_name}}, imem_meta:create_partitioned_table_sync(dummy_table_name, dummy_table_name)),
 
     ?assertEqual([], imem_meta:physical_table_names(fakelog_1@)),
     ?assertMatch({ok, _}, imem_meta:create_check_table(fakelog_1@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),
     ?assertEqual(1, length(imem_meta:physical_table_names(fakelog_1@))),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p created", [fakelog_1@]),
     LogRec3 = #ddLog{logTime = ?TIMESTAMP, logLevel = debug, pid = self()
         , module = ?MODULE, function = test, node = node()
         , fields = [], message = <<>>, stacktrace = []
@@ -423,8 +456,10 @@ meta_partitions(_Config) ->
     ?assert(length(FL3Tables) >= 3),
     timer:sleep(999),
     ?assert(length(imem_meta:physical_table_names(fakelog_1@)) >= 4),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [roll_partitioned_table]),
     _ = {timeout, 5, fun() ->
         ?assertEqual(ok, imem_meta:drop_table(fakelog_1@)) end},
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "success ~p~n", [drop_table]),
 
     ok.
 
@@ -485,10 +520,10 @@ receive_results(N, Acc) ->
         Result ->
             case N of
                 1 ->
-                    % ?LogDebug("Result ~p", [Result]),
+                    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Result ~p", [Result]),
                     [Result | Acc];
                 _ ->
-                    % ?LogDebug("Result ~p", [Result]),
+                    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ "Result ~p", [Result]),
                     receive_results(N - 1, [Result | Acc])
             end
     after 1000 ->
