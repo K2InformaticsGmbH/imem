@@ -13,7 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    end_per_group/1,
+    end_per_testcase/2,
     table_operations/1
 ]).
 
@@ -23,11 +23,11 @@
 -include("imem_if.hrl").
 
 %%--------------------------------------------------------------------
-%% Group related setup and teardown functions.
+%% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
-end_per_group(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/1 - Start ===>~n", []),
+end_per_testcase(TestCase, _Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
 
     catch imem_if_mnesia:drop_table(imem_table_bag),
     catch imem_if_mnesia:drop_table(imem_table_123),
@@ -35,7 +35,7 @@ end_per_group(_Config) ->
     ok.
 
 %%====================================================================
-%% Test Cases.
+%% Test cases.
 %%====================================================================
 
 table_operations(_Config) ->

@@ -13,8 +13,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    end_per_group/1,
-    init_per_group/1,
+    end_per_testcase/2,
+    init_per_testcase/2,
     skvh_concurrency/1,
     skvh_operations/1
 ]).
@@ -32,11 +32,11 @@
 -include_lib("imem_meta.hrl").
 
 %%--------------------------------------------------------------------
-%% Group related setup and teardown functions.
+%% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
-init_per_group(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_group/1 - Start ===>~n", []),
+init_per_testcase(TestCase, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
 
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
@@ -57,8 +57,8 @@ init_per_group(Config) ->
 
     Config.
 
-end_per_group(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/1 - Start ===>~n", []),
+end_per_testcase(TestCase, _Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
 
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
@@ -72,7 +72,7 @@ end_per_group(_Config) ->
     ok.
 
 %%====================================================================
-%% Test Cases.
+%% Test cases.
 %%====================================================================
 
 skvh_concurrency(_Config) ->

@@ -13,7 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    end_per_group/1,
+    end_per_testcase/2,
     config_operations/1
 ]).
 
@@ -24,18 +24,18 @@
 -include_lib("imem.hrl").
 
 %%--------------------------------------------------------------------
-%% Group related setup and teardown functions.
+%% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
-end_per_group(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/1 - Start ===>~n", []),
+end_per_testcase(TestCase, _Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
 
     catch imem_meta:drop_table(test_config),
 
     ok.
 
 %%====================================================================
-%% Test Cases.
+%% Test cases.
 %%====================================================================
 
 config_operations(_Config) ->
@@ -56,7 +56,5 @@ config_operations(_Config) ->
     ?assertEqual(context_value, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [test_context, details], test_value)),
     ?assertEqual(test_value2, imem_config:get_config_hlk(test_config, {?MODULE, test_param}, test_owner, [another_context, details], another_value)),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [get_config_hlk]),
-
-    ?assertEqual(ok, imem_meta:drop_table(test_config)),
 
     ok.

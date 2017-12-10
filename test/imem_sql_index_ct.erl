@@ -13,7 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    end_per_group/1,
+    end_per_testcase/2,
     test_with_sec/1,
     test_without_sec/1
 ]).
@@ -24,11 +24,11 @@
 -include("imem_seco.hrl").
 
 %%--------------------------------------------------------------------
-%% Group related setup and teardown functions.
+%% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
-end_per_group(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/1 - Start ===>~n", []),
+end_per_testcase(TestCase, _Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
 
     catch imem_meta:drop_table(idx_index_test),
     catch imem_meta:drop_table(index_test),
@@ -36,7 +36,7 @@ end_per_group(_Config) ->
     ok.
 
 %%====================================================================
-%% Test Cases.
+%% Test cases.
 %%====================================================================
 
 test_with_or_without_sec(IsSec) ->
