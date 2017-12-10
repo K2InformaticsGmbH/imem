@@ -39,7 +39,7 @@ end_per_group(_Config) ->
 %%====================================================================
 
 test_with_or_without_sec(IsSec) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_with_or_without_sec/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_with_or_without_sec/1 - Start(~p) ===>~n", [IsSec]),
 
     ClEr = 'ClientError',
     UiEx = 'UnimplementedException',

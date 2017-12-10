@@ -39,7 +39,14 @@
     snap_test_snapshot/1,
     sql_test_with_sec/1,
     sql_test_without_sec/1,
-    sql_account_test_with_sec/1
+    sql_account_test_with_sec/1,
+    statement_test_with_sec_part1/1,
+    statement_test_with_sec_part2/1,
+    statement_test_with_sec_part3/1,
+    statement_test_without_sec_part1/1,
+    statement_test_without_sec_part2/1,
+    statement_test_without_sec_part3/1,
+    test_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -62,7 +69,9 @@ all() ->
         {group, imem_seco},
         {group, imem_snap},
         {group, imem_sql},
-        {group, imem_sql_account}
+        {group, imem_sql_account},
+        {group, imem_statement},
+        {group, imem_test}
     ].
 
 %%--------------------------------------------------------------------
@@ -181,6 +190,23 @@ groups() ->
             [
                 sql_account_test_with_sec
             ]
+        },
+        {
+            imem_statement, [],
+            [
+                statement_test_without_sec_part1,
+                statement_test_without_sec_part2,
+                statement_test_without_sec_part3,
+                statement_test_with_sec_part1,
+                statement_test_with_sec_part2,
+                statement_test_with_sec_part3
+            ]
+        },
+        {
+            imem_test, [],
+            [
+                test_test
+            ]
         }
     ].
 
@@ -219,6 +245,12 @@ end_per_group(imem_seco = Group, Config) ->
 end_per_group(imem_sql_account = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_sql_account_ct:end_per_group(Config);
+end_per_group(imem_test = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_test_ct:end_per_group(Config);
+end_per_group(imem_statement = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_statement_ct:end_per_group(Config);
 end_per_group(_Group, _Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [_Group]),
     ok.
@@ -320,7 +352,7 @@ sec_test(Config) ->
 %%====================================================================
 
 seco_test(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sec_test/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":seco_test/1 - Start ===>~n", []),
     imem_seco_ct:test(Config).
 
 %%====================================================================
@@ -328,7 +360,7 @@ seco_test(Config) ->
 %%====================================================================
 
 snap_test_snapshot(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sec_test/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":snap_test_snapshot/1 - Start ===>~n", []),
     imem_snap_ct:test_snapshot(Config).
 
 %%====================================================================
@@ -348,6 +380,41 @@ sql_test_without_sec(Config) ->
 %%====================================================================
 
 sql_account_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":cache_test_without_sec/1 - Start ===>~n", []),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_account_test_with_sec/1 - Start ===>~n", []),
     imem_sql_account_ct:test_with_sec(Config).
 
+%%====================================================================
+%% Test Cases: imem_statement.
+%%====================================================================
+
+statement_test_with_sec_part1(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_with_sec_part1/1 - Start ===>~n", []),
+    imem_statement_ct:test_with_sec_part1(Config).
+
+statement_test_with_sec_part2(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_with_sec_part1/2 - Start ===>~n", []),
+    imem_statement_ct:test_with_sec_part2(Config).
+
+statement_test_with_sec_part3(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_with_sec_part3/1 - Start ===>~n", []),
+    imem_statement_ct:test_with_sec_part3(Config).
+
+statement_test_without_sec_part1(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_without_sec_part1/1 - Start ===>~n", []),
+    imem_statement_ct:test_without_sec_part1(Config).
+
+statement_test_without_sec_part2(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_without_sec_part2/1 - Start ===>~n", []),
+    imem_statement_ct:test_without_sec_part2(Config).
+
+statement_test_without_sec_part3(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_without_sec_part3/1 - Start ===>~n", []),
+    imem_statement_ct:test_without_sec_part3(Config).
+
+%%====================================================================
+%% Test Cases: imem_test.
+%%====================================================================
+
+test_test(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_test/1 - Start ===>~n", []),
+    imem_test_ct:test(Config).
