@@ -106,6 +106,7 @@
 -export([ epmd_register/0
         ]).
 
+% Functions applied with Common Test
 -export([update_xt/8]).
 
 -define(TOUCH_SNAP(__Table),                  

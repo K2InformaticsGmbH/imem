@@ -52,6 +52,7 @@
         , fetch_start/5
         ]).
 
+% Functions applied with Common Test
 -export([ column_count/1
     , count_char_seq/2
     , count_delimiter/2

@@ -39,9 +39,9 @@
         , result_tuples/2
         ]).
 
+% Functions applied with Common Test
 -export([ if_call_mfa/3
         ]).
-
 
 -record(fetchCtx,               %% state for fetch process
                     { pid       ::pid()

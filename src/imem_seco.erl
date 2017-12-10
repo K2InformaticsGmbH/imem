@@ -65,10 +65,10 @@
         , have_permission/2
         ]).
 
+% Functions applied with Common Test
 -export([
           normalized_msisdn/1
-]).
-
+        ]).
 
 monitor_pid(SKey,Pid) when is_pid(Pid) -> 
     gen_server:call(?MODULE, {monitor,SKey,Pid}).

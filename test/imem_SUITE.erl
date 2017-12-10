@@ -37,9 +37,12 @@
     sec_test/1,
     seco_test/1,
     snap_test_snapshot/1,
+    sql_account_test_with_sec/1,
+    sql_expr_test_without_sec/1,
+    sql_funs_test_with_sec/1,
+    sql_funs_test_without_sec/1,
     sql_test_with_sec/1,
     sql_test_without_sec/1,
-    sql_account_test_with_sec/1,
     statement_test_with_sec_part1/1,
     statement_test_with_sec_part2/1,
     statement_test_with_sec_part3/1,
@@ -70,6 +73,8 @@ all() ->
         {group, imem_snap},
         {group, imem_sql},
         {group, imem_sql_account},
+        {group, imem_sql_expr},
+        {group, imem_sql_funs},
         {group, imem_statement},
         {group, imem_test}
     ].
@@ -192,6 +197,19 @@ groups() ->
             ]
         },
         {
+            imem_sql_expr, [],
+            [
+                sql_expr_test_without_sec
+            ]
+        },
+        {
+            imem_sql_funs, [],
+            [
+                sql_funs_test_with_sec,
+                sql_funs_test_without_sec
+            ]
+        },
+        {
             imem_statement, [],
             [
                 statement_test_without_sec_part1,
@@ -245,6 +263,9 @@ end_per_group(imem_seco = Group, Config) ->
 end_per_group(imem_sql_account = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_sql_account_ct:end_per_group(Config);
+end_per_group(imem_sql_expr = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_sql_expr_ct:end_per_group(Config);
 end_per_group(imem_test = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_test_ct:end_per_group(Config);
@@ -382,6 +403,26 @@ sql_test_without_sec(Config) ->
 sql_account_test_with_sec(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_account_test_with_sec/1 - Start ===>~n", []),
     imem_sql_account_ct:test_with_sec(Config).
+
+%%====================================================================
+%% Test Cases: imem_sql_expr.
+%%====================================================================
+
+sql_expr_test_without_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_expr_test_without_sec/1 - Start ===>~n", []),
+    imem_sql_expr_ct:test_without_sec(Config).
+
+%%====================================================================
+%% Test Cases: imem_sql_funs.
+%%====================================================================
+
+sql_funs_test_with_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_funs_test_with_sec/1 - Start ===>~n", []),
+    imem_sql_funs_ct:test_with_sec(Config).
+
+sql_funs_test_without_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_funs_test_without_sec/1 - Start ===>~n", []),
+    imem_sql_funs_ct:test_without_sec(Config).
 
 %%====================================================================
 %% Test Cases: imem_statement.

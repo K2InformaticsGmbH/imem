@@ -144,7 +144,6 @@
         , trigger_infos/1
         , dictionary_trigger/5
         , check_table/1
-        , check_table_meta/2
         , check_local_table_copy/1
         , meta_field_list/0        
         , meta_field/1
@@ -279,6 +278,10 @@
         , prev/2
         , dirty_prev/2
         , foldl/3
+        ]).
+
+% Functions applied with Common Test
+-export([ check_table_meta/2
         ]).
 
 -export([simple_or_local_node_sharded_tables/1]).
