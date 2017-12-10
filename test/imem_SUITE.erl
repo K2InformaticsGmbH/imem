@@ -41,6 +41,12 @@
     sql_expr_test_without_sec/1,
     sql_funs_test_with_sec/1,
     sql_funs_test_without_sec/1,
+    sql_index_test_with_sec/1,
+    sql_index_test_without_sec/1,
+    sql_insert_test_with_sec/1,
+    sql_insert_test_without_sec/1,
+    sql_table_test_with_sec/1,
+    sql_table_test_without_sec/1,
     sql_test_with_sec/1,
     sql_test_without_sec/1,
     statement_test_with_sec_part1/1,
@@ -75,6 +81,9 @@ all() ->
         {group, imem_sql_account},
         {group, imem_sql_expr},
         {group, imem_sql_funs},
+        {group, imem_sql_index},
+        {group, imem_sql_insert},
+        {group, imem_sql_table},
         {group, imem_statement},
         {group, imem_test}
     ].
@@ -210,6 +219,27 @@ groups() ->
             ]
         },
         {
+            imem_sql_index, [],
+            [
+                sql_index_test_with_sec,
+                sql_index_test_without_sec
+            ]
+        },
+        {
+            imem_sql_insert, [],
+            [
+                sql_insert_test_with_sec,
+                sql_insert_test_without_sec
+            ]
+        },
+        {
+            imem_sql_table, [],
+            [
+                sql_table_test_with_sec,
+                sql_table_test_without_sec
+            ]
+        },
+        {
             imem_statement, [],
             [
                 statement_test_without_sec_part1,
@@ -266,6 +296,15 @@ end_per_group(imem_sql_account = Group, Config) ->
 end_per_group(imem_sql_expr = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_sql_expr_ct:end_per_group(Config);
+end_per_group(imem_sql_index = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_sql_index_ct:end_per_group(Config);
+end_per_group(imem_sql_insert = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_sql_insert_ct:end_per_group(Config);
+end_per_group(imem_sql_table = Group, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
+    imem_sql_table_ct:end_per_group(Config);
 end_per_group(imem_test = Group, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_group/2 - ~p - Start ===>~n", [Group]),
     imem_test_ct:end_per_group(Config);
@@ -423,6 +462,42 @@ sql_funs_test_with_sec(Config) ->
 sql_funs_test_without_sec(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_funs_test_without_sec/1 - Start ===>~n", []),
     imem_sql_funs_ct:test_without_sec(Config).
+
+%%====================================================================
+%% Test Cases: imem_sql_index.
+%%====================================================================
+
+sql_index_test_with_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_index_test_with_sec/1 - Start ===>~n", []),
+    imem_sql_index_ct:test_with_sec(Config).
+
+sql_index_test_without_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_index_test_without_sec/1 - Start ===>~n", []),
+    imem_sql_index_ct:test_without_sec(Config).
+
+%%====================================================================
+%% Test Cases: imem_sql_insert.
+%%====================================================================
+
+sql_insert_test_with_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_insert_test_with_sec/1 - Start ===>~n", []),
+    imem_sql_insert_ct:test_with_sec(Config).
+
+sql_insert_test_without_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_insert_test_without_sec/1 - Start ===>~n", []),
+    imem_sql_insert_ct:test_without_sec(Config).
+
+%%====================================================================
+%% Test Cases: imem_sql_table.
+%%====================================================================
+
+sql_table_test_with_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_table_test_with_sec/1 - Start ===>~n", []),
+    imem_sql_table_ct:test_with_sec(Config).
+
+sql_table_test_without_sec(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_table_test_without_sec/1 - Start ===>~n", []),
+    imem_sql_table_ct:test_without_sec(Config).
 
 %%====================================================================
 %% Test Cases: imem_statement.
