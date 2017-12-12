@@ -1,5 +1,6 @@
-imem [![Build Status][travis badge]][travis] [![Coverage Status][coveralls badge]][coveralls] [![Erlang Versions][erlang version badge]][travis]
-====
+# imem 
+
+[![Build Status](https://travis-ci.org/K2InformaticsGmbH/imem.svg?branch=master)](https://travis-ci.org/K2InformaticsGmbH/imem) [![Coverage Status](https://coveralls.io/repos/github/K2InformaticsGmbH/imem/badge.svg?branch=master)](https://coveralls.io/github/K2InformaticsGmbH/imem?branch=master)
 
 Clustered in-memory database based on MNESIA with simple SQL layer.
 
