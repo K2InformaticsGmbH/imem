@@ -755,12 +755,12 @@ join_rows(MetaAndMainRows, FetchCtx0, Stmt) ->
     % ?Info("Join Specs: ~p~n", [JoinSpecs]),
     join_rows(MetaAndMainRows, BlockSize, RemainingRowQuota, JoinTables, JoinSpecs, []).
 
-join_rows([], _, _, _, _, Acc) -> lists:reverse(Acc);                              %% lists:reverse(Acc);
-join_rows(_, _, RRowQuota, _, _, Acc) when RRowQuota < 1 -> lists:reverse(Acc);    %% lists:reverse(Acc);
+join_rows([], _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
+join_rows(_, _, RRowQuota, _, _, Acc) when RRowQuota < 1 -> Acc;    %% lists:reverse(Acc);
 join_rows([Row|Rows], BlockSize, RRowQuota, JoinTables, JoinSpecs, Acc) ->
     Rec = erlang:make_tuple(length(JoinTables)+2, undefined, [{?MetaIdx,element(?MetaIdx,Row)},{?MainIdx,element(?MainIdx,Row)}]),
     JAcc = join_row([Rec], BlockSize, ?MainIdx+1, JoinTables, JoinSpecs),
-    join_rows(Rows, BlockSize, RRowQuota-length(JAcc), JoinTables, JoinSpecs, JAcc++Acc).
+    join_rows(Rows, BlockSize, RRowQuota-length(JAcc), JoinTables, JoinSpecs, Acc++JAcc).
 
 join_row(Recs, _BlockSize, _Ti, [], []) -> Recs;
 join_row(Recs0, BlockSize, Ti, [{_S,JoinTable}|Tabs], [JS|JSpecs]) ->
