@@ -1,8 +1,7 @@
 -module(imem_compiler).
 -include("imem_seco.hrl").
 
--export([compile/1, compile/2, safe/1]).
-
+-export([compile/1, compile/2, compile_mod/1, safe/1, format_error/1]).
 
 % erlang:_/0
 -safe([now/0, date/0, registered/0]).
@@ -133,12 +132,123 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
             end
     end.
 
+compile_mod(ModuleCodeBinStr) when is_binary(ModuleCodeBinStr) ->
+    case erl_scan:string(binary_to_list(ModuleCodeBinStr)) of
+        {ok, Tokens, _} ->
+            TokenGroups = cut_dot(Tokens),
+            case lists:foldl(
+                    fun(TokenGroup, Acc) when is_list(Acc) ->
+                            case erl_parse:parse_form(TokenGroup) of
+                                {ok, AbsForm} -> [AbsForm | Acc];
+                                {error, ErrorInfo} ->
+                                    {error, #{error => [error_info(ErrorInfo)],
+                                              warning => []}}
+                            end;
+                        (_, Error) -> Error
+                    end, [], TokenGroups) of
+                Forms when is_list(Forms) ->
+                    case security_check(Forms) of
+                        List when is_list(List) ->
+                            case compile:forms(Forms, [return]) of
+                                error -> {error, #{error => <<"unknown">>}};
+                                {ok, _Module, Bin} -> {ok, Bin};
+                                {ok, _Module, Bin, []} -> {ok, Bin};
+                                {ok, _Module, Bin, Warnings} ->
+                                    {warning, Bin, #{error => [],
+                                                    warning => error_info(Warnings)}};
+                                {error, Errors, []} ->
+                                    {error, #{error => error_info(Errors),
+                                            warning => []}};
+                                {error, Errors, Warnings} ->
+                                    {error, #{error => error_info(Errors),
+                                            warning => error_info(Warnings)}}
+                            end;
+                        {error, Errors} ->
+                            {error, #{error => error_info(Errors), warning => []}}
+                    end;
+                Error -> Error
+            end;
+        {error, ErrorInfo, ErrorLocation} ->
+            {error, {scan, ErrorInfo, ErrorLocation}}
+    end.
+
+cut_dot(Tokens) -> cut_dot(Tokens, [[]]).
+cut_dot([], [[]|Acc]) -> cut_dot([], Acc);
+cut_dot([], Acc) -> Acc;
+cut_dot([{dot,_} = Dot | Tokens], [A | Rest]) ->
+    cut_dot(Tokens, [[], lists:reverse([Dot | A]) | Rest]);
+cut_dot([T | Tokens], [A | Rest]) -> cut_dot(Tokens, [[T | A] | Rest]).
+
+error_info([]) -> [];
+error_info([{_, _, _} = ErrorInfo | ErrorInfos]) ->
+    [error_info(ErrorInfo) | error_info(ErrorInfos)];
+error_info([{_,ErrorInfos}|Tail]) ->
+    error_info(ErrorInfos) ++ error_info(Tail);
+error_info({Line, Module, ErrorDesc}) ->
+    #{
+        line => Line,
+        msg => list_to_binary(Module:format_error(ErrorDesc))
+    }.
+
+format_error([]) -> [];
+format_error([H | T]) when is_list(H) -> [H | format_error(T)];
+format_error([H | T]) -> [io_lib:format("~p", [H]) | format_error(T)].
+
+security_check(Forms) ->
+    Safe = lists:usort(
+            safe(?MODULE) ++
+            [{'$local_mod', Fun, Arity}
+             || {function, _, Fun, Arity, _Body} <- Forms]),
+    security_check(Forms, Safe).
+security_check(_, {error, _} = Error) -> Error;
+security_check([], Safe) -> Safe;
+security_check([{attribute, _, _, _} | Forms], Safe) -> security_check(Forms, Safe);
+security_check([{function, _, _Fun, _Arity, Body} | Forms], Safe) ->
+    security_check(Forms, security_check(Body, Safe));
+security_check([Form | Forms], Safe) ->
+    security_check(Forms, security_check(Form, Safe));
+security_check(Form, Safe) when is_tuple(Form) ->
+    case Form of
+        {call, Line, {remote,_,{atom,_,Mod},{atom,_,Fun}}, Args} ->
+            safety_check(Form, Line, Mod, Fun, Args, Safe);
+        {call, Line, {atom,_,Fun}, Args} ->
+            safety_check(Form, Line, '$local_mod', Fun, Args, Safe);
+        _ ->
+            security_check(tuple_to_list(Form), Safe)
+    end;
+security_check(_, Safe) -> Safe.
+
+safety_check(Form, Line, Mod, Fun, Args, Safe) ->
+    case is_safe(Mod, Fun, Args, Safe) of
+        true ->
+            security_check(
+                tuple_to_list(Form),
+                lists:usort([Mod, Fun, length(Args) | Safe])
+            );
+        false ->
+            NewMod = if Mod == '$local_mod' -> erlang; true -> Mod end,
+            case {catch safe(NewMod), lists:keymember(NewMod, 1, Safe)} of
+                {{'EXIT', {undef, _}}, _} -> Safe;
+                {ModSafe, false} when is_list(ModSafe), length(ModSafe) > 0 ->
+                    safety_check(Form, Line, NewMod, Fun, Args,
+                                 lists:usort(ModSafe ++ Safe));
+                _ ->
+                    {error, [{Line, ?MODULE,
+                             ["unsafe function call ",
+                              NewMod, ":", Fun, "/", length(Args)]}]}
+            end
+    end.
+
+is_safe(_, _, _, []) -> false;
+is_safe(M, F, Args, [{M, F, Arity} | _]) when length(Args) == Arity -> true;
+is_safe(M, F, A, [_ | Safe]) -> is_safe(M, F, A, Safe).
+
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
-erl_value_test_() ->
+compile_test_() ->
     {inparallel,
      [{C, case O of
               'SystemException' ->
@@ -161,5 +271,62 @@ erl_value_test_() ->
           {"fun() -> os:cmd(\"pwd\") end", runtime}
          ]
      ]}.
+
+-define(TEST_MODULES, [
+{"simple",
+<<"
+-module(test).
+-export([test/0]).
+test() ->
+    ok.
+">>, ok},
+{"error",
+<<"
+-module(test).
+-export([test/0, test/1]).
+test() ->
+    ok.
+">>, #{error => [#{line => 3, msg => <<"function test/1 undefined">>}],
+       warning => []}},
+{"warning",
+<<"
+-module(test).
+-export([test/0]).
+test() ->
+    X = 0,
+    ok.
+">>, #{error => [],
+       warning => [#{line => 5, msg => <<"variable 'X' is unused">>}]}},
+{"error and warning",
+<<"
+-module(test).
+-export([test/0, test/1]).
+test() ->
+    X = 0,
+    ok.
+">>, #{error => [#{line => 3, msg => <<"function test/1 undefined">>}],
+       warning => [#{line => 5, msg => <<"variable 'X' is unused">>}]}},
+{"unsafe",
+<<"
+-module(test).
+
+-export([test/0]).
+
+test() ->
+    bikram:call(bnot 1),
+    binary_to_atom(<<\"1\">>, utf8),
+    ok.
+">>, #{error => [#{line => 8, msg => <<"unsafe function call erlang:binary_to_atom/2">>}],
+       warning => []}}
+]).
+
+compile_mod_test_() ->
+    {inparallel,
+     [{T,
+        case {O, compile_mod(C)} of
+            {ok, Output} -> ?_assertMatch({ok, _}, Output);
+            {O, {warning, _, Warning}} -> ?_assertEqual(O, Warning);
+            {O, {error, Error}} -> ?_assertEqual(O, Error)
+        end} || {T, C, O} <- ?TEST_MODULES]}.
 
 -endif.
