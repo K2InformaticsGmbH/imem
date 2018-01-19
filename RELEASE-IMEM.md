@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 2.0.0 (Release Date 19.01.2018)
+=======================================
+* Common tests added [#183](https://github.com/K2InformaticsGmbH/imem/pulls/183)
+* Removed `filename.erl` as fixed in OTP 20.2 [#185](https://github.com/K2InformaticsGmbH/imem/issues/185)
+
 Version 1.9.1 (Release Date 23.11.2017)
 =======================================
 * APIs `ets`, `select_count` [#184](https://github.com/K2InformaticsGmbH/imem/issues/184)
