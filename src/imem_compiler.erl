@@ -1,7 +1,8 @@
 -module(imem_compiler).
 -include("imem_seco.hrl").
 
--export([compile/1, compile/2, compile_mod/1, safe/1, format_error/1]).
+-export([compile/1, compile/2, compile_mod/1, compile_mod/2, safe/1,
+         format_error/1]).
 
 % erlang:_/0
 -safe([now/0, date/0, registered/0]).
@@ -20,7 +21,8 @@
 -safe([setelement/3]).
 
 % external modules (all exported functions)
--safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re}, #{m => maps}, #{m => binary}, #{m => string}]).
+-safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re},
+       #{m => maps}, #{m => binary}, #{m => string}]).
 
 % external {M,F,A} s
 -safe([#{m => io, f => [format/2]},
@@ -101,7 +103,8 @@ compile(String,Bindings) when is_list(String), is_list(Bindings) ->
     case catch erl_eval:exprs(ErlAbsForm, Bindings, none,
                               {value, nonLocalHFun()}) of
         {value,Value,_} -> Value;
-        {Ex, Exception} when Ex == 'SystemException'; Ex == 'SecurityException' ->
+        {Ex, Exception} when Ex == 'SystemException';
+                             Ex == 'SecurityException' ->
             ?SecurityException({"Potentially harmful code", Exception});
         {'EXIT', Error} -> ?ClientErrorNoLogging({"Term compile error", Error})
     end.
@@ -132,7 +135,8 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
             end
     end.
 
-compile_mod(ModuleCodeBinStr) when is_binary(ModuleCodeBinStr) ->
+compile_mod(ModuleCodeBinStr) -> compile_mod(ModuleCodeBinStr, []).
+compile_mod(ModuleCodeBinStr, Restrict) when is_binary(ModuleCodeBinStr) ->
     case erl_scan:string(binary_to_list(ModuleCodeBinStr)) of
         {ok, Tokens, _} ->
             TokenGroups = cut_dot(Tokens),
@@ -147,15 +151,16 @@ compile_mod(ModuleCodeBinStr) when is_binary(ModuleCodeBinStr) ->
                         (_, Error) -> Error
                     end, [], TokenGroups) of
                 Forms when is_list(Forms) ->
-                    case security_check(Forms) of
+                    case security_check(Forms, Restrict) of
                         List when is_list(List) ->
                             case compile:forms(Forms, [return]) of
                                 error -> {error, #{error => <<"unknown">>}};
                                 {ok, _Module, Bin} -> {ok, Bin};
                                 {ok, _Module, Bin, []} -> {ok, Bin};
                                 {ok, _Module, Bin, Warnings} ->
-                                    {warning, Bin, #{error => [],
-                                                    warning => error_info(Warnings)}};
+                                    {warning, Bin,
+                                     #{error => [],
+                                       warning => error_info(Warnings)}};
                                 {error, Errors, []} ->
                                     {error, #{error => error_info(Errors),
                                             warning => []}};
@@ -164,7 +169,8 @@ compile_mod(ModuleCodeBinStr) when is_binary(ModuleCodeBinStr) ->
                                             warning => error_info(Warnings)}}
                             end;
                         {error, Errors} ->
-                            {error, #{error => error_info(Errors), warning => []}}
+                            {error, #{error => error_info(Errors),
+                                      warning => []}}
                     end;
                 Error -> Error
             end;
@@ -194,32 +200,34 @@ format_error([]) -> [];
 format_error([H | T]) when is_list(H) -> [H | format_error(T)];
 format_error([H | T]) -> [io_lib:format("~p", [H]) | format_error(T)].
 
-security_check(Forms) ->
+security_check(Forms, Restrict) ->
     Safe = lists:usort(
             safe(?MODULE) ++
             [{'$local_mod', Fun, Arity}
              || {function, _, Fun, Arity, _Body} <- Forms]),
-    security_check(Forms, Safe).
-security_check(_, {error, _} = Error) -> Error;
-security_check([], Safe) -> Safe;
-security_check([{attribute, _, _, _} | Forms], Safe) -> security_check(Forms, Safe);
-security_check([{function, _, _Fun, _Arity, Body} | Forms], Safe) ->
-    security_check(Forms, security_check(Body, Safe));
-security_check([Form | Forms], Safe) ->
-    security_check(Forms, security_check(Form, Safe));
-security_check(Form, Safe) when is_tuple(Form) ->
+    security_check(Forms, Safe, Restrict).
+security_check(_, {error, _} = Error, _) -> Error;
+security_check([], Safe, _) -> Safe;
+security_check([{attribute, _, _, _} | Forms], Safe, Restrict) ->
+    security_check(Forms, Safe, Restrict);
+security_check([{function, _, _Fun, _Arity, Body} | Forms], Safe, Restrict) ->
+    security_check(Forms, security_check(Body, Safe, Restrict), Restrict);
+security_check([Form | Forms], Safe, Restrict) ->
+    security_check(Forms, security_check(Form, Safe, Restrict), Restrict);
+security_check(Form, Safe, Restrict) when is_tuple(Form) ->
     case Form of
         {call, Line, {remote,_,{atom,_,Mod},{atom,_,Fun}}, Args} ->
-            safety_check(Form, Line, Mod, Fun, Args, Safe);
+            safety_check(Form, Line, Mod, Fun, Args, Safe, Restrict);
         {call, Line, {atom,_,Fun}, Args} ->
-            safety_check(Form, Line, '$local_mod', Fun, Args, Safe);
+            safety_check(Form, Line, '$local_mod', Fun, Args, Safe, Restrict);
         _ ->
-            security_check(tuple_to_list(Form), Safe)
+            security_check(tuple_to_list(Form), Safe, Restrict)
     end;
-security_check(_, Safe) -> Safe.
+security_check(_, Safe, _) -> Safe.
 
-safety_check(Form, Line, Mod, Fun, Args, Safe) ->
-    case is_safe(Mod, Fun, Args, Safe) of
+safety_check(Form, Line, Mod, Fun, Args, Safe, Restrict) ->
+    case is_safe(Mod, Fun, Args, Safe) and
+         not restrict(Mod, Fun, Args, Restrict) of
         true ->
             security_check(
                 tuple_to_list(Form),
@@ -231,7 +239,7 @@ safety_check(Form, Line, Mod, Fun, Args, Safe) ->
                 {{'EXIT', {undef, _}}, _} -> Safe;
                 {ModSafe, false} when is_list(ModSafe), length(ModSafe) > 0 ->
                     safety_check(Form, Line, NewMod, Fun, Args,
-                                 lists:usort(ModSafe ++ Safe));
+                                 lists:usort(ModSafe ++ Safe), Restrict);
                 _ ->
                     {error, [{Line, ?MODULE,
                              ["unsafe function call ",
@@ -242,6 +250,10 @@ safety_check(Form, Line, Mod, Fun, Args, Safe) ->
 is_safe(_, _, _, []) -> false;
 is_safe(M, F, Args, [{M, F, Arity} | _]) when length(Args) == Arity -> true;
 is_safe(M, F, A, [_ | Safe]) -> is_safe(M, F, A, Safe).
+
+restrict(_, _, _, []) -> false;
+restrict(M, F, _Args, [{M, F} | _]) -> true;
+restrict(M, F, A, [_ | Restricted]) -> restrict(M, F, A, Restricted).
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
@@ -280,6 +292,15 @@ compile_test_() ->
 test() ->
     ok.
 ">>, ok},
+{"restricted",
+<<"
+-module(test).
+-export([test/0]).
+test() ->
+    io:format(\"~p\", [123]),
+    ok.
+">>, #{error => [#{line => 5, msg => <<"unsafe function call io:format/2">>}],
+       warning => []}},
 {"error",
 <<"
 -module(test).
@@ -323,7 +344,7 @@ test() ->
 compile_mod_test_() ->
     {inparallel,
      [{T,
-        case {O, compile_mod(C)} of
+        case {O, compile_mod(C, [{io, format}])} of
             {ok, Output} -> ?_assertMatch({ok, _}, Output);
             {O, {warning, _, Warning}} -> ?_assertEqual(O, Warning);
             {O, {error, Error}} -> ?_assertEqual(O, Error)
