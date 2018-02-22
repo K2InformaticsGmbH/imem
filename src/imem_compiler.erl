@@ -141,8 +141,7 @@ compile_mod(ModuleCodeBinStr) when is_binary(ModuleCodeBinStr) ->
                             case erl_parse:parse_form(TokenGroup) of
                                 {ok, AbsForm} -> [AbsForm | Acc];
                                 {error, ErrorInfo} ->
-                                    {error, #{error => [error_info(ErrorInfo)],
-                                              warning => []}}
+                                    {error, [error_info(error, ErrorInfo)]}
                             end;
                         (_, Error) -> Error
                     end, [], TokenGroups) of
@@ -154,17 +153,14 @@ compile_mod(ModuleCodeBinStr) when is_binary(ModuleCodeBinStr) ->
                                 {ok, _Module, Bin} -> {ok, Bin};
                                 {ok, _Module, Bin, []} -> {ok, Bin};
                                 {ok, _Module, Bin, Warnings} ->
-                                    {warning, Bin, #{error => [],
-                                                    warning => error_info(Warnings)}};
+                                    {warning, Bin, error_info(warning, Warnings)};
                                 {error, Errors, []} ->
-                                    {error, #{error => error_info(Errors),
-                                            warning => []}};
+                                    {error, error_info(error, Errors)};
                                 {error, Errors, Warnings} ->
-                                    {error, #{error => error_info(Errors),
-                                            warning => error_info(Warnings)}}
+                                    {error, error_info(error, Errors) ++ error_info(warning, Warnings)}
                             end;
                         {error, Errors} ->
-                            {error, #{error => error_info(Errors), warning => []}}
+                            {error, error_info(error, Errors)}
                     end;
                 Error -> Error
             end;
@@ -179,15 +175,16 @@ cut_dot([{dot,_} = Dot | Tokens], [A | Rest]) ->
     cut_dot(Tokens, [[], lists:reverse([Dot | A]) | Rest]);
 cut_dot([T | Tokens], [A | Rest]) -> cut_dot(Tokens, [[T | A] | Rest]).
 
-error_info([]) -> [];
-error_info([{_, _, _} = ErrorInfo | ErrorInfos]) ->
-    [error_info(ErrorInfo) | error_info(ErrorInfos)];
-error_info([{_,ErrorInfos}|Tail]) ->
-    error_info(ErrorInfos) ++ error_info(Tail);
-error_info({Line, Module, ErrorDesc}) ->
-    #{
-        line => Line,
-        msg => list_to_binary(Module:format_error(ErrorDesc))
+error_info(_Type, []) -> [];
+error_info(Type, [{_, _, _} = ErrorInfo | ErrorInfos]) ->
+    [error_info(Type, ErrorInfo) | error_info(Type, ErrorInfos)];
+error_info(Type, [{_,ErrorInfos}|Tail]) ->
+    error_info(Type, ErrorInfos) ++ error_info(Type, Tail);
+error_info(Type, {Line, Module, ErrorDesc}) ->
+    #{  
+        type => Type,
+        row => Line,
+        text => list_to_binary(Module:format_error(ErrorDesc))
     }.
 
 format_error([]) -> [];
