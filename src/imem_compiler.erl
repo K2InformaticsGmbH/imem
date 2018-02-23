@@ -287,6 +287,25 @@ compile_test_() ->
 test() ->
     ok.
 ">>, ok},
+{"macro",
+<<"
+-module(test).
+-export([test/0]).
+-define(XXX, true).
+test() ->
+    ?XXX.
+">>, ok},
+{"behavior",
+<<"
+-module(test).
+-behavior(gen_server).
+-export([handle_call/3,handle_cast/2,handle_info/2,init/1,terminate/2]).
+handle_call(_, _, _) -> ok.
+handle_cast(_, _) -> ok.
+handle_info(_, _) -> ok.
+init(_) -> ok.
+terminate(_, _) -> ok.
+">>, ok},
 {"restricted",
 <<"
 -module(test).
@@ -294,16 +313,16 @@ test() ->
 test() ->
     io:format(\"~p\", [123]),
     ok.
-">>, #{error => [#{line => 5, msg => <<"unsafe function call io:format/2">>}],
-       warning => []}},
+">>,
+[#{type => error, row => 5, text => <<"unsafe function call io:format/2">>}]},
 {"error",
 <<"
 -module(test).
 -export([test/0, test/1]).
 test() ->
     ok.
-">>, #{error => [#{line => 3, msg => <<"function test/1 undefined">>}],
-       warning => []}},
+">>,
+[#{type => error, row => 3, text => <<"function test/1 undefined">>}]},
 {"warning",
 <<"
 -module(test).
@@ -311,8 +330,8 @@ test() ->
 test() ->
     X = 0,
     ok.
-">>, #{error => [],
-       warning => [#{line => 5, msg => <<"variable 'X' is unused">>}]}},
+">>,
+[#{type => warning, row => 5, text => <<"variable 'X' is unused">>}]},
 {"error and warning",
 <<"
 -module(test).
@@ -320,8 +339,9 @@ test() ->
 test() ->
     X = 0,
     ok.
-">>, #{error => [#{line => 3, msg => <<"function test/1 undefined">>}],
-       warning => [#{line => 5, msg => <<"variable 'X' is unused">>}]}},
+">>,
+[#{type => error, row => 3, text => <<"function test/1 undefined">>},
+ #{type => warning, row => 5, text => <<"variable 'X' is unused">>}]},
 {"unsafe",
 <<"
 -module(test).
@@ -332,17 +352,18 @@ test() ->
     bikram:call(bnot 1),
     binary_to_atom(<<\"1\">>, utf8),
     ok.
-">>, #{error => [#{line => 8, msg => <<"unsafe function call erlang:binary_to_atom/2">>}],
-       warning => []}}
+">>,
+[#{type => error, row => 8,
+   text => <<"unsafe function call erlang:binary_to_atom/2">>}]}
 ]).
 
 compile_mod_test_() ->
     {inparallel,
      [{T,
         case {O, compile_mod(C, [{io, format}])} of
-            {ok, Output} -> ?_assertMatch({ok, _}, Output);
             {O, {warning, _, Warning}} -> ?_assertEqual(O, Warning);
-            {O, {error, Error}} -> ?_assertEqual(O, Error)
+            {O, {error, Error}} -> ?_assertEqual(O, Error);
+            {ok, Output} -> ?_assertMatch({ok, _}, Output)
         end} || {T, C, O} <- ?TEST_MODULES]}.
 
 -endif.
