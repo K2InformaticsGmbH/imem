@@ -1,8 +1,8 @@
 -module(imem_compiler).
 -include("imem_seco.hrl").
 
--export([compile/1, compile/2, compile_mod/1, compile_mod/2, safe/1,
-         format_error/1]).
+-export([compile/1, compile/2, compile_mod/1, compile_mod/2, compile_mod/3,
+         safe/1, format_error/1]).
 
 % erlang:_/0
 -safe([now/0, date/0, registered/0]).
@@ -135,8 +135,9 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
             end
     end.
 
-compile_mod(ModuleCodeBinStr) -> compile_mod(ModuleCodeBinStr, []).
-compile_mod(ModuleCodeBinStr, Restrict) when is_binary(ModuleCodeBinStr) ->
+compile_mod(ModuleCodeBinStr) -> compile_mod(ModuleCodeBinStr, [], []).
+compile_mod(ModuleCodeBinStr, Opts) -> compile_mod(ModuleCodeBinStr, [], Opts).
+compile_mod(ModuleCodeBinStr, Restrict, Opts) when is_binary(ModuleCodeBinStr) ->
     case erl_scan:string(binary_to_list(ModuleCodeBinStr)) of
         {ok, Tokens, _} ->
             TokenGroups = cut_dot(Tokens),
@@ -152,7 +153,7 @@ compile_mod(ModuleCodeBinStr, Restrict) when is_binary(ModuleCodeBinStr) ->
                 Forms when is_list(Forms) ->
                     case security_check(Forms, Restrict) of
                         List when is_list(List) ->
-                            case compile:forms(Forms, [return]) of
+                            case compile:forms(Forms, [return | Opts]) of
                                 error -> {error, #{error => <<"unknown">>}};
                                 {ok, _Module, Bin} -> {ok, Bin};
                                 {ok, _Module, Bin, []} -> {ok, Bin};
@@ -360,7 +361,7 @@ test() ->
 compile_mod_test_() ->
     {inparallel,
      [{T,
-        case {O, compile_mod(C, [{io, format}])} of
+        case {O, compile_mod(C, [{io, format}], [])} of
             {O, {warning, _, Warning}} -> ?_assertEqual(O, Warning);
             {O, {error, Error}} -> ?_assertEqual(O, Error);
             {ok, Output} -> ?_assertMatch({ok, _}, Output)
