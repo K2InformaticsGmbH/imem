@@ -839,5 +839,6 @@ maybe_coldstart_restore(SnapDir) ->
                     restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
             end;
         {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
+        {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
         _ -> ok
     end.
