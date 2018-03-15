@@ -2,27 +2,33 @@
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
-. "{{runner_base_dir}}/lib/env.sh"
+APP_NAME="$1" # First argument is the name of the application
+shift # removing the first argument from the list of arguments
+
+if [ "" == "$APP_NAME" ]; then
+        echo "First argument should be the name of the application"
+        exit -1
+fi
 
 # Make sure the user running this script is the owner and/or su to that user
-check_user $@
-ES=$?
-if [ "$ES" -ne 0 ]; then
-    exit $ES
+if [ "$(whoami)" != "$APP_NAME" ]; then
+        echo "Script must be run as application user"
+        exit -1
 fi
 
-# Make sure CWD is set to runner run dir
-cd $RUNNER_BASE_DIR
+if cd "/opt/$APP_NAME/bin/"; then
 
-# Make sure a node IS running
-RES=`ping_node`
-if [ "$?" -ne 0 ]; then
-    echo "Node is not running!"
-    exit 1
+    # Make sure a node IS running
+    RES=`./$APP_NAME ping`
+    if [ "$RES" != 'pong' ]; then
+        echo "Node for $APP_NAME is not running!"
+        exit 1
+    fi
+
+    NODE=`./$APP_NAME eval "node()"`
+    NODE_NAME="${NODE:1:-1}" # Removing the ` from both sides as node() returns atom
+    COOKIE=`./$APP_NAME eval "erlang:get_cookie()"`
+    exec ../erts*/bin/escript imem.escript $NODE_NAME $COOKIE $@
+
 fi
-
-NODE_NAME=${NAME_ARG#* }
-erlang_cookie=`echo $COOKIE_ARG | awk '{print $2}'`
-exec $ERTS_PATH/escript $RUNNER_SCRIPT_DIR/imem.escript $NODE_NAME $erlang_cookie $@
-
 exit 0
