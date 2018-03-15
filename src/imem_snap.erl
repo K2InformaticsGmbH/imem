@@ -164,11 +164,7 @@ init(_) ->
                 {error, Error} ->
                     ?Warn("unable to create snapshot directory ~p : ~p~n", [SnapDir, Error])
             end;
-        _ ->
-            case application:get_env(imem, cold_start_recover) of
-                {ok, true} -> restore_tables_from_latest_zip(SnapDir);
-                _ -> no_op
-            end
+        _ -> maybe_coldstart_restore(SnapshotDir)
     end,
     ?Info("snapshot directory ~s~n", [SnapshotDir]),
     process_flag(trap_exit, true),
@@ -247,7 +243,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
          true ->
              {{Y,M,D},{H,_,_}} = imem_datatype:timestamp_to_local_datetime(imem_meta:time()),
              {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-             ZipFilePattern = lists:flatten(io_lib:format(?BKP_ZIP_PREFIX ++ "~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
+             ZipFilePattern = lists:flatten(io_lib:format(?BKP_ZIP_PREFIX"~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
              BackupDir = filename:absname(SnapDir),
              case filelib:wildcard(ZipFilePattern, BackupDir) of
                  BFs when length(BFs) > 0 ->
@@ -503,7 +499,7 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
             ?Debug("unzipped ~p from ~p~n", [Fs,ZipFile]),
             Files = [F
                     || F <- Fs, re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
-            ?Info("restoring ~p from ~p~n", [Files,ZipFile]),
+            ?Debug("restoring ~p from ~p~n", [Files,ZipFile]),
             Res = lists:foldl(
                 fun(SnapFile, Acc) ->
                     case filelib:is_dir(SnapFile) of
@@ -833,13 +829,18 @@ exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(?TIMESTAMP)]),
     ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), Remark).
 
-restore_tables_from_latest_zip(SnapDir) ->
-    case imem_meta:nodes() of 
-        [] ->
-            case lists:reverse(lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX ++ "*.zip", SnapDir))) of
-                [] -> ?Warn("No zip file found to restore tables from in ~p", [SnapDir]);
-                [ZipFile | _ ] -> restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
+maybe_coldstart_restore(SnapDir) ->
+    case application:get_env(imem, cold_start_recover) of
+        {ok, true} ->
+            case imem_meta:nodes() of 
+                [] ->
+                    case lists:reverse(lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX"*.zip", SnapDir))) of
+                        [] -> ?Warn("Cold Start : unable to auto restore, no "?BKP_ZIP_PREFIX"*.zip found in snapshot directory ~s", [SnapDir]);
+                        [ZipFile | _ ] ->
+                            ?Info("Cold Start : auto restoring ~s found at ~s", [ZipFile, SnapDir]),
+                            restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
+                    end;
+                _ -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped")
             end;
-        _ -> ?Info("Other nodes exist in the cluster so not restoring tables from snapshot")
+        _ -> ok
     end.
-        
