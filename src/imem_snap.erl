@@ -56,6 +56,7 @@
 
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
+-define(BKP_ZIP_PREFIX, "backup_snapshot_").
 
 -define(GET_SNAPSHOT_CYCLE_WAIT,
             ?GET_CONFIG(snapshotCycleWait, [], 10000,
@@ -163,10 +164,9 @@ init(_) ->
                 {error, Error} ->
                     ?Warn("unable to create snapshot directory ~p : ~p~n", [SnapDir, Error])
             end;
-        _ -> ok
+        _ -> maybe_coldstart_restore(SnapshotDir)
     end,
     ?Info("snapshot directory ~s~n", [SnapshotDir]),
-
     process_flag(trap_exit, true),
     start_snap_loop(),
     erlang:send_after(
@@ -218,7 +218,7 @@ cluster_snap([], StartTime, Dir) ->
     erlang:send_after(1000, ?MODULE, {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
     ok;
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
-    cluster_snap(Tabs, StartTime, create_clean_dir("backup_snapshot_"));
+    cluster_snap(Tabs, StartTime, create_clean_dir(?BKP_ZIP_PREFIX));
 cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
     NextTabs = case catch take_chunked(imem_meta:physical_table_name(T), Dir) of                   
                    ok ->
@@ -243,7 +243,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
          true ->
              {{Y,M,D},{H,_,_}} = imem_datatype:timestamp_to_local_datetime(imem_meta:time()),
              {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-             ZipFilePattern = lists:flatten(io_lib:format("backup_snapshot_~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
+             ZipFilePattern = lists:flatten(io_lib:format(?BKP_ZIP_PREFIX"~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
              BackupDir = filename:absname(SnapDir),
              case filelib:wildcard(ZipFilePattern, BackupDir) of
                  BFs when length(BFs) > 0 ->
@@ -828,3 +828,17 @@ exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     ExPatterns = ?GET_SNAPSHOT_EXCLUSION_PATTERNS,
     Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(?TIMESTAMP)]),
     ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), Remark).
+
+maybe_coldstart_restore(SnapDir) ->
+    case {application:get_env(imem, cold_start_recover), imem_meta:nodes()} of
+        {{ok, true}, []} ->
+            case lists:reverse(lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX"*.zip", SnapDir))) of
+                [] -> ?Warn("Cold Start : unable to auto restore, no "?BKP_ZIP_PREFIX"*.zip found in snapshot directory ~s", [SnapDir]);
+                [ZipFile | _ ] ->
+                    ?Info("Cold Start : auto restoring ~s found at ~s", [ZipFile, SnapDir]),
+                    restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
+            end;
+        {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
+        {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
+        _ -> ok
+    end.

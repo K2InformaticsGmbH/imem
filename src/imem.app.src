@@ -25,6 +25,7 @@
         {mnesia_node_type, undefined},
         {imem_timeout, 30000},
         {imem_snapshot_dir, "snapshot"},
+        {cold_start_recover, true},
         {default_admin_pswd, <<"change_on_install">>},
         {node_shard, node_shard_fun},
         {node_shard_fun, "fun(N) -> imem_meta:host_name(N) -- \"!?#*:+-\\<|>/\" end"},
