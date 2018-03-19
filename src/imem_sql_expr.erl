@@ -752,7 +752,7 @@ column_map_columns([PTree|Columns], FullMap, Acc) ->
             column_map_columns([CMap|Columns], FullMap, Acc);
         #bind{} = CMap ->
             %% one select column returned
-            Alias = sqlparse_layout:flat({fields,[PTree]}),
+            Alias = sqlparse_fold:top_down(sqlparse_format_flat,{fields,[PTree]}, []),
             R = is_readonly(CMap),
             column_map_columns(Columns, FullMap, [CMap#bind{alias=Alias,readonly=R,ptree=PTree}|Acc])
     end;
@@ -1318,7 +1318,7 @@ sort_spec_item(Expr,Direction,_FullMap,ColMap) ->
             case [ Tag || #bind{tag=Tag,alias=A} <- ColMap, A==Expr] of
                 [] ->   
                     case [ Tag || #bind{tag=Tag,ptree=PTree} <- ColMap, PTree==Expr] of
-                        [] ->   [sqlparse_layout:flat({fields,[Expr]})];
+                        [] ->   [sqlparse_fold:top_down(sqlparse_format_flat,{fields,[Expr]}, [])];
                         TT ->   TT      %% parse tree found (identical to select expression)
                     end;
                 TA ->
@@ -1433,8 +1433,8 @@ filter_name_value(F,Idx,Vals,ColMap) ->
     Tag = "Col" ++ integer_to_list(Idx),
     % ?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
     Name = case {Ti,Ci,PTree} of 
-        {0,0,{as,PTA,_}} -> sqlparse_layout:flat({fields,[PTA]});
-        {0,0,PT} ->         sqlparse_layout:flat({fields,[PT]});
+        {0,0,{as,PTA,_}} -> sqlparse_fold:top_down(sqlparse_format_flat,{fields,[PTA]}, []);
+        {0,0,PT} ->         sqlparse_fold:top_down(sqlparse_format_flat,{fields,[PT]}, []);
         _ ->                qname3_to_binstr({S,T,N})
     end,
     % ?Info("filter_name_values Name ~p",[Name]),
