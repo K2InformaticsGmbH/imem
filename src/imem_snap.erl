@@ -138,7 +138,7 @@ suspend_snap_loop() ->
 %% ?SERVER_START_LINK.
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
-    ets:new(?MODULE, [public, named_table, {keypos,2}]),
+    catch ets:new(?MODULE, [public, named_table, {keypos,2}]),
     case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
         {ok, _} = Success ->
             ?Info("~p started!~n", [?MODULE]),
@@ -495,7 +495,8 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
             suspend_snap_loop(),
-            {ok,Fs} = zip:unzip(ZipFile),
+            {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+            {ok,Fs} = zip:unzip(ZipFile, [{cwd, SnapDir}]),
             ?Debug("unzipped ~p from ~p~n", [Fs,ZipFile]),
             Files = [F
                     || F <- Fs, re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
