@@ -23,8 +23,7 @@ parse(Sql) ->
     end.
 
 prune_fields(InFields, ParseTree) ->
-    {InFields,OutFields} = sqlparse_layout:prune(ParseTree, InFields),
-    lists:usort(OutFields).
+    sqlparse_layout:imem_prune(ParseTree, InFields).
 
 params_from_opts(Opts,ParseTree) when is_list(Opts) ->
     case lists:keyfind(params, 1, Opts) of
