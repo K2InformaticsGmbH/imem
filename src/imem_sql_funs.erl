@@ -6,7 +6,7 @@
 -define( FilterFuns, 
             [ list, prefix_ul, concat, is_nav, is_val, is_key 
             , is_member, is_like, is_regexp_like, to_name, to_text
-            , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple
+            , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple, list_to_binstr
             , to_atom, to_string, to_binstr, to_binary, to_integer, to_float, to_number
             , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_time, to_datetime, to_ipaddr
@@ -14,7 +14,7 @@
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
-            , mfa, preview, preview_keys, round
+            , mfa, preview, preview_keys, trunc, round, integer_uid, time_uid
             , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float, safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
             , nvl_atom, nvl_binary, nvl_binstr, nvl_float, nvl_integer, nvl_json, nvl_term, nvl_tuple
             , vnf_identity,vnf_lcase_ascii,vnf_lcase_ascii_ne,vnf_tokens,vnf_integer,vnf_float,vnf_datetime,vnf_datetime_ne
@@ -84,9 +84,13 @@
         , to_ipaddr/1
         , to_name/1
         , to_text/1
+        , list_to_binstr/1
         ]).
 
 -export([ concat/2
+        , trunc/1    
+        , trunc/2
+        , round/1
         , round/2
         , add_dt/2
         , add_ts/2
@@ -120,6 +124,10 @@
         , preview_keys/3
         ]).
 
+% Functions applied with Common Test
+-export([ transform_like/2
+        ]).
+
 
 filter_funs() -> ?FilterFuns.
 
@@ -142,9 +150,12 @@ unary_fun_bind_type("bit_size") ->              #bind{type=binary,default= <<>>}
 unary_fun_bind_type("map_size") ->              #bind{type=map,default= #{}};
 unary_fun_bind_type("from_binterm") ->          #bind{type=binterm,default= ?nav};
 unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
+unary_fun_bind_type("list_to_binstr") ->        #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
 unary_fun_bind_type("md5") ->                   #bind{type=binstr,default= <<>>};
+unary_fun_bind_type("round") ->                 #bind{type=number,default=0};
+unary_fun_bind_type("trunc") ->                 #bind{type=timestamp,default=0};
 unary_fun_bind_type("safe_atom") ->             #bind{type=atom,default=?nav};
 unary_fun_bind_type("safe_binary") ->           #bind{type=binary,default=?nav};
 unary_fun_bind_type("safe_binstr") ->           #bind{type=binstr,default=?nav};
@@ -166,6 +177,8 @@ unary_fun_bind_type("safe_term") ->             #bind{type=term,default=?nav};
 unary_fun_bind_type("safe_text") ->             #bind{type=binstr,default=?nav};
 unary_fun_bind_type("safe_timestamp") ->        #bind{type=timestamp,default=?nav};
 unary_fun_bind_type("safe_tuple") ->            #bind{type=tuple,default=?nav};
+unary_fun_bind_type("integer_uid") ->           #bind{type=term,default=?nav};
+unary_fun_bind_type("time_uid") ->              #bind{type=term,default=?nav};
 unary_fun_bind_type(_) ->                       #bind{type=number,default= ?nav}.
 
 unary_fun_result_type(B) when is_binary(B) ->   unary_fun_result_type(binary_to_list(B));
@@ -184,15 +197,20 @@ unary_fun_result_type("tuple_size") ->          #bind{type=integer,default=?nav}
 unary_fun_result_type("byte_size") ->           #bind{type=integer,default=?nav};
 unary_fun_result_type("bit_size") ->            #bind{type=integer,default=?nav};
 unary_fun_result_type("map_size") ->            #bind{type=integer,default=?nav};
+unary_fun_result_type("integer_uid") ->         #bind{type=integer,default=?nav};
+unary_fun_result_type("time_uid") ->            #bind{type=timestamp,default=?nav};
 unary_fun_result_type("from_decimal") ->        #bind{type=float,default=?nav};
 unary_fun_result_type("from_binterm") ->        #bind{type=term,default=?nav};
 unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
 unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>};
+unary_fun_result_type("round") ->               #bind{type=number,default=0};
+unary_fun_result_type("trunc") ->               #bind{type=timestamp,default=0};
 unary_fun_result_type("to_atom") ->             #bind{type=atom,default=?nav};
 unary_fun_result_type("to_binary") ->           #bind{type=binary,default=?nav};
 unary_fun_result_type("to_binstr") ->           #bind{type=binstr,default=?nav};
+unary_fun_result_type("list_to_binstr") ->      #bind{type=binstr,default=?nav};
 unary_fun_result_type("to_binterm") ->          #bind{type=binterm,default=?nav};
 unary_fun_result_type("to_boolean") ->          #bind{type=boolean,default=?nav};
 unary_fun_result_type("to_datetime") ->         #bind{type=datetime,default=?nav};
@@ -258,6 +276,7 @@ binary_fun_bind_type1("nvl_string") ->          #bind{type=string,default=?nav};
 binary_fun_bind_type1("nvl_term") ->            #bind{type=term,default=?nav};
 binary_fun_bind_type1("nvl_tuple") ->           #bind{type=tuple,default=?nav};
 binary_fun_bind_type1("round") ->               #bind{type=number,default=?nav};
+binary_fun_bind_type1("trunc") ->               #bind{type=timestamp,default=?nav};
 binary_fun_bind_type1("slice") ->               #bind{type=binstr,default=?nav};
 binary_fun_bind_type1("bits") ->                #bind{type=binary,default=?nav};
 binary_fun_bind_type1("bytes") ->               #bind{type=binary,default=?nav};
@@ -292,6 +311,7 @@ binary_fun_bind_type2("nvl_string") ->          #bind{type=string,default=?nav};
 binary_fun_bind_type2("nvl_term") ->            #bind{type=term,default=?nav};
 binary_fun_bind_type2("nvl_tuple") ->           #bind{type=tuple,default=?nav};
 binary_fun_bind_type2("round") ->               #bind{type=integer,default=0};
+binary_fun_bind_type2("trunc") ->               #bind{type=integer,default=0};
 binary_fun_bind_type2("slice") ->               #bind{type=integer,default=1};
 binary_fun_bind_type2("bits") ->                #bind{type=integer,default=0};
 binary_fun_bind_type2("bytes") ->               #bind{type=integer,default=0};
@@ -326,6 +346,7 @@ binary_fun_result_type("nvl_string") ->         #bind{type=string,default=?nav};
 binary_fun_result_type("nvl_term") ->           #bind{type=term,default=?nav};
 binary_fun_result_type("nvl_tuple") ->          #bind{type=tuple,default=?nav};
 binary_fun_result_type("round") ->              #bind{type=number,default=?nav};
+binary_fun_result_type("trunc") ->              #bind{type=timestamp,default=?nav};
 binary_fun_result_type("slice") ->              #bind{type=binstr,default=?nav};
 binary_fun_result_type("bits") ->               #bind{type=integer,default=?nav};
 binary_fun_result_type("bytes") ->              #bind{type=binary,default=?nav};
@@ -467,8 +488,9 @@ expr_fun({Op, A, B}) when Op=='+';Op=='-';Op=='*';Op=='/';Op=='div';Op=='rem' ->
     math_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op==pow;Op==atan2 ->
     module_fun(math, {Op, A, B});
+
 %% Erlang module
-expr_fun({Op, A}) when Op==abs;Op==length;Op==hd;Op==tl;Op==size;Op==tuple_size;Op==round;Op==trunc ->
+expr_fun({Op, A}) when Op==abs;Op==length;Op==hd;Op==tl;Op==size;Op==tuple_size ->
     module_fun(erlang, {Op, A});
 expr_fun({Op, A}) when Op==atom_to_list;Op==binary_to_float;Op==binary_to_integer;Op==binary_to_list ->
     module_fun(erlang, {Op, A});
@@ -501,6 +523,8 @@ expr_fun({Op, A}) when Op==last;Op==reverse;Op==sort;Op==usort ->
     module_fun(lists, {Op, A});
 expr_fun({Op, A}) when Op==vnf_identity;Op==vnf_lcase_ascii;Op==vnf_lcase_ascii_ne;Op==vnf_tokens;Op==vnf_integer;Op==vnf_float;Op==vnf_datetime;Op==vnf_datetime_ne ->
     module_fun(imem_index, {Op, A});
+expr_fun({Op, A}) when Op==integer_uid;Op==time_uid;Op==time ->
+    module_fun(imem_meta, {Op, A});
 expr_fun({Op, A, B}) when Op==nth;Op==member;Op==merge;Op==nthtail;Op==seq;Op==sublist;Op==subtract;Op==usort ->
     module_fun(lists, {Op, A, B});
 %% maps module
@@ -539,7 +563,7 @@ expr_fun({'or', A, B}) ->
 %% Unary custom filters
 expr_fun({Op, A}) when Op==safe_atom;Op==safe_binary;Op==safe_binstr;Op==safe_binterm;Op==safe_boolean;Op==safe_datetime;Op==safe_decimal;Op==safe_integer;Op==safe_ipaddr;Op==safe_json;Op==safe_float;Op==safe_json;Op==safe_list;Op==safe_map;Op==safe_name;Op==safe_pid;Op==safe_string;Op==safe_term;Op==safe_text;Op==safe_timestamp;Op==safe_tuple ->
     safe_fun(A);
-expr_fun({Op, A}) when Op==to_atom;Op==to_binary;Op==to_binstr;Op==to_binterm;Op==to_boolean;Op==to_datetime;Op==to_decimal;Op==to_json;Op==to_float;Op==to_integer;Op==to_json;Op==to_list ->
+expr_fun({Op, A}) when Op==to_atom;Op==to_binary;Op==to_binstr;Op==list_to_binstr;Op==to_binterm;Op==to_boolean;Op==to_datetime;Op==to_decimal;Op==to_json;Op==to_float;Op==to_integer;Op==to_json;Op==to_list ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op==to_map;Op==to_name;Op==to_number;Op==to_pid;Op==to_string;Op==to_term;Op==to_text;Op==to_timestamp;Op==to_time;Op==to_tuple ->
     unary_fun({Op, A});
@@ -547,12 +571,14 @@ expr_fun({Op, A}) when Op==from_binterm;Op==prefix_ul;Op==phash2;Op==is_nav;Op==
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op==is_binstr;Op==is_binterm;Op==is_datetime;Op==is_decimal;Op==is_ipaddr;Op==is_json;Op==is_json;Op==is_name;Op==is_string;Op==is_text;Op==is_timestamp ->
     unary_fun({Op, A});
+expr_fun({Op, A}) when Op==round;Op==trunc ->
+    unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op==json_to_list->
     unary_json_fun({Op, A});
 expr_fun({Op, A}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A}});
 %% Binary custom filters
-expr_fun({Op, A, B}) when Op==is_member;Op==is_like;Op==is_regexp_like;Op==element;Op==concat;Op==is_key;Op==round ->
+expr_fun({Op, A, B}) when Op==is_member;Op==is_like;Op==is_regexp_like;Op==element;Op==concat;Op==is_key;Op==trunc;Op==round ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==slice;Op==bits;Op==bytes ->
     binary_fun({Op, A, B});
@@ -959,6 +985,11 @@ to_binstr(F) when is_float(F) -> list_to_binary(float_to_list(F));
 to_binstr(A) when is_atom(A) -> list_to_binary(atom_to_list(A));
 to_binstr(X) -> list_to_binary(io_lib:format("~p", [X])).
 
+list_to_binstr(X) -> 
+    try list_to_binary(io_lib:format("~s", [X]))
+    catch _:_ -> ?nav
+    end.
+
 to_binary(B) when is_binary(B) ->   B;
 to_binary(I) when is_integer(I) -> <<I/integer>>;
 to_binary(_) -> ?nav.
@@ -1080,7 +1111,7 @@ binary_fun_final({is_regexp_like, A, B})  ->
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),re_match(re_compile(Bb),Ab) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),re_match(re_compile(Bb),Ab) end
     end;
-binary_fun_final({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==is_member;Op==concat;Op==round;Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff;Op==is_key;Op==slice;Op==bits;Op==bytes ->
+binary_fun_final({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;Op==is_member;Op==concat;Op==trunc;Op==round;Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff;Op==is_key;Op==slice;Op==bits;Op==bytes ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -1123,16 +1154,38 @@ concat(A, B) when is_list(A),is_list(B) -> A ++ B;
 concat(A, B) when is_map(A),is_map(B) -> maps:merge(A,B);
 concat(A, B) when is_binary(A),is_binary(B) -> <<A/binary,B/binary>>.
 
+trunc(A) when is_number(A) -> trunc(A,0);
+trunc(A) when is_tuple(A) -> trunc(A,86400);
+trunc(_) -> ?nav.
 
-round(A,0) when is_float(A) -> round(A);
+trunc(A,0) when is_float(A) -> erlang:trunc(A);
+trunc(A,N) when is_float(A),is_integer(N), N>0 ->
+    P = math:pow(10, N),
+    erlang:trunc(A * P) / P;
+trunc(A,N) when is_float(A),is_integer(N) ->
+    P = math:pow(10, N),
+    erlang:trunc(erlang:trunc(A * P) / P);
+trunc(A,0) when is_integer(A) -> A;
+trunc(A,N) when is_integer(A),is_integer(N) -> trunc(A+0.0,N);
+trunc({Sec,Micro},0) when is_integer(Sec),is_integer(Micro) -> {Sec,0};
+trunc({Sec,Micro},N) when is_integer(Sec),is_integer(Micro),is_integer(N),N>0 -> {erlang:trunc(Sec / N) * N,0};
+trunc({Sec,Micro,Node,I},0) when is_integer(Sec),is_integer(Micro) -> {Sec,0,Node,I};
+trunc({Sec,Micro,Node,I},N) when is_integer(Sec),is_integer(Micro),is_integer(N),N>0 -> {erlang:trunc(Sec / N) * N,0,Node,I};
+trunc({{Y,M,D},{_,_,_}},0) when is_integer(Y),is_integer(M),is_integer(D) -> {{Y,M,D},{0,0,0}};
+trunc(_,_) -> ?nav.
+
+round(A) -> round(A,0).
+
+round(A,0) when is_float(A) -> erlang:round(A);
 round(A,N) when is_float(A),is_integer(N), N>0 ->
     P = math:pow(10, N),
-    round(A * P) / P;
+    erlang:round(A * P) / P;
 round(A,N) when is_float(A),is_integer(N) ->
     P = math:pow(10, N),
-    round(round(A * P) / P);
+    erlang:round(erlang:round(A * P) / P);
 round(A,0) when is_integer(A) -> A;
-round(A,N) when is_integer(A),is_integer(N) -> round(A+0.0,N).
+round(A,N) when is_integer(A),is_integer(N) -> round(A+0.0,N);
+round(_,_) -> ?nav.
 
 is_key(K, M) when is_map(M) -> maps:is_key(K,M);
 is_key(K, L) when is_list(L) ->
@@ -1410,28 +1463,6 @@ mfa(Mod,Func,Args) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
-setup() -> 
-    ?imem_test_setup.
-
-teardown(_) ->
-    ?imem_test_teardown.
-
-db1_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun test_without_sec/1]}
-    }.
-    
-db2_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun test_with_sec/1]}
-    }.
-
 slice_test_() ->
     B = <<"1234567890">>,
     L = "1234567890",
@@ -1461,198 +1492,5 @@ slice_test_() ->
       ,{"b08", ?_assertEqual(<<"1234567890">>,slice(B,-10,10))}
       ]
     }.
-
-test_without_sec(_) -> 
-    test_with_or_without_sec(false).
-
-test_with_sec(_) ->
-    test_with_or_without_sec(true).
-
-test_with_or_without_sec(IsSec) ->
-    try
-        ?LogDebug("---TEST--- ~p(~p)", [test_with_or_without_sec, IsSec]),
-
-        ?assertEqual(<<"Imem.ddTable">>, to_name({'Imem',ddTable})),
-        ?assertEqual(<<"imem.ddTable">>, to_name({'imem',ddTable})),
-        ?assertEqual(<<"undefined.ddTable">>, to_name({undefined,ddTable})),
-        ?assertEqual(<<"ddTable">>, to_name(<<"ddTable">>)),
-        % ?assertEqual(<<"ddTable">>, to_name("ddTable")),
-        ?assertEqual(<<"imem.ddäöü"/utf8>>, to_name({<<"imem">>,<<"ddäöü">>})),
-        ?LogDebug("to_name success~n", []),
-
-        ?assertEqual(<<"">>, to_text([])),
-        ?assertEqual(<<"SomeText1234">>, to_text("SomeText1234")),
-        ?assertEqual(<<"SomeText1234">>, to_text(<<"SomeText1234">>)),
-        ?assertEqual(<<".SomeText1234.">>, to_text([2|"SomeText1234"]++[3])),
-        ?assertEqual(<<"ddäöü"/utf8>>, to_text(<<"ddäöü">>)),
-        ?assertEqual(<<".ddäöü."/utf8>>, to_text(<<2,"ddäöü",3>>)),
-        ?assertEqual(<<"{'Imem',ddTable}">>, to_text({'Imem',ddTable})),
-        ?LogDebug("to_text success~n", []),
-
-    %% Like strig to Regex string
-        ?assertEqual(<<"^Sm.th$">>, transform_like(<<"Sm_th">>, <<>>)),
-        ?assertEqual(<<"^.*Sm.th.*$">>, transform_like(<<"%Sm_th%">>, <<>>)),
-        ?assertEqual(<<"^.A.*Sm.th.*$">>, transform_like(<<"_A%Sm_th%">>, <<>>)),
-        ?assertEqual(<<"^.A.*S\\$m.t\\*\\[h.*$">>, transform_like(<<"_A%S$m_t*[h%">>, <<>>)),
-        ?assertEqual(<<"^.A.*S\\^\\$\\.\\[\\]\\|\\(\\)\\?\\*\\+\\-\\{\\}m.th.*$">>, transform_like(<<"_A%S^$.[]|()?*+-{}m_th%">>, <<>>)),
-        ?assertEqual(<<"^Sm_th.$">>, transform_like(<<"Sm@_th_">>, <<"@">>)),
-        ?assertEqual(<<"^Sm%th.*$">>, transform_like(<<"Sm@%th%">>, <<"@">>)),
-        ?assertEqual(<<"^.m_th.$">>, transform_like(<<"_m@_th_">>, <<"@">>)),
-        ?assertEqual(<<"^.*m%th.*$">>, transform_like(<<"%m@%th%">>, <<"@">>)),
-        % ?LogDebug("success ~p~n", [transform_like]),
-
-    %% Regular Expressions
-        % ?LogDebug("testing regular expressions: ~p~n", ["like_compile"]),
-        RE1 = like_compile("abc_123%@@"),
-        ?assertEqual(true,re_match(RE1,<<"abc_123jhhsdhjhj@@">>)),         
-        ?assertEqual(true,re_match(RE1,<<"abc_123@@">>)),         
-        ?assertEqual(true,re_match(RE1,<<"abc_123%@@">>)),         
-        ?assertEqual(true,re_match(RE1,<<"abc_123%%@@">>)),         
-        ?assertEqual(true,re_match(RE1,<<"abc0123@@">>)),         
-        ?assertEqual(false,re_match(RE1,<<"abc_123%@">>)), 
-        ?assertEqual(false,re_match(RE1,<<"">>)),         
-        ?assertEqual(false,re_match(RE1,<<"abc_@@">>)),         
-        ?assertEqual(false,re_match(RE1,"abc_123%@@")),     %% string is expanded using ~p before comparison        
-        ?assertEqual(false,re_match(RE1,"abc_123%%@@@")),   %% string is expanded using ~p before comparison     
-        ?assertEqual(false,re_match(RE1,"abc0123@@")),         
-        ?assertEqual(false,re_match(RE1,"abc_123%@")),     
-        ?assertEqual(false,re_match(RE1,"")),         
-        RE1a = like_compile("\"abc_123%@@\""),
-        ?assertEqual(true,re_match(RE1a,"abc_123%@@")),         
-        ?assertEqual(false,re_match(RE1a,<<"abc_123jhhsdhjhj@@">>)),         
-        ?assertEqual(true,re_match(RE1a,"abc_123%%@@@")),         
-        ?assertEqual(true,re_match(RE1a,"abc0123@@")),         
-        ?assertEqual(false,re_match(RE1a,"abc_123%@")),         
-        ?assertEqual(false,re_match(RE1a,"abc_123%@")),         
-        ?assertEqual(false,re_match(RE1a,"")),         
-        ?assertEqual(false,re_match(RE1a,<<"">>)),         
-        ?assertEqual(false,re_match(RE1a,<<"abc_@@">>)),         
-        RE2 = like_compile(<<"%@@">>,<<>>),
-        ?assertEqual(false,re_match(RE2,"abc_123%@@")),         
-        ?assertEqual(true,re_match(RE2,<<"abc_123%@@">>)),         
-        ?assertEqual(true,re_match(RE2,<<"123%@@">>)),         
-        ?assertEqual(false,re_match(RE2,"@@")),
-        ?assertEqual(true,re_match(RE2,<<"@@">>)),
-        ?assertEqual(false,re_match(RE2,"@@@")),
-        ?assertEqual(true,re_match(RE2,<<"@@@">>)),
-        ?assertEqual(false,re_match(RE2,"abc_123%@")),         
-        ?assertEqual(false,re_match(RE2,<<"abc_123%@">>)),         
-        ?assertEqual(false,re_match(RE2,"@.@")),         
-        ?assertEqual(false,re_match(RE2,<<"@.@">>)),         
-        ?assertEqual(false,re_match(RE2,"@_@")),         
-        ?assertEqual(false,re_match(RE2,<<"@_@">>)),         
-        RE3 = like_compile(<<"text_in%">>),
-        ?assertEqual(false,re_match(RE3,"text_in_text")),         
-        ?assertEqual(true,re_match(RE3,<<"text_in_text">>)),         
-        ?assertEqual(true,re_match(RE3,<<"text_in_quotes\"">>)),         
-        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes">>)),         
-        ?assertEqual(false,re_match(RE3,"\"text_in_quotes\"")),         
-        ?assertEqual(false,re_match(RE3,<<"\"text_in_quotes\"">>)),         
-        RE4 = like_compile(<<"%12">>),
-        ?assertEqual(true,re_match(RE4,12)),         
-        ?assertEqual(true,re_match(RE4,112)),         
-        ?assertEqual(true,re_match(RE4,012)),         
-        ?assertEqual(false,re_match(RE4,122)),         
-        ?assertEqual(false,re_match(RE4,1)),         
-        ?assertEqual(false,re_match(RE4,11)),         
-        RE5 = like_compile(<<"12.5%">>),
-        ?assertEqual(true,re_match(RE5,12.51)),         
-        ?assertEqual(true,re_match(RE5,12.55)),         
-        ?assertEqual(true,re_match(RE5,12.50)),         
-        ?assertEqual(false,re_match(RE5,12)),         
-        ?assertEqual(false,re_match(RE5,12.4)),         
-        ?assertEqual(false,re_match(RE5,12.49999)),         
-
-        %% ToDo: implement and test patterns involving regexp reserved characters
-
-        % ?LogDebug("success ~p~n", [replace_match]),
-        % L = {like,'$6',"%5%"},
-        % NL = {not_like,'$7',"1%"},
-        % ?assertEqual( true, replace_match(L,L)),
-        % ?assertEqual( NL, replace_match(NL,L)),
-        % ?assertEqual( {'and',true,NL}, replace_match({'and',L,NL},L)),
-        % ?assertEqual( {'and',L,true}, replace_match({'and',L,NL},NL)),
-        % ?assertEqual( {'and',{'and',true,NL},{a,b,c}}, replace_match({'and',{'and',L,NL},{a,b,c}},L)),
-        % ?assertEqual( {'and',{'and',L,{a,b,c}},true}, replace_match({'and',{'and',L,{a,b,c}},NL},NL)),
-        % ?assertEqual( {'and',{'and',true,NL},{'and',L,NL}}, replace_match({'and',{'and',L,NL},{'and',L,NL}},L)),
-        % ?assertEqual( {'and',NL,{'and',true,NL}}, replace_match({'and',NL,{'and',L,NL}},L)),
-        % ?assertEqual( {'and',NL,{'and',NL,NL}}, replace_match({'and',NL,{'and',NL,NL}},L)),
-        % ?assertEqual( {'and',NL,{'and',NL,true}}, replace_match({'and',NL,{'and',NL,L}},L)),
-        % ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},L},true},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},NL)),
-        % ?assertEqual( {'and',{'and',{'and',{'=<',5,'$1'},true},NL},{'==','$1','$6'}}, replace_match({'and',{'and',{'and',{'=<',5,'$1'},L},NL},{'==','$1','$6'}},L)),
-
-    %% expr_fun
-        ?assertEqual(true, expr_fun(true)),
-        ?assertEqual(false, expr_fun(false)),
-        ?assertEqual(true, expr_fun({'not', false})),
-        ?assertEqual(false, expr_fun({'not', true})),
-        ?assertEqual(12, expr_fun(12)),
-        ?assertEqual(a, expr_fun(a)),
-        ?assertEqual({a,b}, expr_fun({const,{a,b}})),
-        ?assertEqual(true, expr_fun({'==', 10,10})),
-        ?assertEqual(true, expr_fun({'==', {const,{a,b}}, {const,{a,b}}})), 
-        ?assertEqual(false, expr_fun({'==', {const,{a,b}}, {const,{a,1}}})), 
-        ?assertEqual(true, expr_fun({'is_member', a, [a,b]})),
-        ?assertEqual(true, expr_fun({'is_member', 1, [a,b,1]})),
-        ?assertEqual(false, expr_fun({'is_member', 1, [a,b,c]})),
-        ?assertEqual(true, expr_fun({'is_member', 1, {const,{a,b,1}}})),
-        ?assertEqual(false, expr_fun({'is_member', 1, {const,{a,b,c}}})),
-        ?assertEqual(true, expr_fun({'is_member', {const,{a,1}}, #{b=>2,a=>1}})),
-        ?assertEqual(false, expr_fun({'is_member', {const,{a,2}}, #{b=>2,a=>1}})),
-        ?assertEqual(false, expr_fun({'is_member', {const,{c,3}}, #{b=>2,a=>1}})),
-        ?assertEqual(true, expr_fun({'is_like', "12345", "%3%"})),
-        ?assertEqual(true, expr_fun({'is_like', <<"12345">>, "%3__"})),
-        ?assertEqual(true, expr_fun({'is_like', <<"12345">>, <<"1%">>})),
-        ?assertEqual(false, expr_fun({'is_like', "12345", <<"1%">>})),
-        ?assertEqual(true, expr_fun({'is_like', {'+',12300,45}, <<"%45">>})),
-        ?assertEqual(true, expr_fun({'is_like', "12345", <<"\"1%\"">>})),
-        ?assertEqual(false, expr_fun({'is_like', "12345", "%6%"})),
-        ?assertEqual(false, expr_fun({'is_like', <<"12345">>, "%6%"})),
-        ?assertEqual(false, expr_fun({'is_like', <<"12345">>, "%7__"})),
-        ?assertEqual(33, expr_fun({'*',{'+',10,1},3})),
-        ?assertEqual(10, expr_fun({'abs',{'-',10,20}})),
-        % ?LogDebug("success ~p~n", ["expr_fun constants"]),
-
-        X1 = {{1,2,3},{2,2,2}},
-        B1a = #bind{tag='$1',tind=1,cind=2},    % = 2
-        B1b = #bind{tag='$2',tind=1,cind=2},    % = 2
-        F1 = expr_fun({'==', B1a,B1b}),
-        ?assertEqual(true, F1(X1)),
-
-        B1c = #bind{tag='$2',tind=2,cind=2},    % = 2
-        F1a = expr_fun({'==', B1a,B1c}),
-        ?assertEqual(true, F1a(X1)),
-
-        B2 = #bind{tag='$3',tind=1,cind=3},     % = 3
-        F2 = expr_fun({'is_member', a, B2}),
-        ?assertEqual(false,F2({{1,2,[3,4,5]},{2,2,2}})),        
-        ?assertEqual(true, F2({{1,2,[c,a,d]},{2,2,2}})),        
-
-        F3 = expr_fun({'is_member', B1c, B2}),
-        ?assertEqual(false, F3({{1,d,[c,a,d]},{2,2,2}})),        
-        ?assertEqual(true, F3({{1,c,[2,a,d]},{2,2,2}})),        
-        ?assertEqual(true, F3({{1,a,[c,2,2]},{2,2,2}})),        
-        ?assertEqual(true, F3({{1,3,{3,4,2}},{2,2,2}})),        
-        ?assertEqual(false,F3({{1,2,{3,4,5}},{2,2,2}})),        
-        ?assertEqual(false,F3({{1,[a],[3,4,5]},{2,2,2}})),        
-        ?assertEqual(false,F3({{1,3,[]},{2,2,2}})),        
-
-        F4 = expr_fun({'is_member', {'+',B1c,1}, B2}),
-        ?assertEqual(true, F4({{1,2,[3,4,5]},{2,2,2}})),        
-        ?assertEqual(false,F4({{1,2,[c,4,d]},{2,2,2}})),        
-
-        ?assertEqual([],json_arr_proj([a1,a2,a3,a4,a5], [])),
-        ?assertEqual([a3,a5],json_arr_proj([a1,a2,a3,a4,a5], [3,5])),
-        ?assertEqual([a1,?nav],json_arr_proj([a1,a2,a3,a4,a5], [1,6])),
-        ?assertEqual([a1,?nav],json_arr_proj([a1,a2,a3,a4,a5], [1,?nav])),
-        ?assertEqual(?nav,json_arr_proj([a1,a2,a3,a4,a5], [6])),
-        ?assertEqual([3,5],json_arr_proj(<<"[1,2,3,4,5]">>, [3,5])),
-
-        ?assert(true)
-    catch
-        Class:Reason ->  ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        ?assert( true == "all tests completed")
-    end,
-    ok. 
 
 -endif.

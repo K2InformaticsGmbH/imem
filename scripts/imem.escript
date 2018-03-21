@@ -217,16 +217,8 @@ cmd(Node, ["snap", "restore", "bkp", Type | OptTables]) when
     (Type =:= "replace") orelse
     (Type =:= "none")) ->
     {Preserve, Simulate} = (if Type =:= "simulate" -> {replace, true}; true -> {list_to_atom(Type), false} end),
-    if OptTables =/= [] ->
-        [begin
-            RR = rpc:call(Node, imem_snap, restore, [bkp, [OptTable], Preserve, Simulate], ?TIMEOUT),
-            format({restore,RR})
-        end
-        || OptTable <- OptTables];
-    true ->
-        RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, Preserve, Simulate], ?TIMEOUT),
-        format({restore,RR})
-    end;
+    RR = rpc:call(Node, imem_snap, restore, [bkp, OptTables, Preserve, Simulate], ?TIMEOUT),
+    format({restore,RR});
 cmd(Node, ["snap", "restore", "bkp" | BkpArgs]) -> cmd(Node, ["snap", "restore", "destroy", "bkp" | BkpArgs]);
 
 % unsupported
@@ -319,7 +311,7 @@ format({restore, RestoreRes}) ->
         _T = if is_atom(T) -> atom_to_list(T); true -> T end,
         case Res of
            {I,E,A} ->
-               ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, _T, length(I), length(E), length(A)]);
+               ?P("~*s ~-10B ~-10B ~-10B~n", [-FLen, _T, I, E, A]);
            Error -> ?P("~*s ~p~n", [-FLen, _T, Error])
         end
     end

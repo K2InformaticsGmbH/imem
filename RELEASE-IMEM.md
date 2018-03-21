@@ -3,6 +3,47 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 2.0.0 (Release Date 19.01.2018)
+=======================================
+* Common tests added [#183](https://github.com/K2InformaticsGmbH/imem/pulls/183)
+* Removed `filename.erl` as fixed in OTP 20.2 [#185](https://github.com/K2InformaticsGmbH/imem/issues/185)
+
+Version 1.9.1 (Release Date 23.11.2017)
+=======================================
+* APIs `ets`, `select_count` [#184](https://github.com/K2InformaticsGmbH/imem/issues/184)
+
+Version 1.9.0 (Release Date 20.11.2017)
+=======================================
+* Fixed decimals when using datatype to convert from float to io
+* Skvh delete using keys as terms
+* Implemented circular reference for imem_config
+* sqlparse to version 3.0.0
+
+Version 1.8.2 (Release Date 10.11.2017)
+=======================================
+* sext-1.4.1
+* fixes for node sharded tables [#175](https://github.com/K2InformaticsGmbH/imem/issues/175)
+
+Version 1.8.1 (Release Date 16.10.2017)
+=======================================
+* OTP-20.1
+* Erlscrypt to version
+* Exoprted decode/2 function to imem_json to allow options.
+
+Version 1.8.0 (Release Date 11.09.2017)
+=======================================
+* Migration to rebar3.
+* Improved application start / stop.
+* purge/proll logic re-worked
+
+Version 1.7.1 (Release Date 27.07.2017)
+=======================================
+* OTP 20
+* Backward compatibility added for partition name calculation based on key.
+* Added list_to_binstr sql function
+* Export start, suspend and restart in imem_snap
+* Using new imem_meta monotinic time to check if snapshot is required and reduced the check frequency to 60 seconds.
+
 Version 1.7.0 (Release Date 03.05.2017)
 =======================================
 * Added new time methods to replace deprecated erlang:now 

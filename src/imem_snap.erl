@@ -24,6 +24,9 @@
         , del_dirtree/1
         , snap_file_count/0
         , exclude_table_pattern/1
+        , suspend_snap_loop/0
+        , start_snap_loop/0
+        , restart_snap_loop/0
         ]).
 
 % gen_server callbacks
@@ -238,7 +241,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
     {noreply,
      case ?GET_CLUSTER_SNAPSHOT of
          true ->
-             {{Y,M,D},{H,_,_}} = calendar:local_time(),
+             {{Y,M,D},{H,_,_}} = imem_datatype:timestamp_to_local_datetime(imem_meta:time()),
              {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
              ZipFilePattern = lists:flatten(io_lib:format("backup_snapshot_~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
              BackupDir = filename:absname(SnapDir),
@@ -248,14 +251,13 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                          true -> State;
                          _ ->
                              erlang:send_after(
-                               1000, ?MODULE,
+                               60 * 1000, ?MODULE,
                                {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
                              State#state{csnap_pid = (#state{})#state.csnap_pid}
                      end;
                  _ ->
-                     ClusterSnapHour = ?GET_CLUSTER_SNAPSHOT_TOD,
-                     case calendar:local_time() of
-                         {{_,_,_},{ClusterSnapHour,_,_}} ->
+                     case ?GET_CLUSTER_SNAPSHOT_TOD of
+                         H ->
                              if Dir == '$create_when_needed' ->
                                     ?Info("cluster snapshot ~p", [Tables]);
                                 true -> ok
@@ -266,7 +268,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                                  true -> State;
                                  _ ->
                                      erlang:send_after(
-                                       1000, ?MODULE,
+                                       60 * 1000, ?MODULE,
                                        {cluster_snap, Tables, '$replace_with_timestamp', '$create_when_needed'}),
                                      State#state{csnap_pid = (#state{})#state.csnap_pid}
                              end
@@ -826,42 +828,3 @@ exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     ExPatterns = ?GET_SNAPSHOT_EXCLUSION_PATTERNS,
     Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(?TIMESTAMP)]),
     ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), Remark).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-%%
-%%----- TESTS ------------------------------------------------
-%%
-
--define(TABLES, lists:sort([atom_to_list(T) || T <- mnesia:system_info(tables) -- [schema]])).
--define(FILENAMES(__M, __Dir), lists:sort([filename:rootname(filename:basename(F))
-                                           || F <- filelib:wildcard(__M, __Dir)])).
--define(EMPTY_DIR(__Dir), [{F, file:delete(filename:absname(filename:join([__Dir,F])))}
-                           || F <- filelib:wildcard("*.*", __Dir)]).
-
-setup() ->
-    ?imem_test_setup,
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    SnapDir.
-
-teardown(_) ->
-    ?imem_test_teardown.
-
-db_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun test_snapshot/1]}
-    }.
-
-test_snapshot(SnapDir) ->
-    ?LogDebug("---TEST--- ~p(~p)", [test_snapshot,SnapDir]),
-    take(ddTable),
-    % ?LogDebug("take snapshots :~n~p~n", [Take]),
-    ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
-    % ?LogDebug("snapshot tests completed!~n", []),
-    ok.
-
--endif.

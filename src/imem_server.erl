@@ -115,12 +115,10 @@ restart() ->
 init(ListenerPid, Socket, Transport, Opts) ->
     PeerNameMod = case lists:member(ssl, Opts) of true -> ssl; _ -> inet end,
     {ok, {Address, Port}} = PeerNameMod:peername(Socket),
-    Str = lists:flatten(io_lib:format("~p received connection from ~s:~p"
+    _Str = lists:flatten(io_lib:format("~p received connection from ~s:~p"
                                       , [self(), inet_parse:ntoa(Address)
                                          , Port])),
-    ?Debug(Str++"~n", []),
-    imem_meta:log_to_db(debug,?MODULE,init
-                        ,[ListenerPid, Socket, Transport, Opts], Str),
+    ?Debug(_Str++"~n", []),
     ok = ranch:accept_ack(ListenerPid),
     % Linkinking TCP socket
     % for easy lookup
