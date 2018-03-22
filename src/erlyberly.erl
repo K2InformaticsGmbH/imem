@@ -1,4 +1,3 @@
-
 %%% erlyberly, erlang trace debugger
 %%% Copyright (C) 2016 Andy Till
 %%%
