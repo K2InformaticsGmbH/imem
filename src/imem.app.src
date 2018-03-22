@@ -6,7 +6,7 @@
     {applications, [
         inets,
         kernel,
-        dbg,
+        runtime_tools,
         os_mon,
         sasl,
         ssl,
