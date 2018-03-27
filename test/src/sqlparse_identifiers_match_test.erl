@@ -31,7 +31,6 @@
 %%------------------------------------------------------------------------------
 
 overall_test_() ->
-    ?D("Start ~n"),
     {
         setup,
         fun setup_default/0,
@@ -63,10 +62,7 @@ overall_test_() ->
 %%------------------------------------------------------------------------------
 
 prune(Title, Source, Result) ->
-    ?D("Start ~n Title: ~p~n Source: ~p~n Result: ~p~n",
-        [Title, Source, Result]),
     {ok, ParseTree} = sqlparse:parsetree(Source),
-    ?D("~n ParseTree: ~p~n", [ParseTree]),
     case sqlparse_fold:top_down(sqlparse_identifiers_match, ParseTree,
         ?IN_FIELDS) of
         OutFields when is_list(OutFields) ->
@@ -83,5 +79,4 @@ prune(Title, Source, Result) ->
 %%------------------------------------------------------------------------------
 
 setup_default() ->
-    ?D("Start ~n"),
     ok.

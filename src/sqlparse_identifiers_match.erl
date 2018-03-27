@@ -31,8 +31,6 @@
 
 -define(NODEBUG, true).
 
--include_lib("sqlparse/include/sqlparse_fold.hrl").
-
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Setting up parameters.
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -40,7 +38,6 @@
 -spec init(InFields :: [binary()]) -> InFields :: [binary()].
 init(InFields)
     when is_list(InFields) ->
-    ?D("Start~n InFields: ~p~n", [InFields]),
     InFields.
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -50,10 +47,7 @@ init(InFields)
 -spec finalize(InFields :: [binary()], [binary()]|tuple()) -> [binary()]|tuple().
 finalize(_InFields, CtxIn)
     when is_list(CtxIn) ->
-    ?D("Start~n InFields: ~p~n CtxIn: ~p~n", [_InFields, CtxIn]),
-    CtxOut = lists:usort(CtxIn),
-    ?D("~n CtxOut: ~p~n", [CtxOut]),
-    CtxOut.
+    lists:usort(CtxIn).
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Layout methods for processing the various parser subtrees
@@ -68,9 +62,7 @@ finalize(_InFields, CtxIn)
 
 fold(InFields, _FunState, Ctx, PTree, FoldState)
     when is_binary(PTree), element(2, FoldState) == start ->
-    ?CUSTOM_INIT(_FunState, Ctx, PTree, FoldState),
-    RT = add_if(InFields, PTree, Ctx),
-    ?CUSTOM_RESULT(RT);
+    add_if(InFields, PTree, Ctx);
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % {atom, binary}
@@ -78,10 +70,8 @@ fold(InFields, _FunState, Ctx, PTree, FoldState)
 
 fold(InFields, _FunState, Ctx, {Elem1, Elem2} = _PTree, FoldState)
     when is_atom(Elem1), Elem1 =/= extra, is_binary(Elem2),
-         element(2, FoldState) == start ->
-    ?CUSTOM_INIT(_FunState, Ctx, _PTree, FoldState),
-    RT = add_if(InFields, Elem2, Ctx),
-    ?CUSTOM_RESULT(RT);
+    element(2, FoldState) == start ->
+    add_if(InFields, Elem2, Ctx);
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % {atom, binary, binary}
@@ -89,11 +79,8 @@ fold(InFields, _FunState, Ctx, {Elem1, Elem2} = _PTree, FoldState)
 
 fold(InFields, _FunState, Ctx, {Elem1, Elem2, Elem3} = _PTree, FoldState)
     when is_atom(Elem1), is_binary(Elem2), is_binary(Elem3),
-         element(2, FoldState) == start ->
-    ?CUSTOM_INIT(_FunState, Ctx, _PTree, FoldState),
-    Ctx1 = add_if(InFields, Elem2, Ctx),
-    RT = add_if(InFields, Elem3, Ctx1),
-    ?CUSTOM_RESULT(RT);
+    element(2, FoldState) == start ->
+    add_if(InFields, Elem3, add_if(InFields, Elem2, Ctx));
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % {atom, binary, _}
@@ -101,9 +88,7 @@ fold(InFields, _FunState, Ctx, {Elem1, Elem2, Elem3} = _PTree, FoldState)
 
 fold(InFields, _FunState, Ctx, {Elem1, Elem2, _Elem3} = _PTree, FoldState)
     when is_atom(Elem1), is_binary(Elem2), element(2, FoldState) == start ->
-    ?CUSTOM_INIT(_FunState, Ctx, _PTree, FoldState),
-    RT = add_if(InFields, Elem2, Ctx),
-    ?CUSTOM_RESULT(RT);
+    add_if(InFields, Elem2, Ctx);
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % {atom, _, binary}
@@ -111,9 +96,7 @@ fold(InFields, _FunState, Ctx, {Elem1, Elem2, _Elem3} = _PTree, FoldState)
 
 fold(InFields, _FunState, Ctx, {Elem1, _Elem2, Elem3} = _PTree, FoldState)
     when is_atom(Elem1), is_binary(Elem3), element(2, FoldState) == start ->
-    ?CUSTOM_INIT(_FunState, Ctx, _PTree, FoldState),
-    RT = add_if(InFields, Elem3, Ctx),
-    ?CUSTOM_RESULT(RT);
+    add_if(InFields, Elem3, Ctx);
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % {atom, binary, _, _}
@@ -122,10 +105,7 @@ fold(InFields, _FunState, Ctx, {Elem1, _Elem2, Elem3} = _PTree, FoldState)
 fold(InFields, _FunState, Ctx, {Elem1, Elem2, _Elem3, _Elem4} =
     _PTree, FoldState)
     when is_atom(Elem1), is_binary(Elem2), element(2, FoldState) == start ->
-    ?CUSTOM_INIT(_FunState, Ctx, _PTree, FoldState),
-    Ctx1 = add_if(InFields, Elem2, Ctx),
-    RT = add_if(InFields, Elem2, Ctx1),
-    ?CUSTOM_RESULT(RT);
+    add_if(InFields, Elem2, add_if(InFields, Elem2, Ctx));
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % {binary, binary}
@@ -133,17 +113,13 @@ fold(InFields, _FunState, Ctx, {Elem1, Elem2, _Elem3, _Elem4} =
 
 fold(InFields, _FunState, Ctx, {Elem1, Elem2} = _PTree, FoldState)
     when is_binary(Elem1), is_binary(Elem2), element(2, FoldState) == start ->
-    ?CUSTOM_INIT(_FunState, Ctx, _PTree, FoldState),
-    Ctx1 = add_if(InFields, Elem1, Ctx),
-    RT = add_if(InFields, Elem2, Ctx1),
-    ?CUSTOM_RESULT(RT);
+    add_if(InFields, Elem2, add_if(InFields, Elem1, Ctx));
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % NO ACTION.
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 fold(_InFields, _FunState, Ctx, _PTree, _FoldState) ->
-    ?CUSTOM_INIT(_FunState, Ctx, _PTree, _FoldState),
     Ctx.
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
