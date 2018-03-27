@@ -60,9 +60,7 @@ overall_test_() ->
 %%------------------------------------------------------------------------------
 
 prune(Title, Source, Result) ->
-    {ok, ParseTree} = sqlparse:parsetree(Source),
-    case sqlparse_fold:top_down(imem_identifiers_match, ParseTree,
-        ?IN_FIELDS) of
+    case sqlparse_fold:top_down(imem_identifiers_match, Source, ?IN_FIELDS) of
         OutFields when is_list(OutFields) ->
             ?assertEqual(Result, OutFields, Title);
         ErrorResult ->
