@@ -1,6 +1,6 @@
 %% -----------------------------------------------------------------------------
 %%
-%% sqlparse_identifiers_match_test.hrl: SQL - test driver.
+%% imem_identifiers_match_test.hrl: SQL - test driver.
 %%
 %% Copyright (c) 2012-18 K2 Informatics GmbH.  All Rights Reserved.
 %%
@@ -20,8 +20,8 @@
 %%
 %% -----------------------------------------------------------------------------
 
--ifndef(SQLPARSE_IDENTIFIERS_MATCH_HRL).
--define(SQLPARSE_IDENTIFIERS_MATCH_HRL, true).
+-ifndef(IMEM_IDENTIFIERS_MATCH_HRL).
+-define(IMEM_IDENTIFIERS_MATCH_HRL, true).
 
 -include_lib("eunit/include/eunit.hrl").
 

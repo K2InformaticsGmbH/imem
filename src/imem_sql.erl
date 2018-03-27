@@ -23,7 +23,7 @@ parse(Sql) ->
     end.
 
 prune_fields(InFields, ParseTree) ->
-    sqlparse_fold:top_down(sqlparse_identifiers_match, ParseTree, InFields).
+    sqlparse_fold:top_down(imem_identifiers_match, ParseTree, InFields).
 
 params_from_opts(Opts,ParseTree) when is_list(Opts) ->
     case lists:keyfind(params, 1, Opts) of

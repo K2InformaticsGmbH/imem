@@ -1,6 +1,6 @@
 %% -----------------------------------------------------------------------------
 %%
-%% sqlparse_identifiers_match_test.erl: SQL - test driver.
+%% imem_identifiers_match_test.erl: SQL - test driver.
 %%
 %% Copyright (c) 2012-18 K2 Informatics GmbH.  All Rights Reserved.
 %%
@@ -20,11 +20,9 @@
 %%
 %% -----------------------------------------------------------------------------
 
--module(sqlparse_identifiers_match_test).
+-module(imem_identifiers_match_test).
 
--define(NODEBUG, true).
-
--include("sqlparse_identifiers_match_test.hrl").
+-include("imem_identifiers_match_test.hrl").
 
 %%------------------------------------------------------------------------------
 %% Testing.
@@ -63,7 +61,7 @@ overall_test_() ->
 
 prune(Title, Source, Result) ->
     {ok, ParseTree} = sqlparse:parsetree(Source),
-    case sqlparse_fold:top_down(sqlparse_identifiers_match, ParseTree,
+    case sqlparse_fold:top_down(imem_identifiers_match, ParseTree,
         ?IN_FIELDS) of
         OutFields when is_list(OutFields) ->
             ?assertEqual(Result, OutFields, Title);

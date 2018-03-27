@@ -1,7 +1,7 @@
 %% -----------------------------------------------------------------------------
 %%
-%% sqlparse_identifiers_match.erl: SQL - matching the identifiers
-%%                                       of a SQL statement.
+%% imem_identifiers_match.erl: SQL - matching the identifiers
+%%                                   of a SQL statement.
 %%
 %% Copyright (c) 2012-18 K2 Informatics GmbH.  All Rights Reserved.
 %%
@@ -21,7 +21,7 @@
 %%
 %% -----------------------------------------------------------------------------
 
--module(sqlparse_identifiers_match).
+-module(imem_identifiers_match).
 
 -export([
     finalize/2,
@@ -29,15 +29,12 @@
     init/1
 ]).
 
--define(NODEBUG, true).
-
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Setting up parameters.
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -spec init(InFields :: [binary()]) -> InFields :: [binary()].
-init(InFields)
-    when is_list(InFields) ->
+init(InFields) when is_list(InFields) ->
     InFields.
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -45,8 +42,7 @@ init(InFields)
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 -spec finalize(InFields :: [binary()], [binary()]|tuple()) -> [binary()]|tuple().
-finalize(_InFields, CtxIn)
-    when is_list(CtxIn) ->
+finalize(_InFields, CtxIn) when is_list(CtxIn) ->
     lists:usort(CtxIn).
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
