@@ -60,7 +60,7 @@ overall_test_() ->
 %%------------------------------------------------------------------------------
 
 prune(Title, Source, Result) ->
-    case sqlparse_fold:top_down(imem_identifiers_match, Source, ?IN_FIELDS) of
+    case imem_identifiers_match:match(Source, ?IN_FIELDS) of
         OutFields when is_list(OutFields) ->
             ?assertEqual(Result, OutFields, Title);
         ErrorResult ->

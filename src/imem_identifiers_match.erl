@@ -26,8 +26,12 @@
 -export([
     finalize/2,
     fold/5,
-    init/1
+    init/1,
+    match/2
 ]).
+
+match(ParseTree, InFields) ->
+    sqlparse_fold:top_down(imem_identifiers_match, ParseTree, InFields).
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Setting up parameters.
