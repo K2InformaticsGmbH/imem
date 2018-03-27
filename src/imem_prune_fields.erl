@@ -1,7 +1,7 @@
 %% -----------------------------------------------------------------------------
 %%
-%% imem_identifiers_match.erl: SQL - matching the identifiers
-%%                                   of a SQL statement.
+%% imem_prune_fields.erl: SQL - matching the identifiers
+%%                              of a SQL statement.
 %%
 %% Copyright (c) 2012-18 K2 Informatics GmbH.  All Rights Reserved.
 %%
@@ -21,7 +21,7 @@
 %%
 %% -----------------------------------------------------------------------------
 
--module(imem_identifiers_match).
+-module(imem_prune_fields).
 
 -export([
     finalize/2,
@@ -31,7 +31,7 @@
 ]).
 
 match(ParseTree, InFields) ->
-    sqlparse_fold:top_down(imem_identifiers_match, ParseTree, InFields).
+    sqlparse_fold:top_down(imem_prune_fields, ParseTree, InFields).
 
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Setting up parameters.

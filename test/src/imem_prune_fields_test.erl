@@ -1,6 +1,6 @@
 %% -----------------------------------------------------------------------------
 %%
-%% imem_identifiers_match_test.erl: SQL - test driver.
+%% imem_prune_fields_test.erl: SQL - test driver.
 %%
 %% Copyright (c) 2012-18 K2 Informatics GmbH.  All Rights Reserved.
 %%
@@ -20,9 +20,9 @@
 %%
 %% -----------------------------------------------------------------------------
 
--module(imem_identifiers_match_test).
+-module(imem_prune_fields_test).
 
--include("imem_identifiers_match_test.hrl").
+-include("imem_prune_fields_test.hrl").
 
 %%------------------------------------------------------------------------------
 %% Testing.
@@ -60,7 +60,7 @@ overall_test_() ->
 %%------------------------------------------------------------------------------
 
 prune(Title, Source, Result) ->
-    case imem_identifiers_match:match(Source, ?IN_FIELDS) of
+    case imem_prune_fields:match(Source, ?IN_FIELDS) of
         OutFields when is_list(OutFields) ->
             ?assertEqual(Result, OutFields, Title);
         ErrorResult ->

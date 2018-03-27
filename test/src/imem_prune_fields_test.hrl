@@ -1,6 +1,6 @@
 %% -----------------------------------------------------------------------------
 %%
-%% imem_identifiers_match_test.hrl: SQL - test driver.
+%% imem_prune_fields_test.hrl: SQL - test driver.
 %%
 %% Copyright (c) 2012-18 K2 Informatics GmbH.  All Rights Reserved.
 %%
@@ -20,8 +20,8 @@
 %%
 %% -----------------------------------------------------------------------------
 
--ifndef(IMEM_IDENTIFIERS_MATCH_HRL).
--define(IMEM_IDENTIFIERS_MATCH_HRL, true).
+-ifndef(IMEM_PRUNE_FIELDS_HRL).
+-define(IMEM_PRUNE_FIELDS_HRL, true).
 
 -include_lib("eunit/include/eunit.hrl").
 

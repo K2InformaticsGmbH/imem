@@ -23,7 +23,7 @@ parse(Sql) ->
     end.
 
 prune_fields(InFields, ParseTree) ->
-    imem_identifiers_match:match(ParseTree, InFields).
+    imem_prune_fields:match(ParseTree, InFields).
 
 params_from_opts(Opts,ParseTree) when is_list(Opts) ->
     case lists:keyfind(params, 1, Opts) of
