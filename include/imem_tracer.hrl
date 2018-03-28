@@ -1,5 +1,6 @@
 -ifndef(IMEM_TRACER_HRL).
 -define(IMEM_TRACER_HRL, true).
+-include("imem_if.hrl").
 
 -record(ddTrace,
     { caller    :: pid()

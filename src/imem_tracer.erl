@@ -1,7 +1,11 @@
 -module(imem_tracer).
--include("imem.hrl").
+-include("imem_tracer.hrl").
 
--export([start/0, tp/2, tp/3, tp/4, tpl/2, tpl/3, tpl/4, p/1, p/2]).
+% debug interface wrapper
+-export([tp/2, tp/3, tp/4, tpl/2, tpl/3, tpl/4, p/1, p/2]).
+
+% imem fetch interface
+-export([subscribe/1, tracer_proc/1]).
 
 -define(KILL_WAIT, 1000).
 -define(MAX_MSG_PER_SEC, 100).
@@ -24,14 +28,16 @@
 
 -record(tracer_cb_st, {count = 0, last_s = 0}).
 
-start() ->
+subscribe({table, ddTrace, _}) ->
     catch dbg:stop_clear(),
-    Pid = spawn_link(fun tracer_proc/0),
+    Pid = spawn_link(?MODULE, tracer_proc, [self()]),
     catch exit(whereis(?MODULE), kill),
     catch erlang:unregister(?MODULE),
     true = erlang:register(?MODULE, Pid),
     case dbg:tracer(process, {fun tracer/2, #tracer_cb_st{}}) of
-        {ok, TracerPid} -> ?MODULE ! {tracer_pid, TracerPid};
+        {ok, TracerPid} ->
+            ?MODULE ! {tracer_pid, TracerPid},
+            ok;
         Error -> Error
     end.
 
@@ -46,8 +52,9 @@ tpl(M, F, A, MS) -> dbg_apply(tp, [M, F, A, MS]).
 p(I)    -> dbg_apply(p, [I]).
 p(I, F) -> dbg_apply(p, [I, F]).
 
--record(state, {filters = #{}}).
-tracer_proc() -> tracer_proc(#state{}).
+-record(state, {filters = #{}, reply}).
+tracer_proc(ReplyPid) when is_pid(ReplyPid) ->
+    tracer_proc(#state{reply = ReplyPid});
 tracer_proc(#state{} = State) ->
     NewState =
         receive
@@ -84,17 +91,24 @@ dbg_apply(Fun, Args) ->
     receive Msg -> Msg after 1000 -> exit(whereis(?MODULE), kill)
     end.
 
-process_trace({trace, From, call, {M,F,Args}, Extra}, #state{filters = _F} = State) ->
+process_trace({trace, From, call, {M,F,Args}, Extra},
+              #state{filters = _F, reply = ReplyPid} = State) ->
     io:format("~p call ~p:~p/~p ~s~n", [From, M, F, length(Args),
               if is_binary(Extra) -> io_lib:format("extra binary ~p bytes", [byte_size(Extra)]);
                 is_list(Extra) ->    io_lib:format("extra list ~p", [length(Extra)]);
                 true ->              io_lib:format("extra unkown ~p", [Extra])
               end]),
+    Row = #ddTrace{caller = From, type = call, mod = M, func = F, args = Args,
+                   extra = Extra},
+    ReplyPid ! {mnesia_table_event,{write,ddTrace,Row,[],undefined}},
     State;
-process_trace({trace,To,return_from,{M,F,A},Ret}, #state{filters = _F} = State) ->
-    io:format("~p:~p/~p returned to ~p : ~p~n", [M, F, A, To, Ret]),
+process_trace({trace,To,return_from,{M,F,Arity},Ret},
+              #state{filters = _F, reply = ReplyPid} = State) ->
+    io:format("~p:~p/~p returned to ~p : ~p~n", [M, F, Arity, To, Ret]),
+    Row = #ddTrace{caller = To, type = return_from, mod = M, func = F,
+                   args = Arity, extra = Ret},
+    ReplyPid ! {mnesia_table_event,{write,ddTrace,Row,[],undefined}},
     State.
-
 
 send_to_tracer_proc(Trace, State) ->
     {messages, Messages} = process_info(whereis(?MODULE), messages),

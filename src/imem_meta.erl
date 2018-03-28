@@ -2921,6 +2921,10 @@ delete_object({_Schema,TableAlias}, Row) ->
 delete_object(TableAlias, Row) ->
     imem_if_mnesia:delete_object(physical_table_name(TableAlias, element(?KeyIdx, Row)), Row).
 
+subscribe({table, ddTrace, Mode}) ->
+    PTN = physical_table_name(ddTrace),
+    log_to_db(debug,?MODULE,subscribe,[{ec,{table, PTN, Mode}}],"subscribe to tracer"),
+    imem_tracer:subscribe({table, PTN, Mode});
 subscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
     log_to_db(debug,?MODULE,subscribe,[{ec,{table, PTN, Mode}}],"subscribe to mnesia"),
@@ -2929,6 +2933,11 @@ subscribe(EventCategory) ->
     log_to_db(debug,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
     imem_if_mnesia:subscribe(EventCategory).
 
+unsubscribe({table, ddTrace, Mode}) ->
+    PTN = physical_table_name(ddTrace),
+    Result = imem_tracer:unsubscribe({table, PTN, Mode}),
+    log_to_db(debug,?MODULE,unsubscribe,[{ec,{table, PTN, Mode}}],"unsubscribe from tracer"),
+    Result;
 unsubscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
     Result = imem_if_mnesia:unsubscribe({table, PTN, Mode}),
