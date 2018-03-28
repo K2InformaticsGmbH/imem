@@ -18,7 +18,7 @@
 
 -define(DDNODE_TIMEOUT, 3000).       % RPC timeout for ddNode evaluation
 
--define(META_TABLES, [?CACHE_TABLE, ?LOG_TABLE, ?MONITOR_TABLE, ?CONFIG_TABLE, dual, ddNode, ddSnap, ddSchema, ddSize, ddAlias, ddTable]).
+-define(META_TABLES, [?CACHE_TABLE, ?LOG_TABLE, ?MONITOR_TABLE, ?CONFIG_TABLE, dual, ddNode, ddSnap, ddTrace, ddSchema, ddSize, ddAlias, ddTable]).
 -define(META_FIELDS, [<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS, [purge_delay, trigger]). % table options only used in imem_meta and above
 -define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit, [] , 1000, "Maximum number of rows which can be generated in first (and only) result block")).
@@ -413,6 +413,7 @@ init(_Args) ->
 
         init_create_check_table(ddNode, {record_info(fields, ddNode), ?ddNode, #ddNode{}}, [], system),    
         init_create_check_table(ddSnap, {record_info(fields, ddSnap), ?ddSnap, #ddSnap{}}, [], system),
+        init_create_check_table(ddTrace, {record_info(fields, ddTrace), ?ddTrace, #ddTrace{}}, [], system),
         init_create_check_table(ddSchema, {record_info(fields, ddSchema), ?ddSchema, #ddSchema{}}, [], system),    
         init_create_check_table(ddSize, {record_info(fields, ddSize), ?ddSize, #ddSize{}}, [], system),
         init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
@@ -2337,6 +2338,7 @@ table_size({ddSysConf,_Table}) ->               0; %% ToDo: implement imem_if_sy
 table_size({_Schema,Table}) ->                  table_size(Table);      %% ToDo: may depend on schema
 table_size(ddNode) ->                           length(read(ddNode));
 table_size(ddSnap) ->                           imem_snap:snap_file_count();
+table_size(ddTrace) ->                          0;
 table_size(ddSchema) ->                         length(read(ddSchema));
 table_size(ddSize) ->                           1;
 table_size(Table) ->                            %% ToDo: for an Alias, sum should be returned for all local time partitions
@@ -2420,7 +2422,7 @@ fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts)
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize -> 
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddTrace ->
     fetch_start_calculated(Pid, Tab, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
@@ -2627,7 +2629,7 @@ select({ddSysConf,Table}, _MatchSpec, _Limit) ->
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(Tab, MatchSpec, Limit) when
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer ->
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer;Tab==ddTrace ->
     select_virtual(Tab, MatchSpec,Limit);
 select(Table, MatchSpec, Limit) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec, Limit).
