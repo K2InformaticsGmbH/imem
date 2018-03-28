@@ -23,14 +23,7 @@ parse(Sql) ->
     end.
 
 prune_fields(InFields, ParseTree) ->
-    Pred = fun(P,{In,Out}) -> 
-        case lists:member(P,In) of
-            true -> {In,[P|Out]};       %% TODO: exclude alias names from match
-            _ ->    {In,Out}
-        end
-    end,
-    {InFields,OutFields} = sqlparse:foldtd(Pred,{InFields,[]},ParseTree),
-    lists:usort(OutFields).
+    imem_prune_fields:match(ParseTree, InFields).
 
 params_from_opts(Opts,ParseTree) when is_list(Opts) ->
     case lists:keyfind(params, 1, Opts) of

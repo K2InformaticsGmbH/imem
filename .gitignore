@@ -6,9 +6,11 @@ _build
 ebin/
 Csv*.txt
 erl_crash.dump
+*.log
 log
 rebar.lock
 rebar3.crashdump
 snapshot
 test/*.beam
+tmp
 wiki/
