@@ -1253,9 +1253,20 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                 {<<>>,_} ->     
                                     ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X))); 
                                 _ ->
-                                    case imem_json:decode(Value) of
+                                    case Value of
                                         OldVal ->   X;
-                                        NewVal ->   ?replace(X,Cx,imem_json:put(AttName,NewVal,?BoundVal(B,X)))
+                                        _ ->
+                                            try   
+                                                case imem_json:decode(Value) of
+                                                    OldVal ->   X;
+                                                    NewVal1 ->  ?replace(X,Cx,imem_json:put(AttName,NewVal1,?BoundVal(B,X)))
+                                                end
+                                            catch _:_ ->
+                                                case imem_json:decode(imem_datatype:add_dquotes(Value)) of
+                                                    OldVal ->   X;
+                                                    NewVal2 ->  ?replace(X,Cx,imem_json:put(AttName,NewVal2,?BoundVal(B,X)))
+                                                end
+                                            end
                                     end
                             end
                         end,     
@@ -1309,12 +1320,26 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                     NewParent = imem_json:remove(AttName,imem_json:get(ParentName,?BoundVal(B,X))),
                                     ?replace(X,Cx,imem_json:put(ParentName,NewParent,?BoundVal(B,X))); 
                                 _ ->
-                                    case imem_json:decode(Value) of
-                                        OldVal ->   
-                                            X;
-                                        NewVal ->
-                                            NewParent = imem_json:put(AttName,NewVal,imem_json:get(ParentName,?BoundVal(B,X))),
-                                            ?replace(X,Cx,imem_json:put(ParentName,NewParent,?BoundVal(B,X)))
+                                    case Value of
+                                        OldVal ->   X;
+                                        _ ->
+                                            try   
+                                                case imem_json:decode(Value) of
+                                                    OldVal ->   
+                                                        X;
+                                                    NewVal1 -> 
+                                                        NewParent1 = imem_json:put(AttName,NewVal1,imem_json:get(ParentName,?BoundVal(B,X))),
+                                                        ?replace(X,Cx,imem_json:put(ParentName,NewParent1,?BoundVal(B,X)))
+                                                end
+                                            catch _:_ ->
+                                                case imem_json:decode(imem_datatype:add_dquotes(Value)) of
+                                                    OldVal ->   
+                                                        X;
+                                                    NewVal2 ->   
+                                                         NewParent2 = imem_json:put(AttName,NewVal2,imem_json:get(ParentName,?BoundVal(B,X))),
+                                                        ?replace(X,Cx,imem_json:put(ParentName,NewParent2,?BoundVal(B,X)))
+                                               end
+                                            end
                                     end
                             end
                         end,     
@@ -1409,9 +1434,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                     {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
                         Fx = fun(X) ->
                             case  Value of
-                                <<>> ->     X;
-                                ?navio ->   X;
-                                _ ->        ?replace(X,Cx,imem_json:put(AttName,imem_json:decode(Value),?BoundVal(B,X)))
+                                <<>> ->     
+                                    X;
+                                ?navio ->   
+                                    X;
+                                _ ->        
+                                    try
+                                        ?replace(X,Cx,imem_json:put(AttName,imem_json:decode(Value),?BoundVal(B,X)))
+                                    catch _:_ ->
+                                        ?replace(X,Cx,imem_json:put(AttName,imem_json:decode(imem_datatype:add_dquotes(Value)),?BoundVal(B,X)))
+                                    end
                             end
                         end,
                         {Cx,0,Fx};
