@@ -4,25 +4,25 @@
 % debug interface wrapper
 -export([tp/2, tp/3, tp/4, tpl/2, tpl/3, tpl/4, p/1, p/2]).
 
-% imem fetch interface
--export([subscribe/1, tracer_proc/1]).
+% imem interfaces
+-export([subscribe/1, tracer_proc/1, trigger/5]).
 
 -define(KILL_WAIT, 1000).
--define(MAX_MSG_PER_SEC, 100).
--define(MAX_TRACER_PROC_MQ_LEN, 10000).
+-define(MAX_MSG_PER_SEC, 1000).
+-define(MAX_TRACER_PROC_MQ_LEN, 2000).
 
--safe([tp/2, tp/3, tp/4, tpl/2, tpl/3, tpl/4, p/1, p/2]).
+-safe([tp/2, tp/3, tp/4, tpl/2, tpl/3, tpl/4, p/1, p/2, trigger/5]).
 
 -ifdef(CONSOLE).
 
     f().
     Match_spec = [{'_', [], [{message,{process_dump}}, {exception_trace}]}].
-    Match_spec = [{'$1', [], ['$1']}].
+    Match_spec = [{'_', [], ['_']}].
     Trace_spec = {erlang, now, 0}.
     Trace_spec = {lists, last, 1}.
-    imem_tracer:start().
+    imem_tracer:subscribe({table, ddTrace, undefined}).
     imem_tracer:tpl(Trace_spec, Match_spec).
-    imem_tracer:p(all, [c]).
+    imem_tracer:p(all, [c]). % should be a pre-subscribe step
 
 -endif.
 
@@ -87,8 +87,14 @@ tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
 
 dbg_apply(_, [?MODULE | _]) -> error({badarg, "Can't trace itself"});
 dbg_apply(Fun, Args) ->
-    ?MODULE ! {dbg_apply, self(), Fun, Args},
-    receive Msg -> Msg after 1000 -> exit(whereis(?MODULE), kill)
+    case catch ?MODULE ! {dbg_apply, self(), Fun, Args} of
+        {'EXIT', _} -> ?ClientErrorNoLogging("No trace running");
+        _ ->
+            receive Msg -> Msg
+            after 1000 ->
+                exit(whereis(?MODULE), kill),
+                ?ClientErrorNoLogging("Trace apply timeout")
+            end
     end.
 
 process_trace({trace, From, call, {M,F,Args}, Extra},
@@ -98,14 +104,14 @@ process_trace({trace, From, call, {M,F,Args}, Extra},
                 is_list(Extra) ->    io_lib:format("extra list ~p", [length(Extra)]);
                 true ->              io_lib:format("extra unkown ~p", [Extra])
               end]),
-    Row = #ddTrace{caller = From, type = call, mod = M, func = F, args = Args,
+    Row = #ddTrace{process = From, event_type = call, mod = M, func = F, args = Args,
                    extra = Extra},
     ReplyPid ! {mnesia_table_event,{write,ddTrace,Row,[],undefined}},
     State;
 process_trace({trace,To,return_from,{M,F,Arity},Ret},
               #state{filters = _F, reply = ReplyPid} = State) ->
     io:format("~p:~p/~p returned to ~p : ~p~n", [M, F, Arity, To, Ret]),
-    Row = #ddTrace{caller = To, type = return_from, mod = M, func = F,
+    Row = #ddTrace{process = To, event_type = return_from, mod = M, func = F,
                    args = Arity, extra = Ret},
     ReplyPid ! {mnesia_table_event,{write,ddTrace,Row,[],undefined}},
     State.
@@ -118,4 +124,20 @@ send_to_tracer_proc(Trace, State) ->
             _ -> State
         end;
         true -> State
+    end.
+
+trigger(OldRec, NewRec, ddTrace, _User, _TrOpts) ->
+    case {OldRec,NewRec} of
+        {{},{}} ->
+            ?Info("truncate trigger"),
+            ok;          
+        {{},NewRec} ->
+            ?Info("insert trigger : ~p", [NewRec]),
+            ?ClientErrorNoLogging("insert not supported");
+        {OldRec,{}} ->
+            ?Info("drop trigger : ~p", [OldRec]),
+            ?ClientErrorNoLogging("delete not supported");
+        {OldRec,NewRec} ->
+            ?Info("update trigger : old ~p, new ~p", [OldRec, NewRec]),
+            ?ClientErrorNoLogging("update not supported")
     end.

@@ -804,8 +804,9 @@ field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
                         field_map_lookup({Table,Name,undefined},FullMap);
                 UQN ->  %% try first with unquoted Name
                         field_map_lookup({Schema,Table,UQN},FullMap)
-            end;                        
+            end;
         (Tcount==0) andalso (Name == undefined) ->
+io:format(user, "~p:~p:~p QN3 ~p FullMap ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, QN3, FullMap]),
             ?ClientError({"Unknown field or table name", qname3_to_binstr(QN3)});
         (Tcount==0) ->
             case imem_datatype:strip_dquotes(Name) of
