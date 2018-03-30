@@ -18,7 +18,7 @@
 
 -define(DDNODE_TIMEOUT, 3000).       % RPC timeout for ddNode evaluation
 
--define(META_TABLES, [?CACHE_TABLE, ?LOG_TABLE, ?MONITOR_TABLE, ?CONFIG_TABLE, dual, ddNode, ddSnap, ddTrace, ddSchema, ddSize, ddAlias, ddTable]).
+-define(META_TABLES, [?CACHE_TABLE, ?LOG_TABLE, ?MONITOR_TABLE, ?CONFIG_TABLE, dual, ddNode, ddSnap, ddSchema, ddSize, ddAlias, ddTable]).
 -define(META_FIELDS, [<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
 -define(META_OPTS, [purge_delay, trigger]). % table options only used in imem_meta and above
 -define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit, [] , 1000, "Maximum number of rows which can be generated in first (and only) result block")).
@@ -2339,7 +2339,6 @@ table_size({ddSysConf,_Table}) ->               0; %% ToDo: implement imem_if_sy
 table_size({_Schema,Table}) ->                  table_size(Table);      %% ToDo: may depend on schema
 table_size(ddNode) ->                           length(read(ddNode));
 table_size(ddSnap) ->                           imem_snap:snap_file_count();
-table_size(ddTrace) ->                          0;
 table_size(ddSchema) ->                         length(read(ddSchema));
 table_size(ddSize) ->                           1;
 table_size(Table) ->                            %% ToDo: for an Alias, sum should be returned for all local time partitions
@@ -2423,7 +2422,7 @@ fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts)
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddTrace ->
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize ->
     fetch_start_calculated(Pid, Tab, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
@@ -2630,7 +2629,7 @@ select({ddSysConf,Table}, _MatchSpec, _Limit) ->
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(Tab, MatchSpec, Limit) when
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer;Tab==ddTrace ->
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer ->
     select_virtual(Tab, MatchSpec,Limit);
 select(Table, MatchSpec, Limit) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec, Limit).
@@ -2922,10 +2921,6 @@ delete_object({_Schema,TableAlias}, Row) ->
 delete_object(TableAlias, Row) ->
     imem_if_mnesia:delete_object(physical_table_name(TableAlias, element(?KeyIdx, Row)), Row).
 
-subscribe({table, ddTrace, Mode}) ->
-    PTN = physical_table_name(ddTrace),
-    log_to_db(debug,?MODULE,subscribe,[{ec,{table, PTN, Mode}}],"subscribe to tracer"),
-    imem_tracer:subscribe({table, PTN, Mode});
 subscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
     log_to_db(debug,?MODULE,subscribe,[{ec,{table, PTN, Mode}}],"subscribe to mnesia"),
@@ -2934,11 +2929,6 @@ subscribe(EventCategory) ->
     log_to_db(debug,?MODULE,subscribe,[{ec,EventCategory}],"subscribe to mnesia"),
     imem_if_mnesia:subscribe(EventCategory).
 
-unsubscribe({table, ddTrace, Mode}) ->
-    PTN = physical_table_name(ddTrace),
-    Result = imem_tracer:unsubscribe({table, PTN, Mode}),
-    log_to_db(debug,?MODULE,unsubscribe,[{ec,{table, PTN, Mode}}],"unsubscribe from tracer"),
-    Result;
 unsubscribe({table, Tab, Mode}) ->
     PTN = physical_table_name(Tab),
     Result = imem_if_mnesia:unsubscribe({table, PTN, Mode}),
