@@ -74,8 +74,9 @@ trigger(OldRec, NewRec, ddTrace, User, _TrOpts) ->
 -record(tracer_cb_st, {count = 0, last_s = 0}).
 
 subscribe() ->
+    ?Warn("stopping all previous traces"),
     catch dbg:stop_clear(),
-    Pid = spawn_link(?MODULE, tracer_proc, [self()]),
+    Pid = spawn(?MODULE, tracer_proc, [self()]),
     catch exit(whereis(?MODULE), kill),
     catch erlang:unregister(?MODULE),
     true = erlang:register(?MODULE, Pid),
@@ -89,6 +90,7 @@ subscribe() ->
     end.
 
 unsubscribe() ->
+    ?Info("stop all traces"),
     catch dbg:stop_clear(),
     catch exit(whereis(?MODULE), kill),
     catch erlang:unregister(?MODULE).
@@ -103,7 +105,10 @@ tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
         if LastSec < Sec -> 0;
             true -> Count + 1
         end,
-    if NewCount > ?MAX_MSG_PER_SEC -> St; % dropped
+    if NewCount > ?MAX_MSG_PER_SEC ->
+        ?Warn("tracer callback overflow > ~p traces / sec", [?MAX_MSG_PER_SEC]),
+        dbg:stop_clear(), % stop debugging
+        St; % dropped
         true ->
             send_trace_event(Trace, St#tracer_cb_st{count = NewCount, last_s = Sec})
     end.
@@ -114,6 +119,7 @@ tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
 
 -record(state, {filters = #{}, reply}).
 tracer_proc(ReplyPid) when is_pid(ReplyPid) ->
+    erlang:monitor(process, ReplyPid),
     tracer_proc(#state{reply = ReplyPid});
 tracer_proc(#state{} = State) ->
     NewState =
@@ -128,20 +134,18 @@ tracer_proc(#state{} = State) ->
             {From, {add, #ddTrace{event_type = register, rate = Rate, mod = M,
                                   func = F, args = A, match_spec = MS}}} ->
                 From ! apply(dbg, tpl, [M, F, A, MS]),
-                ?Info("ADD trace pattern : Module ~p, Function ~p, Arity ~p"
-                      " and Rate ~p~n", [M, F, A, Rate]),
                 State#state{
                     filters =
                         (State#state.filters)#{
-                            {M,F,A} => #{rate => Rate, stat => #{}}
-                        }
+                            {M,F,A} => #{rate => Rate, stat => #{},
+                                         overflow => false}}
                 };
-            {From, {del, #ddTrace{event_type = register, rate = Rate,
-                                  mod = M, func = F, args = A}}} ->
+            {From, {del, #ddTrace{event_type = register, mod = M, func = F,
+                                  args = A}}} ->
                 From ! apply(dbg, ctpl, [M, F, A]),
-                ?Info("DEL trace pattern : Module ~p, Function ~p, Arity ~p"
-                      " and Rate ~p~n", [M, F, A, Rate]),
                 State#state{filters = maps:remove({M,F,A}, State#state.filters)};
+            {_, _, process, _, _} = Mon ->
+                ?SystemExceptionNoLogging({process_died, Mon});
             Other ->
                 ?Error("got unexpected message : ~p", [Other]),
                 exit({badarg, Other, State})
@@ -162,14 +166,23 @@ process_trace({trace, FromTo, Type, {M, F, ArityArgs}, Extra}, State) ->
             State#state.reply !
                 {mnesia_table_event, {write, ddTrace, Row, [], undefined}},
             NewState;
-        {_, NewState} -> NewState
+        {overflow, NewState} ->
+            Row = #ddTrace{process = FromTo, event_type = Type, mod = M,
+                           func = F, args = ArityArgs, extra = Extra,
+                           overflow = true},
+            State#state.reply !
+                {mnesia_table_event, {write, ddTrace, Row, [], undefined}},
+            NewState;
+        {drop, NewState} -> NewState
     end.
 
 send_trace_event(Trace, State) ->
     {messages, Messages} = process_info(whereis(?MODULE), messages),
     if length(Messages) < ?MAX_TRACER_PROC_MQ_LEN ->
         case catch ?MODULE ! {trace_event, Trace} of
-            {'EXIT', _} -> dbg:stop_clear();
+            {'EXIT', Error} ->
+                ?Error("send_trace_event failed : ~p : ~p", [Error, Trace]),
+                dbg:stop_clear();
             _ -> State
         end;
         true -> State
@@ -186,7 +199,9 @@ send_sync(Message) ->
     {messages, Messages} = process_info(whereis(?MODULE), messages),
     if length(Messages) < ?MAX_TRACER_PROC_MQ_LEN ->
         case catch ?MODULE ! {self(), Message} of
-            {'EXIT', _} -> dbg:stop_clear();
+            {'EXIT', Error} ->
+                ?Error("send_sync failed : ~p : ~p", [Error, Message]),
+                dbg:stop_clear();
             _ ->
                 receive Reply -> Reply
                 after 1000 ->
@@ -218,26 +233,22 @@ apply_filter(M, F, A, #state{filters = Filters} = State) ->
     MFA = {M,   F,   A},
     MF_ = {M,   F, '_'},
     M__ = {M, '_', '_'},
-    {Key, Rate, Stat} = case Filters of
-                            #{MFA := #{rate := R, stat := S}} -> {MFA, R, S};
-                            #{MF_ := #{rate := R, stat := S}} -> {MF_, R, S};
-                            #{M__ := #{rate := R, stat := S}} -> {M__, R, S};
-                            _ ->
-                                ?SystemExceptionNoLogging(
-                                    lists:flatten(
-                                        io_lib:format(
-                                            "No filter found for ~p:~p/~p in ~p",
-                                            [M, F, A, Filters]
-                                        )
-                                    )
-                                )
-                        end,
+    {Key, Rate, Stat, Overflow} =
+        case Filters of
+            #{MFA := #{rate := R, stat := S, overflow := O}} -> {MFA, R, S, O};
+            #{MF_ := #{rate := R, stat := S, overflow := O}} -> {MF_, R, S, O};
+            #{M__ := #{rate := R, stat := S, overflow := O}} -> {M__, R, S, O};
+            _ ->
+                ?Error("No filters for ~p:~p/~p in ~p", [M, F, A, Filters]),
+                dbg:ctpl(M, F, A),
+                {'$nokey', -1, undefined, undefined}
+        end,
     if Rate < 1 -> {ok, State};
         true ->
             Now = os:timestamp(),
             Last = maps:get(last, Stat, Now),
-            case Last < Now andalso
-                 timer:now_diff(Now, Last) / 1000000 >= 1.0 of
+            Diff = timer:now_diff(Now, Last) / 1000000,
+            case Last < Now andalso Diff >= 1.0 of
                 % New Second, reset everything
                 true ->
                     {ok,
@@ -245,19 +256,29 @@ apply_filter(M, F, A, #state{filters = Filters} = State) ->
                             filters =
                                 Filters#{Key =>
                                     #{rate => Rate,
-                                      stat => #{last => Now, count => 1}}}
+                                      stat => #{last => Now, count => 1},
+                                      overflow => false}}
                         }
                     };
                 % Within same second, count up
                 false ->
-                    NewCount = maps:get(count, Stat, 0) + 1,
-                    {if NewCount < Rate -> ok;  % propagate
-                        true            -> drop % DON'T propagate
-                     end,
-                     State#state{filters =
-                        Filters#{Key =>
-                                    #{rate => Rate,
-                                    stat => Stat#{count => NewCount}}}}}
+                    NC = maps:get(count, Stat, 0) + 1,
+                    Status =
+                        if
+                            % propagate once
+                            NC > Rate andalso Overflow == false -> overflow;
+                            % DON'T propagate
+                            NC > Rate -> drop;
+                            % propagate
+                            true -> ok
+                        end,
+                    Filter = #{rate => Rate, stat => Stat#{count => NC, last => Last}},
+                    NewFilter = case Status of
+                                    overflow -> Filter#{overflow => true};
+                                    drop -> Filter#{overflow => true};
+                                    _ -> Filter#{overflow => false}
+                                end,
+                    {Status, State#state{filters = Filters#{Key => NewFilter}}}
             end
     end.
 
@@ -276,17 +297,3 @@ disable_tps() ->
         end,
         Rows
     ).
-
--ifdef(CONSOLE).
-
-spawn(
-    fun() ->
-        (fun F(0) -> ok;
-             F(C) when C > 0 ->
-                _ = imem_meta:data_nodes(),
-                F(C - 1)
-         end)(1000000)
-    end
-).
-
--endif.
