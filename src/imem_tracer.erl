@@ -1,4 +1,6 @@
 -module(imem_tracer).
+
+-include("imem.hrl").
 -include("imem_tracer.hrl").
 
 % imem interfaces
@@ -274,3 +276,17 @@ disable_tps() ->
         end,
         Rows
     ).
+
+-ifdef(CONSOLE).
+
+spawn(
+    fun() ->
+        (fun F(0) -> ok;
+             F(C) when C > 0 ->
+                _ = imem_meta:data_nodes(),
+                F(C - 1)
+         end)(1000000)
+    end
+).
+
+-endif.

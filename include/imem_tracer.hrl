@@ -1,6 +1,5 @@
 -ifndef(IMEM_TRACER_HRL).
 -define(IMEM_TRACER_HRL, true).
--include("imem.hrl").
 -include("imem_if.hrl").
 -include("imem_config.hrl").
 
