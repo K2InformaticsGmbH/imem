@@ -1,56 +1,114 @@
 -module(imem_tracer).
 -include("imem_tracer.hrl").
 
-% debug interface wrapper
--export([tp/2, tp/3, tp/4, tpl/2, tpl/3, tpl/4, p/1, p/2]).
-
 % imem interfaces
--export([subscribe/1, tracer_proc/1, trigger/5]).
+-export([init/0, subscribe/0, unsubscribe/0, trigger/5]).
+-safe([trigger/5]).
 
--define(KILL_WAIT, 1000).
--define(MAX_MSG_PER_SEC, 1000).
--define(MAX_TRACER_PROC_MQ_LEN, 2000).
+-define(MAX_MSG_PER_SEC, 10000).
+-define(MAX_TRACER_PROC_MQ_LEN, 5000).
 
--safe([tp/2, tp/3, tp/4, tpl/2, tpl/3, tpl/4, p/1, p/2, trigger/5]).
+-export([tracer_proc/1]).
 
--ifdef(CONSOLE).
+%------------------------------------------------------------------------------
+% imem_meta callback
+%------------------------------------------------------------------------------
 
-    f().
-    Match_spec = [{'_', [], [{message,{process_dump}}, {exception_trace}]}].
-    Match_spec = [{'_', [], ['_']}].
-    Trace_spec = {erlang, now, 0}.
-    Trace_spec = {lists, last, 1}.
-    imem_tracer:subscribe({table, ddTrace, undefined}).
-    imem_tracer:tpl(Trace_spec, Match_spec).
-    imem_tracer:p(all, [c]). % should be a pre-subscribe step
+init() ->
+    imem_meta:init_create_check_table(
+        ddTrace,
+        {record_info(fields, ddTrace), ?ddTrace, ddTraceDef()},
+        [{trigger,
+            <<"fun(__OR,__NR,__T,__U,__O) ->"
+              " imem_tracer:trigger(__OR,__NR,__T,__U,__O) "
+              "end.">>}],
+        system
+    ).
 
--endif.
+trigger(OldRec, NewRec, ddTrace, User, _TrOpts) ->
+    case {OldRec,NewRec} of
+        {{}, {}} ->
+            ?Warn("truncated stopping ddTrace"),
+            dbg:stop_clear();
+        {{}, #ddTrace{enable = Enabled, match_spec = MS} = Trace} ->
+            case Enabled == true andalso is_trace_running() of
+                true ->
+                    send_sync(
+                        {add,
+                         Trace#ddTrace{match_spec = ms_lookup(MS, User)}}
+                    );
+                false when Enabled == true -> ?Warn("trace not running");
+                _ -> ok
+            end;
+        {#ddTrace{enable = Enabled} = Trace, {}} ->
+            case Enabled == true andalso is_trace_running() of
+                true -> send_sync({del, Trace});
+                _ -> ok
+            end;
+        {#ddTrace{enable = true} = OldTrace,
+         #ddTrace{enable = false}} ->
+            case is_trace_running() of
+                true -> send_sync({del, OldTrace});
+                _ -> ok
+            end;
+        {#ddTrace{} = OldTrace,
+         #ddTrace{enable = true, match_spec = MS} = NewTrace} ->
+            case is_trace_running() of
+                true ->
+                    send_sync({del, OldTrace}),
+                    send_sync(
+                        {add,
+                         NewTrace#ddTrace{match_spec = ms_lookup(MS, User)}}
+                    );
+                _ -> ?Warn("trace not running")
+            end;
+        _ -> ok
+    end.
+
+%------------------------------------------------------------------------------
+% imem_if_mnesia interceptors
+%------------------------------------------------------------------------------
 
 -record(tracer_cb_st, {count = 0, last_s = 0}).
 
-subscribe({table, ddTrace, _}) ->
+subscribe() ->
     catch dbg:stop_clear(),
     Pid = spawn_link(?MODULE, tracer_proc, [self()]),
     catch exit(whereis(?MODULE), kill),
     catch erlang:unregister(?MODULE),
     true = erlang:register(?MODULE, Pid),
+    disable_tps(),
     case dbg:tracer(process, {fun tracer/2, #tracer_cb_st{}}) of
         {ok, TracerPid} ->
             ?MODULE ! {tracer_pid, TracerPid},
+            ?Info("Statement ~p~n", [self()]),
             ok;
         Error -> Error
     end.
 
-tp(M, MS)       -> dbg_apply(tp, [M,       MS]).
-tp(M, F, MS)    -> dbg_apply(tp, [M, F,    MS]).
-tp(M, F, A, MS) -> dbg_apply(tp, [M, F, A, MS]).
+unsubscribe() ->
+    catch dbg:stop_clear(),
+    catch exit(whereis(?MODULE), kill),
+    catch erlang:unregister(?MODULE).
 
-tpl(M, MS)       -> dbg_apply(tp, [M,       MS]).
-tpl(M, F, MS)    -> dbg_apply(tp, [M, F,    MS]).
-tpl(M, F, A, MS) -> dbg_apply(tp, [M, F, A, MS]).
+%------------------------------------------------------------------------------
+% erlang dbg tracer callback
+%------------------------------------------------------------------------------
 
-p(I)    -> dbg_apply(p, [I]).
-p(I, F) -> dbg_apply(p, [I, F]).
+tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
+    {_,{_,_,Sec}} = calendar:now_to_datetime(os:timestamp()),
+    NewCount =
+        if LastSec < Sec -> 0;
+            true -> Count + 1
+        end,
+    if NewCount > ?MAX_MSG_PER_SEC -> St; % dropped
+        true ->
+            send_trace_event(Trace, St#tracer_cb_st{count = NewCount, last_s = Sec})
+    end.
+
+%------------------------------------------------------------------------------
+% imem_tracer singleton process
+%------------------------------------------------------------------------------
 
 -record(state, {filters = #{}, reply}).
 tracer_proc(ReplyPid) when is_pid(ReplyPid) ->
@@ -59,85 +117,160 @@ tracer_proc(#state{} = State) ->
     NewState =
         receive
             {tracer_pid, TracerPid} ->
-                io:format("~p:~p:~p -- TracerPid ~p~n",
-                    [?MODULE, ?FUNCTION_NAME, ?LINE, TracerPid]),
+                ?Info("imem_tracer ~p, dbg:tracer ~p~n", [self(), TracerPid]),
                 true = erlang:link(TracerPid),
+                dbg:p(all, [c]), %% TODO REVISIT etc etc
                 State;
-            {dbg_apply, From, Fun, Args} ->
-                From ! apply(dbg, Fun, Args),
-                State;
-            {?MODULE, Other} ->
+            {trace_event, Other} ->
                 process_trace(Other, State);
+            {From, {add, #ddTrace{event_type = register, rate = Rate, mod = M,
+                                  func = F, args = A, match_spec = MS}}} ->
+                From ! apply(dbg, tpl, [M, F, A, MS]),
+                ?Info("ADD trace pattern : Module ~p, Function ~p, Arity ~p"
+                      " and Rate ~p~n", [M, F, A, Rate]),
+                State#state{
+                    filters =
+                        (State#state.filters)#{
+                            {M,F,A} => #{rate => Rate, stat => #{}}
+                        }
+                };
+            {From, {del, #ddTrace{event_type = register, rate = Rate,
+                                  mod = M, func = F, args = A}}} ->
+                From ! apply(dbg, ctpl, [M, F, A]),
+                ?Info("DEL trace pattern : Module ~p, Function ~p, Arity ~p"
+                      " and Rate ~p~n", [M, F, A, Rate]),
+                State#state{filters = maps:remove({M,F,A}, State#state.filters)};
             Other ->
-                io:format("~p:~p:~p got unexpected : ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, Other]),
-                State
+                ?Error("got unexpected message : ~p", [Other]),
+                exit({badarg, Other, State})
         end,
     tracer_proc(NewState).
 
-tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
-    {_,{_,_,Sec}} = calendar:now_to_datetime(erlang:timestamp()),
-    NewCount =
-        if LastSec < Sec -> 0;
-            true -> Count + 1
-        end,
-    if NewCount > ?MAX_MSG_PER_SEC -> St; % dropped
-        true ->
-            send_to_tracer_proc(Trace, St#tracer_cb_st{count = NewCount, last_s = Sec})
+%------------------------------------------------------------------------------
+% internal functions
+%------------------------------------------------------------------------------
+
+process_trace({trace, From, Type, MFA}, State) ->
+    process_trace({trace, From, Type, MFA, <<>>}, State);
+process_trace({trace, FromTo, Type, {M, F, ArityArgs}, Extra}, State) ->
+    case apply_filter(M, F, ArityArgs, State) of
+        {ok, NewState} ->
+            Row = #ddTrace{process = FromTo, event_type = Type, mod = M,
+                           func = F, args = ArityArgs, extra = Extra},
+            State#state.reply !
+                {mnesia_table_event, {write, ddTrace, Row, [], undefined}},
+            NewState;
+        {_, NewState} -> NewState
     end.
 
-dbg_apply(_, [?MODULE | _]) -> error({badarg, "Can't trace itself"});
-dbg_apply(Fun, Args) ->
-    case catch ?MODULE ! {dbg_apply, self(), Fun, Args} of
-        {'EXIT', _} -> ?ClientErrorNoLogging("No trace running");
-        _ ->
-            receive Msg -> Msg
-            after 1000 ->
-                exit(whereis(?MODULE), kill),
-                ?ClientErrorNoLogging("Trace apply timeout")
-            end
-    end.
-
-process_trace({trace, From, call, {M,F,Args}, Extra},
-              #state{filters = _F, reply = ReplyPid} = State) ->
-    io:format("~p call ~p:~p/~p ~s~n", [From, M, F, length(Args),
-              if is_binary(Extra) -> io_lib:format("extra binary ~p bytes", [byte_size(Extra)]);
-                is_list(Extra) ->    io_lib:format("extra list ~p", [length(Extra)]);
-                true ->              io_lib:format("extra unkown ~p", [Extra])
-              end]),
-    Row = #ddTrace{process = From, event_type = call, mod = M, func = F, args = Args,
-                   extra = Extra},
-    ReplyPid ! {mnesia_table_event,{write,ddTrace,Row,[],undefined}},
-    State;
-process_trace({trace,To,return_from,{M,F,Arity},Ret},
-              #state{filters = _F, reply = ReplyPid} = State) ->
-    io:format("~p:~p/~p returned to ~p : ~p~n", [M, F, Arity, To, Ret]),
-    Row = #ddTrace{process = To, event_type = return_from, mod = M, func = F,
-                   args = Arity, extra = Ret},
-    ReplyPid ! {mnesia_table_event,{write,ddTrace,Row,[],undefined}},
-    State.
-
-send_to_tracer_proc(Trace, State) ->
+send_trace_event(Trace, State) ->
     {messages, Messages} = process_info(whereis(?MODULE), messages),
     if length(Messages) < ?MAX_TRACER_PROC_MQ_LEN ->
-        case catch ?MODULE ! {?MODULE, Trace} of
+        case catch ?MODULE ! {trace_event, Trace} of
             {'EXIT', _} -> dbg:stop_clear();
             _ -> State
         end;
         true -> State
     end.
 
-trigger(OldRec, NewRec, ddTrace, _User, _TrOpts) ->
-    case {OldRec,NewRec} of
-        {{},{}} ->
-            ?Info("truncate trigger"),
-            ok;          
-        {{},NewRec} ->
-            ?Info("insert trigger : ~p", [NewRec]),
-            ?ClientErrorNoLogging("insert not supported");
-        {OldRec,{}} ->
-            ?Info("drop trigger : ~p", [OldRec]),
-            ?ClientErrorNoLogging("delete not supported");
-        {OldRec,NewRec} ->
-            ?Info("update trigger : old ~p, new ~p", [OldRec, NewRec]),
-            ?ClientErrorNoLogging("update not supported")
+is_trace_running() ->
+    case whereis(?MODULE) of
+        Pid when is_pid(Pid) ->
+            is_process_alive(Pid);
+        _ -> false
     end.
+
+send_sync(Message) ->
+    {messages, Messages} = process_info(whereis(?MODULE), messages),
+    if length(Messages) < ?MAX_TRACER_PROC_MQ_LEN ->
+        case catch ?MODULE ! {self(), Message} of
+            {'EXIT', _} -> dbg:stop_clear();
+            _ ->
+                receive Reply -> Reply
+                after 1000 ->
+                    ?SystemExceptionNoLogging("tracer reply timeout")
+                end
+        end;
+        true -> ?SystemExceptionNoLogging("tracer process overloaded")
+    end.
+
+ddTraceDef() ->
+    (#ddTrace{})#ddTrace{
+        trace_key =
+            list_to_binary(
+                io_lib:format("fun(_,_R) -> imem_meta:record_hash(_R,~p) end.",
+                              [[#ddTrace.event_type, #ddTrace.mod,
+                                #ddTrace.func, #ddTrace.args]])
+            )
+    }.
+
+ms_lookup([A|_] = MS, _) when is_atom(A); is_tuple(A) -> MS;
+ms_lookup("default", User) ->
+    ?GET_CONFIG({trace_ms, "default"}, User, [{'_', [], []}],
+                "default smallest match specification for debug tracing");
+ms_lookup(MS, User) -> ?LOOKUP_CONFIG(MS, User).
+
+apply_filter(Mod, Fun, Args, State) when is_list(Args) ->
+    apply_filter(Mod, Fun, length(Args), State);
+apply_filter(M, F, A, #state{filters = Filters} = State) ->
+    MFA = {M,   F,   A},
+    MF_ = {M,   F, '_'},
+    M__ = {M, '_', '_'},
+    {Key, Rate, Stat} = case Filters of
+                            #{MFA := #{rate := R, stat := S}} -> {MFA, R, S};
+                            #{MF_ := #{rate := R, stat := S}} -> {MF_, R, S};
+                            #{M__ := #{rate := R, stat := S}} -> {M__, R, S};
+                            _ ->
+                                ?SystemExceptionNoLogging(
+                                    lists:flatten(
+                                        io_lib:format(
+                                            "No filter found for ~p:~p/~p in ~p",
+                                            [M, F, A, Filters]
+                                        )
+                                    )
+                                )
+                        end,
+    if Rate < 1 -> {ok, State};
+        true ->
+            Now = os:timestamp(),
+            Last = maps:get(last, Stat, Now),
+            case Last < Now andalso
+                 timer:now_diff(Now, Last) / 1000000 >= 1.0 of
+                % New Second, reset everything
+                true ->
+                    {ok,
+                        State#state{
+                            filters =
+                                Filters#{Key =>
+                                    #{rate => Rate,
+                                      stat => #{last => Now, count => 1}}}
+                        }
+                    };
+                % Within same second, count up
+                false ->
+                    NewCount = maps:get(count, Stat, 0) + 1,
+                    {if NewCount < Rate -> ok;  % propagate
+                        true            -> drop % DON'T propagate
+                     end,
+                     State#state{filters =
+                        Filters#{Key =>
+                                    #{rate => Rate,
+                                    stat => Stat#{count => NewCount}}}}}
+            end
+    end.
+
+disable_tps() ->
+    {Rows, _} = imem_meta:select(
+                    ddTrace,
+                    [{#ddTrace{event_type = register, enable= true, _ = '_'},
+                    [], ['$_']}]
+                ),
+    lists:foreach(
+        fun(Row) ->
+            case imem_meta:write(ddTrace, Row#ddTrace{enable = false}) of
+                ok -> ok;
+                Error -> ?SystemExceptionNoLogging({Error, Row})
+            end
+        end,
+        Rows
+    ).

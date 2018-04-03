@@ -2,10 +2,10 @@
 -define(IMEM_TRACER_HRL, true).
 -include("imem.hrl").
 -include("imem_if.hrl").
+-include("imem_config.hrl").
 
--define(KEY_DEF, <<"fun(_,_R) -> imem_meta:record_hash(_R,[3,6,7,8]) end.">>).
 -record(ddTrace, {
-    trace_key   = ?KEY_DEF  :: binary(),
+    trace_key               :: binary(),
     event_type  = register  :: atom(),
     enable      = false     :: boolean(),
     process                 :: term(),

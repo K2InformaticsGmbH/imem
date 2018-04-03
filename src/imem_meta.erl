@@ -39,7 +39,6 @@
 -define(DD_INDEX_OPTS,      [{record_name,ddIndex}
                             ,{type,ordered_set}         %% ,{purge_delay,430000}  %% inherit from parent table
                             ]).          
--define(DD_TRACE_OPTS,      [{trigger,<<"fun imem_tracer:trigger/5.">>}]).
 
 -define(INDEX_TABLE(__MasterTableName), __MasterTableName ++ "Idx").    % ToDo: Implement also for sharded and partitioned tables 
 
@@ -414,10 +413,11 @@ init(_Args) ->
 
         init_create_check_table(ddNode, {record_info(fields, ddNode), ?ddNode, #ddNode{}}, [], system),    
         init_create_check_table(ddSnap, {record_info(fields, ddSnap), ?ddSnap, #ddSnap{}}, [], system),
-        init_create_check_table(ddTrace, {record_info(fields, ddTrace), ?ddTrace, #ddTrace{}}, ?DD_TRACE_OPTS, system),
         init_create_check_table(ddSchema, {record_info(fields, ddSchema), ?ddSchema, #ddSchema{}}, [], system),    
         init_create_check_table(ddSize, {record_info(fields, ddSize), ?ddSize, #ddSize{}}, [], system),
-        init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
+        init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),
+
+        imem_tracer:init(),
         init_create_table(dual, {record_info(fields, dual), ?dual, #dual{}}, [], system),
         write(dual,#dual{}),
 

@@ -14,20 +14,34 @@
 
 
 -define(GET_CONFIG(__PName,__Context,__Default,__Documentation),
-        imem_config:get_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,lists:flatten([__Context,node()]),__Default,__Documentation)
-       ).
+  imem_config:get_config_hlk(
+    ?CONFIG_TABLE,
+    {element(2,application:get_application(?MODULE)),?MODULE,__PName},
+    ?MODULE, lists:flatten([__Context,node()]), __Default, __Documentation
+  )
+).
 
 -define(PUT_CONFIG(__PName,__Context,__Default,__Remark),
-        imem_config:put_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,__Context,__Default,__Remark)
-       ).
+  imem_config:put_config_hlk(
+    ?CONFIG_TABLE,
+    {element(2,application:get_application(?MODULE)),?MODULE,__PName},
+    ?MODULE, __Context, __Default, __Remark
+  )
+).
 -define(PUT_CONFIG(__PName,__Context,__Default,__Remark,__Documentation),
-        imem_config:put_config_hlk(
-          ?CONFIG_TABLE,{element(2,application:get_application(?MODULE)),?MODULE,__PName},
-          ?MODULE,__Context,__Default,__Remark,__Documentation)
-       ).
+  imem_config:put_config_hlk(
+    ?CONFIG_TABLE,
+    {element(2,application:get_application(?MODULE)),?MODULE,__PName},
+    ?MODULE, __Context, __Default, __Remark, __Documentation
+  )
+).
+
+-define(LOOKUP_CONFIG(__PName,__Context),
+  imem_config:lookup(
+    ?CONFIG_TABLE,
+    {element(2,application:get_application(?MODULE)),?MODULE,__PName},
+    lists:flatten([__Context,node()])
+  )
+).
 
 -endif. % IMEM_CONFIG_HRL
