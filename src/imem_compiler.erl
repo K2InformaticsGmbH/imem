@@ -138,9 +138,8 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
 compile_mod(ModuleCodeBinStr) -> compile_mod(ModuleCodeBinStr, [], []).
 compile_mod(ModuleCodeBinStr, Opts) -> compile_mod(ModuleCodeBinStr, [], Opts).
 compile_mod(ModuleCodeBinStr, Restrict, Opts) when is_binary(ModuleCodeBinStr) ->
-    case erl_scan:string(binary_to_list(ModuleCodeBinStr)) of
-        {ok, Tokens, _} ->
-            TokenGroups = cut_dot(Tokens),
+    case tokenize(ModuleCodeBinStr) of
+        {ok, TokenGroups} ->
             case lists:foldl(
                     fun(TokenGroup, Acc) when is_list(Acc) ->
                             case erl_parse:parse_form(TokenGroup) of
@@ -169,6 +168,20 @@ compile_mod(ModuleCodeBinStr, Restrict, Opts) when is_binary(ModuleCodeBinStr) -
                     end;
                 Error -> Error
             end;
+        Error -> Error
+    end.
+
+tokenize(ModuleCodeBinStr) ->
+    case erl_scan:string(binary_to_list(ModuleCodeBinStr), {0,1}) of
+        {ok, RawTokens, _} ->
+            case aleppo:process_tokens(RawTokens) of
+                {ok, TokensEOF} ->
+                    [{eof,_} | RevTokens] = lists:reverse(TokensEOF),
+                    Tokens = lists:reverse(RevTokens),
+                    {ok, cut_dot(Tokens)};
+                {error, Error} ->
+                    {error, {preprocess, {{0, 1}, ?MODULE, Error}, {0, 1}}}
+            end;
         {error, ErrorInfo, ErrorLocation} ->
             {error, {scan, ErrorInfo, ErrorLocation}}
     end.
@@ -185,10 +198,11 @@ error_info(Type, [{_, _, _} = ErrorInfo | ErrorInfos]) ->
     [error_info(Type, ErrorInfo) | error_info(Type, ErrorInfos)];
 error_info(Type, [{_,ErrorInfos}|Tail]) ->
     error_info(Type, ErrorInfos) ++ error_info(Type, Tail);
-error_info(Type, {Line, Module, ErrorDesc}) ->
+error_info(Type, {{Line, Column}, Module, ErrorDesc}) ->
     #{  
         type => Type,
         row => Line,
+        col => Column,
         text => list_to_binary(Module:format_error(ErrorDesc))
     }.
 
