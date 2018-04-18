@@ -174,12 +174,14 @@ compile_mod(ModuleCodeBinStr, Restrict, Opts) when is_binary(ModuleCodeBinStr) -
 tokenize(ModuleCodeBinStr) ->
     case erl_scan:string(binary_to_list(ModuleCodeBinStr), {0,1}) of
         {ok, RawTokens, _} ->
-            case aleppo:process_tokens(RawTokens) of
+            case catch aleppo:process_tokens(RawTokens) of
                 {ok, TokensEOF} ->
                     [{eof,_} | RevTokens] = lists:reverse(TokensEOF),
                     Tokens = lists:reverse(RevTokens),
                     {ok, cut_dot(Tokens)};
                 {error, Error} ->
+                    {error, {preprocess, {{0, 1}, ?MODULE, Error}, {0, 1}}};
+                {'EXIT', Error} ->
                     {error, {preprocess, {{0, 1}, ?MODULE, Error}, {0, 1}}}
             end;
         {error, ErrorInfo, ErrorLocation} ->
