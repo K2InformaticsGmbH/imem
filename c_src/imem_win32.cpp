@@ -81,6 +81,7 @@ static ERL_NIF_TERM queryPerformanceCounter(
     );
 }
 
+#if defined(_WIN32_WINNT_WIN8) && WINVER > _WIN32_WINNT_WIN8
 static ERL_NIF_TERM getSystemTimePreciseAsFileTime(
     ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 )
@@ -96,6 +97,7 @@ static ERL_NIF_TERM getSystemTimePreciseAsFileTime(
 
     return enif_make_uint64(env, SystemTimeAsFileTime);
 }
+#endif
 
 int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
             ERL_NIF_TERM load_info)
@@ -105,8 +107,10 @@ int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
 
 static ErlNifFunc nif_funcs[] = {
     {"getLocalTime",                   0, getLocalTime},
-    {"queryPerformanceCounter",        0, queryPerformanceCounter},
+#if defined(_WIN32_WINNT_WIN8) && WINVER > _WIN32_WINNT_WIN8
     {"getSystemTimePreciseAsFileTime", 0, getSystemTimePreciseAsFileTime},
+#endif
+    {"queryPerformanceCounter",        0, queryPerformanceCounter}
 };
 
 ERL_NIF_INIT(imem_win32, nif_funcs, NULL, NULL, upgrade, NULL)
