@@ -7,6 +7,9 @@
 
 -export([ schema/1
         , schema/2
+        , integer_uid/1
+        , time_uid/1
+        , time/1
         , data_nodes/1
         , all_tables/1
         , is_readable_table/2
@@ -149,7 +152,25 @@ if_is_system_table(SKey,Table) when is_binary(Table) ->
         _:_ -> false
     end.
 
-%% imem_if but security context added --- META INFORMATION ------
+%% imem_meta but security context added --- META INFORMATION ------
+
+% Monotonic, unique per node restart integer
+-spec integer_uid(ddSeCoKey()) -> integer().
+integer_uid(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:integer_uid().
+
+% Monotonic, adapted, unique timestamp with microsecond resolution and OS-dependent precision
+-spec time_uid(ddSeCoKey()) -> ddTimeUID().
+time_uid(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:time_uid().
+
+% Monotonic, adapted timestamp with microsecond resolution and OS-dependent precision
+-spec time(ddSeCoKey()) -> ddTimestamp().
+time(SKey) -> 
+    seco_authorized(SKey),
+    imem_meta:time().
 
 schema(SKey) ->
     seco_authorized(SKey),
@@ -252,16 +273,16 @@ table_record_name(SKey, Table) ->
 table_size(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_size(Table);
-        false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
+        false ->    ?SecurityException({"Select unauthorized", {Table, SKey}})
     end.
 
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
-        false ->    ?SecurityException({"Subscribe unauthorized", {Table,SKey}})
+        false ->    ?SecurityException({"Subscribe unauthorized", {Table, SKey}})
     end;
 subscribe(SKey, EventCategory) ->
-    ?SecurityException({"Unsupported event category", {EventCategory,SKey}}).
+    ?SecurityException({"Unsupported event category", {EventCategory, SKey}}).
 
 unsubscribe(_SKey, EventCategory) ->
     imem_meta:unsubscribe(EventCategory).
@@ -283,7 +304,7 @@ create_table(SKey, Table, RecordInfo, Opts) ->
     end,
     case Owner of
         false ->
-            ?SecurityException({"Create table unauthorized", {Table,SKey}});
+            ?SecurityException({"Create table unauthorized", {Table, SKey}});
         Owner ->
             imem_meta:create_table(Table, RecordInfo, Opts, Owner)
     end.
@@ -309,7 +330,7 @@ create_check_table(SKey, Table, RecordInfo, Opts) ->
                     B -> X#ddColumn{name=?binary_to_atom(B)} 
                 end
             end,
-            imem_meta:create_check_table(imem_meta:qualified_new_table_name(Table), lists:map(Conv,RecordInfo), Opts, Owner)
+            imem_meta:create_check_table(imem_meta:qualified_new_table_name(Table), lists:map(Conv, RecordInfo), Opts, Owner)
     end.
 
 create_sys_conf(SKey, Path) ->
@@ -592,7 +613,7 @@ fetch_recs_async(SKey, Opts, Pid, Sock) ->
     imem_statement:fetch_recs_async(SKey, Pid, Sock, Opts, true).
 
 request_metric(SKey, Module, MetricKey, Ref, Sock) ->
-    admin_exec(SKey, Module, request_metric, [MetricKey, Ref, Sock]).
+    admin_exec(SKey, imem_gen_metrics, request_metric, [Module, MetricKey, Ref, Sock]).
 
 filter_and_sort(SKey, Pid, FilterSpec, SortSpec) ->
     imem_statement:filter_and_sort(SKey, Pid, FilterSpec, SortSpec, true).
@@ -960,182 +981,3 @@ get_permission_cache(SKey, Permission) ->
         [#ddPerm{value=Value}] -> Value;
         [] -> no_exists 
     end.
-
-
-%% ----- TESTS ------------------------------------------------
--ifdef(TEST).
-
--include_lib("eunit/include/eunit.hrl").
-
-setup() -> 
-    ?imem_test_setup.
-
-teardown(_) -> 
-    SKey=?imem_test_admin_login(),
-    catch imem_account:delete(SKey, <<"test_user_123">>),
-    catch imem_role:delete(SKey, table_creator),
-    catch imem_role:delete(SKey, test_role),
-    catch imem_seco:logout(SKey),
-    catch imem_meta:drop_table(user_table_123),
-    ?imem_test_teardown.
-
-db_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun test/1]}
-    }.    
-
-    
-test(_) ->
-    try
-        ?LogDebug("---TEST---"),
-
-        ClEr = 'ClientError',
-        SeEx = 'SecurityException',
-        CoEx = 'ConcurrencyException',
-        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
-        ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-
-        % ?LogDebug("~p:test_admin_login~n", [?MODULE]),
-
-        SeCoAdmin=?imem_test_admin_login(),
-        % ?LogDebug("success ~p~n", [admin_login]),
-        ?assert(1 =< table_size(SeCoAdmin, ddSeCo@)),
-        % ?LogDebug("success ~p~n", [seco_table_size]), 
-        AllTablesAdmin = all_tables(SeCoAdmin),
-        ?assertEqual(true, lists:member(ddAccount,AllTablesAdmin)),
-        ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddPerm@),AllTablesAdmin)),
-        ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddQuota@),AllTablesAdmin)),
-        ?assertEqual(true, lists:member(ddRole,AllTablesAdmin)),
-        ?assertEqual(true, lists:member(imem_meta:physical_table_name(ddSeCo@),AllTablesAdmin)),
-        ?assertEqual(true, lists:member(ddTable,AllTablesAdmin)),
-        % ?LogDebug("success ~p~n", [all_tables_admin]), 
-
-        % ?LogDebug("~p:test_admin_exec~n", [?MODULE]),
-
-        % ?LogDebug("accounts ~p~n", [table_size(SeCoAdmin, ddAccount)]),
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, create, [user, <<"test_user_123">>, <<"Test user 123">>, <<"PasswordMd5">>])),
-        % ?LogDebug("success ~p~n", [account_create_user]),
-        UserId = admin_exec(SeCoAdmin, imem_account, get_id_by_name, [<<"test_user_123">>]),
-        ?assert(is_integer(UserId)),
-        % ?LogDebug("success (~p) ~p~n", [UserId, create_test_admin_permissions]), 
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, grant_permission, [<<"test_user_123">>, create_table])),
-        % ?LogDebug("success ~p~n", [create_test_admin_permissions]), 
-     
-        % ?LogDebug("~p:test_user_login~n", [?MODULE]),
-
-        SeCoUser0=authenticate(none, userSessionId, <<"test_user_123">>, {pwdmd5,<<"PasswordMd5">>}),
-        ?assertEqual(true, is_integer(SeCoUser0)),
-        % ?LogDebug("success ~p~n", [user_authentication]), 
-        ?assertException(throw,{SeEx,{?PasswordChangeNeeded, _}}, login(SeCoUser0)),
-        % ?LogDebug("success ~p~n", [password_expired]), 
-        SeCoUser=authenticate(none, someSessionId, <<"test_user_123">>, {pwdmd5,<<"PasswordMd5">>}), 
-        ?assertEqual(true, is_integer(SeCoUser)),
-        % ?LogDebug("success ~p~n", [user_authentication]), 
-        ?assertEqual(SeCoUser, change_credentials(SeCoUser, {pwdmd5,<<"PasswordMd5">>}, {pwdmd5,<<"NewPasswordMd5">>})),
-        % ?LogDebug("success ~p~n", [password_changed]), 
-        Type123a = {[a,b,c],[term,term,term],{user_table_123,undefined,undefined,undefined}},
-        Type123b = {[a,b,a],[term,term,term],{user_table_123,undefined,undefined,undefined}},
-        Type123c = {[a,b,x],[term,term,term],{user_table_123,undefined,undefined,undefined}},
-        ?assertEqual(ok, create_table(SeCoUser, user_table_123, Type123a, [])),
-        % ?LogDebug("success ~p~n", [create_user_table]),
-        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, Type123b, [])),
-        ?assertException(throw, {ClEr,{"Table already exists",user_table_123}}, create_table(SeCoUser, user_table_123, Type123c, [])),
-        % ?LogDebug("success ~p~n", [create_user_table]),
-        ?assertEqual(0, table_size(SeCoUser, user_table_123)),
-        % ?LogDebug("success ~p~n", [own_table_size]),
-
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
-        % ?LogDebug("success ~p~n", [permissions_own_table]), 
-
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_role, revoke_role, [<<"test_user_123">>, create_table])),
-        % ?LogDebug("success ~p~n", [role_revoke_role]),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, select)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, insert)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, delete)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, update)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, drop)),
-        ?assertEqual(true, have_table_permission(SeCoUser, user_table_123, alter)),
-        % ?LogDebug("success ~p~n", [permissions_own_table]),
-
-        ?assertException(throw, {SeEx,{"Select unauthorized", {dba_tables,SeCoUser}}}, select(SeCoUser, dba_tables, ?MatchAllKeys)),
-        % ?LogDebug("success ~p~n", [dba_tables_unauthorized]),
-        {DbaTables, true} = select(SeCoAdmin, dba_tables, ?MatchAllKeys),
-        ?assertEqual(true, lists:member({imem,ddAccount}, DbaTables)),
-        ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddPerm@)}, DbaTables)),
-        ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddQuota@)}, DbaTables)),
-        ?assertEqual(true, lists:member({imem,ddRole}, DbaTables)),
-        ?assertEqual(true, lists:member({imem,imem_meta:physical_table_name(ddSeCo@)}, DbaTables)),
-        ?assertEqual(true, lists:member({imem,ddTable}, DbaTables)),
-        ?assertEqual(true, lists:member({imem,user_table_123}, DbaTables)),
-        % ?LogDebug("success ~p~n", [dba_tables]),
-
-        {AdminTables, true} = select(SeCoAdmin, user_tables, ?MatchAllKeys),
-        ?assertEqual(false, lists:member({imem,ddAccount}, AdminTables)),
-        ?assertEqual(false, lists:member({imem,imem_meta:physical_table_name(ddPerm@)}, AdminTables)),
-        ?assertEqual(false, lists:member({imem,imem_meta:physical_table_name(ddQuota@)}, AdminTables)),
-        ?assertEqual(false, lists:member({imem,ddRole}, AdminTables)),
-        ?assertEqual(false, lists:member({imem,imem_meta:physical_table_name(ddSeCo@)}, AdminTables)),
-        ?assertEqual(false, lists:member({imem,ddTable}, AdminTables)),
-        ?assertEqual(false, lists:member({imem,user_table_123}, AdminTables)),
-        % ?LogDebug("success ~p~n", [admin_tables]),
-
-        {UserTables, true} = select(SeCoUser, user_tables, ?MatchAllKeys),
-        ?assertEqual(false, lists:member({imem,ddAccount}, UserTables)),
-        ?assertEqual(false, lists:member({imem,ddPerm@}, UserTables)),
-        ?assertEqual(false, lists:member({imem,ddQuota@}, UserTables)),
-        ?assertEqual(false, lists:member({imem,ddRole}, UserTables)),
-        ?assertEqual(false, lists:member({imem,ddSeCo@}, UserTables)),
-        ?assertEqual(false, lists:member({imem,ddTable}, UserTables)),
-        ?assertEqual(true, lists:member({imem,user_table_123}, UserTables)),
-        % ?LogDebug("success ~p~n", [user_tables]),
-
-        LogTable = physical_table_name(SeCoAdmin,?LOG_TABLE),
-        % ?LogDebug("success ~p ~p~n", [physical_table_name,LogTable]),
-        ?assertException(throw, {SeEx,{"Select unauthorized",{_,SeCoUser}}}, physical_table_name(SeCoUser,?LOG_TABLE)),    
-        LogTables = physical_table_names(SeCoAdmin,?LOG_TABLE),
-        ?assert(lists:member(LogTable,LogTables)),        
-        ?assertEqual(LogTables,physical_table_names(SeCoAdmin,atom_to_list(?LOG_TABLE))),
-        ?assertEqual([],physical_table_names(SeCoUser,atom_to_list(?LOG_TABLE))),
-
-        ?assertEqual(LogTables,tables_starting_with(SeCoAdmin,"ddLog_")),
-        ?assertEqual([user_table_123],tables_starting_with(SeCoUser,"user_table_")),
-        ?assertEqual([user_table_123],tables_starting_with(SeCoAdmin,user_table_)),
-        ?assertEqual([ddTable],tables_starting_with(SeCoAdmin,ddTable)),
-        ?assertEqual([],tables_starting_with(SeCoUser,ddTable)),
-        ?assertEqual([],tables_starting_with(SeCoAdmin,"akkahadöl_")),
-
-        ?assertEqual({user_table_123,"A","B","C"}, insert(SeCoUser, user_table_123, {user_table_123,"A","B","C"})),
-        ?assertEqual(1, table_size(SeCoUser, user_table_123)),
-        % ?LogDebug("success ~p~n", [insert_own_table]),
-        ?assertEqual({user_table_123,"AA","BB","CC"}, merge(SeCoUser, user_table_123, {user_table_123,"AA","BB","CC"})),
-        ?assertEqual(2, table_size(SeCoUser, user_table_123)),
-        ?assertEqual({user_table_123,"AA","B0","CC"}, update(SeCoUser, user_table_123, {{user_table_123,"AA","BB","CC"},{user_table_123,"AA","B0","CC"}})),
-        ?assertEqual(2, table_size(SeCoUser, user_table_123)),
-        ?assertException(throw, {CoEx,{"Update failed, key does not exist",{user_table_123,"A0"}}}, update(SeCoUser, user_table_123, {{user_table_123,"A0","B0","C0"},{user_table_123,"A0","B0","CC"}})),    
-
-        ?assertEqual(2, table_size(SeCoUser, user_table_123)),
-        % ?LogDebug("success ~p~n", [insert_own_table]),
-        ?assertEqual(ok, drop_table(SeCoUser, user_table_123)),
-        % ?LogDebug("success ~p~n", [drop_own_table]),
-        ?assertException(throw, {ClEr,{"Table does not exist",user_table_123}}, table_size(SeCoUser, user_table_123)),    
-        % ?LogDebug("success ~p~n", [drop_own_table_no_exists]),
-
-        ?assertEqual(ok, admin_exec(SeCoAdmin, imem_account, delete, [<<"test_user_123">>])),
-        % ?LogDebug("success ~p~n", [account_create_user]),
-        ok
-
-    catch
-        Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        ?assert( true == "all tests completed")
-    end,
-    ok.
-
--endif.

@@ -46,17 +46,17 @@ start_link(Params) ->
 
 init(_) ->
     process_flag(trap_exit, true),
-    {ok,#state{}}.
+    {ok, #state{}}.
 
 handle_call(path, _From, State) -> {reply, {ok, State#state.path}, State};
 handle_call({add, Path, Table}, _From, State) ->
     try
-        imem_meta:create_check_table({ddSysConf,Table}, {record_info(fields, ddSysConf),?ddSysConf, #ddSysConf{}}, [], system),
-        ?Info("~p created!~n", [Table]),
-        {reply, ok, State#state{path=Path}}
+        imem_meta:create_check_table({ddSysConf, Table}, {record_info(fields, ddSysConf), ?ddSysConf, #ddSysConf{}}, [], system),
+        ?Info("ddSysConf table ~p created!", [Table]),
+        {reply, {ok, {ddSysConf, Table}}, State#state{path=Path}}
     catch
         Class:Reason ->
-            ?Error("failed with ~p:~p(~p)~n", [Class,Reason,erlang:get_stacktrace()]),
+            ?Error("failed with ~p:~p(~p)~n", [Class, Reason, erlang:get_stacktrace()]),
             {reply, {error, Reason}, State}
     end;
 handle_call(_Request, _From, State) ->
@@ -83,36 +83,42 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ----- API interface ----------------------------------------
 
+-spec create_sys_conf(ddString()) -> ok.
 create_sys_conf(Path) ->
     case filelib:is_dir(Path) of
         true ->
-            [case gen_server:call(?MODULE, {add, Path, list_to_atom("\""++File++"\"")}) of
-                 ok -> ok;
-                 {error, Reason} ->
-                     ?SystemExceptionNoLogging({"System Configuration setup failed",{Path,File,Reason}})
+            [case gen_server:call(?MODULE, {add, Path, list_to_atom("\"" ++ File ++ "\"")}) of
+                {ok, {ddSysConf, _}} -> ok;
+                {error, Reason} ->
+                    ?SystemExceptionNoLogging({"System Configuration setup failed", {Path, File, Reason}})
             end
             || File <- filelib:wildcard("*.*", Path)],
             ok;
         false ->
-            DirPath = filname:dirname(Path),
-            File = list_to_atom("\""++filname:basename(Path)++"\""),
+            DirPath = filename:dirname(Path),
+            File = list_to_atom("\"" ++ filename:basename(Path) ++ "\""),
             case gen_server:call(?MODULE, {add, DirPath, File}) of
-                 ok -> ok;
-                 {error, Reason} ->
-                     ?SystemExceptionNoLogging({"System Configuration setup failed",{Path,Reason}})
+                {ok, {ddSysConf, _}} -> ok;
+                {error, Reason} ->
+                     ?SystemExceptionNoLogging({"System Configuration setup failed", {Path, Reason}})
             end
     end.
 
+-spec table_columns(atom()) -> [atom()].
 table_columns(_Table) ->
     record_info(fields, ddSysConf).
 
+-spec table_type(atom()) -> atom().
 table_type(_Table) -> set.
+
+-spec table_record_name(atom()) -> atom().
 table_record_name(_Table) -> ddSysConf.
 
+-spec fetch_start(pid(), atom(), [tuple()], integer(), ddOptions()) -> pid().
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) when is_atom(Table) ->
     fetch_start(Pid, imem_datatype:strip_dquotes(atom_to_list(Table)), MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, _MatchSpec, _BlockSize, _Opts) ->
-    File = filename:join([path(),Table]),
+    File = filename:join([path(), Table]),
     case filelib:is_file(File) of
         true ->
             spawn(

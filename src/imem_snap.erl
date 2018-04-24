@@ -24,6 +24,9 @@
         , del_dirtree/1
         , snap_file_count/0
         , exclude_table_pattern/1
+        , suspend_snap_loop/0
+        , start_snap_loop/0
+        , restart_snap_loop/0
         ]).
 
 % gen_server callbacks
@@ -53,6 +56,7 @@
 
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
+-define(BKP_ZIP_PREFIX, "backup_snapshot_").
 
 -define(GET_SNAPSHOT_CYCLE_WAIT,
             ?GET_CONFIG(snapshotCycleWait, [], 10000,
@@ -134,7 +138,7 @@ suspend_snap_loop() ->
 %% ?SERVER_START_LINK.
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
-    ets:new(?MODULE, [public, named_table, {keypos,2}]),
+    catch ets:new(?MODULE, [public, named_table, {keypos,2}]),
     case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
         {ok, _} = Success ->
             ?Info("~p started!~n", [?MODULE]),
@@ -160,10 +164,9 @@ init(_) ->
                 {error, Error} ->
                     ?Warn("unable to create snapshot directory ~p : ~p~n", [SnapDir, Error])
             end;
-        _ -> ok
+        _ -> maybe_coldstart_restore(SnapshotDir)
     end,
     ?Info("snapshot directory ~s~n", [SnapshotDir]),
-
     process_flag(trap_exit, true),
     start_snap_loop(),
     erlang:send_after(
@@ -172,12 +175,13 @@ init(_) ->
        '$create_when_needed'}),
     {ok,#state{snapdir = SnapshotDir}}.
 
+-spec create_clean_dir(list()) -> list().
 create_clean_dir(Prefix) ->
-    {_,_,Us} = Now = os:timestamp(),
-    {{Y,M,D},{H,Mn,S}} = calendar:now_to_local_time(Now),
-    Sec = S + Us / 1000000,
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    Dir = lists:flatten(io_lib:format("~s~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Prefix,Y,M,D,H,Mn,Sec])),
+    {Secs, Micros} = ?TIMESTAMP,
+    {{Y,M,D},{H,Mn,S}} = calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, Micros}),
+    FSec = S + Micros / 1000000,
+    Dir = lists:flatten(io_lib:format("~s~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Prefix,Y,M,D,H,Mn,FSec])),
     BackupDir = filename:join(filename:absname(SnapDir), Dir),
     case filelib:is_dir(BackupDir) of
         true ->
@@ -190,9 +194,10 @@ create_clean_dir(Prefix) ->
     end,
     BackupDir.
 
+-spec cluster_snap(list(), '$replace_with_timestamp' | ddTimestamp(), '$create_when_needed' | list()) -> ok.
 cluster_snap(Tabs, '$replace_with_timestamp', Dir) ->
-    cluster_snap(Tabs, os:timestamp(), Dir);
-cluster_snap([], {_,_,_} = StartTime, Dir) ->
+    cluster_snap(Tabs, ?TIMESTAMP, Dir);
+cluster_snap([], StartTime, Dir) ->
     ZipFile = filename:join(filename:dirname(Dir), filename:basename(Dir)++".zip"),
     ZipCandidates = [begin
                          {ok, Bin} = file:read_file(filename:join(Dir,F)),
@@ -209,15 +214,12 @@ cluster_snap([], {_,_,_} = StartTime, Dir) ->
             ok = file:del_dir(Dir),
             ?Info("cluster snapshot ~s", [ZipFile])
     end,
-    ?Info("cluster snapshot took ~pms",
-          [timer:now_diff(os:timestamp(), StartTime) div 1000]),
-    erlang:send_after(
-      1000, ?MODULE,
-      {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp',
-       '$create_when_needed'});
+    ?Info("cluster snapshot took ~p ms", [?TIMESTAMP_DIFF(StartTime, ?TIMESTAMP) div 1000]),
+    erlang:send_after(1000, ?MODULE, {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
+    ok;
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
-    cluster_snap(Tabs, StartTime, create_clean_dir("backup_snapshot_"));
-cluster_snap([T|Tabs], {_,_,_} = StartTime, Dir) ->
+    cluster_snap(Tabs, StartTime, create_clean_dir(?BKP_ZIP_PREFIX));
+cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
     NextTabs = case catch take_chunked(imem_meta:physical_table_name(T), Dir) of                   
                    ok ->
                        ?Info("cluster snapshot ~p", [T]),
@@ -232,15 +234,16 @@ cluster_snap([T|Tabs], {_,_,_} = StartTime, Dir) ->
                        ?Error("cluster snapshot failed for ~p : ~p", [T, Error]),
                        Tabs++[T]
                end,
-    ?MODULE ! {cluster_snap, NextTabs, StartTime, Dir}.
+    ?MODULE ! {cluster_snap, NextTabs, StartTime, Dir},
+    ok.
 
 handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
     {noreply,
      case ?GET_CLUSTER_SNAPSHOT of
          true ->
-             {{Y,M,D},{H,_,_}} = calendar:local_time(),
+             {{Y,M,D},{H,_,_}} = imem_datatype:timestamp_to_local_datetime(imem_meta:time()),
              {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-             ZipFilePattern = lists:flatten(io_lib:format("backup_snapshot_~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
+             ZipFilePattern = lists:flatten(io_lib:format(?BKP_ZIP_PREFIX"~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
              BackupDir = filename:absname(SnapDir),
              case filelib:wildcard(ZipFilePattern, BackupDir) of
                  BFs when length(BFs) > 0 ->
@@ -248,27 +251,24 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                          true -> State;
                          _ ->
                              erlang:send_after(
-                               1000, ?MODULE,
+                               60 * 1000, ?MODULE,
                                {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
                              State#state{csnap_pid = (#state{})#state.csnap_pid}
                      end;
                  _ ->
-                     ClusterSnapHour = ?GET_CLUSTER_SNAPSHOT_TOD,
-                     case calendar:now_to_local_time(os:timestamp()) of
-                         {{_,_,_},{ClusterSnapHour,_,_}} ->
+                     case ?GET_CLUSTER_SNAPSHOT_TOD of
+                         H ->
                              if Dir == '$create_when_needed' ->
                                     ?Info("cluster snapshot ~p", [Tables]);
                                 true -> ok
                              end,
-                             State#state{
-                               csnap_pid =
-                               spawn(fun() -> cluster_snap(Tables, StartTime, Dir) end)};
+                             State#state{csnap_pid=spawn(fun() -> cluster_snap(Tables, StartTime, Dir) end)};
                          _ ->
                              case catch is_process_alive(State#state.csnap_pid) of
                                  true -> State;
                                  _ ->
                                      erlang:send_after(
-                                       1000, ?MODULE,
+                                       60 * 1000, ?MODULE,
                                        {cluster_snap, Tables, '$replace_with_timestamp', '$create_when_needed'}),
                                      State#state{csnap_pid = (#state{})#state.csnap_pid}
                              end
@@ -355,10 +355,11 @@ zip({files, SnapFiles}) ->
                     , filelib:file_size(filename:join([SnapDir, SF])) > 0],
     if ZipCandidates =:= [] -> ok;
         true ->
-            {{Y,M,D}, {H,Mn,S}} = calendar:local_time(),
-            Sec = S + element(3, os:timestamp()) / 1000000,
+            {Secs, Micros} = ?TIMESTAMP,
+            {{Y,M,D},{H,Mn,S}} = calendar:now_to_local_time({Secs div 1000000, Secs rem 1000000, Micros}),
+            FSec = S + Micros / 1000000,
             ZipFileName = re:replace(lists:flatten(["snapshot_"
-                                         , io_lib:format("~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Y,M,D,H,Mn,Sec])
+                                         , io_lib:format("~4..0B~2..0B~2..0B_~2..0B~2..0B~9.6.0f", [Y,M,D,H,Mn,FSec])
                                          , ".zip"
                                         ]), "[<>:\"\\\\|?*]", "", [global, {return, list}]),
             % to make the file name valid for windows
@@ -494,7 +495,8 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
             suspend_snap_loop(),
-            {ok,Fs} = zip:unzip(ZipFile),
+            {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+            {ok,Fs} = zip:unzip(ZipFile, [{cwd, SnapDir}]),
             ?Debug("unzipped ~p from ~p~n", [Fs,ZipFile]),
             Files = [F
                     || F <- Fs, re:run(F,TabRegEx,[{capture, all, list}]) =/= nomatch],
@@ -812,7 +814,7 @@ get_snap_properties(Tab) ->
     end.
 
 set_snap_properties(Prop) ->
-    ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap= os:timestamp()}).
+    ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap=?TIMESTAMP}).
 
 snap_log(_P,_A) -> ?Info(_P,_A).
 snap_err(P,A) -> ?Error(P,A).
@@ -825,44 +827,19 @@ exclude_table_pattern(TablePattern) when is_binary(TablePattern) ->
     exclude_table_pattern(binary_to_list(TablePattern));
 exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     ExPatterns = ?GET_SNAPSHOT_EXCLUSION_PATTERNS,
-    Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(os:timestamp())]),
+    Remark = list_to_binary(["Added ", TablePattern, " at ", imem_datatype:timestamp_to_io(?TIMESTAMP)]),
     ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), Remark).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-%%
-%%----- TESTS ------------------------------------------------
-%%
-
--define(TABLES, lists:sort([atom_to_list(T) || T <- mnesia:system_info(tables) -- [schema]])).
--define(FILENAMES(__M, __Dir), lists:sort([filename:rootname(filename:basename(F))
-                                           || F <- filelib:wildcard(__M, __Dir)])).
--define(EMPTY_DIR(__Dir), [{F, file:delete(filename:absname(filename:join([__Dir,F])))}
-                           || F <- filelib:wildcard("*.*", __Dir)]).
-
-setup() ->
-    ?imem_test_setup,
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    SnapDir.
-
-teardown(_) ->
-    ?imem_test_teardown.
-
-db_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun test_snapshot/1]}
-    }.
-
-test_snapshot(SnapDir) ->
-    ?LogDebug("---TEST--- ~p(~p)", [test_snapshot,SnapDir]),
-    take(ddTable),
-    % ?LogDebug("take snapshots :~n~p~n", [Take]),
-    ?assert( lists:member("ddTable",?FILENAMES("*"++?BKP_EXTN, SnapDir))),
-    % ?LogDebug("snapshot tests completed!~n", []),
-    ok.
-
--endif.
+maybe_coldstart_restore(SnapDir) ->
+    case {application:get_env(imem, cold_start_recover), imem_meta:nodes()} of
+        {{ok, true}, []} ->
+            case lists:reverse(lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX"*.zip", SnapDir))) of
+                [] -> ?Warn("Cold Start : unable to auto restore, no "?BKP_ZIP_PREFIX"*.zip found in snapshot directory ~s", [SnapDir]);
+                [ZipFile | _ ] ->
+                    ?Info("Cold Start : auto restoring ~s found at ~s", [ZipFile, SnapDir]),
+                    restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
+            end;
+        {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
+        {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
+        _ -> ok
+    end.

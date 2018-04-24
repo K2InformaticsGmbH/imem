@@ -5,6 +5,30 @@
 
 #include "Windows.h"
 
+static ERL_NIF_TERM tpf(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    argc = argc; // for unused variable warning
+
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+
+    ErlNifUInt64 SystemTimeAsFileTime = ft.dwHighDateTime;
+	SystemTimeAsFileTime <<= 32;
+	SystemTimeAsFileTime |= ft.dwLowDateTime;
+
+    return enif_make_uint64(env, SystemTimeAsFileTime);
+}
+
+static ERL_NIF_TERM qpc(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    argc = argc; // for unused variable warning
+
+    LARGE_INTEGER lpPerformanceCount;
+    QueryPerformanceCounter(&lpPerformanceCount);
+
+    return enif_make_uint64(env, (ErlNifUInt64)lpPerformanceCount.QuadPart);
+}
+
 #define ERTS_MONOTONIC_TIME_KILO \
     ((unsigned long long) 1000)
 #define ERTS_MONOTONIC_TIME_MEGA \
@@ -56,7 +80,9 @@ int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"now", 0, now}
+    {"tpf", 0, tpf},
+    {"qpc", 0, qpc},
+    {"now", 0, now},
 };
 
 ERL_NIF_INIT(imem_nif, nif_funcs, NULL, NULL, upgrade, NULL)

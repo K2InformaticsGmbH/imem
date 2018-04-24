@@ -9,16 +9,12 @@
 -behaviour(application).
 
 -include("imem.hrl").
+-include("imem_if.hrl").
 
 % shell start/stop helper
 -export([ start/0
         , stop/0
         ]).
-
-% test interface
--export([ start_test_writer/1
-        , stop_test_writer/0]
-        ).
 
 % application callbacks
 -export([ start/2
@@ -26,8 +22,7 @@
         ]).
 
 % library functions
--export([ now/0
-        , get_os_memory/0
+-export([ get_os_memory/0
         , get_vm_memory/0
         , get_swap_space/0
         , spawn_sync_mfa/3
@@ -58,19 +53,16 @@ start(_Type, StartArgs) ->
             ?Info("joining cluster with ~p~n", [CMNodes]),
             ok = join_erl_cluster(CMNodes)
     end,
-
-    % Setting a start time for the first node in cluster
-    % or started without CMs
     case application:get_env(start_time) of
         undefined ->
-            ok = application:set_env(?MODULE,start_time,{os:timestamp(),node()});
+            % Setting a start time for the first node in cluster
+            % or started without CMs
+            ok = application:set_env(?MODULE,start_time,{?TIMESTAMP, node()});
         _ -> ok
     end,
-
-    % If in a cluser wait for other IMEM nodes to complete a full boot before
+    % If in a cluster, wait for other IMEM nodes to complete a full boot before
     % starting mnesia to serialize IMEM start in a cluster
     wait_remote_imem(),
-
     % Sets max_ets_tables application env parameter with maximum value either
     % configured with ERL_MAX_ETS_TABLES OS environment variable or to default
     % 1400
@@ -80,7 +72,6 @@ start(_Type, StartArgs) ->
                false -> 1400;
                MaxEtsTablesStr -> list_to_integer(MaxEtsTablesStr)
            end),
-
     % Mnesia should be loaded but not started
     AppInfo = application:info(),
     RunningMnesia = lists:member(mnesia,
@@ -172,16 +163,6 @@ wait_remote_imem() ->
             wait_remote_imem(NodesToWaitFor)
     end.
 
-%set_node_status(Nodes) ->
-%    ok = application:set_env(
-%           imem, imem_starting_nodes,
-%           lists:usort(
-%             [{node(), element(2, application:get_env(start_time))}
-%              | [ {N, element(2, rpc:call(N, application, get_env, [?MODULE, start_time]))}
-%                  || N <- Nodes]
-%             ])
-%          ).
-
 wait_remote_imem([]) -> ok;
 wait_remote_imem([Node|Nodes]) ->
     case rpc:call(Node, application, which_applications, []) of
@@ -215,44 +196,11 @@ config_start_mnesia() ->
                     true -> filename:join(RootParts ++ [SDir]);
                     false ->
                         {ok, Cwd} = file:get_cwd(),
-                        LastFolder = lists:last(filename:split(Cwd)),
-                        if LastFolder =:= ".eunit" ->
-                               filename:join([Cwd, "..", SDir]);
-                           true ->  filename:join([Cwd, SDir])
-                        end
+                        filename:join([Cwd, SDir])
                 end,
     ?Info("schema path ~s~n", [SchemaDir]),
     application:set_env(mnesia, dir, SchemaDir),
     ok = mnesia:start().
-
-%% LAGER Disabled in test
-%-ifndef(TEST).
-%
-%config_if_lager() ->
-%    application:load(lager),
-%    application:set_env(lager, handlers,
-%                        [{lager_console_backend, info},
-%                         {lager_file_backend, [{file, "log/error.log"},
-%                                               {level, error},
-%                                               {size, 10485760},
-%                                               {date, "$D0"},
-%                                               {count, 5}]},
-%                         {lager_file_backend, [{file, "log/console.log"},
-%                                               {level, info},
-%                                               {size, 10485760},
-%                                               {date, "$D0"},
-%                                               {count, 5}]}]),
-%    application:set_env(lager, error_logger_redirect, false),
-%    lager:start(),
-%    ?Info("IMEM starting with lager!").
-%
-%-else. % TEST
-%
-%% Lager disabled
-%config_if_lager() ->
-%    ?Info("IMEM starting without lager!").
-%
-%-endif. % TEST
 
 stop(_State) ->
     imem_server:stop(),
@@ -287,38 +235,19 @@ set_start_time(Node) ->
         {ok, {_,TimeKeeper}} ->
             ok = application:set_env(
                    ?MODULE, start_time,
-                   {rpc:call(TimeKeeper, erlang, now, []), TimeKeeper});
+                   {rpc:call(TimeKeeper, imem_if_mnesia, timestamp, []), TimeKeeper});
         undefined ->
             ok = application:set_env(
                    ?MODULE, start_time,
-                   {rpc:call(Node, erlang, now, []), Node})
+                   {rpc:call(Node, imem_if_mnesia, timestamp, []), Node})
     end.
-
-% start/stop test writer
-start_test_writer(Param) ->
-    {ok, ImemTimeout} = application:get_env(imem, imem_timeout),
-    {ok, SupPid} = supervisor:start_child(imem_sup, {imem_test_writer
-                                                    , {imem_test_writer, start_link, [Param]}
-                                                    , permanent, ImemTimeout, worker, [imem_test_writer]}),
-    [?Info("imem process ~p started pid ~p~n", [_Mod, _Pid]) || {_Mod,_Pid,_,_} <- supervisor:which_children(imem_sup)],
-    {ok, SupPid}.
-stop_test_writer() ->
-    ok = supervisor:terminate_child(imem_sup, imem_test_writer),
-    ok = supervisor:delete_child(imem_sup, imem_test_writer),
-    [?Info("imem process ~p started pid ~p~n", [_Mod, _Pid]) || {_Mod,_Pid,_,_} <- supervisor:which_children(imem_sup)].
-
-
-now() ->
-    erlang:now().
-
 
 -spec get_os_memory() -> {any(), integer(), integer()}.
 get_os_memory() ->
     SysData = memsup:get_system_memory_data(),
     FreeMem = lists:foldl(
                 fun({T, M}, A)
-                      when T =:= free_memory; T =:= buffered_memory;
-                           T =:= cached_memory ->
+                      when T =:= free_memory; T =:= buffered_memory; T =:= cached_memory ->
                         A+M;
                    (_, A) -> A
                 end, 0, SysData),

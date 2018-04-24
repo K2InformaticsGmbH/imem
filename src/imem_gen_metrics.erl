@@ -21,12 +21,14 @@
 -record(state, {impl_state :: term()
                ,mod :: atom()
                ,reductions :: integer()
-               ,system_time :: integer()
+               ,last_system_check :: integer()
+               ,last_request :: integer()
                ,system_state = normal :: atom()}).
 
 -define(DEFAULT_REQ_TIMEOUT, 10000).
 
 -callback init() -> {ok, term()} | {error, term()}.
+-callback request_metric(MetricKey :: any()) -> noreply | {ok, any()}.
 -callback handle_metric_req(MetricKey :: term(), ReplyFun :: fun(), State :: term()) -> NewState :: term().
 -callback terminate(Reason :: term(), State :: term()) -> ok.
 
@@ -40,15 +42,34 @@ get_metric(Mod, MetricKey) ->
 
 -spec get_metric(atom(), term(), integer()) -> term() | timeout.
 get_metric(Mod, MetricKey, Timeout) ->
-    ReqRef = erlang:make_ref(),
-    gen_server:cast(Mod, {request_metric, MetricKey, ReqRef, self()}),
-    receive {metric, ReqRef, _Timestamp, Metric} -> Metric
+    ReqRef = make_ref(),
+    metric_cast(Mod, MetricKey, build_reply_fun(ReqRef, self())),
+    receive {metric, ReqRef, _Timestamp, _Node, Metric} -> Metric
     after Timeout -> timeout
     end.
 
 -spec request_metric(atom(), term(), term(), pid()) -> ok.
 request_metric(Mod, MetricKey, ReqRef, ReplyTo) ->
-    gen_server:cast(Mod, {request_metric, MetricKey, ReqRef, ReplyTo}).
+    ReplyFun = build_reply_fun(ReqRef, ReplyTo),
+    case Mod:request_metric(MetricKey) of
+        noreply ->
+            metric_cast(Mod, MetricKey, ReplyFun);
+        {noreply, NewMetricKey} ->
+            metric_cast(Mod, NewMetricKey, ReplyFun);
+        {ok, Reply} ->
+            ReplyFun(Reply),
+            ok
+    end.
+
+-spec metric_cast(atom(), term(), fun()) -> ok.
+metric_cast(Mod, MetricKey, ReplyFun) ->
+    case whereis(Mod) of
+        P when not is_pid(P) ->
+            ReplyFun({error, no_proc}),
+            ok;
+        _ ->
+            gen_server:cast(Mod, {request_metric, MetricKey, ReplyFun})
+    end.
 
 %% Gen server callback implementations.
 init([Mod]) ->
@@ -57,24 +78,31 @@ init([Mod]) ->
             Reductions = element(1,erlang:statistics(reductions)),
             Time = os:system_time(micro_seconds),
             {ok, #state{mod = Mod, impl_state = State, reductions = Reductions,
-                        system_time = Time, system_state = normal}};
+                        last_system_check = Time, system_state = normal}};
         {error, Reason} -> {stop, Reason}
     end.
 
-handle_call(UnknownReq, _From, #state{mod = Mod} = State) ->
-    ?Error("~p implementing ~p pid ~p received unknown call ~p", [Mod, ?MODULE, self(), UnknownReq]),
-    {noreply, State}.
+handle_call({impl, Req}, From, #state{mod = Mod, impl_state = ImplState} = State) ->
+    {Reply, ImplState1} = impl_mfa(Mod, handle_call, [Req, From], ImplState),
+    {reply, Reply, State#state{impl_state = ImplState1}};
+handle_call(UnknownReq, From, #state{mod = Mod} = State) ->
+    ?Error("~p unexpected handle_call ~p from ~p", [Mod, UnknownReq, From]),
+    {reply, {error, badreq}, State}.
 
-handle_cast({request_metric, MetricKey, ReqRef, ReplyTo}, #state{} = State) ->
-    ReplyFun = build_reply_fun(ReqRef, ReplyTo),
-    NewState = internal_get_metric(MetricKey, ReplyFun, State),
-    {noreply, NewState};
+handle_cast({impl, Req}, #state{mod = Mod, impl_state = ImplState} = State) ->
+    {_, ImplState1} = impl_mfa(Mod, handle_cast, [Req], ImplState),
+    {noreply, State#state{impl_state = ImplState1}};
+handle_cast({request_metric, MetricKey, ReplyFun}, #state{} = State) ->
+    {noreply, internal_get_metric(MetricKey, ReplyFun, State)};
 handle_cast(UnknownReq, #state{mod = Mod} = State) ->
-    ?Error("~p implementing ~p pid ~p received unknown cast ~p", [Mod, ?MODULE, self(), UnknownReq]),
+    ?Error("~p unexpected handle_cast ~p", [Mod, UnknownReq]),
     {noreply, State}.
 
-handle_info(Message, State) ->
-    ?Error("~p doesn't message unexpected: ~p", [?MODULE, Message]),
+handle_info({impl, Info}, #state{mod = Mod, impl_state = ImplState} = State) ->
+    {_, ImplState1} = impl_mfa(Mod, handle_info, [Info], ImplState),
+    {noreply, State#state{impl_state = ImplState1}};
+handle_info(Message, #state{mod = Mod} = State) ->
+    ?Error("~p unexpected handle_info ~p", [Mod, Message]),
     {noreply, State}.
 
 terminate(Reason, #state{mod=Mod, impl_state=ImplState}) ->
@@ -82,18 +110,42 @@ terminate(Reason, #state{mod=Mod, impl_state=ImplState}) ->
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
+impl_mfa(Mod, Fun, Args, State) ->
+    try apply(Mod, Fun, lists:concat([Args, [State]])) of
+        {reply,   IR,       IS}    -> {IR,               IS};
+        {reply,   IR,       IS, _} -> {IR,               IS};
+        {noreply,           IS}    -> {noreply,          IS};
+        {noreply,           IS, _} -> {noreply,          IS};
+        {stop,    IRsn,     IS}    -> {{stop, IRsn},     IS};
+        {stop,    IRsn, IR, IS}    -> {{stop, IRsn, IR}, IS}
+    catch
+        Class:Exception ->
+            ?Error("CRASH ~p:~p(~p, ~p) -> ~p", [Mod, Fun, Args, State, {Class,Exception}]),
+            {{error, {Class, Exception}}, State}
+    end.
+
 %% Helper functions
 -spec internal_get_metric(term(), fun(), #state{}) -> #state{}.
-internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, system_state=SysState} = State) ->
+internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState} = State) ->
     Time = os:system_time(micro_seconds),
-    ElapsedSeconds = (Time - State#state.system_time) / 1000000,
-    case {ElapsedSeconds < 1, SysState} of
+    ElapsedSeconds = (Time - State#state.last_system_check) / 1000000,
+    case {ElapsedSeconds < 1, State#state.system_state} of
+        {_, eval_crash_suspend} ->
+            case is_crash_suspend_timeout((Time - State#state.last_request) / 1000000) of
+                true ->
+                    ReplyFun(eval_crash_suspend),
+                    State;
+                false ->
+                    internal_get_metric(MetricKey, ReplyFun, State#state{system_state = normal})
+            end;
         {true, normal} ->
-            NewImplState = Mod:handle_metric_req(MetricKey, ReplyFun, ImplState),
-            State#state{impl_state = NewImplState};
-        {true, _} ->
+            {NewImplState, NewSysState} = safe_request_metric(Mod, MetricKey, ReplyFun, ImplState),
+            State#state{impl_state = NewImplState
+                       ,system_state = NewSysState
+                       ,last_request = Time};
+        {true, SysState} ->
             ReplyFun(SysState),
-            State;
+            State#state{last_request = Time};
         {false, _} ->
             MaxReductions = ?GET_CONFIG(maxReductions,[Mod],100000000,"Max number of reductions per second before considering the system as overloaded."),
             MaxMemory = ?GET_CONFIG(maxMemory,[Mod],90,"Memory usage before considering the system as overloaded."),
@@ -110,18 +162,38 @@ internal_get_metric(MetricKey, ReplyFun, #state{mod=Mod, impl_state=ImplState, s
                     ReplyFun(memory_overload),
                     {ImplState, memory_overload};
                 _ ->
-                    {Mod:handle_metric_req(MetricKey, ReplyFun, ImplState), normal}
+                    safe_request_metric(Mod, MetricKey, ReplyFun, ImplState)
             end,
             State#state{impl_state = NewImplState
                        ,reductions = Reductions
-                       ,system_time = Time
+                       ,last_system_check = Time
+                       ,last_request = Time
                        ,system_state = NewSysState}
+    end.
+
+-spec safe_request_metric(atom(), term(), fun(), term()) -> {term(), atom()}.
+safe_request_metric(Mod, MetricKey, ReplyFun, ImplState) ->
+    try Mod:handle_metric_req(MetricKey, ReplyFun, ImplState) of
+        NewImplState -> {NewImplState, normal}
+    catch
+        Error:Reason ->
+            ?Error("~p:~p crash on metric request, called as ~p:handle_metric_req(~p, ~p, ~p)~n~p~n",
+                [Error, Reason, Mod, MetricKey, ReplyFun, ImplState, erlang:get_stacktrace()]),
+            ReplyFun({error, {eval_crash, Reason}}),
+            {ImplState, eval_crash_suspend}
     end.
 
 -spec build_reply_fun(term(), pid() | tuple()) -> fun().
 build_reply_fun(ReqRef, ReplyTo) when is_pid(ReplyTo) ->
-    fun(Result) -> ReplyTo ! {metric, ReqRef, os:timestamp(), Result} end;
+    fun(Result) -> ReplyTo ! {metric, ReqRef, ?TIMESTAMP, node(), Result} end;
 build_reply_fun(ReqRef, Sock) when is_tuple(Sock) ->
     fun(Result) ->
-        imem_server:send_resp({metric, ReqRef, os:timestamp(), Result}, Sock)
+        imem_server:send_resp({imem_async, {metric, ReqRef, ?TIMESTAMP, node(), Result}}, Sock)
     end.
+
+-spec is_crash_suspend_timeout(integer()) -> boolean().
+is_crash_suspend_timeout(ElapsedSeconds) when ElapsedSeconds > 2 ->
+    % Minimum suspend time after a crash is 2 seconds regardless of configuration.
+    SuspendTimeout = ?GET_CONFIG(evalCrashTimeout, [], 10, "Seconds the agent will refuse to respond after an evaluation crash, minimum value 2."),
+    ElapsedSeconds < SuspendTimeout;
+is_crash_suspend_timeout(_ElapsedSeconds) -> true.

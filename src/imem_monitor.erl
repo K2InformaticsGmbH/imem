@@ -91,29 +91,14 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(imem_monitor_loop, #state{extraFun=EF,extraHash=EH,dumpFun=DF,dumpHash=DH} = State) ->
+handle_info(imem_monitor_loop, #state{extraFun=ExtraFun, extraHash=ExtraHash,
+                                      dumpFun=DumpFun, dumpHash=DumpHash} = State) ->
     % save one imem_monitor record and trigger the next one
     % ?Debug("imem_monitor_loop start~n",[]),
     case ?GET_MONITOR_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
-            {EHash,EFun} = case {?GET_MONITOR_EXTRA, ?GET_MONITOR_EXTRA_FUN} of
-                {false, _} ->       {undefined,undefined};
-                {true, <<"">>} ->   {undefined,undefined};
-                {true, EFStr} ->
-                    case erlang:phash2(EFStr) of
-                        EH ->   {EH,EF};
-                        H1 ->   {H1,imem_compiler:compile(EFStr)}
-                    end      
-            end,
-            {DHash,DFun} = case {?GET_MONITOR_DUMP, ?GET_MONITOR_DUMP_FUN} of
-                {false, _} ->       {undefined,undefined};
-                {true, <<"">>} ->   {undefined,undefined};
-                {true, DFStr} ->
-                    case erlang:phash2(DFStr) of
-                        DH ->   {DH,DF};
-                        H2 ->   {H2,imem_compiler:compile(DFStr)}
-                    end      
-            end,
+            {EHash, EFun} = get_mon_fun(extra, ExtraFun, ExtraHash),
+            {DHash, DFun} = get_mon_fun(dump, DumpFun, DumpHash),
             write_monitor(EFun,DFun),
             erlang:send_after(MCW, self(), imem_monitor_loop),
             {noreply, State#state{extraFun=EFun,extraHash=EHash,dumpFun=DFun,dumpHash=DHash}};
@@ -138,23 +123,38 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 
 %% ------ MONITOR implementation -------------------------------------------------------
 
+get_mon_fun(extra, Fun, Hash) ->
+    get_mon_fun({extra, ?GET_MONITOR_EXTRA}, Fun, Hash);
+get_mon_fun({extra, true}, Fun, Hash) ->
+    get_mon_fun(?GET_MONITOR_EXTRA_FUN, Fun, Hash);
+get_mon_fun(dump, Fun, Hash) ->
+    get_mon_fun({dump, ?GET_MONITOR_DUMP}, Fun, Hash);
+get_mon_fun({dump, true}, Fun, Hash) ->
+    get_mon_fun(?GET_MONITOR_DUMP_FUN, Fun, Hash);
+get_mon_fun({_, false}, _, _) -> {undefined, undefined};
+get_mon_fun(<<>>, _, _) -> {undefined, undefined};
+get_mon_fun(FunStr, Fun, Hash) ->
+    case erlang:phash2(FunStr) of
+        Hash ->     {Hash, Fun};
+        NewHash ->  {NewHash, imem_compiler:compile(FunStr)}
+    end.
+
 write_monitor() -> write_monitor(undefined,undefined).
 
 write_monitor(ExtraFun,DumpFun) ->
     try  
-        Now = os:timestamp(),
         {{input,Input},{output,Output}} = erlang:statistics(io),
-        Moni0 = #ddMonitor{ time=Now
-                         , node = node()
-                         , memory=erlang:memory(total)
-                         , process_count=erlang:system_info(process_count)          
-                         , port_count=erlang:system_info(port_count)
-                         , run_queue=erlang:statistics(run_queue)
-                         , wall_clock=element(1,erlang:statistics(wall_clock))
-                         , reductions=element(1,erlang:statistics(reductions))
-                         , input_io=Input
-                         , output_io=Output
-                         },
+        Moni0 = #ddMonitor{ time=?TIME_UID
+                          , node=node()
+                          , memory=erlang:memory(total)
+                          , process_count=erlang:system_info(process_count)          
+                          , port_count=erlang:system_info(port_count)
+                          , run_queue=erlang:statistics(run_queue)
+                          , wall_clock=element(1,erlang:statistics(wall_clock))
+                          , reductions=element(1,erlang:statistics(reductions))
+                          , input_io=Input
+                          , output_io=Output
+                          },
         Moni1 = case ExtraFun of
             undefined -> 
                 Moni0;
@@ -195,43 +195,3 @@ write_dump_log(File, Format, Args) ->
               filename:join(LogPath, File),
               list_to_binary(lists:flatten(io_lib:format(Format, Args))))
     end.
-
-%% ----- TESTS ------------------------------------------------
--ifdef(TEST).
-
--include_lib("eunit/include/eunit.hrl").
-
-setup() ->
-    ?imem_test_setup.
-
-teardown(_) ->
-    ?imem_test_teardown.
-
-db_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun monitor_operations/1]}
-    }.    
-
-monitor_operations(_) ->
-    try 
-        ?LogDebug("---TEST---"),
-
-        ?assertEqual(ok, write_monitor()),
-        MonRecs = imem_meta:read(?MONITOR_TABLE),
-        % ?LogDebug("MonRecs count ~p~n", [length(MonRecs)]),
-        % ?LogDebug("MonRecs last ~p~n", [lists:last(MonRecs)]),
-        % ?LogDebug("MonRecs[1] ~p~n", [hd(MonRecs)]),
-        % ?LogDebug("MonRecs ~p~n", [MonRecs]),
-        ?assert(length(MonRecs) > 0),
-        %?LogDebug("success ~p~n", [monitor]),
-        ok
-    catch
-        Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        throw ({Class, Reason})
-    end,
-    ok.
-    
--endif.

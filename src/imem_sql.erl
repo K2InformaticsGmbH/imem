@@ -1,6 +1,5 @@
 -module(imem_sql).
 
--include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
 -define(MaxChar,16#FFFFFF).
@@ -24,14 +23,7 @@ parse(Sql) ->
     end.
 
 prune_fields(InFields, ParseTree) ->
-    Pred = fun(P,{In,Out}) -> 
-        case lists:member(P,In) of
-            true -> {In,[P|Out]};       %% TODO: exclude alias names from match
-            _ ->    {In,Out}
-        end
-    end,
-    {InFields,OutFields} = sqlparse:foldtd(Pred,{InFields,[]},ParseTree),
-    lists:usort(OutFields).
+    imem_prune_fields:match(ParseTree, InFields).
 
 params_from_opts(Opts,ParseTree) when is_list(Opts) ->
     case lists:keyfind(params, 1, Opts) of
@@ -136,112 +128,3 @@ if_call_mfa(IsSec,Fun,Args) ->
         true -> apply(imem_sec,Fun,Args);
         _ ->    apply(imem_meta, Fun, lists:nthtail(1, Args))
     end.
-
-%% TESTS ------------------------------------------------------------------
--ifdef(TEST).
-
--include_lib("eunit/include/eunit.hrl").
-
-setup() -> 
-    ?imem_test_setup.
-
-teardown(_) ->
-    ?imem_test_teardown.
-
-db1_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun test_without_sec/1]}
-    }.
-
-db2_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun test_with_sec/1]}
-    }.
-    
-test_without_sec(_) -> 
-    test_with_or_without_sec(false).
-
-test_with_sec(_) ->
-    test_with_or_without_sec(true).
-
-test_with_or_without_sec(IsSec) ->
-    try
-        ?LogDebug("---TEST--- ~p(~p)",[test_with_or_without_sec,IsSec]),
-
-        % ?LogDebug("schema ~p~n", [imem_meta:schema()]),
-        % ?LogDebug("data nodes ~p~n", [imem_meta:data_nodes()]),
-        ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-
-        SKey = case IsSec of
-            true -> ?imem_test_admin_login();
-            _ ->    ok
-        end,
-
-        ?assertEqual("", escape_sql("")),
-        ?assertEqual(<<"">>, escape_sql(<<"">>)),
-        ?assertEqual("abc", escape_sql("abc")),
-        ?assertEqual(<<"abc">>, escape_sql(<<"abc">>)),
-        ?assertEqual("''abc", escape_sql("'abc")),
-        ?assertEqual(<<"''abc">>, escape_sql(<<"'abc">>)),
-        ?assertEqual("ab''c", escape_sql("ab'c")),
-        ?assertEqual(<<"ab''c">>, escape_sql(<<"ab'c">>)),
-        ?assertEqual(<<"''ab''''c''">>, escape_sql(<<"'ab''c'">>)),
-
-        ?assertEqual("", un_escape_sql("")),
-        ?assertEqual(<<"">>, un_escape_sql(<<"">>)),
-        ?assertEqual("abc", un_escape_sql("abc")),
-        ?assertEqual(<<"abc">>, un_escape_sql(<<"abc">>)),
-        ?assertEqual("'abc", un_escape_sql("'abc")),
-        ?assertEqual(<<"'abc">>, un_escape_sql(<<"'abc">>)),
-        ?assertEqual("ab'c", un_escape_sql("ab''c")),
-        ?assertEqual(<<"ab'c">>, un_escape_sql(<<"ab''c">>)),
-        ?assertEqual(<<"'ab'c'">>, un_escape_sql(<<"'ab''c'">>)),
-
-        % ?LogDebug("---TEST---~p:test_mnesia~n", [?MODULE]),
-        ?assertEqual(true, is_atom(imem_meta:schema())),
-        % ?LogDebug("success ~p~n", [schema]),
-        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-        % ?LogDebug("success ~p~n", [data_nodes]),
-
-        % ?LogDebug("~p:test_database_operations~n", [?MODULE]),
-        _Types1 =    [ #ddColumn{name=a, type=char, len=1}     %% key
-                    , #ddColumn{name=b1, type=char, len=1}    %% value 1
-                    , #ddColumn{name=c1, type=char, len=1}    %% value 2
-                    ],
-        _Types2 =    [ #ddColumn{name=a, type=integer, len=10}    %% key
-                    , #ddColumn{name=b2, type=float, len=8, prec=3}   %% value
-                    ],
-
-        ?assertEqual(ok, exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "imem", IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
-
-        ?assertEqual(ok, exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, "imem", IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_2])),    
-
-        ?assertEqual(ok, exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
-        ?assertEqual(0,  if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),    
-        % ?LogDebug("success ~p~n", [create_tables]),
-
-        ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
-        ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
-        ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
-        % ?LogDebug("success ~p~n", [drop_tables]),
-
-        case IsSec of
-            true -> ?imem_logout(SKey);
-            _ ->    ok
-        end
-    catch
-        Class:Reason ->  ?LogDebug("Exception~n~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        ?assert( true == "all tests completed")
-    end,
-    ok. 
-
--endif.

@@ -63,6 +63,7 @@
         , write/2
         , dirty_write/2
         , delete/2
+        , dirty_delete/2
         , delete_object/2
         , update_tables/2
         , update_bound_counter/6
@@ -75,11 +76,17 @@
 -export([ transaction/1
         , transaction/2
         , transaction/3
+        , ets/2
+        , select_count/2
         , return_atomic_list/1
         , return_atomic_ok/1
         , return_atomic/1
         , lock/2
         , abort/1
+        , integer_uid/0
+        , time_uid/0
+        , timestamp/0
+        , timestamp_diff/2
         ]).
 
 -export([ first/1
@@ -99,13 +106,16 @@
 -export([ epmd_register/0
         ]).
 
+% Functions applied with Common Test
+-export([update_xt/8]).
+
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
-                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write = os:timestamp()}),
+                    true = ets:insert(?SNAP_ETS_TAB, __Up#snap_properties{last_write=?TIMESTAMP}),
                     ok;
                 [] ->
-                    __Now = os:timestamp(),
+                    __Now = ?TIMESTAMP,
                     true = ets:insert(?SNAP_ETS_TAB, #snap_properties{table=__Table, last_write=__Now, last_snap=__Now}),
                     ok
             end
@@ -128,6 +138,34 @@ disc_schema_nodes(Schema) when is_atom(Schema) ->
 
 
 %% ---------- TRANSACTION SUPPORT ------ exported -------------------------------
+
+% Monotonic, adapted, non-unique timestamp
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIMESTAMP
+-spec timestamp() -> ddTimestamp().
+timestamp() -> 
+    SystemTime = erlang:system_time(1000000),
+    {SystemTime div 1000000, SystemTime rem 1000000}.
+
+% Monotonic, adapted, non-unique timestamp difference
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIMESTAMP_DIFF
+-spec timestamp_diff(ddTimestamp(),ddTimestamp()) -> integer().
+timestamp_diff({Sec1, Micro1}, {Sec2, Micro2}) -> 1000000*(Sec2-Sec1)+Micro2-Micro1.
+
+% Monotonic, adapted, unique timestamp
+% microsecond resolution and OS-dependent precision
+% referenced with macro ?TIME_UID
+-spec time_uid() -> ddTimeUID(). 
+time_uid() -> 
+    {Secs, Micros} = timestamp(),
+    {Secs, Micros, node(), erlang:unique_integer([monotonic, positive])}.
+
+% Unique integer per imem node (VM)
+% referenced with macro ?INTEGER_UID
+-spec integer_uid() -> integer().
+integer_uid() -> erlang:unique_integer([monotonic, positive]).
+
 
 return_atomic_list({atomic, L}) when is_list(L) -> L;
 return_atomic_list({aborted,{throw,{Exception,Reason}}}) -> throw({Exception,Reason});
@@ -152,7 +190,7 @@ abort(Reason) -> mnesia:abort(Reason).
 
 % init and store transaction time
 trans_time_init() ->
-    erlang:put(?TRANS_TIME_NAME,?TRANS_TIME).
+    erlang:put(?TRANS_TIME_NAME,?TIME_UID).
 
 transaction(Function) when is_atom(Function) ->
     case mnesia:is_transaction() of
@@ -223,8 +261,8 @@ field_pick_mapped(Tup,Pointers) when is_tuple(Tup) ->
     catch list_to_tuple([E || P <- Pointers, {I,E} <- lists:zip(lists:seq(1,length(EL)),EL),P==I]);    
 field_pick_mapped(_,_) -> {}.
 
-meta_field_value(<<"systimestamp">>) -> os:timestamp();
-meta_field_value(systimestamp) -> os:timestamp();
+meta_field_value(<<"systimestamp">>) -> ?TIME_UID;
+meta_field_value(systimestamp) -> ?TIME_UID;
 meta_field_value(<<"user">>) -> <<"unknown">>;
 meta_field_value(user) -> <<"unknown">>;
 meta_field_value(<<"sysdate">>) -> calendar:local_time();
@@ -244,7 +282,7 @@ schema() ->
 
 schema(Node) ->
     %% schema identifier of remote imem node in the same erlang cluster
-    case rpc:call(Node, mnesia, system_info, [directory], 1000) of
+    case rpc:call(Node, mnesia, system_info, [directory], 1500) of
         {badrpc, _} = Error -> Error;
         MnesiaDirectory ->
             [Schema|_] = re:split(filename:basename(MnesiaDirectory), "[.]", [{return, list}]),
@@ -332,6 +370,7 @@ check_local_table_copy(Table) ->
 
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
+-spec create_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
 create_table(Table, ColumnNames, Opts) ->
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
@@ -343,26 +382,28 @@ create_table(Table, ColumnNames, Opts) ->
 
 is_system_table(_) -> false.
 
-create_local_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_local_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_local_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     Cols = [list_to_atom(lists:flatten(io_lib:format("~p", [X]))) || X <- ColumnNames],
     CompleteOpts = add_attribute(Cols, Opts) -- [{scope,local}],
     create_table(Table, CompleteOpts).
 
-create_schema_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_schema_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_schema_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,schema}],
     create_local_table(Table,ColumnNames,CompleteOpts).
 
-create_cluster_table(Table,ColumnNames,Opts) when is_atom(Table) ->
+-spec create_cluster_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
+create_cluster_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     DiscNodes = mnesia:table_info(schema, disc_copies),
     RamNodes = mnesia:table_info(schema, ram_copies),
     %% ToDo: may need to pull from another imem schema first and initiate sync
     CompleteOpts = [{ram_copies, RamNodes}, {disc_copies, DiscNodes}|Opts] -- [{scope,cluster}],
     create_local_table(Table,ColumnNames,CompleteOpts).
 
-create_table(Table, Opts) when is_list(Table) ->
-    create_table(list_to_atom(Table), Opts);
+-spec create_table(ddMnesiaTable(), ddOptions()) -> ok.
 create_table(Table, Opts) when is_atom(Table) ->
     % ?LogDebug("imem_if_mnesia create table ~p ~p",[Table,Opts]),
     {ok, Conf} = application:get_env(imem, mnesia_wait_table_config),
@@ -387,6 +428,7 @@ create_table(Table, Opts) when is_atom(Table) ->
             return_atomic_ok(Result)
     end.
 
+-spec wait_table_tries([ddMnesiaTable()], {integer(), integer()}) -> ok.
 wait_table_tries(Tables, {0, _}) ->
     ?ClientErrorNoLogging({"Loading table(s) timeout~p", Tables});
 wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
@@ -397,20 +439,22 @@ wait_table_tries(Tables, {Count,Timeout}) when is_list(Tables) ->
         {error, Reason} ->              ?ClientErrorNoLogging({"Error loading table~p", Reason})
     end.
 
+-spec drop_table(ddMnesiaTable()) -> ok.
 drop_table(Table) when is_atom(Table) ->
-    case imem:spawn_sync_mfa(mnesia,delete_table,[Table]) of
+    case imem:spawn_sync_mfa(mnesia, delete_table, [Table]) of
         ok ->                           
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
         {atomic,ok} ->                  
             true = ets:delete(?SNAP_ETS_TAB, Table),
             ok;
-        {aborted,{no_exists,Table}} ->  
+        {aborted,{no_exists, Table}} ->  
             ?ClientErrorNoLogging({"Table does not exist",Table});
         Error ->                        
             ?SystemExceptionNoLogging(Error)
     end.
 
+-spec create_index(ddMnesiaTable(), ddColumnName()) -> ok.
 create_index(Table, Column) when is_atom(Table) ->
     case mnesia:add_table_index(Table, Column) of
         {aborted, {no_exists, Table}} ->
@@ -537,6 +581,9 @@ delete_object(Table, Row) when is_atom(Table) ->
 dirty_select(Table, MatchSpec) when is_atom(Table) ->
     mnesia:dirty_select(Table, MatchSpec).
 
+dirty_delete(Table, Key) when is_atom(Table) ->
+    mnesia:dirty_delete(Table, Key).
+
 select(Table, MatchSpec) when is_atom(Table) ->
     case transaction(select,[Table, MatchSpec]) of
         {atomic, L}     ->                  {L, true};
@@ -598,13 +645,11 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 {aborted, Reason} ->
                                     exit(Reason);
                                 {Rows, Contd1} ->
-                                    % ?Info("[~p] got rows~n~p~n",[Pid,Rows]),
+                                    % ?LogDebug("[~p] select got rows~n~p~n~p",[Pid,Rows,Contd1]),
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
-                                            Pid ! {row, [?sot,?eot|Rows]};
-                                        true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
+                                           Pid ! {row, [?sot,?eot|Rows]};
+                                       true ->
                                             Pid ! {row, [?sot|Rows]},
                                             F(F,Contd1)
                                     end
@@ -620,10 +665,8 @@ fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
                                 {Rows, Contd1} ->
                                     Eot = lists:member('$end_of_table', tuple_to_list(Contd1)),
                                     if  Eot ->
-                                            % ?Info("[~p] complete after ~p~n",[Pid,Contd1]),
                                             Pid ! {row, [?eot|Rows]};
                                         true ->
-                                            % ?Info("[~p] continue with ~p~n",[Pid,Contd1]),
                                             Pid ! {row, Rows},
                                             F(F,Contd1)
                                     end
@@ -899,8 +942,10 @@ init(_) ->
         [DiscSchemaNode|_] ->
             ?Info("adding ~p to schema ~p on ~p~n",
                   [node(), SchemaName, DiscSchemaNode]),
+            MnesiaNodes = [node() | ClusterManagers],
+            {ok, _} = mnesia:change_config(extra_db_nodes, MnesiaNodes),
             {ok, _} = rpc:call(DiscSchemaNode, mnesia, change_config,
-                               [extra_db_nodes, [node() | ClusterManagers]])
+                               [extra_db_nodes, MnesiaNodes])
     end,
     {ok, NodeType} = application:get_env(mnesia_node_type),
     ?Info("mnesia node type is '~p'~n", [NodeType]),
@@ -1024,255 +1069,8 @@ mnesia_atomic(Fun, [_|_] = Args)
         Error -> Error
     end.
 
-%% ----- TESTS ------------------------------------------------
--ifdef(TEST).
+ets(Fun, Args) ->
+    mnesia:ets(Fun, Args).
 
--include_lib("eunit/include/eunit.hrl").
-
-setup() ->
-    ?imem_test_setup.
-
-teardown(_) ->
-    catch drop_table(imem_table_bag),
-    catch drop_table(imem_table_123),
-    ?imem_test_teardown.
-
-db1_test_() ->
-    {
-        setup,
-        fun setup/0,
-        fun teardown/1,
-        {with, [fun table_operations/1]}
-    }.
-
-table_operations(_) ->
-    try
-        ?LogDebug("---TEST---"),
-
-        ClEr = 'ClientError',
-        CoEx = 'ConcurrencyException',
-        Self = self(),
-
-        % ?LogDebug("schema ~p", [imem_meta:schema()]),
-        % ?LogDebug("data nodes ~p", [imem_meta:data_nodes()]),
-        ?assertEqual(true, is_atom(imem_meta:schema())),
-        ?assertEqual(true, lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
-
-        ?assertEqual([{c,b,a}],field_pick([{a,b,c}],"321")),
-        ?assertEqual([{c,a}],?FP([{a,b,c}],"31")),
-        ?assertEqual([{b}],?FP([{a,b,c}],"2")),
-        ?assertEqual([{a,j}],?FP([{a,b,c,d,e,f,g,h,i,j,k}],"1(10)")),
-        ?assertEqual([{a,k}],?FP([{a,b,c,d,e,f,g,h,i,j,k}],"1(11)")),
-        ?assertEqual([{a,c}],?FP([{a,b,c,d,e,f,g,h,i}],"13(10)")),
-        ?assertEqual([{a,c}],?FP([{a,b,c,d,e,f,g,h,i}],"1(10)3")), %% TODO: should be [{a,'N/A',c}]
-
-
-        % ?LogDebug("~p:test_database_operations~n", [?MODULE]),
-
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_size(non_existing_table)),
-        % ?LogDebug("success ~p~n", [table_size_no_exists]),
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, table_memory(non_existing_table)),
-        % ?LogDebug("success ~p~n", [table_memory_no_exists]),
-
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table)),
-        % ?LogDebug("success ~p~n", [table_read_no_exists]),
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read(non_existing_table, no_key)),
-        % ?LogDebug("success ~p~n", [row_read_no_exists]),
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
-        % ?LogDebug("success ~p~n", [row_write_no_exists]),
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, dirty_write(non_existing_table, {non_existing_table, "AAA","BB","CC"})),
-        % ?LogDebug("success ~p~n", [row_dirty_write_no_exists]),
-%        ?assertException(throw, {SyEx, {aborted,{bad_type,non_existing_table,{},write}}}, write(non_existing_table, {})),
-        % ?LogDebug("success ~p~n", [row_write_bad_type]),
-        ?assertEqual(ok, create_table(imem_table_123, [a,b,c], [])),
-        % ?LogDebug("success ~p~n", [create_set_table]),
-        ?assertEqual(0, table_size(imem_table_123)),
-        % ?LogDebug("success ~p~n", [table_size_empty]),
-        BaseMemory = table_memory(imem_table_123),
-        ?assert(BaseMemory < 4000),    %% got value of 303 words x 8 bytes on 10.05.2013
-        % ?LogDebug("success ~p ~p~n", [table_memory_empty, BaseMemory]),
-        ?assertEqual(ok, write(imem_table_123, {imem_table_123,"A","B","C"})),
-        ?assertEqual(1, table_size(imem_table_123)),
-        % ?LogDebug("success ~p~n", [write_table]),
-        ?assertEqual(ok, write(imem_table_123, {imem_table_123,"AA","BB","CC"})),
-        ?assertEqual(2, table_size(imem_table_123)),
-        % ?LogDebug("success ~p~n", [write_table]),
-        ?assertEqual(ok, write(imem_table_123, {imem_table_123,"AA","BB","cc"})),
-        ?assertEqual(2, table_size(imem_table_123)),
-        % ?LogDebug("success ~p~n", [write_table]),
-        ?assertEqual(ok, write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
-        ?assertEqual(3, table_size(imem_table_123)),
-        % ?LogDebug("success ~p~n", [write_table]),
-        ?assertEqual(ok, dirty_write(imem_table_123, {imem_table_123, "AAA","BB","CC"})),
-        ?assertEqual(3, table_size(imem_table_123)),
-        % ?LogDebug("success ~p~n", [write_table]),
-        FullMemory = table_memory(imem_table_123),
-        ?assert(FullMemory > BaseMemory),
-        ?assert(FullMemory < BaseMemory + 800),  %% got 362 words on 10.5.2013
-        % ?LogDebug("success ~p ~p~n", [table_memory_full, FullMemory]),
-        ?assertEqual([{imem_table_123,"A","B","C"}], read(imem_table_123,"A")),
-        % ?LogDebug("success ~p~n", [read_table_1]),
-        ?assertEqual([{imem_table_123,"AA","BB","cc"}], read(imem_table_123,"AA")),
-        % ?LogDebug("success ~p~n", [read_table_2]),
-        ?assertEqual([], read(imem_table_123,"XX")),
-        % ?LogDebug("success ~p~n", [read_table_3]),
-        AllRecords=lists:sort([{imem_table_123,"A","B","C"},{imem_table_123,"AA","BB","cc"},{imem_table_123,"AAA","BB","CC"}]),
-        AllKeys=["A","AA","AAA"],
-        ?assertEqual(AllRecords, lists:sort(read(imem_table_123))),
-        ?assertEqual(AllRecords, lists:sort(dirty_read(imem_table_123))),
-        % ?LogDebug("success ~p~n", [read_table_4]),
-        ?assertEqual({AllRecords,true}, select_sort(imem_table_123, ?MatchAllRecords)),
-        % ?LogDebug("success ~p~n", [select_all_records]),
-        ?assertEqual({AllKeys,true}, select_sort(imem_table_123, ?MatchAllKeys)),
-        % ?LogDebug("success ~p~n", [select_all_keys]),
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, select(non_existing_table, ?MatchAllRecords)),
-        % ?LogDebug("success ~p~n", [select_table_no_exists]),
-        MatchHead = {'$1','$2','$3','$4'},
-        Guard = {'==', '$3', "BB"},
-        Result = {{'$3','$4'}},
-        DTupResult = lists:sort([{"BB","cc"},{"BB","CC"}]),
-        ?assertEqual({DTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [Result]}])),
-        % ?LogDebug("success ~p~n", [select_some_data1]),
-        STupResult = lists:sort(["cc","CC"]),
-        ?assertEqual({STupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], ['$4']}])),
-        % ?LogDebug("success ~p~n", [select_some_data]),
-        NTupResult = lists:sort([{"cc"},{"CC"}]),
-        ?assertEqual({NTupResult,true}, select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}])),
-        % ?LogDebug("success ~p~n", [select_some_data2]),
-        Limit=10,
-        SelRes=select_sort(imem_table_123, [{MatchHead, [Guard], [{{'$4'}}]}], Limit),
-        ?assertMatch({[_|_], true}, SelRes),
-        {SelList, true} = SelRes,
-        ?assertEqual(NTupResult, SelList),
-        % ?LogDebug("success ~p~n", [select_some_data3]),
-
-        % ?LogDebug("~p:test_transactions~n", [?MODULE]),
-
-        % ?LogDebug("data in table ~p~n~p~n", [imem_table_123, lists:sort(read(imem_table_123))]),
-
-        Trig = fun(O,N,T,U,TO) -> imem_meta:log_to_db(debug,?MODULE,trigger,[{table,T},{old,O},{new,N},{user,U},{tropts,TO}],"trigger") end,
-        U = unknown,
-        Update1 = fun(X) ->
-            update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","BB","CC"}, {imem_table_123, "AAA","11",X},Trig,U,[]),
-            update_xt({imem_table_123,set}, 2, optimistic, {}, {imem_table_123, "XXX","11","22"},Trig,U,[]),
-            update_xt({imem_table_123,set}, 3, optimistic, {imem_table_123, "AA","BB","cc"}, {},Trig,U,[]),
-            lists:sort(read(imem_table_123))
-        end,
-        UR1 = return_atomic(transaction(Update1, ["99"])),
-        % ?LogDebug("updated data in table ~p~n~p~n", [imem_table_123, UR1]),
-        ?assertEqual(UR1, [{imem_table_123,"A","B","C"},{imem_table_123,"AAA","11","99"},{imem_table_123,"XXX","11","22"}]),
-
-        Update1a = fun(X) ->
-            update_xt({imem_table_123,set}, 1, optimistic, {imem_table_123, "AAA","11","99"}, {imem_table_123, "AAA","BB",X},Trig,U,[])
-        end,
-        UR1a = return_atomic(transaction(Update1a, ["xx"])),
-        % ?LogDebug("updated key ~p~n", [UR1a]),
-        ?assertEqual({1,{imem_table_123, "AAA","BB","xx"}},UR1a),
-
-
-        ?assertEqual(ok, truncate_table(imem_table_123)),
-        ?assertEqual(0,table_size(imem_table_123)),
-        ?assertEqual(BaseMemory, table_memory(imem_table_123)),
-
-        ?assertEqual(ok, drop_table(imem_table_123)),
-        % ?LogDebug("success ~p~n", [drop_table]),
-
-        ?assertEqual(ok, create_table(imem_table_bag, [a,b,c], [{type, bag}])),
-        % ?LogDebug("success ~p~n", [create_bag_table]),
-
-        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag,"A","B","C"})),
-        ?assertEqual(1, table_size(imem_table_bag)),
-        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag,"AA","BB","CC"})),
-        ?assertEqual(2, table_size(imem_table_bag)),
-        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag,"AA","BB","cc"})),
-        ?assertEqual(3, table_size(imem_table_bag)),
-        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag, "AAA","BB","CC"})),
-        ?assertEqual(4, table_size(imem_table_bag)),
-        ?assertEqual(ok, write(imem_table_bag, {imem_table_bag, "AAA","BB","CC"})),
-        ?assertEqual(bag, table_info(imem_table_bag, type)),
-        ?assertEqual(4, table_size(imem_table_bag)),
-        % ?LogDebug("data in table ~p~n~p~n", [imem_table_bag, lists:sort(read(imem_table_bag))]),
-        % ?LogDebug("success ~p~n", [write_table]),
-
-        Update2 = fun(X) ->
-            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag, "AA","BB","cc"}, {imem_table_bag, "AA","11",X},Trig,U,[]),
-            update_xt({imem_table_bag,bag}, 2, optimistic, {}, {imem_table_bag, "XXX","11","22"},Trig,U,[]),
-            update_xt({imem_table_bag,bag}, 3, optimistic, {imem_table_bag, "A","B","C"}, {},Trig,U,[]),
-            lists:sort(read(imem_table_bag))
-        end,
-        UR2 = return_atomic(transaction(Update2, ["99"])),
-        % ?LogDebug("updated data in table ~p~n~p~n", [imem_table_bag, UR2]),
-        ?assertEqual([{imem_table_bag,"AA","11","99"},{imem_table_bag,"AA","BB","CC"},{imem_table_bag,"AAA","BB","CC"},{imem_table_bag,"XXX","11","22"}], UR2),
-
-        Update3 = fun() ->
-            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag, "AA","BB","cc"}, {imem_table_bag, "AA","11","11"},Trig,U,[])
-        end,
-        ?assertException(throw, {CoEx, {"Data is modified by someone else", {1, {imem_table_bag, "AA","BB","cc"}}}}, return_atomic(transaction(Update3))),
-
-        Update4 = fun() ->
-            update_xt({imem_table_bag,bag}, 1, optimistic, {imem_table_bag,"AA","11","99"}, {imem_table_bag, "AB","11","11"},Trig,U,[])
-        end,
-        ?assertEqual({1, {imem_table_bag, "AB","11","11"}}, return_atomic(transaction(Update4))),
-
-        ?assertEqual(ok, drop_table(imem_table_bag)),
-        % ?LogDebug("success ~p~n", [drop_table]),
-
-        ?assertEqual(ok, create_table(imem_table_123, [hlk,val], [])),
-        % ?LogDebug("success ~p~n", [imem_table_123]),
-        ?assertEqual([], read_hlk(imem_table_123, [some_key])),
-        HlkR1 = {imem_table_123, [some_key],some_value},
-        ?assertEqual(ok, write(imem_table_123, HlkR1)),
-        ?assertEqual([HlkR1], read_hlk(imem_table_123, [some_key])),
-        ?assertEqual([HlkR1], read_hlk(imem_table_123, [some_key,some_context])),
-        ?assertEqual([], read_hlk(imem_table_123, [some_wrong_key])),
-        HlkR2 = {imem_table_123, [some_key],some_value},        
-        ?assertEqual(ok, write(imem_table_123, HlkR2)),
-        ?assertEqual([HlkR2], read_hlk(imem_table_123, [some_key,over_context])),
-        ?assertEqual([], read_hlk(imem_table_123, [])),
-
-        ?assertException(throw, {ClEr, {"Table does not exist", non_existing_table}}, read_hlk(non_existing_table, [some_key,over_context])),
-
-        Key = [sum],
-        ?assertEqual(ok, write(imem_table_123, {imem_table_123, Key,0})),
-        [spawn(fun() -> Self ! {N,read_write_test(imem_table_123,Key,N)} end) || N <- lists:seq(1,10)],
-        % ?LogDebug("success ~p", [read_write_spawned]),
-        ReadWriteResult = receive_results(10,[]),
-        ?assertEqual(10, length(ReadWriteResult)),
-        ?assertEqual([{imem_table_123,Key,55}], read(imem_table_123,Key)),
-        ?assertEqual([{atomic,ok}],lists:usort([R || {_,R} <- ReadWriteResult])),
-        % ?LogDebug("success ~p~n", [bulk_read_write]),
-
-        ?assertEqual(ok, drop_table(imem_table_123)),
-        % ?LogDebug("success ~p~n", [drop_table]),
-        ok
-
-    catch
-        Class:Reason ->  ?LogDebug("Exception ~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()]),
-        throw ({Class, Reason})
-    end,
-    ok.
-
-read_write_test(Tab, Key, N) ->
-    Upd = fun() ->
-        [{Tab, Key, Val}] = read(Tab, Key),
-        write(Tab, {Tab, Key, Val + N})
-    end,
-    transaction(Upd).
-
-receive_results(N,Acc) ->
-    receive 
-        Result ->
-            case N of 
-                1 ->    
-                    % ?LogDebug("Result ~p", [Result]),
-                    [Result|Acc]; 
-                _ ->    
-                    % ?LogDebug("Result ~p", [Result]),
-                    receive_results(N-1,[Result|Acc])
-            end
-    after 4000 ->   
-        ?LogDebug("Result timeout ~p", [4000]),
-        Acc
-    end.
-
--endif.
+select_count(Tab, MatchSpec) ->
+    ets(fun ets:select_count/2, [Tab, MatchSpec]).

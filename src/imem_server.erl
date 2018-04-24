@@ -53,7 +53,7 @@ start_link(Params) ->
                               list_to_binary(
                                 io_lib:format(
                                   "Installed at ~p on ~s",
-                                  [node(), imem_datatype:timestamp_to_io(os:timestamp())]
+                                  [node(), imem_datatype:timestamp_to_io(?TIMESTAMP)]
                                  ))),
                            ImemSslDefault ++
                            proplists:delete(keyfile, proplists:delete(certfile, Opts));
@@ -115,12 +115,10 @@ restart() ->
 init(ListenerPid, Socket, Transport, Opts) ->
     PeerNameMod = case lists:member(ssl, Opts) of true -> ssl; _ -> inet end,
     {ok, {Address, Port}} = PeerNameMod:peername(Socket),
-    Str = lists:flatten(io_lib:format("~p received connection from ~s:~p"
+    _Str = lists:flatten(io_lib:format("~p received connection from ~s:~p"
                                       , [self(), inet_parse:ntoa(Address)
                                          , Port])),
-    ?Debug(Str++"~n", []),
-    imem_meta:log_to_db(debug,?MODULE,init
-                        ,[ListenerPid, Socket, Transport, Opts], Str),
+    ?Debug(_Str++"~n", []),
     ok = ranch:accept_ack(ListenerPid),
     % Linkinking TCP socket
     % for easy lookup
@@ -187,7 +185,7 @@ mfa({Ref, Mod, Fun, Args}, Transport) ->
                end,
     ?TLog("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
     ?TLog("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
-    send_resp({reply, ApplyRes}, Transport),
+    send_resp(ApplyRes, Transport),
     ok. % 'ok' returned for erlimem compatibility
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->

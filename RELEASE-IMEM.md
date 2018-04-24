@@ -3,6 +3,86 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 2.1.0 (Release Date 05.04.2018)
+=======================================
+* Upgraded sqlparse to version 4.0.0
+* Improved type inference in JSON projection updates
+
+Version 2.0.0 (Release Date 19.01.2018)
+=======================================
+* Common tests added [#183](https://github.com/K2InformaticsGmbH/imem/pulls/183)
+* Removed `filename.erl` as fixed in OTP 20.2 [#185](https://github.com/K2InformaticsGmbH/imem/issues/185)
+
+Version 1.9.1 (Release Date 23.11.2017)
+=======================================
+* APIs `ets`, `select_count` [#184](https://github.com/K2InformaticsGmbH/imem/issues/184)
+
+Version 1.9.0 (Release Date 20.11.2017)
+=======================================
+* Fixed decimals when using datatype to convert from float to io
+* Skvh delete using keys as terms
+* Implemented circular reference for imem_config
+* sqlparse to version 3.0.0
+
+Version 1.8.2 (Release Date 10.11.2017)
+=======================================
+* sext-1.4.1
+* fixes for node sharded tables [#175](https://github.com/K2InformaticsGmbH/imem/issues/175)
+
+Version 1.8.1 (Release Date 16.10.2017)
+=======================================
+* OTP-20.1
+* Erlscrypt to version
+* Exoprted decode/2 function to imem_json to allow options.
+
+Version 1.8.0 (Release Date 11.09.2017)
+=======================================
+* Migration to rebar3.
+* Improved application start / stop.
+* purge/proll logic re-worked
+
+Version 1.7.1 (Release Date 27.07.2017)
+=======================================
+* OTP 20
+* Backward compatibility added for partition name calculation based on key.
+* Added list_to_binstr sql function
+* Export start, suspend and restart in imem_snap
+* Using new imem_meta monotinic time to check if snapshot is required and reduced the check frequency to 60 seconds.
+
+Version 1.7.0 (Release Date 03.05.2017)
+=======================================
+* Added new time methods to replace deprecated erlang:now 
+
+Version 1.6.3 (Release Date 28.04.2017)
+=======================================
+* OTP 19 support
+* [lager-3.4.2](https://github.com/K2InformaticsGmbH/lager/tree/3.4.2)
+* [Clustering between OTP18 and OTP19 fixed](https://github.com/K2InformaticsGmbH/imem/commit/b1f873fc763649a4d0d22a8e3750a18bb92f03fa)
+
+Version 1.6.2 (Release Date 12.04.2017)
+=======================================
+* Added node information to the metric results
+* metric modification support for noreply path
+* Implemented safe callback function and suspend agent execution of metric for at least 2 seconds after a crash
+* fixed return value of request_metric on behaviour as the caller expect it to be ok, and the metric result should be sent as message
+* Changed request_metric from imem_sec to use imem_gen_metrics and pass the callback module as a parameter
+* Required nodes reutrned with elrang and data nodes metrics
+* [`sqlparse-2.0.0`](https://github.com/K2InformaticsGmbH/sqlparse/releases/tag/2.0.0)
+* [`jpparse-1.0.0`](https://github.com/K2InformaticsGmbH/jpparse/releases/tag/1.0.0)
+* [Bug Fixes](https://github.com/K2InformaticsGmbH/imem/issues?q=is%3Aclosed+milestone%3A1.6.2)
+
+Version 1.6.1 (Release Date 09.03.2017)
+=======================================
+* Added support for async request metrics from remote connection
+* Implemented driven sync reply
+* Ranch dependency upgraded to 1.3.2
+* 127.0.0.1 set as default listener address 
+* Implemented snapshot exclusion pattern as function inside imem_snap
+* Implemented sql function round
+* replaced safe sql funciton for typed version safe_<datatype> i.e.: (safe_atom, safe_binstr, ...) 
+* Implmeented projection update/insert for map_get
+* Added maps, binary and strings modules to the list of safe sql functions.
+
 Version 1.6.0 (Release Date 18.01.2017)
 =======================================
 * Improved support for escaped text in CSV files.
