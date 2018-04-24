@@ -2,6 +2,8 @@
 
 #include "Windows.h"
 
+typedef void (__cdecl *WINAPIPTR)(_Out_ LPFILETIME);
+
 int main(int argc, char *argv[])
 {
     LARGE_INTEGER lpPerformanceCount;
@@ -15,11 +17,18 @@ int main(int argc, char *argv[])
 
 printf("WINVER %u, _WIN32_WINNT_WIN7 %u\n", WINVER, _WIN32_WINNT_WIN7);
 #if defined(_WIN32_WINNT_WIN8) && WINVER > _WIN32_WINNT_WIN8
-    FILETIME ft;
-    GetSystemTimePreciseAsFileTime(&ft);
+   WINAPIPTR getSystemTimePreciseAsFileTime;
+   if(NULL == (getSystemTimePreciseAsFileTime =
+               (WINAPIPTR)GetProcAddress(GetModuleHandle(TEXT("kernel32.dll")), "GetSystemTimePreciseAsFileTime")))
+   {
+        printf("GetSystemTimePreciseAsFileTime unavaiable\n");
+   } else {
+        FILETIME ft;
+        (getSystemTimePreciseAsFileTime)(&ft);
 
-    printf("FILETIME.dwHighDateTime %x, FILETIME.dwLowDateTime %x\n",
-     ft.dwHighDateTime, ft.dwLowDateTime);
+        printf("FILETIME.dwHighDateTime %x, FILETIME.dwLowDateTime %x\n",
+            ft.dwHighDateTime, ft.dwLowDateTime);
+   }
 #endif
 
     return 0;

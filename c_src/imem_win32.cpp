@@ -82,20 +82,39 @@ static ERL_NIF_TERM queryPerformanceCounter(
 }
 
 #if defined(_WIN32_WINNT_WIN8) && WINVER > _WIN32_WINNT_WIN8
+typedef void (__cdecl *WINAPIPTR)(_Out_ LPFILETIME);
 static ERL_NIF_TERM getSystemTimePreciseAsFileTime(
     ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 )
 {
     argc = argc; // for unused variable warning
 
-    FILETIME ft;
-    GetSystemTimePreciseAsFileTime(&ft);
+    WINAPIPTR getSystemTimePreciseAsFileTime;
+    if(NULL == (
+        getSystemTimePreciseAsFileTime =
+            (WINAPIPTR)GetProcAddress(
+                GetModuleHandle(TEXT("kernel32.dll")),
+                "GetSystemTimePreciseAsFileTime"
+            )
+        )) {
+        return enif_raise_exception(
+            env,
+            enif_make_string(
+                env,
+                "GetSystemTimePreciseAsFileTime unavaiable",
+                ERL_NIF_LATIN1
+            )
+        );
+    } else {
+        FILETIME ft;
+        (getSystemTimePreciseAsFileTime)(&ft);
 
-    ErlNifUInt64 SystemTimeAsFileTime = ft.dwHighDateTime;
-	SystemTimeAsFileTime <<= 32;
-	SystemTimeAsFileTime |= ft.dwLowDateTime;
+        ErlNifUInt64 SystemTimeAsFileTime = ft.dwHighDateTime;
+        SystemTimeAsFileTime <<= 32;
+        SystemTimeAsFileTime |= ft.dwLowDateTime;
 
-    return enif_make_uint64(env, SystemTimeAsFileTime);
+        return enif_make_uint64(env, SystemTimeAsFileTime);
+    }
 }
 #endif
 
