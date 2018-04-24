@@ -8,6 +8,7 @@
     event_type  = register  :: atom(),
     enable      = false     :: boolean(),
     process                 :: term(),
+    trace_node              :: atom(),
     mod         = '_'       :: atom(),
     func        = '_'       :: atom(),
     args        = '_'       :: term(),
@@ -21,6 +22,7 @@
     atom,       % event_type
     boolean,    % enable
     term,       % process
+    atom,       % trace_node
     atom,       % mod
     atom,       % func
     term,       % args
