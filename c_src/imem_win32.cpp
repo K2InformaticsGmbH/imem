@@ -5,6 +5,68 @@
 
 #include "Windows.h"
 
+static ERL_NIF_TERM getLocalTime(
+    ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
+)
+{
+    argc = argc; // for unused variable warning
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    ERL_NIF_TERM map = enif_make_new_map(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "year"),
+            enif_make_uint(env, (unsigned int) st.wYear),
+            &map)
+    ) return enif_make_badarg(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "month"),
+            enif_make_uint(env, (unsigned int) st.wMonth),
+            &map)
+    ) return enif_make_badarg(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "dayOfWeek"),
+            enif_make_uint(env, (unsigned int) st.wDayOfWeek),
+            &map)
+    ) return enif_make_badarg(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "day"),
+            enif_make_uint(env, (unsigned int) st.wDay),
+            &map)
+    ) return enif_make_badarg(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "hour"),
+            enif_make_uint(env, (unsigned int) st.wHour),
+            &map)
+    ) return enif_make_badarg(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "minute"),
+            enif_make_uint(env, (unsigned int) st.wMinute),
+            &map)
+    ) return enif_make_badarg(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "second"),
+            enif_make_uint(env, (unsigned int) st.wSecond),
+            &map)
+    ) return enif_make_badarg(env);
+    if(!enif_make_map_put(
+            env, map,
+            enif_make_atom(env, "milliseconds"),
+            enif_make_uint(env, (unsigned int) st.wMilliseconds),
+            &map)
+    ) return enif_make_badarg(env);
+
+    return map;
+}
+
 static ERL_NIF_TERM queryPerformanceCounter(
     ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 )
@@ -42,8 +104,9 @@ int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data,
 }
 
 static ErlNifFunc nif_funcs[] = {
+    {"getLocalTime",                   0, getLocalTime},
     {"queryPerformanceCounter",        0, queryPerformanceCounter},
-    {"getSystemTimePreciseAsFileTime", 0, getSystemTimePreciseAsFileTime}
+    {"getSystemTimePreciseAsFileTime", 0, getSystemTimePreciseAsFileTime},
 };
 
 ERL_NIF_INIT(imem_win32, nif_funcs, NULL, NULL, upgrade, NULL)
