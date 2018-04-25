@@ -30,12 +30,12 @@
 
 -define(DD_TRIGGER_ARITY,   5).
 -define(ddTableTrigger,     <<"fun(__OR,__NR,__T,__U,__O) -> imem_meta:dictionary_trigger(__OR,__NR,__T,__U,__O) end.">> ).
--define(DD_ALIAS_OPTS,      [{trigger,?ddTableTrigger}]).
+-define(DD_ALIAS_OPTS,      [{trigger,?ddTableTrigger}]).          
 -define(DD_TABLE_OPTS,      [{trigger,?ddTableTrigger}]).
 -define(DD_CACHE_OPTS,      [{scope,local}
                             ,{local_content,true}
                             ,{record_name,ddCache}
-                            ]).
+                            ]).          
 -define(DD_INDEX_OPTS,      [{record_name,ddIndex}
                             ,{type,ordered_set}         %% ,{purge_delay,430000}  %% inherit from parent table
                             ]).          
@@ -2422,7 +2422,7 @@ fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts)
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize ->
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize -> 
     fetch_start_calculated(Pid, Tab, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
