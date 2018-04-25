@@ -7,7 +7,6 @@
 -include("imem_if.hrl").
 -include("imem_if_csv.hrl").
 -include("imem_config.hrl").
-%-include("imem_tracer.hrl").
 
 -define(LOG_TABLE,ddLog_86400@).                    %% 86400 = 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
