@@ -868,6 +868,7 @@ update_xt({Table,_}, Item, Lock, Old, New, Trigger, User, TrOpts) when is_atom(T
             end
     end.
 
+subscribe({table, ddTrace, _}) -> imem_tracer:subscribe();
 subscribe({table, Tab, simple}) ->
     {ok,_} = mnesia:subscribe({table, Tab, simple}),
     ok;
@@ -883,6 +884,7 @@ subscribe(system) ->
 subscribe(EventCategory) ->
     ?ClientErrorNoLogging({"Unsupported event category subscription", EventCategory}).
 
+unsubscribe({table, ddTrace, _})    -> imem_tracer:unsubscribe();
 unsubscribe({table, Tab, simple})   -> mnesia:unsubscribe({table, Tab, simple});
 unsubscribe({table, Tab, detailed}) -> mnesia:unsubscribe({table, Tab, detailed});
 unsubscribe({table,schema})         -> mnesia:unsubscribe({table, schema});
