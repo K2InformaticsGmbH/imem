@@ -166,7 +166,7 @@ update_cursor_prepare(SKey, #stmtResult{stmtRef=Pid}, IsSec, ChangeList) ->
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)) of
         ok ->   ok;
-        Error -> throw(Error)
+        Error-> throw(Error)
     end.
 
 update_cursor_execute(SKey, #stmtResult{stmtRef=Pid}, IsSec, Lock) ->
