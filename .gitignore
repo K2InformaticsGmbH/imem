@@ -14,3 +14,6 @@ snapshot
 test/*.beam
 tmp
 wiki/
+priv/*.dll
+priv/*.exe
+*.pdb
