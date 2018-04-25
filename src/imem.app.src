@@ -10,6 +10,7 @@
         sasl,
         ssl,
         stdlib,
+        runtime_tools,
         erlscrypt,
         goldrush,
         jsx,
