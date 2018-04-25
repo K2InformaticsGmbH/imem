@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 2.2.0 (Release Date 25.04.2018)
+=======================================
+* Upgraded sqlparse to version 4.1.0
+* live debug tracing feature support
+* windows native timestamp APIs as NIF
+
 Version 2.1.0 (Release Date 05.04.2018)
 =======================================
 * Upgraded sqlparse to version 4.0.0
