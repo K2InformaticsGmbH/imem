@@ -20,8 +20,9 @@
 % erlang:_/3
 -safe([setelement/3]).
 
-% external modules (all exported functions)
--safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re}, #{m => maps}, #{m => binary}, #{m => string}]).
+% external erlang modules (all exported functions)
+-safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re},
+       #{m => maps}, #{m => binary}, #{m => string}, #{m => erl_epmd}]).
 
 % external {M,F,A} s
 -safe([#{m => io, f => [format/2]},
