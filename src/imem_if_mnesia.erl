@@ -109,6 +109,8 @@
 % Functions applied with Common Test
 -export([update_xt/8]).
 
+-safe([epmd_register/0]).
+
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
@@ -963,7 +965,9 @@ init(_) ->
     % Start periodic EPMD check
     case is_pid(whereis(imem_inet_tcp_dist)) of
         true -> self() ! check_epmd;
-        _ -> ok
+        _ ->
+            ?Warn("imem_inet_tcp_dist not started, possibly missing -proto_dist"
+                  " erlang VM start parameter")
     end,
 
     {ok,#state{}}.
