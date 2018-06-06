@@ -16,6 +16,7 @@
 
 % Functions applied with Common Test
 -export([
+    lookup/3,
     get_config_hlk/5,
     get_config_hlk/6,
     put_config_hlk/6,
@@ -149,6 +150,15 @@ get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list
             _ ->
                 Default
         end).
+
+lookup(Table, Key, Context) when is_atom(Table), is_list(Context) ->
+    reference_resolve(
+        Table,
+        case (catch imem_meta:read_hlk(Table, [Key | Context])) of
+            [#ddConfig{hkl = [Key], val = Value}] -> Value;
+            _ -> ?ClientError({"Key not found", Key})
+        end
+    ).
 
 put_config_hlk(Table, Key, Owner, Context, Value, Remark, _Documentation) ->
     put_config_hlk(Table, Key, Owner, Context, Value, Remark).

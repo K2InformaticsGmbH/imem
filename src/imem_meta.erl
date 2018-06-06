@@ -415,7 +415,9 @@ init(_Args) ->
         init_create_check_table(ddSnap, {record_info(fields, ddSnap), ?ddSnap, #ddSnap{}}, [], system),
         init_create_check_table(ddSchema, {record_info(fields, ddSchema), ?ddSchema, #ddSchema{}}, [], system),    
         init_create_check_table(ddSize, {record_info(fields, ddSize), ?ddSize, #ddSize{}}, [], system),
-        init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),    
+        init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),
+
+        imem_tracer:init(),
         init_create_table(dual, {record_info(fields, dual), ?dual, #dual{}}, [], system),
         write(dual,#dual{}),
 

@@ -848,6 +848,12 @@ to_atom(A) when is_atom(A) -> A;
 to_atom(B) when is_binary(B) -> ?binary_to_atom(B);
 to_atom(L) when is_list(L) -> list_to_atom(L).
 
+to_boolean(A) when is_boolean(A) -> A;
+to_boolean(L) when is_list(L) -> to_boolean(list_to_binary(L));
+to_boolean(<<"true">>) -> true;
+to_boolean(<<"false">>) -> false;
+to_boolean(_) -> ?nav.
+
 to_name(T) when is_tuple(T) ->
     imem_datatype:io_to_binstr(string:join([imem_datatype:strip_squotes(to_string(E)) || E <- tuple_to_list(T)],"."));
 to_name(E) -> imem_datatype:strip_squotes(to_binstr(E)).

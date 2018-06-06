@@ -109,6 +109,8 @@
 % Functions applied with Common Test
 -export([update_xt/8]).
 
+-safe([epmd_register/0]).
+
 -define(TOUCH_SNAP(__Table),                  
             case ets:lookup(?SNAP_ETS_TAB, __Table) of
                 [__Up] ->   
@@ -868,6 +870,7 @@ update_xt({Table,_}, Item, Lock, Old, New, Trigger, User, TrOpts) when is_atom(T
             end
     end.
 
+subscribe({table, ddTrace, _}) -> imem_tracer:subscribe();
 subscribe({table, Tab, simple}) ->
     {ok,_} = mnesia:subscribe({table, Tab, simple}),
     ok;
@@ -883,6 +886,7 @@ subscribe(system) ->
 subscribe(EventCategory) ->
     ?ClientErrorNoLogging({"Unsupported event category subscription", EventCategory}).
 
+unsubscribe({table, ddTrace, _})    -> imem_tracer:unsubscribe();
 unsubscribe({table, Tab, simple})   -> mnesia:unsubscribe({table, Tab, simple});
 unsubscribe({table, Tab, detailed}) -> mnesia:unsubscribe({table, Tab, detailed});
 unsubscribe({table,schema})         -> mnesia:unsubscribe({table, schema});
@@ -961,7 +965,9 @@ init(_) ->
     % Start periodic EPMD check
     case is_pid(whereis(imem_inet_tcp_dist)) of
         true -> self() ! check_epmd;
-        _ -> ok
+        _ ->
+            ?Warn("imem_inet_tcp_dist not started, possibly missing -proto_dist"
+                  " erlang VM start parameter")
     end,
 
     {ok,#state{}}.
