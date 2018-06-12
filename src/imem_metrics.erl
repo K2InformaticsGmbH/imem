@@ -16,6 +16,8 @@
         ,terminate/2
         ]).
 
+-safe([get_metric/1]).
+
 -spec start_link(list()) -> {ok, pid()} | {error, term()}.
 start_link(_) ->
     imem_gen_metrics:start_link(?MODULE).
