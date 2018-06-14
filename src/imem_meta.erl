@@ -286,7 +286,7 @@
 
 -export([simple_or_local_node_sharded_tables/1]).
 
--safe([log_to_db,update_index,dictionary_trigger,data_nodes,schema/0,
+-safe([log_to_db,update_index,dictionary_trigger,data_nodes,schema/0,node_shard,
        physical_table_name,get_tables_count,record_hash,integer_uid,time_uid]).
 
 start_link(Params) ->
