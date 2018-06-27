@@ -115,10 +115,8 @@ restart() ->
 init(ListenerPid, Socket, Transport, Opts) ->
     PeerNameMod = case lists:member(ssl, Opts) of true -> ssl; _ -> inet end,
     {ok, {Address, Port}} = PeerNameMod:peername(Socket),
-    _Str = lists:flatten(io_lib:format("~p received connection from ~s:~p"
-                                      , [self(), inet_parse:ntoa(Address)
-                                         , Port])),
-    ?Debug(_Str++"~n", []),
+    Peer = list_to_binary(io_lib:format("~s:~p", [inet_parse:ntoa(Address), Port])),
+    ?Debug("~p received connection from ~s~n", [self(), Peer]),
     ok = ranch:accept_ack(ListenerPid),
     % Linkinking TCP socket
     % for easy lookup
@@ -129,11 +127,11 @@ init(ListenerPid, Socket, Transport, Opts) ->
               TcpSocket;
           _ -> Socket
       end),
-    loop(Socket, Transport, <<>>).
+    loop(Socket, Peer, Transport, <<>>).
 
 -define(TLog(__F, __A), ok). 
 %-define(TLog(__F, __A), ?Info(__F, __A)). 
-loop(Socket, Transport, Buf) ->
+loop(Socket, Peer, Transport, Buf) ->
     {OK, Closed, Error} = Transport:messages(),
     Transport:setopts(Socket, [{active, once}]),   
     receive
@@ -141,18 +139,22 @@ loop(Socket, Transport, Buf) ->
             NewBuf = <<Buf/binary, Data/binary>>,
             case NewBuf of
                 NewBuf when byte_size(NewBuf) < 4 ->
-                    ?Warn("[SHORTFRAME] received only ~p of 4 length bytes. Buffering...", [byte_size(NewBuf)]),
-                    loop(Socket, Transport, NewBuf);
+                    ?Warn("[SHORTFRAME] received only ~p of 4 length bytes from ~s. Buffering...",
+                          [byte_size(NewBuf), Peer]),
+                    loop(Socket, Peer, Transport, NewBuf);
                 <<Len:32, PayLoad/binary>> when Len > byte_size(PayLoad) ->
-                    ?Info("[INCOMPLETE] received only ~p of ~p bytes. Buffering...", [byte_size(NewBuf), Len]),
-                    loop(Socket, Transport, NewBuf);
+                    ?Info("[INCOMPLETE] received only ~p of ~p bytes from ~s. Buffering...",
+                          [byte_size(NewBuf), Len, Peer]),
+                    loop(Socket, Peer, Transport, NewBuf);
                 <<Len:32, _/binary>> = NewBuf ->
                     <<Len:32, TermBin:Len/binary, RestBin/binary>> = NewBuf,
                     case (catch binary_to_term(TermBin)) of
                         {'EXIT', _} ->
-                            ?Error("[MALFORMED] discarded ~p bytes. Buffering...", [byte_size(TermBin)]),
-                            ?Info("Len ~p TermBin ~p RestBin ~p NewBuf ~p", [Len, TermBin, RestBin, NewBuf]),
-                            loop(Socket, Transport, RestBin);
+                            ?Error("[MALFORMED] discarded ~p bytes from ~s. Buffering...",
+                                   [Peer, byte_size(TermBin)]),
+                            ?Info("Len ~p TermBin ~p RestBin ~p NewBuf ~p from ~s",
+                                  [Len, TermBin, RestBin, NewBuf, Peer]),
+                            loop(Socket, Peer, Transport, RestBin);
                         Term ->
                             if element(2, Term) =:= imem_sec ->
                                 ?TLog("mfa ~p", [Term]),
@@ -160,15 +162,15 @@ loop(Socket, Transport, Buf) ->
                             true ->
                                 send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
                             end,
-                            loop(Socket, Transport, RestBin)
+                            loop(Socket, Peer, Transport, RestBin)
                     end
             end;
         {Closed, Socket} ->
-            ?Debug("socket ~p got closed!~n", [Socket]);
+            ?Debug("socket from ~s got closed!~n", [Peer]);
         {Error, Socket, Reason} ->
-            ?Error("socket ~p error: ~p", [Socket, Reason]);
+            ?Error("socket from ~s error: ~p", [Peer, Reason]);
         close ->
-            ?Warn("closing socket...~n", [Socket]),
+            ?Warn("closing socket from ~s...~n", [Peer]),
             Transport:close(Socket)
     end.
 
