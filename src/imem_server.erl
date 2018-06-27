@@ -151,7 +151,7 @@ loop(Socket, Peer, Transport, Buf) ->
                     case (catch binary_to_term(TermBin)) of
                         {'EXIT', _} ->
                             ?Error("[MALFORMED] discarded ~p bytes from ~s. Buffering...",
-                                   [Peer, byte_size(TermBin)]),
+                                   [byte_size(TermBin), Peer]),
                             ?Info("Len ~p TermBin ~p RestBin ~p NewBuf ~p from ~s",
                                   [Len, TermBin, RestBin, NewBuf, Peer]),
                             loop(Socket, Peer, Transport, RestBin);
