@@ -3,6 +3,14 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 2.4.0 (Release Date 14.06.2018)
+=======================================
+* Added epmd API to allow registration of node in case of node hidden from cluster
+* Upgraded ranch to version 1.5.0
+* `imem_metrics:get_metric/1`, `erlang:node/0`, `imem_meta:schema/0` and `imem_meta:node_shard/0` added to safe list of function.
+* Upgraded port_compiler to 1.9.1
+* Upgraded erlscrypt to 1.2.2
+
 Version 2.3.0 (Release Date 03.05.2018)
 =======================================
 * Upgraded sqlparse to version 4.2.0

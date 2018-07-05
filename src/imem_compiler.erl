@@ -27,6 +27,7 @@
 % external {M,F,A} s
 -safe([#{m => io, f => [format/2]},
        #{m => io_lib, f => [format/2]},
+       #{m => erlang, f => [node/0]},
        #{m => os, f => [getenv/1,getpid,system_time,timestamp,type,version]}]).
 
 % external match {M,F,A} s
