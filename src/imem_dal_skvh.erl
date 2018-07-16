@@ -390,7 +390,10 @@ create_check_skvh(UserId, Channel) ->
 
 -spec create_check_skvh(ddEntityId(),binary()|atom(), list()) -> ok.
 create_check_skvh(_UserId, Channel, Options) ->
-    create_check_channel(Channel, Options).
+    case catch imem_meta:check_table(Channel) of 
+        ok -> ok;
+        _ -> create_check_channel(Channel, Options)
+    end.
 
 -spec create_check_channel(binary()|atom()) ->  ok.
 create_check_channel(Channel) ->
