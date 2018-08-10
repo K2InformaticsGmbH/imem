@@ -17,8 +17,7 @@
         lager,
         ranch,
         sext,
-        sqlparse,
-        aleppo
+        sqlparse
     ]},
     {env, [
         {erl_cluster_mgrs, []},
