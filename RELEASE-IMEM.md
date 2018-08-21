@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 2.4.1 (Release Date 21.08.2018)
+=======================================
+* Upgraded sqlparser to version 4.3.1
+* DB restore from cluster snapshot on cold start (since 2.1.0)
+* `to_boolean` SQL function
+
 Version 2.4.0 (Release Date 14.06.2018)
 =======================================
 * Added epmd API to allow registration of node in case of node hidden from cluster
