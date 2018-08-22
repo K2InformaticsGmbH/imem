@@ -136,9 +136,16 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
             end
     end.
 
-compile_mod(TokenGroups) -> compile_mod(TokenGroups, [], []).
-compile_mod(TokenGroups, Opts) -> compile_mod(TokenGroups, [], Opts).
-compile_mod(TokenGroups, Restrict, Opts) when is_list(TokenGroups) ->
+compile_mod(ModuleCodeBinStr) -> compile_mod(ModuleCodeBinStr, [], []).
+compile_mod(ModuleCodeBinStr, Opts) -> compile_mod(ModuleCodeBinStr, [], Opts).
+compile_mod(ModuleCodeBinStr, Restrict, Opts) when is_binary(ModuleCodeBinStr) ->
+    case erl_scan:string(binary_to_list(ModuleCodeBinStr), {0,1}) of
+        {ok, RawTokens, _} -> compile_mod(RawTokens, Restrict, Opts);
+        {error, ErrorInfo, ErrorLocation} ->
+            {error, {scan, ErrorInfo, ErrorLocation}}
+    end;
+compile_mod(ModuleTokenGroups, Restrict, Opts) when is_list(ModuleTokenGroups) ->
+    TokenGroups = cut_dot(ModuleTokenGroups),
     case lists:foldl(
             fun(TokenGroup, Acc) when is_list(Acc) ->
                     case erl_parse:parse_form(TokenGroup) of
@@ -167,6 +174,13 @@ compile_mod(TokenGroups, Restrict, Opts) when is_list(TokenGroups) ->
             end;
         Error -> Error
     end.
+
+cut_dot(Tokens) -> cut_dot(Tokens, [[]]).
+cut_dot([], [[]|Acc]) -> cut_dot([], Acc);
+cut_dot([], Acc) -> Acc;
+cut_dot([{dot,_} = Dot | Tokens], [A | Rest]) ->
+    cut_dot(Tokens, [[], lists:reverse([Dot | A]) | Rest]);
+cut_dot([T | Tokens], [A | Rest]) -> cut_dot(Tokens, [[T | A] | Rest]).
 
 error_info(_Type, []) -> [];
 error_info(Type, [{_, _, _} = ErrorInfo | ErrorInfos]) ->
@@ -268,5 +282,84 @@ compile_test_() ->
           {"fun() -> os:cmd(\"pwd\") end", runtime}
          ]
      ]}.
+
+-define(TEST_MODULES, [
+{"simple",
+<<"
+-module(test).
+-export([test/0]).
+test() ->
+    ok.
+">>, ok},
+{"behavior",
+<<"
+-module(test).
+-behavior(gen_server).
+-export([handle_call/3,handle_cast/2,handle_info/2,init/1,terminate/2]).
+handle_call(_, _, _) -> ok.
+handle_cast(_, _) -> ok.
+handle_info(_, _) -> ok.
+init(_) -> ok.
+terminate(_, _) -> ok.
+">>, ok},
+{"restricted",
+<<"
+-module(test).
+-export([test/0]).
+test() ->
+    io:format(\"~p\", [123]),
+    ok.
+">>,
+[#{type => error, row => 4, col => 7, text => <<"unsafe function call io:format/2">>}]},
+{"error",
+<<"
+-module(test).
+-export([test/0, test/1]).
+test() ->
+    ok.
+">>,
+[#{type => error, row => 2, col => 2, text => <<"function test/1 undefined">>}]},
+{"warning",
+<<"
+-module(test).
+-export([test/0]).
+test() ->
+    X = 0,
+    ok.
+">>,
+[#{type => warning, row => 4, col => 5, text => <<"variable 'X' is unused">>}]},
+{"error and warning",
+<<"
+-module(test).
+-export([test/0, test/1]).
+test() ->
+    X = 0,
+    ok.
+">>,
+[#{type => error, row => 2, col => 2, text => <<"function test/1 undefined">>},
+ #{type => warning, row => 4, col => 5, text => <<"variable 'X' is unused">>}]},
+{"unsafe",
+<<"
+-module(test).
+
+-export([test/0]).
+
+test() ->
+    bikram:call(bnot 1),
+    binary_to_atom(<<\"1\">>, utf8),
+    ok.
+">>,
+[#{type => error, row => 7, col => 5,
+   text => <<"unsafe function call erlang:binary_to_atom/2">>}]}
+]).
+
+compile_mod_test_() ->
+    {inparallel,
+     [{T,
+        case {O, compile_mod(C, [{io, format}], [])} of
+            {O, {warning, _, Warning}} -> ?_assertEqual(O, Warning);
+            {O, {error, Error}} -> ?_assertEqual(O, Error);
+            {ok, Output} -> ?_assertMatch({ok, _}, Output)
+        end} || {T, C, O} <- ?TEST_MODULES]}.
 
 -endif.
