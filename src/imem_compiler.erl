@@ -139,35 +139,38 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
 compile_mod(ModuleCodeBinStr) -> compile_mod(ModuleCodeBinStr, [], []).
 compile_mod(ModuleCodeBinStr, Opts) -> compile_mod(ModuleCodeBinStr, [], Opts).
 compile_mod(ModuleCodeBinStr, Restrict, Opts) when is_binary(ModuleCodeBinStr) ->
-    case tokenize(ModuleCodeBinStr) of
-        {ok, TokenGroups} ->
-            case lists:foldl(
-                    fun(TokenGroup, Acc) when is_list(Acc) ->
-                            case erl_parse:parse_form(TokenGroup) of
-                                {ok, AbsForm} -> [AbsForm | Acc];
-                                {error, ErrorInfo} ->
-                                    {error, [error_info(error, ErrorInfo)]}
-                            end;
-                        (_, Error) -> Error
-                    end, [], TokenGroups) of
-                Forms when is_list(Forms) ->
-                    case security_check(Forms, Restrict) of
-                        List when is_list(List) ->
-                            case compile:forms(Forms, [return | Opts]) of
-                                error -> {error, #{error => <<"unknown">>}};
-                                {ok, _Module, Bin} -> {ok, Bin};
-                                {ok, _Module, Bin, []} -> {ok, Bin};
-                                {ok, _Module, Bin, Warnings} ->
-                                    {warning, Bin, error_info(warning, Warnings)};
-                                {error, Errors, []} ->
-                                    {error, error_info(error, Errors)};
-                                {error, Errors, Warnings} ->
-                                    {error, error_info(error, Errors) ++ error_info(warning, Warnings)}
-                            end;
-                        {error, Errors} ->
-                            {error, error_info(error, Errors)}
+    case erl_scan:string(binary_to_list(ModuleCodeBinStr), {0,1}) of
+        {ok, RawTokens, _} -> compile_mod(RawTokens, Restrict, Opts);
+        {error, ErrorInfo, ErrorLocation} ->
+            {error, {scan, ErrorInfo, ErrorLocation}}
+    end;
+compile_mod(ModuleTokenGroups, Restrict, Opts) when is_list(ModuleTokenGroups) ->
+    TokenGroups = cut_dot(ModuleTokenGroups),
+    case lists:foldl(
+            fun(TokenGroup, Acc) when is_list(Acc) ->
+                    case erl_parse:parse_form(TokenGroup) of
+                        {ok, AbsForm} -> [AbsForm | Acc];
+                        {error, ErrorInfo} ->
+                            {error, [error_info(error, ErrorInfo)]}
                     end;
-                Error -> Error
+                (_, Error) -> Error
+            end, [], TokenGroups) of
+        Forms when is_list(Forms) ->
+            case security_check(Forms, Restrict) of
+                List when is_list(List) ->
+                    case compile:forms(Forms, [return | Opts]) of
+                        error -> {error, #{error => <<"unknown">>}};
+                        {ok, _Module, Bin} -> {ok, Bin};
+                        {ok, _Module, Bin, []} -> {ok, Bin};
+                        {ok, _Module, Bin, Warnings} ->
+                            {warning, Bin, error_info(warning, Warnings)};
+                        {error, Errors, []} ->
+                            {error, error_info(error, Errors)};
+                        {error, Errors, Warnings} ->
+                            {error, error_info(error, Errors) ++ error_info(warning, Warnings)}
+                    end;
+                {error, Errors} ->
+                    {error, error_info(error, Errors)}
             end;
         Error -> Error
     end.
