@@ -175,23 +175,6 @@ compile_mod(ModuleTokenGroups, Restrict, Opts) when is_list(ModuleTokenGroups) -
         Error -> Error
     end.
 
-tokenize(ModuleCodeBinStr) ->
-    case erl_scan:string(binary_to_list(ModuleCodeBinStr), {0,1}) of
-        {ok, RawTokens, _} ->
-            case catch aleppo:process_tokens(RawTokens) of
-                {ok, TokensEOF} ->
-                    [{eof,_} | RevTokens] = lists:reverse(TokensEOF),
-                    Tokens = lists:reverse(RevTokens),
-                    {ok, cut_dot(Tokens)};
-                {error, Error} ->
-                    {error, {preprocess, {{0, 1}, ?MODULE, Error}, {0, 1}}};
-                {'EXIT', Error} ->
-                    {error, {preprocess, {{0, 1}, ?MODULE, Error}, {0, 1}}}
-            end;
-        {error, ErrorInfo, ErrorLocation} ->
-            {error, {scan, ErrorInfo, ErrorLocation}}
-    end.
-
 cut_dot(Tokens) -> cut_dot(Tokens, [[]]).
 cut_dot([], [[]|Acc]) -> cut_dot([], Acc);
 cut_dot([], Acc) -> Acc;
@@ -308,14 +291,6 @@ compile_test_() ->
 test() ->
     ok.
 ">>, ok},
-{"macro",
-<<"
--module(test).
--export([test/0]).
--define(XXX, true).
-test() ->
-    ?XXX.
-">>, ok},
 {"behavior",
 <<"
 -module(test).
@@ -335,7 +310,7 @@ test() ->
     io:format(\"~p\", [123]),
     ok.
 ">>,
-[#{type => error, row => 5, text => <<"unsafe function call io:format/2">>}]},
+[#{type => error, row => 4, col => 7, text => <<"unsafe function call io:format/2">>}]},
 {"error",
 <<"
 -module(test).
@@ -343,7 +318,7 @@ test() ->
 test() ->
     ok.
 ">>,
-[#{type => error, row => 3, text => <<"function test/1 undefined">>}]},
+[#{type => error, row => 2, col => 2, text => <<"function test/1 undefined">>}]},
 {"warning",
 <<"
 -module(test).
@@ -352,7 +327,7 @@ test() ->
     X = 0,
     ok.
 ">>,
-[#{type => warning, row => 5, text => <<"variable 'X' is unused">>}]},
+[#{type => warning, row => 4, col => 5, text => <<"variable 'X' is unused">>}]},
 {"error and warning",
 <<"
 -module(test).
@@ -361,8 +336,8 @@ test() ->
     X = 0,
     ok.
 ">>,
-[#{type => error, row => 3, text => <<"function test/1 undefined">>},
- #{type => warning, row => 5, text => <<"variable 'X' is unused">>}]},
+[#{type => error, row => 2, col => 2, text => <<"function test/1 undefined">>},
+ #{type => warning, row => 4, col => 5, text => <<"variable 'X' is unused">>}]},
 {"unsafe",
 <<"
 -module(test).
@@ -374,7 +349,7 @@ test() ->
     binary_to_atom(<<\"1\">>, utf8),
     ok.
 ">>,
-[#{type => error, row => 8,
+[#{type => error, row => 7, col => 5,
    text => <<"unsafe function call erlang:binary_to_atom/2">>}]}
 ]).
 
