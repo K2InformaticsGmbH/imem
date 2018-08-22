@@ -47,7 +47,7 @@ start_link(Params) ->
                            Cert = get_cert_key(CertBin),
                            Key = get_cert_key(KeyBin),
                            ImemSslDefault = Cert ++ Key,
-                           ?Info("Installing SSL ~p", [ImemSslDefault]),
+                           ?Debug("Installing SSL ~p", [ImemSslDefault]),
                            ?PUT_CONFIG(
                               imemSslOpts, [], #{cert => CertBin, key => KeyBin},
                               list_to_binary(
@@ -77,14 +77,15 @@ start_link(Params) ->
             end,
             ?Info("~p starting...~n", [?MODULE]),
             case ranch:start_listener(
-                   ?MODULE, 1, THandler,
-                   [{ip, ListenIf}, {port, ListenPort} | NewOpts], ?MODULE,
-                   if THandler =:= ranch_ssl -> [ssl]; true -> [] end) of
+                ?MODULE, 1, THandler,
+                [{ip, ListenIf}, {port, ListenPort} | NewOpts],
+                ?MODULE, if THandler =:= ranch_ssl -> [ssl]; true -> [] end
+            ) of
                 {ok, _} = Success ->
-                ?Info("~p started, listening~s on ~s:~p~n",
-                      [?MODULE, if THandler =:= ranch_ssl -> "(ssl)"; true -> "" end,
-                       inet:ntoa(ListenIf), ListenPort]),
-                ?Info("options ~p~n", [NewOpts]),
+                    ?Info("~p started, listening~s on ~s:~p~n",
+                        [?MODULE, if THandler =:= ranch_ssl -> "(ssl)"; true -> "" end,
+                        inet:ntoa(ListenIf), ListenPort]),
+                    ?Debug("options ~p~n", [NewOpts]),
                     Success;
                 Error ->
                     ?Error("~p failed to start~n~p~n", [?MODULE, Error]),
@@ -117,6 +118,8 @@ init(ListenerPid, Socket, Transport, Opts) ->
     {ok, {Address, Port}} = PeerNameMod:peername(Socket),
     Peer = list_to_binary(io_lib:format("~s:~p", [inet_parse:ntoa(Address), Port])),
     ?Debug("~p received connection from ~s~n", [self(), Peer]),
+    ok = Transport:setopts(Socket, [{packet, 4}]),
+    ok = Transport:setopts(Socket, [{active, true}]),
     ok = ranch:accept_ack(ListenerPid),
     % Linkinking TCP socket
     % for easy lookup
@@ -127,43 +130,26 @@ init(ListenerPid, Socket, Transport, Opts) ->
               TcpSocket;
           _ -> Socket
       end),
-    loop(Socket, Peer, Transport, <<>>).
+    loop(Socket, Peer, Transport).
 
 -define(TLog(__F, __A), ok). 
 %-define(TLog(__F, __A), ?Info(__F, __A)). 
-loop(Socket, Peer, Transport, Buf) ->
+loop(Socket, Peer, Transport) ->
     {OK, Closed, Error} = Transport:messages(),
-    Transport:setopts(Socket, [{active, once}]),   
     receive
         {OK, Socket, Data} ->
-            NewBuf = <<Buf/binary, Data/binary>>,
-            case NewBuf of
-                NewBuf when byte_size(NewBuf) < 4 ->
-                    ?Warn("[SHORTFRAME] received only ~p of 4 length bytes from ~s. Buffering...",
-                          [byte_size(NewBuf), Peer]),
-                    loop(Socket, Peer, Transport, NewBuf);
-                <<Len:32, PayLoad/binary>> when Len > byte_size(PayLoad) ->
-                    ?Info("[INCOMPLETE] received only ~p of ~p bytes from ~s. Buffering...",
-                          [byte_size(NewBuf), Len, Peer]),
-                    loop(Socket, Peer, Transport, NewBuf);
-                <<Len:32, _/binary>> = NewBuf ->
-                    <<Len:32, TermBin:Len/binary, RestBin/binary>> = NewBuf,
-                    case (catch binary_to_term(TermBin)) of
-                        {'EXIT', _} ->
-                            ?Error("[MALFORMED] discarded ~p bytes from ~s. Buffering...",
-                                   [byte_size(TermBin), Peer]),
-                            ?Info("Len ~p TermBin ~p RestBin ~p NewBuf ~p from ~s",
-                                  [Len, TermBin, RestBin, NewBuf, Peer]),
-                            loop(Socket, Peer, Transport, RestBin);
-                        Term ->
-                            if element(2, Term) =:= imem_sec ->
-                                ?TLog("mfa ~p", [Term]),
-                                mfa(Term, {Transport, Socket, element(1, Term)});
-                            true ->
-                                send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
-                            end,
-                            loop(Socket, Peer, Transport, RestBin)
-                    end
+            case (catch binary_to_term(Data)) of
+                {'EXIT', Exception} ->
+                    ?Error("[MALFORMED] ~p bytes from ~s: ~p",
+                                   [byte_size(Data), Peer, Exception]);
+                Term ->
+                    if element(2, Term) =:= imem_sec ->
+                        ?TLog("mfa ~p", [Term]),
+                        mfa(Term, {Transport, Socket, element(1, Term)});
+                    true ->
+                        send_resp({error, {"security breach attempt", Term}}, {Transport, Socket, element(1, Term)})
+                    end,
+                    loop(Socket, Peer, Transport)
             end;
         {Closed, Socket} ->
             ?Debug("socket from ~s got closed!~n", [Peer]);
@@ -209,8 +195,7 @@ args(_, _F, A, _) ->
 send_resp(Resp, {Transport, Socket, Ref}) ->
     RespBin = term_to_binary({Ref, Resp}),
     ?TLog("TX (~p)~n~p~n", [byte_size(RespBin), RespBin]),
-    PayloadSize = byte_size(RespBin),
-    Transport:send(Socket, << PayloadSize:32, RespBin/binary >>);
+    Transport:send(Socket, RespBin);
 send_resp(Resp, {Pid, Ref}) when is_pid(Pid) ->
     Pid ! {Ref, Resp}.
 
