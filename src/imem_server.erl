@@ -162,6 +162,9 @@ loop(Socket, Peer, Transport) ->
 mfa({Ref, Mod, which_applications, Args}, Transport) when Mod =:= imem_sec;
                                                           Mod =:= imem_meta ->
     mfa({Ref, application, which_applications, Args}, Transport);
+mfa({_Ref, imem_sec, echo, [_, Term]}, Transport) ->
+    send_resp({server_echo, Term}, Transport),
+    ok;
 mfa({Ref, Mod, Fun, Args}, Transport) ->
     NewArgs = args(Ref,Fun,Args,Transport),
     ApplyRes = try
