@@ -118,8 +118,7 @@ init(ListenerPid, Socket, Transport, Opts) ->
     {ok, {Address, Port}} = PeerNameMod:peername(Socket),
     Peer = list_to_binary(io_lib:format("~s:~p", [inet_parse:ntoa(Address), Port])),
     ?Debug("~p received connection from ~s~n", [self(), Peer]),
-    ok = Transport:setopts(Socket, [{packet, 4}]),
-    ok = Transport:setopts(Socket, [{active, true}]),
+    ok = Transport:setopts(Socket, [{packet, 4}, {active, true}]),
     ok = ranch:accept_ack(ListenerPid),
     % Linkinking TCP socket
     % for easy lookup
