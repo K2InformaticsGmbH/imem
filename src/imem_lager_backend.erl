@@ -137,13 +137,16 @@ handle_call(get_loglevel, State = #state{level = Level}) ->
 
 handle_info(wait_for_imem, State) ->
     case lists:keyfind(imem, 1, application:which_applications()) of
-        false -> erlang:send_after(1000, self(), wait_for_imem);
+        false ->
+            erlang:send_after(1000, self(), wait_for_imem),
+            {ok, State};
         _ ->
-            create_check_ddLog(State#state.table),
+            Table = (State#state.table)(),
+            create_check_ddLog(Table),
             imem_meta:unsubscribe({table, ddConfig, simple}),
-            imem_meta:subscribe({table, ddConfig, simple})
-    end,
-    {ok, State};
+            imem_meta:subscribe({table, ddConfig, simple}),
+            {ok, State#state{table = Table}}
+    end;
 handle_info({mnesia_table_event, {write,{ddConfig,Match,DefaultTable,_,_},_}},
             #state{tn_event = Match, table=OldDefaultTable} = State) ->
     io:format(user, "Changing default table from ~p to ~p~n", [OldDefaultTable, DefaultTable]),
@@ -165,11 +168,11 @@ code_change(_OldVsn, State, _Extra) ->
 state_from_params(OrigState = #state{level = OldLevel,
                                      application = OldApplication,
                                      tn_event = OldTableEvent}, Params) ->
-    Table = case proplists:get_value(tablefun, Params) of
-                TableFun when is_function(TableFun, 0) ->
-                    TableFun();
-                _ -> exit({badarg, missing_tablefun})
-            end,
+    TableFunc = case proplists:get_value(tablefun, Params) of
+                    TableFun when is_function(TableFun, 0) ->
+                        TableFun;
+                    _ -> exit({badarg, missing_tablefun})
+                end,
     Level = proplists:get_value(level, Params, OldLevel),
     TableEvent = proplists:get_value(tn_event, Params, OldTableEvent),
     Application = proplists:get_value(application, Params, OldApplication),
@@ -178,7 +181,7 @@ state_from_params(OrigState = #state{level = OldLevel,
                   {ok, Mods} -> Mods
               end,
     OrigState#state{level=lager_util:level_to_num(Level),
-                    table=Table,
+                    table=TableFunc,
                     tn_event = TableEvent,
                     application = Application,
                     modules = Modules}.
