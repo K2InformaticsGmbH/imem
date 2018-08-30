@@ -3,13 +3,14 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
-Version 3.0.0 (Release Date 24.08.2018)
+Version 3.0.0 (Release Date 30.08.2018)
 =======================================
 * Upgraded sqlparser to version 4.3.1
 * DB restore from cluster snapshot on cold start (since 2.1.0)
 * `to_boolean` SQL function
 * move windows native time API to branch
 * manual 4-byte header in imem_server is replaced with `{packet, 4}` socket option
+* imem_lager_backend waits for imem to start to create the log table
 
 Version 2.4.0 (Release Date 14.06.2018)
 =======================================
