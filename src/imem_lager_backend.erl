@@ -43,24 +43,12 @@ trace(Filter, Level) ->
 %%%===================================================================
 %%% gen_event callbacks
 %%%===================================================================
-setup_table(Name, Fields, Types, Defaults) ->
-    try
-        imem_meta:init_create_check_table(
-          Name, {Fields, Types, Defaults},
-          [{record_name, element(1, Defaults)},
-           {type, ordered_set}, {purge_delay,430000}],
-          lager_imem),
-        imem_meta:unsubscribe({table, ddConfig, simple}),
-        imem_meta:subscribe({table, ddConfig, simple})
-    catch
-        _:Error -> throw(Error)
-    end.
-
 init(Params) ->
     State = state_from_params(#state{}, Params),
-    setup_table(State#state.table,
-                record_info(fields, ddLog),
-                ?ddLog, #ddLog{}),
+    %% lager is started before imem, and this event handler is initialized
+    %% before imem is stared. So we have to wait till imem is started to
+    %% create the table.
+    self() ! wait_for_imem,
     {ok, State}.
 
 handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = State) ->
@@ -147,9 +135,19 @@ handle_call({set_loglevel, Level}, State) ->
 handle_call(get_loglevel, State = #state{level = Level}) ->
     {ok, Level, State}.
 
+handle_info(wait_for_imem, State) ->
+    case lists:keyfind(imem, 1, application:which_applications()) of
+        false -> erlang:send_after(1000, self(), wait_for_imem);
+        _ ->
+            create_check_ddLog(State#state.table),
+            imem_meta:unsubscribe({table, ddConfig, simple}),
+            imem_meta:subscribe({table, ddConfig, simple})
+    end,
+    {ok, State};
 handle_info({mnesia_table_event, {write,{ddConfig,Match,DefaultTable,_,_},_}},
             #state{tn_event = Match, table=OldDefaultTable} = State) ->
     io:format(user, "Changing default table from ~p to ~p~n", [OldDefaultTable, DefaultTable]),
+    create_check_ddLog(DefaultTable),
     {ok, State#state{table=DefaultTable}};
 handle_info(_Info, State) ->
     %% we'll get (unused) log rotate messages
@@ -184,3 +182,14 @@ state_from_params(OrigState = #state{level = OldLevel,
                     tn_event = TableEvent,
                     application = Application,
                     modules = Modules}.
+
+create_check_ddLog(Name) ->
+    try
+        imem_meta:init_create_check_table(
+          Name, {record_info(fields, ddLog), ?ddLog, #ddLog{}},
+          [{record_name, element(1, #ddLog{})},
+           {type, ordered_set}, {purge_delay,430000}],
+          lager_imem)
+    catch
+        _:Error -> throw(Error)
+    end.
