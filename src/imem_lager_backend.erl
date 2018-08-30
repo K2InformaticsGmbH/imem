@@ -9,14 +9,14 @@
          handle_info/2,
          terminate/2,
          code_change/3]).
--export([trace/1, trace/2]).
-%% -export([test/0]).
+
+-export([trace/1, trace/2, config_to_id/1]).
 
 -record(state, {
         tn_event,
         level = info,
         application,
-        modules = [],
+        is_initialized = false,
         table}).
 
 %%%===================================================================
@@ -45,25 +45,36 @@ trace(Filter, Level) ->
 %%%===================================================================
 init(Params) ->
     State = state_from_params(#state{}, Params),
-    %% lager is started before imem, and this event handler is initialized
-    %% before imem is stared. So we have to wait till imem is started to
-    %% create the table.
-    self() ! wait_for_imem,
     {ok, State}.
 
-handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = State) ->
+%% lager is started before imem, and this event handler is initialized
+%% before imem is stared. So we have to wait till imem is started to
+%% create the table.
+handle_event({log, LagerMsg}, #state{is_initialized = false, application = App} = State) ->
+    case proplists:get_value(application, lager_msg:metadata(LagerMsg)) of
+        App ->
+            Table = (State#state.table)(),
+            create_check_ddLog(Table),
+            imem_meta:unsubscribe({table, ddConfig, simple}),
+            imem_meta:subscribe({table, ddConfig, simple}),
+            handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true});
+        _ ->
+            %% application message is not obtained so waiting 
+            {ok, State}
+    end;
+handle_event({log, LagerMsg}, #state{application = App, table = Table, level = LogLevel} = State) ->
     case lager_util:is_loggable(LagerMsg, LogLevel, ?MODULE) of
         true ->
             Level = lager_msg:severity_as_int(LagerMsg),
             Message = lager_msg:message(LagerMsg),
             Metadata = lager_msg:metadata(LagerMsg),
+            LApp = proplists:get_value(application, Metadata),
             Mod = proplists:get_value(module, Metadata),
             StackTrace = proplists:get_value(stacktrace, Metadata, []),
-            case lists:member(Mod, State#state.modules) of
-                true ->
+            case LApp of
+                App ->
                     Fun = proplists:get_value(function, Metadata),
                     Line = proplists:get_value(line, Metadata),
-
                     Pid = proplists:get_value(pid, Metadata),
                     Fields = lists:filtermap(
                                fun({node,_})        -> false;
@@ -77,11 +88,11 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
                                   ({enum,V})        -> {true, V};
                                   (_)               -> true
                                end, Metadata),
-                    LogTable = proplists:get_value(imem_table, Metadata, DefaultTable),
-                    LogRecord = if LogTable == DefaultTable -> ddLog;
+                    LogTable = proplists:get_value(imem_table, Metadata, Table),
+                    LogRecord = if LogTable == Table -> ddLog;
                                    true -> LogTable
                                 end,
-                    
+
                     NPid = if is_list(Pid) -> list_to_pid(Pid); true -> Pid end,
 
                     EntryTuple = list_to_tuple(
@@ -104,25 +115,12 @@ handle_event({log, LagerMsg}, #state{table=DefaultTable, level = LogLevel} = Sta
                         _:Error ->
                             io:format(user, "[~p:~p] failed to write to ~p, ~p~n",
                                       [?MODULE, ?LINE, LogTable, Error])
-                    end,
-                    {ok, State};
-                false ->
-                    case State#state.modules of
-                        [] ->
-                            case application:get_key(State#state.application,modules) of
-                                undefined ->    {ok, State};
-                                {ok, Ms} ->     {ok, State#state{modules = Ms}}
-                            end;
-                        _ ->
-                            %io:format(user, "[~p:~p] log skipped module ~p doesn't"
-                            %                " belong to application ~p~n",
-                            %                [?MODULE, ?LINE, Mod, State#state.application]),
-                            {ok, State}
-                    end
+                    end;
+                _ -> no_op %% not a log event from the associated application
             end;
-        false ->
-            {ok, State}
-    end;
+        false -> no_op
+    end,
+    {ok, State};
 handle_event({lager_imem_options, Params}, State) ->
     {ok, state_from_params(State, Params)};
 
@@ -135,23 +133,11 @@ handle_call({set_loglevel, Level}, State) ->
 handle_call(get_loglevel, State = #state{level = Level}) ->
     {ok, Level, State}.
 
-handle_info(wait_for_imem, State) ->
-    case lists:keyfind(imem, 1, application:which_applications()) of
-        false ->
-            erlang:send_after(1000, self(), wait_for_imem),
-            {ok, State};
-        _ ->
-            Table = (State#state.table)(),
-            create_check_ddLog(Table),
-            imem_meta:unsubscribe({table, ddConfig, simple}),
-            imem_meta:subscribe({table, ddConfig, simple}),
-            {ok, State#state{table = Table}}
-    end;
-handle_info({mnesia_table_event, {write,{ddConfig,Match,DefaultTable,_,_},_}},
-            #state{tn_event = Match, table=OldDefaultTable} = State) ->
-    io:format(user, "Changing default table from ~p to ~p~n", [OldDefaultTable, DefaultTable]),
-    create_check_ddLog(DefaultTable),
-    {ok, State#state{table=DefaultTable}};
+handle_info({mnesia_table_event, {write,{ddConfig,Match,Table,_,_},_}},
+            #state{tn_event = Match, table=OldTable} = State) ->
+    io:format(user, "Changing default table from ~p to ~p~n", [OldTable, Table]),
+    create_check_ddLog(Table),
+    {ok, State#state{table=Table}};
 handle_info(_Info, State) ->
     %% we'll get (unused) log rotate messages
     {ok, State}.
@@ -161,6 +147,9 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+config_to_id(Config) ->
+    {?MODULE, proplists:get_value(application, Config)}.
 
 %%%===================================================================
 %%% Internal functions
@@ -176,15 +165,10 @@ state_from_params(OrigState = #state{level = OldLevel,
     Level = proplists:get_value(level, Params, OldLevel),
     TableEvent = proplists:get_value(tn_event, Params, OldTableEvent),
     Application = proplists:get_value(application, Params, OldApplication),
-    Modules = case application:get_key(Application, modules) of
-                  undefined -> OrigState#state.modules;
-                  {ok, Mods} -> Mods
-              end,
     OrigState#state{level=lager_util:level_to_num(Level),
                     table=TableFunc,
                     tn_event = TableEvent,
-                    application = Application,
-                    modules = Modules}.
+                    application = Application}.
 
 create_check_ddLog(Name) ->
     try
