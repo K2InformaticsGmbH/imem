@@ -169,8 +169,8 @@ state_from_params(OrigState = #state{level = OldLevel,
                                      application = OldApplication,
                                      tn_event = OldTableEvent}, Params) ->
     TableFunc = case proplists:get_value(tablefun, Params) of
-                    TableFun when is_function(TableFun, 0) ->
-                        TableFun;
+                    {Mod, Fun} ->
+                        fun Mod:Fun/0;
                     _ -> exit({badarg, missing_tablefun})
                 end,
     Level = proplists:get_value(level, Params, OldLevel),
