@@ -59,7 +59,7 @@ handle_event({log, LagerMsg}, #state{is_initialized = false, application = App} 
                 imem_meta:subscribe({table, ddConfig, simple}),
                 handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true})
             catch
-                _:{badmatch, {error, already_existss, _}} ->
+                _:{badmatch, {error, {already_exists, {table,ddConfig,simple}}}} ->
                     handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true});
                 _:Exception ->
                     io:format(
