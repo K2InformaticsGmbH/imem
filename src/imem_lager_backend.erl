@@ -60,6 +60,10 @@ handle_event({log, LagerMsg}, #state{is_initialized = false, application = App} 
                 handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true})
             catch
                 _:{badmatch, {error, {already_exists, {table,ddConfig,simple}}}} ->
+                    io:format(
+                        user, "[warning] ~p:~p:~p re-subscription attempt~n",
+                        [?MODULE, ?FUNCTION_NAME, ?LINE]
+                    ),
                     handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true});
                 _:Exception ->
                     io:format(
@@ -141,7 +145,7 @@ handle_call(get_loglevel, State = #state{level = Level}) ->
 handle_info({mnesia_table_event, {write,{ddConfig,Match,Table,_,_},_}},
             #state{tn_event = Match, table=OldTable} = State) ->
     io:format(user, "[info] ~p:~p:~p changing default table from ~p to ~p~n",
-                [?MODULE, ?FUNCTION_NAME, ?LINE, OldTable, Table]),
+              [?MODULE, ?FUNCTION_NAME, ?LINE, OldTable, Table]),
     create_check_ddLog(Table),
     {ok, State#state{table=Table}};
 handle_info(_Info, State) ->
@@ -182,4 +186,3 @@ create_check_ddLog(Name) ->
         [{record_name, element(1, #ddLog{})},
          {type, ordered_set}, {purge_delay,430000}],
         lager_imem).
-    
