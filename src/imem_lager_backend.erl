@@ -51,15 +51,25 @@ init(Params) ->
 %% before imem is stared. So we have to wait till imem is started to
 %% create the table.
 handle_event({log, LagerMsg}, #state{is_initialized = false, application = App} = State) ->
+    Table = (State#state.table)(),
     case proplists:get_value(application, lager_msg:metadata(LagerMsg)) of
         App ->
-            Table = (State#state.table)(),
-            create_check_ddLog(Table),
-            imem_meta:unsubscribe({table, ddConfig, simple}),
-            imem_meta:subscribe({table, ddConfig, simple}),
-            handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true});
+            try
+                create_check_ddLog(Table),
+                imem_meta:subscribe({table, ddConfig, simple}),
+                handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true})
+            catch
+                _:{badmatch, {error, already_existss, _}} ->
+                    handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true});
+                _:Exception ->
+                    io:format(
+                        user, "[error] ~p:~p:~p ~p~n",
+                        [?MODULE, ?FUNCTION_NAME, ?LINE, Exception]
+                    ),
+                    {ok, State}
+            end;
         _ ->
-            %% application message is not obtained so waiting 
+            %% application message is not obtained so waiting to initialize
             {ok, State}
     end;
 handle_event({log, LagerMsg}, #state{application = App, table = Table, level = LogLevel} = State) ->
@@ -68,10 +78,9 @@ handle_event({log, LagerMsg}, #state{application = App, table = Table, level = L
             Level = lager_msg:severity_as_int(LagerMsg),
             Message = lager_msg:message(LagerMsg),
             Metadata = lager_msg:metadata(LagerMsg),
-            LApp = proplists:get_value(application, Metadata),
             Mod = proplists:get_value(module, Metadata),
             StackTrace = proplists:get_value(stacktrace, Metadata, []),
-            case LApp of
+            case proplists:get_value(application, Metadata) of
                 App ->
                     Fun = proplists:get_value(function, Metadata),
                     Line = proplists:get_value(line, Metadata),
@@ -88,15 +97,9 @@ handle_event({log, LagerMsg}, #state{application = App, table = Table, level = L
                                   ({enum,V})        -> {true, V};
                                   (_)               -> true
                                end, Metadata),
-                    LogTable = proplists:get_value(imem_table, Metadata, Table),
-                    LogRecord = if LogTable == Table -> ddLog;
-                                   true -> LogTable
-                                end,
-
                     NPid = if is_list(Pid) -> list_to_pid(Pid); true -> Pid end,
-
                     EntryTuple = list_to_tuple(
-                                   [LogRecord,
+                                   [ddLog,
                                     ?TIME_UID,
                                     lager_util:num_to_level(Level),
                                     NPid,
@@ -110,11 +113,13 @@ handle_event({log, LagerMsg}, #state{application = App, table = Table, level = L
                                     StackTrace
                                    ]),
                     try
-                        imem_meta:dirty_write(LogTable, EntryTuple)
+                        imem_meta:dirty_write(Table, EntryTuple)
                     catch
                         _:Error ->
-                            io:format(user, "[~p:~p] failed to write to ~p, ~p~n",
-                                      [?MODULE, ?LINE, LogTable, Error])
+                            io:format(
+                                user, "[error] ~p:~p:~p failed to write to ~p, ~p~n",
+                                [?MODULE, ?FUNCTION_NAME, ?LINE, Table, Error]
+                            )
                     end;
                 _ -> no_op %% not a log event from the associated application
             end;
@@ -135,7 +140,8 @@ handle_call(get_loglevel, State = #state{level = Level}) ->
 
 handle_info({mnesia_table_event, {write,{ddConfig,Match,Table,_,_},_}},
             #state{tn_event = Match, table=OldTable} = State) ->
-    io:format(user, "Changing default table from ~p to ~p~n", [OldTable, Table]),
+    io:format(user, "[info] ~p:~p:~p changing default table from ~p to ~p~n",
+                [?MODULE, ?FUNCTION_NAME, ?LINE, OldTable, Table]),
     create_check_ddLog(Table),
     {ok, State#state{table=Table}};
 handle_info(_Info, State) ->
@@ -157,26 +163,23 @@ config_to_id(Config) ->
 state_from_params(OrigState = #state{level = OldLevel,
                                      application = OldApplication,
                                      tn_event = OldTableEvent}, Params) ->
-    TableFunc = case proplists:get_value(tablefun, Params) of
-                    {Mod, Fun} ->
-                        fun Mod:Fun/0;
-                    _ -> exit({badarg, missing_tablefun})
-                end,
+    TableNameFunc = case proplists:get_value(table_name_fun, Params) of
+                        {Mod, Fun} ->
+                            fun Mod:Fun/0;
+                        _ -> exit({badarg, missing_table_name_fun})
+                    end,
     Level = proplists:get_value(level, Params, OldLevel),
     TableEvent = proplists:get_value(tn_event, Params, OldTableEvent),
     Application = proplists:get_value(application, Params, OldApplication),
     OrigState#state{level=lager_util:level_to_num(Level),
-                    table=TableFunc,
+                    table=TableNameFunc,
                     tn_event = TableEvent,
                     application = Application}.
 
 create_check_ddLog(Name) ->
-    try
-        imem_meta:init_create_check_table(
-          Name, {record_info(fields, ddLog), ?ddLog, #ddLog{}},
-          [{record_name, element(1, #ddLog{})},
-           {type, ordered_set}, {purge_delay,430000}],
-          lager_imem)
-    catch
-        _:Error -> throw(Error)
-    end.
+    imem_meta:init_create_check_table(
+        Name, {record_info(fields, ddLog), ?ddLog, #ddLog{}},
+        [{record_name, element(1, #ddLog{})},
+         {type, ordered_set}, {purge_delay,430000}],
+        lager_imem).
+    
