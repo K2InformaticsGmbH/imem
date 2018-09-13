@@ -139,54 +139,40 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
 compile_mod(ModuleCodeBinStr) -> compile_mod(ModuleCodeBinStr, [], []).
 compile_mod(ModuleCodeBinStr, Opts) -> compile_mod(ModuleCodeBinStr, [], Opts).
 compile_mod(ModuleCodeBinStr, Restrict, Opts) when is_binary(ModuleCodeBinStr) ->
-    case tokenize(ModuleCodeBinStr) of
-        {ok, TokenGroups} ->
-            case lists:foldl(
-                    fun(TokenGroup, Acc) when is_list(Acc) ->
-                            case erl_parse:parse_form(TokenGroup) of
-                                {ok, AbsForm} -> [AbsForm | Acc];
-                                {error, ErrorInfo} ->
-                                    {error, [error_info(error, ErrorInfo)]}
-                            end;
-                        (_, Error) -> Error
-                    end, [], TokenGroups) of
-                Forms when is_list(Forms) ->
-                    case security_check(Forms, Restrict) of
-                        List when is_list(List) ->
-                            case compile:forms(Forms, [return | Opts]) of
-                                error -> {error, #{error => <<"unknown">>}};
-                                {ok, _Module, Bin} -> {ok, Bin};
-                                {ok, _Module, Bin, []} -> {ok, Bin};
-                                {ok, _Module, Bin, Warnings} ->
-                                    {warning, Bin, error_info(warning, Warnings)};
-                                {error, Errors, []} ->
-                                    {error, error_info(error, Errors)};
-                                {error, Errors, Warnings} ->
-                                    {error, error_info(error, Errors) ++ error_info(warning, Warnings)}
-                            end;
-                        {error, Errors} ->
-                            {error, error_info(error, Errors)}
-                    end;
-                Error -> Error
-            end;
-        Error -> Error
-    end.
-
-tokenize(ModuleCodeBinStr) ->
     case erl_scan:string(binary_to_list(ModuleCodeBinStr), {0,1}) of
-        {ok, RawTokens, _} ->
-            case catch aleppo:process_tokens(RawTokens) of
-                {ok, TokensEOF} ->
-                    [{eof,_} | RevTokens] = lists:reverse(TokensEOF),
-                    Tokens = lists:reverse(RevTokens),
-                    {ok, cut_dot(Tokens)};
-                {error, Error} ->
-                    {error, {preprocess, {{0, 1}, ?MODULE, Error}, {0, 1}}};
-                {'EXIT', Error} ->
-                    {error, {preprocess, {{0, 1}, ?MODULE, Error}, {0, 1}}}
-            end;
+        {ok, RawTokens, _} -> compile_mod(RawTokens, Restrict, Opts);
         {error, ErrorInfo, ErrorLocation} ->
             {error, {scan, ErrorInfo, ErrorLocation}}
+    end;
+compile_mod(ModuleTokenGroups, Restrict, Opts) when is_list(ModuleTokenGroups) ->
+    TokenGroups = cut_dot(ModuleTokenGroups),
+    case lists:foldl(
+            fun(TokenGroup, Acc) when is_list(Acc) ->
+                    case erl_parse:parse_form(TokenGroup) of
+                        {ok, AbsForm} -> [AbsForm | Acc];
+                        {error, ErrorInfo} ->
+                            {error, [error_info(error, ErrorInfo)]}
+                    end;
+                (_, Error) -> Error
+            end, [], TokenGroups) of
+        Forms when is_list(Forms) ->
+            case security_check(Forms, Restrict) of
+                List when is_list(List) ->
+                    case compile:forms(Forms, [return | Opts]) of
+                        error -> {error, #{error => <<"unknown">>}};
+                        {ok, _Module, Bin} -> {ok, Bin};
+                        {ok, _Module, Bin, []} -> {ok, Bin};
+                        {ok, _Module, Bin, Warnings} ->
+                            {warning, Bin, error_info(warning, Warnings)};
+                        {error, Errors, []} ->
+                            {error, error_info(error, Errors)};
+                        {error, Errors, Warnings} ->
+                            {error, error_info(error, Errors) ++ error_info(warning, Warnings)}
+                    end;
+                {error, Errors} ->
+                    {error, error_info(error, Errors)}
+            end;
+        Error -> Error
     end.
 
 cut_dot(Tokens) -> cut_dot(Tokens, [[]]).
@@ -305,14 +291,6 @@ compile_test_() ->
 test() ->
     ok.
 ">>, ok},
-{"macro",
-<<"
--module(test).
--export([test/0]).
--define(XXX, true).
-test() ->
-    ?XXX.
-">>, ok},
 {"behavior",
 <<"
 -module(test).
@@ -332,7 +310,7 @@ test() ->
     io:format(\"~p\", [123]),
     ok.
 ">>,
-[#{type => error, row => 5, text => <<"unsafe function call io:format/2">>}]},
+[#{type => error, row => 4, col => 7, text => <<"unsafe function call io:format/2">>}]},
 {"error",
 <<"
 -module(test).
@@ -340,7 +318,7 @@ test() ->
 test() ->
     ok.
 ">>,
-[#{type => error, row => 3, text => <<"function test/1 undefined">>}]},
+[#{type => error, row => 2, col => 2, text => <<"function test/1 undefined">>}]},
 {"warning",
 <<"
 -module(test).
@@ -349,7 +327,7 @@ test() ->
     X = 0,
     ok.
 ">>,
-[#{type => warning, row => 5, text => <<"variable 'X' is unused">>}]},
+[#{type => warning, row => 4, col => 5, text => <<"variable 'X' is unused">>}]},
 {"error and warning",
 <<"
 -module(test).
@@ -358,8 +336,8 @@ test() ->
     X = 0,
     ok.
 ">>,
-[#{type => error, row => 3, text => <<"function test/1 undefined">>},
- #{type => warning, row => 5, text => <<"variable 'X' is unused">>}]},
+[#{type => error, row => 2, col => 2, text => <<"function test/1 undefined">>},
+ #{type => warning, row => 4, col => 5, text => <<"variable 'X' is unused">>}]},
 {"unsafe",
 <<"
 -module(test).
@@ -371,7 +349,7 @@ test() ->
     binary_to_atom(<<\"1\">>, utf8),
     ok.
 ">>,
-[#{type => error, row => 8,
+[#{type => error, row => 7, col => 5,
    text => <<"unsafe function call erlang:binary_to_atom/2">>}]}
 ]).
 
