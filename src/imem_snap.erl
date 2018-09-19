@@ -831,15 +831,21 @@ exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
     ?PUT_SNAPSHOT_EXCLUSION_PATTERNS(lists:usort([TablePattern | ExPatterns]), Remark).
 
 maybe_coldstart_restore(SnapDir) ->
-    case {application:get_env(imem, cold_start_recover), imem_meta:nodes()} of
-        {{ok, true}, []} ->
-            case lists:reverse(lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX"*.zip", SnapDir))) of
-                [] -> ?Warn("Cold Start : unable to auto restore, no "?BKP_ZIP_PREFIX"*.zip found in snapshot directory ~s", [SnapDir]);
-                [ZipFile | _ ] ->
-                    ?Info("Cold Start : auto restoring ~s found at ~s", [ZipFile, SnapDir]),
-                    restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
+    case application:get_env(imem, mnesia_node_type) of
+        {ok, ram} ->
+            case {application:get_env(imem, cold_start_recover), imem_meta:nodes()} of
+                {{ok, true}, []} -> coldstart_restore(SnapDir);
+                {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
+                {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
+                _ -> no_op
             end;
-        {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
-        {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
-        _ -> ok
+        _ -> no_op
+    end.
+
+coldstart_restore(SnapDir) ->
+    case lists:reverse(lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX"*.zip", SnapDir))) of
+        [] -> ?Warn("Cold Start : unable to auto restore, no "?BKP_ZIP_PREFIX"*.zip found in snapshot directory ~s", [SnapDir]);
+        [ZipFile | _ ] ->
+            ?Info("Cold Start : auto restoring ~s found at ~s", [ZipFile, SnapDir]),
+            restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
     end.
