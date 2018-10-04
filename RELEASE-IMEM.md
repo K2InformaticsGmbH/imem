@@ -3,6 +3,10 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.0.1 (Release Date 04.10.2018)
+=======================================
+* Windows NIFs for hi-resolution time
+
 Version 3.0.0 (Release Date 31.08.2018)
 =======================================
 * Upgraded sqlparser to version 4.3.1
