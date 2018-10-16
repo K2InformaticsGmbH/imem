@@ -171,8 +171,7 @@ init(_) ->
     start_snap_loop(),
     erlang:send_after(
       1000, ?MODULE,
-      {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp',
-       '$create_when_needed'}),
+      {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
     {ok,#state{snapdir = SnapshotDir}}.
 
 -spec create_clean_dir(list()) -> list().
@@ -215,7 +214,7 @@ cluster_snap([], StartTime, Dir) ->
             ?Info("cluster snapshot ~s", [ZipFile])
     end,
     ?Info("cluster snapshot took ~p ms", [?TIMESTAMP_DIFF(StartTime, ?TIMESTAMP) div 1000]),
-    erlang:send_after(1000, ?MODULE, {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
+    erlang:send_after(1000, ?MODULE, {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
     ok;
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
     cluster_snap(Tabs, StartTime, create_clean_dir(?BKP_ZIP_PREFIX));
@@ -237,6 +236,8 @@ cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
     ?MODULE ! {cluster_snap, NextTabs, StartTime, Dir},
     ok.
 
+handle_info({cluster_snap, StartTime, Dir}, State) ->
+    handle_info({cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, StartTime, Dir}, State);
 handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
     {noreply,
      case ?GET_CLUSTER_SNAPSHOT of
@@ -252,7 +253,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                          _ ->
                              erlang:send_after(
                                60 * 1000, ?MODULE,
-                               {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
+                               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
                              State#state{csnap_pid = (#state{})#state.csnap_pid}
                      end;
                  _ ->
@@ -269,15 +270,15 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                                  _ ->
                                      erlang:send_after(
                                        60 * 1000, ?MODULE,
-                                       {cluster_snap, Tables, '$replace_with_timestamp', '$create_when_needed'}),
+                                       {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
                                      State#state{csnap_pid = (#state{})#state.csnap_pid}
                              end
                      end
              end;
          false ->
              erlang:send_after(
-               1000, ?MODULE,
-               {cluster_snap, Tables, '$replace_with_timestamp', '$create_when_needed'}),
+               5000, ?MODULE,
+               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
              State
      end};
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
