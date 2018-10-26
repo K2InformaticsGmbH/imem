@@ -526,6 +526,15 @@ skvh_operations(_Config) ->
     ?assertEqual(ok, imem_dal_skvh:drop_table(skvhTest)),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [drop_table]),
 
+    ?assertEqual(ok, imem_dal_skvh:create_check_channel(<<"skvhTest">>)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":starting ~p", [trigger_overwrite_check]),
+    Hook = <<"test:test_trigger_hook(OldRec,NewRec,User,AuditInfoList)">>,
+    ?assertEqual(ok, imem_dal_skvh:add_channel_trigger_hook(test, <<"skvhTest">>, Hook)),
+    ?assertEqual(<<"\n,", Hook/binary>>, imem_dal_skvh:get_channel_trigger_hook(test, <<"skvhTest">>)),
+    ?assertEqual(ok, imem_dal_skvh:create_check_channel(<<"skvhTest">>)),
+    ?assertEqual(ok, imem_dal_skvh:get_channel_trigger_hook(test, <<"skvhTest">>)),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [trigger_overwrite_check]),
+
     ok.
 
 %%====================================================================
