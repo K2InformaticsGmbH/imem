@@ -532,7 +532,7 @@ skvh_operations(_Config) ->
     ?assertEqual(ok, imem_dal_skvh:add_channel_trigger_hook(test, <<"skvhTest">>, Hook)),
     ?assertEqual(<<"\n,", Hook/binary>>, imem_dal_skvh:get_channel_trigger_hook(test, <<"skvhTest">>)),
     ?assertEqual(ok, imem_dal_skvh:create_check_channel(<<"skvhTest">>)),
-    ?assertEqual(ok, imem_dal_skvh:get_channel_trigger_hook(test, <<"skvhTest">>)),
+    ?assertEqual(<<"\n,", Hook/binary>>, imem_dal_skvh:get_channel_trigger_hook(test, <<"skvhTest">>)),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [trigger_overwrite_check]),
 
     ok.

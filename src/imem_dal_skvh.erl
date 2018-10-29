@@ -463,14 +463,14 @@ create_check_channel(Channel, Options) ->
     %% has been changed or not. If changed then do nothing, as we should not overwrite
     %% the trigger. If not changed then the trigger can be overwritten to have the
     %% new audit and history trigger functions.
-    case catch imem_meta:get_tigger(Tab) of
+    case catch imem_meta:get_trigger(Tab) of
         undefined -> 
             imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, ""));
         Trigger when is_binary(Trigger) ->
             case re:run(Trigger, ?EXTENDED_CODE_START_END) of
-                match ->
-                    imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, ""));
-                _ -> no_op
+                nomatch -> no_op;
+                _ ->
+                    imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, ""))
             end;
         _ -> no_op
     end,
