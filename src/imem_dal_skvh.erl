@@ -5,7 +5,7 @@
 -define(AUDIT_SUFFIX,"Audit_86400@_").
 -define(AUDIT(__Channel), binary_to_list(__Channel) ++ ?AUDIT_SUFFIX).
 -define(HIST_SUFFIX,"Hist").
--define(EXTENDED_CODE_START_END,"\n    %extend_code_start\n    %extend_code_end").
+-define(EXTEND_CODE,"\n    %extend_code_start\n    %extend_code_end").
 -define(HIST(__Channel), binary_to_list(__Channel) ++ ?HIST_SUFFIX).
 -define(HIST_FROM_STR(__Channel),list_to_existing_atom(__Channel ++ ?HIST_SUFFIX)).
 -define(MATCHHEAD,{skvhTable, '$1', '$2', '$3'}).
@@ -463,14 +463,15 @@ create_check_channel(Channel, Options) ->
     %% has been changed or not. If changed then do nothing, as we should not overwrite
     %% the trigger. If not changed then the trigger can be overwritten to have the
     %% new audit and history trigger functions.
+    TiggerFun = skvh_trigger_fun_str(Options, ""),
     case catch imem_meta:get_trigger(Tab) of
         undefined -> 
-            imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, ""));
+            imem_meta:create_or_replace_trigger(Tab, TiggerFun);
         Trigger when is_binary(Trigger) ->
-            case re:run(Trigger, ?EXTENDED_CODE_START_END) of
+            case re:run(Trigger, ?EXTEND_CODE) of
                 nomatch -> no_op;
                 _ ->
-                    imem_meta:create_or_replace_trigger(Tab, skvh_trigger_fun_str(Options, ""))
+                    imem_meta:create_or_replace_trigger(Tab, TiggerFun)
             end;
         _ -> no_op
     end,
@@ -515,7 +516,7 @@ skvh_trigger_fun_str(Opts, ExtraFun) ->
        "    end"),
        if length(ExtraFun) == 0 -> "";
           true -> ",\n    "++ExtraFun end,
-        ?EXTENDED_CODE_START_END
+        ?EXTEND_CODE
        "\nend."]).
 
 -spec drop_table(binary()|atom()) -> ok.
