@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.1.0 (Release Date 21.11.2018)
+=======================================
+* Added specs to imem_snap module
+* cluster snapshot reading tables to snapshot at time of snapshotting #221
+* skvh - check trigger before overwritting #223
+
 Version 3.0.1 (Release Date 04.10.2018)
 =======================================
 * Windows NIFs for hi-resolution time
