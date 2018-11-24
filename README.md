@@ -14,3 +14,7 @@ Clustered in-memory database based on MNESIA with simple SQL layer.
 [coveralls]: https://coveralls.io/github/K2InformaticsGmbH/imem
 [coveralls badge]: https://img.shields.io/coveralls/K2InformaticsGmbH/imem/master.svg?style=flat-square
 [erlang version badge]: https://img.shields.io/badge/erlang-20.0%20to%2020.1-blue.svg?style=flat-square
+
+## Build
+`rebar3 compile`
+**please note that IMEM uses NIF (win32 timers) which needs platform specific C/C++ build tool chains (cl.exe and link.exe) available and correctly set up for port_compiler to compile**
