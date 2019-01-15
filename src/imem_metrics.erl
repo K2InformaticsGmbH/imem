@@ -89,34 +89,31 @@ handle_metric_req(UnknownMetric, ReplyFun, State) ->
 terminate(_Reason, _State) -> ok.
 
 get_process_stats() ->
-    ProcessInfos = [
-        erlang:process_info(
-            erlang:whereis(P),
-            [heap_size, message_queue_len, stack_size, total_heap_size]
-        ) || P <- erlang:registered()],
+    ProcessInfoMaps = [
+        maps:from_list(
+            erlang:process_info(
+                erlang:whereis(P),
+                [heap_size, message_queue_len, stack_size,
+                 total_heap_size]
+            )
+        ) || P <- erlang:registered()
+    ],
     lists:foldl(
         fun(
-            Pi,
+            #{heap_size := HeapSize, message_queue_len := MQLen,
+              stack_size := StackSize, total_heap_size := TotalHeapSz},
             #{max_stack_size := MaxStackSize,
               max_heap_size := MaxHeapSize,
               max_total_heap_size := MaxTotalHeapSz,
               max_message_queue_len := MaxMQLen}
         ) ->
-            #{heap_size := HeapSize, message_queue_len := MQLen,
-              stack_size := StackSize, total_heap_size := TotalHeapSz}
-                = maps:from_list(Pi),
             #{max_heap_size => lists:max([MaxHeapSize, HeapSize]),
               max_message_queue_len => lists:max([MaxMQLen, MQLen]),
               max_stack_size => lists:max([MaxStackSize, StackSize]),
               max_total_heap_size
-                => lists:max([MaxTotalHeapSz, TotalHeapSz])};
-        (Pi, _) ->
-            #{heap_size := HeapSize, message_queue_len := MQLen,
-              stack_size := StackSize, total_heap_size := TotalHeapSz}
-                = maps:from_list(Pi),
-            #{max_heap_size => HeapSize, max_message_queue_len => MQLen,
-              max_stack_size => StackSize,
-              max_total_heap_size => TotalHeapSz}
+                => lists:max([MaxTotalHeapSz, TotalHeapSz])}
         end,
-        #{}, ProcessInfos
+        #{max_heap_size => 0, max_message_queue_len => 0,
+          max_stack_size => 0, max_total_heap_size => 0},
+        ProcessInfoMaps
     ).
