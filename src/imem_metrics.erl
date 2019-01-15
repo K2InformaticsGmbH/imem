@@ -63,7 +63,7 @@ handle_metric_req(data_nodes, ReplyFun, State) ->
     DataNodes = [#{schema => Schema, node => Node} || {Schema, Node} <- imem_meta:data_nodes()],
     ReplyFun(#{data_nodes => DataNodes, required_nodes => RequiredNodes}),
     State;
-handle_metric_req(procss_statistics, ReplyFun, State) ->
+handle_metric_req(process_statistics, ReplyFun, State) ->
     Now = os:timestamp(),
     case State of
         #{last := Last, stats := Stats} ->
@@ -103,15 +103,20 @@ get_process_stats() ->
               max_message_queue_len := MaxMQLen}
         ) ->
             #{heap_size := HeapSize, message_queue_len := MQLen,
-              stack_size := MaxStackSize, total_heap_size := TotalHeapSz}
+              stack_size := StackSize, total_heap_size := TotalHeapSz}
                 = maps:from_list(Pi),
             #{max_heap_size => lists:max([MaxHeapSize, HeapSize]),
               max_message_queue_len => lists:max([MaxMQLen, MQLen]),
-              max_stack_size => lists:max([MaxStackSize, MaxStackSize]),
+              max_stack_size => lists:max([MaxStackSize, StackSize]),
               max_total_heap_size
                 => lists:max([MaxTotalHeapSz, TotalHeapSz])};
         (Pi, _) ->
-            maps:from_list(Pi)
+            #{heap_size := HeapSize, message_queue_len := MQLen,
+              stack_size := StackSize, total_heap_size := TotalHeapSz}
+                = maps:from_list(Pi),
+            #{max_heap_size => HeapSize, max_message_queue_len => MQLen,
+              max_stack_size => StackSize,
+              max_total_heap_size => TotalHeapSz}
         end,
         #{}, ProcessInfos
     ).
