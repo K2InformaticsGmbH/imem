@@ -64,29 +64,29 @@ handle_metric_req(data_nodes, ReplyFun, State) ->
     ReplyFun(#{data_nodes => DataNodes, required_nodes => RequiredNodes}),
     State;
 handle_metric_req(process_statistics, ReplyFun, State) ->
-    Now = os:timestamp(),
-    case State of
-        #{last := Last, stats := Stats} ->
-            case timer:now_diff(Now, Last) of
-                Diff when Diff > ?CACHE_STALE_AFTER ->
-                    NewStats = get_process_stats(),
-                    ReplyFun(NewStats),
-                    #{last => Now, stats => NewStats};
-                _ ->
-                    ReplyFun(Stats),
-                    #{last => Last, stats => Stats}
-            end;
-        _ ->
-            NewStats = get_process_stats(),
-            ReplyFun(NewStats),
-            #{last => Now, stats => NewStats}
-    end;
+    process_statistics(ReplyFun, State);
 handle_metric_req(UnknownMetric, ReplyFun, State) ->
     ?Error("Unknow metric requested ~p", [UnknownMetric]),
     ReplyFun({error, unknown_metric}),
     State.
 
 terminate(_Reason, _State) -> ok.
+
+process_statistics(ReplyFun, #{last := Last, stats := Stats}) ->
+    Now = os:timestamp(),
+    case timer:now_diff(Now, Last) of
+        Diff when Diff > ?CACHE_STALE_AFTER ->
+            NewStats = get_process_stats(),
+            ReplyFun(NewStats),
+            #{last => Now, stats => NewStats};
+        _ ->
+            ReplyFun(Stats),
+            #{last => Last, stats => Stats}
+    end;
+process_statistics(ReplyFun, _) ->
+    NewStats = get_process_stats(),
+    ReplyFun(NewStats),
+    #{last => os:timestamp(), stats => NewStats}.
 
 get_process_stats() ->
     ProcessInfoMaps = [
@@ -98,22 +98,27 @@ get_process_stats() ->
             )
         ) || P <- erlang:registered()
     ],
-    lists:foldl(
-        fun(
-            #{heap_size := HeapSize, message_queue_len := MQLen,
-              stack_size := StackSize, total_heap_size := TotalHeapSz},
-            #{max_stack_size := MaxStackSize,
-              max_heap_size := MaxHeapSize,
-              max_total_heap_size := MaxTotalHeapSz,
-              max_message_queue_len := MaxMQLen}
-        ) ->
-            #{max_heap_size => lists:max([MaxHeapSize, HeapSize]),
-              max_message_queue_len => lists:max([MaxMQLen, MQLen]),
-              max_stack_size => lists:max([MaxStackSize, StackSize]),
-              max_total_heap_size
-                => lists:max([MaxTotalHeapSz, TotalHeapSz])}
-        end,
+    process_info_max(ProcessInfoMaps).
+
+process_info_max(ProcessInfoMaps) ->
+    process_info_max(
+        ProcessInfoMaps,
         #{max_heap_size => 0, max_message_queue_len => 0,
-          max_stack_size => 0, max_total_heap_size => 0},
-        ProcessInfoMaps
+          max_stack_size => 0, max_total_heap_size => 0}
+    ).
+
+process_info_max([], MaxProcessInfos) -> MaxProcessInfos;
+process_info_max(
+    [#{heap_size := HeapSize, message_queue_len := MQLen,
+       stack_size := StackSize, total_heap_size := TotalHeapSz}
+     | ProcessInfoMaps],
+    #{max_stack_size := MaxStackSize, max_heap_size := MaxHeapSize,
+      max_total_heap_size := MaxTotalHeapSz, max_message_queue_len := MaxMQLen}
+) ->
+    process_info_max(
+        ProcessInfoMaps,
+        #{max_heap_size => erlang:max(MaxHeapSize, HeapSize),
+          max_message_queue_len => erlang:max(MaxMQLen, MQLen),
+          max_stack_size => erlang:max(MaxStackSize, StackSize),
+          max_total_heap_size => erlang:max(MaxTotalHeapSz, TotalHeapSz)}
     ).
