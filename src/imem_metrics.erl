@@ -72,53 +72,71 @@ handle_metric_req(UnknownMetric, ReplyFun, State) ->
 
 terminate(_Reason, _State) -> ok.
 
-process_statistics(ReplyFun, #{last := Last, stats := Stats}) ->
+process_statistics(
+    ReplyFun,
+    #{process_statistics := #{last := Last, value := Stats}}
+) ->
     Now = os:timestamp(),
     case timer:now_diff(Now, Last) of
         Diff when Diff > ?CACHE_STALE_AFTER ->
             NewStats = get_process_stats(),
             ReplyFun(NewStats),
-            #{last => Now, stats => NewStats};
+            #{process_statistics => #{last => Now, value => NewStats}};
         _ ->
             ReplyFun(Stats),
-            #{last => Last, stats => Stats}
+            #{process_statistics => #{last => Last, value => Stats}}
     end;
 process_statistics(ReplyFun, _) ->
     NewStats = get_process_stats(),
     ReplyFun(NewStats),
-    #{last => os:timestamp(), stats => NewStats}.
+    #{process_statistics => #{last => os:timestamp(), value => NewStats}}.
 
 get_process_stats() ->
     ProcessInfoMaps = [
-        maps:from_list(
+        {Registered,
+         maps:from_list(
             erlang:process_info(
-                erlang:whereis(P),
+                erlang:whereis(Registered),
                 [heap_size, message_queue_len, stack_size,
                  total_heap_size]
             )
-        ) || P <- erlang:registered()
+         )} || Registered <- erlang:registered()
     ],
     process_info_max(ProcessInfoMaps).
 
 process_info_max(ProcessInfoMaps) ->
-    process_info_max(
-        ProcessInfoMaps,
-        #{max_heap_size => 0, max_message_queue_len => 0,
-          max_stack_size => 0, max_total_heap_size => 0}
-    ).
+    process_info_max(ProcessInfoMaps, #{}).
 
 process_info_max([], MaxProcessInfos) -> MaxProcessInfos;
-process_info_max(
-    [#{heap_size := HeapSize, message_queue_len := MQLen,
-       stack_size := StackSize, total_heap_size := TotalHeapSz}
-     | ProcessInfoMaps],
-    #{max_stack_size := MaxStackSize, max_heap_size := MaxHeapSize,
-      max_total_heap_size := MaxTotalHeapSz, max_message_queue_len := MaxMQLen}
-) ->
-    process_info_max(
-        ProcessInfoMaps,
-        #{max_heap_size => erlang:max(MaxHeapSize, HeapSize),
-          max_message_queue_len => erlang:max(MaxMQLen, MQLen),
-          max_stack_size => erlang:max(MaxStackSize, StackSize),
-          max_total_heap_size => erlang:max(MaxTotalHeapSz, TotalHeapSz)}
-    ).
+process_info_max([PiMap | ProcessInfoMaps], Stat) ->
+    process_info_max(ProcessInfoMaps, process_max(PiMap, Stat)).
+
+-define(PROCESS_MAX(_PiProp, _StatProp),
+    process_max(
+        {Process, #{_PiProp := Value} = Pi},
+        #{_StatProp := #{value := OldV}} = Stat
+    ) ->
+        process_max(
+            % remove processed property from map to process next recursively
+            {Process, maps:without([_PiProp], Pi)},
+            if OldV < Value -> % only if new value is greater                
+                Stat#{_StatProp => #{process => Process, value => Value}};
+                true -> Stat
+            end
+        );
+    % generate the stat property for first time
+    process_max({Process, #{_PiProp := Value} = Pi}, Stat) when Value > 0 ->
+        process_max(
+            {Process, maps:without([_PiProp], Pi)},
+            Stat#{_StatProp => #{process => Process, value => Value}}
+        );
+    % skip all zero values
+    process_max({Process, #{_PiProp := _} = Pi}, Stat) ->
+        process_max({Process, maps:without([_PiProp], Pi)}, Stat)
+).
+
+?PROCESS_MAX(heap_size, max_heap_size);
+?PROCESS_MAX(message_queue_len, max_message_queue_len);
+?PROCESS_MAX(stack_size, max_stack_size);
+?PROCESS_MAX(total_heap_size, max_total_heap_size);
+process_max({_, Pi}, Stat) when map_size(Pi) == 0 -> Stat.
