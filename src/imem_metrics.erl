@@ -116,8 +116,12 @@ process_max({Process, ProcessInfo}, Stats) ->
         fun(Key, Val, Max) ->
             MaxKey = max_key(Key),
             case Max of
+                % update if old value was smaller
                 #{MaxKey := #{value := OldVal}} when Val > OldVal ->
                      Max#{MaxKey => #{value => Val, process => Process}};
+                % no change if old value was same or greater
+                #{MaxKey := _} -> Max;
+                % first time, no old value
                 _ -> Max#{MaxKey => #{value => Val, process => Process}}
             end
         end, Stats, ProcessInfo
