@@ -40,7 +40,7 @@ request_metric(MetricKey, ReqRef, ReplyTo) ->
 request_metric(_) -> noreply.
 
 %% imem_gen_metrics callback
-init() -> {ok, undefined}.
+init() -> {ok, #{}}.
 
 handle_metric_req(system_information, ReplyFun, State) ->
     {_, FreeMemory, TotalMemory} = imem:get_os_memory(),
@@ -74,22 +74,22 @@ terminate(_Reason, _State) -> ok.
 
 process_statistics(
     ReplyFun,
-    #{process_statistics := #{last := Last, value := Stats}}
+    #{process_statistics := #{last := Last, value := Stats}} = State
 ) ->
     Now = os:timestamp(),
     case timer:now_diff(Now, Last) of
         Diff when Diff > ?CACHE_STALE_AFTER ->
             NewStats = get_process_stats(),
             ReplyFun(NewStats),
-            #{process_statistics => #{last => Now, value => NewStats}};
+            State#{process_statistics => #{last => Now, value => NewStats}};
         _ ->
             ReplyFun(Stats),
-            #{process_statistics => #{last => Last, value => Stats}}
+            State
     end;
-process_statistics(ReplyFun, _) ->
+process_statistics(ReplyFun, State) ->
     NewStats = get_process_stats(),
     ReplyFun(NewStats),
-    #{process_statistics => #{last => os:timestamp(), value => NewStats}}.
+    State#{process_statistics => #{last => os:timestamp(), value => NewStats}}.
 
 get_process_stats() ->
     ProcessInfoMaps = [
@@ -111,32 +111,19 @@ process_info_max([], MaxProcessInfos) -> MaxProcessInfos;
 process_info_max([PiMap | ProcessInfoMaps], Stat) ->
     process_info_max(ProcessInfoMaps, process_max(PiMap, Stat)).
 
--define(PROCESS_MAX(_PiProp, _StatProp),
-    process_max(
-        {Process, #{_PiProp := Value} = Pi},
-        #{_StatProp := #{value := OldV}} = Stat
-    ) ->
-        process_max(
-            % remove processed property from map to process next recursively
-            {Process, maps:without([_PiProp], Pi)},
-            if OldV < Value -> % only if new value is greater                
-                Stat#{_StatProp => #{process => Process, value => Value}};
-                true -> Stat
+process_max({Process, ProcessInfo}, Stats) ->
+    maps:fold(
+        fun(Key, Val, Max) ->
+            MaxKey = max_key(Key),
+            case Max of
+                #{MaxKey := #{value := OldVal}} when Val > OldVal ->
+                     Max#{MaxKey => #{value => Val, process => Process}};
+                _ -> Max#{MaxKey => #{value => Val, process => Process}}
             end
-        );
-    % generate the stat property for first time
-    process_max({Process, #{_PiProp := Value} = Pi}, Stat) when Value > 0 ->
-        process_max(
-            {Process, maps:without([_PiProp], Pi)},
-            Stat#{_StatProp => #{process => Process, value => Value}}
-        );
-    % skip all zero values
-    process_max({Process, #{_PiProp := _} = Pi}, Stat) ->
-        process_max({Process, maps:without([_PiProp], Pi)}, Stat)
-).
+        end, Stats, ProcessInfo
+    ).
 
-?PROCESS_MAX(heap_size, max_heap_size);
-?PROCESS_MAX(message_queue_len, max_message_queue_len);
-?PROCESS_MAX(stack_size, max_stack_size);
-?PROCESS_MAX(total_heap_size, max_total_heap_size);
-process_max({_, Pi}, Stat) when map_size(Pi) == 0 -> Stat.
+max_key(heap_size) -> max_heap_size;
+max_key(stack_size) -> max_stack_size;
+max_key(total_heap_size) -> max_total_heap_size;
+max_key(message_queue_len) -> max_message_queue_len.
