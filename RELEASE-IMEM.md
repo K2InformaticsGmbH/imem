@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.2.0 (Release Date 18.01.2018)
+=======================================
+* process_statistics metrics added #227
+* imem_compiler hot code loading issue fixed #229
+
 Version 3.1.0 (Release Date 21.11.2018)
 =======================================
 * Added specs to imem_snap module
