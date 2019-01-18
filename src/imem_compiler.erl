@@ -1,8 +1,7 @@
 -module(imem_compiler).
 -include("imem_seco.hrl").
 
--export([compile/1, compile/2, safe/1]).
-
+-export([compile/1, compile/2, safe/1, nonLocalHFun/2]).
 
 % erlang:_/0
 -safe([now/0, date/0, registered/0]).
@@ -22,13 +21,12 @@
 
 % external erlang modules (all exported functions)
 -safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re},
-       #{m => maps}, #{m => binary}, #{m => string}, #{m => erl_epmd},
-       #{m => rand}]).
+       #{m => maps}, #{m => binary}, #{m => string}, #{m => erl_epmd}]).
 
 % external {M,F,A} s
 -safe([#{m => io, f => [format/2]},
        #{m => io_lib, f => [format/2]},
-       #{m => erlang, f => [node/0]},
+       #{m => erlang, f => [node/0, integer_to_binary/2]},
        #{m => os, f => [getenv/1,getpid,system_time,timestamp,type,version]}]).
 
 % external match {M,F,A} s
@@ -103,22 +101,19 @@ compile(String,Bindings) when is_list(String), is_list(Bindings) ->
     {ok,ErlTokens,_} = erl_scan:string(Code),
     {ok,ErlAbsForm} = erl_parse:parse_exprs(ErlTokens),
     case catch erl_eval:exprs(ErlAbsForm, Bindings, none,
-                              {value, nonLocalHFun()}) of
+                              {value, fun ?MODULE:nonLocalHFun/2}) of
         {value,Value,_} -> Value;
         {Ex, Exception} when Ex == 'SystemException'; Ex == 'SecurityException' ->
             ?SecurityException({"Potentially harmful code", Exception});
         {'EXIT', Error} -> ?ClientErrorNoLogging({"Term compile error", Error})
     end.
 
-nonLocalHFun() ->
-    Safe = safe(),
-    fun(FSpec, Args) ->
-            nonLocalHFun(FSpec, Args, Safe)
-    end.
+nonLocalHFun(FSpec, Args) ->
+    nonLocalHFun(FSpec, Args, safe()).
 
 % @doc callback function used as 'Non-local Function Handler' in
 % erl_eval:exprs/4 to restrict code injection. This callback function will
-% exit with '{restricted,{M,F}}' exit value. If the exprassion is evaluated to
+% throw '{restricted,{M,F}}' exception. If the exprassion is evaluated to
 % an erlang fun, the fun will throw the same expection at runtime.
 nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
     ArgsLen = length(Args),
@@ -132,7 +127,8 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
                         ModSafe ->
                             nonLocalHFun(FSpec, Args, SafeFuns ++ ModSafe)
                     end;
-                true -> ?SecurityException({restricted, FSpec, ArgsLen})
+                true ->
+                    ?SecurityException({restricted, FSpec, ArgsLen, Mod, SafeFuns})
             end
     end.
 
