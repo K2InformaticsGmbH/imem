@@ -21,7 +21,8 @@
 
 % external erlang modules (all exported functions)
 -safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re},
-       #{m => maps}, #{m => binary}, #{m => string}, #{m => erl_epmd}]).
+       #{m => maps}, #{m => binary}, #{m => string}, #{m => erl_epmd}},
+       #{m => rand}]).
 
 % external {M,F,A} s
 -safe([#{m => io, f => [format/2]},
@@ -127,8 +128,7 @@ nonLocalHFun({Mod, Fun} = FSpec, Args, SafeFuns) ->
                         ModSafe ->
                             nonLocalHFun(FSpec, Args, SafeFuns ++ ModSafe)
                     end;
-                true ->
-                    ?SecurityException({restricted, FSpec, ArgsLen, Mod, SafeFuns})
+                true -> ?SecurityException({restricted, FSpec, ArgsLen})
             end
     end.
 
