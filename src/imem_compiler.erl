@@ -21,7 +21,7 @@
 
 % external erlang modules (all exported functions)
 -safe([#{m => math}, #{m => lists}, #{m => proplists}, #{m => re},
-       #{m => maps}, #{m => binary}, #{m => string}, #{m => erl_epmd}},
+       #{m => maps}, #{m => binary}, #{m => string}, #{m => erl_epmd},
        #{m => rand}]).
 
 % external {M,F,A} s
