@@ -17,7 +17,8 @@
         lager,
         ranch,
         sext,
-        sqlparse
+        sqlparse,
+        tdiff
     ]},
     {env, [
         {erl_cluster_mgrs, []},
