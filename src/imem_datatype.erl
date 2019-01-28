@@ -20,6 +20,29 @@
 
 -define(BinaryMaxLen,250).          %% more represented by "..." suffix
 
+-define(CMP_EQUAL,<<"=">>).         %% for cmp/2 and cmp/3 (Token Comparison)
+-define(CMP_SMALLER_LEFT,<<"<">>).
+-define(CMP_SMALLER_RIGHT,<<">">>).
+-define(CMP_WHITE_LEFT,<<"w=">>).   %% added whitespece on the left
+-define(CMP_WHITE_RIGHT,<<"=w">>).  %% added whitespace on the right
+-define(CMP_WHITE,<<"w=w">>).       %% added whitespace on both sides
+
+
+-define(CMP_EQUAL_KV,<<"==">>).     %% for cmp/2 and cmp/3 (KV-Comparison)
+-define(CMP_EQUAL_KEY_SMALLER_LEFT,<<"=<">>).
+-define(CMP_EQUAL_KEY_SMALLER_RIGHT,<<"=>">>).
+-define(CMP_SMALLER_KEY_LEFT,<<"<">>).
+-define(CMP_SMALLER_KEY_RIGHT,<<">">>).
+-define(CMP_EQUAL_KEY_WHITE_LEFT,<<"=w=">>).   %% added whitespece on the left value
+-define(CMP_EQUAL_KEY_WHITE_RIGHT,<<"==w">>).  %% added whitespace on the right value
+-define(CMP_EQUAL_KEY_WHITE,<<"=w=w">>).       %% added whitespace on both sides value
+
+-define(CMP_SPACE,32).              %% Stereotype for white space
+-define(CMP_CHAR,$@).               %% Stereotype for non-white space
+-define(CMP_OPS,"()[]{}+-*/<>=|").
+-define(CMP_NO_SPLIT,["<<", ">>", "<>", "->", "=>", "<=","==","<=",">=","=<","!=","++","--","||", ":=", "=:"]).
+-define(CMP_WHITE_SPACE," \t\r\n").
+
 -export([ raw_type/1
         , imem_type/1
         , type_check/5
@@ -57,6 +80,13 @@
         , local_datetime_to_utc1900_seconds/1
         , timestamp_to_local_datetime/1
         , seconds_since_epoch/1
+        ]).
+
+-export([ cmp/2                     %% compare two terms (LeftKey,RightKey)
+        , cmp/3                     %% compare two terms (LeftKey,RightKey, Opts)
+        , cmp/4                     %% compare two terms with payloads (LeftKey,RightKey,LeftVal,RightVal)
+        , cmp/5                     %% compare two terms with payloads (LeftKey,RightKey,LeftVal,RightVal,Opts)
+        , cmp_trim/2
         ]).
 
 %   datatypes
@@ -1454,6 +1484,95 @@ item6(T) -> item(6,T).
 item7(T) -> item(7,T).
 item8(T) -> item(8,T).
 item9(T) -> item(9,T).
+
+cmp(L, R) -> cmp(L, R, []).
+
+cmp(L, L, _) -> ?CMP_EQUAL; 
+cmp(L, R, Opts) when is_binary(L) ->
+    cmp(binary_to_list(L), R, Opts);
+cmp(L, R, Opts) when is_binary(R) ->
+    cmp(L, binary_to_list(R), Opts);
+cmp(L, R, Opts) when is_list(L), is_list(R) ->
+    Diff = tdiff:diff(L, R, Opts),
+    DiffLeft = cmp_trim(Diff, del),
+    DiffRight = cmp_trim(Diff, ins),
+    DiffBoth = cmp_trim(DiffRight,del),
+    case {cmp_eq(DiffLeft), cmp_eq(DiffRight), cmp_eq(DiffBoth)} of
+        {false,false,false} when L < R -> ?CMP_SMALLER_LEFT;
+        {false,false,false} -> ?CMP_SMALLER_RIGHT;
+        {true,_,_} -> ?CMP_WHITE_LEFT;
+        {_,true,_} -> ?CMP_WHITE_RIGHT;
+        {_,_,true} -> ?CMP_WHITE
+    end;
+cmp(L, R, _Opts) when L < R -> ?CMP_SMALLER_LEFT;
+cmp(_, _, _Opts) -> ?CMP_SMALLER_RIGHT.
+
+cmp_trim(Diff, Dir) -> cmp_trim(?CMP_SPACE, Diff, Dir, []).
+
+cmp_trim(_Last, [], _Dir, Acc) -> lists:reverse(Acc);
+cmp_trim(_Last, [{Dir,[?CMP_SPACE]}], Dir, Acc) -> lists:reverse(Acc);
+cmp_trim(Last, [{Dir,[?CMP_SPACE]},{eq,[Next|Chars]}|Diff], Dir, Acc) ->
+    %% see if added white space insert/delete is allowed
+    case cmp_may_split(Last,Next) of
+        true ->     cmp_trim(?CMP_CHAR, [{eq,[Next|Chars]}|Diff], Dir, Acc);
+        false ->    cmp_trim(?CMP_CHAR, [{eq,[Next|Chars]}|Diff], Dir, [{Dir,[?CMP_SPACE]}|Acc])
+    end;   
+cmp_trim(Last, [{Dir,[Ch,Next|Chars]}|Diff], Dir, Acc) ->
+    %% try to compress delta whitespace into a single space, keep whole change if not possible
+    case {lists:member(Ch,?CMP_WHITE_SPACE), lists:member(Next,?CMP_WHITE_SPACE)} of
+        {true,true} ->  cmp_trim(Last, [{Dir,[?CMP_SPACE|Chars]}|Diff], Dir, Acc);
+        _ ->            cmp_trim(?CMP_CHAR, Diff, Dir, [{Dir,[Ch,Next|Chars]}|Acc])
+    end;
+cmp_trim(_Last, [{Dir,Str}|Diff], Dir, Acc) ->
+    %% this is not a white space insert/delete, keep it and move forward
+    cmp_trim(?CMP_CHAR, Diff, Dir, [{Dir,Str}|Acc]);
+cmp_trim(_Last, [{Chg,Str}|Diff], Dir, Acc) ->
+    %% keep equal or opposite piece and move forward
+    Last = lists:last(Str),
+    case lists:member(Last,?CMP_WHITE_SPACE) of
+        true ->     cmp_trim(?CMP_SPACE, Diff, Dir, [{Chg,Str}|Acc]);
+        false ->    cmp_trim(Last, Diff, Dir, [{Chg,Str}|Acc])
+    end.
+
+cmp_may_split(Last,Next) -> 
+    case lists:member([Last,Next],?CMP_NO_SPLIT) of 
+        true ->     false;
+        false ->    (lists:member(Last,?CMP_OPS) or lists:member(Next,?CMP_OPS))
+    end. 
+
+cmp_eq(Diff) -> cmp_eq(Diff,[]).
+
+cmp_eq([], Acc) -> (lists:usort(Acc) == [eq]);
+cmp_eq([{K,_}|Diff], Acc) -> cmp_eq(Diff, [K|Acc]). 
+
+cmp(L, R, LVal, RVal) -> cmp(L, R, LVal, RVal, []).
+
+cmp(L, L, LVal, LVal, _) -> ?CMP_EQUAL_KV; 
+cmp(L, R, LVal, RVal, Opts) when is_binary(L) ->
+    cmp(binary_to_list(L), R, LVal, RVal, Opts);
+cmp(L, R,  LVal, RVal, Opts) when is_binary(R) ->
+    cmp(L, binary_to_list(R),  LVal, RVal, Opts);
+cmp(L, R,  LVal, RVal, Opts) when is_binary(LVal) ->
+    cmp(L, R,  binary_to_list(LVal), RVal, Opts);
+cmp(L, R,  LVal, RVal, Opts) when is_binary(RVal) ->
+    cmp(L, R,  LVal, binary_to_list(RVal), Opts);
+cmp(L, L,  LVal, RVal, Opts) when is_list(LVal), is_list(RVal) ->
+    Diff = tdiff:diff(LVal, RVal, Opts),
+    DiffLeft = cmp_trim(Diff, del),
+    DiffRight = cmp_trim(Diff, ins),
+    DiffBoth = cmp_trim(DiffRight,del),
+    case {cmp_eq(DiffLeft), cmp_eq(DiffRight), cmp_eq(DiffBoth)} of
+        {false,false,false} when LVal < RVal -> ?CMP_EQUAL_KEY_SMALLER_LEFT;
+        {false,false,false} -> ?CMP_EQUAL_KEY_SMALLER_RIGHT;
+        {true,_,_} -> ?CMP_EQUAL_KEY_WHITE_LEFT;
+        {_,true,_} -> ?CMP_EQUAL_KEY_WHITE_RIGHT;
+        {_,_,true} -> ?CMP_EQUAL_KEY_WHITE
+    end;
+cmp(L, L,  LVal, RVal, _Opts) when LVal < RVal -> ?CMP_EQUAL_KEY_SMALLER_LEFT;
+cmp(L, L,  _LVal, _RVal, _Opts) -> ?CMP_EQUAL_KEY_SMALLER_RIGHT;
+cmp(L, R, _LVal, _RVal, _Opts) when L < R -> ?CMP_SMALLER_KEY_LEFT;
+cmp(_, _, _LVal, _RVal, _Opts) -> ?CMP_SMALLER_KEY_RIGHT.
+
 
 binary_to_hex(B) when is_binary(B) ->
   binary_to_hex(B, <<>>).
