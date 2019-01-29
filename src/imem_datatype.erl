@@ -1510,34 +1510,41 @@ cmp(_, _, _Opts) -> ?CMP_SMALLER_RIGHT.
 cmp_trim(Diff, Dir) -> cmp_trim(?CMP_SPACE, Diff, Dir, []).
 
 cmp_trim(_Last, [], _Dir, Acc) -> lists:reverse(Acc);
-cmp_trim(_Last, [{Dir,[?CMP_SPACE]}], Dir, Acc) -> lists:reverse(Acc);
-cmp_trim(Last, [{Dir,[?CMP_SPACE]},{eq,[Next|Chars]}|Diff], Dir, Acc) ->
-    %% see if added white space insert/delete is allowed
-    case cmp_may_split(Last,Next) of
-        true ->     cmp_trim(?CMP_CHAR, [{eq,[Next|Chars]}|Diff], Dir, Acc);
-        false ->    cmp_trim(?CMP_CHAR, [{eq,[Next|Chars]}|Diff], Dir, [{Dir,[?CMP_SPACE]}|Acc])
-    end;   
-cmp_trim(Last, [{Dir,[Ch,Next|Chars]}|Diff], Dir, Acc) ->
-    %% try to compress delta whitespace into a single space, keep whole change if not possible
-    case {lists:member(Ch,?CMP_WHITE_SPACE), lists:member(Next,?CMP_WHITE_SPACE)} of
-        {true,true} ->  cmp_trim(Last, [{Dir,[?CMP_SPACE|Chars]}|Diff], Dir, Acc);
-        _ ->            cmp_trim(?CMP_CHAR, Diff, Dir, [{Dir,[Ch,Next|Chars]}|Acc])
+cmp_trim(Last, [{Dir,Str}], Dir, Acc) -> 
+    case cmp_white_space(Str) of
+        true ->     cmp_trim(Last, [], Dir, Acc);
+        false ->    cmp_trim(Last, [], Dir, [{Dir,Str}|Acc])
     end;
-cmp_trim(_Last, [{Dir,Str}|Diff], Dir, Acc) ->
-    %% this is not a white space insert/delete, keep it and move forward
-    cmp_trim(?CMP_CHAR, Diff, Dir, [{Dir,Str}|Acc]);
+cmp_trim(Last, [{Dir,Str},{eq,[Next|Chars]}|Diff], Dir, Acc) ->
+    %% see if added white space insert/delete is allowed
+    case {cmp_white_space(Str),cmp_may_split([Last,Next])} of
+        {true, true} -> cmp_trim(lists:last([Next|Chars]), Diff, Dir, [{eq,[Next|Chars]}|Acc]);
+        {_,_} ->        cmp_trim(lists:last([Next|Chars]), Diff, Dir, [{eq,[Next|Chars]},{Dir,Str}|Acc])
+    end;   
 cmp_trim(_Last, [{Chg,Str}|Diff], Dir, Acc) ->
     %% keep equal or opposite piece and move forward
-    Last = lists:last(Str),
-    case lists:member(Last,?CMP_WHITE_SPACE) of
-        true ->     cmp_trim(?CMP_SPACE, Diff, Dir, [{Chg,Str}|Acc]);
-        false ->    cmp_trim(Last, Diff, Dir, [{Chg,Str}|Acc])
+    cmp_trim(lists:last(Str), Diff, Dir, [{Chg,Str}|Acc]).
+
+cmp_white_space([]) -> true;
+cmp_white_space([Ch|Chrs]) ->
+    case lists:member(Ch,?CMP_WHITE_SPACE) of
+        false ->    false;
+        true ->     cmp_white_space(Chrs)
     end.
 
-cmp_may_split(Last,Next) -> 
-    case lists:member([Last,Next],?CMP_NO_SPLIT) of 
-        true ->     false;
-        false ->    (lists:member(Last,?CMP_OPS) or lists:member(Next,?CMP_OPS))
+cmp_may_split([Last,Next]) ->
+    NoSplit = lists:member([Last,Next],?CMP_NO_SPLIT),
+    LeftWhite = lists:member(Last,?CMP_WHITE_SPACE),
+    RightWhite =  lists:member(Next,?CMP_WHITE_SPACE),
+    LeftOp = lists:member(Last,?CMP_OPS),
+    RightOp =  lists:member(Next,?CMP_OPS),
+    case {NoSplit,LeftWhite,RightWhite,LeftOp,RightOp} of
+         {true   ,_        ,_         ,_     ,_      } -> false;
+         {false  ,true     ,_         ,_     ,_      } -> true;   
+         {false  ,_        ,true      ,_     ,_      } -> true;   
+         {false  ,_        ,_         ,true  ,_      } -> true;   
+         {false  ,_        ,_         ,_     ,true   } -> true;
+         {false  ,false    ,false     ,false ,false  } -> false
     end. 
 
 cmp_eq(Diff) -> cmp_eq(Diff,[]).
@@ -1638,6 +1645,48 @@ hex(X) ->
 
 -include_lib("eunit/include/eunit.hrl").
 
+cmp_test_() ->
+    [ {"CMP_EQUAL1",            ?_assertEqual(?CMP_EQUAL, cmp("123", "123"))}
+    , {"CMP_EQUAL2",            ?_assertEqual(?CMP_EQUAL, cmp("A a", "A a"))}
+    , {"CMP_EQUAL3",            ?_assertEqual(?CMP_EQUAL, cmp(" \t", " \t"))}
+    , {"CMP_EQUAL4",            ?_assertEqual(?CMP_EQUAL, cmp("\r\n", "\r\n"))}
+    , {"CMP_EQUAL5",            ?_assertEqual(?CMP_EQUAL, cmp("", ""))}
+
+    , {"CMP_SMALLER_LEFT1",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp("", "123"))}
+    , {"CMP_SMALLER_LEFT2",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp("ABC", "ADC"))}
+    , {"CMP_SMALLER_LEFT3",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp("AB", "ABC"))}
+
+    , {"CMP_SMALLER_RIGHT1",    ?_assertEqual(?CMP_SMALLER_RIGHT, cmp("AB", "A B"))}
+    , {"CMP_SMALLER_RIGHT2",    ?_assertEqual(?CMP_SMALLER_RIGHT, cmp("AB", "A "))}
+
+    , {"CMP_WHITE_LEFT1",       ?_assertEqual(?CMP_WHITE_LEFT, cmp(" AB", "AB"))}
+    , {"CMP_WHITE_LEFT2",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("AB\t", "AB"))}
+    , {"CMP_WHITE_LEFT3",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("\rAB", "AB"))}
+    , {"CMP_WHITE_LEFT4",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("A \tB ", "A B"))}
+    , {"CMP_WHITE_LEFT5",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("A+ B ", "A+B"))}
+    , {"CMP_WHITE_LEFT6",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("A / B ", "A/B"))}
+    , {"CMP_WHITE_LEFT7",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("A( B ", "A(B"))}
+    , {"CMP_WHITE_LEFT8",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("{ } ", "{}"))}
+
+    , {"CMP_WHITE_RIGHT1",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", " AB"))}
+    , {"CMP_WHITE_RIGHT2",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", "AB\t"))}
+    , {"CMP_WHITE_RIGHT3",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", "\rAB"))}
+    , {"CMP_WHITE_RIGHT4",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A B ", "A \tB "))}
+    , {"CMP_WHITE_RIGHT5",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A+B", "A+ B"))}
+    %% , {"CMP_WHITE_RIGHT6",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A/B ", "A / B"))}
+    %% , {"CMP_WHITE_RIGHT7",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A(B ", "A( B"))}
+    , {"CMP_WHITE_RIGHT8",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("[]", "[ ] "))}
+
+    , {"CMP_WHITE1",            ?_assertEqual(?CMP_WHITE, cmp(" AB", "AB\t"))}
+    , {"CMP_WHITE2",            ?_assertEqual(?CMP_WHITE, cmp("AB\t", " AB"))}
+    , {"CMP_WHITE3",            ?_assertEqual(?CMP_WHITE, cmp("\rAB", "AB "))}
+    , {"CMP_WHITE4",            ?_assertEqual(?CMP_WHITE, cmp("A \tB ", " A B"))}
+    %% , {"CMP_WHITE5",            ?_assertEqual(?CMP_WHITE, cmp("A+ B ", "A +B"))}
+    %% , {"CMP_WHITE6",            ?_assertEqual(?CMP_WHITE, cmp("A / B ", " A/B"))}
+    %% , {"CMP_WHITE7",            ?_assertEqual(?CMP_WHITE, cmp("A( B ", "A (B"))}
+    %% , {"CMP_WHITE8",            ?_assertEqual(?CMP_WHITE, cmp("( ) ", " ()"))}
+    ].
+
 db_test_() ->
     {
         setup,
@@ -1648,7 +1697,7 @@ db_test_() ->
 
 data_types(_) ->
     try
-        ?LogDebug("---TEST---"),
+        ?LogDebug("---TEST data_types---"),
 
         ClEr = 'ClientError',
         ?assertEqual(<<"'Imem'">>, item1({'Imem',ddTable})),
