@@ -228,6 +228,7 @@ unary_fun_result_type("to_string") ->           #bind{type=string,default=?nav};
 unary_fun_result_type("to_term") ->             #bind{type=term,default=?nav};
 unary_fun_result_type("to_text") ->             #bind{type=binstr,default=?nav};
 unary_fun_result_type("to_timestamp") ->        #bind{type=timestamp,default=?nav};
+unary_fun_result_type("to_ipaddr") ->           #bind{type=ipaddr,default=?nav};
 unary_fun_result_type("to_time") ->             #bind{type=timestamp,default=?nav}; % ToDo: Type=time
 unary_fun_result_type("to_tuple") ->            #bind{type=tuple,default=?nav};
 unary_fun_result_type("safe_atom") ->           #bind{type=atom,default=?nav};
@@ -568,7 +569,7 @@ expr_fun({Op, A}) when Op==to_atom;Op==to_binary;Op==to_binstr;Op==list_to_binst
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op==to_map;Op==to_name;Op==to_number;Op==to_pid;Op==to_string;Op==to_term;Op==to_text;Op==to_timestamp;Op==to_time;Op==to_tuple ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op==from_binterm;Op==prefix_ul;Op==phash2;Op==is_nav;Op==is_val ->
+expr_fun({Op, A}) when Op==from_binterm;Op==prefix_ul;Op==phash2;Op==is_nav;Op==is_val;Op==to_ipaddr ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op==is_binstr;Op==is_binterm;Op==is_datetime;Op==is_decimal;Op==is_ipaddr;Op==is_json;Op==is_json;Op==is_name;Op==is_string;Op==is_text;Op==is_timestamp ->
     unary_fun({Op, A});
