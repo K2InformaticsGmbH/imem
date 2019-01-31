@@ -31,8 +31,8 @@
 -define(CMP_EQUAL_KV,<<"==">>).     %% for cmp/2 and cmp/3 (KV-Comparison)
 -define(CMP_EQUAL_KEY_SMALLER_LEFT,<<"=<">>).
 -define(CMP_EQUAL_KEY_SMALLER_RIGHT,<<"=>">>).
--define(CMP_SMALLER_KEY_LEFT,<<"<">>).
--define(CMP_SMALLER_KEY_RIGHT,<<">">>).
+-define(CMP_SMALLER_KEY_LEFT,<<"<*">>).
+-define(CMP_SMALLER_KEY_RIGHT,<<">*">>).
 -define(CMP_EQUAL_KEY_WHITE_LEFT,<<"=w=">>).   %% added whitespece on the left value
 -define(CMP_EQUAL_KEY_WHITE_RIGHT,<<"==w">>).  %% added whitespace on the right value
 -define(CMP_EQUAL_KEY_WHITE,<<"=w=w">>).       %% added whitespace on both sides value
@@ -1493,7 +1493,7 @@ cmp(L, R, Opts) when is_binary(L) ->
 cmp(L, R, Opts) when is_binary(R) ->
     cmp(L, binary_to_list(R), Opts);
 cmp(L, R, Opts) when is_list(L), is_list(R) ->
-    Diff = tdiff:diff(L, R, Opts),
+    Diff = cmp_norm_whitespace(tdiff:diff(L, R, Opts)),
     DiffLeft = cmp_trim(Diff, del),
     DiffRight = cmp_trim(Diff, ins),
     DiffBoth = cmp_trim(DiffRight,del),
@@ -1530,7 +1530,8 @@ cmp_white_space([Ch|Chrs]) ->
     case lists:member(Ch,?CMP_WHITE_SPACE) of
         false ->    false;
         true ->     cmp_white_space(Chrs)
-    end.
+    end;
+cmp_white_space(_NotaList) -> false.
 
 cmp_may_split([Last,Next]) ->
     NoSplit = lists:member([Last,Next],?CMP_NO_SPLIT),
@@ -1547,9 +1548,26 @@ cmp_may_split([Last,Next]) ->
          {false  ,false    ,false     ,false ,false  } -> false
     end. 
 
-cmp_eq(Diff) -> cmp_eq(Diff,[]).
+cmp_norm_whitespace(Diff) -> cmp_norm_whitespace(Diff,[]).
+
+cmp_norm_whitespace([], Acc) -> lists:reverse(Acc);
+cmp_norm_whitespace([{del,Str},{eq,WS},{ins,Str}|Diff], Acc) ->
+    %% see if we can favor white space changes 
+    %% [{del,Str},{eq,WS},{ins,Str}|Diff] -> [{ins,WS},{eq,Str},{del,WS}|Diff]
+    case cmp_white_space(WS) of
+        true ->     cmp_norm_whitespace([{eq,Str},{del,WS}|Diff],[{ins,WS}|Acc]);
+        false ->    cmp_norm_whitespace([{eq,WS},{ins,Str}|Diff], [{del,Str}|Acc])
+    end;
+cmp_norm_whitespace([{Dir,Str}|Diff], Acc) ->
+    %% nothing to do, just forward the term to output
+    cmp_norm_whitespace(Diff,[{Dir,Str}|Acc]).
+
+
+cmp_eq(Diff) -> cmp_eq(Diff,[]). %% Diff contains only {eq,_} terms
 
 cmp_eq([], Acc) -> (lists:usort(Acc) == [eq]);
+cmp_eq([{ins,Str},{del,Str}|Diff], Acc) -> cmp_eq(Diff, [{eq,Str}|Acc]);
+cmp_eq([{del,Str},{ins,Str}|Diff], Acc) -> cmp_eq(Diff, [{eq,Str}|Acc]);
 cmp_eq([{K,_}|Diff], Acc) -> cmp_eq(Diff, [K|Acc]). 
 
 cmp(L, R, LVal, RVal) -> cmp(L, R, LVal, RVal, []).
@@ -1564,7 +1582,7 @@ cmp(L, R,  LVal, RVal, Opts) when is_binary(LVal) ->
 cmp(L, R,  LVal, RVal, Opts) when is_binary(RVal) ->
     cmp(L, R,  LVal, binary_to_list(RVal), Opts);
 cmp(L, L,  LVal, RVal, Opts) when is_list(LVal), is_list(RVal) ->
-    Diff = tdiff:diff(LVal, RVal, Opts),
+    Diff = cmp_norm_whitespace(tdiff:diff(LVal, RVal, Opts)),
     DiffLeft = cmp_trim(Diff, del),
     DiffRight = cmp_trim(Diff, ins),
     DiffBoth = cmp_trim(DiffRight,del),
@@ -1651,13 +1669,23 @@ cmp_test_() ->
     , {"CMP_EQUAL3",            ?_assertEqual(?CMP_EQUAL, cmp(" \t", " \t"))}
     , {"CMP_EQUAL4",            ?_assertEqual(?CMP_EQUAL, cmp("\r\n", "\r\n"))}
     , {"CMP_EQUAL5",            ?_assertEqual(?CMP_EQUAL, cmp("", ""))}
+    , {"CMP_EQUAL6",            ?_assertEqual(?CMP_EQUAL, cmp(undefined, undefined))}
+    , {"CMP_EQUAL7",            ?_assertEqual(?CMP_EQUAL, cmp({1,2,3}, {1,2,3}))}
+    , {"CMP_EQUAL8",            ?_assertEqual(?CMP_EQUAL, cmp(<<"A text">>, "A text"))}
+    , {"CMP_EQUAL9",            ?_assertEqual(?CMP_EQUAL, cmp(9.1234, 9.1234))}
 
     , {"CMP_SMALLER_LEFT1",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp("", "123"))}
     , {"CMP_SMALLER_LEFT2",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp("ABC", "ADC"))}
     , {"CMP_SMALLER_LEFT3",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp("AB", "ABC"))}
+    , {"CMP_SMALLER_LEFT4",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp(12, 13))}
+    , {"CMP_SMALLER_LEFT5",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp({1,2}, {0,1,2}))}
+    , {"CMP_SMALLER_LEFT6",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp({1,2}, {1,3}))}
+    , {"CMP_SMALLER_LEFT7",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp(<<"A Text">>, <<"A t">>))}
+    , {"CMP_SMALLER_LEFT8",     ?_assertEqual(?CMP_SMALLER_LEFT, cmp(12, <<"13">>))}
 
     , {"CMP_SMALLER_RIGHT1",    ?_assertEqual(?CMP_SMALLER_RIGHT, cmp("AB", "A B"))}
     , {"CMP_SMALLER_RIGHT2",    ?_assertEqual(?CMP_SMALLER_RIGHT, cmp("AB", "A "))}
+    , {"CMP_SMALLER_RIGHT3",    ?_assertEqual(?CMP_SMALLER_RIGHT, cmp("AB", "A "))}
 
     , {"CMP_WHITE_LEFT1",       ?_assertEqual(?CMP_WHITE_LEFT, cmp(" AB", "AB"))}
     , {"CMP_WHITE_LEFT2",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("AB\t", "AB"))}
@@ -1668,23 +1696,79 @@ cmp_test_() ->
     , {"CMP_WHITE_LEFT7",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("A( B ", "A(B"))}
     , {"CMP_WHITE_LEFT8",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("{ } ", "{}"))}
 
-    , {"CMP_WHITE_RIGHT1",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", " AB"))}
-    , {"CMP_WHITE_RIGHT2",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", "AB\t"))}
-    , {"CMP_WHITE_RIGHT3",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", "\rAB"))}
-    , {"CMP_WHITE_RIGHT4",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A B ", "A \tB "))}
-    , {"CMP_WHITE_RIGHT5",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A+B", "A+ B"))}
-    %% , {"CMP_WHITE_RIGHT6",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A/B ", "A / B"))}
-    %% , {"CMP_WHITE_RIGHT7",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A(B ", "A( B"))}
-    , {"CMP_WHITE_RIGHT8",       ?_assertEqual(?CMP_WHITE_RIGHT, cmp("[]", "[ ] "))}
+    , {"CMP_WHITE_RIGHT1",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", " AB"))}
+    , {"CMP_WHITE_RIGHT2",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", "AB\t"))}
+    , {"CMP_WHITE_RIGHT3",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", "\rAB"))}
+    , {"CMP_WHITE_RIGHT4",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A B ", "A \tB "))}
+    , {"CMP_WHITE_RIGHT5",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A+B", "A+ B"))}
+    , {"CMP_WHITE_RIGHT6",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A/B", "A / B"))}
+    , {"CMP_WHITE_RIGHT7",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A(B", "A( B"))}
+    , {"CMP_WHITE_RIGHT8",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("[]", "[ ] "))}
 
     , {"CMP_WHITE1",            ?_assertEqual(?CMP_WHITE, cmp(" AB", "AB\t"))}
     , {"CMP_WHITE2",            ?_assertEqual(?CMP_WHITE, cmp("AB\t", " AB"))}
     , {"CMP_WHITE3",            ?_assertEqual(?CMP_WHITE, cmp("\rAB", "AB "))}
     , {"CMP_WHITE4",            ?_assertEqual(?CMP_WHITE, cmp("A \tB ", " A B"))}
-    %% , {"CMP_WHITE5",            ?_assertEqual(?CMP_WHITE, cmp("A+ B ", "A +B"))}
-    %% , {"CMP_WHITE6",            ?_assertEqual(?CMP_WHITE, cmp("A / B ", " A/B"))}
-    %% , {"CMP_WHITE7",            ?_assertEqual(?CMP_WHITE, cmp("A( B ", "A (B"))}
-    %% , {"CMP_WHITE8",            ?_assertEqual(?CMP_WHITE, cmp("( ) ", " ()"))}
+    , {"CMP_WHITE5",            ?_assertEqual(?CMP_WHITE, cmp("A+ B ", "A +B"))}
+    , {"CMP_WHITE6",            ?_assertEqual(?CMP_WHITE, cmp("A / B ", " A/B"))}
+    , {"CMP_WHITE7",            ?_assertEqual(?CMP_WHITE, cmp("A( B ", "A (B"))}
+    , {"CMP_WHITE8",            ?_assertEqual(?CMP_WHITE, cmp("( ) ", " ()"))}
+
+    , {"CMP2_SMALLER_KEY1",     ?_assertEqual(?CMP_SMALLER_KEY_LEFT, cmp(1, 2, "123", "123"))}
+    , {"CMP2_SMALLER_KEY2",     ?_assertEqual(?CMP_SMALLER_KEY_LEFT, cmp(null, undefined, "123", "123"))}
+    , {"CMP2_SMALLER_KEY3",     ?_assertEqual(?CMP_SMALLER_KEY_RIGHT, cmp("B", "A123", "ABC", "123"))}
+    , {"CMP2_SMALLER_KEY4",     ?_assertEqual(?CMP_SMALLER_KEY_RIGHT, cmp("12", 12, "123", "123"))}
+
+    , {"CMP2_EQUAL1",            ?_assertEqual(?CMP_EQUAL_KV, cmp(1, 1, "123", "123"))}
+    , {"CMP2_EQUAL2",            ?_assertEqual(?CMP_EQUAL_KV, cmp("A", <<"A">>, "A a", "A a"))}
+    , {"CMP2_EQUAL3",            ?_assertEqual(?CMP_EQUAL_KV, cmp(3.123, 3.123, " \t", " \t"))}
+    , {"CMP2_EQUAL4",            ?_assertEqual(?CMP_EQUAL_KV, cmp(undefined, undefined, "\r\n", "\r\n"))}
+    , {"CMP2_EQUAL5",            ?_assertEqual(?CMP_EQUAL_KV, cmp("A","A", "", ""))}
+    , {"CMP2_EQUAL6",            ?_assertEqual(?CMP_EQUAL_KV, cmp("A","A", undefined, undefined))}
+    , {"CMP2_EQUAL7",            ?_assertEqual(?CMP_EQUAL_KV, cmp("A","A", {1,2,3}, {1,2,3}))}
+    , {"CMP2_EQUAL8",            ?_assertEqual(?CMP_EQUAL_KV, cmp("A","A", <<"A text">>, "A text"))}
+    , {"CMP2_EQUAL9",            ?_assertEqual(?CMP_EQUAL_KV, cmp("A","A", 9.1234, 9.1234))}
+
+    , {"CMP2_SMALLER_LEFT1",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp("A","A", "", "123"))}
+    , {"CMP2_SMALLER_LEFT2",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp("A","A", "ABC", "ADC"))}
+    , {"CMP2_SMALLER_LEFT3",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp("A","A", "AB", "ABC"))}
+    , {"CMP2_SMALLER_LEFT4",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp("A","A", 12, 13))}
+    , {"CMP2_SMALLER_LEFT5",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp("A","A", {1,2}, {0,1,2}))}
+    , {"CMP2_SMALLER_LEFT6",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp(123, 123, {1,2}, {1,3}))}
+    , {"CMP2_SMALLER_LEFT7",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp(0, 0, <<"A Text">>, <<"A t">>))}
+    , {"CMP2_SMALLER_LEFT8",     ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_LEFT, cmp(null, null, 12, <<"13">>))}
+
+    , {"CMP2_SMALLER_RIGHT1",    ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_RIGHT, cmp({1}, {1}, "AB", "A B"))}
+    , {"CMP2_SMALLER_RIGHT2",    ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_RIGHT, cmp(null, null, "AB", "A "))}
+    , {"CMP2_SMALLER_RIGHT3",    ?_assertEqual(?CMP_EQUAL_KEY_SMALLER_RIGHT, cmp(<<"A">>, <<"A">>, "AB", "A "))}
+
+    , {"CMP2_WHITE_LEFT1",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp([], [], " AB", "AB"))}
+    , {"CMP2_WHITE_LEFT2",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp([1], [1], "AB\t", "AB"))}
+    , {"CMP2_WHITE_LEFT3",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp([1,null], [1,null], "\rAB", "AB"))}
+    , {"CMP2_WHITE_LEFT4",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp({}, {}, "A \tB ", "A B"))}
+    , {"CMP2_WHITE_LEFT5",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp({1}, {1}, "A+ B ", "A+B"))}
+    , {"CMP2_WHITE_LEFT6",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp({1,2}, {1,2}, "A / B ", "A/B"))}
+    , {"CMP2_WHITE_LEFT7",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp({1,2,null}, {1,2,null}, "A( B ", "A(B"))}
+    , {"CMP2_WHITE_LEFT8",       ?_assertEqual(?CMP_EQUAL_KEY_WHITE_LEFT, cmp({1,2,3}, {1,2,3}, "{ } ", "{}"))}
+
+    , {"CMP2_WHITE_RIGHT1",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "AB", " AB"))}
+    , {"CMP2_WHITE_RIGHT2",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "AB", "AB\t"))}
+    , {"CMP2_WHITE_RIGHT3",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "AB", "\rAB"))}
+    , {"CMP2_WHITE_RIGHT4",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "A B ", "A \tB "))}
+    , {"CMP2_WHITE_RIGHT5",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "A+B", "A+ B"))}
+    , {"CMP2_WHITE_RIGHT6",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "A/B", "A / B"))}
+    , {"CMP2_WHITE_RIGHT7",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "A(B", "A( B"))}
+    , {"CMP2_WHITE_RIGHT8",      ?_assertEqual(?CMP_EQUAL_KEY_WHITE_RIGHT, cmp("", "", "[]", "[ ] "))}
+
+    , {"CMP2_WHITE1",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, " AB", "AB\t"))}
+    , {"CMP2_WHITE2",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, "AB\t", " AB"))}
+    , {"CMP2_WHITE3",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, "\rAB", "AB "))}
+    , {"CMP2_WHITE4",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, "A \tB ", " A B"))}
+    , {"CMP2_WHITE5",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, "A+ B ", "A +B"))}
+    , {"CMP2_WHITE6",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, "A / B ", " A/B"))}
+    , {"CMP2_WHITE7",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, "A( B ", "A (B"))}
+    , {"CMP2_WHITE8",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, null, "( ) ", " ()"))}
+
     ].
 
 db_test_() ->
