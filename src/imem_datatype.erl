@@ -1496,8 +1496,13 @@ diff(L, R) -> diff(L, R, []).
 
 %% @doc Generate a diff term by calling tdiff:diff with options and try to normalize whitespace differences
 -spec diff(any(), any(), list()) -> list().
-diff(L, R, Opts) -> 
-    cmp_norm_whitespace(tdiff:diff(L, R, Opts)).
+diff(L, R, Opts) when is_binary(L) -> 
+    diff(binary_to_list(L), R, Opts);
+diff(L, R, Opts) when is_binary(R) -> 
+    diff(L, binary_to_list(R), Opts);
+diff(L, R, Opts) when is_list(L), is_list(R), is_list(Opts) -> 
+    cmp_norm_whitespace(tdiff:diff(L, R, Opts));
+diff(L, R, Opts) -> ?ClientErrorNoLogging({"diff only compares list or binary values",{L,R,Opts}}).
 
 %% @doc Generate a diff term by calling tdiff:diff and try to normalize whitespace differences
 %% Then suppress all {eq,_} terms in order to indicate only differences
@@ -1761,6 +1766,7 @@ cmp_test_() ->
     , {"CMP_WHITE_RIGHT7",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A(B", "A( B"))}
     , {"CMP_WHITE_RIGHT8",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("[]", "[ ] "))}
     , {"CMP_WHITE_RIGHT9",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("fun(A,B,C)", "fun(A, B, C)"))}
+    , {"CMP_WHITE_RIGHT10",     ?_assertEqual(?CMP_WHITE_RIGHT, cmp("{A,B,C}", "{A, B ,C }"))}
 
     , {"CMP_WHITE1",            ?_assertEqual(?CMP_WHITE, cmp(" AB", "AB\t"))}
     , {"CMP_WHITE2",            ?_assertEqual(?CMP_WHITE, cmp("AB\t", " AB"))}
