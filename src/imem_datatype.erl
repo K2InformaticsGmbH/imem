@@ -40,7 +40,7 @@
 
 -define(CMP_SPACE,32).              %% Stereotype for white space
 -define(CMP_CHAR,$@).               %% Stereotype for non-white space
--define(CMP_OPS,"()[]{}+-*/<>=|").
+-define(CMP_OPS,"()[]{}+-*/<>=|,").
 -define(CMP_NO_SPLIT,["<<", ">>", "<>", "->", "=>", "<=","==","<=",">=","=<","!=","++","--","||", ":=", "=:"]).
 -define(CMP_WHITE_SPACE," \t\r\n").
 
@@ -1750,6 +1750,7 @@ cmp_test_() ->
     , {"CMP_WHITE_LEFT6",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("A( B ", "A(B"))}
     , {"CMP_WHITE_LEFT7",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("{ } ", "{}"))}
     , {"CMP_WHITE_LEFT8",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("A / B ", "A/B"))}
+    , {"CMP_WHITE_LEFT9",       ?_assertEqual(?CMP_WHITE_LEFT, cmp("[1, 2 ,3]", "[1,2,3]"))}
  
     , {"CMP_WHITE_RIGHT1",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", " AB"))}
     , {"CMP_WHITE_RIGHT2",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("AB", "AB\t"))}
@@ -1759,6 +1760,7 @@ cmp_test_() ->
     , {"CMP_WHITE_RIGHT6",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A/B", "A / B"))}
     , {"CMP_WHITE_RIGHT7",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("A(B", "A( B"))}
     , {"CMP_WHITE_RIGHT8",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("[]", "[ ] "))}
+    , {"CMP_WHITE_RIGHT9",      ?_assertEqual(?CMP_WHITE_RIGHT, cmp("fun(A,B,C)", "fun(A, B, C)"))}
 
     , {"CMP_WHITE1",            ?_assertEqual(?CMP_WHITE, cmp(" AB", "AB\t"))}
     , {"CMP_WHITE2",            ?_assertEqual(?CMP_WHITE, cmp("AB\t", " AB"))}
