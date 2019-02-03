@@ -126,8 +126,10 @@
         , preview/3
         , preview_keys/3
         , cmp/2
-        , cmp/3
         , diff/2
+        , diff_only/2
+        , cmp/3
+        , diff/3
         , diff_only/3
         ]).
 
@@ -1158,7 +1160,7 @@ binary_fun_final({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op=
         {ABind,true} ->     fun(X) -> Ab=?BoundVal(ABind,X),Bb=B(X),mod_op_2(?MODULE,Op,Ab,Bb) end;
         {ABind,BBind} ->    fun(X) -> Ab=?BoundVal(ABind,X),Bb=?BoundVal(BBind,X),mod_op_2(?MODULE,Op,Ab,Bb) end
     end;
-binary_fun_final({Op, A, B}) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op==nvl_float;Op==nvl_integer;Op==nvl_json;Op==nvl_term;Op==nvl_tuple ->
+binary_fun_final({Op, A, B}) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op==nvl_float;Op==nvl_integer;Op==nvl_json;Op==nvl_term;Op==nvl_tuple;Op==cmp;Op==diff;Op==diff_only ->
     case {bind_action(A),bind_action(B)} of 
         {false,false} ->    mod_op_2(?MODULE,Op,A,B);        
         {false,true} ->     fun(X) -> Bb=B(X),mod_op_2(?MODULE,Op,A,Bb) end;
@@ -1375,7 +1377,7 @@ ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
         true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
         CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
     end;
-ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys';Op=='bits';Op=='bytes' ->
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys';Op=='bits';Op=='bytes';Op==cmp;Op==diff;Op==diff_only ->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
