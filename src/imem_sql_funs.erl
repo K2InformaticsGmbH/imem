@@ -14,10 +14,12 @@
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
-            , mfa, preview, preview_keys, trunc, round, integer_uid, time_uid
-            , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float, safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
+            , mfa, preview, preview_keys, trunc, round, integer_uid, time_uid, cmp, diff, diff_only
+            , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float
+            , safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
             , nvl_atom, nvl_binary, nvl_binstr, nvl_float, nvl_integer, nvl_json, nvl_term, nvl_tuple
-            , vnf_identity,vnf_lcase_ascii,vnf_lcase_ascii_ne,vnf_tokens,vnf_integer,vnf_float,vnf_datetime,vnf_datetime_ne
+            , vnf_identity,vnf_lcase_ascii,vnf_lcase_ascii_ne,vnf_tokens,vnf_integer
+            ,vnf_float,vnf_datetime,vnf_datetime_ne
             ]).
 
 -export([ filter_funs/0
@@ -123,6 +125,10 @@
         , bytes/3
         , preview/3
         , preview_keys/3
+        , cmp/2
+        , cmp/3
+        , diff/2
+        , diff_only/3
         ]).
 
 % Functions applied with Common Test
@@ -287,6 +293,9 @@ binary_fun_bind_type1("map_merge") ->           #bind{type=map,default= #{}};
 binary_fun_bind_type1("map_remove") ->          #bind{type=term,default=?nav};
 binary_fun_bind_type1("map_with") ->            #bind{type=list,default= []};
 binary_fun_bind_type1("map_without") ->         #bind{type=list,default= []};
+binary_fun_bind_type1("cmp") ->                 #bind{type=term,default=?nav};
+binary_fun_bind_type1("diff") ->                #bind{type=term,default=?nav};
+binary_fun_bind_type1("diff_only") ->           #bind{type=term,default=?nav};
 binary_fun_bind_type1(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_bind_type2(B) when is_binary(B) ->   binary_fun_bind_type2(binary_to_list(B));
@@ -322,6 +331,9 @@ binary_fun_bind_type2("map_merge") ->           #bind{type=map,default= #{}};
 binary_fun_bind_type2("map_remove") ->          #bind{type=map,default= #{}};
 binary_fun_bind_type2("map_with") ->            #bind{type=map,default= #{}};
 binary_fun_bind_type2("map_without") ->         #bind{type=map,default= #{}};
+binary_fun_bind_type2("cmp") ->                 #bind{type=term,default=?nav};
+binary_fun_bind_type2("diff") ->                #bind{type=term,default=?nav};
+binary_fun_bind_type2("diff_only") ->           #bind{type=term,default=?nav};
 binary_fun_bind_type2(_) ->                     #bind{type=number,default=?nav}.
 
 binary_fun_result_type(B) when is_binary(B) ->  binary_fun_result_type(binary_to_list(B));
@@ -357,6 +369,9 @@ binary_fun_result_type("map_merge") ->          #bind{type=map,default=?nav};
 binary_fun_result_type("map_remove") ->         #bind{type=map,default=?nav};
 binary_fun_result_type("map_with") ->           #bind{type=map,default=?nav};
 binary_fun_result_type("map_without") ->        #bind{type=map,default=?nav};
+binary_fun_result_type("cmp") ->                #bind{type=binstr,default= <<>>};
+binary_fun_result_type("diff") ->               #bind{type=binstr,default= <<>>};
+binary_fun_result_type("diff_only") ->          #bind{type=binstr,default= <<>>};
 binary_fun_result_type(_) ->                    #bind{type=number,default=?nav}.
 
 
@@ -367,6 +382,9 @@ ternary_fun_bind_type1("bits") ->               #bind{type=binary,default=?nav};
 ternary_fun_bind_type1("bytes") ->              #bind{type=binary,default=?nav};
 ternary_fun_bind_type1("preview") ->            #bind{type=binstr,default=?nav};
 ternary_fun_bind_type1("preview_keys") ->       #bind{type=binstr,default=?nav};
+ternary_fun_bind_type1("cmp") ->                #bind{type=term,default=?nav};
+ternary_fun_bind_type1("diff") ->               #bind{type=term,default=?nav};
+ternary_fun_bind_type1("diff_only") ->          #bind{type=term,default=?nav};
 ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_bind_type2(B) when is_binary(B) ->  ternary_fun_bind_type2(binary_to_list(B));
@@ -376,6 +394,9 @@ ternary_fun_bind_type2("bits") ->               #bind{type=integer,default=0};
 ternary_fun_bind_type2("bytes") ->              #bind{type=integer,default=0};
 ternary_fun_bind_type2("preview") ->            #bind{type=list,default=?nav};  % or integer index id accepted
 ternary_fun_bind_type2("preview_keys") ->       #bind{type=list,default=?nav};  % or integer index id accepted
+ternary_fun_bind_type2("cmp") ->                #bind{type=term,default=?nav};
+ternary_fun_bind_type2("diff") ->               #bind{type=term,default=?nav};
+ternary_fun_bind_type2("diff_only") ->          #bind{type=term,default=?nav};
 ternary_fun_bind_type2(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_bind_type3(B) when is_binary(B) ->  ternary_fun_bind_type3(binary_to_list(B));
@@ -384,6 +405,9 @@ ternary_fun_bind_type3("bits") ->               #bind{type=integer,default=0};
 ternary_fun_bind_type3("bytes") ->              #bind{type=integer,default=0};
 ternary_fun_bind_type3("preview") ->            #bind{type=binstr,default=?nav};    % or integer search token accepted 
 ternary_fun_bind_type3("preview_keys") ->       #bind{type=binstr,default=?nav};    % or integer search token accepted
+ternary_fun_bind_type3("cmp") ->                #bind{type=list,default= []};
+ternary_fun_bind_type3("diff") ->               #bind{type=list,default= []};
+ternary_fun_bind_type3("diff_only") ->          #bind{type=list,default= []};
 ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
 
 ternary_fun_result_type(B) when is_binary(B) -> ternary_fun_result_type(binary_to_list(B));
@@ -392,6 +416,9 @@ ternary_fun_result_type("bits") ->              #bind{type=integer,default=?nav}
 ternary_fun_result_type("bytes") ->             #bind{type=binary,default=?nav};
 ternary_fun_result_type("preview") ->           #bind{type=list,default=?nav};
 ternary_fun_result_type("preview_keys") ->      #bind{type=list,default=?nav};
+ternary_fun_result_type("cmp") ->               #bind{type=binstr,default= <<>>};
+ternary_fun_result_type("diff") ->              #bind{type=list,default= []};
+ternary_fun_result_type("diff_only") ->         #bind{type=list,default= []};
 ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
 
 re_compile(?nav) -> ?nav;
@@ -586,12 +613,12 @@ expr_fun({Op, A, B}) when Op==to_decimal;Op==from_decimal;Op==add_dt;Op==add_ts;
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) when Op==nvl_atom;Op==nvl_binary;Op==nvl_binstr;Op==nvl_float;Op==nvl_integer;Op==nvl_json;Op==nvl_term;Op==nvl_tuple ->
     binary_fun({Op, A, B});
-expr_fun({Op, A, B}) when Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff ->
+expr_fun({Op, A, B}) when Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op==json_diff;Op==cmp;Op==diff;Op==diff_only ->
     binary_fun({Op, A, B});
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
 %% Ternary custom filters
-expr_fun({Op, A, B, C}) when Op==remap;Op==mfa;Op==slice;Op==preview;Op==preview_keys;Op==bits;Op==bytes ->
+expr_fun({Op, A, B, C}) when Op==remap;Op==mfa;Op==slice;Op==preview;Op==preview_keys;Op==bits;Op==bytes;Op==cmp;Op==diff;Op==diff_only ->
     ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
@@ -1290,6 +1317,18 @@ is_member(A, B) when is_list(B) ->     lists:member(A,B);
 is_member(A, B) when is_tuple(B) ->    lists:member(A,tuple_to_list(B));
 is_member(A, B) when is_map(B) ->      lists:member(A,maps:to_list(B));
 is_member(_, _) ->                     false.
+
+cmp(A, B) -> imem_datatype:cmp(A, B).
+
+cmp(A, B, Opts) -> imem_datatype:cmp(A, B, Opts).
+
+diff(A, B) -> imem_datatype:diff(A, B).
+
+diff(A, B, Opts) -> imem_datatype:diff(A, B, Opts).
+
+diff_only(A, B) -> imem_datatype:diff_only(A, B).
+
+diff_only(A, B, Opts) -> imem_datatype:diff_only(A, B, Opts).
 
 ternary_not(?nav) ->        ?nav;
 ternary_not(true) ->        false;
