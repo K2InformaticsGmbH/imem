@@ -87,11 +87,10 @@
         , cmp/3                     %% compare two terms (LeftKey,RightKey, Opts)
         , cmp/4                     %% compare two terms with payloads (LeftKey,LeftVal,RightKey,RightVal)
         , cmp/5                     %% compare two terms with payloads (LeftKey,LeftVal,RightKey,RightVal,Opts)
-        , cmp_trim/2
-        , diff/2                    %% 
-        , diff/3
-        , diff_only/2
-        , diff_only/3
+        , diff/2                    %% wrapper adding whitespace and type awareness to tdiff:diff
+        , diff/3                    %% wrapper adding whitespace and type awareness to tdiff:diff
+        , diff_only/2               %% wrapper adding whitespace and type awareness to tdiff:diff
+        , diff_only/3               %% wrapper adding whitespace and type awareness to tdiff:diff
         ]).
 
 %   datatypes
@@ -1513,7 +1512,7 @@ diff_only(L, R) -> diff_only(L, R, []).
 %% Then suppress all {eq,_} terms in order to indicate only differences
 -spec diff_only(any(), any(), list()) -> list().
 diff_only(L, R, Opts) -> 
-    cmp_rem_eq(cmp_norm_whitespace(tdiff:diff(L, R, Opts))).
+    cmp_rem_eq(cmp_norm_whitespace(diff(L, R, Opts))).
 
 
 %% @doc Compare two erlang terms or strings or lists of tokens 
