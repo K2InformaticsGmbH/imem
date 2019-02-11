@@ -3192,7 +3192,7 @@ merge_diff(Left, Right, Merged, Opts, User) ->
                 {{0,_},_} -> ?ClientError({"Empty table", Left});   % row_count=0
                 {_,{0,_}} -> ?ClientError({"Empty table", Right});  % row_count=0
                 {{_,Cols},{_,Cols}} -> 
-                    %% imem_if_mnesia:truncate_table(Merged),
+                    imem_if_mnesia:truncate_table(Merged),
                     merge_diff_fill(Cols, Left, Right, Merged, Opts, User);
                 {{_,L},{_,R}} -> ?ClientError({"Cannot merge_diff unequal column counts", {L,R}})
             end;
@@ -3284,18 +3284,19 @@ merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, RI, [], []) ->
         LK > RK ->
             merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, dirty_next(right,RI), [], [{RK,RV}])
     end;
-merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, RI, [{K,L}|LAcc], [{K,R}|RAcc]) ->
+merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, RI, LAcc, RAcc) ->
+    K = merge_key(LAcc, RAcc),
     {LK,LV} = merge_read(Cols, Left, LI),
     {RK,RV} = merge_read(Cols, Right, RI),
     case {(LK==K),(RK==K)} of
         {true,true} ->
-            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, dirty_next(Left,LI), dirty_next(Right,RI), [{K,LV},{K,L}|LAcc], [{K,RV},{K,R}|RAcc]);
+            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, dirty_next(Left,LI), dirty_next(Right,RI), [{K,LV}|LAcc], [{K,RV}|RAcc]);
         {true,false} ->
-            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, dirty_next(Left,LI), RI, [{K,LV},{K,L}|LAcc], [{K,R}|RAcc]);
+            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, dirty_next(Left,LI), RI, [{K,LV}|LAcc], RAcc);
         {false,true} ->
-            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, dirty_next(Right,RI), [{K,L}|LAcc], [{K,RV},{K,R}|RAcc]);
+            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, dirty_next(Right,RI), LAcc, [{K,RV}|RAcc]);
         {false,false} ->
-            merge_write_diff(Cols, Merged, Opts, User, lists:reverse([{K,L}|LAcc]), lists:reverse([{K,R}|RAcc])),
+            merge_write_diff(Cols, Merged, Opts, User, lists:reverse(LAcc), lists:reverse(RAcc)),
             if 
                 LK == RK ->
                     merge_diff_scan(Cols, Left, Right, Merged, Opts, User, dirty_next(Left,LI), dirty_next(Right,RI), [{LK,LV}], [{RK,RV}]);
@@ -3305,6 +3306,10 @@ merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, RI, [{K,L}|LAcc], [{K
                     merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, dirty_next(Right,RI), [], [{RK,RV}])
             end
     end.
+
+merge_key(Acc, []) -> element(1,hd(Acc));
+merge_key([], Acc) -> element(1,hd(Acc));
+merge_key(Acc, _) -> element(1,hd(Acc)).
 
 merge_read(1, Table, I) ->
     [Row] = dirty_read(Table, I),
@@ -3319,17 +3324,23 @@ merge_read(3, Table, I) ->
 merge_write_diff(_Cols, _Merged, _Opts, _User, [], []) -> ok;
 merge_write_diff(Cols, Merged, Opts, User, Acc, []) ->
     K = element(1,hd(Acc)),
-    Diff = [{del,V} || {_,V} <- Acc],
+    Vals = [V || {_,V} <- Acc],
+    Diff = [{del, Vals}],
     merge_write_out(Cols, Merged, Opts, User, K, Diff);
 merge_write_diff(Cols, Merged, Opts, User, [], Acc) ->
     K = element(1,hd(Acc)),
-    Diff = [{ins,V} || {_,V} <- Acc],
+    Vals = [V || {_,V} <- Acc],
+    Diff = [{ins, Vals}],
     merge_write_out(Cols, Merged, Opts, User, K, Diff);
+merge_write_diff(Cols, Merged, Opts, User, [{K,LV}], [{K,RV}]) ->
+    merge_write(Cols, Merged, Opts, User, K, [LV], [RV]);
 merge_write_diff(Cols, Merged, Opts, User, LAcc, RAcc) ->
     K = element(1,hd(LAcc)),
     LVals = [V || {_,V} <- LAcc],
     RVals = [V || {_,V} <- RAcc],
-    merge_write_out(Cols, Merged, Opts, User, K, imem_datatype:diff(LVals, RVals)).
+    Diff = imem_datatype:diff(LVals, RVals, Opts),
+    %% io:format("Diff = ~p~n",[Diff]),
+    merge_write_out(Cols, Merged, Opts, User, K, Diff).
 
 merge_write_out(_Cols, _Merged, _Opts, _User, _K, []) -> ok;
 merge_write_out(Cols, Merged, Opts, User, K, [{_,[]}|Diff]) -> 
@@ -3370,8 +3381,18 @@ merge_write_out(Cols, Merged, Opts, User, K, [{ins,[I]},{del,[D|Ds]}|Diff]) ->
             merge_write(Cols, Merged, Opts, User, K, [D], ?nav),
             merge_write(Cols, Merged, Opts, User, K, ?nav, [I]),
             merge_write_out(Cols, Merged, Opts, User, K, [{del,Ds}|Diff])
-    end.
+    end;
+merge_write_out(Cols, Merged, Opts, User, K, [{ins,[I1]}]) -> 
+    merge_write(Cols, Merged, Opts, User, K, ?nav, [I1]),
+    merge_write_out(Cols, Merged, Opts, User, K, []);
+merge_write_out(Cols, Merged, Opts, User, K, [{del,[D1]}]) -> 
+    merge_write(Cols, Merged, Opts, User, K, [D1], ?nav),
+    merge_write_out(Cols, Merged, Opts, User, K, []).
 
+merge_write(_Cols, _Merged, _Opts, _User, _K, [], []) -> ok;
+merge_write(_Cols, _Merged, _Opts, _User, _K, ?nav, []) -> ok;
+merge_write(_Cols, _Merged, _Opts, _User, _K, [], ?nav) -> ok;
+merge_write(_Cols, _Merged, _Opts, _User, _K, ?nav, ?nav) -> ok;
 merge_write(1, Merged, Opts, User, K, [L|Ls], [R|Rs]) ->
     Cmp = imem_datatype:cmp(L,R,Opts),
     insert(Merged, {physical_table_name(Merged),undefined,L,Cmp,R,<<>>,<<>>,<<>>,<<>>}, User),
