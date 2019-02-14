@@ -371,7 +371,7 @@ merge_write_diff(Cols, Merged, Opts, User, LAcc, RAcc) ->
     K = element(1,hd(LAcc)),
     LVals = [V || {_,V} <- LAcc],
     RVals = [V || {_,V} <- RAcc],
-    Diff = imem_datatype:diff(LVals, RVals, Opts),
+    Diff = diff(LVals, RVals, Opts),
     %% io:format("Diff = ~p~n",[Diff]),
     merge_write_out(Cols, Merged, Opts, User, K, Diff).
 
@@ -396,7 +396,7 @@ merge_write_out(Cols, Merged, Opts, User, K, [{ins,[I1,I2|Is]}|Diff]) ->
     merge_write(Cols, Merged, Opts, User, K, ?nav, [I1]),
     merge_write_out(Cols, Merged, Opts, User, K, [{ins,[I2|Is]}|Diff]);
 merge_write_out(Cols, Merged, Opts, User, K, [{del,[D]},{ins,[I|Is]}|Diff]) -> 
-    case lists:member($=, binary_to_list(imem_datatype:cmp(D,I,Opts))) of
+    case lists:member($=, binary_to_list(cmp(D,I,Opts))) of
         true ->     % we have white space equality =w or w= or w=w
             merge_write(Cols, Merged, Opts, User, K, [D], [I]),
             merge_write_out(Cols, Merged, Opts, User, K, [{ins,Is}|Diff]);
@@ -406,7 +406,7 @@ merge_write_out(Cols, Merged, Opts, User, K, [{del,[D]},{ins,[I|Is]}|Diff]) ->
             merge_write_out(Cols, Merged, Opts, User, K, [{ins,Is}|Diff])
     end;
 merge_write_out(Cols, Merged, Opts, User, K, [{ins,[I]},{del,[D|Ds]}|Diff]) -> 
-    case lists:member($=, binary_to_list(imem_datatype:cmp(D,I,Opts))) of
+    case lists:member($=, binary_to_list(cmp(D,I,Opts))) of
         true ->     % we have white space equality
             merge_write(Cols, Merged, Opts, User, K, [D], [I]),
             merge_write_out(Cols, Merged, Opts, User, K, Diff);
@@ -427,7 +427,7 @@ merge_write(_Cols, _Merged, _Opts, _User, _K, ?nav, []) -> ok;
 merge_write(_Cols, _Merged, _Opts, _User, _K, [], ?nav) -> ok;
 merge_write(_Cols, _Merged, _Opts, _User, _K, ?nav, ?nav) -> ok;
 merge_write(1, Merged, Opts, User, K, [L|Ls], [R|Rs]) ->
-    Cmp = imem_datatype:cmp(L,R,Opts),
+    Cmp = cmp(L,R,Opts),
     imem_meta:insert(Merged, {imem_meta:physical_table_name(Merged),undefined,L,Cmp,R,<<>>,<<>>,<<>>,<<>>}, User),
     merge_write(1, Merged, Opts, User, K, Ls, Rs);
 merge_write(1, Merged, Opts, User, K, [L|Ls], ?nav) ->
@@ -437,7 +437,7 @@ merge_write(1, Merged, Opts, User, K, ?nav, [R|Rs]) ->
     imem_meta:insert(Merged, {imem_meta:physical_table_name(Merged),undefined,?nav,<<>>,R,<<>>,<<>>,<<>>,<<>>}, User),
     merge_write(1, Merged, Opts, User, K, ?nav, Rs);
 merge_write(2, Merged, Opts, User, K, [L|Ls], [R|Rs]) ->
-    Cmp = imem_datatype:cmp(L,R,Opts),
+    Cmp = cmp(L,R,Opts),
     imem_meta:insert(Merged, {imem_meta:physical_table_name(Merged),undefined,K,L,Cmp,K,R,<<>>,<<>>}, User),
     merge_write(2, Merged, Opts, User, K, Ls, Rs);
 merge_write(2, Merged, Opts, User, K, [L|Ls], ?nav) ->
@@ -447,7 +447,7 @@ merge_write(2, Merged, Opts, User, K, ?nav, [R|Rs]) ->
     imem_meta:insert(Merged, {imem_meta:physical_table_name(Merged),undefined,?nav,?nav,<<>>,K,R,<<>>,<<>>}, User),
     merge_write(2, Merged, Opts, User, K, ?nav, Rs);
 merge_write(3, Merged, Opts, User, K, [L|Ls], [R|Rs]) ->
-    Cmp = imem_datatype:cmp(L,R,Opts),
+    Cmp = cmp(L,R,Opts),
     imem_meta:insert(Merged, {imem_meta:physical_table_name(Merged),undefined,element(1,K),element(2,K),L,Cmp,element(1,K),element(2,K),R}, User),
     merge_write(3, Merged, Opts, User, K, Ls, Rs);
 merge_write(3, Merged, Opts, User, K, [L|Ls], ?nav) ->
