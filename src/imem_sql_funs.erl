@@ -1320,17 +1320,17 @@ is_member(A, B) when is_tuple(B) ->    lists:member(A,tuple_to_list(B));
 is_member(A, B) when is_map(B) ->      lists:member(A,maps:to_list(B));
 is_member(_, _) ->                     false.
 
-cmp(A, B) -> imem_datatype:cmp(A, B).
+cmp(A, B) -> imem_merge:cmp(A, B).
 
-cmp(A, B, Opts) -> imem_datatype:cmp(A, B, Opts).
+cmp(A, B, Opts) -> imem_merge:cmp(A, B, Opts).
 
-diff(A, B) -> imem_datatype:diff(A, B).
+diff(A, B) -> imem_merge:diff(A, B).
 
-diff(A, B, Opts) -> imem_datatype:diff(A, B, Opts).
+diff(A, B, Opts) -> imem_merge:diff(A, B, Opts).
 
-diff_only(A, B) -> imem_datatype:diff_only(A, B).
+diff_only(A, B) -> imem_merge:diff_only(A, B).
 
-diff_only(A, B, Opts) -> imem_datatype:diff_only(A, B, Opts).
+diff_only(A, B, Opts) -> imem_merge:diff_only(A, B, Opts).
 
 ternary_not(?nav) ->        ?nav;
 ternary_not(true) ->        false;
