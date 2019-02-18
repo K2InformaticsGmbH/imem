@@ -22,6 +22,7 @@
 -define(CMP_EQUAL_KEY_WHITE_RIGHT,<<"==w">>).  %% added whitespace on the right value
 -define(CMP_EQUAL_KEY_WHITE,<<"=w=w">>).       %% added whitespace on both sides value
 
+-define(CMP_LF,10).                 %% LineFeed character = hd("\n")
 -define(CMP_SPACE,32).              %% Stereotype for white space
 -define(CMP_CHAR,$@).               %% Stereotype for non-white space
 -define(CMP_OPS,"()[]{}+-*/<>=|,").
@@ -30,6 +31,9 @@
 
 -export([ merge_diff/3              %% merge two data tables into a bigger one, presenting the differences side by side
         , merge_diff/4              %% merge two data tables into a bigger one, presenting the differences side by side
+        , merge_diff/5              %% merge two data tables into a bigger one, presenting the differences side by side
+        , term_diff/4               %% present two terms side-by-side for comparison
+        , term_diff/5               %% present two terms side-by-side for comparison
         ]).
 
 -export([ cmp/2                     %% compare two terms (LeftKey,RightKey)
@@ -42,14 +46,14 @@
         , diff_only/3               %% wrapper adding whitespace and type awareness to tdiff:diff
         ]).
 
--safe([merge_diff]).
+-safe([diff, diff_only, merge_diff, term_diff]).
 
 %% @doc Generate a diff term by calling tdiff:diff and try to normalize whitespace differences
 -spec diff(any(), any()) -> list().
 diff(L, R) -> diff(L, R, []).
 
 %% @doc Generate a diff term by calling tdiff:diff with options and try to normalize whitespace differences
--spec diff(any(), any(), list()) -> list().
+-spec diff(any(), any(), ddOptions()) -> list().
 diff(L, R, Opts) when is_binary(L) -> 
     diff(binary_to_list(L), R, Opts);
 diff(L, R, Opts) when is_binary(R) -> 
@@ -65,9 +69,23 @@ diff_only(L, R) -> diff_only(L, R, []).
 
 %% @doc Generate a diff term by calling tdiff:diff with options and try to normalize whitespace differences
 %% Then suppress all {eq,_} terms in order to indicate only differences
--spec diff_only(any(), any(), list()) -> list().
+-spec diff_only(any(), any(), ddOptions()) -> list().
 diff_only(L, R, Opts) -> 
     cmp_rem_eq(cmp_norm_whitespace(diff(L, R, Opts))).
+
+%% @doc Split the two binaries into lists of lines (lists of strings),
+%% and compute the edit-script (or diff) for these, including white space normalisations.
+%% The result is a diff for a list of lines (strings), not for a list of binaries.
+-spec diff_binaries(binary(), binary(), ddOptions()) -> list().
+diff_binaries(L, R, Opts) ->
+    diff(split_bin_to_lines(L), split_bin_to_lines(R), Opts).
+
+split_bin_to_lines(B) -> sbtl(binary_to_list(B), "", []).
+
+sbtl([?CMP_LF|Rest], L, Acc)-> sbtl(Rest, "", [lists:reverse([?CMP_LF|L]) | Acc]);
+sbtl([C|Rest], L, Acc)      -> sbtl(Rest, [C|L], Acc);
+sbtl("", "", Acc)           -> lists:reverse(Acc);
+sbtl("", L, Acc)            -> lists:reverse([lists:reverse(L) | Acc]).
 
 
 %% @doc Compare two erlang terms or strings or lists of tokens 
@@ -80,7 +98,7 @@ cmp(L, R) -> cmp(L, R, []).
 %% For lists of integers (characters/bytes), white space differences are detected as such
 %% by considering whitespace relevance for popular programming languages.
 %% Result indicates equalness or whitespace equalness or erlang term sort order for difference.
--spec cmp(any(),any(),list()) -> binary().
+-spec cmp(any(), any(), ddOptions()) -> binary().
 cmp(?nav, _, _) -> ?CMP_NAV; 
 cmp(_, ?nav, _) -> ?CMP_NAV; 
 cmp({AK,AV}, {BK,BV}, Opts) -> cmp(AK, AV, BK, BV, Opts); 
@@ -179,7 +197,7 @@ cmp(L, R, LVal, RVal) -> cmp(L, R, LVal, RVal, []).
 %% For the value part, white space differences are detected as such
 %% by considering whitespace relevance for popular programming languages.
 %% Result indicates equalness or whitespace equalness or erlang term sort order for difference.
--spec cmp(any(), any(), any(), any(), list()) -> binary().
+-spec cmp(any(), any(), any(), any(), ddOptions()) -> binary().
 cmp(?nav, ?nav, _, _, _) -> ?CMP_NAV; 
 cmp(_, _, ?nav, ?nav, _) -> ?CMP_NAV; 
 cmp(L, LVal, L, LVal, _) -> ?CMP_EQUAL_KV; 
@@ -208,14 +226,69 @@ cmp(L, _LVal, L,  _RVal, _Opts) -> ?CMP_EQUAL_KEY_SMALLER_RIGHT;
 cmp(L, _LVal, R, _RVal, _Opts) when L < R -> ?CMP_SMALLER_KEY_LEFT;
 cmp(_, _LVal, _, _RVal, _Opts) -> ?CMP_SMALLER_KEY_RIGHT.
 
+-spec term_diff(atom(), term(), atom(), term()) -> list(#ddTermDiff{}).
+term_diff(LeftType, LeftData, RightType, RightData) ->
+    term_diff(LeftType, LeftData, RightType, RightData, []).
+
+-spec term_diff(atom(), term(), atom(), term(), ddOptions()) -> list(#ddTermDiff{}).
+term_diff(binstr, LeftData, binstr, RightData, Opts) ->
+    term_diff_out(Opts, diff_binaries(LeftData, RightData, Opts), []);
+term_diff(binary, Data, binary, Data, Opts) ->
+    [#ddTermDiff{id=1,left_item=Data,cmp=cmp(Data,Data,Opts),right_item=Data}];
+term_diff(binary, LeftData, binary, RightData, Opts) ->
+    [#ddTermDiff{id=1,left_item=LeftData,cmp=cmp(LeftData,RightData,Opts),right_item=RightData}];
+term_diff(LeftType, _LeftData, RightType, _RightData, _Opts) ->
+    ?UnimplementedException({"term_diff for unsupported data type", {LeftType, RightType}}).
+
+term_diff_out(_Opts, [], Acc) -> lists:reverse(Acc);
+term_diff_out(Opts, [{_,[]}|Diff], Acc) -> 
+    term_diff_out(Opts, Diff, Acc);
+term_diff_out(Opts, [{eq,E}|Diff], Acc) -> 
+    term_diff_out(Opts, Diff, term_diff_add(E, E, Opts, Acc));
+term_diff_out(Opts, [{ins,I},{eq,E}|Diff], Acc) -> 
+    term_diff_out(Opts, Diff, term_diff_add(E, E, Opts, term_diff_add(?nav, I, Opts, Acc)));
+term_diff_out(Opts, [{del,D},{eq,E}|Diff], Acc) -> 
+    term_diff_out(Opts, Diff, term_diff_add(E, E, Opts, term_diff_add(D, ?nav, Opts, Acc)));
+term_diff_out(Opts, [{del,[D1,D2|Ds]}|Diff], Acc) -> 
+    term_diff_out(Opts, [{del,[D2|Ds]}|Diff], term_diff_add([D1], ?nav, Opts, Acc));
+term_diff_out(Opts, [{ins,[I1,I2|Is]}|Diff], Acc) -> 
+    term_diff_out(Opts, [{ins,[I2|Is]}|Diff], term_diff_add(?nav, [I1], Opts, Acc));
+term_diff_out(Opts, [{del,[D]},{ins,[I|Is]}|Diff], Acc) -> 
+    case lists:member($=, binary_to_list(cmp(D,I,Opts))) of
+        true ->     % we have white space equality =w or w= or w=w
+            term_diff_out(Opts, [{ins,Is}|Diff], term_diff_add([D], [I], Opts, Acc));
+        false ->
+            term_diff_out(Opts, [{ins,Is}|Diff], term_diff_add(?nav, [I], Opts, term_diff_add([D], ?nav, Opts, Acc)))
+    end;
+term_diff_out(Opts, [{ins,[I]},{del,[D|Ds]}|Diff], Acc) -> 
+    case lists:member($=, binary_to_list(cmp(D,I,Opts))) of
+        true ->     % we have white space equality
+            term_diff_out(Opts, Diff, term_diff_add([D], [I], Opts, Acc));
+        false ->
+            term_diff_out(Opts, [{del,Ds}|Diff], term_diff_add(?nav, [I], Opts, term_diff_add([D], ?nav, Opts, Acc)))
+    end;
+term_diff_out(Opts, [{ins,[I1]}], Acc) -> 
+    term_diff_out(Opts, [], term_diff_add(?nav, [I1], Opts, Acc));
+term_diff_out(Opts, [{del,[D1]}], Acc) -> 
+    term_diff_out(Opts, [], term_diff_add([D1], ?nav, Opts, Acc)).
+
+term_diff_add([], [], _Opts, Acc) -> Acc;
+term_diff_add([], ?nav, _Opts, Acc) -> Acc;
+term_diff_add(?nav, [], _Opts, Acc) -> Acc;
+term_diff_add([L|LRest], ?nav, Opts, Acc) ->
+    term_diff_add(LRest, ?nav, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L)}|Acc]);
+term_diff_add(?nav, [R|RRest], Opts, Acc) ->
+    term_diff_add(?nav, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,right_item=list_to_binary(R)}|Acc]);
+term_diff_add([L|LRest], [R|RRest], Opts, Acc) ->
+    term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L),cmp=cmp(L,R,Opts),right_item=list_to_binary(R)}|Acc]).
 
 -spec merge_diff(ddTable(), ddTable(), ddTable()) -> ok.
 merge_diff(Left, Right, Merged) -> merge_diff(Left, Right, Merged, []).
 
--spec merge_diff(ddTable(), ddTable(), ddTable(), list()) -> ok.
+-spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions()) -> ok.
 merge_diff(Left, Right, Merged, Opts) -> merge_diff(Left, Right, Merged, Opts, imem_meta:meta_field_value(user)).
 
--spec merge_diff(ddTable(), ddTable(), ddTable(), list(), ddEntityId()) -> ok.
+-spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions(), ddEntityId()) -> ok.
 merge_diff(Left, Right, Merged, Opts, User) ->
     imem_meta:log_to_db(debug, ?MODULE, merge_diff, [{left, Left}, {right, Right}, {merged, Merged}], "merge_diff table"),
     MySchema = imem_meta:schema(),
@@ -593,6 +666,29 @@ cmp_test_() ->
     , {"CMP2_WHITE7",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, "A( B ", null, "A (B"))}
     , {"CMP2_WHITE8",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, "( ) ", null, " ()"))}
 
+    ].
+
+term_diff_test_() ->
+    [ {"TD_EQUAL1",             ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC">>,cmp= <<"=">>,right_item= <<"ABC">>}
+                                              ]
+                                              , term_diff(binstr, <<"ABC">>, binstr, <<"ABC">>))}
+    , {"TD_EQUAL2",             ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC\n">>,cmp= <<"=">>,right_item= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left_item= <<"DEF">>,cmp= <<"=">>,right_item= <<"DEF">>}
+                                              ]
+                                              , term_diff(binstr, <<"ABC\nDEF">>, binstr, <<"ABC\nDEF">>))}
+    , {"TD_EQUAL3",             ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC\n">>,cmp= <<"=">>,right_item= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left_item= <<"DEF\n">>,cmp= <<"=">>,right_item= <<"DEF\n">>}
+                                              ]
+                                              , term_diff(binstr, <<"ABC\nDEF\n">>, binstr, <<"ABC\nDEF\n">>))}
+    , {"TD_WS1",                ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC \n">>,cmp= <<"w=">>,right_item= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left_item= <<"DEF\n">>,cmp= <<"=w">>,right_item= <<" DEF\n">>}
+                                              ]
+                                              , term_diff(binstr, <<"ABC \nDEF\n">>, binstr, <<"ABC\n DEF\n">>))}
+    , {"TD_DIFF1",              ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC\n">>,cmp= <<"=">>,right_item= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left_item= <<"XYZ\n">>,cmp= <<>>,right_item=?nav}
+                                              ,#ddTermDiff{id=3,left_item= <<"DEF\n">>,cmp= <<"=">>,right_item= <<"DEF\n">>}
+                                              ]
+                                              , term_diff(binstr, <<"ABC\nXYZ\nDEF\n">>, binstr, <<"ABC\nDEF\n">>))}
     ].
 
 -endif.

@@ -175,6 +175,15 @@
 	   ).
 -define(ddSize, [atom, integer, integer, timestamp, integer]).
 
+-record(ddTermDiff,                   		%% term diff    
+				  { id                      ::number()      %% record id
+				  , left_item = ?nav        ::binary()      %% left item (text line)
+				  , cmp = <<>>              ::binary()      %% comparison token
+				  , right_item = ?nav       ::binary()     	%% right item (text line)
+				  }
+	   ).
+-define(ddTermDiff, [number, binstr, binstr, binstr]).
+
 
 -define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)
 -define(OneDay, 1.0).                       %% span of  datetime or timestamp (fraction of 1 day)

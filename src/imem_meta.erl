@@ -280,8 +280,11 @@
         , foldl/3
         ]).
 
--export([ merge_diff/3              %% merge two data tables into a bigger one, presenting the differences side by side
-        , merge_diff/4              %% merge two data tables into a bigger one, presenting the differences side by side
+-export([ merge_diff/3      %% merge two data tables into a bigger one, presenting the differences side by side
+        , merge_diff/4      %% merge two data tables into a bigger one, presenting the differences side by side
+        , merge_diff/5      %% merge two data tables into a bigger one, presenting the differences side by side
+        , term_diff/4       %% take (LeftType, LeftData, RightType, RightData) and produce data for a side-by-side view 
+        , term_diff/5       %% take (LeftType, LeftData, RightType, RightData, Opts) and produce data for a side-by-side view 
         ]).
 
 % Functions applied with Common Test
@@ -292,7 +295,7 @@
 
 -safe([log_to_db,update_index,dictionary_trigger,data_nodes,schema/0,node_shard,
        physical_table_name,get_tables_count,record_hash,integer_uid,time_uid,
-       merge_diff]).
+       merge_diff,term_diff]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -3177,14 +3180,25 @@ sql_bind_jp_values(BindParamsMeta, JpPathBinds) ->
 %% ----- DATA MANIPULATIONS ---------------------------------------
 
 -spec merge_diff(ddTable(), ddTable(), ddTable()) -> ok.
-merge_diff(Left, Right, Merged) -> merge_diff(Left, Right, Merged, []).
+merge_diff(Left, Right, Merged) -> 
+    merge_diff(Left, Right, Merged, []).
 
--spec merge_diff(ddTable(), ddTable(), ddTable(), list()) -> ok.
-merge_diff(Left, Right, Merged, Opts) -> merge_diff(Left, Right, Merged, Opts, meta_field_value(user)).
+-spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions()) -> ok.
+merge_diff(Left, Right, Merged, Opts) -> 
+    merge_diff(Left, Right, Merged, Opts, meta_field_value(user)).
 
--spec merge_diff(ddTable(), ddTable(), ddTable(), list(), ddEntityId()) -> ok.
+-spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions(), ddEntityId()) -> ok.
 merge_diff(Left, Right, Merged, Opts, User) ->
     imem_merge:merge_diff(Left, Right, Merged, Opts, User).
+
+-spec term_diff(atom(), term(), atom(), term()) -> list(tuple()).
+term_diff(LeftType, LeftData, RightType, RightData) ->
+    term_diff(LeftType, LeftData, RightType, RightData, []).
+
+-spec term_diff(atom(), term(), atom(), term(), ddOptions()) -> list(tuple()).
+term_diff(LeftType, LeftData, RightType, RightData, Opts) ->
+    imem_merge:term_diff(LeftType, LeftData, RightType, RightData, Opts).
+
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
