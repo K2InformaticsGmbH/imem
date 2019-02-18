@@ -137,7 +137,10 @@ meta_operations(_Config) ->
         , #ddColumn{name = current, type = integer, len = 10}
     ],
     BadTypes3 = [#ddColumn{name = 'a', type = integer, len = 10}
-        , #ddColumn{name = a, type = iinteger, len = 10}
+        , #ddColumn{name = b, type = iinteger, len = 10}
+    ],
+    BadNames1 = [#ddColumn{name = 'a', type = integer, len = 10}
+        , #ddColumn{name = a, type = integer, len = 10}
     ],
 
     ?assertMatch({ok, _}, imem_meta:create_table(meta_table_1, Types1, [])),
@@ -280,6 +283,7 @@ meta_operations(_Config) ->
     ?assertException(throw, {ClEr, {"Invalid character(s) in column name", 'a:b'}}, imem_meta:create_table(bad_table_1, BadTypes1, [])),
     ?assertException(throw, {ClEr, {"Reserved column name", current}}, imem_meta:create_table(bad_table_1, BadTypes2, [])),
     ?assertException(throw, {ClEr, {"Invalid data type", iinteger}}, imem_meta:create_table(bad_table_1, BadTypes3, [])),
+    ?assertException(throw, {ClEr, {"Duplicate column name",a}}, imem_meta:create_table(bad_table_1, BadNames1, [])),
 
     LogCount3 = imem_meta:table_size(?LOG_TABLE),
     ?assertEqual({meta_table_3, {{2000, 1, 1}, {12, 45, 55}}, undefined}, imem_meta:insert(meta_table_3, {meta_table_3, {{2000, 01, 01}, {12, 45, 55}}, ?nav})),
@@ -373,7 +377,8 @@ meta_partitions(_Config) ->
     ?assert(lists:member({imem_meta:schema(), ?TPTEST0}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
     ?assertNot(lists:member({imem_meta:schema(), ?TPTEST2}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":parsed table names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
+    %% ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":parsed table names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
+    ?LogDebug("Parsed table names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
     ?assertException(throw
         , {'ClientError', {"Name conflict (different rolling period) in ddAlias", ?TPTEST2}}
         , imem_meta:create_check_table(?TPTEST2
