@@ -807,7 +807,7 @@ create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner) when is_binary
     create_check_physical_table({schema(), binary_to_atom(TableAlias, utf8)}, ColumnInfos, Opts, Owner);    
 create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner) when is_list(TableAlias) ->
     create_check_physical_table({schema(), binary_to_list(TableAlias)}, ColumnInfos, Opts, Owner);    
-create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0,Owner) when is_atom(TableAlias), is_atom(Schema) ->
+create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0, Owner) when is_atom(TableAlias), is_atom(Schema) ->
     Opts1 = norm_opts(Opts0),
     case lists:member(Schema, [schema(), ddSysConf]) of
         true ->
@@ -819,8 +819,8 @@ create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0,Owner) when
                     catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
                     {ok, {Schema, PTN}};
                 [#ddTable{opts=Old, owner=Owner}] ->
-                    OldOpts = lists:sort(lists:keydelete(purge_delay, 1, Old)),
-                    NewOpts = lists:sort(lists:keydelete(purge_delay, 1, Opts1)),
+                    OldOpts = lists:sort(lists:keydelete(purge_delay, 1, Old)) -- [{record_name,TableAlias}],
+                    NewOpts = lists:sort(lists:keydelete(purge_delay, 1, Opts1)) -- [{record_name,TableAlias}],
                     case NewOpts of
                         OldOpts ->
                             catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
