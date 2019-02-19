@@ -21,6 +21,7 @@
 
 -module(imem_tdiff).
 -export([diff/2, diff/3, patch/2]).
+-export([diff_orig/2, diff_orig/3]).
 -export([diff_files/2, diff_files/3]).
 -export([diff_binaries/2, diff_binaries/3, patch_binaries/2]).
 -export([format_diff_lines/1]).
@@ -237,9 +238,22 @@ diff(Sx, Sy) -> diff(Sx, Sy, _Opts=[]).
 %% * Keep track of visited coordinates.
 %%   If already visited, consider the snake/diagonal dead and don't follow it.
 
--spec diff(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when
-      Elem::term().
-diff(Sx, Sy, Opts) ->
+
+diff_orig(Sx, Sy) -> diff_orig(Sx, Sy, _Opts=[]).
+
+-spec diff(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when Elem::term().
+diff(Sx, Sy, Opts) -> diff_reverse(diff_orig(lists:reverse(Sx), lists:reverse(Sy), Opts)).
+
+diff_reverse(Script) -> diff_reverse(Script, []).
+
+diff_reverse([], Acc) -> Acc;
+diff_reverse([{del,EL1},{ins,EL2}|Script], Acc) -> 
+    diff_reverse(Script, [{del,lists:reverse(EL1)},{ins,lists:reverse(EL2)}|Acc]);
+diff_reverse([{A,EL}|Script], Acc) -> 
+    diff_reverse(Script, [{A,lists:reverse(EL)}|Acc]). 
+
+-spec diff_orig(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when Elem::term().
+diff_orig(Sx, Sy, Opts) ->
     SxLen = length(Sx),
     SyLen = length(Sy),
     DMax = SxLen + SyLen,
@@ -250,7 +264,6 @@ diff(Sx, Sy, Opts) ->
                  end,
     t_final_script(Tracer, EditScript),
     EditScript.
-
 
 try_dpaths(D, DMax, D1Paths, Tracer) when D =< DMax ->
     t_d(Tracer, D),
@@ -355,3 +368,112 @@ t_dpath(Tracer, DPath) -> Tracer({dpath,DPath}).
 
 t_exhausted_kdiagonals(no_tracer, _) -> ok;
 t_exhausted_kdiagonals(Tracer, D)    -> Tracer({exhausted_kdiagonals, D}).
+
+
+%% ----- TESTS ------------------------------------------------
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+whitespace_1_test() ->
+    [{eq,"A"},{ins," "},{eq,"/"},{ins," "},{eq,"B"},{del," "}] =
+        diff("A/B ", "A / B").
+
+whitespace_1r_test() ->
+    % [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}]
+    [{eq,"A"},{del," "},{eq,"/"},{ins,"B"},{eq," "},{del,"B"}] =
+        diff("A / B", "A/B ").
+
+% whitespace_1ro_test() ->
+%     [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}] =
+%         diff_orig("A / B", "A/B ").
+
+whitespace_2_test() ->
+    [{eq,"C("},{ins," "},{eq,"D"},{del," "}] =
+        diff("C(D ", "C( D").
+
+whitespace_2r_test() ->
+    % [{eq,"C("},{del," "},{eq,"D"},{ins," "}]
+    [{eq,"C("},{ins,"D"},{eq," "},{del,"D"}] =
+        diff("C( D", "C(D ").
+
+% whitespace_2ro_test() ->
+%     [{eq,"C("},{del," "},{eq,"D"},{ins," "}] =
+%         diff_orig("C( D", "C(D ").
+
+whitespace_3_test() ->
+    [{eq,"E"},{ins," "},{eq,"+"},{del," "},{eq,"F"},{del," "}] =
+        diff("E+ F ", "E +F").
+
+whitespace_3r_test() ->
+    % [{eq,"E"},{del," "},{eq,"+"},{ins," "},{eq,"F"},{ins," "}]
+    [{eq,"E"},{ins,"+"},{eq," "},{del,"+"},{eq,"F"},{ins," "}] =
+        diff("E +F", "E+ F ").
+
+% whitespace_3ro_test() ->
+%     % [{eq,"E"},{ins,"+"},{eq," "},{del,"+"},{eq,"F"},{ins," "}]
+%     [{eq,"E"},{del," "},{eq,"+"},{ins," "},{eq,"F"},{ins," "}] =
+%         diff_orig("E +F", "E+ F ").
+
+whitespace_4_test() ->
+    [{eq,"E"},{ins,"\t"},{eq,"+"},{del," "},{eq,"F"},{del," "}] =
+        diff("E+ F ", "E\t+F").
+
+whitespace_4r_test() ->
+    [{eq,"E"},{del,"\t"},{eq,"+"},{ins," "},{eq,"F"},{ins," "}] =
+        diff("E\t+F", "E+ F ").
+
+whitespace_5_test() ->
+    [{del," "},{eq,"E"},{ins,"\t"},{eq,"+"},{ins,"\nF"},{eq," "},{del,"F"}] =
+        diff(" E+ F", "E\t+\nF ").
+
+whitespace_5r_test() ->
+    [{ins," "},{eq,"E"},{del,"\t"},{eq,"+"},{del,"\n"},{ins," "},{eq,"F"},{del," "}] =
+        diff("E\t+\nF ", " E+ F").
+
+simple_diff_test() ->
+    [{eq,"a"},{del,"B"},{ins,"X"},{eq,"ccc"},{del,"D"},{ins,"Y"},{eq,"e"}] =
+        diff("aBcccDe", "aXcccYe").
+
+completely_mismatching_test() ->
+    [{del,"aaa"}, {ins,"bbb"}] = diff("aaa", "bbb").
+
+empty_inputs_produces_empty_diff_test() ->
+    [] = diff("", "").
+
+only_additions_test() ->
+    [{ins,"aaa"}] = diff("", "aaa"),
+    [{eq,"a"},{ins,"b"},{eq,"a"},{ins,"b"},{eq,"a"},{ins,"b"},{eq,"a"}] =
+        diff("aaaa", "abababa").
+
+only_deletions_test() ->
+    [{del,"aaa"}] = diff("aaa", ""),
+    [{eq,"a"},{del,"b"},{eq,"a"},{del,"b"},{eq,"a"},{del,"b"},{eq,"a"}] =
+        diff("abababa", "aaaa").
+
+patch_test() ->
+    Diff = diff(Old="a cat ate my hat", New="a dog ate my shoe"),
+    New = patch(Old, Diff).
+
+diff_patch_binaries_test() ->
+    [{del,["The Naming of Cats is a difficult matter,\n"]},
+     {ins,["The Naming of Dogs is a different matter,\n"]},
+     {eq,["It isn't just one of your holiday games;\n",
+          "You may think at first I'm as mad as a hatter\n"]},
+     {del,["When I tell you, a cat must have THREE DIFFERENT NAMES.\n"]}] =
+        Diff =
+        diff_binaries(
+          %% T.S. Elliot:
+          Old =
+              <<"The Naming of Cats is a difficult matter,\n"
+                "It isn't just one of your holiday games;\n"
+                "You may think at first I'm as mad as a hatter\n"
+                "When I tell you, a cat must have THREE DIFFERENT NAMES.\n">>,
+          %% Not T.S. Elliot (of course):
+          New =
+              <<"The Naming of Dogs is a different matter,\n"
+                "It isn't just one of your holiday games;\n"
+                "You may think at first I'm as mad as a hatter\n">>),
+    New = list_to_binary(patch_binaries(Old, Diff)).
+
+-endif.
