@@ -1,4 +1,4 @@
-%%% A (simple) diff
+%%% A (simple) diff, mainly for text (string or binary)
 
 %%% Copyright (C) 2011  Tomas Abrahamsson
 %%%
@@ -19,10 +19,17 @@
 %%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 %%%
 
+%%% Extended 2019 and adapted to (heuristically) handle white space differences
+%%% Stefan Ochsenbein, K2 Informatics GmbH
+
 -module(imem_tdiff).
--export([diff/2, diff/3, patch/2]).
--export([diff_orig/2, diff_orig/3]).
--export([diff_files/2, diff_files/3]).
+
+-include("imem.hrl").
+-include("imem_meta.hrl").
+
+-export([diff/2, diff/3, diff_only/2, diff_only/3, patch/2]).
+-export([diff_raw/2, diff_raw/3, is_eq/1]).
+-export([diff_files/2, diff_files/3]).  %% not save to be called from SQL
 -export([diff_binaries/2, diff_binaries/3, patch_binaries/2]).
 -export([format_diff_lines/1]).
 -export([print_diff_lines/1]).
@@ -35,15 +42,13 @@
                                  {exhausted_kdiagonals, d()} |
                                  {final_edit_script, edit_script()}) -> _).
 
--type d() :: integer().  %% The diagonal number, offset in number of steps from
-                         %% the diagonal through (0,0).
+-type d() :: integer().         %% The diagonal number, offset in number of steps from
+                                %% the diagonal through (0,0).
 -type dpath() :: dpath(term()).
--type dpath(Elem) :: {X::index(), Y::index(),
-                      SX::[Elem]|oob, SY::[Elem]|oob,
-                      [Elem]}.%% The X and Y are indices along x and y.
-                              %% The SX and SY are  accumulated old/new strings
-                              %% The last is a list of elements in reverse
-                              %% order.
+-type dpath(Elem) :: {X::index(), Y::index(), SX::[Elem]|oob, SY::[Elem]|oob, [Elem]}.  
+    %% The X and Y are indices along x and y.
+    %% The SX and SY are  accumulated old/new strings
+    %% The last is a list of elements in reverse order.
 -type index() :: non_neg_integer().
 -type edit_script() :: edit_script(term()).
 -type edit_script(Elem) :: [{eq, [Elem]} | {ins, [Elem]} | {del, [Elem]}].
@@ -52,6 +57,10 @@
 -export_type([edit_script/0, edit_script/1]).
 -export_type([algorithm_tracer/0, d/0, dpath/0, dpath/1, index/0]).
 
+-define(CMP_LF,10).             %% LineFeed character = hd("\n")
+
+-safe([diff, diff_only, patch, diff_binaries]).
+
 %% @equiv diff_files(F1, F2, [])
 -spec diff_files(filename(), filename()) -> edit_script(Line::string()).
 diff_files(F1, F2) -> diff_files(F1, F2, _Opts=[]).
@@ -59,33 +68,61 @@ diff_files(F1, F2) -> diff_files(F1, F2, _Opts=[]).
 %% @doc Read the two files into memory, split to lists of lines
 %% and compute the edit-script (or diff) for these.
 %% The result is a diff for a list of lines/strings.
--spec diff_files(filename(), filename(), options()) -> edit_script(Line) when
-      Line :: string().
+-spec diff_files(filename(), filename(), options()) -> edit_script(Line) when Line :: string().
 diff_files(F1, F2, Opts) ->
     {ok,B1} = file:read_file(F1),
     {ok,B2} = file:read_file(F2),
     diff_binaries(B1, B2, Opts).
 
 %% @equiv diff_binaries(B1, B2, [])
-diff_binaries(B1, B2) -> diff_binaries(B1, B2, _Opts=[]).
+diff_binaries(L, R) -> diff_binaries(L, R, _Opts=[]).
 
 %% @doc Split the two binaries into lists of lines (lists of strings),
 %% and compute the edit-script (or diff) for these.
 %% The result is a diff for a list of lines/strings,
 %% not for a list of binaries.
--spec diff_binaries(binary(), binary(), options()) -> edit_script(Line) when
-      Line :: string().
-diff_binaries(B1, B2, Opts) ->
-    diff(split_bin_to_lines(B1), split_bin_to_lines(B2), Opts).
+-spec diff_binaries(binary(), binary(), options()) -> edit_script(Line) when Line :: string().
+diff_binaries(L, R, Opts) ->
+    diff(split_bin_to_lines(L), split_bin_to_lines(R), Opts).
 
 
-split_bin_to_lines(B) -> sbtl(binary_to_list(B), "", []).
+split_bin_to_lines(B) when is_binary(B) -> sbtl(binary_to_list(B), "", []).
 
-sbtl("\n" ++ Rest, L, Acc) -> sbtl(Rest, "", [lists:reverse("\n"++L) | Acc]);
-sbtl([C|Rest], L, Acc)     -> sbtl(Rest, [C|L], Acc);
-sbtl("", "", Acc)          -> lists:reverse(Acc);
-sbtl("", L, Acc)           -> lists:reverse([lists:reverse(L) | Acc]).
+sbtl([?CMP_LF|Rest], L, Acc)-> sbtl(Rest, "", [lists:reverse([?CMP_LF|L]) | Acc]);
+sbtl([C|Rest], L, Acc)      -> sbtl(Rest, [C|L], Acc);
+sbtl("", "", Acc)           -> lists:reverse(Acc);
+sbtl("", L, Acc)            -> lists:reverse([lists:reverse(L) | Acc]).
 
+favor_whitespace(Diff) -> favor_whitespace(Diff,[]).
+
+favor_whitespace([], Acc) -> lists:reverse(Acc);
+favor_whitespace([{del,Str},{eq,WS},{ins,Str}|Diff], Acc) ->
+    %% see if we can favor white space changes 
+    %% [{del,Str},{eq,WS},{ins,Str}|Diff] -> [{ins,WS},{eq,Str},{del,WS}|Diff]
+    case imem_cmp:cmp_white_space(WS) of
+        true ->     favor_whitespace([{eq,Str},{del,WS}|Diff],[{ins,WS}|Acc]);
+        false ->    favor_whitespace([{eq,WS},{ins,Str}|Diff], [{del,Str}|Acc])
+    end;
+favor_whitespace([{ins,Str},{eq,WS},{del,Str}|Diff], Acc) ->
+    %% see if we can favor white space changes 
+    %% [{ins,Str},{eq,WS},{del,Str}|Diff] -> [{del,WS},{eq,Str},{ins,WS}|Diff]
+    case imem_cmp:cmp_white_space(WS) of
+        true ->     favor_whitespace([{eq,Str},{ins,WS}|Diff],[{del,WS}|Acc]);
+        false ->    favor_whitespace([{eq,WS},{ins,Str}|Diff], [{del,Str}|Acc])
+    end;
+favor_whitespace([{Dir,Str}|Diff], Acc) ->
+    %% nothing to do, just forward the term to output
+    favor_whitespace(Diff,[{Dir,Str}|Acc]).
+
+is_eq(Diff) -> (remove_eq(Diff) == []). %% Diff contains only {eq,_} terms
+
+remove_eq(Diff) -> remove_eq(Diff,[]). %% Diff wirth {eq,_} terms removed
+
+remove_eq([], Acc) -> lists:reverse(Acc);
+remove_eq([{ins,Str},{del,Str}|Diff], Acc) -> remove_eq(Diff, Acc);
+remove_eq([{del,Str},{ins,Str}|Diff], Acc) -> remove_eq(Diff, Acc);
+remove_eq([{eq,_Str}|Diff], Acc) -> remove_eq(Diff, Acc);
+remove_eq([D|Diff], Acc) -> remove_eq(Diff, [D|Acc]). 
 
 %% @doc Print an edit-script, or diff. See {@link format_diff_lines/1}
 %% for info on the output.
@@ -133,6 +170,89 @@ f(F,A) -> lists:flatten(io_lib:format(F,A)).
 format_lines(Indicator, Lines) ->
     lists:map(fun(Line) -> io_lib:format("~s~s", [Indicator, Line]) end,
               Lines).
+
+%% @doc Generate a diff term by calling imem_tdiff:diff and try to normalize whitespace differences
+%% Then suppress all {eq,_} terms in order to indicate only differences
+-spec diff_only(any(), any()) -> list().
+diff_only(L, R) -> diff_only(L, R, []).
+
+%% @doc Generate a diff term by calling imem_tdiff:diff with options and try to normalize whitespace differences
+%% Then suppress all {eq,_} terms in order to indicate only differences
+-spec diff_only(any(), any(), options()) -> list().
+diff_only(L, R, Opts) ->  remove_eq(diff(L, R, Opts)).
+
+
+%% @equiv diff(Sx, Sy, [])
+-spec diff(Old::[Elem], New::[Elem]) -> edit_script(Elem) when Elem::term().
+diff(Sx, Sy) -> diff(Sx, Sy, _Opts=[]).
+
+%% @doc Compute an edit-script  between two sequences of elements,
+%% such as two strings, lists of lines, or lists of elements more generally.
+%% The result is a list of operations add/del/eq that can transform
+%% `Old' to `New'
+%%
+%% The algorithm is "An O(ND) Difference Algorithm and Its Variations"
+%% by E. Myers, 1986.
+%%
+%% Note: This implementation currently searches only forwards. For
+%% large inputs (such as thousands of elements) that differ very much,
+%% this implementation will take unnecessarily long time, and may not
+%% complete within reasonable time.
+%%
+%% @end
+%% Todo for optimization to handle large inputs (see the paper for details)
+%% * Search from both ends as described in the paper.
+%%   When passing half of distance, search from the end (reversing
+%%   the strings). Stop again at half. If snakes don't meet,
+%%   pick the best (or all?) snakes from both ends, search
+%%   recursively from both ends within this space.
+%% * Keep track of visited coordinates.
+%%   If already visited, consider the snake/diagonal dead and don't follow it.
+
+%% @doc S. Ochsenbein: Attempted here to have better white space processing: 
+%%   go forward in first round and do it in reverse order if more than one difference
+%%   then pick the result with less changes (whereby whitespace changes do not count)
+
+-spec diff(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when Elem::term().
+diff(L, R, Opts) when is_binary(L) -> 
+    diff(binary_to_list(L), R, Opts);
+diff(L, R, Opts) when is_binary(R) -> 
+    diff(L, binary_to_list(R), Opts);
+diff(L, R, Opts) when is_list(L), is_list(R), is_list(Opts) -> 
+    R1 = favor_whitespace(diff_raw(L, R, Opts)),
+    case diff_count(R1) of
+        0 ->    R1;
+        1 ->    R1;
+        DC1 ->
+            R2 = favor_whitespace(diff_raw(lists:reverse(L), lists:reverse(R), Opts)),
+            DC2 = diff_count(R2),
+            if 
+                DC2 < DC1   -> diff_reverse(R2);
+                true        -> R1
+            end
+    end;
+diff(L, R, Opts) -> ?ClientErrorNoLogging({"diff only compares lists or binary values",{L,R,Opts}}).
+
+diff_count(Diff) -> diff_count(Diff,0).
+
+diff_count([], Acc) -> Acc;
+diff_count([{eq,_}|Diff], Acc) -> diff_count(Diff, Acc);
+diff_count([{OP,Str}|Diff], Acc) when OP==ins;OP==del -> 
+    case imem_cmp:cmp_white_space(Str) of
+        true ->     diff_count(Diff, Acc); % white space does not count 
+        false ->    diff_count(Diff, Acc+1)
+    end.
+
+diff_reverse(Script) -> diff_reverse(Script, []).
+
+diff_reverse([], Acc) -> Acc;
+diff_reverse([{del,EL1},{ins,EL2}|Script], Acc) -> 
+    diff_reverse(Script, [{del,lists:reverse(EL1)},{ins,lists:reverse(EL2)}|Acc]);
+diff_reverse([{A,EL}|Script], Acc) -> 
+    diff_reverse(Script, [{A,lists:reverse(EL)}|Acc]). 
+
+diff_raw(Sx, Sy) -> diff_raw(Sx, Sy, _Opts=[]).
+
 
 %% Algorithm: "An O(ND) Difference Algorithm and Its Variations"
 %% by E. Myers, 1986.
@@ -211,49 +331,8 @@ format_lines(Indicator, Lines) ->
 %% good, because this fits the way lists are built in functional
 %% programming languages.
 
-%% @equiv diff(Sx, Sy, [])
--spec diff(Old::[Elem], New::[Elem]) -> edit_script(Elem) when Elem::term().
-diff(Sx, Sy) -> diff(Sx, Sy, _Opts=[]).
-
-%% @doc Compute an edit-script  between two sequences of elements,
-%% such as two strings, lists of lines, or lists of elements more generally.
-%% The result is a list of operations add/del/eq that can transform
-%% `Old' to `New'
-%%
-%% The algorithm is "An O(ND) Difference Algorithm and Its Variations"
-%% by E. Myers, 1986.
-%%
-%% Note: This implementation currently searches only forwards. For
-%% large inputs (such as thousands of elements) that differ very much,
-%% this implementation will take unnecessarily long time, and may not
-%% complete within reasonable time.
-%%
-%% @end
-%% Todo for optimization to handle large inputs (see the paper for details)
-%% * Search from both ends as described in the paper.
-%%   When passing half of distance, search from the end (reversing
-%%   the strings). Stop again at half. If snakes don't meet,
-%%   pick the best (or all?) snakes from both ends, search
-%%   recursively from both ends within this space.
-%% * Keep track of visited coordinates.
-%%   If already visited, consider the snake/diagonal dead and don't follow it.
-
-
-diff_orig(Sx, Sy) -> diff_orig(Sx, Sy, _Opts=[]).
-
--spec diff(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when Elem::term().
-diff(Sx, Sy, Opts) -> diff_reverse(diff_orig(lists:reverse(Sx), lists:reverse(Sy), Opts)).
-
-diff_reverse(Script) -> diff_reverse(Script, []).
-
-diff_reverse([], Acc) -> Acc;
-diff_reverse([{del,EL1},{ins,EL2}|Script], Acc) -> 
-    diff_reverse(Script, [{del,lists:reverse(EL1)},{ins,lists:reverse(EL2)}|Acc]);
-diff_reverse([{A,EL}|Script], Acc) -> 
-    diff_reverse(Script, [{A,lists:reverse(EL)}|Acc]). 
-
--spec diff_orig(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when Elem::term().
-diff_orig(Sx, Sy, Opts) ->
+-spec diff_raw(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when Elem::term().
+diff_raw(Sx, Sy, Opts) ->
     SxLen = length(Sx),
     SyLen = length(Sy),
     DMax = SxLen + SyLen,
@@ -380,40 +459,36 @@ whitespace_1_test() ->
         diff("A/B ", "A / B").
 
 whitespace_1r_test() ->
-    % [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}]
-    [{eq,"A"},{del," "},{eq,"/"},{ins,"B"},{eq," "},{del,"B"}] =
+    [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}] =
         diff("A / B", "A/B ").
 
-% whitespace_1ro_test() ->
-%     [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}] =
-%         diff_orig("A / B", "A/B ").
+whitespace_1ro_test() ->
+    [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}] =
+        diff("A / B", "A/B ").
 
 whitespace_2_test() ->
     [{eq,"C("},{ins," "},{eq,"D"},{del," "}] =
         diff("C(D ", "C( D").
 
 whitespace_2r_test() ->
-    % [{eq,"C("},{del," "},{eq,"D"},{ins," "}]
-    [{eq,"C("},{ins,"D"},{eq," "},{del,"D"}] =
+    [{eq,"C("},{del," "},{eq,"D"},{ins," "}] = 
         diff("C( D", "C(D ").
 
-% whitespace_2ro_test() ->
-%     [{eq,"C("},{del," "},{eq,"D"},{ins," "}] =
-%         diff_orig("C( D", "C(D ").
+whitespace_2ro_test() ->
+    [{eq,"C("},{del," "},{eq,"D"},{ins," "}] =
+        diff("C( D", "C(D ").
 
 whitespace_3_test() ->
     [{eq,"E"},{ins," "},{eq,"+"},{del," "},{eq,"F"},{del," "}] =
         diff("E+ F ", "E +F").
 
 whitespace_3r_test() ->
-    % [{eq,"E"},{del," "},{eq,"+"},{ins," "},{eq,"F"},{ins," "}]
-    [{eq,"E"},{ins,"+"},{eq," "},{del,"+"},{eq,"F"},{ins," "}] =
+    [{eq,"E"},{del," "},{eq,"+"},{ins," "},{eq,"F"},{ins," "}] = 
         diff("E +F", "E+ F ").
 
-% whitespace_3ro_test() ->
-%     % [{eq,"E"},{ins,"+"},{eq," "},{del,"+"},{eq,"F"},{ins," "}]
-%     [{eq,"E"},{del," "},{eq,"+"},{ins," "},{eq,"F"},{ins," "}] =
-%         diff_orig("E +F", "E+ F ").
+whitespace_3ro_test() ->
+    [{eq,"E"},{del," "},{eq,"+"},{ins," "},{eq,"F"},{ins," "}] =
+         diff("E +F", "E+ F ").
 
 whitespace_4_test() ->
     [{eq,"E"},{ins,"\t"},{eq,"+"},{del," "},{eq,"F"},{del," "}] =
@@ -424,7 +499,7 @@ whitespace_4r_test() ->
         diff("E\t+F", "E+ F ").
 
 whitespace_5_test() ->
-    [{del," "},{eq,"E"},{ins,"\t"},{eq,"+"},{ins,"\nF"},{eq," "},{del,"F"}] =
+    [{del," "},{eq,"E"},{ins,"\t"},{eq,"+"},{del," "},{ins,"\n"},{eq,"F"},{ins," "}] = 
         diff(" E+ F", "E\t+\nF ").
 
 whitespace_5r_test() ->
