@@ -108,6 +108,12 @@
         , have_permission/2    
         ]).
 
+-export([ merge_diff/4      %% merge two data tables into a bigger one, presenting the differences side by side
+        , merge_diff/5      %% merge two data tables into a bigger one, presenting the differences side by side
+        , term_diff/5       %% take (LeftType, LeftData, RightType, RightData) and produce data for a side-by-side view 
+        , term_diff/6       %% take (LeftType, LeftData, RightType, RightData, Opts) and produce data for a side-by-side view 
+        ]).
+
 %% one to one from dd_account ------------ AA FUNCTIONS _--------
 
 authenticate(_SKey, SessionId, Name, Credentials) ->
@@ -847,6 +853,25 @@ dal_apply(SKey, Module, Function, Params, Permissions) ->
         false ->
             ?SecurityException({"Dal execute unauthorized", {Module,Function,Params,SKey}})
     end.
+
+merge_diff(SKey, Left, Right, Merged) -> merge_diff(SKey, Left, Right, Merged, []).
+
+merge_diff(SKey, Left, Right, Merged, Opts) ->
+    case { have_table_permission(SKey, Left, read)
+         , have_table_permission(SKey, Right, read)
+         , have_table_permission(SKey, Merged, write)} of
+        {true,true,true} ->     imem_meta:merge_diff(Left, Right, Merged, Opts, imem_seco:account_id(SKey));
+        {true,true,false} ->    ?SecurityException({"Write to table unauthorized", {Merged,SKey}});
+        {false,_,_} ->          ?SecurityException({"Read from table unauthorized", {Left,SKey}});
+        {_,false,_} ->          ?SecurityException({"Read from table unauthorized", {Right,SKey}})
+    end.
+
+term_diff(SKey, LeftType, LeftData, RightType, RightData) -> 
+    term_diff(SKey, LeftType, LeftData, RightType, RightData, []).
+
+term_diff(SKey, LeftType, LeftData, RightType, RightData, Opts) ->
+    seco_authorized(SKey),
+    imem_meta:term_diff(LeftType, LeftData, RightType, RightData, Opts).
 
 
 %% ------- security extension for sql and tables (exported) ---------------------------------

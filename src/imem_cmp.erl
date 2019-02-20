@@ -34,6 +34,7 @@
         , cmp/5                     %% compare two terms with payloads (LeftKey,LeftVal,RightKey,RightVal,Opts)
         , cmp_trim/2
         , cmp_white_space/1         %% is the argument a string or a binary containing only white space?
+        , norm_white_space/1        %% reduce whitespace to the mminimum without corrupting (Erlang/SQL) code
         ]).
 
 -safe(all).
@@ -92,6 +93,7 @@ cmp_trim(_Last, [{Chg,Str}|Diff], Dir, Acc) ->
     %% keep equal or opposite piece and move forward
     cmp_trim(lists:last(Str), Diff, Dir, [{Chg,Str}|Acc]).
 
+cmp_white_space(B) when is_binary(B) -> cmp_white_space(binary_to_list(B));
 cmp_white_space([]) -> true;
 cmp_white_space([Ch|Chrs]) ->
     case lists:member(Ch,?CMP_WHITE_SPACE) of
@@ -99,6 +101,37 @@ cmp_white_space([Ch|Chrs]) ->
         true ->     cmp_white_space(Chrs)
     end;
 cmp_white_space(_NotaList) -> false.
+
+norm_white_space(B) when is_binary(B) -> list_to_binary(norm_white_space(binary_to_list(B)));
+norm_white_space(L) when is_list(L) -> norm_ws(L);
+norm_white_space(I) -> I.
+
+norm_ws(L) -> norm_ws(?CMP_SPACE, L, []).
+
+norm_ws(_, [], Acc) -> lists:reverse(Acc);
+norm_ws(_Last, [Ch|List], Acc) when Ch>?CMP_SPACE ->
+    norm_ws(Ch, List, [Ch|Acc]);
+norm_ws(Last, [Ch,Next|List], Acc) ->
+    IsWhite = lists:member(Ch,?CMP_WHITE_SPACE),
+    NoSplit = lists:member([Last,Next],?CMP_NO_SPLIT),
+    case {IsWhite,NoSplit} of
+        {false,_} ->    norm_ws(Ch, [Next|List], [Ch|Acc]);
+        {_,true}  ->    norm_ws(?CMP_SPACE, [Next|List], [?CMP_SPACE|Acc]);
+        {true,false} -> 
+            LeftWhite = lists:member(Last,?CMP_WHITE_SPACE),
+            RightWhite =  lists:member(Next,?CMP_WHITE_SPACE),
+            LeftOp = lists:member(Last,?CMP_OPS),
+            RightOp =  lists:member(Next,?CMP_OPS),
+            case lists:usort([LeftWhite,RightWhite,LeftOp,RightOp]) of
+                [false] ->      norm_ws(?CMP_SPACE, [Next|List], [?CMP_SPACE|Acc]);
+                [false,true] -> norm_ws(Last, [Next|List], Acc)
+            end
+    end;
+norm_ws(_Last, [Ch], Acc) ->
+    case lists:member(Ch,?CMP_WHITE_SPACE) of
+        false ->    norm_ws(Ch, [], [Ch|Acc]);
+        true  ->    norm_ws(?CMP_SPACE, [], Acc)
+    end.
 
 cmp_may_split([Last,Next]) ->
     NoSplit = lists:member([Last,Next],?CMP_NO_SPLIT),
@@ -289,6 +322,17 @@ cmp_test_() ->
     , {"CMP2_WHITE7",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, "A( B ", null, "A (B"))}
     , {"CMP2_WHITE8",            ?_assertEqual(?CMP_EQUAL_KEY_WHITE, cmp(null, "( ) ", null, " ()"))}
 
+    ].
+
+norm_white_space_test_() ->
+    [ {"NWS_EQUAL1",            ?_assertEqual("123", norm_white_space("123"))}
+    , {"NWS_EQUAL2",            ?_assertEqual("12 3", norm_white_space("12 3"))}
+    , {"NWS_EQUAL3",            ?_assertEqual("AB C", norm_white_space("AB C "))}
+    , {"NWS_EQUAL4",            ?_assertEqual("AB C", norm_white_space(" AB C"))}
+    , {"NWS_EQUAL5",            ?_assertEqual("12. 5", norm_white_space("12. 5"))}
+    , {"NWS_EQUAL6",            ?_assertEqual("12.5", norm_white_space("12.5\t"))}
+    , {"NWS_EQUAL7",            ?_assertEqual("A/B", norm_white_space("A/B "))}
+    , {"NWS_EQUAL8",            ?_assertEqual("A/B", norm_white_space("A / B"))}
     ].
 
 -endif.

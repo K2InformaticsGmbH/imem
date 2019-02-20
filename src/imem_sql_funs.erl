@@ -14,7 +14,8 @@
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
-            , mfa, preview, preview_keys, trunc, round, integer_uid, time_uid, cmp, diff, diff_only
+            , mfa, preview, preview_keys, trunc, round, integer_uid, time_uid, diff, diff_only
+            , cmp, cmp_white_space, norm_white_space
             , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float
             , safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
             , nvl_atom, nvl_binary, nvl_binstr, nvl_float, nvl_integer, nvl_json, nvl_term, nvl_tuple
@@ -126,10 +127,10 @@
         , preview/3
         , preview_keys/3
         , cmp/2
-        , diff/2
-        , diff_only/2
         , cmp/3
+        , diff/2
         , diff/3
+        , diff_only/2
         , diff_only/3
         ]).
 
@@ -163,6 +164,8 @@ unary_fun_bind_type("list_to_binstr") ->        #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
 unary_fun_bind_type("md5") ->                   #bind{type=binstr,default= <<>>};
+unary_fun_bind_type("cmp_white_space") ->       #bind{type=binstr,default= <<>>};
+unary_fun_bind_type("norm_white_space") ->      #bind{type=binstr,default= <<>>};
 unary_fun_bind_type("round") ->                 #bind{type=number,default=0};
 unary_fun_bind_type("trunc") ->                 #bind{type=timestamp,default=0};
 unary_fun_bind_type("safe_atom") ->             #bind{type=atom,default=?nav};
@@ -214,6 +217,8 @@ unary_fun_result_type("prefix_ul") ->           #bind{type=list,default=?nav};
 unary_fun_result_type("json_to_list") ->        #bind{type=list,default=[]};
 unary_fun_result_type("phash2") ->              #bind{type=integer,default=0};
 unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>};
+unary_fun_result_type("cmp_white_space") ->     #bind{type=boolean,default= false};
+unary_fun_result_type("norm_white_space") ->    #bind{type=binstr,default= <<>>};
 unary_fun_result_type("round") ->               #bind{type=number,default=0};
 unary_fun_result_type("trunc") ->               #bind{type=timestamp,default=0};
 unary_fun_result_type("to_atom") ->             #bind{type=atom,default=?nav};
@@ -549,13 +554,15 @@ expr_fun({Op, A, B}) when Op==crc32;Op==float_to_binary;Op==float_to_list ->
     module_fun(erlang, {Op, A, B});
 expr_fun({Op, A, B}) when Op==atom_to_binary;Op==binary_to_integer;Op==binary_to_integer;Op==binary_to_term ->
     module_fun(erlang, {Op, A, B});
-%% lists module
+%% lists module and others
 expr_fun({Op, A}) when Op==last;Op==reverse;Op==sort;Op==usort ->
     module_fun(lists, {Op, A});
 expr_fun({Op, A}) when Op==vnf_identity;Op==vnf_lcase_ascii;Op==vnf_lcase_ascii_ne;Op==vnf_tokens;Op==vnf_integer;Op==vnf_float;Op==vnf_datetime;Op==vnf_datetime_ne ->
     module_fun(imem_index, {Op, A});
 expr_fun({Op, A}) when Op==integer_uid;Op==time_uid;Op==time ->
     module_fun(imem_meta, {Op, A});
+expr_fun({Op, A}) when Op==cmp_white_space; Op==norm_white_space ->
+    module_fun(imem_cmp, {Op, A});
 expr_fun({Op, A, B}) when Op==nth;Op==member;Op==merge;Op==nthtail;Op==seq;Op==sublist;Op==subtract;Op==usort ->
     module_fun(lists, {Op, A, B});
 %% maps module
@@ -1320,17 +1327,17 @@ is_member(A, B) when is_tuple(B) ->    lists:member(A,tuple_to_list(B));
 is_member(A, B) when is_map(B) ->      lists:member(A,maps:to_list(B));
 is_member(_, _) ->                     false.
 
-cmp(A, B) -> imem_merge:cmp(A, B).
+cmp(A, B) -> imem_cmp:cmp(A, B).
 
-cmp(A, B, Opts) -> imem_merge:cmp(A, B, Opts).
+cmp(A, B, Opts) -> imem_cmp:cmp(A, B, Opts).
 
-diff(A, B) -> imem_merge:diff(A, B).
+diff(A, B) -> imem_tdiff:diff(A, B).
 
-diff(A, B, Opts) -> imem_merge:diff(A, B, Opts).
+diff(A, B, Opts) -> imem_tdiff:diff(A, B, Opts).
 
-diff_only(A, B) -> imem_merge:diff_only(A, B).
+diff_only(A, B) -> imem_tdiff:diff_only(A, B).
 
-diff_only(A, B, Opts) -> imem_merge:diff_only(A, B, Opts).
+diff_only(A, B, Opts) -> imem_tdiff:diff_only(A, B, Opts).
 
 ternary_not(?nav) ->        ?nav;
 ternary_not(true) ->        false;

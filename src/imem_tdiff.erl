@@ -36,7 +36,7 @@
 
 -type filename() :: string().
 -type options() :: [option()].
--type option() :: {algorithm_tracer, no_tracer | algorithm_tracer()}.
+-type option() :: {algorithm_tracer, no_tracer, ignore_whitespace | algorithm_tracer()}.
 -type algorithm_tracer() :: fun(({d, d()} |
                                  {dpath, dpath()} |
                                  {exhausted_kdiagonals, d()} |
@@ -218,17 +218,21 @@ diff(L, R, Opts) when is_binary(L) ->
     diff(binary_to_list(L), R, Opts);
 diff(L, R, Opts) when is_binary(R) -> 
     diff(L, binary_to_list(R), Opts);
-diff(L, R, Opts) when is_list(L), is_list(R), is_list(Opts) -> 
-    R1 = favor_whitespace(diff_raw(L, R, Opts)),
-    case diff_count(R1) of
-        0 ->    R1;
-        1 ->    R1;
+diff(L, R, Opts) when is_list(L), is_list(R), is_list(Opts) ->
+    {L1,R1} = case lists:member(ignore_whitespace, Opts) of
+        true ->     {norm_whitespace(L), norm_whitespace(R)};
+        false ->    {L,R}
+    end,
+    Out1 = favor_whitespace(diff_raw(L1, R1, Opts)),
+    case diff_count(Out1) of
+        0 ->    Out1;
+        1 ->    Out1;
         DC1 ->
-            R2 = favor_whitespace(diff_raw(lists:reverse(L), lists:reverse(R), Opts)),
-            DC2 = diff_count(R2),
+            Out2 = favor_whitespace(diff_raw(lists:reverse(L1), lists:reverse(R1), Opts)),
+            DC2 = diff_count(Out2),
             if 
-                DC2 < DC1   -> diff_reverse(R2);
-                true        -> R1
+                DC2 < DC1   -> diff_reverse(Out2);
+                true        -> Out1
             end
     end;
 diff(L, R, Opts) -> ?ClientErrorNoLogging({"diff only compares lists or binary values",{L,R,Opts}}).
@@ -251,8 +255,19 @@ diff_reverse([{del,EL1},{ins,EL2}|Script], Acc) ->
 diff_reverse([{A,EL}|Script], Acc) -> 
     diff_reverse(Script, [{A,lists:reverse(EL)}|Acc]). 
 
-diff_raw(Sx, Sy) -> diff_raw(Sx, Sy, _Opts=[]).
+norm_whitespace(Seq) -> norm_whitespace(Seq,[]).
 
+norm_whitespace([], Acc) -> lists:reverse(Acc);
+norm_whitespace([I|Seq], Acc) when is_binary(I);is_list(I) ->
+    case  imem_cmp:norm_white_space(I) of
+        I -> norm_whitespace(Seq, [I|Acc]);
+        N -> norm_whitespace(Seq, [{I,N}|Acc])
+    end;
+norm_whitespace([I|Seq], Acc) ->
+    norm_whitespace(Seq, [I|Acc]).
+
+
+diff_raw(Sx, Sy) -> diff_raw(Sx, Sy, _Opts=[]).
 
 %% Algorithm: "An O(ND) Difference Algorithm and Its Variations"
 %% by E. Myers, 1986.
@@ -331,6 +346,12 @@ diff_raw(Sx, Sy) -> diff_raw(Sx, Sy, _Opts=[]).
 %% good, because this fits the way lists are built in functional
 %% programming languages.
 
+%% Extension S. Ochsenbein Sx and Sy can be tuples now where the first element
+%% is the raw value and the second is the normalized value.
+%% Comparison Sx==Sy is done between normalized list values only which
+%% leads to diff outputs containing {eq,[{IxRaw,IyRaw}|_]} instead of {eq,[Ix|_]}.
+%%   
+
 -spec diff_raw(Old::[Elem], New::[Elem], options()) -> edit_script(Elem) when Elem::term().
 diff_raw(Sx, Sy, Opts) ->
     SxLen = length(Sx),
@@ -371,14 +392,17 @@ try_kdiagonals(_, D, _, DPaths, Tracer) ->
     t_exhausted_kdiagonals(Tracer, D),
     {dpaths, lists:reverse(DPaths)}.
 
-follow_snake({X, Y, [H|Tx], [H|Ty], Cs}) -> follow_snake({X+1,Y+1, Tx,Ty,
-                                                          [{e,H} | Cs]});
-follow_snake({_X,_Y,[],     [],     Cs}) -> {ed, Cs};
-follow_snake({X, Y, [],     Sy,     Cs}) -> {dpath, {X, Y, [],  Sy,  Cs}};
-follow_snake({X, Y, oob,    Sy,     Cs}) -> {dpath, {X, Y, oob, Sy,  Cs}};
-follow_snake({X, Y, Sx,     [],     Cs}) -> {dpath, {X, Y, Sx,  [],  Cs}};
-follow_snake({X, Y, Sx,     oob,    Cs}) -> {dpath, {X, Y, Sx,  oob, Cs}};
-follow_snake({X, Y, Sx,     Sy,     Cs}) -> {dpath, {X, Y, Sx,  Sy,  Cs}}.
+follow_snake({X, Y, [{H,N}|Tx] , [{H,N}|Ty] , Cs}) -> follow_snake({X+1,Y+1, Tx,Ty, [{e,H} | Cs]});
+follow_snake({X, Y, [{H1,N}|Tx], [{H2,N}|Ty], Cs}) -> follow_snake({X+1,Y+1, Tx,Ty, [{e,{H1,H2}} | Cs]});
+follow_snake({X, Y, [{H1,N}|Tx], [N|Ty]     , Cs}) -> follow_snake({X+1,Y+1, Tx,Ty, [{e,{H1,N}} | Cs]});
+follow_snake({X, Y, [N|Tx]     , [{H2,N}|Ty], Cs}) -> follow_snake({X+1,Y+1, Tx,Ty, [{e,{N,H2}} | Cs]});
+follow_snake({X, Y, [H|Tx]     , [H|Ty]     , Cs}) -> follow_snake({X+1,Y+1, Tx,Ty, [{e,H} | Cs]});
+follow_snake({_X,_Y,[]         , []         , Cs}) -> {ed, Cs};
+follow_snake({X, Y, []         , Sy         , Cs}) -> {dpath, {X, Y, [],  Sy,  Cs}};
+follow_snake({X, Y, oob        , Sy         , Cs}) -> {dpath, {X, Y, oob, Sy,  Cs}};
+follow_snake({X, Y, Sx         , []         , Cs}) -> {dpath, {X, Y, Sx,  [],  Cs}};
+follow_snake({X, Y, Sx         , oob        , Cs}) -> {dpath, {X, Y, Sx,  oob, Cs}};
+follow_snake({X, Y, Sx         , Sy         , Cs}) -> {dpath, {X, Y, Sx,  Sy,  Cs}}.
 
 pick_best_dpath(K, D, DPs) -> pbd(K, D, DPs).
 
@@ -389,10 +413,12 @@ pbd(_K,_D, [DP1,DP2|_])       -> pbd2(DP1,DP2).
 pbd2({_,Y1,_,_,_}=DP1, {_,Y2,_,_,_}) when Y1 > Y2 -> go_inc_x(DP1);
 pbd2(_DP1  ,           DP2)                       -> go_inc_y(DP2).
 
+% go_inc_y({X, Y, [{H,_}|Tx], Sy, Cs}) -> {X, Y+1, Tx,  Sy,  [{y,H}|Cs]};
 go_inc_y({X, Y, [H|Tx], Sy, Cs}) -> {X, Y+1, Tx,  Sy,  [{y,H}|Cs]};
 go_inc_y({X, Y, [],     Sy, Cs}) -> {X, Y+1, oob, Sy,  Cs};
 go_inc_y({X, Y, oob,    Sy, Cs}) -> {X, Y+1, oob, Sy,  Cs}.
 
+% go_inc_x({X, Y, Sx, [{H,_}|Ty], Cs}) -> {X+1, Y, Sx,  Ty,  [{x,H}|Cs]};
 go_inc_x({X, Y, Sx, [H|Ty], Cs}) -> {X+1, Y, Sx,  Ty,  [{x,H}|Cs]};
 go_inc_x({X, Y, Sx, [],     Cs}) -> {X+1, Y, Sx,  oob, Cs};
 go_inc_x({X, Y, Sx, oob,    Cs}) -> {X+1, Y, Sx,  oob, Cs}.
@@ -400,13 +426,17 @@ go_inc_x({X, Y, Sx, oob,    Cs}) -> {X+1, Y, Sx,  oob, Cs}.
 
 edit_ops_to_edit_script(EditOps) -> e2e(EditOps, _Acc=[]).
 
-e2e([{x,C}|T], [{ins,R}|Acc]) -> e2e(T, [{ins,[C|R]}|Acc]);
-e2e([{y,C}|T], [{del,R}|Acc]) -> e2e(T, [{del,[C|R]}|Acc]);
-e2e([{e,C}|T], [{eq,R}|Acc])  -> e2e(T, [{eq, [C|R]}|Acc]);
-e2e([{x,C}|T], Acc)           -> e2e(T, [{ins,[C]}|Acc]);
-e2e([{y,C}|T], Acc)           -> e2e(T, [{del,[C]}|Acc]);
-e2e([{e,C}|T], Acc)           -> e2e(T, [{eq, [C]}|Acc]);
-e2e([],        Acc)           -> Acc.
+e2e([{x,{C,_}}|T], [{ins,R}|Acc]) -> e2e(T, [{ins,[C|R]}|Acc]);
+e2e([{x,C}|T]    , [{ins,R}|Acc]) -> e2e(T, [{ins,[C|R]}|Acc]);
+e2e([{y,{C,_}}|T], [{del,R}|Acc]) -> e2e(T, [{del,[C|R]}|Acc]);
+e2e([{y,C}|T]    , [{del,R}|Acc]) -> e2e(T, [{del,[C|R]}|Acc]);
+e2e([{e,C}|T]    , [{eq,R}|Acc])  -> e2e(T, [{eq, [C|R]}|Acc]);
+e2e([{x,{C,_}}|T], Acc)           -> e2e(T, [{ins,[C]}|Acc]);
+e2e([{x,C}|T]    , Acc)           -> e2e(T, [{ins,[C]}|Acc]);
+e2e([{y,{C,_}}|T], Acc)           -> e2e(T, [{del,[C]}|Acc]);
+e2e([{y,C}|T]    , Acc)           -> e2e(T, [{del,[C]}|Acc]);
+e2e([{e,C}|T]    , Acc)           -> e2e(T, [{eq, [C]}|Acc]);
+e2e([]           , Acc)           -> Acc.
 
 %% @doc Apply a patch, in the form of an edit-script, to a string or
 %% list of lines (or list of elements more generally)
@@ -462,9 +492,29 @@ whitespace_1r_test() ->
     [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}] =
         diff("A / B", "A/B ").
 
-whitespace_1ro_test() ->
-    [{eq,"A"},{del," "},{eq,"/"},{del," "},{eq,"B"},{ins," "}] =
-        diff("A / B", "A/B ").
+whitespace_1wb_test() ->
+    [{eq,[{"A / B", "A/B "}]}] =
+        diff(["A / B"], ["A/B "], [ignore_whitespace]).
+
+whitespace_1wm_test() ->
+    [{eq,[{"A / B", "A/B "}, "BBB", "CCC"]}] =
+        diff(["A / B", "BBB", "CCC"], ["A/B ", "BBB", "CCC"], [ignore_whitespace]).
+
+whitespace_1wmi_test() ->
+    [{eq,[{"A / B", "A/B "}, "BBB"]},{ins,["CCC"]}] =
+        diff(["A / B", "BBB"], ["A/B ", "BBB", "CCC"], [ignore_whitespace]).
+
+whitespace_1wmib_test() ->
+    [{eq,[{<<"A / B">>, <<"A/B ">>}, <<"BBB">>]},{ins,[<<"CCC">>]}] =
+        diff([<<"A / B">>, <<"BBB">>], [<<"A/B ">>, <<"BBB">>, <<"CCC">>], [ignore_whitespace]).
+
+whitespace_1wmic_test() ->
+    [{eq,[{"ABC \n", "ABC\n"}, {"DEF\n", " DEF\n"}]}] =
+        diff(["ABC \n", "DEF\n"], ["ABC\n", " DEF\n"], [ignore_whitespace]).
+
+whitespace_1bin_test() ->
+    [{eq,[{"ABC \n", "ABC\n"}, {"DEF\n", " DEF\n"}]}] =
+        diff_binaries(<<"ABC \nDEF\n">>, <<"ABC\n DEF\n">>, [ignore_whitespace]).
 
 whitespace_2_test() ->
     [{eq,"C("},{ins," "},{eq,"D"},{del," "}] =
