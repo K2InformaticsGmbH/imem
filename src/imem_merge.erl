@@ -62,34 +62,43 @@ term_diff_out(Opts, [{del,[D1]}], Acc) ->
 term_diff_add([], [], _Opts, Acc) -> Acc;
 term_diff_add([], ?nav, _Opts, Acc) -> Acc;
 term_diff_add(?nav, [], _Opts, Acc) -> Acc;
-% term_diff_add([{L,_}|LRest], ?nav, Opts, Acc) ->
-%     term_diff_add(LRest, ?nav, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L)}|Acc]);
 term_diff_add([L|LRest], ?nav, Opts, Acc) ->
-    term_diff_add(LRest, ?nav, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L)}|Acc]);
-% term_diff_add(?nav, [{R,_}|RRest], Opts, Acc) ->
-%     term_diff_add(?nav, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,right_item=list_to_binary(R)}|Acc]);
+    term_diff_add(LRest, ?nav, Opts, [#ddTermDiff{id=length(Acc)+1
+                                     ,left_item=list_to_binary(L)}|Acc
+                                     ]);
 term_diff_add(?nav, [R|RRest], Opts, Acc) ->
-    term_diff_add(?nav, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,right_item=list_to_binary(R)}|Acc]);
+    term_diff_add(?nav, RRest, Opts, [#ddTermDiff{id=length(Acc)+1
+                                     ,right_item=list_to_binary(R)}|Acc
+                                     ]);
 term_diff_add([{L,R}|LRest], [{L,R}|RRest], Opts, Acc) ->
-    term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L),cmp=imem_cmp:cmp(L,R,Opts),right_item=list_to_binary(R)}|Acc]);
-% term_diff_add([{L,_}|LRest], [R|RRest], Opts, Acc) ->
-%     term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L),cmp=imem_cmp:cmp(L,R,Opts),right_item=list_to_binary(R)}|Acc]);
-% term_diff_add([L|LRest], [{R,_}|RRest], Opts, Acc) ->
-%     term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L),cmp=imem_cmp:cmp(L,R,Opts),right_item=list_to_binary(R)}|Acc]);
+    term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1
+                                      ,left_item=list_to_binary(L)
+                                      ,cmp=imem_cmp:cmp(L,R,Opts)
+                                      ,right_item=list_to_binary(R)}|Acc
+                                      ]);
 term_diff_add([L|LRest], [R|RRest], Opts, Acc) ->
-    term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1,left_item=list_to_binary(L),cmp=imem_cmp:cmp(L,R,Opts),right_item=list_to_binary(R)}|Acc]).
+    term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1
+                                      ,left_item=list_to_binary(L)
+                                      ,cmp=imem_cmp:cmp(L,R,Opts)
+                                      ,right_item=list_to_binary(R)}|Acc
+                                      ]).
 
 -spec merge_diff(ddTable(), ddTable(), ddTable()) -> ok.
-merge_diff(Left, Right, Merged) -> merge_diff(Left, Right, Merged, []).
+merge_diff(Left, Right, Merged) -> 
+    merge_diff(Left, Right, Merged, []).
 
 -spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions()) -> ok.
-merge_diff(Left, Right, Merged, Opts) -> merge_diff(Left, Right, Merged, Opts, imem_meta:meta_field_value(user)).
+merge_diff(Left, Right, Merged, Opts) -> 
+    merge_diff(Left, Right, Merged, Opts, imem_meta:meta_field_value(user)).
 
 -spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions(), ddEntityId()) -> ok.
 merge_diff(Left, Right, Merged, Opts, User) ->
     imem_meta:log_to_db(debug, ?MODULE, merge_diff, [{left, Left}, {right, Right}, {merged, Merged}], "merge_diff table"),
     MySchema = imem_meta:schema(),
-    case {imem_meta:qualified_table_name(Left), imem_meta:qualified_table_name(Right), imem_meta:qualified_table_name(Merged)} of
+    LeftQname = imem_meta:qualified_table_name(Left),
+    RightQname = imem_meta:qualified_table_name(Right),
+    MergedQname = imem_meta:qualified_table_name(Merged),
+    case {LeftQname, RightQname, MergedQname} of
         {{MySchema,L},{MySchema,R},{MySchema,_W}} ->
             case {merge_scan(Left), merge_scan(Right)} of
                 {{0,_},_} -> ?ClientError({"Empty table", Left});   % row_count=0
