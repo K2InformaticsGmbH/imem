@@ -377,6 +377,21 @@ term_diff_test_() ->
                                               ,#ddTermDiff{id=3,left_item= <<"DEF\n">>,cmp= <<"=">>,right_item= <<"DEF\n">>}
                                               ]
                                               , term_diff(binstr, <<"ABC\nXYZ\nDEF\n">>, binstr, <<"ABC\nDEF\n">>, [ignore_whitespace]))}
+    , {"TD_SQL_VIEW",           ?_assertEqual([ {ddTermDiff,1,<<"  CREATE OR REPLACE FORCE VIEW sbs0_admin.bad_msisdn (msisdn)\n">>
+                                                            ,<<"w=">>
+                                                            ,<<"CREATE OR REPLACE FORCE VIEW sbs0_admin.bad_msisdn (msisdn)\n">>}
+                                              , {ddTermDiff,2,'$not_a_value', <<>>, <<"BEQUEATH DEFINER\n">>}
+                                              , {ddTermDiff,3,<<"AS\n">>, <<"=">>, <<"AS\n">>}
+                                              , {ddTermDiff,4,<<"  SELECT MSISDN FROM bad_msisdn_prov\n">>, <<"=w">>, <<"    SELECT MSISDN FROM bad_msisdn_prov\n">>}
+                                              , {ddTermDiff,5,<<"UNION\n">>, <<"=w">>, <<"    UNION\n">>}
+                                              , {ddTermDiff,6,<<"SELECT MSISDN FROM bad_msisdn_smsc">>, <<"=w">>, <<"    SELECT MSISDN FROM bad_msisdn_smsc">>}
+                                              ]
+                                              , term_diff(
+                                                      binstr
+                                                    , <<"  CREATE OR REPLACE FORCE VIEW sbs0_admin.bad_msisdn (msisdn)\nAS\n  SELECT MSISDN FROM bad_msisdn_prov\nUNION\nSELECT MSISDN FROM bad_msisdn_smsc">>
+                                                    , binstr
+                                                    , <<"CREATE OR REPLACE FORCE VIEW sbs0_admin.bad_msisdn (msisdn)\nBEQUEATH DEFINER\nAS\n    SELECT MSISDN FROM bad_msisdn_prov\n    UNION\n    SELECT MSISDN FROM bad_msisdn_smsc">>
+                                                    , [ignore_whitespace]))}
     ].
 
 -endif.
