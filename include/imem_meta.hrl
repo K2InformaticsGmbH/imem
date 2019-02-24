@@ -177,9 +177,9 @@
 
 -record(ddTermDiff,                   		%% term diff    
 				  { id                      ::number()      %% record id
-				  , left_item = ?nav        ::binary()      %% left item (text line)
+				  , left = ?nav        		::binary()      %% left item (text line)
 				  , cmp = <<>>              ::binary()      %% comparison token
-				  , right_item = ?nav       ::binary()     	%% right item (text line)
+				  , right = ?nav       		::binary()     	%% right item (text line)
 				  }
 	   ).
 -define(ddTermDiff, [number, binstr, binstr, binstr]).

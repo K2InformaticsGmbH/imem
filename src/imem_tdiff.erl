@@ -36,7 +36,7 @@
 
 -type filename() :: string().
 -type options() :: [option()].
--type option() :: {algorithm_tracer, no_tracer, ignore_whitespace | algorithm_tracer()}.
+-type option() ::  ignore_whitespace | ignore_casing | ignore_dquotes | {algorithm_tracer, no_tracer | algorithm_tracer()}.
 -type algorithm_tracer() :: fun(({d, d()} |
                                  {dpath, dpath()} |
                                  {exhausted_kdiagonals, d()} |
@@ -99,14 +99,14 @@ favor_whitespace([], Acc) -> lists:reverse(Acc);
 favor_whitespace([{del,Str},{eq,WS},{ins,Str}|Diff], Acc) ->
     %% see if we can favor white space changes 
     %% [{del,Str},{eq,WS},{ins,Str}|Diff] -> [{ins,WS},{eq,Str},{del,WS}|Diff]
-    case imem_cmp:cmp_white_space(WS) of
+    case imem_cmp:cmp_whitespace(WS) of
         true ->     favor_whitespace([{eq,Str},{del,WS}|Diff],[{ins,WS}|Acc]);
         false ->    favor_whitespace([{eq,WS},{ins,Str}|Diff], [{del,Str}|Acc])
     end;
 favor_whitespace([{ins,Str},{eq,WS},{del,Str}|Diff], Acc) ->
     %% see if we can favor white space changes 
     %% [{ins,Str},{eq,WS},{del,Str}|Diff] -> [{del,WS},{eq,Str},{ins,WS}|Diff]
-    case imem_cmp:cmp_white_space(WS) of
+    case imem_cmp:cmp_whitespace(WS) of
         true ->     favor_whitespace([{eq,Str},{ins,WS}|Diff],[{del,WS}|Acc]);
         false ->    favor_whitespace([{eq,WS},{ins,Str}|Diff], [{del,Str}|Acc])
     end;
@@ -219,16 +219,24 @@ diff(L, R, Opts) when is_binary(L) ->
 diff(L, R, Opts) when is_binary(R) -> 
     diff(L, binary_to_list(R), Opts);
 diff(L, R, Opts) when is_list(L), is_list(R), is_list(Opts) ->
-    {L1,R1} = case lists:member(ignore_whitespace, Opts) of
-        true ->     {norm_whitespace(L), norm_whitespace(R)};
+    {L1,R1} = case lists:member(ignore_casing, Opts) of
+        true ->     {norm_casing(L), norm_casing(R)};
         false ->    {L,R}
     end,
-    Out1 = favor_whitespace(diff_raw(L1, R1, Opts)),
+    {L2,R2} = case lists:member(ignore_dquotes, Opts) of
+        true ->     {norm_dquotes(L1), norm_dquotes(R1)};
+        false ->    {L1,R1}
+    end,
+    {L3,R3} = case lists:member(ignore_whitespace, Opts) of
+        true ->     {norm_whitespace(L2), norm_whitespace(R2)};
+        false ->    {L2,R2}
+    end,
+    Out1 = favor_whitespace(diff_raw(L3, R3, Opts)),
     case diff_count(Out1) of
         0 ->    Out1;
         1 ->    Out1;
         DC1 ->
-            Out2 = favor_whitespace(diff_raw(lists:reverse(L1), lists:reverse(R1), Opts)),
+            Out2 = favor_whitespace(diff_raw(lists:reverse(L3), lists:reverse(R3), Opts)),
             DC2 = diff_count(Out2),
             if 
                 DC2 < DC1   -> diff_reverse(Out2);
@@ -242,7 +250,7 @@ diff_count(Diff) -> diff_count(Diff,0).
 diff_count([], Acc) -> Acc;
 diff_count([{eq,_}|Diff], Acc) -> diff_count(Diff, Acc);
 diff_count([{OP,Str}|Diff], Acc) when OP==ins;OP==del -> 
-    case imem_cmp:cmp_white_space(Str) of
+    case imem_cmp:cmp_whitespace(Str) of
         true ->     diff_count(Diff, Acc); % white space does not count 
         false ->    diff_count(Diff, Acc+1)
     end.
@@ -259,13 +267,40 @@ norm_whitespace(Seq) -> norm_whitespace(Seq,[]).
 
 norm_whitespace([], Acc) -> lists:reverse(Acc);
 norm_whitespace([I|Seq], Acc) when is_binary(I);is_list(I) ->
-    case  imem_cmp:norm_white_space(I) of
+    case  imem_cmp:norm_whitespace(I) of
         I -> norm_whitespace(Seq, [I|Acc]);
         N -> norm_whitespace(Seq, [{I,N}|Acc])
     end;
+norm_whitespace([{I,N}|Seq], Acc) when is_binary(I);is_list(I) ->
+    norm_whitespace(Seq, [{I,imem_cmp:norm_whitespace(N)}|Acc]);
 norm_whitespace([I|Seq], Acc) ->
     norm_whitespace(Seq, [I|Acc]).
 
+norm_dquotes(Seq) -> norm_dquotes(Seq,[]).
+
+norm_dquotes([], Acc) -> lists:reverse(Acc);
+norm_dquotes([I|Seq], Acc) when is_binary(I);is_list(I) ->
+    case  imem_cmp:norm_dquotes(I) of
+        I -> norm_dquotes(Seq, [I|Acc]);
+        N -> norm_dquotes(Seq, [{I,N}|Acc])
+    end;
+norm_dquotes([{I,N}|Seq], Acc) when is_binary(I);is_list(I) ->
+    norm_dquotes(Seq, [{I,imem_cmp:norm_dquotes(N)}|Acc]);  
+norm_dquotes([I|Seq], Acc) ->
+    norm_dquotes(Seq, [I|Acc]).
+
+norm_casing(Seq) -> norm_casing(Seq,[]).
+
+norm_casing([], Acc) -> lists:reverse(Acc);
+norm_casing([I|Seq], Acc) when is_binary(I);is_list(I) ->
+    case  imem_cmp:norm_casing(I) of
+        I -> norm_casing(Seq, [I|Acc]);
+        N -> norm_casing(Seq, [{I,N}|Acc])
+    end;
+norm_casing([{I,N}|Seq], Acc) when is_binary(I);is_list(I) ->
+    norm_casing(Seq, [{I,imem_cmp:norm_casing(N)}|Acc]);
+norm_casing([I|Seq], Acc) ->
+    norm_casing(Seq, [I|Acc]).
 
 diff_raw(Sx, Sy) -> diff_raw(Sx, Sy, _Opts=[]).
 
@@ -559,6 +594,10 @@ whitespace_5r_test() ->
 simple_diff_test() ->
     [{eq,"a"},{del,"B"},{ins,"X"},{eq,"ccc"},{del,"D"},{ins,"Y"},{eq,"e"}] =
         diff("aBcccDe", "aXcccYe").
+
+case_diff_test() ->
+    [{eq,"A "},{del,"T"},{ins,"t"},{eq,"ext"}] =
+        diff("A Text", "A text").
 
 completely_mismatching_test() ->
     [{del,"aaa"}, {ins,"bbb"}] = diff("aaa", "bbb").

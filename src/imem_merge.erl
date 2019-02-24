@@ -21,9 +21,9 @@ term_diff(LeftType, LeftData, RightType, RightData) ->
 term_diff(binstr, LeftData, binstr, RightData, Opts) ->
     term_diff_out(Opts, imem_tdiff:diff_binaries(LeftData, RightData, Opts), []);
 term_diff(binary, Data, binary, Data, Opts) ->
-    [#ddTermDiff{id=1,left_item=Data,cmp=imem_cmp:cmp(Data,Data,Opts),right_item=Data}];
+    [#ddTermDiff{id=1,left=Data,cmp=imem_cmp:cmp(Data,Data,Opts),right=Data}];
 term_diff(binary, LeftData, binary, RightData, Opts) ->
-    [#ddTermDiff{id=1,left_item=LeftData,cmp=imem_cmp:cmp(LeftData,RightData,Opts),right_item=RightData}];
+    [#ddTermDiff{id=1,left=LeftData,cmp=imem_cmp:cmp(LeftData,RightData,Opts),right=RightData}];
 term_diff(LeftType, _LeftData, RightType, _RightData, _Opts) ->
     ?UnimplementedException({"term_diff for unsupported data type", {LeftType, RightType}}).
 
@@ -64,23 +64,23 @@ term_diff_add([], ?nav, _Opts, Acc) -> Acc;
 term_diff_add(?nav, [], _Opts, Acc) -> Acc;
 term_diff_add([L|LRest], ?nav, Opts, Acc) ->
     term_diff_add(LRest, ?nav, Opts, [#ddTermDiff{id=length(Acc)+1
-                                     ,left_item=list_to_binary(L)}|Acc
+                                     ,left=list_to_binary(L)}|Acc
                                      ]);
 term_diff_add(?nav, [R|RRest], Opts, Acc) ->
     term_diff_add(?nav, RRest, Opts, [#ddTermDiff{id=length(Acc)+1
-                                     ,right_item=list_to_binary(R)}|Acc
+                                     ,right=list_to_binary(R)}|Acc
                                      ]);
 term_diff_add([{L,R}|LRest], [{L,R}|RRest], Opts, Acc) ->
     term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1
-                                      ,left_item=list_to_binary(L)
+                                      ,left=list_to_binary(L)
                                       ,cmp=imem_cmp:cmp(L,R,Opts)
-                                      ,right_item=list_to_binary(R)}|Acc
+                                      ,right=list_to_binary(R)}|Acc
                                       ]);
 term_diff_add([L|LRest], [R|RRest], Opts, Acc) ->
     term_diff_add(LRest, RRest, Opts, [#ddTermDiff{id=length(Acc)+1
-                                      ,left_item=list_to_binary(L)
+                                      ,left=list_to_binary(L)
                                       ,cmp=imem_cmp:cmp(L,R,Opts)
-                                      ,right_item=list_to_binary(R)}|Acc
+                                      ,right=list_to_binary(R)}|Acc
                                       ]).
 
 -spec merge_diff(ddTable(), ddTable(), ddTable()) -> ok.
@@ -342,39 +342,39 @@ merge_write(3, Merged, Opts, User, K, ?nav, [R|Rs]) ->
 -include_lib("eunit/include/eunit.hrl").
 
 term_diff_add_test_() ->
-    [ {"TD_ADD1",               ?_assertEqual([#ddTermDiff{id=2,left_item= <<"DEF\n">>,cmp= <<"=w">>,right_item= <<" DEF\n">>}
-                                              ,#ddTermDiff{id=1,left_item= <<"ABC \n">>,cmp= <<"w=">>,right_item= <<"ABC\n">>}
+    [ {"TD_ADD1",               ?_assertEqual([#ddTermDiff{id=2,left= <<"DEF\n">>,cmp= <<"=w">>,right= <<" DEF\n">>}
+                                              ,#ddTermDiff{id=1,left= <<"ABC \n">>,cmp= <<"w=">>,right= <<"ABC\n">>}
                                               ]
                                               , term_diff_add([{"ABC \n", "ABC\n"}, {"DEF\n", " DEF\n"}]
                                                    , [{"ABC \n", "ABC\n"}, {"DEF\n", " DEF\n"}], [], []))}
     ].
 
 term_diff_out_test_() ->
-    [ {"TD_OUT1",               ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC \n">>,cmp= <<"w=">>,right_item= <<"ABC\n">>}
-                                              ,#ddTermDiff{id=2,left_item= <<"DEF\n">>,cmp= <<"=w">>,right_item= <<" DEF\n">>}
+    [ {"TD_OUT1",               ?_assertEqual([#ddTermDiff{id=1,left= <<"ABC \n">>,cmp= <<"w=">>,right= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left= <<"DEF\n">>,cmp= <<"=w">>,right= <<" DEF\n">>}
                                               ]
                                               , term_diff_out([], [{eq,[{"ABC \n", "ABC\n"}, {"DEF\n", " DEF\n"}]}], []))}
     ].
 
 term_diff_test_() ->
-    [ {"TD_EQUAL1",             ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC">>,cmp= <<"=">>,right_item= <<"ABC">>}
+    [ {"TD_EQUAL1",             ?_assertEqual([#ddTermDiff{id=1,left= <<"ABC">>,cmp= <<"=">>,right= <<"ABC">>}
                                               ]
                                               , term_diff(binstr, <<"ABC">>, binstr, <<"ABC">>, [ignore_whitespace]))}
-    , {"TD_EQUAL2",             ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC\n">>,cmp= <<"=">>,right_item= <<"ABC\n">>}
-                                              ,#ddTermDiff{id=2,left_item= <<"DEF">>,cmp= <<"=">>,right_item= <<"DEF">>}
+    , {"TD_EQUAL2",             ?_assertEqual([#ddTermDiff{id=1,left= <<"ABC\n">>,cmp= <<"=">>,right= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left= <<"DEF">>,cmp= <<"=">>,right= <<"DEF">>}
                                               ]
                                               , term_diff(binstr, <<"ABC\nDEF">>, binstr, <<"ABC\nDEF">>, [ignore_whitespace]))}
-    , {"TD_EQUAL3",             ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC\n">>,cmp= <<"=">>,right_item= <<"ABC\n">>}
-                                              ,#ddTermDiff{id=2,left_item= <<"DEF\n">>,cmp= <<"=">>,right_item= <<"DEF\n">>}
+    , {"TD_EQUAL3",             ?_assertEqual([#ddTermDiff{id=1,left= <<"ABC\n">>,cmp= <<"=">>,right= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left= <<"DEF\n">>,cmp= <<"=">>,right= <<"DEF\n">>}
                                               ]
                                               , term_diff(binstr, <<"ABC\nDEF\n">>, binstr, <<"ABC\nDEF\n">>, [ignore_whitespace]))}
-    , {"TD_WS1",                ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC \n">>,cmp= <<"w=">>,right_item= <<"ABC\n">>}
-                                              ,#ddTermDiff{id=2,left_item= <<"DEF\n">>,cmp= <<"=w">>,right_item= <<" DEF\n">>}
+    , {"TD_WS1",                ?_assertEqual([#ddTermDiff{id=1,left= <<"ABC \n">>,cmp= <<"w=">>,right= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left= <<"DEF\n">>,cmp= <<"=w">>,right= <<" DEF\n">>}
                                               ]
                                               , term_diff(binstr, <<"ABC \nDEF\n">>, binstr, <<"ABC\n DEF\n">>, [ignore_whitespace]))}
-    , {"TD_DIFF1",              ?_assertEqual([#ddTermDiff{id=1,left_item= <<"ABC\n">>,cmp= <<"=">>,right_item= <<"ABC\n">>}
-                                              ,#ddTermDiff{id=2,left_item= <<"XYZ\n">>,cmp= <<>>,right_item=?nav}
-                                              ,#ddTermDiff{id=3,left_item= <<"DEF\n">>,cmp= <<"=">>,right_item= <<"DEF\n">>}
+    , {"TD_DIFF1",              ?_assertEqual([#ddTermDiff{id=1,left= <<"ABC\n">>,cmp= <<"=">>,right= <<"ABC\n">>}
+                                              ,#ddTermDiff{id=2,left= <<"XYZ\n">>,cmp= <<>>,right=?nav}
+                                              ,#ddTermDiff{id=3,left= <<"DEF\n">>,cmp= <<"=">>,right= <<"DEF\n">>}
                                               ]
                                               , term_diff(binstr, <<"ABC\nXYZ\nDEF\n">>, binstr, <<"ABC\nDEF\n">>, [ignore_whitespace]))}
     , {"TD_SQL_VIEW",           ?_assertEqual([ {ddTermDiff,1,<<"  CREATE OR REPLACE FORCE VIEW sbs0_admin.bad_msisdn (msisdn)\n">>
