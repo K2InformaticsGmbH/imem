@@ -11,6 +11,7 @@
 
 -define(CSV_BLOCK_SIZE, 4096).
 -define(CSV_MAX_LINE_SIZE, 10000000).
+-define(CSV_MAX_FILE_SIZE, 10000000).   % overridable in schema name: csv$eof$123 reads 123 bytes max per file
 -define(CSV_DELIMITER, <<$">>).
 -define(CSV_DELIMITER2, <<$",$">>).     % CSV escape of "
 -define(CSV_DELIMITER3, <<$\\,$">>).    % Erlang escape of "
@@ -18,6 +19,7 @@
 -define(ALL_CSV_OPTS, [lineSeparator, columnSeparator, columnCount, columns, header, encoding, skip]).
 -define(ALL_CSV_SCHEMA_TOKENS, [ {<<"crlf">>,lineSeparator,<<"\r\n">>}
                                , {<<"lf">>,lineSeparator,<<"\n">>}
+                               , {<<"eof">>,lineSeparator,<<"">>}
                                , {<<"tab">>,columnSeparator,<<"\t">>}
                                , {<<"comma">>,columnSeparator,<<",">>}
                                , {<<"colon">>,columnSeparator,<<":">>}
@@ -69,6 +71,12 @@ file_info(FilePattern) ->           file_info(FilePattern, #{}).
 
 file_info(FilePattern, Opts) ->     file_info(FilePattern, Opts, <<>>).
 
+file_info(_FilePattern, #{lineSeparator := <<>>} = Opts, _BinData) ->  
+    Opts#{ columnSeparator => <<>>
+         , columnCount => maps:get(columnCount, Opts, ?CSV_MAX_FILE_SIZE)
+         , columns => default_columns(1)
+         , encoding => utf8
+         };
 file_info(FilePattern, #{lineSeparator := _} = Opts, BinData) ->  
     file_info_col_sep(FilePattern, Opts, BinData);
 file_info(FilePattern, Opts, <<>>) ->
@@ -455,6 +463,41 @@ select(#{io:=Io, files:=Files, cms:=CMS, pos:=Pos, blockSize:=BlockSize, maxLine
 read_blocks(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts) ->
     read_blocks(Io, Files, CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts, []).
 
+read_blocks(Io, [File|Files], CMS, 0, BlockSize, MaxLineSize, RowLimit, RowsSkipped, #{lineSeparator := <<>>} = CsvOpts, Rows) -> 
+    LastFile = (Files == []),
+    #{skip := Skip, columnCount := ColumnCount} = CsvOpts,
+    case file:pread(Io, Skip, ColumnCount) of
+        {ok, Bin} -> 
+            file:close(Io),
+            AllNewRows = case ets:match_spec_run([list_to_tuple([?CSV_RECORD_NAME, File, Skip, byte_size(Bin), Bin])],CMS) of
+                [] ->       Rows;
+                [Row] ->    [Row|Rows]
+            end,
+            AllNewRowsCount = length(AllNewRows),
+            if 
+                (AllNewRowsCount =< RowLimit) and LastFile ->               % last file read completely
+                    {lists:reverse(AllNewRows), {'$end_of_table'}};
+                (AllNewRowsCount < RowLimit) ->                             % next file may add one more row
+                    {ok, Io1} = file:open(hd(Files), [raw, read, binary]),  % open next file
+                    read_blocks(Io1, Files, CMS, 0, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts, AllNewRows);
+                (AllNewRowsCount == RowLimit) ->                            % enough for now but keep next file open to read
+                    {ok, Io2} = file:open(hd(Files), [raw, read, binary]),  % open next file
+                    {lists:reverse(AllNewRows), continuation(Io2, Files, CMS, 0, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts)}
+            end;
+        eof -> 
+            file:close(Io),
+            case LastFile of 
+                true ->       
+                    {lists:reverse(Rows), {'$end_of_table'}};
+                false ->   
+                    {ok, IoN} = file:open(hd(Files), [raw, read, binary]),  % open next file
+                    read_blocks(IoN, Files, CMS, 0, BlockSize, MaxLineSize, RowLimit, 0, CsvOpts, Rows)
+            end;
+        {_, einval} -> 
+            file:close(Io), 
+            ?LogDebug("Error reading the file ~p",[[File|Files]]), 
+            {aborted, einval}
+    end;
 read_blocks(Io, [File|Files], CMS, Pos, BlockSize, MaxLineSize, RowLimit, RowsSkipped, CsvOpts, Rows) -> 
     #{ lineSeparator := LineSeparator
      , columnSeparator := ColumnSeparator
