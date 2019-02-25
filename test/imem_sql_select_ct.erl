@@ -251,9 +251,9 @@ db1_with_or_without_sec(IsSec) ->
     ),
 
     exec_fetch_sort_equal(SKey, query0h, 100, IsSec, "
-            select tuple(1,to_atom('A')) from dual"
+            select tuple(1,to_boolean('true')) from dual"
         ,
-        [{<<"{1,'A'}">>}]
+        [{<<"{1,true}">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query0i, 100, IsSec, "

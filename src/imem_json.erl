@@ -24,6 +24,7 @@
         , remove/2
         , size/1
         , values/1
+        , find_in_list/3
         ]).
 
 %% Conversions
@@ -59,6 +60,85 @@ encode(Json, Opts) -> jsx:encode(Json, Opts).
 %% ===================================================================
 %% Other Exported functions
 %% ===================================================================
+
+%% @doc Scan a list of json objects, find the first occurence with the 
+%% given property return the value.
+%% Return the Default if property is not found.
+-spec find_in_list(string() | atom() | binary(), [jsx:json_term()], jsx:json_term()) -> jsx:json_term().
+find_in_list(Property, _DataObjects, _Default)
+  when not (is_atom(Property) orelse
+            (is_binary(Property) andalso byte_size(Property) > 0) orelse
+            (is_list(Property) andalso length(Property) > 0)) ->
+    error(bad_property);
+find_in_list(_Property, DataObjects, _Default)
+  when not is_list(DataObjects) ->
+    error(bad_object);
+find_in_list(_Property, [], Default)  -> Default;
+find_in_list(Property, [DO|DataObjects], Default) when is_binary(DO) ->
+    find_in_list(Property, [jsx:decode(DO, [return_maps])|DataObjects], Default);
+find_in_list(Property, [DO|DataObjects], Default) when is_list(DO), is_binary(Property) ->
+    case lists:keyfind(Property, 1, DO) of
+        {_,VB} ->    VB;
+        false ->    
+            case lists:keyfind(binary_to_list(Property), 1, DO) of
+                {_,VL} ->   VL;
+                false ->    find_in_list(Property, DataObjects, Default)
+            end
+    end;
+find_in_list(Property, [DO|DataObjects], Default) when is_list(DO), is_list(Property) ->
+    case lists:keyfind(Property, 1, DO) of
+        {_,VL} ->    VL;
+        false ->    
+            case lists:keyfind(list_to_binary(Property), 1, DO) of
+                {_,VB} ->   VB;
+                false ->    find_in_list(Property, DataObjects, Default)
+            end
+    end;
+find_in_list(Property, [DO|DataObjects], Default) when is_list(DO), is_atom(Property) ->
+    case lists:keyfind(Property, 1, DO) of
+        {_,VA} ->    VA;
+        false ->    
+            case lists:keyfind(atom_to_list(Property), 1, DO) of
+                {_,VL} ->   VL;                
+                false ->    
+                    case lists:keyfind(list_to_binary(atom_to_list(Property)), 1, DO) of
+                        {_,VB} ->   VB;
+                        false ->    find_in_list(Property, DataObjects, Default)
+                    end
+            end
+    end;
+find_in_list(Property, [DO|DataObjects], Default) when is_map(DO), is_binary(Property) ->
+    case maps:is_key(Property, DO) of
+        true ->     maps:get(Property, DO);
+        false ->
+            case maps:is_key(binary_to_list(Property), DO) of 
+                true ->    maps:get(binary_to_list(Property), DO);
+                false ->   find_in_list(Property, DataObjects, Default)
+            end
+    end;
+find_in_list(Property, [DO|DataObjects], Default) when is_map(DO), is_list(Property) ->
+    case maps:is_key(Property, DO) of
+        true ->     maps:get(Property, DO);
+        false ->
+            case maps:is_key(list_to_binary(Property), DO) of 
+                true ->    maps:get(list_to_binary(Property), DO);
+                false ->   find_in_list(Property, DataObjects, Default)
+            end
+    end;
+find_in_list(Property, [DO|DataObjects], Default) when is_map(DO), is_atom(Property) ->
+    case maps:is_key(Property, DO) of
+        true ->     maps:get(Property, DO);
+        false ->
+            case maps:is_key(atom_to_list(Property), DO) of 
+                true ->    maps:get(atom_to_list(Property), DO);
+                false ->   
+                    case maps:is_key(list_to_binary(atom_to_list(Property)), DO) of
+                        true -> maps:get(list_to_binary(atom_to_list(Property)), DO);
+                        false -> find_in_list(Property, DataObjects, Default)
+                    end
+            end
+    end.
+          
 %% @doc Find the value of a property and return in matching erlang type
 %% throw exception if property not found.
 -define(JRENUMBR, "(-?(0|[1-9]\\d*)(\.\\d+)?([eE][+-]?\\d+)?)").
@@ -602,6 +682,30 @@ diff([{A,AV}|R1], [{B,BV}|R2], Acc) when A > B ->  diff([{A,AV}|R1], R2, [{B,[{<
 -define(TEST_MAP,#{<<"age">> => 981, <<"earthling">> => true,
                    <<"foo">> => <<"bar">>, <<"name">> => <<"John">>,
                    <<"surname">> => <<"Doe">>,<<"empty">> => null}).
+
+%% find_in_list tests
+find_in_list_test_() ->
+    Tests = [
+             {<<"surname">>,    ?TEST_LIST_PROP,    njet,       <<"Doe">>   },
+             {<<"name">>,       ?TEST_LIST_PROP,    njet,       <<"John">>  },
+             {  "surname",      ?TEST_LIST_PROP,    njet,       <<"Doe">>   },
+             {  "name",         ?TEST_LIST_PROP,    njet,       <<"John">>  },
+             {  surname,        ?TEST_LIST_PROP,    njet,       <<"Doe">>   },
+             {  name,           ?TEST_LIST_PROP,    njet,       <<"John">>  },
+             {<<"surinam">>,    ?TEST_LIST_PROP,    njet,       njet        },
+             {  "surinam",      ?TEST_LIST_PROP,    "njet",     "njet"      },
+             {   surinam,       ?TEST_LIST_PROP,    <<"njet">>, <<"njet">>  }
+            ],
+    {inparallel,
+     [{"find_in_list_test_"++integer_to_list(I),
+       fun() ->
+               ?assertEqual(R, find_in_list(K,L,D)),
+               ListOfMaps = [ maps:from_list(E) || E <- L],
+               ?assertEqual(R, find_in_list(K,ListOfMaps,D)),
+               ListOfJsonStrings = [ jsx:encode(M) || M <- ListOfMaps],
+               ?assertEqual(R, find_in_list(K,ListOfJsonStrings,D))
+       end} || {I,{K,L,D,R}} <- lists:zip(lists:seq(1,length(Tests)), Tests)]}.
+
 
 %% expand_inline tests
 expand_inline_test_() ->

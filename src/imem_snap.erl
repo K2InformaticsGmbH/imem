@@ -118,6 +118,12 @@
             ?GET_CONFIG(snapshotClusterHourOfDay, [], 14,
                         "Hour of (00..23)day in which important tables must be snapshotted.")).
 
+-spec(
+    start_snap_loop() -> ok | pid()
+).
+-spec(
+    restart_snap_loop() -> ok | term()
+).
 -ifdef(TEST).
     start_snap_loop() -> ok.
     restart_snap_loop() -> ok.
@@ -131,6 +137,9 @@
         erlang:whereis(?MODULE) ! imem_snap_loop.
 -endif.
 
+-spec(
+    suspend_snap_loop() -> term()
+).
 suspend_snap_loop() ->
     erlang:whereis(?MODULE) ! imem_snap_loop_cancel.
 
@@ -171,8 +180,7 @@ init(_) ->
     start_snap_loop(),
     erlang:send_after(
       1000, ?MODULE,
-      {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp',
-       '$create_when_needed'}),
+      {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
     {ok,#state{snapdir = SnapshotDir}}.
 
 -spec create_clean_dir(list()) -> list().
@@ -215,7 +223,7 @@ cluster_snap([], StartTime, Dir) ->
             ?Info("cluster snapshot ~s", [ZipFile])
     end,
     ?Info("cluster snapshot took ~p ms", [?TIMESTAMP_DIFF(StartTime, ?TIMESTAMP) div 1000]),
-    erlang:send_after(1000, ?MODULE, {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
+    erlang:send_after(1000, ?MODULE, {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
     ok;
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
     cluster_snap(Tabs, StartTime, create_clean_dir(?BKP_ZIP_PREFIX));
@@ -237,6 +245,8 @@ cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
     ?MODULE ! {cluster_snap, NextTabs, StartTime, Dir},
     ok.
 
+handle_info({cluster_snap, StartTime, Dir}, State) ->
+    handle_info({cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, StartTime, Dir}, State);
 handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
     {noreply,
      case ?GET_CLUSTER_SNAPSHOT of
@@ -252,7 +262,7 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                          _ ->
                              erlang:send_after(
                                60 * 1000, ?MODULE,
-                               {cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed'}),
+                               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
                              State#state{csnap_pid = (#state{})#state.csnap_pid}
                      end;
                  _ ->
@@ -269,15 +279,15 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                                  _ ->
                                      erlang:send_after(
                                        60 * 1000, ?MODULE,
-                                       {cluster_snap, Tables, '$replace_with_timestamp', '$create_when_needed'}),
+                                       {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
                                      State#state{csnap_pid = (#state{})#state.csnap_pid}
                              end
                      end
              end;
          false ->
              erlang:send_after(
-               1000, ?MODULE,
-               {cluster_snap, Tables, '$replace_with_timestamp', '$create_when_needed'}),
+               5000, ?MODULE,
+               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
              State
      end};
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
@@ -340,6 +350,10 @@ format_status(_Opt, [_PDict, _State]) -> ok.
 %% ----- SNAPSHOT INTERFACE ------------------------------------------------
 
 % backup existing snapshot
+-spec(
+    zip(all | {re, string()} | {files, [string()]}) ->
+        ok | string()
+).
 zip(all) -> zip({re, "*"++?BKP_EXTN});
 zip({re, MatchPattern}) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -375,6 +389,11 @@ zip({files, SnapFiles}) ->
     end.
 
 % display information of existing snapshot or a snapshot bundle (.zip)
+-spec(
+    info(bkp | zip) ->
+        {bkp, [{dbtables | snaptables | restorabletables, list()}]} |
+        {zip, list()} | {error, string()}
+).
 info(bkp) ->
     MTabs = lists:filter(fun(T) -> imem_meta:is_readable_table(T) end, imem_meta:all_tables()),
     MnesiaTables = [{atom_to_list(M), imem_meta:table_size(M), imem_meta:table_memory(M)} || M <- MTabs],
@@ -418,6 +437,10 @@ info({zip, [Z|ZipFiles]}, ContentFiles) ->
           end).
 
 % take snapshot of all/some of the current in memory imem tables
+-spec(
+    take([all] | [local] | {tabs, [atom() | string()]}) ->
+        {ok, atom() | string()} | {error, atom() | string() | term()}
+).
 take([all]) ->                                      % standard snapshot tables (no local time partitioned tables)
     take({tabs, all_snap_tables()});
 take([local]) ->                                    % local time partitioned tables
@@ -450,6 +473,10 @@ take(Tab) when is_map(Tab) ->                       % single table using transfo
 
 % snapshot restore interface
 %  - periodic snapshoting timer is paused during a restore operation
+-spec(
+    restore(bkp, [atom() | list()], destroy | replace, true | false) ->
+        [{atom(), term()}]
+).
 restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
     suspend_snap_loop(),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -467,6 +494,10 @@ restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
 
 % snapshot restore_as interface
 %  - periodic snapshoting timer is paused during a restore operation
+-spec(
+    restore_as(bkp, atom() | string(), atom() | binary() | string(), destroy | replace, true | false) ->
+        ok | {error, term()}
+).
 restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_atom(SrcTab) ->
     restore_as(Op, atom_to_list(SrcTab), DstTab, Strategy, Simulate);
 restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_atom(DstTab) ->
@@ -491,6 +522,10 @@ restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
             Error
     end.
 
+-spec(
+    restore(zip, string(), re:mp() | iodata() | unicode:charlist(), destroy | replace, true | false) ->
+        list() | {error, string()}
+).
 restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
     case filelib:is_file(ZipFile) of
         true ->
@@ -523,6 +558,11 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
             end
     end.
 
+-spec(
+    restore_chunked(atom() | string(), destroy | replace, true | false) ->
+        ok | {Inserted :: integer(), Edited :: integer(), Appended ::integer} |
+        {error, term()}
+).
 restore_chunked(Tab, Strategy, Simulate) ->
     ?Debug("restoring ~p by ~p~n", [Tab, Strategy]),
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -638,12 +678,14 @@ restore_chunk(Tab, Rows, SnapFile, FHndl, Strategy, Simulate, {OldI, OldE, OldA}
     end),
     read_chunk(Tab, SnapFile, FHndl, Strategy, Simulate, {NewI, NewE, NewA}).
 
+-spec(all_snap_tables() -> list()).
 all_snap_tables() ->
     lists:filter(fun(T) ->
             	    imem_meta:is_readable_table(T)
                     andalso not imem_meta:is_local_time_partitioned_table(T)
                 end, imem_meta:all_tables()).
 
+-spec(all_local_time_partitioned_tables() -> list()).
 all_local_time_partitioned_tables() ->
     lists:filter(fun(T) ->
                     imem_meta:is_readable_table(T)
@@ -778,8 +820,15 @@ take_chunked_transform(#{table:=Tab, nTrans:=NTrans, pTrans:=PTrans, rTrans:=RTr
             {error, Error}
     end.
 
+-spec(
+    timestamp({integer(), integer(), integer()}) -> integer()
+).
 timestamp({Mega, Secs, Micro}) -> Mega*1000000000000 + Secs*1000000 + Micro.
 
+-spec(
+    del_dirtree(file:name_all()) ->
+        ok | {error, term()}
+).
 del_dirtree(Path) ->
     case filelib:is_regular(Path) of
         true -> file:delete(Path);
@@ -795,6 +844,10 @@ del_dirtree(Path) ->
             file:del_dir(Path)
     end.
 
+-spec(
+    do_snapshot(function()) ->
+        ok | term() | {error, {string(), term()}}
+).
 do_snapshot(SnapFun) ->
     try
         ok = case SnapFun of
@@ -807,22 +860,38 @@ do_snapshot(SnapFun) ->
             {error,{"cannot snap",Err}}
     end.
 
+-spec(
+    get_snap_properties(atom()) -> {} | #snap_properties{}
+).
 get_snap_properties(Tab) ->
     case ets:lookup(?SNAP_ETS_TAB, Tab) of
         [] ->       {};
         [Prop] ->   {Prop, Prop#snap_properties.last_write, Prop#snap_properties.last_snap}
     end.
 
+-spec(
+    set_snap_properties(#snap_properties{}) ->
+        true
+).
 set_snap_properties(Prop) ->
     ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap=?TIMESTAMP}).
 
+-spec(snap_log(string(), list()) -> ok).
 snap_log(_P,_A) -> ?Info(_P,_A).
+
+-spec(snap_err(string(), list()) -> ok).
 snap_err(P,A) -> ?Error(P,A).
 
+-spec(
+    snap_file_count() -> integer()
+).
 snap_file_count() ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     length(filelib:wildcard("*.{bkp,zip}",SnapDir)).
 
+-spec(
+    exclude_table_pattern(binary() | list()) -> ok
+).
 exclude_table_pattern(TablePattern) when is_binary(TablePattern) ->
     exclude_table_pattern(binary_to_list(TablePattern));
 exclude_table_pattern(TablePattern) when is_list(TablePattern) ->

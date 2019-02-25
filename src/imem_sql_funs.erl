@@ -8,7 +8,7 @@
             , is_member, is_like, is_regexp_like, to_name, to_text
             , add_dt, add_ts, diff_dt, diff_ts, list_to_tuple, list_to_binstr
             , to_atom, to_string, to_binstr, to_binary, to_integer, to_float, to_number
-            , to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
+            , to_boolean, to_tuple, to_list, to_map, to_term, to_binterm, to_pid, from_binterm
             , to_decimal, from_decimal, to_timestamp, to_time, to_datetime, to_ipaddr
             , to_json, json_to_list, json_arr_proj, json_obj_proj, json_value, json_diff, md5
             , byte_size, bit_size, nth, sort, usort, reverse, last, remap, phash2, slice, bits, bytes
@@ -71,6 +71,7 @@
         , to_binary/1
         , to_json/1
         , to_atom/1
+        , to_boolean/1
         , to_existing_atom/1
         , to_tuple/1
         , to_list/1
