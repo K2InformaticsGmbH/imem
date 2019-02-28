@@ -83,8 +83,12 @@ diff_binaries(L, R) -> diff_binaries(L, R, _Opts=[]).
 %% not for a list of binaries.
 -spec diff_binaries(binary(), binary(), options()) -> edit_script(Line) when Line :: string().
 diff_binaries(L, R, Opts) ->
-    diff(split_bin_to_lines(L), split_bin_to_lines(R), Opts).
-
+    ?Info("O= ~p",[Opts]),
+    ?Info("L= ~p",[split_bin_to_lines(L)]),
+    ?Info("R= ~p",[split_bin_to_lines(R)]),    
+    Result = diff(split_bin_to_lines(L), split_bin_to_lines(R), Opts),
+    ?Info("Res= ~p",[Result]),    
+    Result.
 
 split_bin_to_lines(B) when is_binary(B) -> sbtl(binary_to_list(B), "", []).
 
@@ -231,6 +235,9 @@ diff(L, R, Opts) when is_list(L), is_list(R), is_list(Opts) ->
         true ->     {norm_whitespace(L2), norm_whitespace(R2)};
         false ->    {L2,R2}
     end,
+    ?Info("Opts= ~p",[Opts]),
+    ?Info("NormL= ~p",[L3]),
+    ?Info("NormR= ~p",[R3]),
     Out1 = favor_whitespace(diff_raw(L3, R3, Opts)),
     case diff_count(Out1) of
         0 ->    Out1;

@@ -194,7 +194,7 @@ merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, RI, [], []) ->
         LK < RK ->
             merge_diff_scan(Cols, Left, Right, Merged, Opts, User, imem_meta:dirty_next(Left,LI), RI, [{LK,LV}], []);
         LK > RK ->
-            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, imem_meta:dirty_next(right,RI), [], [{RK,RV}])
+            merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, imem_meta:dirty_next(Right,RI), [], [{RK,RV}])
     end;
 merge_diff_scan(Cols, Left, Right, Merged, Opts, User, LI, RI, LAcc, RAcc) ->
     K = merge_key(LAcc, RAcc),

@@ -13,7 +13,7 @@
 -define(CMP_WHITE_RIGHT,<<"=w">>).  %% added whitespace on the right
 -define(CMP_WHITE,<<"w=w">>).       %% added whitespace on both sides
 -define(CMP_CASE,<<"c">>).          %% different casing on both sides (frames earlier result)
--define(CMP_DQUOTE,<<"""">>).       %% dropped double quotes on both sides (frames earlier result)
+-define(CMP_DQUOTE,<<"\"">>).       %% dropped double quotes on both sides (frames earlier result)
 
 
 
@@ -132,8 +132,8 @@ norm_casing(S) when is_binary(S) -> unicode:characters_to_binary(string:lowercas
 norm_casing(S) when is_list(S) -> string:lowercase(S);
 norm_casing(S) -> S.
 
-norm_dquotes(S) when is_binary(S) -> string:replace(S,<<$">>,<<>>);
-norm_dquotes(S) when is_list(S) -> string:replace(S,[$"],[]);
+norm_dquotes(S) when is_binary(S) -> binary:replace(S,<<$">>,<<>>,[global]);
+norm_dquotes(S) when is_list(S) -> lists:flatten(string:replace(S,[$"],[],all));
 norm_dquotes(S) -> S.
 
 norm_ws(L) -> norm_ws(?CMP_SPACE, L, []).
