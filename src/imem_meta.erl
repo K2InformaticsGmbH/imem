@@ -280,6 +280,13 @@
         , foldl/3
         ]).
 
+-export([ merge_diff/3      %% merge two data tables into a bigger one, presenting the differences side by side
+        , merge_diff/4      %% merge two data tables into a bigger one, presenting the differences side by side
+        , merge_diff/5      %% merge two data tables into a bigger one, presenting the differences side by side
+        , term_diff/4       %% take (LeftType, LeftData, RightType, RightData) and produce data for a side-by-side view 
+        , term_diff/5       %% take (LeftType, LeftData, RightType, RightData, Opts) and produce data for a side-by-side view 
+        ]).
+
 % Functions applied with Common Test
 -export([ check_table_meta/2
         ]).
@@ -287,7 +294,8 @@
 -export([simple_or_local_node_sharded_tables/1]).
 
 -safe([log_to_db,update_index,dictionary_trigger,data_nodes,schema/0,node_shard,
-       physical_table_name,get_tables_count,record_hash,integer_uid,time_uid]).
+       physical_table_name,get_tables_count,record_hash,integer_uid,time_uid,
+       merge_diff,term_diff]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -802,7 +810,7 @@ create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner) when is_binary
     create_check_physical_table({schema(), binary_to_atom(TableAlias, utf8)}, ColumnInfos, Opts, Owner);    
 create_check_physical_table(TableAlias, ColumnInfos, Opts, Owner) when is_list(TableAlias) ->
     create_check_physical_table({schema(), binary_to_list(TableAlias)}, ColumnInfos, Opts, Owner);    
-create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0,Owner) when is_atom(TableAlias), is_atom(Schema) ->
+create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0, Owner) when is_atom(TableAlias), is_atom(Schema) ->
     Opts1 = norm_opts(Opts0),
     case lists:member(Schema, [schema(), ddSysConf]) of
         true ->
@@ -814,8 +822,8 @@ create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0,Owner) when
                     catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
                     {ok, {Schema, PTN}};
                 [#ddTable{opts=Old, owner=Owner}] ->
-                    OldOpts = lists:sort(lists:keydelete(purge_delay, 1, Old)),
-                    NewOpts = lists:sort(lists:keydelete(purge_delay, 1, Opts1)),
+                    OldOpts = lists:sort(lists:keydelete(purge_delay, 1, Old)) -- [{record_name,TableAlias}],
+                    NewOpts = lists:sort(lists:keydelete(purge_delay, 1, Opts1)) -- [{record_name,TableAlias}],
                     case NewOpts of
                         OldOpts ->
                             catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
@@ -858,6 +866,12 @@ create_physical_table(TableAlias, ColInfos, Opts0, Owner) ->
         {undefined, 0} ->   ?ClientError({"No columns given in create table", TableAlias});
         {undefined, 1} ->   ?ClientError({"No value column given in create table, add dummy value column", TableAlias});
         _ ->                ok % no such check for module defined tables
+    end,
+    AllNames = [Name || Name <- column_info_items(ColInfos, name)],
+    DistinctNames = lists:usort(AllNames),
+    case (AllNames -- DistinctNames) of
+        [] ->    ok;
+        [DupN|_] -> ?ClientError({"Duplicate column name",DupN})
     end,
     CharsCheck = [{is_valid_column_name(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(false, 1, CharsCheck) of
@@ -3163,7 +3177,27 @@ sql_jp_bind(Sql) ->
 sql_bind_jp_values(BindParamsMeta, JpPathBinds) ->
     [imem_json:eval(Jp, JpPathBinds) || {_,_,Jp} <- BindParamsMeta].
 
-%% ----- DATA TYPES ---------------------------------------------
+%% ----- DATA MANIPULATIONS ---------------------------------------
+
+-spec merge_diff(ddTable(), ddTable(), ddTable()) -> ok.
+merge_diff(Left, Right, Merged) -> 
+    merge_diff(Left, Right, Merged, []).
+
+-spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions()) -> ok.
+merge_diff(Left, Right, Merged, Opts) -> 
+    merge_diff(Left, Right, Merged, Opts, meta_field_value(user)).
+
+-spec merge_diff(ddTable(), ddTable(), ddTable(), ddOptions(), ddEntityId()) -> ok.
+merge_diff(Left, Right, Merged, Opts, User) ->
+    imem_merge:merge_diff(Left, Right, Merged, Opts, User).
+
+-spec term_diff(atom(), term(), atom(), term()) -> list(tuple()).
+term_diff(LeftType, LeftData, RightType, RightData) ->
+    term_diff(LeftType, LeftData, RightType, RightData, []).
+
+-spec term_diff(atom(), term(), atom(), term(), ddOptions()) -> list(tuple()).
+term_diff(LeftType, LeftData, RightType, RightData, Opts) ->
+    imem_merge:term_diff(LeftType, LeftData, RightType, RightData, Opts).
 
 
 %% ----- TESTS ------------------------------------------------

@@ -97,7 +97,7 @@ test(_Config) ->
     Type123c = {[a, b, x], [term, term, term], {user_table_123, undefined, undefined, undefined}},
     ?assertMatch({ok, _}, imem_sec:create_table(SeCoUser, user_table_123, Type123a, [])),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [create_user_table]),
-    ?assertException(throw, {ClEr, {"Table already exists", user_table_123}}, imem_sec:create_table(SeCoUser, user_table_123, Type123b, [])),
+    ?assertException(throw, {ClEr, {"Duplicate column name",a}}, imem_sec:create_table(SeCoUser, user_table_123, Type123b, [])),
     ?assertException(throw, {ClEr, {"Table already exists", user_table_123}}, imem_sec:create_table(SeCoUser, user_table_123, Type123c, [])),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [create_user_table]),
     ?assertEqual(0, imem_sec:table_size(SeCoUser, user_table_123)),

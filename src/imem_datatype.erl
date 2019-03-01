@@ -1512,8 +1512,6 @@ hex(X) ->
           16#4635, 16#4636, 16#4637, 16#4638, 16#4639, 16#4641, 16#4642,
           16#4643, 16#4644, 16#4645, 16#4646}).
 
-
-
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
 
@@ -1529,7 +1527,7 @@ db_test_() ->
 
 data_types(_) ->
     try
-        ?LogDebug("---TEST---"),
+        ?LogDebug("---TEST data_types---"),
 
         ClEr = 'ClientError',
         ?assertEqual(<<"'Imem'">>, item1({'Imem',ddTable})),
