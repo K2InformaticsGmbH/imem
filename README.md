@@ -1,6 +1,11 @@
 # imem 
 
-[![Build Status](https://travis-ci.org/K2InformaticsGmbH/imem.svg?branch=master)](https://travis-ci.org/K2InformaticsGmbH/imem) [![Coverage Status](https://coveralls.io/repos/github/K2InformaticsGmbH/imem/badge.svg?branch=master)](https://coveralls.io/github/K2InformaticsGmbH/imem?branch=master)
+![Travis (.org)](https://img.shields.io/travis/K2InformaticsGmbH/imem.svg)
+![Coveralls github](https://img.shields.io/coveralls/github/K2InformaticsGmbH/imem.svg)
+![GitHub](https://img.shields.io/github/license/K2InformaticsGmbH/imem.svg)
+![GitHub release](https://img.shields.io/github/release/K2InformaticsGmbH/imem.svg)
+![GitHub Release Date](https://img.shields.io/github/release-date/K2InformaticsGmbH/imem.svg)
+![GitHub commits since latest release](https://img.shields.io/github/commits-since/K2InformaticsGmbH/imem/3.2.0.svg)
 
 Clustered in-memory database based on MNESIA with simple SQL layer.
 
