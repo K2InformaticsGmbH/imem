@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Vesrion 3.3.0 (Release Date 04.03.2019)
+=======================================
+* Implemented text comparison and diff functionality
+* Sqlparse upgraded to version 4.4.0
+
 Version 3.2.0 (Release Date 18.01.2019)
 =======================================
 * process_statistics metrics added #227
