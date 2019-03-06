@@ -27,6 +27,7 @@
         , get_swap_space/0
         , spawn_sync_mfa/3
         , priv_dir/0
+        , get_vsn_infos/0
         ]).
 
 -safe([get_os_memory/0, get_vm_memory/0, get_swap_space/0]).
@@ -302,3 +303,68 @@ priv_dir() ->
                   code:which(?MODULE))), "priv");
         D -> D
     end.
+
+get_vsn_infos() -> get_vsn_infos(code:all_loaded(), []).
+
+get_vsn_infos([], Acc) -> lists:usort(Acc);
+get_vsn_infos([{Mod, ModPath} | Rest], Acc) ->
+    ModVsn = proplists:get_value(vsn, Mod:module_info(attributes)),
+    {App, Vsn, NewAcc} =
+        case application:get_application(Mod) of
+            {ok, A} ->
+                {ok, V} = application:get_key(A, vsn),
+                {A, V, priv(A, V, Acc)};
+            _ ->
+                {undefined, undefined, Acc}
+        end,
+    get_vsn_infos(Rest, [{App, Vsn, Mod, ModVsn, ModPath} | NewAcc]).
+
+priv(App, Vsn, Acc) ->
+    PrivDir = code:priv_dir(App),
+    case length(
+            lists:filter(
+                fun
+                    ({A, V, _, _, P}) when A == App, V == Vsn ->
+                        PrivDir -- P == [];
+                    (_) -> false
+                end,
+                Acc
+            )
+    ) of
+        R when R > 0 -> Acc;
+        _ ->
+            case filelib:is_dir(PrivDir) of
+                true ->
+                   Files = filelib:wildcard("*", PrivDir),
+                   walk_priv(App, Vsn, PrivDir, Files, Acc);
+                _ -> Acc
+            end
+    end.
+
+walk_priv(_, _, _, [], Acc) -> Acc;
+walk_priv(App, Vsn, Path, [FileOrFolder | Rest], Acc) ->
+    FullPath = filename:join(Path, FileOrFolder),
+    %io:format("~s: priv: ~s~n", [?ME, FullPath]),
+    case filelib:is_dir(FullPath) of
+        true ->
+            Files = filelib:wildcard("*", FullPath),
+            %log(FullPath, "dderl\-3\.2\.0", "FullPath ~p, Files ~p~n", [FullPath, Files]),
+            walk_priv(
+                App, Vsn, Path, Rest,
+                walk_priv(App, Vsn, FullPath, Files, Acc)
+            );
+        _ ->
+            %{ok, FileInfo} = file:read_file_info(FullPath),
+            {ok, FBin} = file:read_file(FullPath),
+            walk_priv(
+                App, Vsn, Path, Rest,
+                [{App, Vsn, FileOrFolder, erlang:phash2(FBin), Path} | Acc]
+            )
+    end.
+
+%log(T, M, F, A) ->
+%    case re:run(T, M) of
+%        {match, _} ->
+%            io:format("~s: "++F, [?ME|A]);
+%        _ -> skip
+%    end.
