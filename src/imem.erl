@@ -10,6 +10,7 @@
 
 -include("imem.hrl").
 -include("imem_if.hrl").
+-include("imem_meta.hrl").
 
 % shell start/stop helper
 -export([ start/0
@@ -28,6 +29,7 @@
         , spawn_sync_mfa/3
         , priv_dir/0
         , get_vsn_infos/0
+        , get_vsn_infos/1
         ]).
 
 -safe([get_os_memory/0, get_vm_memory/0, get_swap_space/0]).
@@ -304,61 +306,60 @@ priv_dir() ->
         D -> D
     end.
 
-get_vsn_infos() -> get_vsn_infos(code:all_loaded(), []).
+get_vsn_infos() -> get_vsn_infos(code:all_loaded(), _Opts=[], _Apps=[], _Acc=[]).
 
-get_vsn_infos([], Acc) -> lists:usort(Acc);
-get_vsn_infos([{Mod, ModPath} | Rest], Acc) ->
-    ModVsn = proplists:get_value(vsn, Mod:module_info(attributes)),
-    {App, Vsn, NewAcc} =
+get_vsn_infos(Opts) -> get_vsn_infos(code:all_loaded(), Opts, _Apps=[], _Acc=[]).
+
+get_vsn_infos([], _Opts, _Apps, Acc) -> lists:usort(Acc);
+get_vsn_infos([{Mod, ModPath} | Rest], Opts, Apps, Acc) ->
+    io:format("Mod ~p ~p ~n",[Mod, ModPath]),
+    ModVsn = list_to_binary(io_lib:format("~p", [proplists:get_value(vsn, Mod:module_info(attributes))])),
+    FileOrigin = <<>>,  % TODO: get this from compile_info
+    DDRec = #ddVersion{file=atom_to_binary(Mod,utf8), fileVsn=ModVsn, filePath=list_to_binary(ModPath), fileOrigin=FileOrigin},
+    {NewApps,NewAcc} =
         case application:get_application(Mod) of
-            {ok, A} ->
-                {ok, V} = application:get_key(A, vsn),
-                {A, V, priv(A, V, Acc)};
+            {ok, App} ->
+                {ok, AppVsn} = application:get_key(App, vsn),
+                DDRec1 = DDRec#ddVersion{app=atom_to_binary(App,utf8), appVsn=list_to_binary(AppVsn)},
+                case lists:member(App,Apps) of
+                    true ->
+                        {Apps,[DDRec1|Acc]};
+                    false ->
+                        io:format("priv ~p ~p ~n",[App, AppVsn]),
+                        PrivDir = code:priv_dir(App),
+                        Acc1 = case filelib:is_dir(PrivDir) of
+                            true ->
+                                PrivFiles = filelib:wildcard("*", PrivDir),
+                                walk_priv(DDRec1#ddVersion.app, DDRec1#ddVersion.appVsn, PrivDir, PrivFiles, Acc);
+                            _ -> Acc
+                        end,
+                        {[App|Apps],[DDRec1|Acc1]}
+                end;
             _ ->
-                {undefined, undefined, Acc}
+                {Apps,[DDRec|Acc]}
         end,
-    get_vsn_infos(Rest, [{App, Vsn, Mod, ModVsn, ModPath} | NewAcc]).
-
-priv(App, Vsn, Acc) ->
-    PrivDir = code:priv_dir(App),
-    case length(
-            lists:filter(
-                fun
-                    ({A, V, _, _, P}) when A == App, V == Vsn ->
-                        PrivDir -- P == [];
-                    (_) -> false
-                end,
-                Acc
-            )
-    ) of
-        R when R > 0 -> Acc;
-        _ ->
-            case filelib:is_dir(PrivDir) of
-                true ->
-                   Files = filelib:wildcard("*", PrivDir),
-                   walk_priv(App, Vsn, PrivDir, Files, Acc);
-                _ -> Acc
-            end
-    end.
+    get_vsn_infos(Rest, Opts, NewApps, NewAcc).
 
 walk_priv(_, _, _, [], Acc) -> Acc;
-walk_priv(App, Vsn, Path, [FileOrFolder | Rest], Acc) ->
+walk_priv(App, AppVsn, Path, [FileOrFolder | Rest], Acc) ->
     FullPath = filename:join(Path, FileOrFolder),
-    %io:format("~s: priv: ~s~n", [?ME, FullPath]),
+    io:format("walk_priv: ~s~n", [FullPath]),
     case filelib:is_dir(FullPath) of
         true ->
-            Files = filelib:wildcard("*", FullPath),
+            PrivFiles = filelib:wildcard("*", FullPath),
             %log(FullPath, "dderl\-3\.2\.0", "FullPath ~p, Files ~p~n", [FullPath, Files]),
             walk_priv(
-                App, Vsn, Path, Rest,
-                walk_priv(App, Vsn, FullPath, Files, Acc)
+                App, AppVsn, Path, Rest,
+                walk_priv(App, AppVsn, FullPath, PrivFiles, Acc)
             );
         _ ->
             %{ok, FileInfo} = file:read_file_info(FullPath),
             {ok, FBin} = file:read_file(FullPath),
             walk_priv(
-                App, Vsn, Path, Rest,
-                [{App, Vsn, FileOrFolder, erlang:phash2(FBin), Path} | Acc]
+                App, AppVsn, Path, Rest,
+                [#ddVersion{app=App, appVsn=AppVsn, file=list_to_binary(FileOrFolder)
+                 , fileVsn= <<"ph2:",(integer_to_binary(erlang:phash2(FBin)))/binary>>
+                 , filePath=list_to_binary(Path)} | Acc]
             )
     end.
 

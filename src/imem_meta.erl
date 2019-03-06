@@ -424,6 +424,7 @@ init(_Args) ->
         init_create_check_table(ddSchema, {record_info(fields, ddSchema), ?ddSchema, #ddSchema{}}, [], system),    
         init_create_check_table(ddSize, {record_info(fields, ddSize), ?ddSize, #ddSize{}}, [], system),
         init_create_check_table(?LOG_TABLE, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system),
+        init_create_check_table(ddVersion, {record_info(fields, ddVersion), ?ddVersion, #ddVersion{}}, [], system),
 
         imem_tracer:init(),
         init_create_table(dual, {record_info(fields, dual), ?dual, #dual{}}, [], system),
@@ -2335,6 +2336,7 @@ table_record_name(ddNode)  ->                   ddNode;
 table_record_name(ddSnap)  ->                   ddSnap;
 table_record_name(ddSchema)  ->                 ddSchema;
 table_record_name(ddSize)  ->                   ddSize;
+table_record_name(ddVersion)  ->                ddVersion;
 table_record_name(Table) ->
     PTN = physical_table_name(Table),
     case is_virtual_table(PTN) of
@@ -2355,6 +2357,7 @@ table_size(ddNode) ->                           length(read(ddNode));
 table_size(ddSnap) ->                           imem_snap:snap_file_count();
 table_size(ddSchema) ->                         length(read(ddSchema));
 table_size(ddSize) ->                           1;
+table_size(ddVersion) ->                        0;
 table_size(Table) ->                            %% ToDo: for an Alias, sum should be returned for all local time partitions
                                                 imem_if_mnesia:table_size(physical_table_name(Table)).
 
