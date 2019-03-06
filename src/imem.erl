@@ -311,6 +311,8 @@ get_vsn_infos() -> get_vsn_infos(code:all_loaded(), _Opts=[], _Apps=[], _Acc=[])
 get_vsn_infos(Opts) -> get_vsn_infos(code:all_loaded(), Opts, _Apps=[], _Acc=[]).
 
 get_vsn_infos([], _Opts, _Apps, Acc) -> lists:usort(Acc);
+get_vsn_infos([{Mod, ModPath} | Rest], Opts, Apps, Acc) when is_atom(ModPath) ->
+    get_vsn_infos([{Mod, atom_to_list(ModPath)} | Rest], Opts, Apps, Acc);
 get_vsn_infos([{Mod, ModPath} | Rest], Opts, Apps, Acc) ->
     io:format("Mod ~p ~p ~n",[Mod, ModPath]),
     ModVsn = list_to_binary(io_lib:format("~p", [proplists:get_value(vsn, Mod:module_info(attributes))])),
