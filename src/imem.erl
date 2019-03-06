@@ -314,7 +314,7 @@ get_vsn_infos([], _Opts, _Apps, Acc) -> lists:usort(Acc);
 get_vsn_infos([{Mod, ModPath} | Rest], Opts, Apps, Acc) when is_atom(ModPath) ->
     get_vsn_infos([{Mod, atom_to_list(ModPath)} | Rest], Opts, Apps, Acc);
 get_vsn_infos([{Mod, ModPath} | Rest], Opts, Apps, Acc) ->
-    io:format("Mod ~p ~p ~n",[Mod, ModPath]),
+    % io:format("Mod ~p ~p ~n",[Mod, ModPath]),
     ModVsn = list_to_binary(io_lib:format("vsn:~p", [proplists:get_value(vsn, Mod:module_info(attributes))])),
     FileOrigin = <<>>,  % TODO: get this from compile_info
     DDRec = #ddVersion{file=atom_to_binary(Mod,utf8), fileVsn=ModVsn, filePath=list_to_binary(ModPath), fileOrigin=FileOrigin},
@@ -345,7 +345,7 @@ get_vsn_infos([{Mod, ModPath} | Rest], Opts, Apps, Acc) ->
 walk_priv(_, _, _, [], Acc) -> Acc;
 walk_priv(App, AppVsn, Path, [FileOrFolder | Rest], Acc) ->
     FullPath = filename:join(Path, FileOrFolder),
-    io:format("walk_priv: ~s~n", [FullPath]),
+    % io:format("walk_priv: ~s~n", [FullPath]),
     case filelib:is_dir(FullPath) of
         true ->
             PrivFiles = filelib:wildcard("*", FullPath),

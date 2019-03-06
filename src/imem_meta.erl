@@ -2675,20 +2675,20 @@ select_virtual(Table, [{_,[],['$_']}],_Limit) ->
     {read(Table),true};                 %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec,_Limit) ->
     Tag = element(2,MatchHead),
-    ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
+    % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case operand_match(Tag,Guard) of
         false ->                        read(Table);
-        {'==',Tag,{element,N,Tup1}} ->  ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
+        {'==',Tag,{element,N,Tup1}} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
                                         read(Table,element(N,Tup1));
-        {'==',{element,N,Tup2},Tag} ->  ?Info("Virtual Select Key : ~p~n", [element(N,Tup2)]),
+        {'==',{element,N,Tup2},Tag} ->  % ?Info("Virtual Select Key : ~p~n", [element(N,Tup2)]),
                                         read(Table,element(N,Tup2));
-        {'==',Tag,Val1} ->              ?Info("Virtual Select Key : ~p~n", [Val1]),
+        {'==',Tag,Val1} ->              % ?Info("Virtual Select Key : ~p~n", [Val1]),
                                         read(Table,Val1);
-        {'==',Val2,Tag} ->              ?Info("Virtual Select Key : ~p~n", [Val2]),
+        {'==',Val2,Tag} ->              % ?Info("Virtual Select Key : ~p~n", [Val2]),
                                         read(Table,Val2);
         _ ->                            read(Table)
     end,
-    ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
+    % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
     MS = ets:match_spec_compile(MatchSpec),
     Result = ets:match_spec_run(Candidates,MS),
     % ?Debug("Virtual Select Result  : ~p~n", [Result]),    
