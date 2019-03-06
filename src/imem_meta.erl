@@ -2439,7 +2439,7 @@ fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts)
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize -> 
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddVersion  -> 
     fetch_start_calculated(Pid, Tab, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
     imem_if_mnesia:fetch_start(Pid, physical_table_name(Table), MatchSpec, BlockSize, Opts).
@@ -2495,6 +2495,8 @@ read(ddSchema) ->
     [{ddSchema,{Schema,Node},[]} || {Schema,Node} <- data_nodes()];
 read(ddSize) ->
     [hd(read(ddSize,Name)) || Name <- all_tables()];
+read(ddVersion) ->
+    imem:get_vsn_infos();
 read(Table) ->
     imem_if_mnesia:read(physical_table_name(Table)).
 
@@ -2524,6 +2526,8 @@ read(ddNode,_) -> [];
 read(ddSchema,Key) when is_tuple(Key) ->
     [ S || #ddSchema{schemaNode=K} = S <- read(ddSchema), K==Key];
 read(ddSchema,_) -> [];
+read(ddVersion,App) -> 
+    imem:get_vsn_infos([{app,App}]);
 read(ddSize,Table) ->
     PTN =  physical_table_name(Table),
     case is_time_partitioned_table(PTN) of 
@@ -2552,6 +2556,7 @@ dirty_read({_Schema,Table}, Key) ->   dirty_read(Table, Key);
 dirty_read(ddNode,Node) ->  read(ddNode,Node); 
 dirty_read(ddSchema,Key) -> read(ddSchema,Key);
 dirty_read(ddSize,Table) -> read(ddSize,Table);
+dirty_read(ddVersion,App) -> read(ddVersion,App);
 dirty_read(Table, Key) ->   imem_if_mnesia:dirty_read(physical_table_name(Table), Key).
 
 dirty_index_read({_Schema,Table}, SecKey,Index) -> 
@@ -2646,8 +2651,8 @@ select({ddSysConf,Table}, _MatchSpec, _Limit) ->
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(Tab, MatchSpec, Limit) when
-        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddSize;Tab==integer ->
-    select_virtual(Tab, MatchSpec,Limit);
+        Tab==ddNode;Tab==ddSnap;Tab==ddSchema;Tab==ddSize;Tab==ddVersion;Tab==integer ->
+    select_virtual(Tab, MatchSpec, Limit);
 select(Table, MatchSpec, Limit) ->
     imem_if_mnesia:select(physical_table_name(Table), MatchSpec, Limit).
 
@@ -2670,20 +2675,20 @@ select_virtual(Table, [{_,[],['$_']}],_Limit) ->
     {read(Table),true};                 %% used in select * from virtual_table
 select_virtual(Table, [{MatchHead, [Guard], ['$_']}]=MatchSpec,_Limit) ->
     Tag = element(2,MatchHead),
-    % ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
+    ?Info("Virtual Select Tag / MatchSpec: ~p / ~p~n", [Tag,MatchSpec]),
     Candidates = case operand_match(Tag,Guard) of
         false ->                        read(Table);
-        {'==',Tag,{element,N,Tup1}} ->  % ?Debug("Virtual Select Key : ~p~n", [element(N,Tup1)]),
+        {'==',Tag,{element,N,Tup1}} ->  ?Info("Virtual Select Key : ~p~n", [element(N,Tup1)]),
                                         read(Table,element(N,Tup1));
-        {'==',{element,N,Tup2},Tag} ->  % ?Debug("Virtual Select Key : ~p~n", [element(N,Tup2)]),
+        {'==',{element,N,Tup2},Tag} ->  ?Info("Virtual Select Key : ~p~n", [element(N,Tup2)]),
                                         read(Table,element(N,Tup2));
-        {'==',Tag,Val1} ->              % ?Debug("Virtual Select Key : ~p~n", [Val1]),
+        {'==',Tag,Val1} ->              ?Info("Virtual Select Key : ~p~n", [Val1]),
                                         read(Table,Val1);
-        {'==',Val2,Tag} ->              % ?Debug("Virtual Select Key : ~p~n", [Val2]),
+        {'==',Val2,Tag} ->              ?Info("Virtual Select Key : ~p~n", [Val2]),
                                         read(Table,Val2);
         _ ->                            read(Table)
     end,
-    % ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
+    ?Info("Virtual Select Candidates  : ~p~n", [Candidates]),
     MS = ets:match_spec_compile(MatchSpec),
     Result = ets:match_spec_run(Candidates,MS),
     % ?Debug("Virtual Select Result  : ~p~n", [Result]),    
