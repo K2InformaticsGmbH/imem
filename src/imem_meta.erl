@@ -2496,7 +2496,7 @@ read(ddSchema) ->
 read(ddSize) ->
     [hd(read(ddSize,Name)) || Name <- all_tables()];
 read(ddVersion) ->
-    imem:get_vsn_infos();
+    imem:all_apps_version_info();
 read(Table) ->
     imem_if_mnesia:read(physical_table_name(Table)).
 
@@ -2526,8 +2526,8 @@ read(ddNode,_) -> [];
 read(ddSchema,Key) when is_tuple(Key) ->
     [ S || #ddSchema{schemaNode=K} = S <- read(ddSchema), K==Key];
 read(ddSchema,_) -> [];
-read(ddVersion,App) -> 
-    imem:get_vsn_infos([{app,App}]);
+read(ddVersion, App) ->
+    imem:all_apps_version_info([{apps,[App]}]);
 read(ddSize,Table) ->
     PTN =  physical_table_name(Table),
     case is_time_partitioned_table(PTN) of 
