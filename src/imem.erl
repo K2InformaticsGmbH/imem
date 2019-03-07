@@ -366,15 +366,44 @@ merge([{App, AppVsn, Modules} | AllApps], ModulesDetails, Acc) ->
         [{App, AppVsn, ProcessModuleDetails} | Acc]).
 
 all_apps_version_info(AllApps, Opts) ->
-    all_apps_version_info(
-        AllApps, Opts#{git => git()}, _ProcessPriv = true, _Acc = []
-    ).
+    Self = self(),
+    Pids = [
+        spawn(fun() ->
+            Result = all_apps_version_info(
+                App, Opts#{git => git()}, _ProcessPriv = true, _Acc = []
+            ),
+            Self ! {self(), Result}
+        end) || App <- AllApps],
+    io:format(
+        "~p parallel processing ~p~n",
+        [{?MODULE,?FUNCTION_NAME,?LINE},
+        length(Pids)]
+    ),
+    Result =
+        (fun
+            Collect([], Received) -> Received;
+            Collect(WaitingPids, Received) ->
+                receive
+                    {Pid, Result} ->
+                        Collect(
+                            WaitingPids -- [Pid],
+                            Result ++ Received
+                        )
+                    after 1000 ->
+                        io:format(
+                            "~p waiting for ~p workers~n",
+                            [{?MODULE,?FUNCTION_NAME,?LINE},
+                             length(WaitingPids)]
+                        ),
+                        Collect(WaitingPids, Received)
+                end
+        end)(Pids, []),
+    io:format("~p processing complete!~n", [{?MODULE,?FUNCTION_NAME,?LINE}]),
+    lists:usort(Result).
 
-all_apps_version_info([], _Opts, _ProcessPriv, Acc) -> lists:usort(Acc);
-all_apps_version_info([{_, _, []} | AllApps], Opts, _, Acc) ->
-    all_apps_version_info(AllApps, Opts, _ProcessPriv = true, Acc);
+all_apps_version_info({_, _, []}, _Opts, _, Acc) -> Acc;
 all_apps_version_info(
-    [{App, AppVsn, [{Mod, ModPath} | Rest]} | AllApps], Opts, ProcessPriv, Acc
+    {App, AppVsn, [{Mod, ModPath} | Rest]}, Opts, ProcessPriv, Acc
 ) ->
     ModVsn = list_to_binary(
         io_lib:format(
@@ -425,7 +454,7 @@ all_apps_version_info(
         end
     ],
     all_apps_version_info(
-        [{App, AppVsn, Rest} | AllApps], Opts, _ProcessPriv = false, NewAcc
+        {App, AppVsn, Rest}, Opts, _ProcessPriv = false, NewAcc
     ).
 
 process_app(#ddVersion{app = undefined}, _Opts, _Module) -> [];
