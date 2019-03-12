@@ -17,7 +17,7 @@
   imem_config:get_config_hlk(
     ?CONFIG_TABLE,
     {element(2,application:get_application(?MODULE)),?MODULE,__PName},
-    ?MODULE, lists:flatten([__Context,node()]), __Default, __Documentation
+    ?MODULE, __Context ++ [node()], __Default, __Documentation
   )
 ).
 
@@ -40,7 +40,7 @@
   imem_config:lookup(
     ?CONFIG_TABLE,
     {element(2,application:get_application(?MODULE)),?MODULE,__PName},
-    lists:flatten([__Context,node()])
+    __Context ++ [node()]
   )
 ).
 
