@@ -10,6 +10,7 @@
 
 -include("imem.hrl").
 -include("imem_if.hrl").
+-include("imem_meta.hrl").
 
 % shell start/stop helper
 -export([ start/0
@@ -27,6 +28,8 @@
         , get_swap_space/0
         , spawn_sync_mfa/3
         , priv_dir/0
+        , all_apps_version_info/0
+        , all_apps_version_info/1
         ]).
 
 -safe([get_os_memory/0, get_vm_memory/0, get_swap_space/0]).
@@ -302,3 +305,297 @@ priv_dir() ->
                   code:which(?MODULE))), "priv");
         D -> D
     end.
+
+all_apps_version_info() -> all_apps_version_info(_Opts = #{}).
+
+all_apps_version_info(Opts) when is_list(Opts) ->
+    all_apps_version_info(maps:from_list(Opts));
+all_apps_version_info(Opts) ->
+    AllModulesDetails = [
+        {
+            Mod,
+            if is_atom(ModPath) -> atom_to_list(ModPath);
+                true -> ModPath
+            end
+        }
+        || {Mod, ModPath} <- code:all_loaded()
+    ],
+    AllApps = [
+        {
+            App, list_to_binary(AppVsn),
+            element(2, application:get_key(App, modules))
+        }
+        || {App, _, AppVsn} <- application:which_applications()
+    ],
+    {FAllApps, FAllModulesDetails} =
+        case Opts of
+            #{apps := FilterApps} ->
+                FilterAppsBin = [
+                    if is_atom(A) -> atom_to_binary(A, utf8); true -> A end
+                    || A <- FilterApps
+                ],
+                FilteredAllApps = [
+                    App || {A, _, _} = App <- AllApps,
+                    lists:member(atom_to_binary(A, utf8), FilterAppsBin)
+                ],
+                FilteredAllModules = lists:flatten(
+                    [Modules || {_, _, Modules} <- FilteredAllApps]
+                ),
+                FilteredAllModulesDetails = lists:filter(
+                    fun({Mod, _}) -> lists:member(Mod, FilteredAllModules) end,
+                    AllModulesDetails
+                ),
+                {FilteredAllApps, FilteredAllModulesDetails};
+            _ ->
+                {AllApps, AllModulesDetails}
+        end,
+    all_apps_version_info(merge(FAllApps, FAllModulesDetails), Opts).
+
+merge(AllApps, AllModulesDetails) ->
+    merge(AllApps, AllModulesDetails, _Acc = []).
+
+merge([], [], Acc) -> lists:usort(Acc);
+merge([], ModulesDetails, Acc) ->
+    merge([], [], [{undefined, undefined, ModulesDetails} | Acc]);
+merge([{App, AppVsn, Modules} | AllApps], ModulesDetails, Acc) ->
+    {ProcessModuleDetails, RestModulesDetails} = lists:partition(
+        fun({Mod, _}) -> lists:member(Mod, Modules) end,
+        ModulesDetails
+    ),
+    merge(AllApps, RestModulesDetails,
+        [{App, AppVsn, ProcessModuleDetails} | Acc]).
+
+all_apps_version_info(AllApps, Opts) ->
+    all_apps_version_info(
+        AllApps, Opts#{git => git()}, _ProcessPriv = true, _Acc = []
+    ).
+
+all_apps_version_info([], _Opts, _ProcessPriv, Acc) -> lists:usort(Acc);
+all_apps_version_info([{_, _, []} | AllApps], Opts, _, Acc) ->
+    all_apps_version_info(AllApps, Opts, _ProcessPriv = true, Acc);
+all_apps_version_info(
+    [{App, AppVsn, [{Mod, ModPath} | Rest]} | AllApps], Opts, ProcessPriv, Acc
+) ->
+    ModVsn = list_to_binary(
+        io_lib:format(
+            "vsn:~p",
+            [proplists:get_value(vsn, Mod:module_info(attributes))]
+        )
+    ),
+    DDRec = #ddVersion{
+        app         = if App /= undefined -> atom_to_binary(App, utf8);
+                      true -> App end,
+        appVsn      = AppVsn,
+        file        = atom_to_binary(Mod, utf8),
+        fileVsn     = ModVsn,
+        filePath    = list_to_binary(ModPath)
+    },
+    if ProcessPriv ->
+        io:format(
+            "~p: ~p modules of ~p-~s~n",
+            [{?MODULE,?FUNCTION_NAME,?LINE}, length(Rest) + 1,
+                App, AppVsn]
+        ),
+        {GitRoot, Repo} = git_info(Opts, mod_source(Mod)),
+        Opts1 = Opts#{gitRoot => GitRoot, gitRepo => Repo},
+        FileOrigin = git_file(Opts1, mod_source(Mod)),
+        DDRec1 = DDRec#ddVersion{fileOrigin = FileOrigin},
+        Acc1 = process_app(DDRec1, Opts1, Mod) ++ Acc,
+        PrivDir = code:priv_dir(App),
+        NewAcc =
+            case filelib:is_dir(PrivDir) of
+                true ->
+                    PrivFiles = filelib:wildcard("*", PrivDir),
+                    {match, [PathRoot]} = re:run(
+                        PrivDir,
+                        <<"(",(DDRec1#ddVersion.app)/binary, ".*)">>,
+                        [{capture, [1], list}]
+                    ),
+                    io:format(
+                        "~p: ~p files @ ~s of ~p-~s~n",
+                        [{?MODULE,?FUNCTION_NAME,?LINE},
+                        length(PrivFiles), PathRoot, App, AppVsn]
+                    ),
+                    walk_priv(
+                        DDRec1#ddVersion.app,
+                        DDRec1#ddVersion.appVsn,
+                        PrivDir, PrivFiles, Acc1
+                    );
+                _ -> Acc1
+            end,
+        all_apps_version_info(
+            [{App, AppVsn, Rest} | AllApps], Opts1, _ProcessPriv = false,
+            [DDRec1 | NewAcc]
+        );
+    true ->
+        FileOrigin = git_file(Opts, mod_source(Mod)),
+        all_apps_version_info(
+            [{App, AppVsn, Rest} | AllApps], Opts, _ProcessPriv = false,
+            [DDRec#ddVersion{fileOrigin = FileOrigin} | Acc])
+    end.
+
+process_app(#ddVersion{app = undefined}, _Opts, _Module) -> [];
+process_app(#ddVersion{app = App} = DDRec, Opts, Module) ->
+    case filename:dirname(
+        proplists:get_value(source, Module:module_info(compile))
+    ) of
+        Dir when is_list(Dir) ->
+            File = <<App/binary, ".app.src">>,
+            FilePath = filename:join(Dir, File),
+            case file_phash2(FilePath) of
+                <<>> ->
+                    File1 = <<App/binary, ".app">>,
+                    FilePath1 = filename:join(Dir, File1),
+                    case file_phash2(FilePath1) of
+                        <<>> -> [];
+                        FileHash1 ->
+                            FileOrigin = git_file(Opts, FilePath1),
+                            [DDRec#ddVersion{
+                                file        = File1,
+                                fileVsn     = FileHash1,
+                                filePath    = FilePath1,
+                                fileOrigin  = FileOrigin
+                            }]
+                    end;
+                FileHash ->
+                    FileOrigin = git_file(Opts, FilePath),
+                    [DDRec#ddVersion{
+                        file        = File,
+                        fileVsn     = FileHash,
+                        filePath    = FilePath,
+                        fileOrigin  = FileOrigin
+                    }]
+            end;
+        _ -> []
+    end.
+
+git() ->
+    case os:find_executable("git") of
+        false -> false;
+        GitExe when is_list(GitExe) -> true
+    end.
+
+mod_source(Module) when is_atom(Module) ->
+    case proplists:get_value(source, Module:module_info(compile)) of
+        Path when is_list(Path) -> Path;
+        _ -> <<>>
+    end.
+
+git_info(#{git := true} = Opts, Path) when is_list(Path); is_binary(Path) ->
+    case file:set_cwd(filename:dirname(Path)) of
+        ok ->
+            case list_to_binary(os:cmd("git rev-parse HEAD")) of
+                <<"fatal:", _>> -> {<<>>, <<>>};
+                Revision ->
+                    case re:run(
+                        os:cmd("git remote -v"),
+                        "(http[^ ]+)", [{capture, [1], list}]
+                    ) of
+                        {match,[Url|_]} ->
+                            git_info(Opts, {Url, Revision});
+                        _ -> {<<>>, <<>>}
+                    end
+            end;
+        _ -> {<<>>, <<>>}
+    end;
+git_info(_Opts, {Url, Revision}) ->
+    CleanUrl = re:replace(Url, "\\.git", "", [{return, list}]),
+    {list_to_binary([CleanUrl, "/raw/", string:trim(Revision)]),
+     lists:last(filename:split(CleanUrl))};
+git_info(_Opts, _) -> {<<>>, <<>>}.
+
+git_file(#{git := true, gitRoot := <<>>}, _Path) -> <<>>;
+git_file(#{git := true, gitRepo := Repo} = Opts, Path) ->
+    case re:run(Path, Repo++"(.*)", [{capture, [1], list}]) of
+        {match, [RelativePath]} ->
+            git_file(Opts#{absPath => Path}, Path, RelativePath);
+        _ -> <<>>
+    end.
+git_file(#{git := true} = Opts, Path, RelativePath) ->
+    BaseName = filename:basename(RelativePath),
+    git_file(
+        Opts, Path,
+        BaseName, RelativePath
+    ).
+git_file(
+    #{git := true, gitRoot := GitRoot} = Opts, Path, BaseName, RelativePath
+) ->
+    case {
+        list_to_binary(os:cmd("git ls-files --error-unmatch " ++ BaseName)),
+        filename:extension(RelativePath)
+    } of
+        {<<"error: pathspec", _/binary>>, ".erl"} ->
+            git_file(
+                Opts, Path,
+                re:replace(
+                    RelativePath, "\\.erl", "\\.yrl",
+                    [{return, list}]
+                )
+            );
+        {<<"error: pathspec", _/binary>>, ".yrl"} ->
+            git_file(
+                Opts, Path,
+                re:replace(
+                    RelativePath, "\\.yrl", "\\.xrl",
+                    [{return, list}]
+                )
+            );
+        {<<"error: pathspec", _/binary>>, _} ->
+            #{absPath := AbsPath, gitRepo := Repo} = Opts,
+            case re:run(
+                AbsPath, "lib/"++Repo++"(.*)", [{capture, [1], list}]
+            ) of
+                nomatch -> notfound;
+                {match, [RelativePath1]} ->
+                    list_to_binary([GitRoot, RelativePath1])
+            end;
+        _ -> list_to_binary([GitRoot, RelativePath])
+    end.
+
+walk_priv(_, _, _, [], Acc) -> Acc;
+walk_priv(App, AppVsn, Path, [FileOrFolder | Rest], Acc) ->
+    FullPath = filename:join(Path, FileOrFolder),
+    case filelib:is_dir(FullPath) of
+        true ->
+            PrivFiles = filelib:wildcard("*", FullPath),
+            {match, [PathRoot]} = re:run(
+                FullPath,
+                <<"(",App/binary, ".*)">>,
+                [{capture, [1], list}]
+            ),
+            io:format(
+                "~p: ~p files @ ~s of ~s-~s~n",
+                [{?MODULE,?FUNCTION_NAME,?LINE}, length(PrivFiles), PathRoot,
+                 App, AppVsn]
+            ),
+            %log(FullPath, "dderl\-3\.2\.0", "FullPath ~p, Files ~p~n", [FullPath, Files]),
+            walk_priv(
+                App, AppVsn, Path, Rest,
+                walk_priv(App, AppVsn, FullPath, PrivFiles, Acc)
+            );
+        _ ->
+            walk_priv(
+                App, AppVsn, Path, Rest,
+                [#ddVersion{
+                    app         = App,
+                    appVsn      = AppVsn,
+                    file        = list_to_binary(FileOrFolder),
+                    fileVsn     = file_phash2(FullPath),
+                    filePath    = list_to_binary(Path)
+                } | Acc]
+            )
+    end.
+
+file_phash2(FilePath) ->
+    case file:read_file(FilePath) of
+        {ok, FBin} ->
+            <<"ph2:",(integer_to_binary(erlang:phash2(FBin)))/binary>>;
+        _ -> <<>>
+    end.
+
+%log(T, M, F, A) ->
+%    case re:run(T, M) of
+%        {match, _} ->
+%            io:format("~s: "++F, [?ME|A]);
+%        _ -> skip
+%    end.

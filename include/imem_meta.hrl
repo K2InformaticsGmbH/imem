@@ -184,6 +184,16 @@
 	   ).
 -define(ddTermDiff, [number, binstr, binstr, binstr]).
 
+-record(ddVersion,                           %% code version    
+				  { app              		::binary()      %% application
+				  , appVsn                  ::binary()		%% application version
+				  , file 					::binary()  	%% module / file name
+				  , fileVsn					::binary()		%% module / file version
+				  , filePath = <<>>	    	::binary()      %% module / file binary path
+				  , fileOrigin = <<>>	    ::binary()      %% module / file origin path (e.g. git commit url)
+				  }
+	   ).
+-define(ddVersion, [binstr, binstr, binstr, binstr, binstr, binstr]).
 
 -define(OneWeek, 7.0).                      %% span of  datetime or timestamp (fraction of 1 day)
 -define(OneDay, 1.0).                       %% span of  datetime or timestamp (fraction of 1 day)
