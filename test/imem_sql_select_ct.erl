@@ -1668,7 +1668,7 @@ db2_with_or_without_sec(IsSec) ->
             select
                 to_name(qname),
                 item2(item) as field,
-                item3(item) as type,
+                item3(item) as \"type\",
                 item4(item) as len,
                 item5(item) as prec,
                 item6(item) as def

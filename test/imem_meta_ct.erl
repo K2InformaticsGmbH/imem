@@ -278,10 +278,10 @@ meta_operations(_Config) ->
     ?assertException(throw, {ClEr, {"No value column given in create table, add dummy value column", bad_table_0}}, imem_meta:create_table('bad_table_0', BadTypes0, [])),
 
     ?assertException(throw, {ClEr, {"Invalid character(s) in table name", 'bad_?table_1'}}, imem_meta:create_table('bad_?table_1', BadTypes1, [])),
-    ?assertException(throw, {ClEr, {"Reserved table name", select}}, imem_meta:create_table(select, BadTypes2, [])),
+    ?assertEqual({ok,{imem,select}}, imem_meta:create_table(select, BadTypes2, [])),
 
     ?assertException(throw, {ClEr, {"Invalid character(s) in column name", 'a:b'}}, imem_meta:create_table(bad_table_1, BadTypes1, [])),
-    ?assertException(throw, {ClEr, {"Reserved column name", current}}, imem_meta:create_table(bad_table_1, BadTypes2, [])),
+    ?assertEqual({ok,{imem,bad_table_1}}, imem_meta:create_table(bad_table_1, BadTypes2, [])),
     ?assertException(throw, {ClEr, {"Invalid data type", iinteger}}, imem_meta:create_table(bad_table_1, BadTypes3, [])),
     ?assertException(throw, {ClEr, {"Duplicate column name",a}}, imem_meta:create_table(bad_table_1, BadNames1, [])),
 

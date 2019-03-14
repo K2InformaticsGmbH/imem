@@ -859,7 +859,9 @@ create_physical_table(TableAlias, ColInfos, Opts0, Owner) ->
     end,    
     case is_reserved_for_tables(TableAlias) of
         false ->    ok;
-        true ->     ?ClientError({"Reserved table name", TableAlias})
+        true ->     ?Info("Reserved table name detected", [TableAlias]),
+                    ok
+                    %% ?ClientError({"Reserved table name", TableAlias})
     end,
     Opts1 = norm_opts(Opts0),
     TypeMod = module_from_type_opts(Opts1),
@@ -882,7 +884,9 @@ create_physical_table(TableAlias, ColInfos, Opts0, Owner) ->
     ReservedCheck = [{is_reserved_for_columns(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(true, 1, ReservedCheck) of
         false ->    ok;
-        {_,BadC} -> ?ClientError({"Reserved column name",BadC})
+        {_,BadC} -> ?Info("Reserved column name detected", [BadC]),
+                    ok
+                    %% ?ClientError({"Reserved column name",BadC})
     end,
     TypeCheck = [{imem_datatype:is_datatype(Type),Type} || Type <- column_info_items(ColInfos, type)],
     case lists:keyfind(false, 1, TypeCheck) of
@@ -1709,8 +1713,7 @@ is_local_or_schema_time_partitioned_table(Name) when is_list(Name) ->
 is_reserved_for_tables(TableAlias) -> sqlparse:is_reserved(TableAlias).
 
 -spec is_reserved_for_columns(ddColumnName()) -> boolean.
-is_reserved_for_columns(roles) -> false;
-is_reserved_for_columns(Name) -> sqlparse:is_reserved(Name).
+is_reserved_for_columns(Name) -> sqlparse:is_reserved_column(Name).
 
 -spec parse_table_name(ddSimpleTable()) -> [ddString()].
 %%                       TableName ->      [Schema,".",Name,"_",Period,"@",Node] all strings , all optional ("") except Name
