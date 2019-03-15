@@ -396,11 +396,15 @@ all_apps_version_info(
             [{?MODULE,?FUNCTION_NAME,?LINE}, length(Rest) + 1,
                 App, AppVsn]
         ),
-        {GitRoot, Repo} = git_info(Opts, mod_source(Mod)),
-        Opts1 = Opts#{gitRoot => GitRoot, gitRepo => Repo},
-        FileOrigin = git_file(Opts1, mod_source(Mod)),
+        {FileOrigin, Opts2} = case mod_gitOrigin(Mod) of
+            undefined ->
+                {GitRoot, Repo} = git_info(Opts, mod_source(Mod)),
+                Opts1 = Opts#{gitRoot => GitRoot, gitRepo => Repo},
+                {git_file(Opts1, mod_source(Mod)), Opts1};
+            FileOrig -> {FileOrig, Opts}
+        end,
         DDRec1 = DDRec#ddVersion{fileOrigin = FileOrigin},
-        Acc1 = process_app(DDRec1, Opts1, Mod) ++ Acc,
+        Acc1 = process_app(DDRec1, Opts2, Mod) ++ Acc,
         PrivDir = code:priv_dir(App),
         NewAcc =
             case filelib:is_dir(PrivDir) of
@@ -424,11 +428,14 @@ all_apps_version_info(
                 _ -> Acc1
             end,
         all_apps_version_info(
-            [{App, AppVsn, Rest} | AllApps], Opts1, _ProcessPriv = false,
+            [{App, AppVsn, Rest} | AllApps], Opts2, _ProcessPriv = false,
             [DDRec1 | NewAcc]
         );
     true ->
-        FileOrigin = git_file(Opts, mod_source(Mod)),
+        FileOrigin = case mod_gitOrigin(Mod) of
+            undefined -> git_file(Opts, mod_source(Mod));
+            FileOrig -> FileOrig
+        end,
         all_apps_version_info(
             [{App, AppVsn, Rest} | AllApps], Opts, _ProcessPriv = false,
             [DDRec#ddVersion{fileOrigin = FileOrigin} | Acc])
@@ -481,6 +488,19 @@ mod_source(Module) when is_atom(Module) ->
         _ -> <<>>
     end.
 
+mod_gitOrigin(Module) when is_atom(Module) ->
+    case proplists:get_value(
+        gitOrigin,
+        proplists:get_value(
+            compile_info,
+            proplists:get_value(options, Module:module_info(compile)),
+            []
+        )
+    ) of
+        undefined -> undefined;
+        Url when is_binary(Url) -> Url
+    end.
+
 git_info(#{git := true} = Opts, Path) when is_list(Path); is_binary(Path) ->
     case file:set_cwd(filename:dirname(Path)) of
         ok ->
@@ -510,7 +530,9 @@ git_file(#{git := true, gitRepo := Repo} = Opts, Path) ->
         {match, [RelativePath]} ->
             git_file(Opts#{absPath => Path}, Path, RelativePath);
         _ -> <<>>
-    end.
+    end;
+git_file(_Opts, _Path) -> <<>>.
+
 git_file(#{git := true} = Opts, Path, RelativePath) ->
     BaseName = filename:basename(RelativePath),
     git_file(
@@ -550,7 +572,8 @@ git_file(
                     list_to_binary([GitRoot, RelativePath1])
             end;
         _ -> list_to_binary([GitRoot, RelativePath])
-    end.
+    end;
+git_file(_Opts, _Path, _BaseName, _RelativePath) -> <<>>.
 
 walk_priv(_, _, _, [], Acc) -> Acc;
 walk_priv(App, AppVsn, Path, [FileOrFolder | Rest], Acc) ->
