@@ -884,7 +884,7 @@ create_physical_table(TableAlias, ColInfos, Opts0, Owner) ->
     ReservedCheck = [{is_reserved_for_columns(Name),Name} || Name <- column_info_items(ColInfos, name)],
     case lists:keyfind(true, 1, ReservedCheck) of
         false ->    ok;
-        {_,BadC} -> ?Info("Reserved column name detected", [BadC]),
+        {_,BadC} -> ?Info("Reserved column name '~p' detected", [BadC]),
                     ok
                     %% ?ClientError({"Reserved column name",BadC})
     end,
