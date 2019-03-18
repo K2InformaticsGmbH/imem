@@ -535,7 +535,7 @@ test_with_or_without_sec_part2(IsSec) ->
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":reject received ~n~p~n", [Result4e]),
         [{StmtRef4, {error, {ClEr, Reason4e}}}] = Result4e,
         ?assertEqual("Fetching in tail mode, execute fetch_close before fetching from start again", Reason4e),
-        ?assertEqual(StmtRef4, SR4#stmtResult.stmtRef),
+        ?assertEqual(StmtRef4, SR4#stmtResults.stmtRefs),
         ?assertEqual(ok, imem_statement:fetch_close(SKey, SR4, IsSec)),
         ?assertEqual(ok, insert_range(SKey, 5, def, imem, IsSec)),
         ?assertEqual([], imem_statement:receive_raw())
@@ -557,7 +557,7 @@ test_with_or_without_sec_part2(IsSec) ->
         ?assertEqual({'ClientError',
             "Fetch is completed, execute fetch_close before fetching from start again"},
             Reason5a),
-        ?assertEqual(StmtRef5, SR5#stmtResult.stmtRef),
+        ?assertEqual(StmtRef5, SR5#stmtResults.stmtRefs),
         ?assertEqual(ok, imem_statement:fetch_close(SKey, SR5, IsSec)),
         ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
         List5b = receive_tuples(SR5, true),
@@ -573,7 +573,7 @@ test_with_or_without_sec_part2(IsSec) ->
         ?assertEqual(ok, imem_statement:fetch_close(SKey, SR5, IsSec)), % actually not needed here, fetch_recs does it
         List5c = imem_statement:fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec),
         ?assertEqual(length(List5b), length(List5c)),
-        ?assertEqual(lists:sort(List5b), lists:sort(imem_statement:result_tuples(List5c, SR5#stmtResult.rowFun))),
+        ?assertEqual(lists:sort(List5b), lists:sort(imem_statement:result_tuples(List5c, SR5#stmtResults.rowFun))),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":third read success (sync)~n", []),
         ok
     after
@@ -696,38 +696,38 @@ test_with_or_without_sec_part3(IsSec) ->
             where col1 < '4' 
             order by col2 desc;"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols8 ~p~n", [SR8#stmtResult.stmtCols]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":SortSpec8 ~p~n", [SR8#stmtResult.sortSpec]),
-    ?assertEqual([{2, <<"desc">>}], SR8#stmtResult.sortSpec),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols8 ~p~n", [SR8#stmtResults.stmtCols]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":SortSpec8 ~p~n", [SR8#stmtResults.sortSpec]),
+    ?assertEqual([{2, <<"desc">>}], SR8#stmtResults.sortSpec),
 
     try
         ?assertEqual(ok, fetch_async(SKey, SR8, [], IsSec)),
         List8a = imem_statement:receive_recs(SR8, true),
-        ?assertEqual([{<<"11">>, <<"11">>}, {<<"10">>, <<"10">>}, {<<"3">>, <<"3">>}, {<<"2">>, <<"2">>}, {<<"1">>, <<"1">>}], result_tuples_sort(List8a, SR8#stmtResult.rowFun, SR8#stmtResult.sortFun)),
+        ?assertEqual([{<<"11">>, <<"11">>}, {<<"10">>, <<"10">>}, {<<"3">>, <<"3">>}, {<<"2">>, <<"2">>}, {<<"1">>, <<"1">>}], result_tuples_sort(List8a, SR8#stmtResults.rowFun, SR8#stmtResults.sortFun)),
         Result8a = imem_statement:filter_and_sort(SKey, SR8, {'and', []}, [{2, 2, <<"asc">>}], [], IsSec),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result8a ~n~p~n", [Result8a]),
         {ok, Sql8b, SF8b} = Result8a,
         Sorted8b = [{<<"1">>, <<"1">>}, {<<"10">>, <<"10">>}, {<<"11">>, <<"11">>}, {<<"2">>, <<"2">>}, {<<"3">>, <<"3">>}],
-        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResult.rowFun, SF8b)),
+        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResults.rowFun, SF8b)),
         Expected8b = "select col1 c1, col2 from def where col1 < '4' order by col1 asc",
         ?assertEqual(Expected8b, string:strip(binary_to_list(Sql8b))),
 
         {ok, Sql8c, SF8c} = imem_statement:filter_and_sort(SKey, SR8, {'and', [{1, [<<"$in$">>, <<"1">>, <<"2">>, <<"3">>]}]}, [{?MainIdx, 2, <<"asc">>}], [1], IsSec),
-        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResult.rowFun, SF8c)),
+        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResults.rowFun, SF8c)),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql8c ~n~p~n", [Sql8c]),
         %% Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
         Expected8c = "select col1 c1 from def where imem.def.col1 in ('1', '2', '3') and col1 < '4' order by col1 asc",
         ?assertEqual(Expected8c, string:strip(binary_to_list(Sql8c))),
 
         {ok, Sql8d, SF8d} = imem_statement:filter_and_sort(SKey, SR8, {'or', [{1, [<<"$in$">>, <<"3">>]}]}, [{?MainIdx, 2, <<"asc">>}, {?MainIdx, 3, <<"desc">>}], [2], IsSec),
-        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResult.rowFun, SF8d)),
+        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResults.rowFun, SF8d)),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql8d ~n~p~n", [Sql8d]),
         %% Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
         Expected8d = "select col2 from def where imem.def.col1 = '3' and col1 < '4' order by col1 asc, col2 desc",
         ?assertEqual(Expected8d, string:strip(binary_to_list(Sql8d))),
 
         {ok, Sql8e, SF8e} = imem_statement:filter_and_sort(SKey, SR8, {'or', [{1, [<<"$in$">>, <<"3">>]}, {2, [<<"$in$">>, <<"3">>]}]}, [{?MainIdx, 2, <<"asc">>}, {?MainIdx, 3, <<"desc">>}], [2, 1], IsSec),
-        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResult.rowFun, SF8e)),
+        ?assertEqual(Sorted8b, result_tuples_sort(List8a, SR8#stmtResults.rowFun, SF8e)),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql8e ~n~p~n", [Sql8e]),
         %% Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
         Expected8e = "select col2, col1 c1 from def where (imem.def.col1 = '3' or imem.def.col2 = 3) and col1 < '4' order by col1 asc, col2 desc",
@@ -741,8 +741,8 @@ test_with_or_without_sec_part3(IsSec) ->
     SR9 = exec(SKey, query9, 100, IsSec, "
             select * from ddTable;"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9 ~p~n", [SR9#stmtResult.stmtCols]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":SortSpec9 ~p~n", [SR9#stmtResult.sortSpec]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9 ~p~n", [SR9#stmtResults.stmtCols]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":SortSpec9 ~p~n", [SR9#stmtResults.sortSpec]),
     try
         Result9 = imem_statement:filter_and_sort(SKey, SR9, {undefined, []}, [], [1, 3, 2], IsSec),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result9 ~n~p~n", [Result9]),
@@ -760,7 +760,7 @@ test_with_or_without_sec_part3(IsSec) ->
             from def a, def b 
             where a.col1 = b.col1;"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9a ~n~p~n", [SR9a#stmtResult.stmtCols]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9a ~n~p~n", [SR9a#stmtResults.stmtCols]),
     try
         Result9a = imem_statement:filter_and_sort(SKey, SR9a, {undefined, []}, [{1, <<"asc">>}, {3, <<"desc">>}], [1, 3, 2], IsSec),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result9a ~p~n", [Result9a]),
@@ -832,13 +832,13 @@ exec(SKey, _Id, BS, IsSec, Opts, Sql) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~p : ~s~n", [_Id, lists:flatten(Sql)]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, Opts, IsSec),
     ?assertEqual(ok, RetCode),
-    #stmtResult{stmtCols = StmtCols} = StmtResult,
+    #stmtResults{stmtCols = StmtCols} = StmtResult,
     %ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Statement Cols:~n~p~n", [StmtCols]),
     [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
     StmtResult.
 
 fetch_async(SKey, StmtResult, Opts, IsSec) ->
-    ?assertEqual(ok, imem_statement:fetch_recs_async(SKey, StmtResult#stmtResult.stmtRef, {self(), make_ref()}, Opts, IsSec)).
+    ?assertEqual([ok], imem_statement:fetch_recs_async(SKey, hd(StmtResult#stmtResults.stmtRefs), {self(), make_ref()}, Opts, IsSec)).
 
 insert_range(_SKey, 0, _Table, _Schema, _IsSec) -> ok;
 insert_range(SKey, N, Table, Schema, IsSec) when is_integer(N), N > 0 ->
@@ -851,7 +851,7 @@ receive_tuples(StmtResult, Complete) ->
 % receive_tuples(StmtResult, Complete, Timeout) ->
 %     receive_tuples(StmtResult, Complete, Timeout,[]).
 
-receive_tuples(#stmtResult{stmtRef = StmtRef, rowFun = RowFun} = StmtResult, Complete, Timeout, Acc) ->
+receive_tuples(#stmtResults{stmtRefs=[StmtRef], rowFun=RowFun} = StmtResult, Complete, Timeout, Acc) ->
     case receive
              R ->    % ?Debug("~p got:~n~p~n", [?TIMESTAMP,R]),
                  R
@@ -861,7 +861,6 @@ receive_tuples(#stmtResult{stmtRef = StmtRef, rowFun = RowFun} = StmtResult, Com
         stop ->
             Unchecked = case Acc of
                             [] ->
-%                    [{StmtRef,[],Complete}];
                                 throw({no_response, {expecting, Complete}});
                             [{StmtRef, {_, Complete}} | _] ->
                                 lists:reverse(Acc);

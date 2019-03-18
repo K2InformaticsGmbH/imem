@@ -10,6 +10,7 @@
 -define(GET_STR_FORMAT(__IsSec),?GET_CONFIG(stringFormat,[__IsSec],[],"Default string format to return in SQL queries (not used yet).")).           %% not used yet
 
 -export([ exec/5
+        , flatten_tables/1
         ]).
 
 exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
@@ -17,16 +18,16 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
     % ?LogDebug("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
     {_, TableList0} = lists:keyfind(from, 1, SelectSections),
-    % ?Info("TableList0: ~p~n", [TableList0]),
+    ?Info("TableList0: ~p~n", [TableList0]),
     Params = imem_sql:params_from_opts(Opts,ParseTree),
     % ?Info("Params: ~p~n", [Params]),
     TableList = bind_table_names(Params, TableList0),
-    % ?Info("TableList: ~p~n", [TableList]),
+    ?Info("TableList: ~p~n", [TableList]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
     % ?LogDebug("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
-    Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
-    % ?LogDebug("Tables: (~p)~n~p~n", [length(Tables),Tables]),
+    Tables = flatten_tables([imem_meta:qualified_table_names({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx]),
+    ?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql_expr:column_map_columns([],FullMap);
@@ -49,7 +50,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
     % ?LogDebug("MainSpec:~n~p", [MainSpec]),
-    JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
+    JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(hd(Tables))), WBTree0, FullMap), %% start with last join table, proceed to first 
     % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
@@ -62,17 +63,26 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap, ColMap1),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap, ColMap1),
     % ?LogDebug("SortSpec:~p~n", [SortSpec]),
-    Statement = Stmt#statement{
+    Statements = [Stmt#statement{
                     stmtParse = {select, SelectSections},
                     stmtParams = Params,
-                    metaFields=MetaFields, tables=Tables,
+                    metaFields=MetaFields, tables=Tabs,
                     colMap=ColMap1, fullMap=FullMap,
                     rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
-                },
-    {ok, StmtRef} = imem_statement:create_stmt(Statement, SKey, IsSec),
-    {ok, #stmtResult{stmtRef=StmtRef,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}}.
-
+                    } || Tabs <- Tables
+                 ],
+    CreateResult = [imem_statement:create_stmt(S, SKey, IsSec) || S <- Statements],
+    case lists:usort([element(1,R1) || R1 <- CreateResult]) of 
+        [ok] -> 
+            StmtRefs = [element(2,R2) || R2 <- CreateResult],
+            {ok, #stmtResults{stmtRefs=StmtRefs,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}};
+        [Error|_] ->
+            Pred = fun(Res) -> (element(1,Res) == ok) end,
+            RollbackRefs = [element(2,R3) || R3 <- lists:filter(Pred, CreateResult)],
+            imem_statement:close(SKey, RollbackRefs),
+            ?ClientError({"Exec error",Error})
+    end.
 
 bind_table_names([], TableList) -> TableList;
 bind_table_names(Params, TableList) -> bind_table_names(Params, TableList, []).
@@ -85,3 +95,40 @@ bind_table_names(Params, [{param,ParamKey}|Rest], Acc) ->
         _ ->                ?ClientError({"Cannot resolve table name parameter",ParamKey})
     end;
 bind_table_names(Params, [Table|Rest], Acc) -> bind_table_names(Params, Rest, [Table|Acc]). 
+
+flatten_tables([]) -> [];
+flatten_tables([E|_] = L) when is_list(E) ->
+    D = lists:max([length(T) || T <- L]),
+    flatten_tables(L,D,0,[]).
+
+flatten_tables(_,D,D,Acc) -> lists:reverse(Acc);
+flatten_tables(L,D,N,Acc) ->
+    flatten_tables(L,D,N+1,[flatten_one(L,D,N+1)|Acc]).
+
+flatten_one(L,D,N) ->
+    [flatten_pick(L,D,N,I)|| I <- lists:seq(1,length(L))].
+
+flatten_pick(L,D,N,I) ->
+    case lists:nth(I,L) of 
+        [T] -> T;
+        Tabs ->  
+            case length(Tabs) of
+                D ->    lists:nth(N,Tabs);
+                _ ->    ?ClientError({"Missing Partition(s)",Tabs})
+            end
+    end.
+
+%% ----- TESTS ------------------------------------------------
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+flatten_tables_test() ->
+    [[a1,b1,c1]] = flatten_tables([[a1], [b1], [c1]]),
+    [[a1,b1,c1], [a1,b1,c2]] = flatten_tables([[a1], [b1], [c1,c2]]),
+    [[a1],[a2],[a3]] = flatten_tables([[a1,a2,a3]]),
+    [[a1,b1,c1], [a2,b1,c2]] = flatten_tables([[a1,a2], [b1], [c1,c2]]),
+    [[a1,b1,c1], [a2,b2,c1]] = flatten_tables([[a1,a2], [b1,b2], [c1]]),
+    [[a1,b1,c1], [a2,b2,c2]] = flatten_tables([[a1,a2], [b1,b2], [c1,c2]]).
+
+-endif.

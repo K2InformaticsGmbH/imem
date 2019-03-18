@@ -115,6 +115,7 @@
         , node_shard/0
         , node_shards/0
         , qualified_table_name/1
+        , qualified_table_names/1
         , qualified_new_table_name/1
         , physical_table_name/1
         , physical_table_name/2
@@ -1964,6 +1965,12 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
                     end
             end
     end.
+
+-spec qualified_table_names(ddTable()) -> [ddQualifiedTable()].
+qualified_table_names(Table) ->
+    {Schema,Alias} = qualified_table_name(Table),
+    [{Schema,PTN} || PTN <- physical_table_names(Alias)].
+
 
 -spec qualified_table_name(ddTable()) -> ddQualifiedTable().
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(), Table};

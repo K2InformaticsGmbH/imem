@@ -88,13 +88,24 @@
                   }                  
        ).
 
--record(stmtResult,                                 %% result record for exec function call
-                  { rowCount = 0                    %% RowCount
-                  , stmtRef = undefined             %% id needed for fetching
+% -record(stmtResult,                                 %% result record for exec function call
+%                   { rowCount = 0                    %% RowCount
+%                   , stmtRef = undefined             %% id needed for fetching
+%                   , stmtCols = undefined            ::list(#stmtCol{})  %% simplified column map of main statement
+%                   , rowFun  = undefined             ::fun()             %% rendering fun for row {key rec} -> [ResultValues]
+%                   , sortFun = undefined             ::fun()             %% rendering fun for sorting {key rec} -> SortColumn
+%                   , sortSpec = []                   ::list()
+%                   }
+%        ).
+
+-record(stmtResults,                                %% result record for exec function call
+                  { rowCounts = [0]                 %% RowCount
+                  , stmtRefs = []                   %% statement ids needed for fetching
                   , stmtCols = undefined            ::list(#stmtCol{})  %% simplified column map of main statement
                   , rowFun  = undefined             ::fun()             %% rendering fun for row {key rec} -> [ResultValues]
                   , sortFun = undefined             ::fun()             %% rendering fun for sorting {key rec} -> SortColumn
                   , sortSpec = []                   ::list()
+                  , tableNames = []                 ::list()            %% of lists of binstrings (multiple tables per join statement)
                   }
        ).
 
