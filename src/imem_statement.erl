@@ -83,9 +83,10 @@ create_stmt(Statement, SKey, IsSec) ->
 fetch_recs(SKey, Pid, Sock, Timeout, IsSec) ->
     fetch_recs(SKey, Pid, Sock, Timeout, [], IsSec).
 
-
-fetch_recs(SKey, #stmtResults{stmtRefs=Pids}, Sock, Timeout, Opts, IsSec) ->
-     [fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) || Pid <- Pids];
+fetch_recs(SKey, #stmtResults{stmtRefs=StmtRefs}, Sock, Timeout, Opts, IsSec) ->
+    fetch_recs(SKey, StmtRefs, Sock, Timeout, Opts, IsSec);
+fetch_recs(SKey, StmtRefs, Sock, Timeout, Opts, IsSec) when is_list(StmtRefs) ->
+     [fetch_recs(SKey, StmtRef, Sock, Timeout, Opts, IsSec) || StmtRef <- StmtRefs];
 fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}),
     Result = try
@@ -123,9 +124,10 @@ fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
     end,
     Result.
 
-
-fetch_recs_sort(SKey, #stmtResults{stmtRefs=Pids,sortFun=SortFun}, Sock, Timeout, IsSec) ->
-     recs_sort(lists:flatten([fetch_recs(SKey, Pid, Sock, Timeout, IsSec) || Pid <- Pids]), SortFun);
+fetch_recs_sort(SKey, #stmtResults{stmtRefs=StmtRefs, sortFun=SortFun}, Sock, Timeout, IsSec) ->
+     recs_sort(lists:flatten([fetch_recs(SKey, StmtRef, Sock, Timeout, IsSec) || StmtRef <- StmtRefs]), SortFun);
+fetch_recs_sort(SKey, StmtRefs, Sock, Timeout, IsSec) when is_list(StmtRefs) ->
+     lists:sort(lists:flatten([fetch_recs(SKey, StmtRef, Sock, Timeout, IsSec) || StmtRef <- StmtRefs]));
 fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
 
@@ -135,42 +137,50 @@ recs_sort(Recs, SortFun) ->
     % ?LogDebug("List:~n~p~n",[List]),
     [Rs || {_, _, Rs} <- lists:sort(List)].
 
-fetch_recs_async(SKey, #stmtResults{stmtRefs=Pids}, Sock, IsSec) ->
-     [fetch_recs_async(SKey, Pid, Sock, IsSec) || Pid <- Pids];
-fetch_recs_async(SKey, Pid, Sock, IsSec) ->
-    fetch_recs_async(SKey, Pid, Sock, [], IsSec).
+fetch_recs_async(SKey, StmtResult, Sock, IsSec) ->
+     fetch_recs_async(SKey, StmtResult, Sock, [], IsSec).
 
-fetch_recs_async(SKey, #stmtResults{stmtRefs=Pids}, Sock, Opts, IsSec) ->
-     [fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) || Pid <- Pids];
+fetch_recs_async(SKey, #stmtResults{stmtRefs=StmtRefs}, Sock, Opts, IsSec) ->
+     fetch_recs_async(SKey, StmtRefs, Sock, Opts, IsSec);
+fetch_recs_async(SKey, StmtRefs, Sock, Opts, IsSec) when is_list(StmtRefs)->
+     [fetch_recs_async(SKey, StmtRef, Sock, Opts, IsSec) || StmtRef <- StmtRefs];
 fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
     case [{M,V} || {M,V} <- Opts, true =/= lists:member(M, ?VALID_FETCH_OPTS)] of
         [] -> gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
         InvalidOpt -> ?ClientError({"Invalid option for fetch", InvalidOpt})
     end.
 
-fetch_close(SKey,  #stmtResults{stmtRefs=[Pid]}, IsSec) ->
-     fetch_close(SKey, Pid, IsSec);
+fetch_close(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec) ->
+     fetch_close(SKey,  StmtRefs, IsSec);
+fetch_close(SKey,  StmtRefs, IsSec) when is_list(StmtRefs) ->
+     [fetch_close(SKey, StmtRef, IsSec) || StmtRef <- StmtRefs];
 fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {fetch_close, IsSec, SKey}).
 
 filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, IsSec) ->
     filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, [], IsSec).
 
-filter_and_sort(SKey, #stmtResults{stmtRefs=[Pid|_]}, FilterSpec, SortSpec, Cols, IsSec) ->
-    filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec);    
+filter_and_sort(SKey, #stmtResults{stmtRefs=StmtRefs}, FilterSpec, SortSpec, Cols, IsSec) ->
+    filter_and_sort(SKey, StmtRefs, FilterSpec, SortSpec, Cols, IsSec); 
+filter_and_sort(SKey,  StmtRefs, FilterSpec, SortSpec, Cols, IsSec) when is_list(StmtRefs) ->
+     [filter_and_sort(SKey, hd(StmtRefs), FilterSpec, SortSpec, Cols, IsSec)];
 filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, Cols, SKey}).
 
-update_cursor_prepare(SKey, #stmtResults{stmtRefs=[Pid|_]}, IsSec, ChangeList) ->
-    update_cursor_prepare(SKey, Pid, IsSec, ChangeList);
+update_cursor_prepare(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec, ChangeList) ->
+    update_cursor_prepare(SKey, StmtRefs, IsSec, ChangeList);
+update_cursor_prepare(SKey, StmtRefs, IsSec, ChangeList) when is_list(StmtRefs) ->
+    [update_cursor_prepare(SKey, StmtRef, IsSec, ChangeList) || StmtRef <- StmtRefs];
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)) of
         ok ->   ok;
         Error-> throw(Error)
     end.
 
-update_cursor_execute(SKey, #stmtResults{stmtRefs=Pids}, IsSec, Lock) ->
-    [update_cursor_execute(SKey, Pid, IsSec, Lock) || Pid <- Pids];
+update_cursor_execute(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec, Lock) ->
+    [update_cursor_execute(SKey, StmtRef, IsSec, Lock) || StmtRef <- StmtRefs];
+update_cursor_execute(SKey, StmtRefs, IsSec, Lock) when is_list(StmtRefs) ->
+    [update_cursor_execute(SKey, StmtRef, IsSec, Lock) || StmtRef <- StmtRefs];
 update_cursor_execute(SKey, Pid, IsSec, Lock) when is_pid(Pid) ->
     update_cursor_exec(SKey, Pid, IsSec, Lock).
 
@@ -182,11 +192,12 @@ update_cursor_exec(SKey, Pid, IsSec, Lock) when Lock==none;Lock==optimistic ->
         Error ->                        throw(Error)
     end.
 
-close(SKey, #stmtResults{stmtRefs=Pids}) ->
-    [close(SKey, Pid) || Pid <- Pids];
+close(SKey, #stmtResults{stmtRefs=StmtRefs}) ->
+    close(SKey, StmtRefs);
+close(SKey, StmtRefs) when is_list(StmtRefs) ->
+    [close(SKey, StmtRef) || StmtRef <- StmtRefs];
 close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
-
 
 init([Statement,ParentPid]) ->
     imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
@@ -199,7 +210,7 @@ handle_call({set_seco, SKey}, _From, State) ->
 handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{statement=Stmt, seco=SKey}=State) ->
     STT = ?TIMESTAMP,
     {Reply, UpdatePlan1} = try
-        {ok, update_prepare(IsSec, SKey, hd(Stmt#statement.tables), Stmt#statement.colMap, ChangeList)}
+        {ok, update_prepare(IsSec, SKey, Stmt#statement.tables, Stmt#statement.colMap, ChangeList)}
     catch
         _:Reason ->  
             imem_meta:log_to_db(error, ?MODULE, handle_call, [{reason,Reason}, {changeList,ChangeList}], "update_cursor_prepare error"),

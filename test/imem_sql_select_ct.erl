@@ -2113,7 +2113,7 @@ db2_without_sec(_Config) ->
 %%    ?assertEqual(ok, RetCode),
 %%    #stmtResult{stmtRef = StmtRef, stmtCols = StmtCols, rowFun = RowFun} = StmtResult,
 %%    List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),
-%%    ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
+%%    ?assertEqual([ok], imem_statement:close(SKey, StmtRef)),
 %%    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
 %%    RT = imem_statement:result_tuples(List, RowFun),
 %%    if
@@ -2131,7 +2131,7 @@ db2_without_sec(_Config) ->
 %%    ?assertEqual(ok, RetCode),
 %%    #stmtResult{stmtRef = StmtRef, stmtCols = StmtCols, rowFun = RowFun} = StmtResult,
 %%    List = imem_statement:fetch_recs(SKey, StmtRef, {self(), make_ref()}, 1000, IsSec),
-%%    ?assertEqual(ok, imem_statement:close(SKey, StmtRef)),
+%%    ?assertEqual([ok], imem_statement:close(SKey, StmtRef)),
 %%    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
 %%    RT = imem_statement:result_tuples(List, RowFun),
 %%    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result:~n~p~n", [RT]),

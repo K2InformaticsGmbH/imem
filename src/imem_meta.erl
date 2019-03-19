@@ -1714,7 +1714,7 @@ is_local_or_schema_time_partitioned_table(Name) when is_list(Name) ->
 is_reserved_for_tables(TableAlias) -> sqlparse:is_reserved(TableAlias).
 
 -spec is_reserved_for_columns(ddColumnName()) -> boolean.
-is_reserved_for_columns(Name) -> sqlparse:is_reserved_column(Name).
+is_reserved_for_columns(Name) -> sqlparse:is_reserved(Name).
 
 -spec parse_table_name(ddSimpleTable()) -> [ddString()].
 %%                       TableName ->      [Schema,".",Name,"_",Period,"@",Node] all strings , all optional ("") except Name
