@@ -49,22 +49,25 @@ init(Params) ->
 
 %% lager is started before imem, and this event handler is initialized
 %% before imem is stared. So we have to wait till imem is started to
-%% create the table.
+%% create the table or reading the config.
 handle_event({log, LagerMsg}, #state{is_initialized = false, application = App} = State) ->
-    Table = (State#state.table)(),
     case proplists:get_value(application, lager_msg:metadata(LagerMsg)) of
         App ->
             try
-                create_check_ddLog(Table),
+                Table = (State#state.table)(),
+                ok = create_check_ddLog(Table),
                 imem_meta:subscribe({table, ddConfig, simple}),
-                handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true})
+                handle_event({log, LagerMsg}, State#state{table = Table,
+                                                          is_initialized = true})
             catch
                 _:{badmatch, {error, {already_exists, {table,ddConfig,simple}}}} ->
                     io:format(
                         user, "[warning] ~p:~p:~p re-subscription attempt~n",
                         [?MODULE, ?FUNCTION_NAME, ?LINE]
                     ),
-                    handle_event({log, LagerMsg}, State#state{table = Table, is_initialized = true});
+                    handle_event({log, LagerMsg},
+                                 State#state{table = (State#state.table)(),
+                                             is_initialized = true});
                 _:Exception ->
                     io:format(
                         user, "[error] ~p:~p:~p ~p~n",
