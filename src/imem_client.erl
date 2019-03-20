@@ -52,7 +52,6 @@ terminate(Reason, _State) ->
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 format_status(_Opt, [_PDict, _State]) -> ok.
 
-
 get_profile(Mod, Profile, Options) ->
     case Mod:get_options(all, Profile) of
         {error, inets_not_started} ->
