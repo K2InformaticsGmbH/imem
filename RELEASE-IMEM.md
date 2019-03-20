@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Vesrion 3.3.2 (Release Date 20.03.2019)
+=======================================
+* ddVersion: git command optimized
+* ddVesrion: unnecessary folder switch removed
+* ddVersion: path blacklist
+
 Vesrion 3.3.1 (Release Date 15.03.2019)
 =======================================
 * Implemented ddVersion
