@@ -21,8 +21,7 @@
         ]).
 
 % Library APIs
--export([ get_profile/3
-        ]).
+-export([get_profile/3, http_get/2, fix_git_raw_url/1]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -53,7 +52,6 @@ terminate(Reason, _State) ->
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 format_status(_Opt, [_PDict, _State]) -> ok.
 
-
 get_profile(Mod, Profile, Options) ->
     case Mod:get_options(all, Profile) of
         {error, inets_not_started} ->
@@ -71,3 +69,28 @@ get_profile(Mod, Profile, Options) ->
             end
     end,
     Profile.
+
+fix_git_raw_url(Url) ->
+    case re:run(
+        Url, "github.com/([^/]+)/([^/]+)/raw/([^/]+)/(.*)",
+        [{capture, [1, 2, 3, 4], list}]
+    ) of
+        {match, [Owner, Repo, Commit, Path]} ->
+            "https://" ++ filename:join([
+                "raw.githubusercontent.com/",
+                Owner, Repo, Commit, Path
+            ]);
+        nomatch -> error(bad_url)
+    end.
+
+http_get(Url, Token) ->
+    case httpc:request(
+        get, {Url, [{"Authorization", "token " ++ Token}]},
+        [], [{body_format, binary}]
+    ) of
+        {ok, {{HttpVsn, StatusCode, ReasonPhrase}, RespHeaders, RespBody}} ->
+            #{httpVsn => HttpVsn, statusCode => StatusCode,
+              reasonPhrase => ReasonPhrase, headers => RespHeaders,
+              body => RespBody};
+        {error, Error} -> error(Error)
+    end.
