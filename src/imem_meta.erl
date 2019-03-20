@@ -1968,9 +1968,10 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
 
 -spec qualified_table_names(ddTable()) -> [ddQualifiedTable()].
 qualified_table_names(Table) ->
-    {Schema,Alias} = qualified_table_name(Table),
-    [{Schema,PTN} || PTN <- physical_table_names(Alias)].
-
+    case qualified_table_name(Table) of
+        {?CSV_SCHEMA_PATTERN = S,T} when is_binary(T) -> [{S,T}];
+        {Schema,Alias} -> [{Schema,PTN} || PTN <- physical_table_names(Alias)]
+    end.
 
 -spec qualified_table_name(ddTable()) -> ddQualifiedTable().
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(), Table};
