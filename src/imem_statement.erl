@@ -429,7 +429,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     end;
 handle_cast({close, _SKey}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
-    % ?Debug("received close in state ~p~n", [State]),
+    ?Info("received close for ~p", [element(2,State#state.statement)]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
     ?Debug("received unsolicited cast ~p~nin state ~p~n", [Request, State]),
@@ -438,7 +438,7 @@ handle_cast(Request, State) ->
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     % ?Debug("received end of table in fetch status ~p~n", [FetchCtx0#fetchCtx.status]),
-    % ?Debug("received end of table in state~n~p~n", [State]),
+    ?Info("received end of table in state~n~p~n", [State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status,fetching},{sock,Sock}],"eot"),
@@ -452,7 +452,7 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     end;        
 handle_info({mnesia_table_event, {write, _Table, {schema, _TableName, _TableNewProperties}, _OldRecords, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write, schema}],"tail delete"),
-    % ?Debug("received mnesia subscription event ~p ~p ~p~n", [write_schema, _TableName, _TableNewProperties]),
+    ?Info("received mnesia subscription event ~p ~p ~p~n", [write_schema, _TableName, _TableNewProperties]),
     {noreply, State};
 handle_info({mnesia_table_event,{write,_Table,R0,_OldRecords,_ActivityId}},#state{reply=Sock}=State) ->
     case process_tail_row(R0, State) of
@@ -469,7 +469,7 @@ handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, 
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
     % ?LogDebug("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
-    % ?LogDebug("received rows~n~p~n", [Rows0]),
+    ?Info("received ~p rows for ~p", [length(Rows0)-2,element(2,Stmt)]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     

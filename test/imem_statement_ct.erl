@@ -696,7 +696,7 @@ test_with_or_without_sec_part3(IsSec) ->
             where col1 < '4' 
             order by col2 desc;"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols8 ~p~n", [SR8#stmtResults.stmtCols]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols8 ~p~n", [SR8#stmtResults.rowCols]),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":SortSpec8 ~p~n", [SR8#stmtResults.sortSpec]),
     ?assertEqual([{2, <<"desc">>}], SR8#stmtResults.sortSpec),
 
@@ -741,7 +741,7 @@ test_with_or_without_sec_part3(IsSec) ->
     SR9 = exec(SKey, query9, 100, IsSec, "
             select * from ddTable;"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9 ~p~n", [SR9#stmtResults.stmtCols]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9 ~p~n", [SR9#stmtResults.rowCols]),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":SortSpec9 ~p~n", [SR9#stmtResults.sortSpec]),
     try
         [Result9] = imem_statement:filter_and_sort(SKey, SR9, {undefined, []}, [], [1, 3, 2], IsSec),
@@ -760,7 +760,7 @@ test_with_or_without_sec_part3(IsSec) ->
             from def a, def b 
             where a.col1 = b.col1;"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9a ~n~p~n", [SR9a#stmtResults.stmtCols]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":StmtCols9a ~n~p~n", [SR9a#stmtResults.rowCols]),
     try
         [Result9a] = imem_statement:filter_and_sort(SKey, SR9a, {undefined, []}, [{1, <<"asc">>}, {3, <<"desc">>}], [1, 3, 2], IsSec),
         ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result9a ~p~n", [Result9a]),
@@ -832,9 +832,9 @@ exec(SKey, _Id, BS, IsSec, Opts, Sql) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~p : ~s~n", [_Id, lists:flatten(Sql)]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, Opts, IsSec),
     ?assertEqual(ok, RetCode),
-    #stmtResults{stmtCols = StmtCols} = StmtResult,
-    %ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Statement Cols:~n~p~n", [StmtCols]),
-    [?assert(is_binary(SC#stmtCol.alias)) || SC <- StmtCols],
+    #stmtResults{rowCols=RowCols} = StmtResult,
+    %ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Statement Cols:~n~p~n", [RowCols]),
+    [?assert(is_binary(SC#rowCol.alias)) || SC <- RowCols],
     StmtResult.
 
 fetch_async(SKey, StmtResult, Opts, IsSec) ->

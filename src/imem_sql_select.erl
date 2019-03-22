@@ -36,8 +36,8 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     end,
     % ?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
     % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
-    StmtCols = [#stmtCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
-    % ?LogDebug("Statement columns: ~n~p~n", [StmtCols]),
+    RowCols = [#rowCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
+    % ?LogDebug("Row columns: ~n~p~n", [RowCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
     % ?LogDebug("WhereParseTree~n~p", [WPTree]),
     WBTree0 = case WPTree of
@@ -76,7 +76,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     case lists:usort([element(1,R1) || R1 <- CreateResult]) of 
         [ok] -> 
             StmtRefs = [element(2,R2) || R2 <- CreateResult],
-            {ok, #stmtResults{stmtRefs=StmtRefs,stmtCols=StmtCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}};
+            {ok, #stmtResults{stmtRefs=StmtRefs,rowCols=RowCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}};
         [Error|_] ->
             Pred = fun(Res) -> (element(1,Res) == ok) end,
             RollbackRefs = [element(2,R3) || R3 <- lists:filter(Pred, CreateResult)],
