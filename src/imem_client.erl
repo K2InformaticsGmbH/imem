@@ -21,11 +21,14 @@
         ]).
 
 % Library APIs
--export([get_profile/3, http_get/2, fix_git_raw_url/1]).
+-export([get_profile/3, http_get/2, fix_git_raw_url/1, http/5]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
-    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+    case gen_server:start_link(
+           {local, ?MODULE}, ?MODULE, Params,
+           [{spawn_opt, [{fullsweep_after, 0}]}]
+    ) of
         {ok, _} = Success ->
             ?Info("~p started!~n", [?MODULE]),
             Success;
@@ -94,3 +97,24 @@ http_get(Url, Token) ->
               body => RespBody};
         {error, Error} -> error(Error)
     end.
+
+
+http(Op, Url, ReqHeaders, {basic, User, Password}, Body) ->
+    Encoded = base64:encode_to_string(lists:append([User,":",Password])),
+    ReqHeaders1 = [{"Authorization","Basic " ++ Encoded} | ReqHeaders],
+    http(Op, {Url, ReqHeaders1, Body}).
+
+http(get, {Url, ReqHeaders, _}) ->
+    case httpc:request(get, {Url, ReqHeaders}, [], [{body_format, binary}]) of
+        {ok, {{HttpVsn, StatusCode, ReasonPhrase}, RespHeaders, RespBody}} ->
+            #{httpVsn => HttpVsn, statusCode => StatusCode,
+              reasonPhrase => ReasonPhrase, headers => RespHeaders,
+              body => parse_http_resp(RespHeaders, RespBody)};
+        {error, Error} -> error(Error)
+    end.
+
+parse_http_resp([{_,_}|_] = RespHeaders, RespBody) ->
+    parse_http_resp(maps:from_list(RespHeaders), RespBody);
+parse_http_resp(#{"content-type" := "application/json"}, Body) ->
+    try imem_json:decode(Body, [return_maps])
+    catch _:_ -> Body end.
