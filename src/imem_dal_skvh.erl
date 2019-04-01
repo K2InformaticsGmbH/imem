@@ -193,24 +193,30 @@ add_channel_trigger_hook(Mod, Channel, Hook) when is_atom(Mod) ->
             HookEndTok = "\n%"++HookTok++"_hook_end",
             PreparedHook = lists:flatten([HookStartTok,"\n,",Hook,HookEndTok]),
             ModHookCodeRe = lists:flatten([HookStartTok,".*",HookEndTok]),
-            NewTrgrFun =
-                case re:run(TrgrFun, ModHookCodeRe, [dotall]) of
-                    % No previous hook
-                    nomatch ->
+            case re:run(TrgrFun, ModHookCodeRe, [dotall, {capture, all, list}]) of
+                % hook already exist (in all restarts)
+                {match, [PreparedHook]} -> nop;
+                % replace with new hook code (hook upgrade)
+                {match, _} ->                    
+                    imem_meta:create_or_replace_trigger(
+                        Tab, 
+                        re:replace(
+                            TrgrFun, ModHookCodeRe, PreparedHook,
+                            [{return, binary},dotall]
+                        )
+                    );
+                % no previous hook (cold start / empty DB / repair)
+                nomatch ->
+                    imem_meta:create_or_replace_trigger(
+                        Tab, 
                         re:replace(
                             TrgrFun,
                             "\n    %extend_code_end",
                             PreparedHook++"\n    %extend_code_end",
                             [{return, binary}]
-                        );
-                    {match, _} ->
-                        % replace with new hook code
-                        re:replace(
-                            TrgrFun, ModHookCodeRe, PreparedHook,
-                            [{return, binary},dotall]
                         )
-                end,
-            imem_meta:create_or_replace_trigger(Tab, NewTrgrFun),
+                    )
+            end,
             ok;
         _ ->
             {error, notrigger}
