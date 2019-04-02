@@ -21,7 +21,7 @@
         ]).
 
 % Library APIs
--export([get_profile/3, http_get/2, fix_git_raw_url/1, http/5]).
+-export([get_profile/3, fix_git_raw_url/1, http/5]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -86,19 +86,6 @@ fix_git_raw_url(Url) ->
         nomatch -> error(bad_url)
     end.
 
-http_get(Url, Token) ->
-    case httpc:request(
-        get, {Url, [{"Authorization", "token " ++ Token}]},
-        [], [{body_format, binary}]
-    ) of
-        {ok, {{HttpVsn, StatusCode, ReasonPhrase}, RespHeaders, RespBody}} ->
-            #{httpVsn => HttpVsn, statusCode => StatusCode,
-              reasonPhrase => ReasonPhrase, headers => RespHeaders,
-              body => RespBody};
-        {error, Error} -> error(Error)
-    end.
-
-
 http(Op, Url, ReqHeaders, Auth, Body) when is_map(Body) ->
     http(
         Op, {Url, ReqHeaders, "application/json"}, Auth, imem_json:encode(Body)
@@ -106,6 +93,9 @@ http(Op, Url, ReqHeaders, Auth, Body) when is_map(Body) ->
 http(Op, Url, ReqHeaders, Auth, Body) ->
     http(Op, {Url, ReqHeaders, "application/text"}, Auth, Body).
 
+http(Op, {Url, ReqHeaders, ContentType}, {token, Token}, Body) ->
+    ReqHeaders1 = [{"Authorization","token " ++ Token} | ReqHeaders],
+    http(Op, {Url, ReqHeaders1, ContentType, Body});
 http(Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Password])),
     ReqHeaders1 = [{"Authorization","Basic " ++ Encoded} | ReqHeaders],
