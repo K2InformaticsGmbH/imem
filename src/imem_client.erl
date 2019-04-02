@@ -102,18 +102,18 @@ http_get(Url, Token) ->
 http(Op, Url, ReqHeaders, Auth, Body) when is_map(Body) ->
     http(
         Op, {Url, ReqHeaders, "application/json"}, Auth, imem_json:encode(Body)
-    ).
+    );
+http(Op, Url, ReqHeaders, Auth, Body) ->
+    http(Op, {Url, ReqHeaders, "application/text"}, Auth, Body).
 
-http(Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body)
-    when is_binary(Body)
-->
+http(Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Password])),
     ReqHeaders1 = [{"Authorization","Basic " ++ Encoded} | ReqHeaders],
     http(Op, {Url, ReqHeaders1, ContentType, Body}).
 
 http(get, {Url, ReqHeaders, _, _}) ->
     http_req(get, {Url, ReqHeaders});
-http(post, {Url, ReqHeaders, ContentType, Body}) ->
+http(post, {Url, ReqHeaders, ContentType, Body}) when is_binary(Body) ->
     http_req(post, {Url, ReqHeaders, ContentType, Body}).
 
 http_req(Method, Request) ->
