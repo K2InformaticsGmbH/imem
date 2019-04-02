@@ -195,7 +195,7 @@ add_channel_trigger_hook(Mod, Channel, Hook) when is_atom(Mod) ->
             ModHookCodeRe = lists:flatten([HookStartTok,".*",HookEndTok]),
             case re:run(TrgrFun, ModHookCodeRe, [dotall, {capture, all, list}]) of
                 % hook already exist (in all restarts)
-                {match, [PreparedHook]} -> nop;
+                {match, [PreparedHook]} -> no_op;
                 % replace with new hook code (hook upgrade)
                 {match, _} ->                    
                     imem_meta:create_or_replace_trigger(
