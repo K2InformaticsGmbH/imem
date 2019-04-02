@@ -99,13 +99,25 @@ http_get(Url, Token) ->
     end.
 
 
-http(Op, Url, ReqHeaders, {basic, User, Password}, Body) ->
+http(Op, Url, ReqHeaders, Auth, Body) when is_map(Body) ->
+    http(
+        Op, {Url, ReqHeaders, "application/json"}, Auth, imem_json:encode(Body)
+    ).
+
+http(Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body)
+    when is_binary(Body)
+->
     Encoded = base64:encode_to_string(lists:append([User,":",Password])),
     ReqHeaders1 = [{"Authorization","Basic " ++ Encoded} | ReqHeaders],
-    http(Op, {Url, ReqHeaders1, Body}).
+    http(Op, {Url, ReqHeaders1, ContentType, Body}).
 
-http(get, {Url, ReqHeaders, _}) ->
-    case httpc:request(get, {Url, ReqHeaders}, [], [{body_format, binary}]) of
+http(get, {Url, ReqHeaders, _, _}) ->
+    http_req(get, {Url, ReqHeaders});
+http(post, {Url, ReqHeaders, ContentType, Body}) ->
+    http_req(post, {Url, ReqHeaders, ContentType, Body}).
+
+http_req(Method, Request) ->
+    case httpc:request(Method, Request, [], [{body_format, binary}]) of
         {ok, {{HttpVsn, StatusCode, ReasonPhrase}, RespHeaders, RespBody}} ->
             #{httpVsn => HttpVsn, statusCode => StatusCode,
               reasonPhrase => ReasonPhrase, headers => RespHeaders,
@@ -115,6 +127,10 @@ http(get, {Url, ReqHeaders, _}) ->
 
 parse_http_resp([{_,_}|_] = RespHeaders, RespBody) ->
     parse_http_resp(maps:from_list(RespHeaders), RespBody);
-parse_http_resp(#{"content-type" := "application/json"}, Body) ->
-    try imem_json:decode(Body, [return_maps])
-    catch _:_ -> Body end.
+parse_http_resp(#{"content-type" := ContentType}, Body) ->
+    case re:run(ContentType, "application/json") of
+        {match, _} ->
+            try imem_json:decode(Body, [return_maps]) catch _:_ -> Body end;
+        _ -> Body
+    end;
+parse_http_resp(_, Body) -> Body.
