@@ -86,6 +86,19 @@ fix_git_raw_url(Url) ->
         nomatch -> error(bad_url)
     end.
 
+-spec(
+    http(
+        get | post, httpc:url(), httpc:headers(),
+        {token, string()} | {basic, string(), string()},
+        map() | binary() | undefined
+    ) ->
+        #{httpVsn       := httpc:http_version(),
+          statusCode    := httpc:status_code(),
+          reasonPhrase  := httpc:reason_phrase(),
+          headers       := httpc:headers(),
+          body          := httpc:body() | map()}
+        | {error, {invalid_json, httpc:body()}}
+).
 http(Op, Url, ReqHeaders, Auth, Body) when is_map(Body) ->
     http(
         Op, {Url, ReqHeaders, "application/json"}, Auth, imem_json:encode(Body)
@@ -115,12 +128,22 @@ http_req(Method, Request) ->
         {error, Error} -> error(Error)
     end.
 
-parse_http_resp([{_,_}|_] = RespHeaders, RespBody) ->
-    parse_http_resp(maps:from_list(RespHeaders), RespBody);
-parse_http_resp(#{"content-type" := ContentType}, Body) ->
-    case re:run(ContentType, "application/json") of
-        {match, _} ->
-            try imem_json:decode(Body, [return_maps]) catch _:_ -> Body end;
+parse_http_resp([{_,_}|_] = Headers, Body) ->
+    MaybeContentType =
+        lists:filtermap(
+            fun(Field, Value) ->
+                case re:run(Field, "^content-type$", [caseless]) of
+                    {match, _} -> {true, string:lowercase(Value)};
+                    _ -> false
+                end
+            end,
+            Headers
+        ),
+    case MaybeContentType of
+        [{_, "application/json"}] ->
+            try imem_json:decode(Body, [return_maps])
+            catch _:_ -> {error, {invalid_json, Body}}
+            end;
         _ -> Body
     end;
 parse_http_resp(_, Body) -> Body.
