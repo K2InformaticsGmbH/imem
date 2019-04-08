@@ -131,7 +131,7 @@ http_req(Method, Request) ->
 parse_http_resp([{_,_}|_] = Headers, Body) ->
     MaybeContentType =
         lists:filtermap(
-            fun(Field, Value) ->
+            fun({Field, Value}) ->
                 case re:run(Field, "^content-type$", [caseless]) of
                     {match, _} -> {true, string:lowercase(Value)};
                     _ -> false
