@@ -21,11 +21,14 @@
         ]).
 
 % Library APIs
--export([get_profile/3, http_get/2, fix_git_raw_url/1]).
+-export([get_profile/3, fix_git_raw_url/1, http/5]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
-    case gen_server:start_link({local, ?MODULE}, ?MODULE, Params, [{spawn_opt, [{fullsweep_after, 0}]}]) of
+    case gen_server:start_link(
+           {local, ?MODULE}, ?MODULE, Params,
+           [{spawn_opt, [{fullsweep_after, 0}]}]
+    ) of
         {ok, _} = Success ->
             ?Info("~p started!~n", [?MODULE]),
             Success;
@@ -83,14 +86,64 @@ fix_git_raw_url(Url) ->
         nomatch -> error(bad_url)
     end.
 
-http_get(Url, Token) ->
-    case httpc:request(
-        get, {Url, [{"Authorization", "token " ++ Token}]},
-        [], [{body_format, binary}]
-    ) of
+-spec(
+    http(
+        get | post, httpc:url(), httpc:headers(),
+        {token, string()} | {basic, string(), string()},
+        map() | binary() | undefined
+    ) ->
+        #{httpVsn       := httpc:http_version(),
+          statusCode    := httpc:status_code(),
+          reasonPhrase  := httpc:reason_phrase(),
+          headers       := httpc:headers(),
+          body          := httpc:body() | map()}
+        | {error, {invalid_json, httpc:body()}}
+).
+http(Op, Url, ReqHeaders, Auth, Body) when is_map(Body) ->
+    http(
+        Op, {Url, ReqHeaders, "application/json"}, Auth, imem_json:encode(Body)
+    );
+http(Op, Url, ReqHeaders, Auth, Body) ->
+    http(Op, {Url, ReqHeaders, "application/text"}, Auth, Body).
+
+http(Op, {Url, ReqHeaders, ContentType}, {token, Token}, Body) ->
+    ReqHeaders1 = [{"Authorization","token " ++ Token} | ReqHeaders],
+    http(Op, {Url, ReqHeaders1, ContentType, Body});
+http(Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body) ->
+    Encoded = base64:encode_to_string(lists:append([User,":",Password])),
+    ReqHeaders1 = [{"Authorization","Basic " ++ Encoded} | ReqHeaders],
+    http(Op, {Url, ReqHeaders1, ContentType, Body}).
+
+http(get, {Url, ReqHeaders, _, _}) ->
+    http_req(get, {Url, ReqHeaders});
+http(post, {Url, ReqHeaders, ContentType, Body}) when is_binary(Body) ->
+    http_req(post, {Url, ReqHeaders, ContentType, Body}).
+
+http_req(Method, Request) ->
+    case httpc:request(Method, Request, [], [{body_format, binary}]) of
         {ok, {{HttpVsn, StatusCode, ReasonPhrase}, RespHeaders, RespBody}} ->
             #{httpVsn => HttpVsn, statusCode => StatusCode,
               reasonPhrase => ReasonPhrase, headers => RespHeaders,
-              body => RespBody};
+              body => parse_http_resp(RespHeaders, RespBody)};
         {error, Error} -> error(Error)
     end.
+
+parse_http_resp([{_,_}|_] = Headers, Body) ->
+    MaybeContentType =
+        lists:filtermap(
+            fun({Field, Value}) ->
+                case re:run(Field, "^content-type$", [caseless]) of
+                    {match, _} -> {true, string:lowercase(Value)};
+                    _ -> false
+                end
+            end,
+            Headers
+        ),
+    case MaybeContentType of
+        [{_, "application/json"}] ->
+            try imem_json:decode(Body, [return_maps])
+            catch _:_ -> {error, {invalid_json, Body}}
+            end;
+        _ -> Body
+    end;
+parse_http_resp(_, Body) -> Body.
