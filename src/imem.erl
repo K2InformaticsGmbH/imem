@@ -543,8 +543,10 @@ git_info(_Opts, {Url, Revision}) ->
     {list_to_binary([CleanUrl, "/raw/", string:trim(Revision)]),
      lists:last(filename:split(CleanUrl))}.
 
+git_file(#{gitRepo := Repo} = Opts, Path) when is_list(Repo) ->
+    git_file(Opts#{gitRepo := list_to_binary(Repo)}, Path);
 git_file(#{git := GitExe, gitRepo := Repo} = Opts, Path) when GitExe /= false ->
-    case re:run(Path, Repo++"(.*)", [{capture, [1], list}]) of
+    case re:run(Path, <<Repo/binary,"(.*)">>, [{capture, [1], list}]) of
         {match, [RelativePath]} ->
             git_file_low(Opts#{absPath => Path}, RelativePath);
         _ -> <<>>
@@ -583,7 +585,7 @@ git_file_low(
             );
         {<<"error: pathspec", _/binary>>, _} ->
             #{gitRepo := Repo} = Opts,
-            case re:run(Path, "lib/"++Repo++"(.*)", [{capture, [1], list}]) of
+            case re:run(Path, <<"lib/", Repo/binary, "(.*)">>, [{capture, [1], list}]) of
                 nomatch -> notfound;
                 {match, [RelativePath1]} ->
                     list_to_binary([GitRoot, RelativePath1])
@@ -638,9 +640,16 @@ file_phash2(FilePath) ->
     end.
 
 os_cmd(Exe, Dir, Args) ->
+    case filelib:is_dir(Dir) of
+        true ->
+            os_cmd(Exe, [{cd, Dir}, {args, Args}]);
+        _ ->
+            <<"fatal:badpath">>
+    end.
+os_cmd(Exe, Args) ->
     Port = open_port(
         {spawn_executable, Exe},
-        [{cd, Dir}, {args, Args}, binary, exit_status, stderr_to_stdout]
+        [binary, exit_status, stderr_to_stdout | Args]
     ),
     (fun Rcv(Buf) ->
         receive
