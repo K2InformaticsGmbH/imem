@@ -2,13 +2,22 @@
 
 -include("imem_client.hrl").
 
-
 -behavior(gen_server).
 
 -record(state, {}).
 
 -export([ start_link/1
         ]).
+
+-define( APP_AUTH_PROFILE(__Dom, __Acc)
+       , ?GET_CONFIG( appAuthProfile
+                    , [__Dom, __Acc]
+                    , no_auth
+                    , "app authentication profile for domain and account id in context. "
+                      "for http: {basic,\"username\",\"password\"} or "
+                      "{token,\"token\"} or no_auth"
+                    )
+       ).
 
 % gen_server behavior callbacks
 -export([ init/1
@@ -21,7 +30,11 @@
         ]).
 
 % Library APIs
--export([get_profile/3, fix_git_raw_url/1, http/5]).
+-export([ get_profile/3
+        , get_auth_profile/2
+        , fix_url/1
+        , http/5
+        ]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -73,18 +86,27 @@ get_profile(Mod, Profile, Options) ->
     end,
     Profile.
 
-fix_git_raw_url(Url) ->
+get_auth_profile(Domain, AccountId) when is_binary(Domain) -> 
+    get_auth_profile(binary_to_list(Domain), AccountId);
+get_auth_profile(Domain, AccountId) when is_list(Domain) -> 
+    ?APP_AUTH_PROFILE(Domain, AccountId).
+
+fix_url(Url) ->
     case re:run(
         Url, "github.com/([^/]+)/([^/]+)/raw/([^/]+)/(.*)",
         [{capture, [1, 2, 3, 4], list}]
     ) of
-        {match, [Owner, Repo, Commit, Path]} ->
-            "https://" ++ filename:join([
-                "raw.githubusercontent.com/",
-                Owner, Repo, Commit, Path
-            ]);
-        nomatch -> error(bad_url)
+        {match, [Owner, Repo, Commit, Path]} -> 
+            fix_git_raw_url( Owner, Repo, Commit, Path);
+        nomatch -> 
+            Url
     end.
+
+fix_git_raw_url(Owner, Repo, Commit, Path) ->
+    "https://" ++ filename:join([
+        "raw.githubusercontent.com/",
+        Owner, Repo, Commit, Path
+    ]).
 
 -spec(
     http(
