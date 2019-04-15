@@ -7,15 +7,12 @@
 -export([ merge_diff/3              %% merge two data tables into a bigger one, presenting the differences side by side
         , merge_diff/4              %% merge two data tables into a bigger one, presenting the differences side by side
         , merge_diff/5              %% merge two data tables into a bigger one, presenting the differences side by side
+        , term_diff/4               %% present two terms side-by-side for comparison
         , term_diff/5               %% present two terms side-by-side for comparison
         , term_diff/6               %% present two terms side-by-side for comparison
         ]).
 
 -safe([merge_diff, term_diff]).
-
--spec term_diff(atom(), term(), atom(), term(), ddEntityId()) -> list(#ddTermDiff{}).
-term_diff(LeftType, LeftData, RightType, RightData, User) ->
-    term_diff(LeftType, LeftData, RightType, RightData, [], User).
 
 load(<<"https://",_/binary>> = LeftUrl, User) -> load_http(LeftUrl, User);
 load(<<"http://",_/binary>> = LeftUrl, User) -> load_http(LeftUrl, User);
@@ -35,6 +32,14 @@ load_http(Url, User) ->
     catch 
         _ -> Url
     end.
+
+-spec term_diff(atom(), term(), atom(), term()) -> list(#ddTermDiff{}).
+term_diff(LeftType, LeftData, RightType, RightData) ->
+    term_diff(LeftType, LeftData, RightType, RightData, []).
+
+-spec term_diff(atom(), term(), atom(), term(), ddEntityId()) -> list(#ddTermDiff{}).
+term_diff(LeftType, LeftData, RightType, RightData, User) ->
+    term_diff(LeftType, LeftData, RightType, RightData, [], User).
 
 -spec term_diff(atom(), term(), atom(), term(), ddOptions(), ddEntityId()) -> list(#ddTermDiff{}).
 term_diff(binstr, LeftData, binstr, RightData, Opts, User) ->
