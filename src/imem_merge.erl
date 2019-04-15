@@ -7,24 +7,45 @@
 -export([ merge_diff/3              %% merge two data tables into a bigger one, presenting the differences side by side
         , merge_diff/4              %% merge two data tables into a bigger one, presenting the differences side by side
         , merge_diff/5              %% merge two data tables into a bigger one, presenting the differences side by side
-        , term_diff/4               %% present two terms side-by-side for comparison
         , term_diff/5               %% present two terms side-by-side for comparison
+        , term_diff/6               %% present two terms side-by-side for comparison
         ]).
 
 -safe([merge_diff, term_diff]).
 
--spec term_diff(atom(), term(), atom(), term()) -> list(#ddTermDiff{}).
-term_diff(LeftType, LeftData, RightType, RightData) ->
-    term_diff(LeftType, LeftData, RightType, RightData, []).
+-spec term_diff(atom(), term(), atom(), term(), ddEntityId()) -> list(#ddTermDiff{}).
+term_diff(LeftType, LeftData, RightType, RightData, User) ->
+    term_diff(LeftType, LeftData, RightType, RightData, [], User).
 
--spec term_diff(atom(), term(), atom(), term(), ddOptions()) -> list(#ddTermDiff{}).
-term_diff(binstr, LeftData, binstr, RightData, Opts) ->
-    term_diff_out(Opts, imem_tdiff:diff_binaries(LeftData, RightData, Opts), []);
-term_diff(binary, Data, binary, Data, Opts) ->
+load(<<"https://",_/binary>> = LeftUrl, User) -> load_http(LeftUrl, User);
+load(<<"http://",_/binary>> = LeftUrl, User) -> load_http(LeftUrl, User);
+load(LeftData, _User) -> LeftData.
+
+load_http(Url, User) ->
+    try 
+        {ok, {_Scheme, _UserInfo, Host, _Port, _Path, _Query}} = http_uri:parse(Url),
+        ?Info("Url ~p",[Url]),
+        ?Info("User ~p",[User]),
+        AuthProfile = imem_client:get_auth_profile(Host, User),
+        ?Info("AuthProfile ~p",[AuthProfile]),
+        FixedUrl = imem_client:fix_url(Url),
+        ?Info("FixedUrl ~p",[FixedUrl]),
+        #{body := Body} = imem_client:http(get, FixedUrl, [], AuthProfile, undefined),
+        Body
+    catch 
+        _ -> Url
+    end.
+
+-spec term_diff(atom(), term(), atom(), term(), ddOptions(), ddEntityId()) -> list(#ddTermDiff{}).
+term_diff(binstr, LeftData, binstr, RightData, Opts, User) ->
+    Left = load(LeftData, User),
+    Right = load(RightData, User),
+    term_diff_out(Opts, imem_tdiff:diff_binaries(Left, Right, Opts), []);
+term_diff(binary, Data, binary, Data, Opts, _User) ->
     [#ddTermDiff{id=1,left=Data,cmp=imem_cmp:cmp(Data,Data,Opts),right=Data}];
-term_diff(binary, LeftData, binary, RightData, Opts) ->
+term_diff(binary, LeftData, binary, RightData, Opts, _User) ->
     [#ddTermDiff{id=1,left=LeftData,cmp=imem_cmp:cmp(LeftData,RightData,Opts),right=RightData}];
-term_diff(LeftType, _LeftData, RightType, _RightData, _Opts) ->
+term_diff(LeftType, _LeftData, RightType, _RightData, _Opts, _User) ->
     ?UnimplementedException({"term_diff for unsupported data type", {LeftType, RightType}}).
 
 term_diff_out(_Opts, [], Acc) -> lists:reverse(Acc);

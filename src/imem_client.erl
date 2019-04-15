@@ -134,7 +134,9 @@ http(Op, {Url, ReqHeaders, ContentType}, {token, Token}, Body) ->
 http(Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Password])),
     ReqHeaders1 = [{"Authorization","Basic " ++ Encoded} | ReqHeaders],
-    http(Op, {Url, ReqHeaders1, ContentType, Body}).
+    http(Op, {Url, ReqHeaders1, ContentType, Body});
+http(Op, {Url, ReqHeaders, ContentType}, no_auth, Body) ->
+    http(Op, {Url, ReqHeaders, ContentType, Body}).
 
 http(get, {Url, ReqHeaders, _, _}) ->
     http_req(get, {Url, ReqHeaders});
