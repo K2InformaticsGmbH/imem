@@ -37,9 +37,9 @@ load_http(Url, User) ->
 term_diff(LeftType, LeftData, RightType, RightData) ->
     term_diff(LeftType, LeftData, RightType, RightData, []).
 
--spec term_diff(atom(), term(), atom(), term(), ddEntityId()) -> list(#ddTermDiff{}).
-term_diff(LeftType, LeftData, RightType, RightData, User) ->
-    term_diff(LeftType, LeftData, RightType, RightData, [], User).
+-spec term_diff(atom(), term(), atom(), term(), ddOptions()) -> list(#ddTermDiff{}).
+term_diff(LeftType, LeftData, RightType, RightData, Opts) ->
+    term_diff(LeftType, LeftData, RightType, RightData, Opts, undefined).
 
 -spec term_diff(atom(), term(), atom(), term(), ddOptions(), ddEntityId()) -> list(#ddTermDiff{}).
 term_diff(binstr, LeftData, binstr, RightData, Opts, User) ->
