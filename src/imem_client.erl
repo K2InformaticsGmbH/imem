@@ -133,14 +133,14 @@ parse_http_resp([{_,_}|_] = Headers, Body) ->
         lists:filtermap(
             fun({Field, Value}) ->
                 case re:run(Field, "^content-type$", [caseless]) of
-                    {match, _} -> {true, string:lowercase(Value)};
+                    {match, _} -> {true, list_to_binary(string:lowercase(Value))};
                     _ -> false
                 end
             end,
             Headers
         ),
     case MaybeContentType of
-        ["application/json"] ->
+        [<<"application/json", _/binary>>] ->
             try imem_json:decode(Body, [return_maps])
             catch _:_ -> {error, {invalid_json, Body}}
             end;
