@@ -140,7 +140,7 @@ parse_http_resp([{_,_}|_] = Headers, Body) ->
             Headers
         ),
     case MaybeContentType of
-        [{_, "application/json"}] ->
+        ["application/json"] ->
             try imem_json:decode(Body, [return_maps])
             catch _:_ -> {error, {invalid_json, Body}}
             end;
