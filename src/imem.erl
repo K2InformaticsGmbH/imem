@@ -420,7 +420,7 @@ all_apps_version_info(
                 filePath    = list_to_binary(ModPath)
             },
             if ProcessPriv ->
-                ?Info("~p modules of ~p-~s~n", [length(Rest) + 1, App, AppVsn]),
+                ?Debug("~p modules of ~p-~s~n", [length(Rest) + 1, App, AppVsn]),
                 {FileOrigin, Opts2} = case mod_gitOrigin(Mod) of
                     undefined ->
                         {GitRoot, Repo} = git_info(Opts, mod_source(Mod)),
@@ -440,7 +440,7 @@ all_apps_version_info(
                                 <<"(",(DDRec1#ddVersion.app)/binary, ".*)">>,
                                 [{capture, [1], list}]
                             ),
-                            ?Info(
+                            ?Debug(
                                 "~p files @ ~s of ~p-~s~n",
                                 [length(PrivFiles), PathRoot, App, AppVsn]
                             ),
@@ -610,7 +610,7 @@ walk_priv(
                         <<"(",App/binary, ".*)">>,
                         [{capture, [1], list}]
                     ),
-                    ?Info(
+                    ?Debug(
                         "~p files @ ~s of ~s-~s~n",
                         [length(PrivFiles), PathRoot, App, AppVsn]
                     ),

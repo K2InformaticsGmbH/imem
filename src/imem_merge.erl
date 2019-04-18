@@ -14,6 +14,9 @@
 
 -safe([merge_diff, term_diff]).
 
+-define(HTTP_OPTS,[{timeout,10000}]).
+-define(OPTS,[]).
+
 load(<<"https://",_/binary>> = LeftUrl, User) -> load_http(LeftUrl, User);
 load(<<"http://",_/binary>> = LeftUrl, User) -> load_http(LeftUrl, User);
 load(LeftData, _User) -> LeftData.
@@ -27,7 +30,7 @@ load_http(Url, User) ->
         ?Info("AuthProfile ~p",[AuthProfile]),
         FixedUrl = imem_client:fix_url(Url),
         ?Info("FixedUrl ~p",[FixedUrl]),
-        #{body := Body} = imem_client:http(get, FixedUrl, [], AuthProfile, undefined),
+        #{body := Body} = imem_client:http(get, FixedUrl, [], AuthProfile, undefined, ?HTTP_OPTS, ?OPTS),
         Body
     catch 
         _ -> Url
