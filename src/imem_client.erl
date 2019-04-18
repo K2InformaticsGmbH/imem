@@ -2,13 +2,22 @@
 
 -include("imem_client.hrl").
 
-
 -behavior(gen_server).
 
 -record(state, {}).
 
 -export([ start_link/1
         ]).
+
+-define( APP_AUTH_PROFILE(__Dom, __Acc)
+       , ?GET_CONFIG( appAuthProfile
+                    , [__Dom, __Acc]
+                    , no_auth
+                    , "app authentication profile for domain and account id in context. "
+                      "for http: {basic,\"username\",\"password\"} or "
+                      "{token,\"token\"} or no_auth"
+                    )
+       ).
 
 % gen_server behavior callbacks
 -export([ init/1
@@ -21,7 +30,7 @@
         ]).
 
 % Library APIs
--export([get_profile/3, fix_git_raw_url/1, http/5]).
+-export([get_profile/3, get_auth_profile/2, fix_url/1, http/5, http/7]).
 
 start_link(Params) ->
     ?Info("~p starting...~n", [?MODULE]),
@@ -73,24 +82,37 @@ get_profile(Mod, Profile, Options) ->
     end,
     Profile.
 
-fix_git_raw_url(Url) ->
+get_auth_profile(Domain, AccountId) when is_binary(Domain) -> 
+    get_auth_profile(binary_to_list(Domain), AccountId);
+get_auth_profile(Domain, AccountId) when is_list(Domain) -> 
+    ?APP_AUTH_PROFILE(Domain, AccountId).
+
+fix_url(Url) ->
     case re:run(
         Url, "github.com/([^/]+)/([^/]+)/raw/([^/]+)/(.*)",
         [{capture, [1, 2, 3, 4], list}]
     ) of
-        {match, [Owner, Repo, Commit, Path]} ->
-            "https://" ++ filename:join([
-                "raw.githubusercontent.com/",
-                Owner, Repo, Commit, Path
-            ]);
-        nomatch -> error(bad_url)
+        {match, [Owner, Repo, Commit, Path]} -> 
+            fix_git_raw_url( Owner, Repo, Commit, Path);
+        nomatch -> 
+            Url
     end.
+
+fix_git_raw_url(Owner, Repo, Commit, Path) ->
+    "https://" ++ filename:join([
+        "raw.githubusercontent.com/",
+        Owner, Repo, Commit, Path
+    ]).
+
+http(Op, Url, ReqHeaders, Auth, Body) ->
+   http(Op, Url, ReqHeaders, Auth, Body, [], []).
 
 -spec(
     http(
         get | post, httpc:url(), httpc:headers(),
         {token, string()} | {basic, string(), string()},
-        map() | binary() | undefined
+        map() | binary() | undefined,
+        httpc:http_options(), httpc:options()
     ) ->
         #{httpVsn       := httpc:http_version(),
           statusCode    := httpc:status_code(),
@@ -99,33 +121,50 @@ fix_git_raw_url(Url) ->
           body          := httpc:body() | map()}
         | {error, {invalid_json, httpc:body()}}
 ).
-http(Op, Url, ReqHeaders, Auth, Body) when is_map(Body) ->
+http(Op, Url, ReqHeaders, Auth, Body, HttpOptions, Options) when is_map(Body) ->
     http(
-        Op, {Url, ReqHeaders, "application/json"}, Auth, imem_json:encode(Body)
+        Op, {Url, ReqHeaders, "application/json"}, Auth,
+        imem_json:encode(Body), HttpOptions, Options
     );
-http(Op, Url, ReqHeaders, Auth, Body) ->
-    http(Op, {Url, ReqHeaders, "application/text"}, Auth, Body).
+http(Op, Url, ReqHeaders, Auth, Body, HttpOptions, Options) ->
+    http(
+        Op, {Url, ReqHeaders, "application/text"}, Auth, Body, HttpOptions,
+        Options
+     ).
 
-http(Op, {Url, ReqHeaders, ContentType}, {token, Token}, Body) ->
+http(
+  Op, {Url, ReqHeaders, ContentType}, {token, Token}, Body, HttpOptions,
+  Options
+) ->
     ReqHeaders1 = [{"Authorization","token " ++ Token} | ReqHeaders],
-    http(Op, {Url, ReqHeaders1, ContentType, Body});
-http(Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body) ->
+    http(Op, {Url, ReqHeaders1, ContentType, Body}, HttpOptions, Options);
+http(
+  Op, {Url, ReqHeaders, ContentType}, {basic, User, Password}, Body,
+  HttpOptions, Options
+) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Password])),
     ReqHeaders1 = [{"Authorization","Basic " ++ Encoded} | ReqHeaders],
-    http(Op, {Url, ReqHeaders1, ContentType, Body}).
+    http(Op, {Url, ReqHeaders1, ContentType, Body}, HttpOptions, Options);
+http(Op, {Url, ReqHeaders, ContentType}, no_auth, Body, HttpOptions, Options) ->
+    http(Op, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options).
 
-http(get, {Url, ReqHeaders, _, _}) ->
-    http_req(get, {Url, ReqHeaders});
-http(post, {Url, ReqHeaders, ContentType, Body}) when is_binary(Body) ->
-    http_req(post, {Url, ReqHeaders, ContentType, Body}).
+http(get, {Url, ReqHeaders, _, _}, HttpOptions, Options) ->
+    http_req(get, {Url, ReqHeaders}, HttpOptions, Options);
+http(
+  post, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options
+) when is_binary(Body) ->
+    http_req(post, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options).
 
-http_req(Method, Request) ->
-    case httpc:request(Method, Request, [], [{body_format, binary}]) of
+http_req(Method, Request, HttpOptions, Options) ->
+    case httpc:request(
+           Method, Request, HttpOptions,
+           lists:usort([{body_format, binary}|Options])
+    ) of
         {ok, {{HttpVsn, StatusCode, ReasonPhrase}, RespHeaders, RespBody}} ->
             #{httpVsn => HttpVsn, statusCode => StatusCode,
               reasonPhrase => ReasonPhrase, headers => RespHeaders,
               body => parse_http_resp(RespHeaders, RespBody)};
-        {error, Error} -> error(Error)
+        {error, _} = Error -> Error
     end.
 
 parse_http_resp([{_,_}|_] = Headers, Body) ->
@@ -133,7 +172,8 @@ parse_http_resp([{_,_}|_] = Headers, Body) ->
         lists:filtermap(
             fun({Field, Value}) ->
                 case re:run(Field, "^content-type$", [caseless]) of
-                    {match, _} -> {true, list_to_binary(string:lowercase(Value))};
+                    {match, _} ->
+                        {true, list_to_binary(string:lowercase(Value))};
                     _ -> false
                 end
             end,
