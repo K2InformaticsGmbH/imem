@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Vesrion 3.4.0 (Release Date 18.04.2019)
+=======================================
+* http interface in imem_client
+* git diff functionality with srource code
+* sql parse 4.6.1
+
 Vesrion 3.3.2 (Release Date 20.03.2019)
 =======================================
 * ddVersion: git command optimized
