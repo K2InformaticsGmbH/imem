@@ -24,6 +24,7 @@
         , del_dirtree/1
         , snap_file_count/0
         , exclude_table_pattern/1
+        , filter_candidate_list/2
         , suspend_snap_loop/0
         , start_snap_loop/0
         , restart_snap_loop/0
@@ -51,8 +52,8 @@
         , all_local_time_partitioned_tables/0
         ]).
 
--safe([all_snap_tables,get_snap_properties,set_snap_properties,snap_log,
-       snap_err,take]).
+-safe([all_snap_tables,filter_candidate_list, get_snap_properties,
+        set_snap_properties,snap_log,snap_err,take]).
 
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
@@ -80,11 +81,7 @@
             ?GET_CONFIG(snapshotScriptFun, [],
                         <<"fun(ExcludePatterns) ->
                             ExcludeList = [dual, ddSize, ddNode | [imem_meta:physical_table_name(T) || T <- [ddCache@,ddSeCo@,ddPerm@]]],
-                            ExcludePred = fun(AN) -> 
-                                SN = atom_to_list(AN),
-                                [error || E <- ExcludePatterns, re:run(SN, E) /= nomatch] == []
-                            end,
-                            Candidates = lists:filter(ExcludePred,imem_snap:all_snap_tables() -- ExcludeList), 
+                            Candidates = imem_snap:filter_candidate_list(ExcludePatterns,imem_snap:all_snap_tables() -- ExcludeList), 
                             [(fun() ->
                                 case imem_snap:get_snap_properties(T) of
                                     {} ->               ok;
@@ -691,6 +688,12 @@ all_local_time_partitioned_tables() ->
                     imem_meta:is_readable_table(T)
                     andalso imem_meta:is_local_time_partitioned_table(T)
                 end, imem_meta:all_tables()).
+
+%% ----- Helper function for snapshot script -------------------------
+-spec filter_candidate_list([string()], [atom()]) -> [atom()].
+filter_candidate_list(ExcludePatterns, Candidates) ->
+    {ok, Compiled} = re:compile(string:join(ExcludePatterns, "|")),
+    [C || C <- Candidates, re:run(atom_to_list(C), Compiled) =:= nomatch].
 
 %% ----- PRIVATE APIS ------------------------------------------------
 
