@@ -3,6 +3,10 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Vesrion 3.4.1 (Release Date 30.04.2019)
+=======================================
+* Improved performance of imem_snap candidate check
+
 Vesrion 3.4.0 (Release Date 18.04.2019)
 =======================================
 * http interface in imem_client
