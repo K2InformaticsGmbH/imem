@@ -690,6 +690,7 @@ all_local_time_partitioned_tables() ->
                 end, imem_meta:all_tables()).
 
 %% ----- Helper function for snapshot script -------------------------
+-spec filter_candidate_list([string()], [atom()]) -> [atom()].
 filter_candidate_list(ExcludePatterns, Candidates) ->
     {ok, Compiled} = re:compile(string:join(ExcludePatterns, "|")),
     [C || C <- Candidates, re:run(atom_to_list(C), Compiled) =:= nomatch].
