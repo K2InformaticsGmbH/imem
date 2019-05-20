@@ -68,6 +68,7 @@ imem_opts=$imem_opts" mnesia_node_type ram"
 imem_opts=$imem_opts" erl_cluster_mgrs [$cms]"
 imem_opts=$imem_opts" mnesia_schema_name imem"
 imem_opts=$imem_opts" tcp_port 8125"
+imem_opts=$imem_opts" cold_start_recover false"
 
 # sasl opts
 sasl_opts="-sasl"
