@@ -991,8 +991,8 @@ handle_info(check_epmd, State) ->
     {noreply, State};
 handle_info(Info, State) ->
     case Info of
-        {mnesia_system_event,{mnesia_overload,Details}} ->
-            ?Warn("Mnesia overload : ~p!",[Details]),
+        {mnesia_system_event,{mnesia_overload,_Details}} ->
+            % ?Warn("Mnesia overload : ~p!",[_Details]),
             {noreply, State};
         {mnesia_system_event,{mnesia_down,Node}} ->
             case node() of 
