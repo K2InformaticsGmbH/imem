@@ -184,8 +184,11 @@ state_from_params(OrigState = #state{level = OldLevel,
                     application = Application}.
 
 create_check_ddLog(Name) ->
-    imem_meta:init_create_check_table(
-        Name, {record_info(fields, ddLog), ?ddLog, #ddLog{}},
-        [{record_name, element(1, #ddLog{})},
-         {type, ordered_set}, {purge_delay,430000}],
-        lager_imem).
+    case catch imem_meta:create_check_table(
+      Name, {record_info(fields, ddLog), ?ddLog, #ddLog{}},
+      [{record_name, element(1, #ddLog{})}, {type, ordered_set},
+       {purge_delay,430000}], lager_imem) of
+        {ok, _} -> ok;
+        {'ClientError',{"Table already exists", _}} -> ok;
+        Result -> Result
+    end.
