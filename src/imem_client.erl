@@ -109,7 +109,7 @@ http(Op, Url, ReqHeaders, Auth, Body) ->
 
 -spec(
     http(
-        get | post, httpc:url(), httpc:headers(),
+        get | post | put | delete, httpc:url(), httpc:headers(),
         {token, string()} | {basic, string(), string()},
         map() | binary() | undefined,
         httpc:http_options(), httpc:options()
@@ -148,12 +148,13 @@ http(
 http(Op, {Url, ReqHeaders, ContentType}, no_auth, Body, HttpOptions, Options) ->
     http(Op, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options).
 
-http(get, {Url, ReqHeaders, _, _}, HttpOptions, Options) ->
-    http_req(get, {Url, ReqHeaders}, HttpOptions, Options);
+http(Method, {Url, ReqHeaders, _, _}, HttpOptions, Options)
+  when Method == get; Method == delete ->
+    http_req(Method, {Url, ReqHeaders}, HttpOptions, Options);
 http(
-  post, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options
-) when is_binary(Body) ->
-    http_req(post, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options).
+  Method, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options
+) when is_binary(Body) andalso (Method == put orelse Method == post) ->
+    http_req(Method, {Url, ReqHeaders, ContentType, Body}, HttpOptions, Options).
 
 http_req(Method, Request, HttpOptions, Options) ->
     case httpc:request(
