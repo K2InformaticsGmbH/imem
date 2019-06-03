@@ -110,7 +110,7 @@ http(Op, Url, ReqHeaders, Auth, Body) ->
 -spec(
     http(
         get | post | put | delete, httpc:url(), httpc:headers(),
-        {token, string()} | {basic, string(), string()},
+        {token, string()} | {basic, string(), string()} | no_auth,
         map() | binary() | undefined,
         httpc:http_options(), httpc:options()
     ) ->
@@ -123,7 +123,7 @@ http(Op, Url, ReqHeaders, Auth, Body) ->
 ).
 http(Op, Url, ReqHeaders, Auth, Body, HttpOptions, Options) when is_map(Body) ->
     http(
-        Op, {Url, ReqHeaders, "application/json"}, Auth,
+        Op, {Url, ReqHeaders, "application/json; charset=utf-8"}, Auth,
         imem_json:encode(Body), HttpOptions, Options
     );
 http(Op, Url, ReqHeaders, Auth, Body, HttpOptions, Options) ->
