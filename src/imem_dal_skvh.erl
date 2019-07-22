@@ -694,7 +694,13 @@ map_to_skvh_rec(#{ckey := DecodedKey, cvalue := CValue, chash := CHash}) ->
     #skvhTable{ckey = CKey, cvalue = CValue, chash = CHash};
 map_to_skvh_rec(#{ckey := DecodedKey, cvalue := CValue}) ->
     CKey = imem_datatype:term_to_binterm(DecodedKey),
-    #skvhTable{ckey = CKey, cvalue = CValue}.
+    #skvhTable{ckey = CKey, cvalue = CValue};
+map_to_skvh_rec(#{ckey := DecodedKey, cvhist := CVHist}) ->
+    CKey = imem_datatype:term_to_binterm(DecodedKey),
+    #skvhHist{ckey = CKey, cvhist = [map_to_skvh_cl(C) || C <- CVHist]}.
+
+map_to_skvh_cl(#{time := Time, ovalue := OldValue, nvalue := NewValue, cuser := User}) ->
+    #skvhCL{time = Time, ovalue = OldValue, nvalue = NewValue, cuser = User}.
 
 % io_hash_to_term(Hash) when is_binary(Hash) -> Hash.
 

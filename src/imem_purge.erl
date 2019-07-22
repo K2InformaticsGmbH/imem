@@ -19,6 +19,18 @@
 end
 ">>,"Function used for tailoring the purge strategy to the system's needs.")).
 
+-define(GET_PURGE_HIST,
+            ?GET_CONFIG(isHistPurgeEnabled, [], false,
+                        "Should hist records be purged periodically")).
+
+-define(GET_PURGE_HIST_TOD,
+            ?GET_CONFIG(purgeHistHourOfDay, [], 3,
+                        "Hour of (00..23)day in which history table are can be purged")).
+
+-define(GET_PURGE_HIST_DAYS,
+            ?GET_CONFIG(purgeHistDayThreshold, [], 100,
+                        "Days after which history record is deleted")).
+
 -behavior(gen_server).
 
 -record(state, { purgeList=[]               :: list()
@@ -58,6 +70,7 @@ start_link(Params) ->
 
 init(_Args) ->
   erlang:send_after(10000, self(), purge_partitioned_tables),
+  erlang:send_after(10000, self(), purge_history_tables),
   process_flag(trap_exit, true),
   {ok,#state{}}.
 
@@ -143,8 +156,28 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
       erlang:send_after(PurgeItemWait, self(), {purge_partitioned_tables, PurgeCycleWait, PurgeItemWait}),
       {noreply, State#state{purgeList=Rest}}
   end;
+handle_info(purge_history_tables, State) ->
+    case ?GET_PURGE_HIST of
+        true ->
+            {H, _, _} = time(),
+            case ?GET_PURGE_HIST_TOD of
+                H ->
+                    HistTables = lists:filter(
+                        fun(T) ->
+                            Ts = erlang:atom_to_list(T),
+                            nomatch /= re:run(Ts, "Hist")
+                        end, imem_meta:all_tables()),
+                    purge_history_tables(HistTables),
+                    erlang:send_after(60 * 60 * 1000, self(), purge_history_tables);
+                _ ->
+                    erlang:send_after(10000, self(), purge_history_tables)
+            end;
+        false ->
+            erlang:send_after(10000, self(), purge_history_tables)
+    end,
+    {noreply, State};
 handle_info(_Info, State) ->
-  {noreply, State}.
+    {noreply, State}.
 
 terminate(normal, _State) -> ?Info("~p normal stop~n", [?MODULE]);
 terminate(shutdown, _State) -> ?Info("~p shutdown~n", [?MODULE]);
@@ -254,3 +287,7 @@ purge_partitioned_table(Table) ->
       catch imem_meta:drop_table(Table);
     true -> no_op
   end.
+
+purge_history_tables([]) -> no_op;
+purge_history_tables([HistTable | HistTables]) ->
+    purge_history_tables(HistTables).
