@@ -550,7 +550,6 @@ skvh_purge_history(_Config) ->
     #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 4})),
     [#{cvhist := Hists}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
     ?assertEqual(4, length(Hists)),
-
     ?assertEqual(ok, imem_dal_skvh:purge_history_tables([HistTable])),
     [#{cvhist := Hists2}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
     ?assertEqual(2, length(Hists2)),
