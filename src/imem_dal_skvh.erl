@@ -1048,7 +1048,7 @@ purge_history_tables([HistTable | HistTables]) ->
             Hist2 = lists:foldl(
                 fun(#skvhCL{time = Time} = Cl, ClAcc) ->
                     {Date, _} = imem_datatype:timestamp_to_local_datetime(Time),
-                    case Date < DateBefore of
+                    case Date =< DateBefore of
                         true -> ClAcc;
                         false -> [Cl | ClAcc]
                     end;
@@ -1057,7 +1057,7 @@ purge_history_tables([HistTable | HistTables]) ->
             Hist3 = [Last | Hist2],
             Hist4 = [First | lists:reverse(Hist3)],
             imem_meta:write(HistTable, Rec#skvhHist{cvhist = Hist4}),
-            Acc + 1;
+            Acc;
            (_, Acc) -> Acc
         end,
     imem_meta:foldl(HistFoldFun, {DateBefore, HistTable}, HistTable),

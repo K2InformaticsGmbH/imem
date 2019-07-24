@@ -16,7 +16,8 @@
     end_per_testcase/2,
     init_per_testcase/2,
     skvh_concurrency/1,
-    skvh_operations/1
+    skvh_operations/1,
+    skvh_purge_history/1
 ]).
 
 -define(AUDIT_SUFFIX, "Audit_86400@_").
@@ -536,6 +537,26 @@ skvh_operations(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [trigger_overwrite_check]),
 
     ok.
+
+skvh_purge_history(_Config) ->
+    imem_config:put_config_hlk(?CONFIG_TABLE, {imem,imem_dal_skvh,purgeHistDayThreshold}, imem_dal_skvh, [], 0, <<"zero">>),
+    ?assertEqual(ok, imem_dal_skvh:create_check_channel(?Channel)),
+    ?assertEqual([], imem_dal_skvh:hist_read(system, ?Channel, [[test]])),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 1})),
+    HistTable = list_to_atom(?HIST(?Channel)),
+    [#{cvhist := [First]}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 2})),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 3})),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 4})),
+    [#{cvhist := Hists}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
+    ?assertEqual(4, length(Hists)),
+
+    ?assertEqual(ok, imem_dal_skvh:purge_history_tables([HistTable])),
+    [#{cvhist := Hists2}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
+    ?assertEqual(2, length(Hists2)),
+    [Last, First] = Hists2,
+    #{nvalue := LastNval} = Last,
+    ?assertEqual(imem_json:encode(#{test => 4}), LastNval).
 
 %%====================================================================
 %% Helper functions.
