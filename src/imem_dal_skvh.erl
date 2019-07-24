@@ -84,6 +84,10 @@
 % -define(E116,{116,<<"Invalid option value">>}).
 -define(E117(__Term),{117,"Too many values, Limit exceeded",__Term}).
 
+-define(GET_PURGE_HIST_DAYS(__HIST_TABLE),
+            ?GET_CONFIG(purgeHistDayThreshold, [__HIST_TABLE], 100,
+                        "Days after which history record is deleted")).
+
 
 -export([ table_name/1              %% (Channel)                    return table name as binstr
         , atom_table_name/1         %% (Channel)                    return table name as atom
@@ -120,6 +124,7 @@
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
         , prune_history/2   %% (User, Channel)                      keeps the last non noop history states and cverifies history state exists for all the keys
+        , purge_history_tables/1 %% (HistTables)               keeps the last non noop history states and cverifies history state exists for all the keys
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
@@ -1029,6 +1034,34 @@ prune_history(User, Channel) ->
             #skvhHist{ckey=EKey, cvhist=[#skvhCL{time=HistTime, ovalue=OValue, nvalue=NValue, cuser=CUser}]})
     end,
     foldl(User, PruneFun, [], Channel).
+
+-spec purge_history_tables([atom()]) -> ok.
+purge_history_tables([]) -> ok;
+purge_history_tables([HistTable | HistTables]) ->
+    Days = ?GET_PURGE_HIST_DAYS(HistTable),
+    DateBefore = calendar:gregorian_days_to_date(
+                    calendar:date_to_gregorian_days(date()) - Days),
+    HistFoldFun =
+        fun(#skvhHist{cvhist = [First, _, _ | _] = Hist} = Rec, Acc) ->
+            [Last | RestRev ] = lists:reverse(Hist),
+            [First | Rest] = lists:reverse(RestRev),
+            Hist2 = lists:foldl(
+                fun(#skvhCL{time = Time} = Cl, ClAcc) ->
+                    {Date, _} = imem_datatype:timestamp_to_local_datetime(Time),
+                    case Date < DateBefore of
+                        true -> ClAcc;
+                        false -> [Cl | ClAcc]
+                    end;
+                   (Cl, ClAcc) -> [Cl | ClAcc]
+                end, [], Rest),
+            Hist3 = [Last | Hist2],
+            Hist4 = [First | lists:reverse(Hist3)],
+            imem_meta:write(HistTable, Rec#skvhHist{cvhist = Hist4}),
+            Acc + 1;
+           (_, Acc) -> Acc
+        end,
+    imem_meta:foldl(HistFoldFun, {DateBefore, HistTable}, HistTable),
+    purge_history_tables(HistTables).
 
 -spec prune_cvhist(list(), binary(), tuple(), ddEntityId()) -> tuple().
 prune_cvhist([], Value, Time, User) -> {Time, undefined, Value, User};

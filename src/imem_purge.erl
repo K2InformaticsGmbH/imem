@@ -27,10 +27,6 @@ end
             ?GET_CONFIG(purgeHistHourOfDay, [], 3,
                         "Hour of (00..23)day in which history table are can be purged")).
 
--define(GET_PURGE_HIST_DAYS,
-            ?GET_CONFIG(purgeHistDayThreshold, [], 100,
-                        "Days after which history record is deleted")).
-
 -behavior(gen_server).
 
 -record(state, { purgeList=[]               :: list()
@@ -167,7 +163,9 @@ handle_info(purge_history_tables, State) ->
                             Ts = erlang:atom_to_list(T),
                             nomatch /= re:run(Ts, "Hist")
                         end, imem_meta:all_tables()),
-                    purge_history_tables(HistTables),
+                    spawn(fun() ->
+                        imem_dal_skvh:purge_history_tables(HistTables)
+                    end),
                     erlang:send_after(60 * 60 * 1000, self(), purge_history_tables);
                 _ ->
                     erlang:send_after(10000, self(), purge_history_tables)
@@ -287,7 +285,3 @@ purge_partitioned_table(Table) ->
       catch imem_meta:drop_table(Table);
     true -> no_op
   end.
-
-purge_history_tables([]) -> no_op;
-purge_history_tables([HistTable | HistTables]) ->
-    purge_history_tables(HistTables).
