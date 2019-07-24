@@ -65,6 +65,12 @@ handle_metric_req(data_nodes, ReplyFun, State) ->
     State;
 handle_metric_req(process_statistics, ReplyFun, State) ->
     process_statistics(ReplyFun, State);
+handle_metric_req({partition_size, TableAlias, FromPartitionIndex,
+                   ToPartitionIndex}, ReplyFun, State) when is_atom(TableAlias),
+        is_integer(FromPartitionIndex), is_integer(ToPartitionIndex) ->
+    Size = partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex),
+    ReplyFun(#{size => Size}),
+    State;
 handle_metric_req(UnknownMetric, ReplyFun, State) ->
     ?Error("Unknow metric requested ~p", [UnknownMetric]),
     ReplyFun({error, unknown_metric}),
@@ -131,3 +137,19 @@ max_key(heap_size) -> max_heap_size;
 max_key(stack_size) -> max_stack_size;
 max_key(total_heap_size) -> max_total_heap_size;
 max_key(message_queue_len) -> max_message_queue_len.
+
+partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex) ->
+    case imem_meta:is_time_partitioned_alias(TableAlias) of
+        true ->
+            FPIndex = erlang:abs(FromPartitionIndex),
+            TPIndex = erlang:abs(ToPartitionIndex),
+            Tables = lists:sort(imem_meta:physical_table_names(TableAlias)),
+            PartitionList = lists:zip(lists:seq(0, length(Tables) - 1), Tables),
+            lists:foldl(
+                fun({Num, Table}, Acc) when (Num >= FPIndex), (Num =< TPIndex) ->
+                    imem_meta:table_size(Table) + Acc;
+                   (_, Acc) -> Acc
+                end, 0, PartitionList);
+        false ->
+            0
+    end.
