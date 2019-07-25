@@ -306,3 +306,34 @@ log_cmd(Cmd, Args, Port, Buf) when is_port(Port) ->
 decode_key(_Algorithm, KeyBin) ->
     [PemEntry] = public_key:pem_decode(KeyBin),
     #'RSAPrivateKey'{} = public_key:pem_entry_decode(PemEntry).
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+connect_test_() ->
+    {inparallel,
+        [{Title, ?_assertEqual(Expected, connect(Input))}
+              || {Title, Input, Expected} <- [
+                {"cifs_list_str", "//localhost/share",
+                 #{proto => cifs, path => "//localhost/share"}},
+                {"cifs_bin_str", <<"//localhost/share">>,
+                 #{proto => cifs, path => <<"//localhost/share">>}},
+                {"local_list_str_big", "C:/localhost/share",
+                 #{proto => local, path => "C:/localhost/share"}},
+                {"local_list_str_small", "c:/localhost/share",
+                 #{proto => local, path => "c:/localhost/share"}},
+                {"local_bin_str_big", <<"C:/localhost/share">>,
+                 #{proto => local, path => <<"C:/localhost/share">>}},
+                {"local_bin_str_small", <<"c:/localhost/share">>,
+                 #{proto => local, path => <<"c:/localhost/share">>}},
+                {"unix_bin_str", <<"/home/user/share">>,
+                 #{proto => local, path => <<"/home/user/share">>}},
+                {"unix_list_str", "/home/user/share",
+                 #{proto => local, path => "/home/user/share"}},
+                {"bad arg test", "test", {error, badarg}}
+            ]
+        ]
+    }.
+
+-endif.
