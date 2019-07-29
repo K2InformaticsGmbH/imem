@@ -65,9 +65,9 @@ handle_metric_req(data_nodes, ReplyFun, State) ->
     State;
 handle_metric_req(process_statistics, ReplyFun, State) ->
     process_statistics(ReplyFun, State);
-handle_metric_req({partition_size, TableAlias, FromPartitionIndex,
-                   ToPartitionIndex}, ReplyFun, State) when is_atom(TableAlias),
-        is_integer(FromPartitionIndex), is_integer(ToPartitionIndex) ->
+handle_metric_req(
+        {partition_size, TableAlias, FromPartitionIndex, ToPartitionIndex}, ReplyFun, State
+    ) when is_atom(TableAlias), is_integer(FromPartitionIndex), is_integer(ToPartitionIndex) ->
     Size = partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex),
     ReplyFun(#{size => Size}),
     State;
@@ -146,9 +146,11 @@ partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex) ->
             Tables = lists:sort(imem_meta:physical_table_names(TableAlias)),
             PartitionList = lists:zip(lists:seq(0, length(Tables) - 1), Tables),
             lists:foldl(
-                fun({Num, Table}, Acc) when (Num >= FPIndex), (Num =< TPIndex) ->
-                    imem_meta:table_size(Table) + Acc;
-                   (_, Acc) -> Acc
+                fun
+                    ({Num, Table}, Acc) when Num >= FPIndex, Num =< TPIndex ->
+                        imem_meta:table_size(Table) + Acc;
+                    (_, Acc) ->
+                        Acc
                 end, 0, PartitionList);
         false ->
             0
