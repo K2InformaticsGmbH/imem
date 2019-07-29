@@ -68,7 +68,7 @@ handle_metric_req(process_statistics, ReplyFun, State) ->
 handle_metric_req(
         {partition_size, TableAlias, FromPartitionIndex, ToPartitionIndex}, ReplyFun, State
     ) when is_atom(TableAlias), is_integer(FromPartitionIndex),
-           is_integer(ToPartitionIndex), FromPartitionIndex > ToPartitionIndex ->
+           is_integer(ToPartitionIndex), FromPartitionIndex >= ToPartitionIndex ->
     Size = partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex),
     ReplyFun(#{size => Size}),
     State;
@@ -143,8 +143,8 @@ partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex) ->
     case imem_meta:is_time_partitioned_alias(TableAlias) of
         true ->
             Now = imem_datatype:seconds_since_epoch(imem_meta:time()),
-            [[$@|RN]|_] = string:tokens(lists:reverse(atom_to_list(TableAlias)), "_"),
-            PTime = list_to_integer(lists:reverse(RN)),
+            [_, _, _, _, PTStr, _, _] = imem_meta:parse_table_name(TableAlias),
+            PTime = list_to_integer(PTStr),
             TableNames = [imem_meta:partitioned_table_name(TableAlias, {Now - (PTime * T), 0})
                             || T <- lists:seq(ToPartitionIndex, FromPartitionIndex)],
             lists:foldl(
