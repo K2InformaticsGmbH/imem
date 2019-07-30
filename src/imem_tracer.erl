@@ -401,7 +401,15 @@ trace_whitelist(U, W) when is_list(W) ->
                         "list of MFAs safe to trace on local node")
     end.
 
-timestamp() ->
+timestamp() -> timestamp(os:type()).
+timestamp({win32,nt}) ->
+    % QPCounter                         : ticks counts (< 1 us)
+    % QPFrequency                       : ticks per second
+    % QPCounter / QPFrequency           : seconds elapsed
+    % QPCounter / QPFrequency * 1000000 : us elapsed
+    imem_win32:queryPerformanceCounter() * 1000000
+        div imem_win32:queryPerformanceFrequency();
+timestamp(_) ->
     erlang:system_time(microsecond).
 
 timestamp_sec() ->
