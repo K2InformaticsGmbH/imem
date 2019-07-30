@@ -1,8 +1,6 @@
 -ifndef(IMEM_HRL).
 -define(IMEM_HRL, true).
 
--define(LOG_TAG, "_IMEM_").
-
 -ifdef(TEST).
     -define(__T,
     (fun() ->
@@ -22,9 +20,9 @@
 
 -ifndef(TEST). % LAGER Enabled
     -define(Log(__F,__A), ok).
-    -define(L(__Tag,__M,__F,__A), lager:__Tag(__M, "["++?LOG_TAG++"] {~p,~p} "++__F, [?MODULE,?LINE|__A])).
-    -define(L(__Tag,__F,__A),     lager:__Tag(     "["++?LOG_TAG++"] {~p,~p} "++__F, [?MODULE,?LINE|__A])).
-    -define(L(__Tag,__F),         lager:__Tag(     "["++?LOG_TAG++"] {~p,~p} "++__F, [?MODULE,?LINE])).
+    -define(L(__Tag,__M,__F,__A), lager:__Tag(__M, __F, __A)).
+    -define(L(__Tag,__F,__A),     lager:__Tag(     __F, __A)).
+    -define(L(__Tag,__F),         lager:__Tag(     __F)).
 -else. % TEST
     -define(N(__X), case lists:reverse(__X) of [$n,$~|_] -> __X; _ -> __X++"~n" end).
     -define(L(__Tag,__M,__F,__A), io:format(user, ?__T++" ["??__Tag"] {~p,~p} "++?N(__F),

@@ -284,8 +284,7 @@
 -export([ merge_diff/3      %% merge two data tables into a bigger one, presenting the differences side by side
         , merge_diff/4      %% merge two data tables into a bigger one, presenting the differences side by side
         , merge_diff/5      %% merge two data tables into a bigger one, presenting the differences side by side
-        , term_diff/4       %% take (LeftType, LeftData, RightType, RightData) and produce data for a side-by-side view 
-        , term_diff/5       %% take (LeftType, LeftData, RightType, RightData, Opts) and produce data for a side-by-side view 
+        , term_diff/6       %% take (LeftType, LeftData, RightType, RightData, Opts, User) and produce data for a side-by-side view 
         ]).
 
 % Functions applied with Common Test
@@ -3210,13 +3209,9 @@ merge_diff(Left, Right, Merged, Opts) ->
 merge_diff(Left, Right, Merged, Opts, User) ->
     imem_merge:merge_diff(Left, Right, Merged, Opts, User).
 
--spec term_diff(atom(), term(), atom(), term()) -> list(tuple()).
-term_diff(LeftType, LeftData, RightType, RightData) ->
-    term_diff(LeftType, LeftData, RightType, RightData, []).
-
--spec term_diff(atom(), term(), atom(), term(), ddOptions()) -> list(tuple()).
-term_diff(LeftType, LeftData, RightType, RightData, Opts) ->
-    imem_merge:term_diff(LeftType, LeftData, RightType, RightData, Opts).
+-spec term_diff(atom(), term(), atom(), term(), ddOptions(), ddEntityId()) -> list(tuple()).
+term_diff(LeftType, LeftData, RightType, RightData, Opts, User) ->
+    imem_merge:term_diff(LeftType, LeftData, RightType, RightData, Opts, User).
 
 
 %% ----- TESTS ------------------------------------------------

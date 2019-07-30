@@ -870,8 +870,8 @@ term_diff(SKey, LeftType, LeftData, RightType, RightData) ->
     term_diff(SKey, LeftType, LeftData, RightType, RightData, []).
 
 term_diff(SKey, LeftType, LeftData, RightType, RightData, Opts) ->
-    seco_authorized(SKey),
-    imem_meta:term_diff(LeftType, LeftData, RightType, RightData, Opts).
+    #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
+    imem_meta:term_diff(LeftType, LeftData, RightType, RightData, Opts, AccountId).
 
 
 %% ------- security extension for sql and tables (exported) ---------------------------------

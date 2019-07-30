@@ -49,12 +49,12 @@ start(_Type, StartArgs) ->
     % cluster manager node itself may not run any apps
     % it only helps to build up the cluster
     % ?Notice("---------------------------------------------------~n"),
-    ?Notice(" STARTING IMEM~n"),
+    ?Notice(" STARTING IMEM"),
     case application:get_env(erl_cluster_mgrs) of
-        {ok, []} -> ?Info("cluster manager node(s) not defined!~n");
+        {ok, []} -> ?Info("cluster manager node(s) not defined!");
         {ok, CMNs} ->
             CMNodes = lists:usort(CMNs) -- [node()],
-            ?Info("joining cluster with ~p~n", [CMNodes]),
+            ?Info("joining cluster with ~p", [CMNodes]),
             ok = join_erl_cluster(CMNodes)
     end,
     case application:get_env(start_time) of
@@ -81,7 +81,7 @@ start(_Type, StartArgs) ->
     RunningMnesia = lists:member(mnesia,
                                  [A || {A, _} <- proplists:get_value(running, AppInfo)]),
     if RunningMnesia ->
-           ?Error("Mnesia already started~n"),
+           ?Error("Mnesia already started"),
            {error, mnesia_already_started};
        true ->
            LoadedMnesia = lists:member(
@@ -91,11 +91,11 @@ start(_Type, StartArgs) ->
            config_start_mnesia(),
            case imem_sup:start_link(StartArgs) of
                {ok, _} = Success ->
-                   ?Notice(" IMEM STARTED~n"),
+                   ?Notice(" IMEM STARTED"),
                    % ?Notice("---------------------------------------------------~n"),
                    Success;
                Error ->
-                   ?Error(" IMEM FAILED TO START ~p~n", [Error]),
+                   ?Error(" IMEM FAILED TO START ~p", [Error]),
                    Error
            end
     end.
@@ -120,7 +120,7 @@ wait_remote_imem() ->
                         imem, 1,
                         rpc:call(N, application, which_applications, []))
         ],
-    ?Info("Nodes ~p already running IMEM~n", [RunningImemNodes]),
+    ?Info("Nodes ~p already running IMEM", [RunningImemNodes]),
 
     % Building lists of nodes already loaded IMEM but not in running state
     % (ongoing IMEM boot)
@@ -130,7 +130,7 @@ wait_remote_imem() ->
                         imem, 1,
                         rpc:call(N, application, loaded_applications, []))
         ] -- RunningImemNodes,
-    ?Info("Nodes ~p loaded but not running IMEM~n",
+    ?Info("Nodes ~p loaded but not running IMEM",
           [LoadedButNotRunningImemNodes]),
 
     % Wait till imem application env parameter start_time for
@@ -178,7 +178,7 @@ wait_remote_imem([Node|Nodes]) ->
                 false ->
                     % IMEM loaded but not finished starting yet,
                     % waiting 500 ms before retrying
-                    ?Info("Node ~p starting IMEM, waiting for it to finish starting~n",
+                    ?Info("Node ~p starting IMEM, waiting for it to finish starting",
                           [Node]),
                     %set_node_status([Node|Nodes]),
                     timer:sleep(500),
@@ -208,15 +208,15 @@ config_start_mnesia() ->
 
 stop(_State) ->
     imem_server:stop(),
-	?Info("stopped imem_server~n"),
-	?Info("stopping mnesia...~n"),
+	?Info("stopped imem_server"),
+	?Info("stopping mnesia..."),
     spawn(
       fun() ->
               stopped = mnesia:stop(),
-              ?Info("stopped mnesia~n")
+              ?Info("stopped mnesia")
       end),
-	?Notice("SHUTDOWN IMEM~n"),
-    ?Notice("---------------------------------------------------~n").
+	?Notice("SHUTDOWN IMEM"),
+    ?Notice("---------------------------------------------------").
 
 join_erl_cluster([]) -> ok;
 join_erl_cluster([Node|Nodes]) ->
@@ -226,9 +226,9 @@ join_erl_cluster([Node|Nodes]) ->
                 undefined -> set_start_time(Node);
                 _ -> ok
             end,
-            ?Info("joined node ~p~n", [Node]);
+            ?Info("joined node ~p", [Node]);
         pang ->
-            ?Info("node ~p down!~n", [Node])
+            ?Info("node ~p down!", [Node])
     end,
     join_erl_cluster(Nodes).
 
@@ -420,7 +420,7 @@ all_apps_version_info(
                 filePath    = list_to_binary(ModPath)
             },
             if ProcessPriv ->
-                ?Info("~p modules of ~p-~s~n", [length(Rest) + 1, App, AppVsn]),
+                ?Debug("~p modules of ~p-~s~n", [length(Rest) + 1, App, AppVsn]),
                 {FileOrigin, Opts2} = case mod_gitOrigin(Mod) of
                     undefined ->
                         {GitRoot, Repo} = git_info(Opts, mod_source(Mod)),
@@ -440,7 +440,7 @@ all_apps_version_info(
                                 <<"(",(DDRec1#ddVersion.app)/binary, ".*)">>,
                                 [{capture, [1], list}]
                             ),
-                            ?Info(
+                            ?Debug(
                                 "~p files @ ~s of ~p-~s~n",
                                 [length(PrivFiles), PathRoot, App, AppVsn]
                             ),
@@ -543,8 +543,10 @@ git_info(_Opts, {Url, Revision}) ->
     {list_to_binary([CleanUrl, "/raw/", string:trim(Revision)]),
      lists:last(filename:split(CleanUrl))}.
 
+git_file(#{gitRepo := Repo} = Opts, Path) when is_list(Repo) ->
+    git_file(Opts#{gitRepo := list_to_binary(Repo)}, Path);
 git_file(#{git := GitExe, gitRepo := Repo} = Opts, Path) when GitExe /= false ->
-    case re:run(Path, Repo++"(.*)", [{capture, [1], list}]) of
+    case re:run(Path, <<Repo/binary,"(.*)">>, [{capture, [1], list}]) of
         {match, [RelativePath]} ->
             git_file_low(Opts#{absPath => Path}, RelativePath);
         _ -> <<>>
@@ -583,7 +585,7 @@ git_file_low(
             );
         {<<"error: pathspec", _/binary>>, _} ->
             #{gitRepo := Repo} = Opts,
-            case re:run(Path, "lib/"++Repo++"(.*)", [{capture, [1], list}]) of
+            case re:run(Path, <<"lib/", Repo/binary, "(.*)">>, [{capture, [1], list}]) of
                 nomatch -> notfound;
                 {match, [RelativePath1]} ->
                     list_to_binary([GitRoot, RelativePath1])
@@ -608,7 +610,7 @@ walk_priv(
                         <<"(",App/binary, ".*)">>,
                         [{capture, [1], list}]
                     ),
-                    ?Info(
+                    ?Debug(
                         "~p files @ ~s of ~s-~s~n",
                         [length(PrivFiles), PathRoot, App, AppVsn]
                     ),
@@ -638,9 +640,16 @@ file_phash2(FilePath) ->
     end.
 
 os_cmd(Exe, Dir, Args) ->
+    case filelib:is_dir(Dir) of
+        true ->
+            os_cmd(Exe, [{cd, Dir}, {args, Args}]);
+        _ ->
+            <<"fatal:badpath">>
+    end.
+os_cmd(Exe, Args) ->
     Port = open_port(
         {spawn_executable, Exe},
-        [{cd, Dir}, {args, Args}, binary, exit_status, stderr_to_stdout]
+        [binary, exit_status, stderr_to_stdout | Args]
     ),
     (fun Rcv(Buf) ->
         receive
