@@ -295,7 +295,7 @@ ddTraceDef() ->
 
 ms_lookup([A|_] = MS, _) when is_atom(A); is_tuple(A) -> MS;
 ms_lookup("default", User) ->
-    ?GET_CONFIG({trace_ms, "default"}, User, [{'_', [], []}],
+    ?GET_CONFIG({trace_ms, "default"}, [User], [{'_', [], []}],
                 "default smallest match specification for debug tracing");
 ms_lookup(MS, User) -> ?LOOKUP_CONFIG(MS, User).
 
@@ -391,11 +391,11 @@ trace_whitelist(U, W) when is_list(W) ->
             case lists:usort(Wlus ++ W) of
                 Wlus -> Wlus; % already added
                 NewWlus ->
-                    ?GET_CONFIG(trace_local_wl, U, NewWlus,
+                    ?GET_CONFIG(trace_local_wl, [U], NewWlus,
                         "list of MFAs safe to trace on local node")
             end;
         _ ->
-            ?GET_CONFIG(trace_local_wl, U, lists:usort(W),
+            ?GET_CONFIG(trace_local_wl, [U], lists:usort(W),
                         "list of MFAs safe to trace on local node")
     end.
 
