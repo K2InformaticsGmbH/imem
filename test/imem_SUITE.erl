@@ -22,6 +22,7 @@
 
 -export([
     cache_test_without_sec/1,
+    partition_size_metric/1,
     config_operations/1,
     dal_skvh_concurrency/1,
     dal_skvh_operations/1,
@@ -77,6 +78,7 @@ all() ->
         {group, imem_if_mnesia},
         {group, imem_import},
         {group, imem_meta},
+        {group, imem_metrics},
         {group, imem_monitor},
         {group, imem_sec},
         {group, imem_seco},
@@ -171,6 +173,12 @@ groups() ->
                 meta_preparations,
                 meta_partitions,
                 meta_concurrency
+            ]
+        },
+        {
+            imem_metrics, [],
+            [
+                partition_size_metric
             ]
         },
         {
@@ -410,6 +418,14 @@ config_operations(Config) ->
 cache_test_without_sec(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":cache_test_without_sec/1 - Start ===>~n", []),
     imem_cache_ct:test_without_sec(Config).
+
+%%====================================================================
+%% Test cases: imem_metrics.
+%%====================================================================
+
+partition_size_metric(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":partition_size_metric/1 - Start ===>~n", []),
+    imem_metrics_ct:test_partition_size(Config).
 
 %%====================================================================
 %% Test cases: imem_dal_skvh.
