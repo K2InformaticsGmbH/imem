@@ -54,9 +54,23 @@ term_diff(binary, Data, binary, Data, Opts, _User) ->
 term_diff(binary, LeftData, binary, RightData, Opts, _User) ->
     [#ddTermDiff{id=1,left=LeftData,cmp=imem_cmp:cmp(LeftData,RightData,Opts),right=RightData}];
 term_diff(number, LeftData, number, RightData, _Opts, _User) ->
-    [#ddTermDiff{id=1,left=LeftData,cmp=num_diff(RightData-LeftData),right=RightData}]; 
+    try
+        [#ddTermDiff{id=1
+                    ,left=LeftData
+                    ,cmp=num_diff(bin_to_num(RightData)-bin_to_num(LeftData))
+                    ,right=RightData}]
+    catch _:_ ->
+        ?ClientError({"Bad numbers as diff arguments", {LeftData,RightData}})
+    end;
 term_diff(LeftType, _LeftData, RightType, _RightData, _Opts, _User) ->
     ?UnimplementedException({"term_diff for unsupported data type", {LeftType, RightType}}).
+
+bin_to_num(Bin) ->
+    N = binary_to_list(Bin),
+    case string:to_float(N) of
+        {error,no_float} -> list_to_integer(N);
+        {F,_Rest} -> F
+    end.
 
 num_diff(Diff) when Diff >= 0 ->
     list_to_binary(["+" | lists:flatten(io_lib:format("~p", [Diff]))]);
