@@ -53,6 +53,8 @@ term_diff(binary, Data, binary, Data, Opts, _User) ->
     [#ddTermDiff{id=1,left=Data,cmp=imem_cmp:cmp(Data,Data,Opts),right=Data}];
 term_diff(binary, LeftData, binary, RightData, Opts, _User) ->
     [#ddTermDiff{id=1,left=LeftData,cmp=imem_cmp:cmp(LeftData,RightData,Opts),right=RightData}];
+term_diff(number, LeftData, number, RightData, _Opts, _User) ->
+    [#ddTermDiff{id=1,left=LeftData,cmp=num_diff(RightData-LeftData),right=RightData}]; 
 term_diff(LeftType, _LeftData, RightType, _RightData, _Opts, _User) ->
     ?UnimplementedException({"term_diff for unsupported data type", {LeftType, RightType}}).
 
