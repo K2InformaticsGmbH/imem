@@ -58,6 +58,11 @@ term_diff(number, LeftData, number, RightData, _Opts, _User) ->
 term_diff(LeftType, _LeftData, RightType, _RightData, _Opts, _User) ->
     ?UnimplementedException({"term_diff for unsupported data type", {LeftType, RightType}}).
 
+num_diff(Diff) when Diff >= 0 ->
+    list_to_binary(["+" | lists:flatten(io_lib:format("~p", [Diff]))]);
+num_diff(Diff) ->
+    list_to_binary(lists:flatten(io_lib:format("~p", [Diff]))).
+
 term_diff_out(_Opts, [], Acc) -> lists:reverse(Acc);
 term_diff_out(Opts, [{_,[]}|Diff], Acc) -> 
     term_diff_out(Opts, Diff, Acc);
