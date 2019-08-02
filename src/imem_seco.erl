@@ -359,6 +359,14 @@ seco_existing(SKey) ->
     case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid} = SeCo] when Pid == self() -> 
             SeCo;
+        [#ddSeCo{pid=Pid} = SeCo] ->
+            {links, Links} = erlang:process_info(self(), links),
+            case lists:member(Pid, Links) of
+                true ->
+                    SeCo;
+                false ->
+                    ?SecurityViolation({"Not logged in", SKey})
+            end;
         [] ->               
             ?SecurityException({"Not logged in", SKey})
     end.   
@@ -379,8 +387,14 @@ seco_authorized(SKey) ->
     case if_read(ddSeCo@, SKey) of
         [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
             SeCo;
-        [#ddSeCo{}] ->      
-            ?SecurityViolation({"Not logged in", SKey});
+        [#ddSeCo{pid=Pid, authState=authorized} = SeCo] ->
+            {links, Links} = erlang:process_info(self(), links),
+            case lists:member(Pid, Links) of
+                true ->
+                    SeCo;
+                false ->
+                    ?SecurityViolation({"Not logged in", SKey})
+            end;
         [] ->               
             ?SecurityException({"Not logged in", SKey})
     end.   

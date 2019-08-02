@@ -165,18 +165,32 @@ mfa({Ref, Mod, which_applications, Args}, Transport) when Mod =:= imem_sec;
 mfa({_Ref, imem_sec, echo, [_, Term]}, Transport) ->
     send_resp({server_echo, Term}, Transport),
     ok;
+mfa({Ref, imem_sec = Mod, Fun, Args}, Transport) when Fun =:= login;
+                                                      Fun =:= auth_start;
+                                                      Fun =:= schema;
+                                                      Fun =:= logout;
+                                                      Fun =:= auth_add_cred ->
+    mfa(Ref, Mod, Fun, Args, Transport);
 mfa({Ref, Mod, Fun, Args}, Transport) ->
+    % mfa(Ref, Mod, Fun, Args);
+    spawn_link(fun() ->
+        mfa(Ref, Mod, Fun, Args, Transport)
+    end),
+    ok. % 'ok' returned for erlimem compatibility
+
+mfa(Ref, Mod, Fun, Args, Transport) ->
     NewArgs = args(Ref,Fun,Args,Transport),
-    ApplyRes = try
-                   ?TLog("~p MFA -> R ~n ~p:~p(~p)~n", [Transport,Mod,Fun,NewArgs]),
-                   apply(Mod,Fun,NewArgs)
-               catch 
-                    _Class:Reason -> {error, {Reason, erlang:get_stacktrace()}}
-               end,
+    ApplyRes =
+    try
+        ?TLog("~p MFA -> R ~n ~p:~p(~p)~n", [Transport,Mod,Fun,NewArgs]),
+        apply(Mod,Fun,NewArgs)
+    catch
+        _Class:Reason -> {error, {Reason, erlang:get_stacktrace()}}
+    end,
     ?TLog("~p MFA -> R ~n ~p:~p(~p) -> ~p~n", [Transport,Mod,Fun,NewArgs,ApplyRes]),
     ?TLog("~p MF -> R ~n ~p:~p -> ~p~n", [Transport,Mod,Fun,ApplyRes]),
     send_resp(ApplyRes, Transport),
-    ok. % 'ok' returned for erlimem compatibility
+    ok.
 
 args(R, fetch_recs_async, A, {_,_,R} = T) ->
     Args = lists:sublist(A, length(A)-1) ++ [T],
