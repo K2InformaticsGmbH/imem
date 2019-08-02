@@ -542,20 +542,24 @@ skvh_purge_history(_Config) ->
     imem_config:put_config_hlk(?CONFIG_TABLE, {imem,imem_dal_skvh,purgeHistDayThreshold}, imem_dal_skvh, [], 0, <<"zero">>),
     ?assertEqual(ok, imem_dal_skvh:create_check_channel(?Channel)),
     ?assertEqual([], imem_dal_skvh:hist_read(system, ?Channel, [[test]])),
-    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 1})),
+    FirstVal = imem_json:encode(#{test => 1}),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], FirstVal),
     HistTable = list_to_atom(?HIST(?Channel)),
     [#{cvhist := [First]}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
     #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 2})),
     #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 3})),
-    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 4})),
+    LastVal = imem_json:encode(#{test => 4}),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], LastVal),
     [#{cvhist := Hists}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
     ?assertEqual(4, length(Hists)),
     ?assertEqual(ok, imem_dal_skvh:purge_history_tables([HistTable])),
     [#{cvhist := Hists2}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
     ?assertEqual(2, length(Hists2)),
     [Last, First] = Hists2,
+    #{nvalue := FirstNval} = First,
     #{nvalue := LastNval} = Last,
-    ?assertEqual(imem_json:encode(#{test => 4}), LastNval).
+    ?assertEqual(FirstVal, FirstNval),
+    ?assertEqual(LastVal, LastNval).
 
 %%====================================================================
 %% Helper functions.
