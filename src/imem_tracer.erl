@@ -106,17 +106,19 @@ unsubscribe() ->
 %------------------------------------------------------------------------------
 
 tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
-    {_,{_,_,Sec}} = calendar:now_to_datetime(os:timestamp()),
+    Now = timestamp_sec(),
     NewCount =
-        if LastSec < Sec -> 0;
-            true -> Count + 1
+        if 
+            LastSec < Now ->    0;
+            true ->             Count + 1
         end,
-    if NewCount > ?MAX_MSG_PER_SEC ->
-        ?Warn("tracer callback overflow > ~p traces / sec", [?MAX_MSG_PER_SEC]),
-        dbg:stop_clear(), % stop debugging
-        St; % dropped
+    if 
+        NewCount > ?MAX_MSG_PER_SEC ->
+            ?Warn("tracer callback overflow > ~p traces / sec", [?MAX_MSG_PER_SEC]),
+            dbg:stop_clear(), % stop debugging
+            St; % dropped
         true ->
-            send_trace_event(Trace, St#tracer_cb_st{count = NewCount, last_s = Sec})
+            send_trace_event(Trace, St#tracer_cb_st{count = NewCount, last_s = Now})
     end.
 
 
@@ -315,14 +317,14 @@ apply_filter(M, F, A, #state{filters = Filters} = State) ->
                 dbg:ctpl(M, F, A),
                 {'$nokey', -1, undefined, undefined}
         end,
-    if Rate < 1 -> {ok, State};
+    if 
+        Rate < 1 -> 
+            {ok, State};
         true ->
-            Now = os:timestamp(),
+            Now = timestamp_sec(),
             Last = maps:get(last, Stat, Now),
-            Diff = timer:now_diff(Now, Last) / 1000000,
-            case Last < Now andalso Diff >= 1.0 of
-                % New Second, reset everything
-                true ->
+            case (Last < Now) of
+                true ->     % New Second, reset everything
                     {ok,
                         State#state{
                             filters =
@@ -399,16 +401,19 @@ trace_whitelist(U, W) when is_list(W) ->
                         "list of MFAs safe to trace on local node")
     end.
 
-timestamp() ->
-    CurTime = imem_datatype:timestamp_to_io(os:timestamp()),
-    case os:type() of
-        {win32,nt} ->
-            <<CurTime/binary, " ",
-            (list_to_binary(string:pad(integer_to_binary(
-                imem_win32:queryPerformanceCounter(), 16
-             ), 12, leading, $0)))/binary>>;
-        _ -> CurTime
-    end.
+timestamp() -> timestamp(os:type()).
+timestamp({win32,nt}) ->
+    % QPCounter                         : ticks counts (< 1 us)
+    % QPFrequency                       : ticks per second
+    % QPCounter / QPFrequency           : seconds elapsed
+    % QPCounter / QPFrequency * 1000000 : us elapsed
+    imem_win32:queryPerformanceCounter() * 1000000
+        div imem_win32:queryPerformanceFrequency();
+timestamp(_) ->
+    erlang:system_time(microsecond).
+
+timestamp_sec() ->
+    erlang:system_time(second).
 
 -ifdef(CONSOLE).
 
