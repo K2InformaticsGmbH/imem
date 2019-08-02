@@ -30,6 +30,7 @@ test_partition_size(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":schema ~p~n", [imem_meta:schema()]),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":data nodes ~p~n", [imem_meta:data_nodes()]),
     PartitionTableAlias = test_5@,
+    ?assertEqual(#{size => 0}, imem_metrics:get_metric({partition_size, test, -10, 0})),
     ?assertEqual(#{size => 0}, imem_metrics:get_metric({partition_size, PartitionTableAlias, -10, 0})),
     ?assertMatch({ok, _}, imem_meta:create_check_table(PartitionTableAlias, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, [{record_name, ddLog}, {type, ordered_set}], system)),
     ?assertEqual(0, imem_meta:table_size(PartitionTableAlias)),
