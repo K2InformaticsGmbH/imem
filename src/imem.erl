@@ -266,7 +266,7 @@ get_virtual_memory({win32, _}) ->
             #{free_virtual_memory => 0, total_virtual_memory => 0}
     end;
 get_virtual_memory(_) ->
-    #{}.
+    #{free_virtual_memory => 0, total_virtual_memory => 0}.
 
 -spec get_os_memory() -> {any(), integer(), integer()}.
 get_os_memory() ->
