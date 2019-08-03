@@ -26,59 +26,76 @@ queryPerformanceFrequency() ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-getLocalTime_test() ->
-    ?assertMatch(
-        #{
-            day := _, dayOfWeek := _, hour := _, milliseconds := _,
-            minute := _,month := _, second := _, year := _
-        },
-        getLocalTime()
-    ).
+all_test_() ->
+    {inparallel, [
+        {"getLocalTime",
+            ?_assertMatch(
+                #{
+                    day := _, dayOfWeek := _, hour := _, milliseconds := _,
+                    minute := _,month := _, second := _, year := _
+                },
+                getLocalTime()
+            )},
+        {"getSystemTimePreciseAsFileTime",
+            ?_assertEqual(true, is_integer(getSystemTimePreciseAsFileTime()))},
+        {"queryPerformanceCounter",
+            ?_assertEqual(true, is_integer(queryPerformanceCounter()))},
+        {"queryPerformanceFrequency",
+            ?_assertEqual(true, is_integer(queryPerformanceFrequency()))},
+        {"hires_timer", fun hires_timer/0},
+        {"missing_ms", {timeout, 60, [fun missing_time/0]}}
+    ]}.
 
-getSystemTimePreciseAsFileTime_test() ->
-    ?assertEqual(true, is_integer(getSystemTimePreciseAsFileTime())).
+hires_timer() ->
+    case os:type() of
+        {win32, _} ->
+            OsTimes = (
+                fun OST(0, Ts) -> Ts;
+                     OST(Count, Ts) ->
+                        OST(
+                            Count - 1,
+                            [imem_datatype:timestamp_to_io(os:timestamp()) | Ts]
+                        )
+                end
+            )(100, []),
+            ?assertEqual(100, length(OsTimes)),
+            % demonstrating that duplicate timestamps are generated in tight loops
+            ?assertNotEqual(100, length(lists:usort(OsTimes))),
 
-queryPerformanceCounter_test() ->
-    ?assertEqual(true, is_integer(queryPerformanceCounter())).
+            FrqCountsPerSec = queryPerformanceFrequency(),
+            OsTimesV2 = (
+                fun OST1(0, Ts) -> Ts;
+                    OST1(Count, Ts) ->
+                        MiliSec = queryPerformanceCounter() * 1000 / FrqCountsPerSec,
+                        {match, [MsStr]} = re:run(
+                            float_to_list(MiliSec, [{decimals, 3}]),
+                            "^[0-9]+\\.([0-9]{3,3})$",
+                            [{capture, [1], list}]
+                        ),
+                        TS = imem_datatype:timestamp_to_io(os:timestamp()),
+                        TS1 = re:replace(
+                            TS, "(.*)000$", "\\g{1}"++MsStr, [{return, list}]
+                        ),
+                        OST1(
+                            Count - 1,
+                            [TS1 | Ts]
+                        )
+                end
+            )(100, []),
+            ?assertEqual(100, length(OsTimesV2)),
+            ?assertEqual(100, length(lists:usort(OsTimesV2)));
+        _ -> windows_only_test_skipped
+    end.
 
-queryPerformanceFrequency_test() ->
-    ?assertEqual(true, is_integer(queryPerformanceFrequency())).
-
-hires_timer_test() ->
-    OsTimes = (
-        fun OST(0, Ts) -> Ts;
-             OST(Count, Ts) ->
-                OST(
-                    Count - 1,
-                    [imem_datatype:timestamp_to_io(os:timestamp()) | Ts]
-                )
-        end
-    )(100, []),
-    ?assertEqual(100, length(OsTimes)),
-    % demonstrating that duplicate timestamps are generated in tight loops
-    ?assertNotEqual(100, length(lists:usort(OsTimes))),
-        
-    FrqCountsPerSec = queryPerformanceFrequency(),
-    OsTimesV2 = (
-        fun OST1(0, Ts) -> Ts;
-            OST1(Count, Ts) ->
-                MiliSec = queryPerformanceCounter() * 1000 / FrqCountsPerSec,
-                {match, [MsStr]} = re:run(
-                    float_to_list(MiliSec, [{decimals, 3}]),
-                    "^[0-9]+\\.([0-9]{3,3})$",
-                    [{capture, [1], list}]
-                ),
-                TS = imem_datatype:timestamp_to_io(os:timestamp()),
-                TS1 = re:replace(
-                    TS, "(.*)000$", "\\g{1}"++MsStr, [{return, list}]
-                ),
-                OST1(
-                    Count - 1,
-                    [TS1 | Ts]
-                )
-        end
-    )(100, []),
-    ?assertEqual(100, length(OsTimesV2)),
-    ?assertEqual(100, length(lists:usort(OsTimesV2))).
+missing_time() ->
+    missing_time(undefined, os:timestamp()).
+missing_time(OldTime, NewTime) when OldTime == NewTime; OldTime == undefined ->
+    missing_time(NewTime, os:timestamp());
+missing_time(OldTime, NewTime) when OldTime /= NewTime ->
+    Start = queryPerformanceCounter(),
+    timer:sleep(10000),
+    End = queryPerformanceCounter(),
+    DiffMS = (End - Start) * 1000 div queryPerformanceFrequency(),
+    ?assert(10000 =< DiffMS).
 
 -endif. % TEST
