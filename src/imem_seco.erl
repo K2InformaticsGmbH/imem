@@ -60,7 +60,6 @@
         , has_permission/3
         , has_permission/2
         , get_skey_pid/1
-        , seco_authorized/1
         ]).
 
 -export([ have_role/2
@@ -299,12 +298,8 @@ if_has_child_permission([RootRoleId|OtherRoles], Permission) ->
     end.
 
 get_skey_pid(SKey) ->
-    case if_read(ddSeCo@, SKey) of
-        [#ddSeCo{pid=Pid}] ->
-            {ok, Pid};
-        _ ->
-            not_found
-    end.
+    #ddSeCo{pid=Pid} = seco_authorized(SKey),
+    {ok, Pid}.
 
 %% --Implementation (exported helper functions) ----------------------------------------
 
