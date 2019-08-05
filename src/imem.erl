@@ -256,7 +256,7 @@ get_virtual_memory() ->
 
 -spec get_virtual_memory(tuple()) -> map().
 get_virtual_memory({win32, _}) ->
-    case re:split(os:cmd("wmic OS get FreePhysicalMemory, TotalVirtualMemorySize"), 
+    case re:split(os:cmd("wmic OS get FreeVirtualMemory, TotalVirtualMemorySize"),
                   "\r\r\n", [{return,list}]) of
         [_, Mems | _] ->
             [FreeVMStr, TotalVMStr] = string:tokens(Mems, " "),
