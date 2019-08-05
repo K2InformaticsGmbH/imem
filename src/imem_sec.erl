@@ -919,21 +919,8 @@ have_module_permission(SKey, Module, Operation) ->
 
 %% ------- local private security extension for sql and tables (do not export!!) ------------
 
-seco_authorized(SKey) -> 
-    case imem_meta:read(ddSeCo@, SKey) of
-        [#ddSeCo{pid=Pid, authState=authorized} = SeCo] when Pid == self() -> 
-            SeCo;
-        [#ddSeCo{pid=Pid, authState=authorized} = SeCo] ->
-            {links, Links} = erlang:process_info(self(), links),
-            case lists:member(Pid, Links) of
-                true ->
-                    SeCo;
-                false ->
-                    ?SecurityViolation({"Not logged in", SKey})
-            end;
-        [] ->               
-            ?SecurityException({"Not logged in", SKey})
-    end.   
+seco_authorized(SKey) ->
+    imem_seco:seco_authorized(SKey).
 
 % have_table_ownership(SKey, {Schema,Table,_Alias}) ->
 %     have_table_ownership(SKey, {Schema,Table});

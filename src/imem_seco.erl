@@ -60,6 +60,7 @@
         , has_permission/3
         , has_permission/2
         , get_skey_pid/1
+        , seco_authorized/1
         ]).
 
 -export([ have_role/2
