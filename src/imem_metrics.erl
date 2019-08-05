@@ -145,19 +145,17 @@ partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex) ->
             Now = imem_datatype:seconds_since_epoch(imem_meta:time()),
             [_, _, _, _, PTStr, _, _] = imem_meta:parse_table_name(TableAlias),
             PTime = list_to_integer(PTStr),
-            TableNames = [imem_meta:partitioned_table_name(TableAlias, {Now + (PTime * T), 0})
-                            || T <- lists:seq(FromPartitionIndex, ToPartitionIndex)],
             lists:foldl(
-                fun
-                    (Table, Acc) ->
+                fun(Table, Acc) ->
                         try imem_meta:table_size(Table) of
-                            Size when is_integer(Size) ->
+                            Size ->
                                 Size + Acc
                         catch
                             _:_ ->
                                 Acc
                         end
-                end, 0, TableNames);
+                end, 0, [imem_meta:partitioned_table_name(TableAlias, {Now + (PTime * T), 0})
+                            || T <- lists:seq(FromPartitionIndex, ToPartitionIndex)]);
         false ->
             0
     end.
