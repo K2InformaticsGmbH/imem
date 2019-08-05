@@ -558,6 +558,7 @@ skvh_purge_history(_Config) ->
     [Last, First] = Hists2,
     #{nvalue := FirstNval} = First,
     #{nvalue := LastNval} = Last,
+    % check if the first and last value have been retained and others have been removed.
     ?assertEqual(FirstVal, FirstNval),
     ?assertEqual(LastVal, LastNval).
 

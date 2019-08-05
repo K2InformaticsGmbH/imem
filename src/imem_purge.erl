@@ -19,13 +19,13 @@
 end
 ">>,"Function used for tailoring the purge strategy to the system's needs.")).
 
--define(GET_PURGE_HIST,
+-define(SHOULD_PURGE_HIST,
             ?GET_CONFIG(isHistPurgeEnabled, [], false,
                         "Should hist records be purged periodically")).
 
--define(GET_PURGE_HIST_TOD,
+-define(PURGE_HIST_HOUR,
             ?GET_CONFIG(purgeHistHourOfDay, [], 3,
-                        "Hour of (00..23)day in which history table are can be purged")).
+                        "Hour of (00..23) day in which history table are can be purged")).
 
 -behavior(gen_server).
 
@@ -153,10 +153,10 @@ handle_info({purge_partitioned_tables,PurgeCycleWait,PurgeItemWait}, State=#stat
       {noreply, State#state{purgeList=Rest}}
   end;
 handle_info(purge_history_tables, State) ->
-    case ?GET_PURGE_HIST of
+    case ?SHOULD_PURGE_HIST of
         true ->
             {H, _, _} = time(),
-            case ?GET_PURGE_HIST_TOD of
+            case ?PURGE_HIST_HOUR of
                 H ->
                     HistTables = lists:filter(
                         fun(T) ->
@@ -168,10 +168,10 @@ handle_info(purge_history_tables, State) ->
                     end),
                     erlang:send_after(60 * 60 * 1000, self(), purge_history_tables);
                 _ ->
-                    erlang:send_after(10000, self(), purge_history_tables)
+                    erlang:send_after(60 * 1000, self(), purge_history_tables)
             end;
         false ->
-            erlang:send_after(10000, self(), purge_history_tables)
+            erlang:send_after(60 * 1000, self(), purge_history_tables)
     end,
     {noreply, State};
 handle_info(_Info, State) ->
