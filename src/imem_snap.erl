@@ -225,32 +225,28 @@ cluster_snap([], StartTime, Dir) ->
             ok = file:del_dir(Dir),
             ?Info("cluster snapshot ~s", [ZipFile])
     end,
-    ?Info("cluster snapshot took ~p ms", [?TIMESTAMP_DIFF(StartTime, ?TIMESTAMP) div 1000]),
-    erlang:send_after(1000, ?MODULE, {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
-    ok;
+    ?Info("cluster snapshot took ~p ms", [?TIMESTAMP_DIFF(StartTime, ?TIMESTAMP) div 1000]);
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
     cluster_snap(Tabs, StartTime, create_clean_dir(?BKP_ZIP_PREFIX));
 cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
-    NextTabs = case catch take_chunked(imem_meta:physical_table_name(T), Dir) of                   
-                   ok ->
-                       ?Info("cluster snapshot ~p", [T]),
-                        Tabs;
-                   {'ClientError', {"Table does not exist", T}} ->
-                       ?Warn("cluster snapshot - Table : ~p does not exist", [T]),
-                       Tabs;
-                   [{error,Error}] ->
-                       ?Error("cluster snapshot failed for ~p : ~p", [T, Error]),
-                       Tabs++[T];
-                   Error ->
-                       ?Error("cluster snapshot failed for ~p : ~p", [T, Error]),
-                       Tabs++[T]
-               end,
-    ?MODULE ! {cluster_snap, NextTabs, StartTime, Dir},
-    ok.
+    case catch take_chunked(imem_meta:physical_table_name(T), Dir) of
+        ok ->
+            ?Info("cluster snapshot ~p", [T]);
+        {'ClientError', {"Table does not exist", T}} ->
+            ?Warn("cluster snapshot - Table : ~p does not exist", [T]);
+        [{error,Error}] ->
+            ?Error("cluster snapshot failed for ~p : ~p", [T, Error]);
+        Error ->
+            ?Error("cluster snapshot failed for ~p : ~p", [T, Error])
+    end,
+    cluster_snap(Tabs, StartTime, Dir).
 
 handle_info({cluster_snap, StartTime, Dir}, State) ->
     handle_info({cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, StartTime, Dir}, State);
 handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
+    erlang:send_after(
+               60 * 1000, ?MODULE,
+               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
     {noreply,
      case ?GET_CLUSTER_SNAPSHOT of
          true ->
@@ -263,9 +259,6 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                      case catch is_process_alive(State#state.csnap_pid) of
                          true -> State;
                          _ ->
-                             erlang:send_after(
-                               60 * 1000, ?MODULE,
-                               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
                              State#state{csnap_pid = (#state{})#state.csnap_pid}
                      end;
                  _ ->
@@ -280,17 +273,11 @@ handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
                              case catch is_process_alive(State#state.csnap_pid) of
                                  true -> State;
                                  _ ->
-                                     erlang:send_after(
-                                       60 * 1000, ?MODULE,
-                                       {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
                                      State#state{csnap_pid = (#state{})#state.csnap_pid}
                              end
                      end
              end;
          false ->
-             erlang:send_after(
-               5000, ?MODULE,
-               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
              State
      end};
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
