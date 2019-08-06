@@ -47,6 +47,7 @@
         , set_snap_properties/1
         , snap_log/2
         , snap_err/2
+        , do_snapshot/0
         , do_snapshot/1
         , all_snap_tables/0
         , all_local_time_partitioned_tables/0
@@ -846,6 +847,9 @@ del_dirtree(Path) ->
             ),
             file:del_dir(Path)
     end.
+
+do_snapshot() ->
+    do_snapshot(imem_compiler:compile(?GET_SNAPSHOT_SCRIPT_FUN)).
 
 -spec(
     do_snapshot(function()) ->
