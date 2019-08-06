@@ -49,6 +49,7 @@
         , snap_err/2
         , do_snapshot/0
         , do_snapshot/1
+        , do_cluster_snapshot/0
         , all_snap_tables/0
         , all_local_time_partitioned_tables/0
         ]).
@@ -199,6 +200,9 @@ create_clean_dir(Prefix) ->
             ok = file:make_dir(BackupDir)
     end,
     BackupDir.
+
+do_cluster_snapshot() -> 
+    cluster_snap(?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed').
 
 -spec cluster_snap(list(), '$replace_with_timestamp' | ddTimestamp(), '$create_when_needed' | list()) -> ok.
 cluster_snap(Tabs, '$replace_with_timestamp', Dir) ->
