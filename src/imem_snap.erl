@@ -55,7 +55,8 @@
         ]).
 
 -safe([all_snap_tables,filter_candidate_list, get_snap_properties,
-        set_snap_properties,snap_log,snap_err,take]).
+        set_snap_properties,snap_log,snap_err,take,
+          do_snapshot/0,do_cluster_snapshot/0]).
 
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
