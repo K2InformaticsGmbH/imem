@@ -178,9 +178,7 @@ init(_) ->
     ?Info("snapshot directory ~s~n", [SnapshotDir]),
     process_flag(trap_exit, true),
     start_snap_loop(),
-    erlang:send_after(
-      1000, ?MODULE,
-      {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
+    erlang:send_after(1000, ?MODULE, cluster_snap),
     {ok,#state{snapdir = SnapshotDir}}.
 
 -spec create_clean_dir(list()) -> list().
@@ -202,12 +200,12 @@ create_clean_dir(Prefix) ->
     end,
     BackupDir.
 
-do_cluster_snapshot() -> 
-    cluster_snap(?GET_CLUSTER_SNAPSHOT_TABLES, '$replace_with_timestamp', '$create_when_needed').
+do_cluster_snapshot() ->
+    Tables = ?GET_CLUSTER_SNAPSHOT_TABLES,
+    ?Info("cluster snapshot ~p", [Tables]),
+    cluster_snap(Tables, ?TIMESTAMP,  create_clean_dir(?BKP_ZIP_PREFIX)).
 
--spec cluster_snap(list(), '$replace_with_timestamp' | ddTimestamp(), '$create_when_needed' | list()) -> ok.
-cluster_snap(Tabs, '$replace_with_timestamp', Dir) ->
-    cluster_snap(Tabs, ?TIMESTAMP, Dir);
+-spec cluster_snap(list(), ddTimestamp(), list()) -> ok.
 cluster_snap([], StartTime, Dir) ->
     ZipFile = filename:join(filename:dirname(Dir), filename:basename(Dir)++".zip"),
     ZipCandidates = [begin
@@ -226,8 +224,6 @@ cluster_snap([], StartTime, Dir) ->
             ?Info("cluster snapshot ~s", [ZipFile])
     end,
     ?Info("cluster snapshot took ~p ms", [?TIMESTAMP_DIFF(StartTime, ?TIMESTAMP) div 1000]);
-cluster_snap(Tabs, StartTime, '$create_when_needed') ->
-    cluster_snap(Tabs, StartTime, create_clean_dir(?BKP_ZIP_PREFIX));
 cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
     case catch take_chunked(imem_meta:physical_table_name(T), Dir) of
         ok ->
@@ -241,45 +237,40 @@ cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
     end,
     cluster_snap(Tabs, StartTime, Dir).
 
-handle_info({cluster_snap, StartTime, Dir}, State) ->
-    handle_info({cluster_snap, ?GET_CLUSTER_SNAPSHOT_TABLES, StartTime, Dir}, State);
-handle_info({cluster_snap, Tables, StartTime, Dir}, State) ->
-    erlang:send_after(
-               60 * 1000, ?MODULE,
-               {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
-    {noreply,
-     case ?GET_CLUSTER_SNAPSHOT of
-         true ->
-             {{Y,M,D},{H,_,_}} = imem_datatype:timestamp_to_local_datetime(imem_meta:time()),
-             {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-             ZipFilePattern = lists:flatten(io_lib:format(?BKP_ZIP_PREFIX"~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
-             BackupDir = filename:absname(SnapDir),
-             case filelib:wildcard(ZipFilePattern, BackupDir) of
-                 BFs when length(BFs) > 0 ->
-                     case catch is_process_alive(State#state.csnap_pid) of
-                         true -> State;
-                         _ ->
-                             State#state{csnap_pid = (#state{})#state.csnap_pid}
-                     end;
-                 _ ->
-                     case ?GET_CLUSTER_SNAPSHOT_TOD of
-                         H ->
-                             if Dir == '$create_when_needed' ->
-                                    ?Info("cluster snapshot ~p", [Tables]);
-                                true -> ok
-                             end,
-                             State#state{csnap_pid=spawn(fun() -> cluster_snap(Tables, StartTime, Dir) end)};
-                         _ ->
-                             case catch is_process_alive(State#state.csnap_pid) of
-                                 true -> State;
-                                 _ ->
-                                     State#state{csnap_pid = (#state{})#state.csnap_pid}
-                             end
-                     end
-             end;
-         false ->
-             State
-     end};
+handle_info(cluster_snap, State) ->
+    ClusterSnapPid =
+    case ?GET_CLUSTER_SNAPSHOT of
+        true ->
+            {{Y,M,D},{H,_,_}} = imem_datatype:timestamp_to_local_datetime(imem_meta:time()),
+            {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+            ZipFilePattern = lists:flatten(io_lib:format(?BKP_ZIP_PREFIX"~4..0B~2..0B~2..0B_~2..0B*.zip", [Y,M,D,H])),
+            BackupDir = filename:absname(SnapDir),
+            case filelib:wildcard(ZipFilePattern, BackupDir) of
+                BFs when length(BFs) > 0 ->
+                    case catch is_process_alive(State#state.csnap_pid) of
+                        true ->
+                            State#state.csnap_pid;
+                        _ ->
+                            (#state{})#state.csnap_pid
+                    end;
+                _ ->
+                    case ?GET_CLUSTER_SNAPSHOT_TOD of
+                        H ->
+                            spawn(fun() -> do_cluster_snapshot() end);
+                        _ ->
+                            case catch is_process_alive(State#state.csnap_pid) of
+                                true ->
+                                    State#state.csnap_pid;
+                                _ ->
+                                    (#state{})#state.csnap_pid
+                            end
+                    end
+            end;
+        false ->
+            State
+    end,
+    erlang:send_after(60 * 1000, ?MODULE, cluster_snap),
+    {noreply, State#state{csnap_pid = ClusterSnapPid}};
 handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
     case ?GET_SNAPSHOT_CYCLE_WAIT of
         MCW when (is_integer(MCW) andalso (MCW >= 100)) ->
