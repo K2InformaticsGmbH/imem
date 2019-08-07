@@ -23,6 +23,7 @@ queryPerformanceCounter() ->
 queryPerformanceFrequency() ->
     exit(win32_nif_library_not_loaded).
 
+-ifdef(WIN32).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -99,3 +100,4 @@ missing_time(OldTime, NewTime) when OldTime /= NewTime ->
     ?assert(10000 =< DiffMS).
 
 -endif. % TEST
+-endif. % WIN32
