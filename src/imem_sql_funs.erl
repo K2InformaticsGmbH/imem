@@ -15,7 +15,7 @@
             , map_size, map_get, map_merge, map_remove, map_with, map_without
             , '[]', '{}', ':', '#keys', '#key','#values','#value', '::'
             , mfa, preview, preview_keys, trunc, round, integer_uid, time_uid, diff, diff_only
-            , cmp, cmp_white_space, norm_white_space
+            , cmp, cmp_white_space, norm_white_space, rgb, rgb3
             , safe_atom, safe_binary, safe_binstr, safe_boolean, safe_function, safe_float
             , safe_integer, safe_json, safe_list, safe_map, safe_term, safe_tuple
             , nvl_atom, nvl_binary, nvl_binstr, nvl_float, nvl_integer, nvl_json, nvl_term, nvl_tuple
@@ -135,6 +135,8 @@
         , diff/3
         , diff_only/2
         , diff_only/3
+        , rgb/1
+        , rgb3/3
         ]).
 
 % Functions applied with Common Test
@@ -166,6 +168,7 @@ unary_fun_bind_type("prefix_ul") ->             #bind{type=list,default= ?nav};
 unary_fun_bind_type("list_to_binstr") ->        #bind{type=list,default= ?nav};
 unary_fun_bind_type("json_to_list") ->          #bind{type=json,default= []};
 unary_fun_bind_type("phash2") ->                #bind{type=term,default= []};
+unary_fun_bind_type("rgb") ->                   #bind{type=tuple,default= {128,128,128}};
 unary_fun_bind_type("md5") ->                   #bind{type=binstr,default= <<>>};
 unary_fun_bind_type("cmp_white_space") ->       #bind{type=binstr,default= <<>>};
 unary_fun_bind_type("norm_white_space") ->      #bind{type=binstr,default= <<>>};
@@ -225,6 +228,7 @@ unary_fun_result_type("md5") ->                 #bind{type=binary,default= <<>>}
 unary_fun_result_type("cmp_white_space") ->     #bind{type=boolean,default= false};
 unary_fun_result_type("norm_white_space") ->    #bind{type=binstr,default= <<>>};
 unary_fun_result_type("round") ->               #bind{type=number,default=0};
+unary_fun_result_type("rgb") ->                 #bind{type=binstr,default= <<>>};
 unary_fun_result_type("trunc") ->               #bind{type=timestamp,default=0};
 unary_fun_result_type("lower") ->               #bind{type=binstr,default= <<>>};
 unary_fun_result_type("upper") ->               #bind{type=binstr,default= <<>>};
@@ -400,6 +404,7 @@ ternary_fun_bind_type1("bytes") ->              #bind{type=binary,default=?nav};
 ternary_fun_bind_type1("preview") ->            #bind{type=binstr,default=?nav};
 ternary_fun_bind_type1("preview_keys") ->       #bind{type=binstr,default=?nav};
 ternary_fun_bind_type1("cmp") ->                #bind{type=term,default=?nav};
+ternary_fun_bind_type1("rgb3") ->               #bind{type=integer,default=?nav};
 ternary_fun_bind_type1("diff") ->               #bind{type=term,default=?nav};
 ternary_fun_bind_type1("diff_only") ->          #bind{type=term,default=?nav};
 ternary_fun_bind_type1(_) ->                    #bind{type=term,default=?nav}.
@@ -412,6 +417,7 @@ ternary_fun_bind_type2("bytes") ->              #bind{type=integer,default=0};
 ternary_fun_bind_type2("preview") ->            #bind{type=list,default=?nav};  % or integer index id accepted
 ternary_fun_bind_type2("preview_keys") ->       #bind{type=list,default=?nav};  % or integer index id accepted
 ternary_fun_bind_type2("cmp") ->                #bind{type=term,default=?nav};
+ternary_fun_bind_type2("rgb3") ->               #bind{type=integer,default=?nav};
 ternary_fun_bind_type2("diff") ->               #bind{type=term,default=?nav};
 ternary_fun_bind_type2("diff_only") ->          #bind{type=term,default=?nav};
 ternary_fun_bind_type2(_) ->                    #bind{type=term,default=?nav}.
@@ -423,6 +429,7 @@ ternary_fun_bind_type3("bytes") ->              #bind{type=integer,default=0};
 ternary_fun_bind_type3("preview") ->            #bind{type=binstr,default=?nav};    % or integer search token accepted 
 ternary_fun_bind_type3("preview_keys") ->       #bind{type=binstr,default=?nav};    % or integer search token accepted
 ternary_fun_bind_type3("cmp") ->                #bind{type=list,default= []};
+ternary_fun_bind_type3("rgb3") ->               #bind{type=integer,default=?nav};
 ternary_fun_bind_type3("diff") ->               #bind{type=list,default= []};
 ternary_fun_bind_type3("diff_only") ->          #bind{type=list,default= []};
 ternary_fun_bind_type3(_) ->                    #bind{type=term,default=?nav}.
@@ -434,6 +441,7 @@ ternary_fun_result_type("bytes") ->             #bind{type=binary,default=?nav};
 ternary_fun_result_type("preview") ->           #bind{type=list,default=?nav};
 ternary_fun_result_type("preview_keys") ->      #bind{type=list,default=?nav};
 ternary_fun_result_type("cmp") ->               #bind{type=binstr,default= <<>>};
+ternary_fun_result_type("rgb3") ->              #bind{type=binstr,default= <<>>};
 ternary_fun_result_type("diff") ->              #bind{type=list,default= []};
 ternary_fun_result_type("diff_only") ->         #bind{type=list,default= []};
 ternary_fun_result_type(_) ->                   #bind{type=term,default=?nav}.
@@ -619,7 +627,7 @@ expr_fun({Op, A}) when Op==from_binterm;Op==prefix_ul;Op==phash2;Op==is_nav;Op==
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op==is_binstr;Op==is_binterm;Op==is_datetime;Op==is_decimal;Op==is_ipaddr;Op==is_json;Op==is_json;Op==is_name;Op==is_string;Op==is_text;Op==is_timestamp ->
     unary_fun({Op, A});
-expr_fun({Op, A}) when Op==round;Op==trunc;Op==upper;Op==lower ->
+expr_fun({Op, A}) when Op==round;Op==trunc;Op==upper;Op==lower;Op==rgb ->
     unary_fun({Op, A});
 expr_fun({Op, A}) when Op=='#keys';Op=='#key';Op=='#values';Op=='#value';Op==json_to_list->
     unary_json_fun({Op, A});
@@ -637,7 +645,7 @@ expr_fun({Op, A, B}) when Op==json_arr_proj;Op==json_obj_proj;Op==json_value;Op=
 expr_fun({Op, A, B}) ->
     ?UnimplementedException({"Unsupported expression operator", {Op, A, B}});
 %% Ternary custom filters
-expr_fun({Op, A, B, C}) when Op==remap;Op==mfa;Op==slice;Op==preview;Op==preview_keys;Op==bits;Op==bytes;Op==cmp;Op==diff;Op==diff_only ->
+expr_fun({Op, A, B, C}) when Op==remap;Op==mfa;Op==slice;Op==preview;Op==preview_keys;Op==bits;Op==bytes;Op==cmp;Op==diff;Op==diff_only;Op==rgb3 ->
     ternary_fun({Op, A, B, C});
 expr_fun({Op, A, B, C}) ->
     ?UnimplementedException({"Unsupported function arity 3", {Op, A, B, C}});
@@ -1119,6 +1127,12 @@ unary_json_fun_final({Op, A}) ->
 safe_hd([]) -> ?nav;
 safe_hd(L) -> hd(L).
 
+rgb({R,G,B}) when is_integer(R),R>=0,R=<255
+               ,is_integer(G),G>=0,G=<255
+               ,is_integer(B),B>=0,B=<255 ->
+    list_to_binary(io_lib:format("rgb(~p,~p,~p)",[R,G,B]));
+rgb(_) -> ?nav.
+
 json_to_list(O) when is_list(O);is_map(O);is_binary(O) -> imem_json:to_proplist(O).
 
 binary_fun({Op, {const,A}, {const,B}}) when is_tuple(A), is_tuple(B) ->
@@ -1406,7 +1420,7 @@ ternary_fun_final({'mfa', Mod, Func, Args}) when is_atom(Mod),is_atom(Func) ->
         true ->   fun(X) -> Cb=Args(X),apply(Mod,Func,Cb) end;        
         CBind ->  fun(X) -> Cb=?BoundVal(CBind,X),apply(Mod,Func,Cb) end
     end;
-ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys';Op=='bits';Op=='bytes';Op==cmp;Op==diff;Op==diff_only ->
+ternary_fun_final({Op, A, B, C}) when Op=='remap';Op=='mfa';Op=='slice';Op=='preview';Op=='preview_keys';Op=='bits';Op=='bytes';Op==cmp;Op==diff;Op==diff_only;Op==rgb3 ->
     case {bind_action(A),bind_action(B),bind_action(C)} of 
         {false,false,false} ->  mod_op_3(?MODULE,Op,A,B,C);        
         {false,true,false} ->   fun(X) -> Bb=B(X),mod_op_3(?MODULE,Op,A,Bb,C) end;
@@ -1484,6 +1498,13 @@ slice(L,Start,Len) when is_list(L) ->
 slice(A,Start,Len) when is_atom(A) -> slice(atom_to_list(A),Start,Len);
 slice(I,Start,Len) when is_integer(I) -> slice(integer_to_list(I),Start,Len);
 slice(F,Start,Len) when is_float(F) -> slice(float_to_list(F),Start,Len).
+
+rgb3(R,G,B) when is_integer(R),R>=0,R=<255
+                ,is_integer(G),G>=0,G=<255
+                ,is_integer(B),B>=0,B=<255 ->
+    list_to_binary(io_lib:format("rgb(~p,~p,~p)",[R,G,B]));
+rgb3(_,_,_) -> ?nav.
+
 
 bits(<<>>,_) -> <<>>;
 bits(B,_) when is_bitstring(B)==false -> ?nav;
