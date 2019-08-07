@@ -75,10 +75,7 @@ hires_timer() ->
                 TS1 = re:replace(
                     TS, "(.*)000$", "\\g{1}"++MsStr, [{return, list}]
                 ),
-                OST1(
-                    Count - 1,
-                    [TS1 | Ts]
-                )
+                OST1(Count - 1, [TS1 | Ts])
         end
     )(100, []),
     ?assertEqual(100, length(OsTimesV2)),
