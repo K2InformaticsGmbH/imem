@@ -87,12 +87,14 @@ missing_time(OldTime, NewTime) when OldTime == NewTime; OldTime == undefined ->
     missing_time(NewTime, os:timestamp());
 missing_time(OldTime, NewTime) when OldTime /= NewTime ->
     Start = queryPerformanceCounter(),
+    StartErl = erlang:system_time(millisecond),
     timer:sleep(10000),
+    EndErl = erlang:system_time(millisecond),
     End = queryPerformanceCounter(),
     DiffMs = (End - Start) * 1000 div queryPerformanceFrequency(),
-    SleepError = abs(10000 - DiffMs),
-    % timer:sleep/1 is +/-20ms (approx) in windows
-    ?assert(20 >= SleepError).
+    DiffErl = EndErl - StartErl,
+    Q = DiffErl/DiffMs,
+    ?assert(Q > 0.997 andalso Q < 1.003).
 
 -endif. % TEST
 -endif. % WIN32
