@@ -94,8 +94,8 @@ missing_time(OldTime, NewTime) when OldTime /= NewTime ->
     End = queryPerformanceCounter(),
     DiffMs = (End - Start) * 1000 div queryPerformanceFrequency(),
     SleepError = abs(10000 - DiffMs),
-    % timer:sleep/1 is +/-17ms in windows
-    ?assert(17 >= SleepError).
+    % timer:sleep/1 is +/-20ms (approx) in windows
+    ?assert(20 >= SleepError).
 
 -endif. % TEST
 -endif. % WIN32
