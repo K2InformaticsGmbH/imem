@@ -54,6 +54,9 @@ handle_metric_req(system_information, ReplyFun, State) ->
     },
     ReplyFun(Result),
     State;
+handle_metric_req(virtual_memory, ReplyFun, State) ->
+    ReplyFun(imem:get_virtual_memory()),
+    State;
 handle_metric_req(erlang_nodes, ReplyFun, State) ->
     {ok, RequiredNodes} = application:get_env(imem, erl_cluster_mgrs),
     ReplyFun(#{nodes => [node() | imem_meta:nodes()], required_nodes => RequiredNodes}),

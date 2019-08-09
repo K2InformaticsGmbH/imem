@@ -6,6 +6,10 @@ typedef void (__cdecl *WINAPIPTR)(_Out_ LPFILETIME);
 
 int main(int argc, char *argv[])
 {
+    LARGE_INTEGER lpFrequency;
+    QueryPerformanceFrequency(&lpFrequency);
+    printf("QueryPerformanceFrequency %llu\n", lpFrequency.QuadPart);
+
     LARGE_INTEGER lpPerformanceCount;
     QueryPerformanceCounter(&lpPerformanceCount);
     printf("QueryPerformanceCounter %llu\n", lpPerformanceCount.QuadPart);
