@@ -43,6 +43,7 @@ test_partition_size(_Config) ->
     [PartitionTable1] = imem_meta:physical_table_names(PartitionTableAlias),
     ?assertEqual(ok, imem_meta:write(PartitionTable1, LogRec)),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ": 1 partition size check with one partition~n", []),
+    ?assertEqual(1, imem_meta:table_size(PartitionTableAlias)),
     ?assertEqual(#{size => 1}, imem_metrics:get_metric({partition_size, PartitionTableAlias, 0, 0})),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ": 1 partition size check with 3 partitions~n", []),
     ?assertEqual(#{size => 1}, imem_metrics:get_metric({partition_size, PartitionTableAlias, -2, 0})),
