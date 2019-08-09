@@ -47,13 +47,14 @@
         , set_snap_properties/1
         , snap_log/2
         , snap_err/2
+        , do_snapshot/0
         , do_snapshot/1
         , all_snap_tables/0
         , all_local_time_partitioned_tables/0
         ]).
 
 -safe([all_snap_tables,filter_candidate_list, get_snap_properties,
-        set_snap_properties,snap_log,snap_err,take]).
+       set_snap_properties,snap_log,snap_err,take, do_snapshot/0]).
 
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
@@ -846,6 +847,9 @@ del_dirtree(Path) ->
             ),
             file:del_dir(Path)
     end.
+
+do_snapshot() ->
+    do_snapshot(imem_compiler:compile(?GET_SNAPSHOT_SCRIPT_FUN)).
 
 -spec(
     do_snapshot(function()) ->
