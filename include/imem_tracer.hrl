@@ -4,7 +4,7 @@
 -include("imem_config.hrl").
 
 -record(ddTrace, {
-    trace_key               :: term(),
+    trace_key               :: integer(),
     event_type  = register  :: atom(),
     enable      = false     :: boolean(),
     process                 :: pid(),
