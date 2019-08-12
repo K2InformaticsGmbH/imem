@@ -1041,26 +1041,6 @@ purge_history_tables([HistTable | HistTables]) ->
     Days = ?GET_PURGE_HIST_DAYS(HistTable),
     DateBefore = calendar:gregorian_days_to_date(
                     calendar:date_to_gregorian_days(date()) - Days),
-    % HistFoldFun =
-    %     fun(#skvhHist{cvhist = [First, _, _ | _] = Hist} = Rec, Acc) ->
-    %         [Last | RestRev ] = lists:reverse(Hist),
-    %         [First | Rest] = lists:reverse(RestRev),
-    %         Hist2 = lists:foldl(
-    %             fun(#skvhCL{time = Time} = Cl, ClAcc) ->
-    %                 {Date, _} = imem_datatype:timestamp_to_local_datetime(Time),
-    %                 case Date =< DateBefore of
-    %                     true -> ClAcc;
-    %                     false -> [Cl | ClAcc]
-    %                 end;
-    %                (Cl, ClAcc) -> [Cl | ClAcc]
-    %             end, [], Rest),
-    %         Hist3 = [Last | Hist2],
-    %         Hist4 = [First | lists:reverse(Hist3)],
-    %         imem_meta:write(HistTable, Rec#skvhHist{cvhist = Hist4}),
-    %         Acc;
-    %        (_, Acc) -> Acc
-    %     end,
-    % imem_meta:foldl(HistFoldFun, {DateBefore, HistTable}, HistTable),
     imem_meta:foldl(fun purge_history_table/2, {DateBefore, HistTable}, HistTable),
     purge_history_tables(HistTables).
 
