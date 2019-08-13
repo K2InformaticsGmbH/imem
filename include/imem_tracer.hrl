@@ -4,10 +4,10 @@
 -include("imem_config.hrl").
 
 -record(ddTrace, {
-    trace_key               :: term(),
+    trace_key               :: integer(),
     event_type  = register  :: atom(),
     enable      = false     :: boolean(),
-    process                 :: term(),
+    process                 :: pid(),
     trace_node              :: atom(),
     mod         = '_'       :: atom(),
     func        = '_'       :: atom(),
@@ -18,10 +18,10 @@
     overflow    = false     :: boolean()
 }).
 -define(ddTrace, [
-    term,       % trace_key
+    integer,    % trace_key
     atom,       % event_type
     boolean,    % enable
-    term,       % process
+    pid,        % process
     atom,       % trace_node
     atom,       % mod
     atom,       % func
