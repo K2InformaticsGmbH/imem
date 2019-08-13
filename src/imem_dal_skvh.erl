@@ -124,7 +124,7 @@
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
         , prune_history/2   %% (User, Channel)                      keeps the last non noop history states and cverifies history state exists for all the keys
-        , purge_history_tables/1 %% (HistTables)               keeps the last non noop history states and cverifies history state exists for all the keys
+        , purge_history_tables/1 %% (HistTables)                    keeps the first and last entries, all other entries older than or equal to purgeHistDayThreshold are removed
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
