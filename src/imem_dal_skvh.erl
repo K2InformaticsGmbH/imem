@@ -84,6 +84,10 @@
 % -define(E116,{116,<<"Invalid option value">>}).
 -define(E117(__Term),{117,"Too many values, Limit exceeded",__Term}).
 
+-define(GET_PURGE_HIST_DAYS(__HIST_TABLE),
+            ?GET_CONFIG(purgeHistDayThreshold, [__HIST_TABLE], 100,
+                        "Days after which history record is deleted")).
+
 
 -export([ table_name/1              %% (Channel)                    return table name as binstr
         , atom_table_name/1         %% (Channel)                    return table name as atom
@@ -120,6 +124,7 @@
         , hist_read/3       %% (User, Channel, KeyList)             return history list as maps for given keys
         , hist_read_deleted/3 %% (User, Channel, Key)               return the oldvalue of the deleted object
         , prune_history/2   %% (User, Channel)                      keeps the last non noop history states and cverifies history state exists for all the keys
+        , purge_history_tables/1 %% (HistTables)                    keeps the first and last entries, all other entries older than or equal to purgeHistDayThreshold are removed
         , remove/3          %% (User, Channel, RowList)             delete a resource will fail if it was modified, rows should be in map format
         , remove/4          %% (User, Channel, RowList, Opts)       delete a resource will fail if it was modified, rows should be in map format, with trigger options
         , delete/3          %% (User, Channel, KeyTable)            do not complain if keys do not exist
@@ -694,7 +699,13 @@ map_to_skvh_rec(#{ckey := DecodedKey, cvalue := CValue, chash := CHash}) ->
     #skvhTable{ckey = CKey, cvalue = CValue, chash = CHash};
 map_to_skvh_rec(#{ckey := DecodedKey, cvalue := CValue}) ->
     CKey = imem_datatype:term_to_binterm(DecodedKey),
-    #skvhTable{ckey = CKey, cvalue = CValue}.
+    #skvhTable{ckey = CKey, cvalue = CValue};
+map_to_skvh_rec(#{ckey := DecodedKey, cvhist := CVHist}) ->
+    CKey = imem_datatype:term_to_binterm(DecodedKey),
+    #skvhHist{ckey = CKey, cvhist = [map_to_skvh_cl(C) || C <- CVHist]}.
+
+map_to_skvh_cl(#{time := Time, ovalue := OldValue, nvalue := NewValue, cuser := User}) ->
+    #skvhCL{time = Time, ovalue = OldValue, nvalue = NewValue, cuser = User}.
 
 % io_hash_to_term(Hash) when is_binary(Hash) -> Hash.
 
@@ -1023,6 +1034,36 @@ prune_history(User, Channel) ->
             #skvhHist{ckey=EKey, cvhist=[#skvhCL{time=HistTime, ovalue=OValue, nvalue=NValue, cuser=CUser}]})
     end,
     foldl(User, PruneFun, [], Channel).
+
+-spec purge_history_tables([atom()]) -> ok.
+purge_history_tables([]) -> ok;
+purge_history_tables([HistTable | HistTables]) ->
+    Days = ?GET_PURGE_HIST_DAYS(HistTable),
+    DateBefore = calendar:gregorian_days_to_date(
+                    calendar:date_to_gregorian_days(date()) - Days),
+    imem_meta:foldl(fun purge_history_table/2, {DateBefore, HistTable}, HistTable),
+    purge_history_tables(HistTables).
+
+purge_history_table(#skvhHist{cvhist = Hist} = Rec, {DateBefore, HistTable}) when length(Hist) >= 3 ->
+    case purge_hist_rows(DateBefore, Hist) of
+        Hist ->
+            no_op;
+        PurgedHist ->
+            imem_meta:write(HistTable, Rec#skvhHist{cvhist = PurgedHist})
+    end,
+    {DateBefore, HistTable};
+purge_history_table(_, Acc) -> Acc.
+
+purge_hist_rows(DateBefore, [First | Hists]) ->
+    purge_hist_rows(DateBefore, Hists, [First]).
+
+purge_hist_rows(_DateBefore, [Last], Acc) -> lists:reverse([Last | Acc]);
+purge_hist_rows(DateBefore, [Hist | Hists], Acc) ->
+    NewAcc = case imem_datatype:timestamp_to_local_datetime(Hist#skvhCL.time) of
+        {Date, _} when Date =< DateBefore -> Acc;
+        _ -> [Hist | Acc]
+    end,
+    purge_hist_rows(DateBefore, Hists, NewAcc).
 
 -spec prune_cvhist(list(), binary(), tuple(), ddEntityId()) -> tuple().
 prune_cvhist([], Value, Time, User) -> {Time, undefined, Value, User};
