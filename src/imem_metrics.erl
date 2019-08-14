@@ -54,6 +54,9 @@ handle_metric_req(system_information, ReplyFun, State) ->
     },
     ReplyFun(Result),
     State;
+handle_metric_req(virtual_memory, ReplyFun, State) ->
+    ReplyFun(imem:get_virtual_memory()),
+    State;
 handle_metric_req(erlang_nodes, ReplyFun, State) ->
     {ok, RequiredNodes} = application:get_env(imem, erl_cluster_mgrs),
     ReplyFun(#{nodes => [node() | imem_meta:nodes()], required_nodes => RequiredNodes}),
@@ -65,6 +68,13 @@ handle_metric_req(data_nodes, ReplyFun, State) ->
     State;
 handle_metric_req(process_statistics, ReplyFun, State) ->
     process_statistics(ReplyFun, State);
+handle_metric_req(
+        {partition_size, TableAlias, FromPartitionIndex, ToPartitionIndex}, ReplyFun, State
+    ) when is_atom(TableAlias), is_integer(FromPartitionIndex),
+           is_integer(ToPartitionIndex), FromPartitionIndex =< ToPartitionIndex ->
+    Size = partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex),
+    ReplyFun(#{size => Size}),
+    State;
 handle_metric_req(UnknownMetric, ReplyFun, State) ->
     ?Error("Unknow metric requested ~p", [UnknownMetric]),
     ReplyFun({error, unknown_metric}),
@@ -131,3 +141,24 @@ max_key(heap_size) -> max_heap_size;
 max_key(stack_size) -> max_stack_size;
 max_key(total_heap_size) -> max_total_heap_size;
 max_key(message_queue_len) -> max_message_queue_len.
+
+partition_size(TableAlias, FromPartitionIndex, ToPartitionIndex) ->
+    case imem_meta:is_time_partitioned_alias(TableAlias) of
+        true ->
+            Now = imem_datatype:seconds_since_epoch(imem_meta:time()),
+            [_, _, _, _, PTStr, _, _] = imem_meta:parse_table_name(TableAlias),
+            PTime = list_to_integer(PTStr),
+            lists:foldl(
+                fun(Table, Acc) ->
+                        try imem_meta:table_size(Table) of
+                            Size ->
+                                Size + Acc
+                        catch
+                            _:_ ->
+                                Acc
+                        end
+                end, 0, [imem_meta:partitioned_table_name(TableAlias, {Now + (PTime * T), 0})
+                            || T <- lists:seq(FromPartitionIndex, ToPartitionIndex)]);
+        false ->
+            0
+    end.

@@ -12,20 +12,25 @@
 
 %% DEFAULT CONFIGURATIONS ( overridden in table ddConfig)
 
+-define(BIN(__Code), <<??__Code>>).
 -define(GET_MONITOR_CYCLE_WAIT,?GET_CONFIG(monitorCycleWait,[],10000,"Wait time between monitor cycles in msec")).
 -define(GET_MONITOR_EXTRA,?GET_CONFIG(monitorExtra,[],true,"Does monitor call an Extra function to augment the monitored status data?")).
 -define(GET_MONITOR_EXTRA_FUN,
-        ?GET_CONFIG(monitorExtraFun, [],
-<<"fun(Row) ->
-  {_, FreeMemory, TotalMemory} = imem:get_os_memory(),
-  MemFreePerCent = 1.0e-2 * erlang:round(10000 * FreeMemory / TotalMemory),
-  {_, VOutMem} = imem:get_vm_memory(),
-  VInMem = element(4, Row),
-  [{mem_diff, VOutMem - VInMem},
-   {mem_free_pct, MemFreePerCent},
-   {vm_process_mem, VOutMem},
-   {data_nodes, length(imem_meta:data_nodes())}]
- end.">>, "Function which can be called in every monitor cycle to augment the monitor data.")).
+    ?GET_CONFIG(monitorExtraFun, [], ?BIN(
+        fun(Row) ->
+            {_, FreeMemory, TotalMemory} = imem:get_os_memory(),
+            MemFreePerCent = 1.0e-2 * erlang:round(10000 * FreeMemory / TotalMemory),
+            {_, VOutMem} = imem:get_vm_memory(),
+            #{free_virtual_memory := FreeVirtualMemory,
+                total_virtual_memory := TotalVirtualMemory} = imem:get_virtual_memory(),
+            VInMem = element(4, Row),
+            [{mem_diff, VOutMem - VInMem},
+            {mem_free_pct, MemFreePerCent},
+            {vm_process_mem, VOutMem},
+            {data_nodes, length(imem_meta:data_nodes())},
+            {free_virtual_memory, FreeVirtualMemory},
+            {total_virtual_memory, TotalVirtualMemory}]
+        end), "Function which can be called in every monitor cycle to augment the monitor data.")).
 -define(GET_MONITOR_DUMP,?GET_CONFIG(monitorDump,[],true,"Should the monitor status be written to a file on disk?")).
 -define(GET_MONITOR_DUMP_FUN,?GET_CONFIG(monitorDumpFun,[],<<"">>,"Function used to dump the monitor data to disk.")).
 

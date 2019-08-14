@@ -26,13 +26,17 @@
 -export([ get_os_memory/0
         , get_vm_memory/0
         , get_swap_space/0
+        , get_virtual_memory/0
         , spawn_sync_mfa/3
         , priv_dir/0
         , all_apps_version_info/0
         , all_apps_version_info/1
         ]).
 
--safe([get_os_memory/0, get_vm_memory/0, get_swap_space/0]).
+-safe([ get_os_memory/0
+      , get_vm_memory/0
+      , get_swap_space/0
+      , get_virtual_memory/0]).
 
 -export([os_cmd/3]).
 
@@ -246,6 +250,24 @@ set_start_time(Node) ->
                    {rpc:call(Node, imem_if_mnesia, timestamp, []), Node})
     end.
 
+-spec get_virtual_memory() -> map().
+get_virtual_memory() ->
+    get_virtual_memory(os:type()).
+
+-spec get_virtual_memory(tuple()) -> map().
+get_virtual_memory({win32, _}) ->
+    case re:split(os:cmd("wmic OS get FreeVirtualMemory, TotalVirtualMemorySize"),
+                  "\r\r\n", [{return,list}]) of
+        [_, Mems | _] ->
+            [FreeVMStr, TotalVMStr] = string:tokens(Mems, " "),
+            #{free_virtual_memory => list_to_integer(FreeVMStr),
+              total_virtual_memory => list_to_integer(TotalVMStr)};
+        _ ->
+            #{free_virtual_memory => 0, total_virtual_memory => 0}
+    end;
+get_virtual_memory(_) ->
+    #{free_virtual_memory => 0, total_virtual_memory => 0}.
+
 -spec get_os_memory() -> {any(), integer(), integer()}.
 get_os_memory() ->
     SysData = memsup:get_system_memory_data(),
@@ -256,11 +278,7 @@ get_os_memory() ->
                    (_, A) -> A
                 end, 0, SysData),
     TotalMemory = proplists:get_value(total_memory, SysData),
-    case os:type() of
-        {win32, _} = Win    -> {Win,        FreeMem,    TotalMemory};
-        {unix, _} = Unix    -> {Unix,       FreeMem,    TotalMemory};
-        Unknown             -> {Unknown,    FreeMem,    TotalMemory}
-    end.
+    {os:type(), FreeMem, TotalMemory}.
 
 -spec get_vm_memory() -> {any(),integer()}.
 get_vm_memory() -> get_vm_memory(os:type()).
