@@ -22,9 +22,11 @@
 
 -export([
     cache_test_without_sec/1,
+    partition_size_metric/1,
     config_operations/1,
     dal_skvh_concurrency/1,
     dal_skvh_operations/1,
+    dal_skvh_purge_history/1,
     if_csv_test_csv_1/1,
     if_mnesia_table_operations/1,
     import_test_with_sec/1,
@@ -77,6 +79,7 @@ all() ->
         {group, imem_if_mnesia},
         {group, imem_import},
         {group, imem_meta},
+        {group, imem_metrics},
         {group, imem_monitor},
         {group, imem_sec},
         {group, imem_seco},
@@ -142,7 +145,8 @@ groups() ->
             imem_dal_skvh, [],
             [
                 dal_skvh_operations,
-                dal_skvh_concurrency
+                dal_skvh_concurrency,
+                dal_skvh_purge_history
             ]
         },
         {
@@ -171,6 +175,12 @@ groups() ->
                 meta_preparations,
                 meta_partitions,
                 meta_concurrency
+            ]
+        },
+        {
+            imem_metrics, [],
+            [
+                partition_size_metric
             ]
         },
         {
@@ -282,6 +292,9 @@ init_per_testcase(dal_skvh_concurrency = TestCase, Config) ->
 init_per_testcase(dal_skvh_operations = TestCase, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
+init_per_testcase(dal_skvh_purge_history = TestCase, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
+    imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(sql_select_db1_with_sec = TestCase, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:init_per_testcase(TestCase, Config);
@@ -305,6 +318,9 @@ end_per_testcase(dal_skvh_concurrency = TestCase, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(dal_skvh_operations = TestCase, Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
+    imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(dal_skvh_purge_history = TestCase, Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(if_mnesia_table_operations = TestCase, Config) ->
@@ -412,6 +428,14 @@ cache_test_without_sec(Config) ->
     imem_cache_ct:test_without_sec(Config).
 
 %%====================================================================
+%% Test cases: imem_metrics.
+%%====================================================================
+
+partition_size_metric(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":partition_size_metric/1 - Start ===>~n", []),
+    imem_metrics_ct:test_partition_size(Config).
+
+%%====================================================================
 %% Test cases: imem_dal_skvh.
 %%====================================================================
 
@@ -422,6 +446,10 @@ dal_skvh_concurrency(Config) ->
 dal_skvh_operations(Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":dal_skvh_operations/1 - Start ===>~n", []),
     imem_dal_skvh_ct:skvh_operations(Config).
+
+dal_skvh_purge_history(Config) ->
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":dal_skvh_purge_history/1 - Start ===>~n", []),
+    imem_dal_skvh_ct:skvh_purge_history(Config).
 
 %%====================================================================
 %% Test cases: imem_if_csv.

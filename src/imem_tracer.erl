@@ -7,8 +7,8 @@
 -export([trace_whitelist/2]).
 
 % imem interfaces
--export([init/0, subscribe/0, unsubscribe/0, trigger/5]).
--safe([trigger/5]).
+-export([init/0, subscribe/0, unsubscribe/0, trigger/5, trace_key_default/2]).
+-safe([trigger/5, trace_key_default/2]).
 
 -define(MAX_MSG_PER_SEC, 10000).
 -define(MAX_TRACER_PROC_MQ_LEN, 1000).
@@ -26,7 +26,8 @@ init() ->
         [{trigger,
             <<"fun(__OR,__NR,__T,__U,__O) ->"
               " imem_tracer:trigger(__OR,__NR,__T,__U,__O) "
-              "end.">>}],
+              "end.">>
+        }],
         system
     ).
 
@@ -107,11 +108,10 @@ unsubscribe() ->
 
 tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
     Now = timestamp_sec(),
-    NewCount =
-        if 
-            LastSec < Now ->    0;
-            true ->             Count + 1
-        end,
+    NewCount = if 
+        LastSec < Now ->    0;
+        true ->             Count + 1
+    end,
     if 
         NewCount > ?MAX_MSG_PER_SEC ->
             ?Warn("tracer callback overflow > ~p traces / sec", [?MAX_MSG_PER_SEC]),
@@ -120,7 +120,6 @@ tracer(Trace, #tracer_cb_st{last_s = LastSec, count = Count} = St) ->
         true ->
             send_trace_event(Trace, St#tracer_cb_st{count = NewCount, last_s = Now})
     end.
-
 
 handler_fun() ->
     {ok, fun tracer/2}.
@@ -285,15 +284,22 @@ send_sync(Message) ->
 
 ddTraceDef() ->
     (#ddTrace{})#ddTrace{
-        trace_key =
-            list_to_binary(
-                io_lib:format("fun(_,_R) -> imem_meta:record_hash(_R,~p) end.",
-                              [[#ddTrace.event_type, #ddTrace.mod,
-                                #ddTrace.func, #ddTrace.args,
-                                #ddTrace.trace_node]])
-            ),
+        trace_key = <<
+            "fun(First, R) ->"
+            " imem_tracer:trace_key_default(First, R) "
+            "end."
+        >>,
         trace_node = node()
     }.
+
+trace_key_default(_, #ddTrace{trace_key = TK}) when is_integer(TK) -> TK;
+trace_key_default(_, Rec) ->
+    PosList = [
+        #ddTrace.event_type, #ddTrace.mod, #ddTrace.func, #ddTrace.args,
+        #ddTrace.trace_node
+    ],
+    TupleToHash = list_to_tuple([element(N,Rec) || N <- PosList]),
+    erlang:phash2(TupleToHash).
 
 ms_lookup([A|_] = MS, _) when is_atom(A); is_tuple(A) -> MS;
 ms_lookup("default", User) ->
