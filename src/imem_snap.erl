@@ -53,6 +53,10 @@
         , all_local_time_partitioned_tables/0
         ]).
 
+-export([ snapshot_single_to_dir/3
+        , do_cluster_snapshot/0
+        ]).
+
 -safe([all_snap_tables,filter_candidate_list, get_snap_properties,
        set_snap_properties,snap_log,snap_err,take, do_snapshot/0]).
 
@@ -918,4 +922,50 @@ maybe_coldstart_restore(SnapDir) ->
         {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
         {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
         _ -> ok
+    end.
+
+do_cluster_snapshot() ->
+    process_flag(trap_exit, true),
+    Dir = create_clean_dir(?BKP_ZIP_PREFIX),
+    ReportPid = self(),
+    Pids = [spawn_link(?MODULE, snapshot_single_to_dir, [ReportPid, Table, Dir])
+            || Table <- ?GET_CLUSTER_SNAPSHOT_TABLES],
+    (fun
+        WaitForWorkers([], Results) -> Results;
+        WaitForWorkers(Workers, Results) when length(Workers) > 0 ->
+            receive
+                {started, Table} ->
+                    NewResults = Results#{Table => #{started => os:timestamp()}},
+                    ?Info("snapshot started for ~p", [Table]),
+                    WaitForWorkers(Workers, NewResults);
+                {done, Table} ->
+                    ?Info("snapshot finished for ~p", [Table]),
+                    Info = maps:get(Table, Results, #{}),
+                    NewResults = Results#{Table => Info#{finished => os:timestamp()}},
+                    WaitForWorkers(Workers, NewResults);
+                {error, Error, Table} ->
+                    ?Error("snpashot process for ~p", [Table]),
+                    Info = maps:get(Table, Results, #{}),
+                    NewResults = Results#{Table => Info#{error => Error}},
+                    WaitForWorkers(Workers, NewResults);
+                {'EXIT', Pid, normal} ->
+                    ?Info("snpashot process terminated for ~p", [Pid]),
+                    WaitForWorkers(Workers -- [Pid], Results)
+            after
+                1000 ->
+                    NewWorkers =
+                        [Pid || Pid <- Workers, is_process_alive(Pid)],
+                    ?Info(
+                        "workers ~p, alive ~p",
+                        [length(Workers), length(NewWorkers)]
+                    ),
+                    WaitForWorkers(NewWorkers, Results)
+            end
+    end)(Pids, #{}).
+
+snapshot_single_to_dir(ReportPid, Table, Dir) ->
+    ReportPid ! {started, Table},
+    case catch take_chunked(imem_meta:physical_table_name(Table), Dir) of                   
+        ok -> ReportPid ! {done, Table};
+        Error -> ReportPid ! {error, Error, Table}
     end.
