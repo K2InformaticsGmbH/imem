@@ -53,13 +53,7 @@
         , all_local_time_partitioned_tables/0
         ]).
 
-<<<<<<< Updated upstream
--export([ snapshot_single_to_dir/3
-        , do_cluster_snapshot/0
-        ]).
-=======
 -export([do_cluster_snapshot/0]).
->>>>>>> Stashed changes
 
 -safe([all_snap_tables,filter_candidate_list, get_snap_properties,
        set_snap_properties,snap_log,snap_err,take, do_snapshot/0]).
