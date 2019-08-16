@@ -53,9 +53,13 @@
         , all_local_time_partitioned_tables/0
         ]).
 
+<<<<<<< Updated upstream
 -export([ snapshot_single_to_dir/3
         , do_cluster_snapshot/0
         ]).
+=======
+-export([do_cluster_snapshot/0]).
+>>>>>>> Stashed changes
 
 -safe([all_snap_tables,filter_candidate_list, get_snap_properties,
        set_snap_properties,snap_log,snap_err,take, do_snapshot/0]).
@@ -925,47 +929,81 @@ maybe_coldstart_restore(SnapDir) ->
     end.
 
 do_cluster_snapshot() ->
+    Start = os:timestamp(),
     process_flag(trap_exit, true),
     Dir = create_clean_dir(?BKP_ZIP_PREFIX),
-    ReportPid = self(),
-    Pids = [spawn_link(?MODULE, snapshot_single_to_dir, [ReportPid, Table, Dir])
-            || Table <- ?GET_CLUSTER_SNAPSHOT_TABLES],
-    (fun
-        WaitForWorkers([], Results) -> Results;
-        WaitForWorkers(Workers, Results) when length(Workers) > 0 ->
-            receive
-                {started, Table} ->
-                    NewResults = Results#{Table => #{started => os:timestamp()}},
-                    ?Info("snapshot started for ~p", [Table]),
-                    WaitForWorkers(Workers, NewResults);
-                {done, Table} ->
-                    ?Info("snapshot finished for ~p", [Table]),
-                    Info = maps:get(Table, Results, #{}),
-                    NewResults = Results#{Table => Info#{finished => os:timestamp()}},
-                    WaitForWorkers(Workers, NewResults);
-                {error, Error, Table} ->
-                    ?Error("snpashot process for ~p", [Table]),
-                    Info = maps:get(Table, Results, #{}),
-                    NewResults = Results#{Table => Info#{error => Error}},
-                    WaitForWorkers(Workers, NewResults);
-                {'EXIT', Pid, normal} ->
-                    ?Info("snpashot process terminated for ~p", [Pid]),
-                    WaitForWorkers(Workers -- [Pid], Results)
-            after
-                1000 ->
-                    NewWorkers =
-                        [Pid || Pid <- Workers, is_process_alive(Pid)],
-                    ?Info(
-                        "workers ~p, alive ~p",
-                        [length(Workers), length(NewWorkers)]
-                    ),
-                    WaitForWorkers(NewWorkers, Results)
-            end
-    end)(Pids, #{}).
+    ZipFile = filename:join(
+        filename:dirname(Dir), filename:basename(Dir) ++ ".zip"
+    ),
+    ?Info("starting cluster snapshot to ~s", [ZipFile]),
+    Tables = ?GET_CLUSTER_SNAPSHOT_TABLES,
+    Snappers = snap_tables(Tables, Dir),
+    wait_snap_tables(Snappers),
+    ?Info("finished snapshotting ~p tables, zipping...", [length(Tables)]),
+    {ok, Cwd} = file:get_cwd(),
+    ok = file:set_cwd(Dir),
+    ZipCandidates = filelib:wildcard("*.bkp"),
+    ?Info("zipping ~p files", [length(ZipCandidates)]),
+    case zip:zip(ZipFile, ZipCandidates) of
+        {error, Reason} ->
+            ?Error("zip ~s failed reason : ~p", [ZipFile, Reason]);
+        _ ->
+            ?Info("zipped to ~s", [ZipFile])
+    end,
+    ?Info("recursively delete ~s", [Dir]),
+    lists:foreach(
+        fun(File) ->
+            ?Info("deleting ~s", [File]),
+            ok = file:delete(File)
+        end,
+        ZipCandidates
+    ),
+    ok = file:set_cwd(Cwd),
+    ?Info("deleting ~s", [Dir]),
+    ok = file:del_dir(Dir),
+    Bytes = lists:sum([imem_meta:table_size(Table) || Table  <- Tables]),
+    TSec = timer:now_diff(os:timestamp(), Start) div 1000000,
+    TMin = TSec div 60,
+    Hour = TMin div 60,
+    Min = TMin rem 60,
+    Sec = TSec rem 60,
+    ?Info(
+        "finished : added ~p tables (~p bytes) in ~2..0B:~2..0B:~2..0B",
+        [length(Tables), Bytes, Hour, Min, Sec]
+    ).
 
-snapshot_single_to_dir(ReportPid, Table, Dir) ->
-    ReportPid ! {started, Table},
-    case catch take_chunked(imem_meta:physical_table_name(Table), Dir) of                   
-        ok -> ReportPid ! {done, Table};
-        Error -> ReportPid ! {error, Error, Table}
+snap_tables([], _Dir) -> [];
+snap_tables([Table | Tables], Dir) ->
+    [
+        spawn_link(
+            fun() ->
+                ?Info("snapshot process ~p started : ~p", [self(), Table]),
+                take_chunked(imem_meta:physical_table_name(Table), Dir),
+                exit(Table)
+            end
+        )
+        | snap_tables(Tables, Dir)
+    ].
+
+wait_snap_tables([]) -> done;
+wait_snap_tables(Snappers) ->
+    receive
+        {'EXIT', Pid, Table} ->
+            ?Info("snapshot process ~p finished : ~p", [Pid, Table]),
+            wait_snap_tables(Snappers -- [Pid])
+    after
+        10000 ->
+            NewSnappers = [Pid || Pid <- Snappers, is_process_alive(Pid)],
+            if
+                length(NewSnappers) /= length(Snappers) ->
+                    ?Warn(
+                        "workers ~p, alive ~p",
+                        [length(Snappers), length(NewSnappers)]
+                    );
+                true ->
+                    ?Info(
+                        "pending snapshot on ~p tables", [length(NewSnappers)]
+                    )
+            end,
+            wait_snap_tables(NewSnappers)
     end.
