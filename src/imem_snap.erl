@@ -55,8 +55,9 @@
 
 -export([do_cluster_snapshot/0]).
 
--safe([all_snap_tables,filter_candidate_list, get_snap_properties,
-       set_snap_properties,snap_log,snap_err,take, do_snapshot/0]).
+-safe([all_snap_tables, filter_candidate_list, get_snap_properties,
+       set_snap_properties, snap_log,snap_err,take, do_snapshot,
+       do_cluster_snapshot]).
 
 -define(BKP_EXTN, ".bkp").
 -define(BKP_TMP_EXTN, ".bkp.new").
@@ -934,9 +935,13 @@ do_cluster_snapshot() ->
     Snappers = snap_tables(Tables, Dir),
     wait_snap_tables(Snappers),
     ?Info("finished snapshotting ~p tables, zipping...", [length(Tables)]),
-    {ok, Cwd} = file:get_cwd(),
-    ok = file:set_cwd(Dir),
-    ZipCandidates = filelib:wildcard("*.bkp"),
+    ZipCandidates = lists:foldr(
+        fun(File, Acc) ->
+            {ok, Bin} = file:read_file(filename:join(Dir, File)),
+            ?Info("reading bkp ~s, ~p bytes", [File, byte_size(Bin)]),
+            [{File, Bin} | Acc]
+        end, [], filelib:wildcard("*.bkp", Dir)
+    ),
     ?Info("zipping ~p files", [length(ZipCandidates)]),
     case zip:zip(ZipFile, ZipCandidates) of
         {error, Reason} ->
@@ -946,13 +951,12 @@ do_cluster_snapshot() ->
     end,
     ?Info("recursively delete ~s", [Dir]),
     lists:foreach(
-        fun(File) ->
+        fun({File, _}) ->
             ?Info("deleting ~s", [File]),
-            ok = file:delete(File)
+            ok = file:delete(filename:join(Dir, File))
         end,
         ZipCandidates
     ),
-    ok = file:set_cwd(Cwd),
     ?Info("deleting ~s", [Dir]),
     ok = file:del_dir(Dir),
     Bytes = lists:sum([imem_meta:table_size(Table) || Table  <- Tables]),
@@ -996,7 +1000,7 @@ wait_snap_tables(Snappers) ->
                     );
                 true ->
                     ?Info(
-                        "pending snapshot on ~p tables", [length(NewSnappers)]
+                        "pending snapshot on ~p table(s)", [length(NewSnappers)]
                     )
             end,
             wait_snap_tables(NewSnappers)
