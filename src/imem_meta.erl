@@ -1619,6 +1619,8 @@ simple_or_local_node_sharded_tables(TableAlias) ->
     end.
 
 -spec is_node_sharded_alias(ddSimpleTable()) -> boolean().
+is_node_sharded_alias({as,TableAlias,_})  -> 
+    is_node_sharded_alias(TableAlias);
 is_node_sharded_alias(TableAlias) when is_atom(TableAlias) -> 
     is_node_sharded_alias(atom_to_list(TableAlias));
 is_node_sharded_alias(TableAlias) when is_binary(TableAlias) -> 
@@ -1627,16 +1629,18 @@ is_node_sharded_alias(TableAlias) when is_list(TableAlias) ->
     (lists:last(TableAlias) == $@).
 
 -spec is_time_partitioned_alias(ddSimpleTable()) -> boolean().
+is_time_partitioned_alias({as,TableAlias,_}) ->
+    is_time_partitioned_alias(TableAlias);
 is_time_partitioned_alias(TableAlias) when is_atom(TableAlias) ->
     is_time_partitioned_alias(atom_to_list(TableAlias));
 is_time_partitioned_alias(TableAlias) when is_binary(TableAlias) ->
     is_time_partitioned_alias(binary_to_list(TableAlias));
 is_time_partitioned_alias(TableAlias) when is_list(TableAlias) ->
-    TableAliasRev = lists:reverse(TableAlias),
-    case TableAliasRev of
-        [$_,$@|_] ->    is_reverse_timed_name(tl(TableAliasRev));
-        [$@|_] ->       is_reverse_timed_name(TableAliasRev);
-         _ ->           false
+    case string:split(lists:reverse(TableAlias),"@") of
+            [_] ->      % no @ in name
+                false;
+            [_,N|_] ->  % last piece before last @ matches ..._NNNN
+                is_reverse_timed_name([$@|N])     
     end.
 
 -spec is_reverse_timed_name(ddString()) -> boolean().

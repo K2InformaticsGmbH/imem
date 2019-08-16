@@ -63,9 +63,17 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap, ColMap1),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap, ColMap1),
     % ?LogDebug("SortSpec:~p~n", [SortSpec]),
+    Class = case {imem_meta:is_time_partitioned_alias(hd(TableList)), imem_meta:is_node_sharded_alias(hd(TableList))} of 
+        {false,false} -> "L";
+        {true ,false} -> "P";
+        {false,true } -> "C";
+        {true ,true } -> "PC"
+    end,
+    ?Info("Statement Class: ~p", [Class]),
     Statements = [Stmt#statement{
                     stmtParse = {select, SelectSections},
                     stmtParams = Params,
+                    stmtClass = Class,
                     metaFields=MetaFields, tables=Tabs,
                     colMap=ColMap1, fullMap=FullMap,
                     rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,
@@ -76,7 +84,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     case lists:usort([element(1,R1) || R1 <- CreateResult]) of 
         [ok] -> 
             StmtRefs = [element(2,R2) || R2 <- CreateResult],
-            {ok, #stmtResults{stmtRefs=StmtRefs,rowCols=RowCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}};
+            {ok, #stmtResults{stmtRefs=StmtRefs,stmtClass=Class,rowCols=RowCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}};
         [Error|_] ->
             Pred = fun(Res) -> (element(1,Res) == ok) end,
             RollbackRefs = [element(2,R3) || R3 <- lists:filter(Pred, CreateResult)],

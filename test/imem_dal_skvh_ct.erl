@@ -100,14 +100,14 @@ skvh_concurrency(_Config) ->
     ?CTPAL("update_test"),
     [spawn(fun() ->
         Self ! {N1, update_test(hd(?Channels), TestKey, N1)} end) || N1 <- lists:seq(1, 10)],
-    UpdateResult = receive_results(10, []),
+    UpdateResult = receive_results(100, []),
     ?assertEqual(10, length(UpdateResult)),
     ?assertMatch([{skvhTable, _, <<"55">>, _}], imem_meta:read(skvhTest0, sext:encode(TestKey))),
 
     ?CTPAL("drop_table"),
     [spawn(fun() ->
         Self ! {Ch, imem_dal_skvh:drop_table(Ch)} end) || Ch <- ?Channels],
-    _ = {timeout, 10, fun() ->
+    _ = {timeout, 100, fun() ->
         ?assertEqual([ok], lists:usort([R || {_, R} <- receive_results(TabCount, [])])) end},
 
     ok.

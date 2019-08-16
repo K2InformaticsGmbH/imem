@@ -581,6 +581,7 @@ test_with_or_without_sec_part2(IsSec) ->
         ?assertEqual([ok], imem_statement:fetch_close(SKey, SR5, IsSec)),
         ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),
         List5b = receive_tuples(SR5, true),
+        ?CTPAL("List5b ~p",[List5b]),
         D12 = List5a--List5b,
         D21 = List5b--List5a,
         ?assert((D12 == []) orelse (lists:usort([imem_meta:is_local_time_partitioned_table(N) || {N} <- D12]) == [true])),
@@ -592,7 +593,7 @@ test_with_or_without_sec_part2(IsSec) ->
         ),
         ?assertEqual([ok], imem_statement:fetch_close(SKey, SR5, IsSec)), % actually not needed here, fetch_recs does it
         List5c = imem_statement:fetch_recs_sort(SKey, SR5, {self(), make_ref()}, 1000, IsSec),
-        ?CTPAL("List5c"),
+        ?CTPAL("List5c ~p",[List5c]),
         ?assertEqual(length(List5b), length(List5c)),
         ?assertEqual(lists:sort(List5b), lists:sort(imem_statement:result_tuples(List5c, SR5#stmtResults.rowFun))),
         ?CTPAL("third read success (sync)"),

@@ -492,16 +492,29 @@ meta_preparations(_Config) ->
 
     ?assertEqual(true, imem_meta:is_time_partitioned_alias(?TPTEST1)),
     ?assertEqual(true, imem_meta:is_time_partitioned_alias(?TPTEST0)),
+    ?assertEqual(true, imem_meta:is_time_partitioned_alias(tpTest_123@)),
+    ?assertEqual(true, imem_meta:is_time_partitioned_alias(tpTest_123@_)),
+    ?assertEqual(true, imem_meta:is_time_partitioned_alias(tpTest_123@local)),
+    ?assertEqual(true, imem_meta:is_time_partitioned_alias(tpTest_123@testnode)),
+
+    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest)),
     ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest@)),
     ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest@_)),
-    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest1234@_)),
-    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest_10A0@)),
-    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest)),
+    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest123@_)),
+    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest_12A@)),
+    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest@local)),
+    ?assertEqual(false, imem_meta:is_time_partitioned_alias(tpTest@testnode)),
+
     ?assertEqual(true, imem_meta:is_node_sharded_alias(?TPTEST0)),
+    ?assertEqual(true, imem_meta:is_node_sharded_alias(tpTest@)),
+    ?assertEqual(true, imem_meta:is_node_sharded_alias(tpTest123@)),
+    ?assertEqual(true, imem_meta:is_node_sharded_alias(tpTest_123@)),
+
+    ?assertEqual(false, imem_meta:is_node_sharded_alias(?TPTEST1)),
     ?assertEqual(false, imem_meta:is_node_sharded_alias(tpTest_1000)),
     ?assertEqual(false, imem_meta:is_node_sharded_alias(tpTest1000)),
-    ?assertEqual(false, imem_meta:is_node_sharded_alias(?TPTEST1)),
-    ?assertEqual(false, imem_meta:is_node_sharded_alias(?TPTEST1)),
+    ?assertEqual(false, imem_meta:is_node_sharded_alias(tpTest123@_)),
+    ?assertEqual(false, imem_meta:is_node_sharded_alias(tpTest_123@_)),
 
     ok.
 

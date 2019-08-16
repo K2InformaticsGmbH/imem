@@ -1,6 +1,8 @@
 -ifndef(IMEM_SQL_HRL).
 -define(IMEM_SQL_HRL, true).
 
+-type stmt_class() :: [$P] | [$C] | [$L] | [$R] | [$P|[$C]] | [$R|[$C]].
+
 -include("imem_meta.hrl").
 
 -define(ComparisonOperators, ['==','/=','>=','=<','<','>']).	%% as supported here in matchspecs 
@@ -68,6 +70,7 @@
                   , stmtStr = ""            ::string()            %% SQL statement
                   , stmtParse = undefined   ::tuple()             %% SQL parse tree (tuple of atoms, binaries, numbers and and lists)
                   , stmtParams = []         ::list()              %% Proplist with {<<":name">>,<<"type">>,[<<"value">>]}
+                  , stmtClass = "L"         ::stmt_class()        %% Statement Class (how to collect the result)
                   , colMap = []             ::list(#bind{})       %% column map (one expression tree per selected column )
                   , fullMap = []            ::list(#bind{})       %% full map of bind records (meta fields and table fields used in query)
                   , metaFields = []         ::list(atom())        %% list of meta_field names needed by RowFun
@@ -91,6 +94,7 @@
 -record(stmtResults,                                %% result record for exec function call
                   { stmtRefs = []                   %% statement ids needed for fetching, more than one for cluster queries
                   , stmtTables = []                 ::list()            %% of lists of qualified table names (multiple tables per join statement)
+                  , stmtClass = "L"                 ::stmt_class()      %% Statement Class (ressource load indicator)
                   , rowCols = []                    ::list(#rowCol{})   %% simplified column map of main statement
                   , rowFun  = undefined             ::fun()             %% rendering fun for row {key rec} -> [ResultValues]
                   , sortFun = undefined             ::fun()             %% rendering fun for sorting {key rec} -> SortColumn
