@@ -34,6 +34,8 @@
        ).
 
 -spec(connect(binary() | string() | map()) -> map() | {error, error()}).
+connect([$\\,$\\|_] = Path) -> #{proto => cifs, path => Path};
+connect(<<$\\,$\\,_/binary>> = Path) -> #{proto => cifs, path => Path};
 connect([$/,$/|_] = Path) -> #{proto => cifs, path => Path};
 connect(<<$/,$/,_/binary>> = Path) -> #{proto => cifs, path => Path};
 connect([C,$:|_] = Path) when ?IS_DRIVELETTER(C) -> #{proto => local, path => Path};
