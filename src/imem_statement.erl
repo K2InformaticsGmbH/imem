@@ -704,20 +704,20 @@ process_tail_row(R0,#state{isSec=IsSec,seco=SKey,fetchCtx=FetchCtx0,statement=St
                 Rem0 =< 1 ->
                     % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
                     unsubscribe(Stmt),
-                    {{self(),RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                    {{RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                 true ->
                     % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
-                    {{self(),RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-1}}}
+                    {{RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-1}}}
             end;
         {_,1,_FirstRN} ->    %% single table select, avoid join overhead but update RowNum meta field
             if
                 Rem0 =< 1 ->
                     % ?LogDebug("send~n~p~n", [{RawRecords,true}]),
                     unsubscribe(Stmt),
-                    {{self(),RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                    {{RawRecords,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                 true ->
                     % ?LogDebug("send~n~p~n", [{RawRecords,tail}]),
-                    {{self(),RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+1,remaining=Rem0-1}}}
+                    {{RawRecords,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+1,remaining=Rem0-1}}}
             end;
         {_,_,undefined} ->        %% join raw result of main scan with remaining tables
             case join_rows(RawRecords, FetchCtx0, Stmt) of
@@ -728,10 +728,10 @@ process_tail_row(R0,#state{isSec=IsSec,seco=SKey,fetchCtx=FetchCtx0,statement=St
                         (Rem0 =< length(Result)) ->
                             % ?LogDebug("send~n~p~n", [{Result,true}]),
                             unsubscribe(Stmt),
-                            {{self(),Result,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                            {{Result,true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                         true ->
                             % ?LogDebug("send~n~p~n", [{Result,tail}]),
-                            {{self(),Result,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-length(Result)}}}
+                            {{Result,tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{remaining=Rem0-length(Result)}}}
                     end
             end;
         {_,_,_} ->        %% join raw result of main scan with remaining tables, correct RowNum
@@ -743,10 +743,10 @@ process_tail_row(R0,#state{isSec=IsSec,seco=SKey,fetchCtx=FetchCtx0,statement=St
                         (Rem0 =< length(JoinedRows)) ->
                             % ?LogDebug("send~n~p~n", [{Result,true}]),
                             unsubscribe(Stmt),
-                            {{self(),update_row_num(MR2, RowNum, JoinedRows),true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
+                            {{update_row_num(MR2, RowNum, JoinedRows),true}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};
                         true ->
                             % ?LogDebug("send~n~p~n", [{Result,tail}]),
-                            {{self(),update_row_num(MR2, RowNum, JoinedRows),tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+length(JoinedRows),remaining=Rem0-length(JoinedRows)}}}
+                            {{update_row_num(MR2, RowNum, JoinedRows),tail}, State#state{fetchCtx=FetchCtx0#fetchCtx{rownum=RowNum+length(JoinedRows),remaining=Rem0-length(JoinedRows)}}}
                     end
             end
     end.
