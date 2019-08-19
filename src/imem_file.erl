@@ -34,6 +34,8 @@
        ).
 
 -spec(connect(binary() | string() | map()) -> map() | {error, error()}).
+connect([$\\,$\\|_] = Path) -> #{proto => cifs, path => Path};
+connect(<<$\\,$\\,_/binary>> = Path) -> #{proto => cifs, path => Path};
 connect([$/,$/|_] = Path) -> #{proto => cifs, path => Path};
 connect(<<$/,$/,_/binary>> = Path) -> #{proto => cifs, path => Path};
 connect([C,$:|_] = Path) when ?IS_DRIVELETTER(C) -> #{proto => local, path => Path};
@@ -319,6 +321,10 @@ connect_test_() ->
                  #{proto => cifs, path => "//localhost/share"}},
                 {"cifs_bin_str", <<"//localhost/share">>,
                  #{proto => cifs, path => <<"//localhost/share">>}},
+                {"cifs_list_str_win_slash", "\\\\localhost\\share",
+                 #{proto => cifs, path => "\\\\localhost\\share"}},
+                {"cifs_bin_str_win_slash", <<"\\\\localhost\\share">>,
+                 #{proto => cifs, path => <<"\\\\localhost\\share">>}},
                 {"local_list_str_big", "C:/localhost/share",
                  #{proto => local, path => "C:/localhost/share"}},
                 {"local_list_str_small", "c:/localhost/share",
