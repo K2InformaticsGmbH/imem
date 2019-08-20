@@ -133,6 +133,7 @@
         , is_local_time_partitioned_table/1
         , is_schema_time_partitioned_table/1
         , is_local_or_schema_time_partitioned_table/1
+        , is_local_alias/1
         , is_node_sharded_alias/1
         , is_local_node_sharded_table/1
         , time_of_partition_expiry/1
@@ -1618,7 +1619,30 @@ simple_or_local_node_sharded_tables(TableAlias) ->
             physical_table_names(TableAlias)
     end.
 
--spec is_node_sharded_alias(ddSimpleTable()) -> boolean().
+-spec is_local_alias(ddSimpleTable() | ddQualifiedTable()) -> boolean().
+is_local_alias({_Schema,TableAlias}) -> 
+    is_local_alias(TableAlias);
+is_local_alias({as,TableAlias,_}) -> 
+    is_local_alias(TableAlias);
+is_local_alias(TableAlias) when is_atom(TableAlias) -> 
+    is_local_alias(atom_to_list(TableAlias));
+is_local_alias(TableAlias) when is_binary(TableAlias) -> 
+    is_local_alias(binary_to_list(TableAlias));
+is_local_alias(TableAlias) when is_list(TableAlias) ->
+    NS = node_shard(),
+    case parse_table_name(TableAlias) of
+        [_,_,_,_,_,"@","_"] ->  true;
+        [_,_,_,_,_,"@",NS] ->   true;
+        [_,_,_,_,_,"@",_] ->    false;
+        _ ->                    true
+    end.
+
+-spec is_node_sharded_alias(ddSimpleTable() | ddQualifiedTable()) -> boolean().
+is_node_sharded_alias({Schema,TableAlias})  ->
+    case schema() of
+        Schema ->   is_node_sharded_alias(TableAlias);
+        _ ->        false
+    end;
 is_node_sharded_alias({as,TableAlias,_})  -> 
     is_node_sharded_alias(TableAlias);
 is_node_sharded_alias(TableAlias) when is_atom(TableAlias) -> 
@@ -1628,7 +1652,12 @@ is_node_sharded_alias(TableAlias) when is_binary(TableAlias) ->
 is_node_sharded_alias(TableAlias) when is_list(TableAlias) -> 
     (lists:last(TableAlias) == $@).
 
--spec is_time_partitioned_alias(ddSimpleTable()) -> boolean().
+-spec is_time_partitioned_alias(ddSimpleTable() | ddQualifiedTable()) -> boolean().
+is_time_partitioned_alias({Schema,TableAlias}) ->
+    case schema() of
+        Schema ->   is_time_partitioned_alias(TableAlias);
+        _ ->        false
+    end;
 is_time_partitioned_alias({as,TableAlias,_}) ->
     is_time_partitioned_alias(TableAlias);
 is_time_partitioned_alias(TableAlias) when is_atom(TableAlias) ->
@@ -1636,25 +1665,10 @@ is_time_partitioned_alias(TableAlias) when is_atom(TableAlias) ->
 is_time_partitioned_alias(TableAlias) when is_binary(TableAlias) ->
     is_time_partitioned_alias(binary_to_list(TableAlias));
 is_time_partitioned_alias(TableAlias) when is_list(TableAlias) ->
-    case string:split(lists:reverse(TableAlias),"@") of
-            [_] ->      % no @ in name
-                false;
-            [_,N|_] ->  % last piece before last @ matches ..._NNNN
-                is_reverse_timed_name([$@|N])     
-    end.
-
--spec is_reverse_timed_name(ddString()) -> boolean().
-is_reverse_timed_name(TableAliasRev) ->
-    case string:tokens(TableAliasRev, "_") of
-        [[$@|RN]|_] -> 
-            try 
-                _ = list_to_integer(RN),
-                (length(RN) =< 10)    % timestamp partitioned
-            catch
-                _:_ -> false
-            end;
-         _ ->      
-            false       % unsharded or node sharded alias only
+    case parse_table_name(TableAlias) of
+        [_,_,_,_,"",_,_] ->     false;
+        [_,_,_,_,_,"@",_] ->    true;
+        _ ->                    false
     end.
 
 -spec is_local_node_sharded_table(ddSimpleTable()) -> boolean.
@@ -1720,7 +1734,8 @@ is_reserved_for_tables(TableAlias) -> sqlparse:is_reserved(TableAlias).
 is_reserved_for_columns(Name) -> sqlparse:is_reserved(Name).
 
 -spec parse_table_name(ddSimpleTable()) -> [ddString()].
-%%                       TableName ->      [Schema,".",Name,"_",Period,"@",Node] all strings , all optional ("") except Name
+%% TableName -> [Schema, ".", Name, "_", Period, "@", Node]
+%% list of string items, all optional ("") except Name
 parse_table_name(TableName) when is_atom(TableName) -> 
     parse_table_name(atom_to_list(TableName));
 parse_table_name(TableName) when is_list(TableName) ->

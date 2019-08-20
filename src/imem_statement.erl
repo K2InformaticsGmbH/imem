@@ -468,29 +468,31 @@ handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, 
     {noreply, NewState};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
-    % ?LogDebug("received ~p rows (possibly including start and end flags)~n", [length(Rows0)]),
-    ?Info("received ~p rows for ~p", [length(Rows0)-2,element(2,Stmt)]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            ?Info("received ~p rows for ~p data complete", [length(Rows0)-2,element(2,Stmt)]),
             {R,true};
         {waiting,[?sot|R]} ->            
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data first"),     
+            ?Info("received ~p rows for ~p data first", [length(Rows0)-1,element(2,Stmt)]),
             {R,false};
         {fetching,[?eot|R]} ->
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data complete"),     
+            ?Info("received ~p rows for ~p data complete", [length(Rows0)-1,element(2,Stmt)]),
             {R,true};
         {fetching,[?sot,?eot|_R]} ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
+            ?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-2,element(2,Stmt)]),
             handle_fetch_complete(State);
         {fetching,[?sot|_R]} ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
+            ?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-1,element(2,Stmt)]),
             handle_fetch_complete(State);
         {fetching,R} ->            
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
+            ?Info("received ~p rows for ~p", [length(Rows0),element(2,Stmt)]),
             {R,false};
         {BadStatus,R} ->            
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
+            ?Info("received ~p rows for ~p bad status", [length(Rows0),element(2,Stmt)]),
             {R,false}        
     end,   
     % ?Info("Filtering ~p rows with filter ~p~n", [length(Rows1),FilterFun]),

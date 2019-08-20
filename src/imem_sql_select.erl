@@ -23,6 +23,17 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?Info("Params: ~p~n", [Params]),
     TableList = bind_table_names(Params, TableList0),
     ?Info("TableList: ~p~n", [TableList]),
+    Class = case { imem_meta:is_time_partitioned_alias(hd(TableList))
+                 , imem_meta:is_node_sharded_alias(hd(TableList))
+                 , imem_meta:is_local_alias(hd(TableList))
+                 } of 
+        {false,false,false} ->  "R";
+        {false,false,_} ->      "L";
+        {true ,false,_} ->      "P";
+        {false,true ,_} ->      "C";
+        {true ,true ,_} ->      "PC"
+    end,
+    ?Info("Statement Class: ~p", [Class]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
     % ?LogDebug("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
@@ -63,13 +74,6 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap, ColMap1),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap, ColMap1),
     % ?LogDebug("SortSpec:~p~n", [SortSpec]),
-    Class = case {imem_meta:is_time_partitioned_alias(hd(TableList)), imem_meta:is_node_sharded_alias(hd(TableList))} of 
-        {false,false} -> "L";
-        {true ,false} -> "P";
-        {false,true } -> "C";
-        {true ,true } -> "PC"
-    end,
-    ?Info("Statement Class: ~p", [Class]),
     Statements = [Stmt#statement{
                     stmtParse = {select, SelectSections},
                     stmtParams = Params,
