@@ -1527,7 +1527,7 @@ db_test_() ->
 
 data_types(_) ->
     try
-        ?LogDebug("---TEST data_types---"),
+        %?LogDebug("---TEST data_types---"),
 
         ClEr = 'ClientError',
         ?assertEqual(<<"'Imem'">>, item1({'Imem',ddTable})),

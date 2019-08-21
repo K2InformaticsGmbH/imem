@@ -23,16 +23,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?Info("Params: ~p~n", [Params]),
     TableList = bind_table_names(Params, TableList0),
     ?Info("TableList: ~p~n", [TableList]),
-    Class = case { imem_meta:is_time_partitioned_alias(hd(TableList))
-                 , imem_meta:is_node_sharded_alias(hd(TableList))
-                 , imem_meta:is_local_alias(hd(TableList))
-                 } of 
-        {false,false,false} ->  "R";
-        {false,false,_} ->      "L";
-        {true ,false,_} ->      "P";
-        {false,true ,_} ->      "C";
-        {true ,true ,_} ->      "PC"
-    end,
+    Class = imem_sql:statement_class(hd(TableList)),
     ?Info("Statement Class: ~p", [Class]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
@@ -134,16 +125,18 @@ flatten_pick(L,D,N,I) ->
     end.
 
 %% ----- TESTS ------------------------------------------------
+
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
-flatten_tables_test() ->
-    [[a1,b1,c1]] = flatten_tables([[a1], [b1], [c1]]),
-    [[a1,b1,c1], [a1,b1,c2]] = flatten_tables([[a1], [b1], [c1,c2]]),
-    [[a1],[a2],[a3]] = flatten_tables([[a1,a2,a3]]),
-    [[a1,b1,c1], [a2,b1,c2]] = flatten_tables([[a1,a2], [b1], [c1,c2]]),
-    [[a1,b1,c1], [a2,b2,c1]] = flatten_tables([[a1,a2], [b1,b2], [c1]]),
-    [[a1,b1,c1], [a2,b2,c2]] = flatten_tables([[a1,a2], [b1,b2], [c1,c2]]).
+flatten_tables_test_() ->
+    [ {"F_1", ?_assertEqual([[a1,b1,c1]], flatten_tables([[a1], [b1], [c1]]))}
+    , {"F_2", ?_assertEqual([[a1,b1,c1], [a1,b1,c2]], flatten_tables([[a1], [b1], [c1,c2]]))}
+    , {"F_3", ?_assertEqual([[a1],[a2],[a3]], flatten_tables([[a1,a2,a3]]))}
+    , {"F_4", ?_assertEqual([[a1,b1,c1], [a2,b1,c2]], flatten_tables([[a1,a2], [b1], [c1,c2]]))}
+    , {"F_5", ?_assertEqual([[a1,b1,c1], [a2,b2,c1]], flatten_tables([[a1,a2], [b1,b2], [c1]]))}
+    , {"F_6", ?_assertEqual([[a1,b1,c1], [a2,b2,c2]], flatten_tables([[a1,a2], [b1,b2], [c1,c2]]))}
+    ].
 
 -endif.

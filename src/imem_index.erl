@@ -1143,7 +1143,7 @@ string_test_() ->
     }.    
 
 iff_functions(_) ->
-    ?LogDebug("---TEST--- ~p", [iff_functions]),
+    %?LogDebug("---TEST--- ~p", [iff_functions]),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,3])),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,'_',3])),
     ?assertEqual(true, iff_list_pattern([1,2,3],[1,2,'_'])),
@@ -1163,12 +1163,12 @@ iff_functions(_) ->
 
 
 string_operations(_) ->
-    ?LogDebug("---TEST--- ~p", [string_operations]),
+    %?LogDebug("---TEST--- ~p", [string_operations]),
     ?assertEqual([<<"table">>], vnf_lcase_ascii(<<"täble"/utf8>>)),
     ?assertEqual([<<"tuble">>], vnf_lcase_ascii(<<"tüble"/utf8>>)).
 
 prune_list_test(_) ->
-    ?LogDebug("---TEST--- ~p", [prune_list_test]),
+    %?LogDebug("---TEST--- ~p", [prune_list_test]),
     ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"c">>])),
     ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"a">>,<<"c">>])),
     ?assertEqual([<<"a">>,<<"b">>,<<"c">>], prune_list([<<"a">>,<<"b">>,<<"c">>,<<"c">>,<<"c">>])),
