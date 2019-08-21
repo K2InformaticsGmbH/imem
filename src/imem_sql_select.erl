@@ -36,8 +36,11 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     ?Info("Statement Class: ~p", [Class]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
-    % ?LogDebug("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
-    Tables = flatten_tables([imem_meta:qualified_table_names({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx]),
+    % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
+    % ?Info("FullMap:~n~p~n", [FullMap]),
+    FullTableNames = [imem_meta:qualified_table_names({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
+    ?Info("FullTableNames:~n~p~n", [FullTableNames]),
+    Tables = flatten_tables(FullTableNames),
     ?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 

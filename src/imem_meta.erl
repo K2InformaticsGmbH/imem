@@ -1631,10 +1631,11 @@ is_local_alias(TableAlias) when is_binary(TableAlias) ->
 is_local_alias(TableAlias) when is_list(TableAlias) ->
     NS = node_shard(),
     case parse_table_name(TableAlias) of
-        [_,_,_,_,_,"@","_"] ->  true;
-        [_,_,_,_,_,"@",NS] ->   true;
-        [_,_,_,_,_,"@",_] ->    false;
-        _ ->                    true
+        [_,_,_,_,_,"@","_"] ->      true;
+        [_,_,_,_,_,"@","local"] ->  true;
+        [_,_,_,_,_,"@",NS] ->       true;
+        [_,_,_,_,_,"@",_] ->        false;
+        _ ->                        true
     end.
 
 -spec is_node_sharded_alias(ddSimpleTable() | ddQualifiedTable()) -> boolean().
@@ -1721,10 +1722,11 @@ is_local_or_schema_time_partitioned_table(Name) when is_binary(Name) ->
 is_local_or_schema_time_partitioned_table(Name) when is_list(Name) ->
     NS = node_shard(),
     case parse_table_name(Name) of
-        [_,_,_,_,"",_,_] ->     false;
-        [_,_,_,_,_,"@","_"] ->  true;
-        [_,_,_,_,_,"@",NS] ->   true;
-        _ ->                    false
+        [_,_,_,_,"",_,_] ->         false;
+        [_,_,_,_,_,"@","_"] ->      true;
+        [_,_,_,_,_,"@","local"] ->  true;
+        [_,_,_,_,_,"@",NS] ->       true;
+        _ ->                        false
     end.
 
 -spec is_reserved_for_tables(ddSimpleTable()) -> boolean.
