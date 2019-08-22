@@ -16,17 +16,18 @@
         , statement_class/1
         ]).
 
-
+statement_class({as, TableName, _Alias}) -> statement_class(TableName);
 statement_class(TableAlias) ->
     case { imem_meta:is_time_partitioned_alias(TableAlias)
                  , imem_meta:is_node_sharded_alias(TableAlias)
                  , imem_meta:is_local_alias(TableAlias)
                  } of 
         {false,false,false} ->  "R";
-        {false,false,_} ->      "L";
-        {true ,false,_} ->      "P";
-        {false,true ,_} ->      "C";
-        {true ,true ,_} ->      "PC"
+        {false,false,true} ->   "L";
+        {false,true, false} ->  "C";
+        {true ,false,false} ->  "PR";
+        {true ,false,true} ->   "P";
+        {true ,true ,false} ->  "PC"
     end.
 
 parse(Sql) ->
@@ -158,15 +159,16 @@ statement_class_test_() ->
     , {"R_5", ?_assertEqual("R", statement_class({as,ddTest@007,<<"TEST">>}))}
 
     , {"L_1", ?_assertEqual("L", statement_class("ddTest"))} 
-    , {"L_2", ?_assertEqual("L", statement_class(<<"ddTest">>))} 
+    , {"L_2", ?_assertEqual("L", statement_class(<<"ddTest@local">>))} 
     , {"L_3", ?_assertEqual("L", statement_class(ddTest))}
-    , {"L_4", ?_assertEqual("L", statement_class({imem_meta:schema(),ddTest}))} 
+    , {"L_4", ?_assertEqual("L", statement_class({imem_meta:schema(),ddTest@_}))} 
     , {"L_5", ?_assertEqual("L", statement_class({as,ddTest,<<"TEST">>}))}
+    , {"L_6", ?_assertEqual("L", statement_class({as,ddTest_1234567890@local,<<"TEST">>}))}
 
     , {"P_1", ?_assertEqual("P", statement_class("ddTest_1234@local"))} 
-    , {"P_2", ?_assertEqual("P", statement_class(<<"ddTest_1234@local">>))} 
+    , {"P_2", ?_assertEqual("P", statement_class(<<"ddTest_1234@_">>))} 
     , {"P_3", ?_assertEqual("P", statement_class(ddTest_1234@local))}
-    , {"P_4", ?_assertEqual("P", statement_class({imem_meta:schema(),ddTest_1234@local}))} 
+    , {"P_4", ?_assertEqual("P", statement_class({imem_meta:schema(),ddTest_1234@_}))} 
     , {"P_5", ?_assertEqual("P", statement_class({as,ddTest_1234@local,<<"TEST">>}))}
 
     , {"C_1", ?_assertEqual("C", statement_class("ddTest@"))} 
@@ -174,12 +176,19 @@ statement_class_test_() ->
     , {"C_3", ?_assertEqual("C", statement_class(ddTest@))}
     , {"C_4", ?_assertEqual("C", statement_class({imem_meta:schema(),ddTest@}))}
     , {"C_5", ?_assertEqual("C", statement_class({as,ddTest@,<<"TEST">>}))}
+    , {"C_6", ?_assertEqual("C", statement_class(<<"ddTest_1234567890@">>))} 
 
     , {"PC_1", ?_assertEqual("PC",statement_class("ddTest_1234@"))}
     , {"PC_2", ?_assertEqual("PC",statement_class(<<"ddTest_1234@">>))}
     , {"PC_3", ?_assertEqual("PC",statement_class(ddTest_1234@))}
     , {"PC_4", ?_assertEqual("PC",statement_class({imem_meta:schema(),ddTest_1234@}))}
     , {"PC_5", ?_assertEqual("PC",statement_class({as,ddTest_1234@,<<"TEST">>}))}
+
+    , {"PR_1", ?_assertEqual("PR", statement_class("ddTest_1234@007"))} 
+    , {"PR_2", ?_assertEqual("PR", statement_class(<<"ddTest_1234@007">>))} 
+    , {"PR_3", ?_assertEqual("PR", statement_class(ddTest_1234@007))}
+    , {"PR_4", ?_assertEqual("PR", statement_class({imem_meta:schema(),ddTest_1234@007}))} 
+    , {"PR_5", ?_assertEqual("PR", statement_class({as,ddTest_1234@007,<<"TEST">>}))}
     ].
 
 -endif.

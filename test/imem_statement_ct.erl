@@ -564,7 +564,10 @@ test_with_or_without_sec_part2(IsSec) ->
 
     ?CTPAL("SR5"),
     SR5 = exec(SKey, query5, 100, IsSec, "
-            select to_name(qname) from all_tables where element(1,qname) = to_atom('imem')"
+        select to_name(qname) from all_tables 
+        where element(1,qname) = to_atom('imem')
+        and element(2,qname) like 'd%'
+    "
     ),
     try
         ?assertEqual(ok, fetch_async(SKey, SR5, [], IsSec)),

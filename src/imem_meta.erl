@@ -1622,8 +1622,6 @@ simple_or_local_node_sharded_tables(TableAlias) ->
 -spec is_local_alias(ddSimpleTable() | ddQualifiedTable()) -> boolean().
 is_local_alias({_Schema,TableAlias}) -> 
     is_local_alias(TableAlias);
-is_local_alias({as,TableAlias,_}) -> 
-    is_local_alias(TableAlias);
 is_local_alias(TableAlias) when is_atom(TableAlias) -> 
     is_local_alias(atom_to_list(TableAlias));
 is_local_alias(TableAlias) when is_binary(TableAlias) -> 
@@ -1644,8 +1642,6 @@ is_node_sharded_alias({Schema,TableAlias})  ->
         Schema ->   is_node_sharded_alias(TableAlias);
         _ ->        false
     end;
-is_node_sharded_alias({as,TableAlias,_})  -> 
-    is_node_sharded_alias(TableAlias);
 is_node_sharded_alias(TableAlias) when is_atom(TableAlias) -> 
     is_node_sharded_alias(atom_to_list(TableAlias));
 is_node_sharded_alias(TableAlias) when is_binary(TableAlias) -> 
@@ -1659,17 +1655,15 @@ is_time_partitioned_alias({Schema,TableAlias}) ->
         Schema ->   is_time_partitioned_alias(TableAlias);
         _ ->        false
     end;
-is_time_partitioned_alias({as,TableAlias,_}) ->
-    is_time_partitioned_alias(TableAlias);
 is_time_partitioned_alias(TableAlias) when is_atom(TableAlias) ->
     is_time_partitioned_alias(atom_to_list(TableAlias));
 is_time_partitioned_alias(TableAlias) when is_binary(TableAlias) ->
     is_time_partitioned_alias(binary_to_list(TableAlias));
 is_time_partitioned_alias(TableAlias) when is_list(TableAlias) ->
     case parse_table_name(TableAlias) of
-        [_,_,_,_,"",_,_] ->     false;
-        [_,_,_,_,_,"@",_] ->    true;
-        _ ->                    false
+        [_,_,_,_,"",_,_] ->                     false;
+        [_,_,_,_,T,"@",_] when length(T)<10 ->  true;
+        _ ->                                    false
     end.
 
 -spec is_local_node_sharded_table(ddSimpleTable()) -> boolean.
@@ -1872,7 +1866,6 @@ physical_table_name(TableAlias, Key) when is_list(TableAlias) ->
     end.
 
 -spec physical_table_names(ddTable()) -> [ddMnesiaTable()].
-physical_table_names({_S,N,_A}) -> physical_table_names(N);
 physical_table_names({_S,N}) -> physical_table_names(N);
 physical_table_names(dba_tables) -> [ddTable];
 physical_table_names(all_tables) -> [ddTable];
@@ -1886,41 +1879,57 @@ physical_table_names(TableAlias) when is_atom(TableAlias) ->
 physical_table_names(TableAlias) when is_binary(TableAlias) ->
     physical_table_names(binary_to_list(TableAlias));
 physical_table_names(TableAlias) when is_list(TableAlias) ->
-    TableAliasRev = lists:reverse(TableAlias),
-    case TableAliasRev of
-        [$@|_] ->       
-            case string:tokens(TableAliasRev, "_") of
-                [[$@|RN]|_] ->                          % possibly time sharded node sharded partitions
-                    PL = length(RN),  
-                    case catch list_to_integer(lists:reverse(RN)) of
-                        P  when is_integer(P), P > 0, PL < ?PartEndDigits ->
-                            {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
-                            Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
-                            lists:filter(Pred,tables_starting_with(BaseName));
-                        _ ->
-                            tables_starting_with(TableAlias) % node sharded table only
-                    end;
-                 _ ->               
-                    tables_starting_with(TableAlias)            % node sharded table only
-            end;
-        [$_,$@|_] ->    
-            case string:tokens(tl(TableAliasRev), "_") of
-                [[$@|RN]|_] when length(RN) >= ?PartEndDigits ->      
-                     [list_to_atom(TableAlias)];                % timestamp sharded cluster table
-                [[$@|RN]|_] ->                                  % timestamp sharded cluster alias 
-                    case catch list_to_integer(lists:reverse(RN)) of
-                        I when is_integer(I) ->
-                            {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
-                            Pred = fun(TN) -> lists:member($@, atom_to_list(TN)) end,
-                            lists:filter(Pred,tables_starting_with(BaseName));
-                        _ ->
-                            [list_to_atom(TableAlias)]          % plain table name, not time sharded
-                    end;
-                 _ ->   
-                    [list_to_atom(TableAlias)]                  % plain table name, not time sharded
-            end;
-        _ ->
-            [list_to_atom(TableAlias)]
+    NS = node_shard(),
+    case parse_table_name(TableAlias) of
+        % [Schema, ".", Name, "_", Period, "@", Node]
+        [_,_,N, "","","@","_"] ->     
+            [list_to_atom(N ++ "@_")];               % plain shared table (e.g. audit)
+        [_,_,N,"_",PT,"@","_"] when length(PT) >= ?PartEndDigits ->     
+            [list_to_atom(N ++ "_" ++ PT ++ "@_")];  % particular shared time partition 
+        [_,_,N,"_",_P,"@","_"] ->
+            NameLen = length(N) + 3 + ?PartEndDigits,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==NameLen andalso lists:suffix("@_",TNS))
+            end,
+            lists:filter(Pred, tables_starting_with(N ++ "_"));
+        [_,_,N,"","","@","local"] ->
+            [list_to_atom(N ++ "@" ++ NS)];
+        [_,_,N,"_",PT,"@","local"] when length(PT) >= ?PartEndDigits -> 
+            [list_to_atom(N ++ "_" ++ PT ++ "@" ++ NS)];
+        [_,_,N,"_",_P,"@","local"] ->
+            NameLen = length(N) + 2 + ?PartEndDigits + length(NS),
+            Suffix = "@" ++ NS,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
+            end,
+            lists:filter(Pred, tables_starting_with(N ++ "_"));
+        [_,_,N,"" ,"","@",""] ->
+            tables_starting_with(N ++ "@");
+        [_,_,N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
+            tables_starting_with(N ++ "_" ++ PT ++ "@");
+        [_,_,N,"_",_P,"@",""] -> 
+            AtPos = length(N) + 2 + ?PartEndDigits,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)>AtPos andalso lists:nth(AtPos,TNS)==$@)
+            end,
+            lists:filter(Pred, tables_starting_with(N ++ "_"));
+        [_,_,N,"" ,"","@",Shard] ->
+           [list_to_atom(N ++ "@" ++ Shard)]; 
+        [_,_,N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
+           [list_to_atom(N ++ "_" ++ PT ++ "@" ++ Shard)]; 
+        [_,_,N,"_",_P,"@",Shard] -> 
+            NameLen = length(N) + 2 + ?PartEndDigits + length(Shard),
+            Suffix = "@" ++ Shard,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
+            end,
+            lists:filter(Pred, tables_starting_with(N ++ "_"));
+        [_,_,N,"","","",""] -> 
+            [list_to_atom(N)]
     end.
 
 -spec partitioned_table_name(ddTable(), any()) -> [ddMnesiaTable()].
@@ -3341,5 +3350,71 @@ sql_jp_bind_test_() ->
            ]
        ]
     }.
+
+is_time_partitioned_alias_test_() ->
+    [ {"T_1", ?_assertEqual(false, is_time_partitioned_alias("ddTest@"))}
+    , {"T_2", ?_assertEqual(false, is_time_partitioned_alias(<<"ddTest@007">>))} 
+    , {"T_3", ?_assertEqual(false, is_time_partitioned_alias(ddTest@007))} 
+    , {"T_4", ?_assertEqual(false, is_time_partitioned_alias({imem_meta:schema(),ddTest@007}))} 
+    , {"T_5", ?_assertEqual(false, is_time_partitioned_alias(<<"ddTest_1234567890@">>))}
+
+    , {"P_1", ?_assertEqual(true, is_time_partitioned_alias("ddTest_1234@local"))} 
+    , {"P_2", ?_assertEqual(true, is_time_partitioned_alias(<<"ddTest_1234@007">>))} 
+    , {"P_3", ?_assertEqual(true, is_time_partitioned_alias(ddTest_1234@_))}
+    , {"P_4", ?_assertEqual(true, is_time_partitioned_alias({imem_meta:schema(),ddTest_1234@local}))} 
+    ].
+
+is_node_sharded_alias_test_() -> 
+    [ {"R_1", ?_assertEqual(false, is_node_sharded_alias(<<"ddTest@007">>))} 
+    , {"R_2", ?_assertEqual(false, is_node_sharded_alias({imem_meta:schema(),ddTest@007}))} 
+    , {"R_3", ?_assertEqual(false, is_node_sharded_alias(<<"ddTest_1234@007">>))} 
+    , {"R_4", ?_assertEqual(false, is_node_sharded_alias(<<"ddTest_1234567890@007">>))} 
+
+    , {"L_1", ?_assertEqual(false, is_node_sharded_alias("ddTest"))} 
+    , {"L_2", ?_assertEqual(false, is_node_sharded_alias(<<"ddTest">>))} 
+    , {"L_3", ?_assertEqual(false, is_node_sharded_alias(ddTest))}
+    , {"L_4", ?_assertEqual(false, is_node_sharded_alias({imem_meta:schema(),ddTest}))} 
+    , {"L_5", ?_assertEqual(false, is_node_sharded_alias("ddTest@_"))}
+    , {"L_6", ?_assertEqual(false, is_node_sharded_alias(ddTest@local))} 
+
+    , {"C_1", ?_assertEqual(true, is_node_sharded_alias("ddTest@"))} 
+    , {"C_2", ?_assertEqual(true, is_node_sharded_alias(<<"ddTest@">>))} 
+    , {"C_3", ?_assertEqual(true, is_node_sharded_alias(ddTest@))}
+    , {"C_6", ?_assertEqual(true, is_node_sharded_alias({imem_meta:schema(),ddTest@}))}
+    , {"C_6", ?_assertEqual(true, is_node_sharded_alias(<<"ddTest_1234567890@">>))} 
+
+    , {"PC_1", ?_assertEqual(true, is_node_sharded_alias("ddTest_1234@"))}
+    , {"PC_2", ?_assertEqual(true, is_node_sharded_alias(<<"ddTest_1234@">>))}
+    , {"PC_3", ?_assertEqual(true, is_node_sharded_alias(ddTest_1234@))}
+    , {"PC_4", ?_assertEqual(true, is_node_sharded_alias({imem_meta:schema(),ddTest_1234@}))}
+    ].
+
+is_local_alias_test_() ->
+    [ {"R_1", ?_assertEqual(false, is_local_alias("ddTest@007"))}
+    , {"R_2", ?_assertEqual(false, is_local_alias(<<"ddTest_1234@007">>))} 
+    , {"R_3", ?_assertEqual(false, is_local_alias(ddTest_1234567890@007))} 
+    , {"R_4", ?_assertEqual(false, is_local_alias({imem_meta:schema(),ddTest@007}))} 
+
+    , {"L_1", ?_assertEqual(true, is_local_alias("ddTest"))} 
+    , {"L_2", ?_assertEqual(true, is_local_alias(<<"ddTest@local">>))} 
+    , {"L_3", ?_assertEqual(true, is_local_alias(ddTest@_))}
+    , {"L_4", ?_assertEqual(true, is_local_alias({imem_meta:schema(),ddTest}))} 
+
+    , {"C_1", ?_assertEqual(false, is_local_alias("ddTest@"))} 
+    , {"C_2", ?_assertEqual(false, is_local_alias(<<"ddTest@">>))} 
+    , {"C_3", ?_assertEqual(false, is_local_alias(ddTest@))}
+    , {"C_4", ?_assertEqual(false, is_local_alias({imem_meta:schema(),ddTest@}))}
+    , {"C_6", ?_assertEqual(false, is_local_alias(<<"ddTest_1234567890@">>))} 
+
+    , {"PC_1", ?_assertEqual(false, is_local_alias("ddTest_1234@"))}
+    , {"PC_2", ?_assertEqual(false, is_local_alias(<<"ddTest_1234@">>))}
+    , {"PC_3", ?_assertEqual(false, is_local_alias(ddTest_1234@))}
+    , {"PC_4", ?_assertEqual(false, is_local_alias({imem_meta:schema(),ddTest_1234@}))}
+
+    , {"PR_1", ?_assertEqual(false, is_local_alias("ddTest_1234@007"))} 
+    , {"PR_2", ?_assertEqual(false, is_local_alias(<<"ddTest_1234@007">>))} 
+    , {"PR_3", ?_assertEqual(false, is_local_alias(ddTest_1234@007))}
+    , {"PR_4", ?_assertEqual(false, is_local_alias({imem_meta:schema(),ddTest_1234@007}))} 
+    ].
 
 -endif.
