@@ -48,38 +48,21 @@ all_test_() ->
     ]}.
 
 hires_timer() ->
-    OsTimes = (
-        fun OST(0, Ts) -> Ts;
-                OST(Count, Ts) ->
-                OST(
-                    Count - 1,
-                    [imem_datatype:timestamp_to_io(os:timestamp()) | Ts]
-                )
-        end
-    )(100, []),
-    ?assertEqual(100, length(OsTimes)),
+    Counters = lists:seq(1, 100),
+    Count = length(Counters),
+    OsTimes = [imem_datatype:timestamp_to_io(os:timestamp()) || _ <- Counters],
+    ?assertEqual(Count, length(OsTimes)),
     % demonstrating that duplicate timestamps are generated in tight loops
-    ?assertNotEqual(100, length(lists:usort(OsTimes))),
+    ?assertNotEqual(Count, length(lists:usort(OsTimes))),
 
-    FrqCountsPerSec = queryPerformanceFrequency(),
-    OsTimesV2 = (
-        fun OST1(0, Ts) -> Ts;
-            OST1(Count, Ts) ->
-                MiliSec = queryPerformanceCounter() * 1000 / FrqCountsPerSec,
-                {match, [MsStr]} = re:run(
-                    float_to_list(MiliSec, [{decimals, 3}]),
-                    "^[0-9]+\\.([0-9]{3,3})$",
-                    [{capture, [1], list}]
-                ),
-                TS = imem_datatype:timestamp_to_io(os:timestamp()),
-                TS1 = re:replace(
-                    TS, "(.*)000$", "\\g{1}"++MsStr, [{return, list}]
-                ),
-                OST1(Count - 1, [TS1 | Ts])
+    OsTimesV2 = [
+        begin
+            timer:sleep(1),
+            queryPerformanceCounter()
         end
-    )(100, []),
-    ?assertEqual(100, length(OsTimesV2)),
-    ?assertEqual(100, length(lists:usort(OsTimesV2))).
+    || _ <- Counters],
+    ?assertEqual(Count, length(OsTimesV2)),
+    ?assertEqual(Count, length(lists:usort(OsTimesV2))).
 
 missing_time() ->
     missing_time(undefined, os:timestamp()).
