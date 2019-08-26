@@ -70,6 +70,7 @@ physical_table_names(_Config) ->
     LocalCacheName = list_to_atom(LocalCacheStr),
 
     ?assertMatch([ddTable], imem_meta:physical_table_names(ddTable)),
+    ?assertMatch([ddTable], imem_meta:physical_table_names("ddTable")),
     ?assertMatch([ddTable], imem_meta:physical_table_names(<<"ddTable">>)),
     ?assertMatch([ddTable], imem_meta:physical_table_names({imem_meta:schema(), ddTable})),
 
@@ -77,6 +78,8 @@ physical_table_names(_Config) ->
     ?assertMatch([LocalCacheName], imem_meta:physical_table_names(LocalCacheStr)),
     ?assertMatch([LocalCacheName], imem_meta:physical_table_names(LocalCacheName)),
     ?assertMatch([LocalCacheName], imem_meta:physical_table_names({imem_meta:schema(), LocalCacheName})),
+
+    ?assertMatch([ddCache@123], imem_meta:physical_table_names("ddCache@123")),
 
     ok.
 

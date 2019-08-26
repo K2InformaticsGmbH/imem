@@ -142,7 +142,11 @@
         , table_columns/1
         , table_size/1
         , table_memory/1
-        , table_record_name/1        
+        , table_record_name/1
+        , table_opts/1
+        , table_opts/2        
+        , table_alias_opts/1
+        , table_alias_opts/2        
         , trigger_infos/1
         , dictionary_trigger/5
         , check_table/1
@@ -1662,7 +1666,7 @@ is_time_partitioned_alias(TableAlias) when is_binary(TableAlias) ->
 is_time_partitioned_alias(TableAlias) when is_list(TableAlias) ->
     case parse_table_name(TableAlias) of
         [_,_,_,_,"",_,_] ->                     false;
-        [_,_,_,_,T,"@",_] when length(T)<10 ->  true;
+        [_,_,_,_,T,"@",_] when length(T) < ?PartEndDigits ->  true;
         _ ->                                    false
     end.
 
@@ -1865,6 +1869,48 @@ physical_table_name(TableAlias, Key) when is_list(TableAlias) ->
             end
     end.
 
+table_alias_opts(TableAlias) ->
+    table_alias_opts(schema(), TableAlias).
+
+table_alias_opts("", TableAlias) when is_list(TableAlias) ->
+    try 
+        table_alias_opts(schema(), list_to_existing_atom(TableAlias))
+    catch _:_ -> undefined
+    end;
+table_alias_opts(Schema, TableAlias) when is_list(TableAlias) ->
+    try 
+        table_alias_opts(list_to_existing_atom(Schema), list_to_existing_atom(TableAlias))
+    catch _:_ -> undefined
+    end;
+table_alias_opts(Schema, TableName) when is_binary(TableName) ->
+    table_alias_opts(binary_to_list(Schema), binary_to_list(TableName));
+table_alias_opts(Schema, TableAlias) ->
+    case imem_if_mnesia:read(ddAlias,{Schema, TableAlias}) of
+        [] ->                       undefined;
+        [#ddAlias{opts=Opts}] ->    Opts
+    end.
+
+table_opts(TableName) ->
+    table_opts(schema(), TableName).
+
+table_opts("", TableName) when is_list(TableName) ->
+    try 
+        table_opts(schema(), list_to_existing_atom(TableName))
+    catch _:_ -> undefined
+    end;
+table_opts(Schema, TableName) when is_list(Schema), is_list(TableName) ->
+    try 
+        table_opts(list_to_existing_atom(Schema), list_to_existing_atom(TableName))
+    catch _:_ -> undefined
+    end;
+table_opts(Schema, TableName) when is_binary(TableName) ->
+    table_opts(binary_to_list(Schema), binary_to_list(TableName));
+table_opts(Schema, TableName) ->
+    case imem_if_mnesia:read(ddTable,{Schema, TableName}) of
+        [] ->                       undefined; 
+        [#ddAlias{opts=Opts}] ->    Opts
+    end.
+
 -spec physical_table_names(ddTable()) -> [ddMnesiaTable()].
 physical_table_names({_S,N}) -> physical_table_names(N);
 physical_table_names(dba_tables) -> [ddTable];
@@ -1905,8 +1951,24 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
             lists:filter(Pred, tables_starting_with(N ++ "_"));
-        [_,_,N,"" ,"","@",""] ->
-            tables_starting_with(N ++ "@");
+        [Schema,".",N,"" ,"","@",""] ->
+            % handle invisible remote tables with {scope,local},{local_content,true} and optional @
+            case table_opts(Schema, N ++ "@") of 
+                undefined ->
+                    case table_opts(Schema, N) of 
+                        undefined -> [];
+                        L1 ->
+                            case lists:member({scope,local}, L1) of 
+                                false -> tables_starting_with(N);
+                                true ->  tables_starting_with(N) % ToDo: ++ fold over data_nodes()
+                            end
+                    end;
+                L2 ->   
+                    case lists:member({scope,local}, L2) of 
+                        false -> tables_starting_with(N ++ "@");
+                        true ->  tables_starting_with(N ++ "@") % ToDo: ++ fold over data_nodes()
+                    end 
+            end;
         [_,_,N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
             tables_starting_with(N ++ "_" ++ PT ++ "@");
         [_,_,N,"_",_P,"@",""] -> 
@@ -1917,6 +1979,7 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
             end,
             lists:filter(Pred, tables_starting_with(N ++ "_"));
         [_,_,N,"" ,"","@",Shard] ->
+            % ToDO: handle invisible remote tables with {scope,local},{local_content,true} and optional @
            [list_to_atom(N ++ "@" ++ Shard)]; 
         [_,_,N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
            [list_to_atom(N ++ "_" ++ PT ++ "@" ++ Shard)]; 
