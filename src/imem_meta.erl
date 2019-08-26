@@ -120,6 +120,7 @@
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
+        , physical_cluster_table_names/3
         , partitioned_table_name_str/2
         , partitioned_table_name/2
         , parse_table_name/1
@@ -1739,9 +1740,9 @@ is_reserved_for_columns(Name) -> sqlparse:is_reserved(Name).
 parse_table_name(TableName) when is_atom(TableName) -> 
     parse_table_name(atom_to_list(TableName));
 parse_table_name(TableName) when is_list(TableName) ->
-    case string:tokens(TableName, ".") of
-        [R2] ->         ["",""|parse_simple_name(R2)];
-        [Schema|R1] ->  [Schema,"."|parse_simple_name(string:join(R1,"."))]
+    case imem_sql:parse_sql_name(TableName) of
+        {"",N} ->       ["",""|parse_simple_name(N)];
+        {S,N} ->        [S,"."|parse_simple_name(N)]
     end;
 parse_table_name(TableName) when is_binary(TableName) ->
     parse_table_name(binary_to_list(TableName)).
@@ -1908,7 +1909,7 @@ table_opts(Schema, TableName) when is_binary(TableName) ->
 table_opts(Schema, TableName) ->
     case imem_if_mnesia:read(ddTable,{Schema, TableName}) of
         [] ->                       undefined; 
-        [#ddAlias{opts=Opts}] ->    Opts
+        [#ddTable{opts=Opts}] ->    Opts
     end.
 
 -spec physical_table_names(ddTable()) -> [ddMnesiaTable()].
@@ -1951,24 +1952,9 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
             lists:filter(Pred, tables_starting_with(N ++ "_"));
-        [Schema,".",N,"" ,"","@",""] ->
+        [Schema,_,N,"" ,"","@",Shard] ->
             % handle invisible remote tables with {scope,local},{local_content,true} and optional @
-            case table_opts(Schema, N ++ "@") of 
-                undefined ->
-                    case table_opts(Schema, N) of 
-                        undefined -> [];
-                        L1 ->
-                            case lists:member({scope,local}, L1) of 
-                                false -> tables_starting_with(N);
-                                true ->  tables_starting_with(N) % ToDo: ++ fold over data_nodes()
-                            end
-                    end;
-                L2 ->   
-                    case lists:member({scope,local}, L2) of 
-                        false -> tables_starting_with(N ++ "@");
-                        true ->  tables_starting_with(N ++ "@") % ToDo: ++ fold over data_nodes()
-                    end 
-            end;
+            physical_cluster_table_names(Schema, N, Shard);
         [_,_,N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
             tables_starting_with(N ++ "_" ++ PT ++ "@");
         [_,_,N,"_",_P,"@",""] -> 
@@ -1978,9 +1964,6 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
                 (length(TNS)>AtPos andalso lists:nth(AtPos,TNS)==$@)
             end,
             lists:filter(Pred, tables_starting_with(N ++ "_"));
-        [_,_,N,"" ,"","@",Shard] ->
-            % ToDO: handle invisible remote tables with {scope,local},{local_content,true} and optional @
-           [list_to_atom(N ++ "@" ++ Shard)]; 
         [_,_,N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
            [list_to_atom(N ++ "_" ++ PT ++ "@" ++ Shard)]; 
         [_,_,N,"_",_P,"@",Shard] -> 
@@ -1993,6 +1976,30 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
             lists:filter(Pred, tables_starting_with(N ++ "_"));
         [_,_,N,"","","",""] -> 
             [list_to_atom(N)]
+    end.
+
+physical_cluster_table_names(Schema, BaseName, "") ->
+    physical_cluster_table_names(Schema, BaseName);
+physical_cluster_table_names(Schema, BaseName, Shard) ->
+    Pred = fun(A) -> (lists:suffix([$@|Shard], atom_to_list(A))) end,
+    lists:filter(Pred, physical_cluster_table_names(Schema, BaseName)).
+
+physical_cluster_table_names(Schema, BaseName) ->
+    case table_opts(Schema, BaseName ++ "@" ++ node_shard()) of
+        undefined ->
+            case table_opts(Schema, BaseName) of 
+                undefined -> [];
+                Opts1 ->
+                    case lists:member({scope,local}, Opts1) of 
+                        false -> tables_starting_with(BaseName);
+                        true ->  tables_starting_with(BaseName) % ToDo: ++ fold over data_nodes()
+                    end
+            end;
+        Opts2 ->   
+            case lists:member({scope,local}, Opts2) of 
+                false -> tables_starting_with(BaseName ++ "@");
+                true ->  tables_starting_with(BaseName ++ "@") % ToDo: ++ fold over data_nodes()
+            end 
     end.
 
 -spec partitioned_table_name(ddTable(), any()) -> [ddMnesiaTable()].

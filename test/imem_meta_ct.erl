@@ -38,6 +38,8 @@
 
 -define(NODEBUG, true).
 
+-define(TEST_SLAVE_IMEM_NODE_NAME, imem_test_slave).
+
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
 -include("imem_ct.hrl").
@@ -64,25 +66,54 @@ end_per_testcase(TestCase, _Config) ->
 %%====================================================================
 
 physical_table_names(_Config) ->
-    ?CTPAL("Start"),
+    ?CTPAL("Start test single node"),
 
     LocalCacheStr = "ddCache@"++imem_meta:node_shard(),
-    LocalCacheName = list_to_atom(LocalCacheStr),
+    LocalCacheName = list_to_atom(LocalCacheStr), % ddCache@nohost
 
-    ?assertMatch([ddTable], imem_meta:physical_table_names(ddTable)),
-    ?assertMatch([ddTable], imem_meta:physical_table_names("ddTable")),
-    ?assertMatch([ddTable], imem_meta:physical_table_names(<<"ddTable">>)),
-    ?assertMatch([ddTable], imem_meta:physical_table_names({imem_meta:schema(), ddTable})),
+    ?assertEqual([ddTable], imem_meta:physical_table_names(ddTable)),
+    ?assertEqual([ddTable], imem_meta:physical_table_names("ddTable")),
+    ?assertEqual([ddTable], imem_meta:physical_table_names(<<"ddTable">>)),
+    ?assertEqual([ddTable], imem_meta:physical_table_names({imem_meta:schema(), ddTable})),
 
-    ?assertMatch([LocalCacheName], imem_meta:physical_table_names(ddCache@local)),
-    ?assertMatch([LocalCacheName], imem_meta:physical_table_names(LocalCacheStr)),
-    ?assertMatch([LocalCacheName], imem_meta:physical_table_names(LocalCacheName)),
-    ?assertMatch([LocalCacheName], imem_meta:physical_table_names({imem_meta:schema(), LocalCacheName})),
+    ?assertEqual([integer], imem_meta:physical_table_names("integer")),
+    ?assertEqual([pid], imem_meta:physical_table_names("pid")),
+    ?assertEqual([json], imem_meta:physical_table_names("json")),
 
-    ?assertMatch([ddCache@123], imem_meta:physical_table_names("ddCache@123")),
+    ?assertEqual([LocalCacheName], imem_meta:physical_table_names(ddCache@local)),
+    ?assertEqual([LocalCacheName], imem_meta:physical_table_names(LocalCacheStr)),
+    ?assertEqual([LocalCacheName], imem_meta:physical_table_names(LocalCacheName)),
+    ?assertEqual([LocalCacheName], imem_meta:physical_table_names({imem_meta:schema(), LocalCacheName})),
+    ?assertEqual([], imem_meta:physical_table_names("ddCache@123")),
+    ?assertEqual([LocalCacheName], imem_meta:physical_table_names("ddCache@")),
 
+    ?CTPAL("Start test slave node"),
+    ?assertEqual([], imem_meta:nodes()),
+    % ?assertMatch({ok,_}, start_imem_slave()),
+    ct:sleep(5000),
+    % ?assertMatch([_], imem_meta:nodes()),
+
+
+    % ?assertMatch(ok, stop_imem_slave()),
+    ct:sleep(1000),
+    ?assertEqual([], imem_meta:nodes()),
     ok.
 
+start_imem_slave() ->
+    [_,SlaveHost] = string:tokens(atom_to_list(node()), "@"),
+    slave:start(
+        SlaveHost, ?TEST_SLAVE_IMEM_NODE_NAME,
+        lists:concat([
+            "-setcookie ", erlang:get_cookie(),
+            "-pa ", string:join(code:get_path(), " "),
+            "-s ", "imem"
+        ])
+    ).
+
+stop_imem_slave() -> 
+    [_,SlaveHost] = string:tokens(atom_to_list(node()), "@"),
+    FullSlaveNodeName = SlaveHost ++ "@" ++ atom_to_list(?TEST_SLAVE_IMEM_NODE_NAME),
+    slave:stop(list_to_atom(FullSlaveNodeName)).
 
 meta_concurrency(_Config) ->
     ?CTPAL("create_table"),

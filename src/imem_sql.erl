@@ -14,6 +14,7 @@
         , meta_rec/5
         , params_from_opts/2
         , statement_class/1
+        , parse_sql_name/1
         ]).
 
 statement_class({as, TableName, _Alias}) -> statement_class(TableName);
@@ -29,6 +30,23 @@ statement_class(TableAlias) ->
         {true ,false,true} ->   "P";
         {true ,true ,false} ->  "PC"
     end.
+
+-spec parse_sql_name(ddString()) -> tuple().
+parse_sql_name(SqlName) -> 
+    case parse_sql_name(SqlName,0,[],[]) of
+        [N] ->      {"",N};
+        [S,N] ->    {S,N};
+        Other ->    ?ClientError({"Bad SQL name", Other})
+    end.
+
+parse_sql_name([], _, Temp, Acc) ->
+    lists:reverse([lists:reverse(Temp)|Acc]);
+parse_sql_name([$.|Rest], L, Temp, Acc) when L rem 2 == 0 ->
+    parse_sql_name(Rest, L, [], [lists:reverse(Temp)|Acc]);
+parse_sql_name([$"|Rest], L, Temp, Acc) ->
+    parse_sql_name(Rest, L+1, [$"|Temp], Acc);
+parse_sql_name([Ch|Rest], L, Temp, Acc) ->
+    parse_sql_name(Rest, L, [Ch|Temp], Acc).
 
 parse(Sql) ->
     case sqlparse:parsetree(Sql) of
@@ -189,6 +207,14 @@ statement_class_test_() ->
     , {"PR_3", ?_assertEqual("PR", statement_class(ddTest_1234@007))}
     , {"PR_4", ?_assertEqual("PR", statement_class({imem_meta:schema(),ddTest_1234@007}))} 
     , {"PR_5", ?_assertEqual("PR", statement_class({as,ddTest_1234@007,<<"TEST">>}))}
+    ].
+
+parse_sql_name_test_() ->
+    [ {"simple", ?_assertEqual({"","Simple_Name"}, parse_sql_name("Simple_Name"))}
+    , {"schema", ?_assertEqual({"Schema","Name"}, parse_sql_name("Schema.Name"))} 
+    , {"complex", ?_assertEqual({"","\"Complex.$@#Name\""}, parse_sql_name("\"Complex.$@#Name\""))} 
+    , {"mixed", ?_assertEqual({"Schema","\"Complex.$@#Name\""}, parse_sql_name("Schema.\"Complex.$@#Name\""))}
+    , {"double", ?_assertEqual({"\"Schema.1\"","\"Complex.$@#Name\""}, parse_sql_name("\"Schema.1\".\"Complex.$@#Name\""))}
     ].
 
 -endif.

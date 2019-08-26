@@ -1225,8 +1225,8 @@ timestamp_to_io({Secs, Micros}, Prec, Fmt) when Prec > 0 ->
         _ ->    [$.|MStr0]
     end,
     list_to_binary(io_lib:format("~s~s",[datetime_to_io(timestamp_to_local_datetime({Secs, 0}), Fmt), MStr1]));
-timestamp_to_io({Secs, 0}, _, Fmt) ->
-    datetime_to_io(timestamp_to_local_datetime({Secs, 0}), Fmt);
+% timestamp_to_io({Secs, _}, 0, Fmt) ->
+%    datetime_to_io(timestamp_to_local_datetime({Secs, 0}), Fmt);
 timestamp_to_io({Secs, Micros}, _, Fmt) ->
     timestamp_to_io({Secs, Micros}, 6, Fmt).
 
@@ -1632,8 +1632,8 @@ data_types(_) ->
                 ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0, 0, 123456}, 0)),           %% with DLS offset CH
                 ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0, 123456}, 0)),              %% with DLS offset CH
                 ?assertEqual(<<"01.01.1970 01:00:00.123456">>, timestamp_to_io({0, 123456, n, 321}, 0)),      %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0, 0}, 0)),                          %% with DLS offset CH
-                ?assertEqual(<<"01.01.1970 01:00:00">>, timestamp_to_io({0, 0, n, 321}, 0)),                  %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.000000">>, timestamp_to_io({0, 0}, 0)),                          %% with DLS offset CH
+                ?assertEqual(<<"01.01.1970 01:00:00.000000">>, timestamp_to_io({0, 0, n, 321}, 0)),                  %% with DLS offset CH
                 ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0, 123000}, 3)),                 %% with DLS offset CH
                 ?assertEqual(<<"01.01.1970 01:00:00.123">>, timestamp_to_io({0, 123000, n, 321}, 3)),         %% with DLS offset CH
                 ?assertEqual(<<"12.01.1970 14:46:42.123456">>, timestamp_to_io({1000002, 123456}, 6)),        %% with DLS offset CH
