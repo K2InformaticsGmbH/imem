@@ -38,7 +38,7 @@
 
 -define(NODEBUG, true).
 
--define(TEST_SLAVE_IMEM_NODE_NAME, imem_test_slave).
+-define(TEST_SLAVE_IMEM_NODE_NAME, "metaslave").
 
 -include_lib("imem.hrl").
 -include_lib("imem_meta.hrl").
@@ -89,11 +89,19 @@ physical_table_names(_Config) ->
 
     ?CTPAL("Start test slave node"),
     ?assertEqual([], imem_meta:nodes()),
-    % Slaves = start_slaves([slave1, slave2]),
+    [Slave] = start_slaves([?TEST_SLAVE_IMEM_NODE_NAME]),
+    ?CTPAL("Slaves ~p", [Slave]),
     ct:sleep(5000),
-    % ?assertMatch([_,_], imem_meta:nodes()),
 
-    % stop_slaves(Slaves),
+    ?CTPAL("Slave nodes ~p", [imem_meta:nodes()]),
+    ?assert(lists:member(Slave,imem_meta:nodes())),
+    ?CTPAL("ddCache@ -> ~p", [imem_meta:physical_table_names("ddCache@")]),
+    ?CTPAL("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME ++ "-> ~p", [imem_meta:physical_table_names("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)]),
+    ?CTPAL("ddLog_86400@ -> ~p", [imem_meta:physical_table_names("ddLog_86400@")]),
+    ?CTPAL("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME ++ "-> ~p", [imem_meta:physical_table_names("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)]),
+    ?CTPAL("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME ++ "-> ~p", [imem_meta:physical_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)]),
+
+    stop_slaves([Slave]),
     ct:sleep(1000),
     ?assertEqual([], imem_meta:nodes()),
     ok.

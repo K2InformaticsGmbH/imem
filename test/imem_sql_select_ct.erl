@@ -37,13 +37,14 @@
 -include_lib("imem.hrl").
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
+-include("imem_ct.hrl").
+
 
 %%--------------------------------------------------------------------
 %% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
-init_per_testcase(TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
+init_per_testcase(_TestCase, Config) ->
 
     catch imem_meta:drop_table(member_test),
     catch imem_meta:drop_table(def),
@@ -55,8 +56,7 @@ init_per_testcase(TestCase, Config) ->
 
     Config.
 
-end_per_testcase(TestCase, _Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
+end_per_testcase(_TestCase, _Config) ->
 
     catch imem_meta:drop_table(member_test),
     catch imem_meta:drop_table(def),
@@ -73,15 +73,20 @@ end_per_testcase(TestCase, _Config) ->
 %%====================================================================
 
 db1_with_or_without_sec(IsSec) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":db1_with_or_without_sec/1 - Start(~p) ===>~n", [IsSec]),
+
+    ?CTPAL("Start ~p", [IsSec]),
 
     SeEx = 'SecurityException',
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":schema ~p~n", [imem_meta:schema()]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":data nodes ~p~n", [imem_meta:data_nodes()]),
+    ?CTPAL("schema ~p", [imem_meta:schema()]),
+    ?CTPAL("data nodes ~p", [imem_meta:data_nodes()]),
     ?assertEqual(true, is_atom(imem_meta:schema())),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
     ?assertEqual([], imem_statement:receive_raw()),
     ?assertEqual([imem], imem_datatype:field_value(tag, list, 0, 0, [], <<"[imem]">>)),
+
+    FullNodeStr = atom_to_list(node()),
+    FullNodeBin = list_to_binary(FullNodeStr),
+    ?CTPAL("FullNodeBin ~p", [FullNodeBin]),
 
     timer:sleep(500),
     _LoginTime = calendar:local_time(),
@@ -283,11 +288,11 @@ db1_with_or_without_sec(IsSec) ->
         % FIXME: Currently failing in Travis
         %?assertEqual(0, length(R00));
         true ->
-            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Login time: ~p~n", [_LoginTime]),
-            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Query start time: ~p~n", [_QSTime]),
-            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Query end time: ~p~n", [_QETime]),
+            ?CTPAL("Login time: ~p", [_LoginTime]),
+            ?CTPAL("Query start time: ~p", [_QSTime]),
+            ?CTPAL("Query end time: ~p", [_QETime]),
             _Accounts = imem_meta:read(ddAccount),
-            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Accounts: ~p~n", [_Accounts]),
+            ?CTPAL("Accounts: ~p", [_Accounts]),
             ?assertEqual(1, length(R00))
     end,
 
@@ -300,7 +305,7 @@ db1_with_or_without_sec(IsSec) ->
     %% test ddSysConf schema access
 
     {ok, Cwd} = file:get_cwd(),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Current directory:~n~p~n", [Cwd]),
+    ?CTPAL("Current directory: ~p", [Cwd]),
 
     ?assertEqual(ok, imem_if_sys_conf:create_sys_conf("../../lib/imem/src/")),
 
@@ -315,7 +320,7 @@ db1_with_or_without_sec(IsSec) ->
             select *
             from ddSysConf.\"imem.app.src\""
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Rows from ddSysConf.\"imem.app.src\":~n~p~n", [R9b]),
+    ?CTPAL("Rows from ddSysConf.\"imem.app.src\":~n~p~n", [R9b]),
     ?assertEqual(5, length(R9b)),
 
     %% test table def
@@ -329,9 +334,9 @@ db1_with_or_without_sec(IsSec) ->
             col5 tuple
         );", 0, [{schema, imem}], IsSec)),
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Test json(3) :~n~p~n", [?TEST_JSON(3)]),
+    ?CTPAL("Test json(3) :~n~p~n", [?TEST_JSON(3)]),
     ?assertEqual(ok, insert_json(SKey, 3, def, imem, IsSec)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Test table def :~n~p~n", [imem_meta:read(def)]),
+    ?CTPAL("Test table def :~n~p~n", [imem_meta:read(def)]),
 
     exec_fetch_sort_equal(SKey, query9a, 100, IsSec, "
             select col2
@@ -406,7 +411,7 @@ db1_with_or_without_sec(IsSec) ->
     ?assertEqual(ok, imem_sql:exec(SKey, "truncate table def;", 0, [{schema, imem}], IsSec)),
     ?assertEqual(ok, insert_json_int_list(SKey, 5, def, imem, IsSec)),
     ?assertEqual(ok, insert_json_str_list(SKey, 2, def, imem, IsSec)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Test table def :~n~p~n", [imem_meta:read(def)]),
+    ?CTPAL("Test table def :~n~p~n", [imem_meta:read(def)]),
 
     exec_fetch_sort_equal(SKey, query10a, 100, IsSec, "
             select col2|[]|
@@ -540,7 +545,7 @@ db1_with_or_without_sec(IsSec) ->
     ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
 
     {L0, true} = if_call_mfa(IsSec, select, [SKey, def, ?MatchAllRecords, 1000]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Test table def : ~p entries~n~p~n~p~n~p~n", [length(L0), hd(L0), '...', lists:last(L0)]),
+    ?CTPAL("Test table def : ~p entries~n~p~n~p~n~p", [length(L0), hd(L0), '...', lists:last(L0)]),
     ?assertEqual(20, length(L0)),
 
     exec_fetch_sort_equal(SKey, query2c, 100, IsSec, "
@@ -678,15 +683,15 @@ db1_with_or_without_sec(IsSec) ->
             from def, ddNode
             where element(2,col5) = name"
         ,
-        [{<<"0">>, <<"{'Atom0',nonode@nohost}">>}]
+        [{<<"0">>, <<"{'Atom0',",FullNodeBin/binary,"}">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query3i, 100, IsSec, "
             select col1, col5
             from def, ddNode
-            where element(2,col5) = to_atom('nonode@nohost')"
+            where element(2,col5) = to_atom('" ++ FullNodeStr ++ "')"
         ,
-        [{<<"0">>, <<"{'Atom0',nonode@nohost}">>}]
+        [{<<"0">>, <<"{'Atom0',",FullNodeBin/binary,"}">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query3j, 100, IsSec, "
@@ -1222,23 +1227,27 @@ db1_with_or_without_sec(IsSec) ->
     ok.
 
 db1_with_sec(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":db1_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
 
     db1_with_or_without_sec(true).
 
 db1_without_sec(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":db1_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
 
     db1_with_or_without_sec(false).
 
 db2_with_or_without_sec(IsSec) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":db2_with_or_without_sec/1 - Start(~p) ===>~n", [IsSec]),
+    ?CTPAL("Start ~p", [IsSec]),
 
     ClEr = 'ClientError',
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":schema ~p~n", [imem_meta:schema()]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":data nodes ~p~n", [imem_meta:data_nodes()]),
+    ?CTPAL("schema ~p", [imem_meta:schema()]),
+    ?CTPAL("data nodes ~p", [imem_meta:data_nodes()]),
     ?assertEqual(true, is_atom(imem_meta:schema())),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
+
+    FullNodeStr = atom_to_list(node()),
+    FullNodeBin = list_to_binary(FullNodeStr),
+    ?CTPAL("FullNodeBin ~p", [FullNodeBin]),
 
     ?assertEqual([], imem_statement:receive_raw()),
 
@@ -1287,25 +1296,25 @@ db2_with_or_without_sec(IsSec) ->
     ]),
 
     {L1, true} = if_call_mfa(IsSec, select, [SKey, member_test, ?MatchAllRecords, 1000]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Test table member_test : ~p entries~n~p~n~p~n~p~n", [length(L1), hd(L1), '...', lists:last(L1)]),
+    ?CTPAL("Test table member_test : ~p entries~n~p~n~p~n~p", [length(L1), hd(L1), '...', lists:last(L1)]),
     ?assertEqual(5, length(L1)),
 
     %% queries on meta table
 
     {L2, true} = if_call_mfa(IsSec, select, [SKey, ddTable, ?MatchAllRecords, 1000]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Table ddTable : ~p entries~n~p~n~p~n~p~n", [length(L2), hd(L2), '...', lists:last(L2)]),
+    ?CTPAL("Table ddTable : ~p entries~n~p~n~p~n~p", [length(L2), hd(L2), '...', lists:last(L2)]),
     AllTableCount = length(L2),
 
     {L3, true} = if_call_mfa(IsSec, select, [SKey, dba_tables, ?MatchAllKeys]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Table dba_tables : ~p entries~n~p~n~p~n~p~n", [length(L3), hd(L3), '...', lists:last(L3)]),
+    ?CTPAL("Table dba_tables : ~p entries~n~p~n~p~n~p", [length(L3), hd(L3), '...', lists:last(L3)]),
     ?assertEqual(AllTableCount, length(L3)),
 
     {L4, true} = if_call_mfa(IsSec, select, [SKey, all_tables, ?MatchAllKeys]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Table all_tables : ~p entries~n~p~n~p~n~p~n", [length(L4), hd(L4), '...', lists:last(L4)]),
+    ?CTPAL("Table all_tables : ~p entries~n~p~n~p~n~p", [length(L4), hd(L4), '...', lists:last(L4)]),
     ?assertEqual(AllTableCount, length(L4)),
 
     {L5, true} = if_call_mfa(IsSec, select, [SKey, user_tables, ?MatchAllKeys]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Table user_tables : ~p entries~n~p~n~p~n~p~n", [length(L5), hd(L5), '...', lists:last(L5)]),
+    ?CTPAL("Table user_tables : ~p entries~n~p~n~p~n~p", [length(L5), hd(L5), '...', lists:last(L5)]),
     case IsSec of
         false -> ?assertEqual(AllTableCount, length(L5));
         true -> ?assertEqual(2, length(L5))
@@ -1374,7 +1383,7 @@ db2_with_or_without_sec(IsSec) ->
     R1c = exec_fetch_sort(SKey, query1c, 100, IsSec, "
             select systimestamp from dual"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":systimestamp ~p", [element(1, hd(R1c))]),
+    ?CTPAL("systimestamp ~p", [element(1, hd(R1c))]),
     ?assertEqual(26, size(element(1, hd(R1c)))),
 
     R1d = exec_fetch_sort(SKey, query1d, 100, IsSec, "
@@ -1722,7 +1731,7 @@ db2_with_or_without_sec(IsSec) ->
             where name = element(2,qname)"
     ),
     ?assertEqual(length(R5s), length(R5r)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Full Result R5s: ~n~p~n", [R5s]),
+    ?CTPAL("Full Result R5s: ~n~p", [R5s]),
 
     R5t = exec_fetch_sort(SKey, query5t, AllTableCount + 1, IsSec, "
             select to_name(qname), tte
@@ -1730,7 +1739,7 @@ db2_with_or_without_sec(IsSec) ->
             where element(2,qname) = name
             and tte <> to_atom('undefined')"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result R5t DIFF: ~n~p~n", [R5s -- R5t]),
+    ?CTPAL("Result R5t DIFF: ~n~p", [R5s -- R5t]),
     ?assert(length(R5t) > 0),
     ?assert(length(R5t) < length(R5s)),
 
@@ -1740,7 +1749,7 @@ db2_with_or_without_sec(IsSec) ->
             where element(2,qname) = name
             and tte = to_atom('undefined')"
     ),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result R5u DIFF: ~n~p~n", [R5s -- R5u]),
+    ?CTPAL("Result R5u DIFF: ~n~p", [R5s -- R5u]),
     ?assert(length(R5u) > 0),
     ?assert(length(R5u) < length(R5s)),
     ?assert(length(R5t) + length(R5u) == length(R5s)),
@@ -1943,7 +1952,7 @@ db2_with_or_without_sec(IsSec) ->
             , {<<"3">>, <<"[[e],3,4,5]">>, <<"1">>}
             , {<<"4">>, <<"undefined">>, <<"{a,d,e}">>}
             , {<<"5">>, <<"[d,{e},a]">>, <<"{a,d,e}">>}
-            , {<<"6">>, <<"[e,{f},g]">>, <<"{imem,nonode@nohost}">>}
+            , {<<"6">>, <<"[e,{f},g]">>, <<"{imem,",FullNodeBin/binary,"}">>}
         ]
     ),
 
@@ -1955,7 +1964,7 @@ db2_with_or_without_sec(IsSec) ->
         [{<<"3">>, <<"[[e],3,4,5]">>, <<"1">>}
             , {<<"2">>, <<"[1,2,3,{e}]">>, <<"9">>}
             , {<<"1">>, <<"[a,b,c,[e]]">>, <<"undefined">>}
-            , {<<"6">>, <<"[e,{f},g]">>, <<"{imem,nonode@nohost}">>}
+            , {<<"6">>, <<"[e,{f},g]">>, <<"{imem,",FullNodeBin/binary,"}">>}
             , {<<"5">>, <<"[d,{e},a]">>, <<"{a,d,e}">>}
             , {<<"4">>, <<"undefined">>, <<"{a,d,e}">>}
         ]
@@ -2021,7 +2030,7 @@ db2_with_or_without_sec(IsSec) ->
             where is_tuple(col3)"
         ,
         [
-            {<<"{a,d,e}">>}, {<<"{a,d,e}">>}, {<<"{imem,nonode@nohost}">>}
+            {<<"{a,d,e}">>}, {<<"{a,d,e}">>}, {<<"{imem,",FullNodeBin/binary,"}">>}
         ]
     ),
 
@@ -2093,12 +2102,12 @@ db2_with_or_without_sec(IsSec) ->
     ok.
 
 db2_with_sec(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":db2_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
 
     db2_with_or_without_sec(true).
 
 db2_without_sec(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":db2_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
 
     db2_with_or_without_sec(false).
 
@@ -2139,7 +2148,7 @@ db2_without_sec(_Config) ->
 %%    RT.
 
 exec_fetch_sort(SKey, _Id, BS, IsSec, Sql) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~p : ~s~n", [_Id, Sql]),
+    ?CTPAL("exec_fetch_sort ~p  ~s", [_Id, Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema, imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult,
@@ -2149,26 +2158,25 @@ exec_fetch_sort(SKey, _Id, BS, IsSec, Sql) ->
     RT = imem_statement:result_tuples(List, RowFun),
     if
         length(RT) =< 3 ->
-            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result:~n~p~n", [RT]),
+            ?CTPAL("Result:~n~p", [RT]),
             ok;
         true ->
-            ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result: ~p items~n~p~n~p~n~p~n", [length(RT), hd(RT), '...', lists:last(RT)]),
+            ?CTPAL("Result: ~p items~n~p~n~p~n~p", [length(RT), hd(RT), '...', lists:last(RT)]),
             ok
     end,
     RT.
 
 exec_fetch_sort_equal(SKey, _Id, BS, IsSec, Sql, Expected) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~n", []),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~p : ~s~n", [_Id, Sql]),
+    ?CTPAL("exec_fetch_sort_equal ~p : ~s", [_Id, Sql]),
     {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [{schema, imem}], IsSec),
     ?assertEqual(ok, RetCode),
     #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":List:~n~p~n", [List]),
+    ?CTPAL("List:~n~p", [List]),
     ?assertEqual([ok], lists:usort(imem_statement:close(SKey, StmtRefs))),
     [?assert(is_binary(SC#rowCol.alias)) || SC <- RowCols],
     RT = imem_statement:result_tuples(List, RowFun),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Result:~n~p~n", [RT]),
+    ?CTPAL("Result:~n~p", [RT]),
     ?assertEqual(Expected, RT),
     RT.
 
