@@ -107,12 +107,12 @@ physical_table_names(_Config) ->
     ok.
 
 start_slaves(Slaves0) when is_list(Slaves0), length(Slaves0) > 0 ->
-    Slaves = [S || S <- lists:usort(Slaves0), is_atom(S)],
+    Slaves = [S || S <- lists:usort(Slaves0), is_list(S)],
+    if length(Slaves) == 0 -> error(no_slaves); true -> ok end,
     [NodeName, Host] = string:tokens(atom_to_list(node()), "@"),
     StartArgFmt = lists:concat([
         " -setcookie ", erlang:get_cookie(),
         " -pa ", string:join(code:get_path(), " "),
-        " -proto_dist imem_inet_tcp",
         " -kernel"
             " inet_dist_listen_min 7000"
             " inet_dist_listen_max 7020",
@@ -121,8 +121,7 @@ start_slaves(Slaves0) when is_list(Slaves0), length(Slaves0) > 0 ->
             " mnesia_schema_name imem"
             " node_shard ~p"
             " tcp_server false"
-            " cold_start_recover false",
-        " -sasl false"
+            " cold_start_recover false"
     ]),
     SlaveNodes = start_slaves(NodeName, Host, StartArgFmt, Slaves),
     lists:foreach(
@@ -140,7 +139,7 @@ start_slaves(Slaves0) when is_list(Slaves0), length(Slaves0) > 0 ->
 
 start_slaves(_NodeName, _Host, _StartArgFmt, []) -> [];
 start_slaves(NodeName, Host, StartArgFmt, [Slave | Slaves]) ->
-    SA = lists:flatten(io_lib:format(StartArgFmt, [atom_to_list(Slave)])),
+    SA = lists:flatten(io_lib:format(StartArgFmt, [Slave])),
     {ok, Node} = slave:start(Host, Slave, SA),
     [Node | start_slaves(NodeName, Host, StartArgFmt, Slaves)].
 
