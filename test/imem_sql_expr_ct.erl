@@ -23,13 +23,14 @@
 -include_lib("imem.hrl").
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
+-include("imem_ct.hrl").
 
 %%--------------------------------------------------------------------
 %% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
 end_per_testcase(TestCase, _Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - Start(~p) ===>~n", [TestCase]),
+    ?CTPAL("Start ~p", [TestCase]),
 
     catch imem_meta:drop_table(meta_table_3),
     catch imem_meta:drop_table(meta_table_2),
@@ -42,11 +43,11 @@ end_per_testcase(TestCase, _Config) ->
 %%====================================================================
 
 test_with_or_without_sec(IsSec) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_with_or_without_sec/1 - Start(~p) ===>~n", [IsSec]),
+    ?CTPAL("Start ~p", [IsSec]),
 
     ClEr = 'ClientError',
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":schema ~p~n", [imem_meta:schema()]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":data nodes ~p~n", [imem_meta:data_nodes()]),
+    ?CTPAL("schema ~p", [imem_meta:schema()]),
+    ?CTPAL("data_nodes ~p", [imem_meta:data_nodes()]),
     ?assertEqual(true, is_atom(imem_meta:schema())),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
 
@@ -60,9 +61,9 @@ test_with_or_without_sec(IsSec) ->
     ?assertEqual(<<"schema.table.field">>, imem_sql_expr:qname3_to_binstr(imem_sql_expr:binstr_to_qname3(<<"schema.table.field">>))),
 
     ?assertEqual(true, is_atom(imem_meta:schema())),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [schema]),
+    ?CTPAL("success ~p", [schema]),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [data_nodes]),
+    ?CTPAL("success ~p", [data_nodes]),
 
     %% uses_filter
     ?assertEqual(true, imem_sql_expr:uses_filter({'is_member', {'+', '$2', 1}, '$3'})),
@@ -103,7 +104,7 @@ test_with_or_without_sec(IsSec) ->
     },
     ?assertEqual(ColMapExpected, imem_sql_expr:bind_subtree_const(ColMapSample)),
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":~p:test_database_operations~n", [?MODULE]),
+    ?CTPAL("~p:test_database_operations~n", [?MODULE]),
     _Types1 = [#ddColumn{name = a, type = char, len = 1}     %% key
         , #ddColumn{name = b1, type = char, len = 1}    %% value 1
         , #ddColumn{name = c1, type = char, len = 1}    %% value 2
@@ -120,7 +121,7 @@ test_with_or_without_sec(IsSec) ->
 
     ?assertMatch({ok, _}, imem_sql:exec(anySKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
     ?assertEqual(0, if_call_mfa(IsSec, table_size, [anySKey, meta_table_1])),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [create_tables]),
+    ?CTPAL("success ~p", [create_tables]),
 
     Table1 = <<"imem.meta_table_1">>,
     Table2 = <<"meta_table_2">>,
@@ -131,38 +132,38 @@ test_with_or_without_sec(IsSec) ->
     Alias2 = {as, <<"imem.meta_table_1">>, <<"alias2">>},
 
     ?assertException(throw, {ClEr, {"Table does not exist", {imem, meta_table_x}}}, imem_sql_expr:column_map_tables([Table1, TableX, Table3], [], [])),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [table_no_exists]),
+    ?CTPAL("success ~p", [table_no_exists]),
 
     FullMap0 = imem_sql_expr:column_map_tables([], imem_meta:meta_field_list(), []),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":FullMap0~n~p~n", [FullMap0]),
+    ?CTPAL("FullMap0~n~p", [FullMap0]),
     MetaFieldCount = length(imem_meta:meta_field_list()),
     ?assertEqual(MetaFieldCount, length(FullMap0)),
 
     FullMap1 = imem_sql_expr:column_map_tables([Table1], imem_meta:meta_field_list(), []),
     ?assertEqual(MetaFieldCount + 3, length(FullMap1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [full_map_1]),
+    ?CTPAL("success ~p", [full_map_1]),
 
     FullMap13 = imem_sql_expr:column_map_tables([Table1, Table3], imem_meta:meta_field_list(), []),
     ?assertEqual(MetaFieldCount + 6, length(FullMap13)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [full_map_13]),
+    ?CTPAL("success ~p", [full_map_13]),
 
     FullMap123 = imem_sql_expr:column_map_tables([Table1, Table2, Table3], imem_meta:meta_field_list(), []),
     ?assertEqual(MetaFieldCount + 8, length(FullMap123)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [full_map_123]),
+    ?CTPAL("success ~p", [full_map_123]),
 
     AliasMap1 = imem_sql_expr:column_map_tables([Alias1], imem_meta:meta_field_list(), []),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":AliasMap1~n~p~n", [AliasMap1]),
+    ?CTPAL("AliasMap1~n~p", [AliasMap1]),
     ?assertEqual(MetaFieldCount + 3, length(AliasMap1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [alias_map_1]),
+    ?CTPAL("success ~p", [alias_map_1]),
 
     AliasMap123 = imem_sql_expr:column_map_tables([Alias1, Alias2, Table3], imem_meta:meta_field_list(), []),
     %% select from 
     %%            meta_table_1 as alias1        (a char, b1 char    , c1 char)
     %%          , imem.meta_table1 as alias2    (a char, b1 char    , c1 char)
     %%          , meta_table_3                  (a char, b3 integer , c1 char)
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":AliasMap123~n~p~n", [AliasMap123]),
+    ?CTPAL("AliasMap123~n~p", [AliasMap123]),
     ?assertEqual(MetaFieldCount + 9, length(AliasMap123)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [alias_map_123]),
+    ?CTPAL("success ~p", [alias_map_123]),
 
     % ColsE1=     [ #bind{tag="A1", schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>}
     %             , #bind{tag="A2", name= <<"x">>}
@@ -174,7 +175,7 @@ test_with_or_without_sec(IsSec) ->
     ],
 
     ?assertException(throw, {ClEr, {"Unknown field or table name", <<"x">>}}, imem_sql_expr:column_map_columns(ColsE1, FullMap1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [unknown_column_name_1]),
+    ?CTPAL("success ~p", [unknown_column_name_1]),
 
     % ColsE2=     [ #bind{tag="A1", schema= <<"imem">>, table= <<"meta_table_1">>, name= <<"a">>}
     %             , #bind{tag="A2", table= <<"meta_table_x">>, name= <<"b1">>}
@@ -186,7 +187,7 @@ test_with_or_without_sec(IsSec) ->
     ],
 
     ?assertException(throw, {ClEr, {"Unknown field or table name", <<"meta_table_x.b1">>}}, imem_sql_expr:column_map_columns(ColsE2, FullMap1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [unknown_column_name_2]),
+    ?CTPAL("success ~p", [unknown_column_name_2]),
 
     % ColsF =     [ {as, <<"imem.meta_table_1.a">>, <<"a">>}
     %             , {as, <<"meta_table_1.b1">>, <<"b1">>}
@@ -199,57 +200,56 @@ test_with_or_without_sec(IsSec) ->
     ],
 
     ?assertException(throw, {ClEr, {"Ambiguous field or table name", <<"a">>}}, imem_sql_expr:column_map_columns([<<"a">>], FullMap13)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_ambiguous_a]),
+    ?CTPAL("success ~p", [columns_ambiguous_a]),
 
     ?assertException(throw, {ClEr, {"Ambiguous field or table name", <<"c1">>}}, imem_sql_expr:column_map_columns(ColsA, FullMap13)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_ambiguous_c1]),
+    ?CTPAL("success ~p", [columns_ambiguous_c1]),
 
     ?assertEqual(3, length(imem_sql_expr:column_map_columns(ColsA, FullMap1))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_A]),
+    ?CTPAL("success ~p", [columns_A]),
 
     ?assertEqual(6, length(imem_sql_expr:column_map_columns([<<"*">>], FullMap13))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_13_join]),
+    ?CTPAL("success ~p", [columns_13_join]),
 
     Cmap3 = imem_sql_expr:column_map_columns([<<"*">>], FullMap123),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":ColMap3 ~p~n", [Cmap3]),
+    ?CTPAL("ColMap3 ~p", [Cmap3]),
     ?assertEqual(8, length(Cmap3)),
     ?assertEqual(lists:sort(Cmap3), Cmap3),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_123_join]),
+    ?CTPAL("success ~p", [columns_123_join]),
 
-
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":AliasMap1~n~p~n", [AliasMap1]),
+    ?CTPAL("AliasMap1~n~p", [AliasMap1]),
 
     Abind1 = imem_sql_expr:column_map_columns([<<"*">>], AliasMap1),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":AliasBind1~n~p~n", [Abind1]),
+    ?CTPAL("AliasBind1~n~p", [Abind1]),
 
     Abind2 = imem_sql_expr:column_map_columns([<<"alias1.*">>], AliasMap1),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":AliasBind2~n~p~n", [Abind2]),
+    ?CTPAL("AliasBind2~n~p", [Abind2]),
     ?assertEqual(Abind1, Abind2),
 
     Abind3 = imem_sql_expr:column_map_columns([<<"imem.alias1.*">>], AliasMap1),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":AliasBind3~n~p~n", [Abind3]),
+    ?CTPAL("AliasBind3~n~p", [Abind3]),
     ?assertEqual(Abind1, Abind3),
 
     ?assertEqual(3, length(Abind1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [alias_1]),
+    ?CTPAL("success ~p", [alias_1]),
 
     ?assertEqual(9, length(imem_sql_expr:column_map_columns([<<"*">>], AliasMap123))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [alias_113_join]),
+    ?CTPAL("success ~p", [alias_113_join]),
 
     ?assertEqual(3, length(imem_sql_expr:column_map_columns([<<"meta_table_3.*">>], AliasMap123))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_113_star1]),
+    ?CTPAL("success ~p", [columns_113_star1]),
 
     ?assertEqual(4, length(imem_sql_expr:column_map_columns([<<"alias1.*">>, <<"meta_table_3.a">>], AliasMap123))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_alias_1]),
+    ?CTPAL("success ~p", [columns_alias_1]),
 
     ?assertEqual(2, length(imem_sql_expr:column_map_columns([<<"alias1.a">>, <<"alias2.a">>], AliasMap123))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [columns_alias_2]),
+    ?CTPAL("success ~p", [columns_alias_2]),
 
     ?assertEqual(2, length(imem_sql_expr:column_map_columns([<<"alias1.a">>, <<"sysdate">>], AliasMap1))),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [sysdate]),
+    ?CTPAL("success ~p", [sysdate]),
 
     ?assertException(throw, {ClEr, {"Unknown field or table name", <<"any.sysdate">>}}, imem_sql_expr:column_map_columns([<<"alias1.a">>, <<"any.sysdate">>], AliasMap1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [sysdate_reject]),
+    ?CTPAL("success ~p", [sysdate_reject]),
 
     ColsFS = [#bind{tag = "A", tind = 1, cind = 1, schema = <<"imem">>, table = <<"meta_table_1">>, name = <<"a">>, type = integer, alias = <<"a">>}
         , #bind{tag = "B", tind = 1, cind = 2, table = <<"meta_table_1">>, name = <<"b1">>, type = string, alias = <<"b1">>}
@@ -273,7 +273,7 @@ test_with_or_without_sec(IsSec) ->
     CB2a = {'=', <<"meta_table_1.b1">>, {'fun', <<"to_string">>, [<<"'22''2'">>]}},
     ?assertEqual({'and', {'and', CA1, CB2a}, {wt}}, imem_sql_expr:filter_spec_where({'and', [FA1, FB2a]}, ColsFS, {wt})),
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [filter_spec_where]),
+    ?CTPAL("success ~p", [filter_spec_where]),
 
     ?assertEqual([], imem_sql_expr:sort_spec_order([], ColsFS, ColsFS)),
     SA = {1, 1, <<"desc">>},
@@ -293,13 +293,12 @@ test_with_or_without_sec(IsSec) ->
     ?assertEqual([OC, OA], imem_sql_expr:sort_spec_order([SC, OA], ColsFS, ColsFS)),
     ?assertEqual([OB, OC, OA], imem_sql_expr:sort_spec_order([OB, OC, OA], ColsFS, ColsFS)),
 
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [sort_spec_order]),
-
+    ?CTPAL("success ~p", [sort_spec_order]),
 
     ?assertEqual(ok, imem_meta:drop_table(meta_table_3)),
     ?assertEqual(ok, imem_meta:drop_table(meta_table_2)),
     ?assertEqual(ok, imem_meta:drop_table(meta_table_1)),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":success ~p~n", [drop_tables]),
+    ?CTPAL("success ~p~n", [drop_tables]),
 
     case IsSec of
         true -> ?imem_logout(anySKey);
@@ -309,12 +308,12 @@ test_with_or_without_sec(IsSec) ->
     ok.
 
 test_with_sec(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
 
     test_with_or_without_sec(true).
 
 test_without_sec(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
 
     test_with_or_without_sec(false).
 

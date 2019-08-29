@@ -15,7 +15,15 @@
         , params_from_opts/2
         , statement_class/1
         , parse_sql_name/1
+        , physical_table_names/1
+        , cluster_table_names/1
         ]).
+
+physical_table_names({as, TableName, _Alias}) -> physical_table_names(TableName);
+physical_table_names(TableName) -> imem_meta:physical_table_names(TableName).
+
+cluster_table_names({as, TableName, _Alias}) -> cluster_table_names(TableName);
+cluster_table_names(TableName) -> imem_meta:cluster_table_names(TableName).
 
 statement_class({as, TableName, _Alias}) -> statement_class(TableName);
 statement_class(TableAlias) ->

@@ -40,7 +40,7 @@
                             ,{type,ordered_set}         %% ,{purge_delay,430000}  %% inherit from parent table
                             ]).          
 
--define(INDEX_TABLE(__MasterTableName), __MasterTableName ++ "Idx").    % ToDo: Implement also for sharded and partitioned tables 
+-define(INDEX_TABLE(__MasterTableName), __MasterTableName++"Idx").    % ToDo: Implement also for sharded and partitioned tables 
 
 -define(BAD_NAME_CHARACTERS,"!?#*:+-.\\<|>/").  %% invalid chars for tables and columns
 
@@ -121,6 +121,7 @@
         , physical_table_name/2
         , physical_table_names/1
         , physical_cluster_table_names/3
+        , cluster_table_names/1
         , partitioned_table_name_str/2
         , partitioned_table_name/2
         , parse_table_name/1
@@ -715,7 +716,7 @@ column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
 column_infos({?CSV_SCHEMA_PATTERN=S, FileName}) when is_binary(FileName) ->
     [ #ddColumn{name=N,type=T,default=D} || {N,T,D} <- ?CSV_DEFAULT_INFO]
-     ++ [#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({S,FileName})];
+    ++[#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({S,FileName})];
 column_infos({Schema,TableAlias}) when is_binary(Schema), is_binary(TableAlias) ->
     S= try 
         ?binary_to_existing_atom(Schema)
@@ -837,7 +838,7 @@ create_check_physical_table({Schema, TableAlias}, ColumnInfos, Opts0, Owner) whe
                             {ok, {Schema, PTN}};
                         _ ->
                             catch create_physical_table({Schema, TableAlias}, ColumnInfos, Opts1, Owner),
-                            Diff = (OldOpts -- NewOpts)  ++ (NewOpts -- OldOpts),
+                            Diff = (OldOpts -- NewOpts) ++(NewOpts -- OldOpts),
                             ?SystemException({"Wrong table options", {TableAlias, Diff}})
                     end;        
                 [#ddTable{owner=Own}] ->
@@ -947,9 +948,9 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
             case (catch imem_if_mnesia:read(ddTable, {MySchema, PTN})) of
                 [] ->   % ddTable exists but has no ddAlias entry, ddAlias may or may not (due to errors) exist 
                     imem_if_mnesia:write(ddTable, DDTableRow), % register ddAlias table in dictionary
-                    catch imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]);
+                    catch imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0)++[{user_properties, [DDTableRow]}]);
                 _ ->    % dictionary exists or ddTable does not exist yet
-                    imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}])
+                    imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0)++[{user_properties, [DDTableRow]}])
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
             {ok, {MySchema, PTN}};
@@ -958,9 +959,9 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
             case (catch imem_if_mnesia:read(ddTable, {MySchema, PTN})) of
                 [] ->   % ddTable exists but has no ddCache@ entry, ddCache@ may or may not (due to errors) exist 
                     imem_if_mnesia:write(ddTable, DDTableRow),
-                    catch imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]);
+                    catch imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0)++[{user_properties, [DDTableRow]}]);
                 _ ->    % entry exists or ddTable does not exist yet
-                    imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}])
+                    imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0)++[{user_properties, [DDTableRow]}])
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
             {ok, {MySchema, PTN}};
@@ -968,7 +969,7 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
             %% not a time or node sharded table
             DDTableRow = #ddTable{qname={MySchema, PTN}, columns=ColInfos, opts=Opts0, owner=Owner},
             try
-                imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0) ++ [{user_properties, [DDTableRow]}]),
+                imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0)++[{user_properties, [DDTableRow]}]),
                 imem_if_mnesia:write(ddTable, DDTableRow)
             catch
                 throw:{'ClientError',{"Table already exists", PTN}} = Reason ->
@@ -998,14 +999,14 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                             end   
                     end,
                     case lists:keyfind(record_name, 1, Opts0) of
-                        false ->    Opts0 ++ [{record_name, list_to_atom(BaseName)}];
+                        false ->    Opts0++[{record_name, list_to_atom(BaseName)}];
                         _ ->        Opts0
                     end
             end,
             DDAliasRow = #ddAlias{qname={MySchema, TableAlias}, columns=ColInfos, opts=Opts, owner=Owner},
             DDTableRow = #ddTable{qname={MySchema, PTN}, columns=ColInfos, opts=Opts, owner=Owner},
             try        
-                imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts) ++ [{user_properties, [DDTableRow]}]),
+                imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts)++[{user_properties, [DDTableRow]}]),
                 imem_if_mnesia:write(ddTable, DDTableRow),
                 imem_if_mnesia:write(ddAlias, DDAliasRow)
             catch
@@ -1105,7 +1106,7 @@ create_or_replace_trigger(Table, TFun) when is_atom(Table) ->
                 {value,{trigger,TFun}} ->  
                     ok;
                 _ -> 
-                    Opts = lists:keydelete(trigger, 1, D#ddTable.opts) ++ [{trigger,TFun}],
+                    Opts = lists:keydelete(trigger, 1, D#ddTable.opts)++[{trigger,TFun}],
                     Trans = fun() ->
                         write(ddTable, D#ddTable{opts=Opts}),                       
                         imem_cache:clear({?MODULE, trigger, schema(), Table})
@@ -1124,7 +1125,7 @@ create_or_replace_trigger(Table,_) when is_atom(Table) ->
 create_index_table(IndexTable, ParentOpts, Owner) ->
     IndexOpts = case lists:keysearch(purge_delay, 1, ParentOpts) of
                 false ->        ?DD_INDEX_OPTS;
-                {value,PD} ->   ?DD_INDEX_OPTS ++ [{purge_delay,PD}]
+                {value,PD} ->   ?DD_INDEX_OPTS++[{purge_delay,PD}]
     end,
     init_create_table(IndexTable, {record_info(fields, ddIndex), ?ddIndex, #ddIndex{}}, IndexOpts, Owner). 
 
@@ -1175,7 +1176,7 @@ create_or_replace_index(Table, IndexDefinition) when is_atom(Table), is_list(Ind
     Schema = schema(),
     case read(ddTable,{Schema, Table}) of
         [#ddTable{}=D] -> 
-            Opts = lists:keydelete(index, 1, D#ddTable.opts) ++ [{index, IndexDefinition}],
+            Opts = lists:keydelete(index, 1, D#ddTable.opts)++[{index, IndexDefinition}],
             IndexTable = index_table(Table),
             case (catch check_table(IndexTable)) of
                 ok ->   
@@ -1614,7 +1615,7 @@ simple_or_local_node_sharded_tables(TableAlias) ->
         true ->
             case is_time_partitioned_alias(TableAlias) of
                 true ->
-                    Tail = lists:reverse("@" ++ node_shard()),
+                    Tail = lists:reverse("@"++node_shard()),
                     Pred = fun(TN) -> lists:prefix(Tail, lists:reverse(atom_to_list(TN))) end,
                     lists:filter(Pred, physical_table_names(TableAlias));
                 false ->
@@ -1930,52 +1931,196 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
     case parse_table_name(TableAlias) of
         % [Schema, ".", Name, "_", Period, "@", Node]
         [_,_,N, "","","@","_"] ->     
-            [list_to_atom(N ++ "@_")];               % plain shared table (e.g. audit)
+            [list_to_atom(N++"@_")];               % plain shared table (e.g. audit)
         [_,_,N,"_",PT,"@","_"] when length(PT) >= ?PartEndDigits ->     
-            [list_to_atom(N ++ "_" ++ PT ++ "@_")];  % particular shared time partition 
+            [list_to_atom(N++"_"++PT++"@_")];  % particular shared time partition 
         [_,_,N,"_",_P,"@","_"] ->
             NameLen = length(N) + 3 + ?PartEndDigits,
             Pred = fun(TN) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)==NameLen andalso lists:suffix("@_",TNS))
             end,
-            lists:filter(Pred, tables_starting_with(N ++ "_"));
+            lists:filter(Pred, tables_starting_with(N++"_"));
         [_,_,N,"","","@","local"] ->
-            [list_to_atom(N ++ "@" ++ NS)];
+            [list_to_atom(N++"@"++NS)];
         [_,_,N,"_",PT,"@","local"] when length(PT) >= ?PartEndDigits -> 
-            [list_to_atom(N ++ "_" ++ PT ++ "@" ++ NS)];
+            [list_to_atom(N++"_"++PT++"@"++NS)];
         [_,_,N,"_",_P,"@","local"] ->
             NameLen = length(N) + 2 + ?PartEndDigits + length(NS),
-            Suffix = "@" ++ NS,
+            Suffix = "@"++NS,
             Pred = fun(TN) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
-            lists:filter(Pred, tables_starting_with(N ++ "_"));
+            lists:filter(Pred, tables_starting_with(N++"_"));
         [Schema,_,N,"" ,"","@",Shard] ->
             % handle invisible remote tables with {scope,local},{local_content,true} and optional @
             physical_cluster_table_names(Schema, N, Shard);
         [_,_,N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
-            tables_starting_with(N ++ "_" ++ PT ++ "@");
+            tables_starting_with(N++"_"++PT++"@");
         [_,_,N,"_",_P,"@",""] -> 
             AtPos = length(N) + 2 + ?PartEndDigits,
             Pred = fun(TN) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)>AtPos andalso lists:nth(AtPos,TNS)==$@)
             end,
-            lists:filter(Pred, tables_starting_with(N ++ "_"));
+            lists:filter(Pred, tables_starting_with(N++"_"));
         [_,_,N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
-           [list_to_atom(N ++ "_" ++ PT ++ "@" ++ Shard)]; 
+           [list_to_atom(N++"_"++PT++"@"++Shard)]; 
         [_,_,N,"_",_P,"@",Shard] -> 
             NameLen = length(N) + 2 + ?PartEndDigits + length(Shard),
-            Suffix = "@" ++ Shard,
+            Suffix = "@"++Shard,
             Pred = fun(TN) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
-            lists:filter(Pred, tables_starting_with(N ++ "_"));
+            lists:filter(Pred, tables_starting_with(N++"_"));
         [_,_,N,"","","",""] -> 
             [list_to_atom(N)]
+    end.
+
+-spec cluster_table_names(ddTable()) -> [{Node::atom(), Schema::atom(), ddMnesiaTable()}].
+cluster_table_names({S,N}) -> cluster_table_names({node(),S,N});
+cluster_table_names({Node,Schema,dba_tables}) -> [{Node,Schema,ddTable}];
+cluster_table_names({Node,Schema,all_tables}) -> [{Node,Schema,ddTable}];
+cluster_table_names({Node,Schema,all_aliases}) -> [{Node,Schema,ddAlias}];
+cluster_table_names({Node,Schema,user_tables}) -> [{Node,Schema,ddTable}];
+cluster_table_names({Node,Schema,TableAlias}) when is_atom(TableAlias) ->
+    case lists:member(TableAlias,?DataTypes) of
+        true ->     [{Node,Schema,TableAlias}];
+        false ->    cluster_table_names({atom_to_list(Node), atom_to_list(Schema), atom_to_list(TableAlias)})
+    end;
+cluster_table_names(TableAlias) when is_atom(TableAlias) -> cluster_table_names({node(),schema(),TableAlias});
+cluster_table_names(TableAlias) when is_binary(TableAlias) -> cluster_table_names(binary_to_list(TableAlias));
+cluster_table_names(TableAlias) when is_list(TableAlias) ->
+    NS = node_shard(),
+    SN = atom_to_list(schema()),     
+    case parse_table_name(TableAlias) of
+        % [Schema, ".", Name, "_", Period, "@", Node]
+        ["","",N, "","","@","_"] ->     
+            [{node(),schema(),list_to_atom(N++"@_")}];                  % plain shared table (e.g. audit)
+        [S,".",N, "","","@","_"] ->     
+            [{node(),list_to_atom(S),list_to_atom(N++"@_")}];           % plain shared table (e.g. audit)
+        ["","",N,"_",PT,"@","_"] when length(PT) >= ?PartEndDigits ->     
+            [{node(),schema(),list_to_atom(N++"_"++PT++"@_")}];         % particular shared time partition 
+        [S,".",N,"_",PT,"@","_"] when length(PT) >= ?PartEndDigits ->     
+            [{node(),list_to_atom(S),list_to_atom(N++"_"++PT++"@_")}];   % particular shared time partition 
+        [S,_,N,"_",_P,"@","_"] when S=="";S==SN ->
+            NameLen = length(N) + 3 + ?PartEndDigits,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==NameLen andalso lists:suffix("@_",TNS))
+            end,
+            [{node(), schema(), T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+        [S,_,N,"","","@","local"] when S=="";S==SN ->
+            [{node(),schema(),list_to_atom(N++"@"++NS)}];
+        ["",_,N,"_",PT,"@","local"] when length(PT) >= ?PartEndDigits -> 
+            [{node(),schema(),list_to_atom(N++"_"++PT++"@"++NS)}];
+        [SN,_,N,"_",PT,"@","local"] when length(PT) >= ?PartEndDigits -> 
+            [{node(),schema(),list_to_atom(N++"_"++PT++"@"++NS)}];
+        [S,_,N,"_",_P,"@","local"] when S=="";S==SN ->
+            NameLen = length(N) + 2 + ?PartEndDigits + length(NS),
+            Suffix = "@"++NS,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
+            end,
+            [{node(), schema(), T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+        [S,_,N,"" ,"","@",Shard] ->
+            % handle invisible remote tables with {scope,local},{local_content,true} and optional @
+            cluster_table_names(S, N, Shard);
+        ["","",N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
+            [{shard_node(T),schema(),T} || T <- tables_starting_with(N++"_"++PT++"@")];
+        [SN,".",N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
+            [{shard_node(T),schema(),T} || T <- tables_starting_with(N++"_"++PT++"@")];
+        [S,_,N,"_",_P,"@",""] when S=="";S==SN -> 
+            AtPos = length(N) + 2 + ?PartEndDigits,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)>AtPos andalso lists:nth(AtPos,TNS)==$@)
+            end,
+            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+        ["","",N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==length(N)+length(PT)+length(Shard)+2)
+            end,
+            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"++PT++"@"++Shard))];
+        [SN,".",N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==length(N)+length(PT)+length(Shard)+2)
+            end,
+            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"++PT++"@"++Shard))];
+        [S,_,N,"_",_P,"@",Shard] when S=="";S==SN -> 
+            NameLen = length(N) + 2 + ?PartEndDigits + length(Shard),
+            Suffix = "@"++Shard,
+            Pred = fun(TN) ->
+                TNS = atom_to_list(TN),
+                (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
+            end,
+            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+        ["","",N,"","","",""] -> 
+            [{node(),schema(),list_to_atom(N)}];
+        [S,".",N,"","","",""] -> 
+            [{node(),list_to_atom(S),list_to_atom(N)}]
+    end.
+
+shard_node(Table) ->
+    [_,_,_,_,_,_,Shard] = parse_table_name(Table),
+    case node_shard() of
+        Shard ->   
+            node();
+        _ ->
+            Pred = fun({Sh,_Nd}) -> (Sh==Shard) end,
+            case lists:filter(Pred, [{rpc:call(N, imem_meta, node_shard, []),N} || {_S,N} <- data_nodes(), N=/=node()]) of
+                [] -> ?ClientError({"Node not found for shard",Shard});
+                [{Shard,Node}] -> Node;
+                Other ->  ?ClientError({"Multiple nodes found",Other})
+            end
+    end.
+
+
+
+cluster_table_names(Schema, BaseName, "") ->
+    cluster_table_names(Schema, BaseName);
+cluster_table_names(Schema, BaseName, Shard) ->
+    Pred = fun({_,_S,A}) -> (lists:suffix([$@|Shard], atom_to_list(A))) end,
+    lists:filter(Pred, cluster_table_names(Schema, BaseName)).
+
+cluster_table_names("", BaseName) ->
+    case table_opts("", BaseName++"@"++node_shard()) of
+        undefined ->
+            case table_opts("", BaseName) of 
+                undefined -> [];
+                _Opts1 ->
+                    [{node(),schema(),list_to_atom(BaseName)}| 
+                        [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
+                         || {S,N} <- data_nodes(), N=/=node()]
+                    ]
+            end;
+        _Opts2 ->   
+            [{node(),schema(),list_to_atom(BaseName++"@"++node_shard())}| 
+                [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
+                 || {S,N} <- data_nodes(), N=/=node()]
+            ]
+    end;
+cluster_table_names(Schema, BaseName) ->
+    case table_opts(Schema, BaseName++"@"++ node_shard()) of
+        undefined ->
+            case table_opts(Schema, BaseName) of 
+                undefined -> [];
+                _Opts1 ->
+                    [{node(), list_to_atom(Schema), list_to_atom(BaseName)} | 
+                        [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
+                         || {S,N} <- data_nodes(), S==list_to_atom(Schema), N=/=node()]
+                    ]
+            end;
+        _Opts2 ->   
+            [{node(), list_to_atom(Schema), list_to_atom(BaseName++"@"++node_shard())} | 
+                [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
+                 || {S,N} <- data_nodes(), S==list_to_atom(Schema), N=/=node()]
+            ]
     end.
 
 physical_cluster_table_names(Schema, BaseName, "") ->
@@ -2039,10 +2184,10 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
                     PartitionEnd=integer_to_list(P*(seconds_since_epoch(Key) div P + 1)),    % {Sec,...}
                     Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
                     {BaseName,_} = lists:split(length(TableAlias)-length(RN)-1, TableAlias),
-                    lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ node_shard());
+                    lists:flatten(BaseName++Prefix++PartitionEnd++"@"++node_shard());
                 _ ->
                     % unpartitiond but node sharded table alias
-                    lists:flatten(TableAlias ++ node_shard())
+                    lists:flatten(TableAlias++node_shard())
             end;
         [$_,$@|_] ->       
             [[$@|RN]|_] = string:tokens(tl(TableAliasRev), "_"),
@@ -2053,7 +2198,7 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
                     PartitionEnd=integer_to_list(P*(seconds_since_epoch(Key) div P + 1)),    % {Sec,...}
                     Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
                     {BaseName,_} = lists:split(length(TableAlias)-length(RN)-2, TableAlias),
-                    lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@_" );
+                    lists:flatten(BaseName++Prefix++PartitionEnd++"@_" );
                 _ ->
                     % unpartitiond global table alias (a normal table)
                     TableAlias
@@ -2075,7 +2220,7 @@ partitioned_table_name_str(TableAlias, Key) when is_list(TableAlias) ->
                                     PartitionEnd=integer_to_list(P*(seconds_since_epoch(Key) div P + 1)),    % {Sec,...}
                                     Prefix = lists:duplicate(?PartEndDigits-length(PartitionEnd),$0),
                                     {BaseName,_} = lists:split(length(N)-length(RN), N),
-                                    lists:flatten(BaseName ++ Prefix ++ PartitionEnd ++ "@" ++ S);
+                                    lists:flatten(BaseName++Prefix++PartitionEnd++"@"++S);
                                 _ ->
                                     TableAlias      % physical node sharded table name
                             end
@@ -2297,7 +2442,7 @@ node_shard_value({ok,FunStr},Node) ->
     % ?Debug("node_shard calculated for ~p~n", [FunStr]),
     Code = case [lists:last(string:strip(FunStr))] of
         "." -> FunStr;
-        _ -> FunStr ++ "."
+        _ -> FunStr++"."
     end,
     {ok,ErlTokens,_}=erl_scan:string(Code),    
     {ok,ErlAbsForm}=erl_parse:parse_exprs(ErlTokens),    
@@ -2408,7 +2553,7 @@ json_pos_list(PathList) ->
     json_pos_list(PathList,[]).
 
 json_pos_list([],Acc) -> Acc;
-json_pos_list([{_ParseTreeTuple,FM}|Rest],Acc) -> json_pos_list(Rest,Acc ++ [Pos || {_Name,Pos} <- FM]);
+json_pos_list([{_ParseTreeTuple,FM}|Rest],Acc) -> json_pos_list(Rest,Acc++[Pos || {_Name,Pos} <- FM]);
 json_pos_list([_|Rest],Acc) ->  json_pos_list(Rest,Acc).
 
 compile_path_list([],_FieldMap) -> [];
@@ -3159,7 +3304,7 @@ index_items(Rec,RecJ,Table,User,ID,Type,[Pos|PL],Vnf,Iff,Changes0) when is_integ
                 end
     end,
     Ch = [{ID,Type,K,V} || {K,V} <- lists:filter(Iff,KVPs)], %% apply index filter function
-    index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0 ++ Ch);
+    index_items(Rec,RecJ,Table,User,ID,Type,PL,Vnf,Iff,Changes0++Ch);
 index_items(Rec,{},Table,User,ID,Type,[_|PL],Vnf,Iff,Changes) ->
     index_items(Rec,{},Table,User,ID,Type,PL,Vnf,Iff,Changes);
 index_items(Rec,RecJ,Table,User,ID,Type,[{PT,FL}|PL],Vnf,Iff,Changes0) ->
@@ -3258,7 +3403,7 @@ sql_jp_bind(Sql) ->
             ?ClientError({"Bad format", Other})
     end,
     ParamsMap = [{lists:flatten(Param)
-                  , ":" ++ re:replace(lists:flatten(Param), "[:_\\[\\]{}]+", ""
+                  , ":"++re:replace(lists:flatten(Param), "[:_\\[\\]{}]+", ""
                                       , [global,{return,list}])}
                  || Param <- lists:usort(Parameters)],
     {lists:foldl(fun({M,R}, Sql0) ->
