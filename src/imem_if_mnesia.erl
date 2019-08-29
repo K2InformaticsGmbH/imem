@@ -295,6 +295,7 @@ add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
+-spec data_nodes() -> list({Schema::atom,Node::atom()}).
 data_nodes() ->
     data_nodes(mnesia:system_info(running_db_nodes), []).
 data_nodes([], Acc) -> lists:reverse(Acc);

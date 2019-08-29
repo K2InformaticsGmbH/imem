@@ -1516,19 +1516,16 @@ db2_with_or_without_sec(IsSec) ->
     ),
 
     R3c = exec_fetch_sort(SKey, query3c, 100, IsSec, "
-            select * from ddNode"
+            select * 
+            from ddNode 
+            where name = '" ++ atom_to_list(node()) ++ "'"
     ),
     ?assertEqual(1, length(R3c)),
 
-    R3d = exec_fetch_sort(SKey, query3d, 100, IsSec, "
-            select time, wall_clock
-            from ddNode"
-    ),
-    ?assertEqual(1, length(R3d)),
-
     R3e = exec_fetch_sort(SKey, query3e, 100, IsSec, "
             select time, wall_clock
-            from ddNode where name = '" ++ atom_to_list(node()) ++ "'"
+            from ddNode 
+            where name = '" ++ atom_to_list(node()) ++ "'"
     ),
     ?assertEqual(1, length(R3e)),
 

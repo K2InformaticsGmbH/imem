@@ -58,7 +58,7 @@ end_per_testcase(TestCase, _Config) ->
     catch imem_meta:drop_table(?TPTEST_999999999@_),
     catch imem_meta:drop_table(?TPTEST_100@),
     catch imem_meta:drop_table(?TPTEST_1@),
-
+    stop_slaves(nodes()),
     ok.
 
 %%====================================================================
@@ -69,7 +69,7 @@ physical_table_names(_Config) ->
     ?CTPAL("Start test single node"),
 
     LocalCacheStr = "ddCache@"++imem_meta:node_shard(),
-    LocalCacheName = list_to_atom(LocalCacheStr), % ddCache@nohost
+    LocalCacheName = list_to_atom(LocalCacheStr), % ddCache@WKS018
 
     ?assertEqual([ddTable], imem_meta:physical_table_names(ddTable)),
     ?assertEqual([ddTable], imem_meta:physical_table_names("ddTable")),
@@ -93,13 +93,34 @@ physical_table_names(_Config) ->
     ?CTPAL("Slaves ~p", [Slave]),
     ct:sleep(5000),
 
-    ?CTPAL("Slave nodes ~p", [imem_meta:nodes()]),
-    ?assert(lists:member(Slave,imem_meta:nodes())),
-    ?CTPAL("ddCache@ -> ~p", [imem_meta:physical_table_names("ddCache@")]),
-    ?CTPAL("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME ++ "-> ~p", [imem_meta:physical_table_names("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)]),
-    ?CTPAL("ddLog_86400@ -> ~p", [imem_meta:physical_table_names("ddLog_86400@")]),
-    ?CTPAL("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME ++ "-> ~p", [imem_meta:physical_table_names("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)]),
-    ?CTPAL("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME ++ "-> ~p", [imem_meta:physical_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)]),
+    ?CTPAL("slave nodes ~p", [imem_meta:nodes()]),
+    ?assert(lists:member(Slave, imem_meta:nodes())),
+    ?CTPAL("data_nodes ~p", [imem_meta:data_nodes()]),
+    ?CTPAL("node_shards ~p", [imem_meta:node_shards()]),
+    ?assert(lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
+    ?assert(lists:member(imem_meta:node_shard(), imem_meta:node_shards())),
+    ?assert(lists:member({imem_meta:schema(), Slave}, imem_meta:data_nodes())),
+    ?assert(lists:member(?TEST_SLAVE_IMEM_NODE_NAME, imem_meta:node_shards())),
+
+    ?CTPAL("ddCache@ --> ~p",[imem_meta:physical_cluster_table_names("imem", "ddCache@", "")]), 
+    ?CTPAL("ddCache --> ~p",[imem_meta:physical_cluster_table_names("imem", "ddCache", "")]), 
+
+    DDCacheNames = imem_meta:physical_table_names("ddCache@"),
+    SlaveCacheName = list_to_atom("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME),
+    ?CTPAL("ddCache@ -> ~p", [DDCacheNames]),
+    ?assert(lists:member(LocalCacheName, DDCacheNames)),
+    ?assert(lists:member(SlaveCacheName, DDCacheNames)),
+    ?assertEqual([SlaveCacheName], imem_meta:physical_table_names("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+    LogNames = imem_meta:physical_table_names("ddLog_86400@"),
+    LocalLogName = imem_meta:physical_table_name("ddLog_86400@"),
+    [BaseName,_] = string:tokens(atom_to_list(LocalLogName),"@"),
+    SlaveLogName = list_to_atom(BaseName ++ "@" ++ ?TEST_SLAVE_IMEM_NODE_NAME),
+    ?CTPAL("ddLog_86400@ -> ~p", [LogNames]),
+    ?assert(lists:member(LocalLogName, LogNames)),
+    ?assert(lists:member(SlaveLogName, LogNames)),
+    ?assertEqual([SlaveLogName], imem_meta:physical_table_names("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+    SlaveAccountName = list_to_atom("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME),
+    ?assertEqual([SlaveAccountName], imem_meta:physical_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
 
     stop_slaves([Slave]),
     ct:sleep(1000),

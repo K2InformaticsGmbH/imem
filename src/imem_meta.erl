@@ -1984,23 +1984,41 @@ physical_cluster_table_names(Schema, BaseName, Shard) ->
     Pred = fun(A) -> (lists:suffix([$@|Shard], atom_to_list(A))) end,
     lists:filter(Pred, physical_cluster_table_names(Schema, BaseName)).
 
+physical_cluster_table_names("", BaseName) ->
+    case table_opts("", BaseName++"@"++node_shard()) of
+        undefined ->
+            case table_opts("", BaseName) of 
+                undefined -> [];
+                _Opts1 ->
+                    [list_to_atom(BaseName)| 
+                        [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
+                         || {_S,N} <- data_nodes(), N=/=node()]
+                    ]
+            end;
+        _Opts2 ->   
+            [list_to_atom(BaseName++"@"++node_shard())| 
+                [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
+                 || {_S,N} <- data_nodes(), N=/=node()]
+            ]
+    end;
 physical_cluster_table_names(Schema, BaseName) ->
-    case table_opts(Schema, BaseName ++ "@" ++ node_shard()) of
+    case table_opts(Schema, BaseName++"@"++ node_shard()) of
         undefined ->
             case table_opts(Schema, BaseName) of 
                 undefined -> [];
-                Opts1 ->
-                    case lists:member({scope,local}, Opts1) of 
-                        false -> tables_starting_with(BaseName);
-                        true ->  tables_starting_with(BaseName) % ToDo: ++ fold over data_nodes()
-                    end
+                _Opts1 ->
+                    [list_to_atom(BaseName)| 
+                        [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
+                         || {S,N} <- data_nodes(), S==Schema, N=/=node()]
+                    ]
             end;
-        Opts2 ->   
-            case lists:member({scope,local}, Opts2) of 
-                false -> tables_starting_with(BaseName ++ "@");
-                true ->  tables_starting_with(BaseName ++ "@") % ToDo: ++ fold over data_nodes()
-            end 
+        _Opts2 ->   
+            [list_to_atom(BaseName++"@"++node_shard())| 
+                [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
+                 || {S,N} <- data_nodes(), S==Schema, N=/=node()]
+            ]
     end.
+
 
 -spec partitioned_table_name(ddTable(), any()) -> [ddMnesiaTable()].
 partitioned_table_name(TableAlias, Key) ->
@@ -2255,7 +2273,7 @@ node_shard() ->
     end.
 
 node_shards() ->
-    DataNodes = [DN || {_,DN} <- data_nodes()],
+    DataNodes = [DN || {_Schema,DN} <- data_nodes()],
     case application:get_env(imem, node_shard) of
         undefined ->         [node_hash(N1) || N1 <- DataNodes];    
         {ok,node_shard_fun} ->  
