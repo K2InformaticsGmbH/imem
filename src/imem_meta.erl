@@ -120,7 +120,6 @@
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
-        , physical_cluster_table_names/3
         , cluster_table_names/1
         , partitioned_table_name_str/2
         , partitioned_table_name/2
@@ -1908,9 +1907,14 @@ table_opts(Schema, TableName) when is_list(Schema), is_list(TableName) ->
 table_opts(Schema, TableName) when is_binary(TableName) ->
     table_opts(binary_to_list(Schema), binary_to_list(TableName));
 table_opts(Schema, TableName) ->
-    case imem_if_mnesia:read(ddTable,{Schema, TableName}) of
-        [] ->                       undefined; 
-        [#ddTable{opts=Opts}] ->    Opts
+    case lists:member(TableName, ?DataTypes) of
+        true ->
+            [];
+        false ->    
+            case imem_if_mnesia:read(ddTable,{Schema, TableName}) of
+                [] ->                       undefined; 
+                [#ddTable{opts=Opts}] ->    Opts
+            end
     end.
 
 -spec physical_table_names(ddTable()) -> [ddMnesiaTable()].
@@ -1953,9 +1957,8 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
             lists:filter(Pred, tables_starting_with(N++"_"));
-        [Schema,_,N,"" ,"","@",Shard] ->
-            % handle invisible remote tables with {scope,local},{local_content,true} and optional @
-            physical_cluster_table_names(Schema, N, Shard);
+        [_,_,N,"" ,"","@",Shard] ->
+            tables_starting_with(N++"@"++Shard);
         [_,_,N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
             tables_starting_with(N++"_"++PT++"@");
         [_,_,N,"_",_P,"@",""] -> 
@@ -1980,17 +1983,7 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
     end.
 
 -spec cluster_table_names(ddTable()) -> [{Node::atom(), Schema::atom(), ddMnesiaTable()}].
-cluster_table_names({S,N}) -> cluster_table_names({node(),S,N});
-cluster_table_names({Node,Schema,dba_tables}) -> [{Node,Schema,ddTable}];
-cluster_table_names({Node,Schema,all_tables}) -> [{Node,Schema,ddTable}];
-cluster_table_names({Node,Schema,all_aliases}) -> [{Node,Schema,ddAlias}];
-cluster_table_names({Node,Schema,user_tables}) -> [{Node,Schema,ddTable}];
-cluster_table_names({Node,Schema,TableAlias}) when is_atom(TableAlias) ->
-    case lists:member(TableAlias,?DataTypes) of
-        true ->     [{Node,Schema,TableAlias}];
-        false ->    cluster_table_names({atom_to_list(Node), atom_to_list(Schema), atom_to_list(TableAlias)})
-    end;
-cluster_table_names(TableAlias) when is_atom(TableAlias) -> cluster_table_names({node(),schema(),TableAlias});
+cluster_table_names(TableAlias) when is_atom(TableAlias) -> cluster_table_names(atom_to_list(TableAlias));
 cluster_table_names(TableAlias) when is_binary(TableAlias) -> cluster_table_names(binary_to_list(TableAlias));
 cluster_table_names(TableAlias) when is_list(TableAlias) ->
     NS = node_shard(),
@@ -2004,7 +1997,7 @@ cluster_table_names(TableAlias) when is_list(TableAlias) ->
         ["","",N,"_",PT,"@","_"] when length(PT) >= ?PartEndDigits ->     
             [{node(),schema(),list_to_atom(N++"_"++PT++"@_")}];         % particular shared time partition 
         [S,".",N,"_",PT,"@","_"] when length(PT) >= ?PartEndDigits ->     
-            [{node(),list_to_atom(S),list_to_atom(N++"_"++PT++"@_")}];   % particular shared time partition 
+            [{node(),list_to_atom(S),list_to_atom(N++"_"++PT++"@_")}];  % particular shared time partition 
         [S,_,N,"_",_P,"@","_"] when S=="";S==SN ->
             NameLen = length(N) + 3 + ?PartEndDigits,
             Pred = fun(TN) ->
@@ -2080,90 +2073,44 @@ shard_node(Table) ->
             end
     end.
 
-
-
+cluster_table_names("", BaseName, "") ->
+    [{N,S,TN} || {N,S,TN,_} <- cluster_table_names("", BaseName)];
 cluster_table_names(Schema, BaseName, "") ->
-    cluster_table_names(Schema, BaseName);
+    Pred = fun({_Nd,S,_Name,_Sh}) -> (S==list_to_existing_atom(Schema)) end,
+    [{N,S,TN} || {N,S,TN,_} <- lists:filter(Pred, cluster_table_names(Schema, BaseName))];
+cluster_table_names("", BaseName, Shard) ->
+    Pred = fun({_Nd,_S,_Name,Sh}) -> (Sh==Shard) end,
+    [{N,S,TN} || {N,S,TN,_} <- lists:filter(Pred, cluster_table_names("", BaseName))];
 cluster_table_names(Schema, BaseName, Shard) ->
-    Pred = fun({_,_S,A}) -> (lists:suffix([$@|Shard], atom_to_list(A))) end,
-    lists:filter(Pred, cluster_table_names(Schema, BaseName)).
+    Pred = fun({_Nd,S,_Name,Sh}) -> (Sh==Shard andalso S==list_to_existing_atom(Schema)) end,
+    [{N,S,TN} || {N,S,TN,_} <- lists:filter(Pred, cluster_table_names(Schema, BaseName))].
 
-cluster_table_names("", BaseName) ->
-    case table_opts("", BaseName++"@"++node_shard()) of
-        undefined ->
-            case table_opts("", BaseName) of 
-                undefined -> [];
-                _Opts1 ->
-                    [{node(),schema(),list_to_atom(BaseName)}| 
-                        [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
-                         || {S,N} <- data_nodes(), N=/=node()]
-                    ]
-            end;
-        _Opts2 ->   
-            [{node(),schema(),list_to_atom(BaseName++"@"++node_shard())}| 
-                [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
-                 || {S,N} <- data_nodes(), N=/=node()]
-            ]
-    end;
 cluster_table_names(Schema, BaseName) ->
     case table_opts(Schema, BaseName++"@"++ node_shard()) of
         undefined ->
             case table_opts(Schema, BaseName) of 
                 undefined -> [];
-                _Opts1 ->
-                    [{node(), list_to_atom(Schema), list_to_atom(BaseName)} | 
-                        [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
-                         || {S,N} <- data_nodes(), S==list_to_atom(Schema), N=/=node()]
+                _Opts1 ->           % table exists locally or is a virtual type table
+                    [{node(), default_schema(Schema), list_to_atom(BaseName), node_shard()} | 
+                        [remote_non_sharded(N, S, BaseName) || {S,N} <- data_nodes(), N=/=node()]
                     ]
             end;
-        _Opts2 ->   
-            [{node(), list_to_atom(Schema), list_to_atom(BaseName++"@"++node_shard())} | 
-                [{N, S, list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, []))} 
-                 || {S,N} <- data_nodes(), S==list_to_atom(Schema), N=/=node()]
+        _Opts2 ->       % table exists locally or is a virtual type table
+            [{node(), default_schema(Schema), list_to_atom(BaseName++"@"++node_shard()), node_shard()} | 
+                [remote_sharded(N, S, BaseName) || {S,N} <- data_nodes(), N=/=node()]
             ]
     end.
 
-physical_cluster_table_names(Schema, BaseName, "") ->
-    physical_cluster_table_names(Schema, BaseName);
-physical_cluster_table_names(Schema, BaseName, Shard) ->
-    Pred = fun(A) -> (lists:suffix([$@|Shard], atom_to_list(A))) end,
-    lists:filter(Pred, physical_cluster_table_names(Schema, BaseName)).
+default_schema("") -> schema();
+default_schema(Schema) -> list_to_existing_atom(Schema).
 
-physical_cluster_table_names("", BaseName) ->
-    case table_opts("", BaseName++"@"++node_shard()) of
-        undefined ->
-            case table_opts("", BaseName) of 
-                undefined -> [];
-                _Opts1 ->
-                    [list_to_atom(BaseName)| 
-                        [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
-                         || {_S,N} <- data_nodes(), N=/=node()]
-                    ]
-            end;
-        _Opts2 ->   
-            [list_to_atom(BaseName++"@"++node_shard())| 
-                [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
-                 || {_S,N} <- data_nodes(), N=/=node()]
-            ]
-    end;
-physical_cluster_table_names(Schema, BaseName) ->
-    case table_opts(Schema, BaseName++"@"++ node_shard()) of
-        undefined ->
-            case table_opts(Schema, BaseName) of 
-                undefined -> [];
-                _Opts1 ->
-                    [list_to_atom(BaseName)| 
-                        [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
-                         || {S,N} <- data_nodes(), S==Schema, N=/=node()]
-                    ]
-            end;
-        _Opts2 ->   
-            [list_to_atom(BaseName++"@"++node_shard())| 
-                [list_to_atom(BaseName++"@"++rpc:call(N, imem_meta, node_shard, [])) 
-                 || {S,N} <- data_nodes(), S==Schema, N=/=node()]
-            ]
-    end.
+remote_non_sharded(Node, Schema, BaseName) -> 
+    Shard = rpc:call(Node, imem_meta, node_shard, []),
+    {Node, Schema, list_to_atom(BaseName), Shard}.
 
+remote_sharded(Node, Schema, BaseName) -> 
+    Shard = rpc:call(Node, imem_meta, node_shard, []),
+    {Node, Schema, list_to_atom(BaseName++"@"++Shard), Shard}.
 
 -spec partitioned_table_name(ddTable(), any()) -> [ddMnesiaTable()].
 partitioned_table_name(TableAlias, Key) ->

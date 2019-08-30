@@ -27,6 +27,8 @@
 -define(HIST_SUFFIX, "Hist").
 -define(HIST(__Channel), binary_to_list(__Channel) ++ ?HIST_SUFFIX).
 
+-define(PurgeChannel, <<"skvhPurgeTest">>).
+
 -define(NODEBUG, true).
 
 -include_lib("imem.hrl").
@@ -37,9 +39,15 @@
 %% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
+init_per_testcase(skvh_purge_history, Config) ->
+    ?CTPAL("Start ~p",[skvh_purge_history]),
+    catch imem_meta:drop_table(skvhPurgeTest),
+    catch imem_meta:drop_table(skvhPurgeTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhPurgeTestHist),
+    timer:sleep(50),
+    Config;
 init_per_testcase(TestCase, Config) ->
     ?CTPAL("Start ~p",[TestCase]),
-
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
@@ -56,12 +64,16 @@ init_per_testcase(TestCase, Config) ->
         || Ch <- ?Channels
     ],
     timer:sleep(50),
-
     Config.
 
+end_per_testcase(skvh_purge_history, _Config) ->
+    ?CTPAL("End ~p",[skvh_purge_history]),
+    catch imem_meta:drop_table(skvhPurgeTest),
+    catch imem_meta:drop_table(skvhPurgeTestAudit_86400@_),
+    catch imem_meta:drop_table(skvhPurgeTestHist),
+    ok;
 end_per_testcase(TestCase, _Config) ->
     ?CTPAL("End ~p",[TestCase]),
-
     catch imem_meta:drop_table(mapChannel),
     catch imem_meta:drop_table(lstChannel),
     catch imem_meta:drop_table(binChannel),
@@ -70,7 +82,6 @@ end_per_testcase(TestCase, _Config) ->
     catch imem_meta:drop_table(skvhTest),
     catch imem_meta:drop_table(skvhTestAudit_86400@_),
     catch imem_meta:drop_table(skvhTestHist),
-
     ok.
 
 %%====================================================================
@@ -532,28 +543,28 @@ skvh_purge_history(_Config) ->
     imem_config:put_config_hlk(?CONFIG_TABLE, {imem,imem_dal_skvh,purgeHistDayThreshold}, imem_dal_skvh, [], 0, <<"zero">>),
     
     ?CTPAL("create skvh table"),
-    ?assertEqual(ok, imem_dal_skvh:create_check_channel(?Channel)),
+    ?assertEqual(ok, imem_dal_skvh:create_check_channel(?PurgeChannel)),
     ?CTPAL("read empty hist table"),
-    ?assertEqual([], imem_dal_skvh:hist_read(system, ?Channel, [[test]])),
+    ?assertEqual([], imem_dal_skvh:hist_read(system, ?PurgeChannel, [[test]])),
     FirstVal = imem_json:encode(#{test => 1}),
     ?CTPAL("write a row to skvh table"),
-    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], FirstVal),
-    HistTable = list_to_atom(?HIST(?Channel)),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?PurgeChannel, [test], FirstVal),
+    HistTable = list_to_atom(?HIST(?PurgeChannel)),
     ?CTPAL("read first/only row from hist table"),
-    [#{cvhist := [First]}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
+    [#{cvhist := [First]}] = imem_dal_skvh:hist_read(system, ?PurgeChannel, [[test]]),
     ?CTPAL("update the row 3 times"),
-    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 2})),
-    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], imem_json:encode(#{test => 3})),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?PurgeChannel, [test], imem_json:encode(#{test => 2})),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?PurgeChannel, [test], imem_json:encode(#{test => 3})),
     LastVal = imem_json:encode(#{test => 4}),
-    #{ckey := [test]} = imem_dal_skvh:write(system, ?Channel, [test], LastVal),
+    #{ckey := [test]} = imem_dal_skvh:write(system, ?PurgeChannel, [test], LastVal),
     ?CTPAL("read all rows from hist table"),
-    [#{cvhist := Hists}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
+    [#{cvhist := Hists}] = imem_dal_skvh:hist_read(system, ?PurgeChannel, [[test]]),
     ?CTPAL("check if there are 4 versions"),
     ?assertEqual(4, length(Hists)),
     ?CTPAL("execute purge"),
     ?assertEqual(ok, imem_dal_skvh:purge_history_tables([HistTable])),
     ?CTPAL("check if there are 2 versions"),
-    [#{cvhist := Hists2}] = imem_dal_skvh:hist_read(system, ?Channel, [[test]]),
+    [#{cvhist := Hists2}] = imem_dal_skvh:hist_read(system, ?PurgeChannel, [[test]]),
     ?assertEqual(2, length(Hists2)),
     [Last, First] = Hists2,
     #{nvalue := FirstNval} = First,

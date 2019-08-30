@@ -76,9 +76,9 @@ physical_table_names(_Config) ->
     ?assertEqual([ddTable], imem_meta:physical_table_names(<<"ddTable">>)),
     ?assertEqual([ddTable], imem_meta:physical_table_names({imem_meta:schema(), ddTable})),
 
-    ?assertEqual([integer], imem_meta:physical_table_names("integer")),
-    ?assertEqual([pid], imem_meta:physical_table_names("pid")),
-    ?assertEqual([json], imem_meta:physical_table_names("json")),
+    [ ?assertEqual([Type], imem_meta:physical_table_names(atom_to_list(Type)))
+      || Type <- ?DataTypes
+    ],
 
     ?assertEqual([LocalCacheName], imem_meta:physical_table_names(ddCache@local)),
     ?assertEqual([LocalCacheName], imem_meta:physical_table_names(LocalCacheStr)),
@@ -86,6 +86,21 @@ physical_table_names(_Config) ->
     ?assertEqual([LocalCacheName], imem_meta:physical_table_names({imem_meta:schema(), LocalCacheName})),
     ?assertEqual([], imem_meta:physical_table_names("ddCache@123")),
     ?assertEqual([LocalCacheName], imem_meta:physical_table_names("ddCache@")),
+
+    Result1 = [{node(),imem_meta:schema(),ddTable}],
+    ?assertEqual(Result1, imem_meta:cluster_table_names(ddTable)),
+    ?assertEqual(Result1, imem_meta:cluster_table_names("ddTable")),
+    ?assertEqual(Result1, imem_meta:cluster_table_names(<<"ddTable">>)),
+
+    [ ?assertEqual([{node(),imem_meta:schema(),Type}], imem_meta:cluster_table_names(atom_to_list(Type)))
+      || Type <- ?DataTypes
+    ],
+
+    ?assertEqual([{node(),imem_meta:schema(),LocalCacheName}], imem_meta:cluster_table_names(ddCache@local)),
+    ?assertEqual([{node(),imem_meta:schema(),LocalCacheName}], imem_meta:cluster_table_names(LocalCacheStr)),
+    ?assertEqual([{node(),imem_meta:schema(),LocalCacheName}], imem_meta:cluster_table_names(LocalCacheName)),
+    ?assertEqual([], imem_meta:cluster_table_names("ddCache@123")),
+    ?assertEqual([{node(),imem_meta:schema(),LocalCacheName}], imem_meta:cluster_table_names("ddCache@")),
 
     ?CTPAL("Start test slave node"),
     ?assertEqual([], imem_meta:nodes()),
@@ -102,9 +117,6 @@ physical_table_names(_Config) ->
     ?assert(lists:member({imem_meta:schema(), Slave}, imem_meta:data_nodes())),
     ?assert(lists:member(?TEST_SLAVE_IMEM_NODE_NAME, imem_meta:node_shards())),
 
-    ?CTPAL("ddCache@ --> ~p",[imem_meta:physical_cluster_table_names("imem", "ddCache@", "")]), 
-    ?CTPAL("ddCache --> ~p",[imem_meta:physical_cluster_table_names("imem", "ddCache", "")]), 
-
     DDCacheNames = imem_meta:physical_table_names("ddCache@"),
     SlaveCacheName = list_to_atom("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME),
     ?CTPAL("ddCache@ -> ~p", [DDCacheNames]),
@@ -119,8 +131,20 @@ physical_table_names(_Config) ->
     ?assert(lists:member(LocalLogName, LogNames)),
     ?assert(lists:member(SlaveLogName, LogNames)),
     ?assertEqual([SlaveLogName], imem_meta:physical_table_names("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
-    SlaveAccountName = list_to_atom("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME),
-    ?assertEqual([SlaveAccountName], imem_meta:physical_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+    ?assertEqual([], imem_meta:physical_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+
+    DDCacheClusterNames = imem_meta:cluster_table_names("ddCache@"),
+    ?CTPAL("ddCache@ -> ~p", [DDCacheClusterNames]),
+    ?assert(lists:member({node(),imem_meta:schema(),LocalCacheName}, DDCacheClusterNames)),
+    ?assert(lists:member({Slave,imem_meta:schema(),SlaveCacheName}, DDCacheClusterNames)),
+    ?assertEqual([{Slave,imem_meta:schema(),SlaveCacheName}], imem_meta:cluster_table_names("ddCache@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+    LogClusterNames = imem_meta:cluster_table_names("ddLog_86400@"),
+    ?CTPAL("ddLog_86400@ -> ~p", [LogClusterNames]),
+    ?assert(lists:member({node(),imem_meta:schema(),LocalLogName}, LogClusterNames)),
+    ?assert(lists:member({Slave,imem_meta:schema(),SlaveLogName}, LogClusterNames)),
+    ?assertEqual([{Slave,imem_meta:schema(),SlaveLogName}], imem_meta:cluster_table_names("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+    ?assertEqual([{Slave,imem_meta:schema(),ddAccount}], imem_meta:cluster_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+    ?assertEqual([{Slave,imem_meta:schema(),integer}], imem_meta:cluster_table_names("integer@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
 
     stop_slaves([Slave]),
     ct:sleep(1000),
