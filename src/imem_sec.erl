@@ -674,8 +674,9 @@ fetch_start_virtual(SKey, Pid, Table, Rows, BlockSize, Limit, Opts) ->
     % ?LogDebug("imem_sec:fetch_start_virtual ~p",[self()]),
     Schema = imem_meta:schema(),
     case Table of
-        {Schema,_} ->   imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
-        _ ->            ?SecurityException({"Select virtual in foreign schema unauthorized", {Table,SKey}}) 
+        {Schema,_} ->       imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
+        {_Node,Schema,_} -> imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
+        _ ->                ?SecurityException({"Select virtual in foreign schema unauthorized", {Table,SKey}}) 
     end.
 
 fetch_close(SKey, Pid) ->

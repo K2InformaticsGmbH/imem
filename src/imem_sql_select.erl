@@ -25,16 +25,24 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     ?Info("TableList: ~p~n", [TableList]),
     Class = imem_sql:statement_class(hd(TableList)),
     ?Info("Statement Class: ~p", [Class]),
-    ClusterTableNames = imem_sql:cluster_table_names(hd(TableList)),
-    ?Info("ClusterTableNames: ~p", [ClusterTableNames]),
+    ClusterTableNames = lists:sort(imem_sql:cluster_table_names(hd(TableList))),
+    %?Info("ClusterTableNames: ~p", [ClusterTableNames]),
+    LT = fun({N,_S,_T}) -> (N==node()) end,
+    LocalClusterTableNames = lists:filter(LT,ClusterTableNames),
+    ?Info("LocalClusterTableNames: ~p", [LocalClusterTableNames]),
+    RT = fun({N,_S,_T}) -> (N=/=node()) end,
+    RemoteClusterTableNames = lists:filter(RT,ClusterTableNames),
+    ?Info("RemoteClusterTableNames: ~p", [RemoteClusterTableNames]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
     % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
-    % ?Info("FullMap:~n~p~n", [FullMap]),
-    FullTableNames = [imem_meta:qualified_table_names({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
+    ?Info("FullMap:~n~p~n", [FullMap]),
+    FullTableNames = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
     ?Info("FullTableNames:~n~p~n", [FullTableNames]),
-    Tables = flatten_tables(FullTableNames),
+    Tables = flatten_tables([FullTableNames]),
     ?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
+    ClusterTables = span_tables(FullTableNames,LocalClusterTableNames ++ RemoteClusterTableNames),
+    ?Info("ClusterTables: (~p)~n~p", [length(ClusterTables), ClusterTables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql_expr:column_map_columns([],FullMap);
@@ -74,11 +82,13 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
                     stmtParse = {select, SelectSections},
                     stmtParams = Params,
                     stmtClass = Class,
-                    metaFields=MetaFields, tables=Tabs,
+                    metaFields=MetaFields, 
+                    tables=CTabs,
                     colMap=ColMap1, fullMap=FullMap,
                     rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,
                     mainSpec=MainSpec, joinSpecs=JoinSpecs
-                    } || Tabs <- Tables
+                    }
+                  || CTabs <- ClusterTables 
                  ],
     CreateResult = [imem_statement:create_stmt(S, SKey, IsSec) || S <- Statements],
     case lists:usort([element(1,R1) || R1 <- CreateResult]) of 
@@ -103,6 +113,13 @@ bind_table_names(Params, [{param,ParamKey}|Rest], Acc) ->
         _ ->                ?ClientError({"Cannot resolve table name parameter",ParamKey})
     end;
 bind_table_names(Params, [Table|Rest], Acc) -> bind_table_names(Params, Rest, [Table|Acc]). 
+
+span_tables(FullTableNames, ClusterTableNames) ->
+    span_tables(FullTableNames, ClusterTableNames, []).
+
+span_tables(_, [], Acc) -> lists:reverse(Acc);
+span_tables([TN|JoinTableNames], [CT|ClusterTableNames], Acc) ->
+    span_tables([TN|JoinTableNames], ClusterTableNames, [[CT|JoinTableNames]|Acc]).
 
 flatten_tables([]) -> [];
 flatten_tables([E|_] = L) when is_list(E) ->

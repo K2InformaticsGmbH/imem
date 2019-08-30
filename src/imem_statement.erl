@@ -41,6 +41,7 @@
 
 % Functions applied with Common Test
 -export([ if_call_mfa/3
+        , table_name/1          %% table name from physical_name={Schema,Name} or cluster_name={Node,Schema,Name}
         ]).
 
 -record(fetchCtx,               %% state for fetch process
@@ -70,13 +71,26 @@
 %% gen_server -----------------------------------------------------
 
 create_stmt(Statement, SKey, IsSec) ->
-    case IsSec of
-        false -> 
+    % Node = element(1,hd(Statement#statement.tables)),
+    Node = node(),  % ToDo: switch to remove lock to local execution
+    case {IsSec,node()} of
+        {false,Node} ->     % meta, local
             gen_server:start(?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]);
-        true ->
+        {false,_} ->        % meta, remote
+            rpc:call( Node, gen_server, start
+                    , [?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]]
+            );
+        {true,Node} ->      % sec, local
             {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),
             NewSKey = imem_sec:clone_seco(SKey, Pid),
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
+            {ok, Pid};
+        {true,_} ->         % sec, remote
+            {ok, Pid} = rpc:call( Node, gen_server, start
+                                , [?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]]
+                                ),
+            NewSKey = imem_sec:clone_seco(SKey, Pid),
+            ok = rpc:call(gen_server,call,[Pid, {set_seco, NewSKey}]),
             {ok, Pid}
     end.
 
@@ -581,7 +595,7 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
             % ?Debug("fetch complete no tail ~p~n", [Opts]), 
             {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}};           
         true ->     
-            {_Schema,Table} = hd(Stmt#statement.tables),
+            Table = table_name(hd(Stmt#statement.tables)),
             % ?Debug("fetch complete, switching to tail_mode~p~n", [Opts]), 
             case  catch if_call_mfa(false,subscribe,[none,{table, Table, detailed}]) of
                 ok ->
@@ -594,6 +608,9 @@ handle_fetch_complete(#state{reply=Sock,fetchCtx=FetchCtx0,statement=Stmt}=State
                     {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=done}}}   
             end    
     end.
+
+table_name({_,TN}) -> TN;
+table_name({_,_,TN}) -> TN.
 
 terminate(_Reason, #state{fetchCtx=#fetchCtx{pid=Pid, monref=undefined}}) -> 
     % ?Debug("terminating monitor not found~n", []),
@@ -625,7 +642,7 @@ get_select_permissions(true, SKey, [Table|JTabs]) ->
     end.
 
 unsubscribe(Stmt) ->
-    {_Schema,Table} = hd(Stmt#statement.tables),
+    Table = table_name(hd(Stmt#statement.tables)),
     case catch if_call_mfa(false,unsubscribe,[none,{table,Table,detailed}]) of
         ok ->       ok;
         {ok,_} ->   ok;
@@ -1063,7 +1080,7 @@ send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(), Result},
     imem_server:send_resp(NewResult, SockOrPid).
 
-update_prepare(IsSec, SKey, [{Schema,Table}|_], ColMap, ChangeList) ->
+update_prepare(IsSec, SKey, [{_Node,Schema,Table}|_], ColMap, ChangeList) ->
     PTN = imem_meta:physical_table_name(Table),
     {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,PTN}),
     User = if_call_mfa(IsSec, meta_field_value, [SKey, user]),

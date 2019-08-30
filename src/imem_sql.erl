@@ -79,6 +79,8 @@ params_from_opts(Opts,ParseTree) when is_list(Opts) ->
             end
     end.
 
+% imem_sql:exec(undefined, "SELECT * FROM ddAccount", 100, [], false).
+
 exec(SKey, Sql, BlockSize, Opts, IsSec) ->
     case sqlparse:parsetree(Sql) of
         {ok, [{ParseTree,_}|_]} ->
