@@ -71,7 +71,7 @@
 %% gen_server -----------------------------------------------------
 
 create_stmt(Statement, SKey, IsSec) ->
-    % Node = element(1,hd(Statement#statement.tables)),
+    Node = element(1,hd(Statement#statement.tables)),
     Node = node(),  % ToDo: switch to remove lock to local execution
     case {IsSec,node()} of
         {false,Node} ->     % meta, local

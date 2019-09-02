@@ -33,6 +33,7 @@
 -define(DQFN(__BinFN), [$" | binary_to_list(__BinFN)] ++ [$"]). % wrap binary filename into double quotes as list
 
 -define(NODEBUG, true).
+-define(MAX_TABLE_COUNT, 1000).
 
 -include_lib("imem.hrl").
 -include("imem_seco.hrl").
@@ -1303,27 +1304,19 @@ db2_with_or_without_sec(IsSec) ->
 
     {L2, true} = if_call_mfa(IsSec, select, [SKey, ddTable, ?MatchAllRecords, 1000]),
     ?CTPAL("Table ddTable : ~p entries~n~p~n~p~n~p", [length(L2), hd(L2), '...', lists:last(L2)]),
-    AllTableCount = length(L2),
-
+ 
     {L3, true} = if_call_mfa(IsSec, select, [SKey, dba_tables, ?MatchAllKeys]),
     ?CTPAL("Table dba_tables : ~p entries~n~p~n~p~n~p", [length(L3), hd(L3), '...', lists:last(L3)]),
-    ?assertEqual(AllTableCount, length(L3)),
 
     {L4, true} = if_call_mfa(IsSec, select, [SKey, all_tables, ?MatchAllKeys]),
     ?CTPAL("Table all_tables : ~p entries~n~p~n~p~n~p", [length(L4), hd(L4), '...', lists:last(L4)]),
-    ?assertEqual(AllTableCount, length(L4)),
 
     {L5, true} = if_call_mfa(IsSec, select, [SKey, user_tables, ?MatchAllKeys]),
     ?CTPAL("Table user_tables : ~p entries~n~p~n~p~n~p", [length(L5), hd(L5), '...', lists:last(L5)]),
-    case IsSec of
-        false -> ?assertEqual(AllTableCount, length(L5));
-        true -> ?assertEqual(2, length(L5))
-    end,
 
-    R0 = exec_fetch_sort(SKey, query0, AllTableCount + 1, IsSec, "
+    exec_fetch_sort(SKey, query0, ?MAX_TABLE_COUNT, IsSec, "
             select * from ddTable"
     ),
-    ?assertEqual(AllTableCount, length(R0)),
 
     R0a = exec_fetch_sort(SKey, query0a, 100, IsSec, "
             select * from ddTable where rownum <= 10"
@@ -1395,12 +1388,11 @@ db2_with_or_without_sec(IsSec) ->
             ?assertEqual([{Acid}], R1d)
     end,
 
-    R1e = exec_fetch_sort(SKey, query1e, AllTableCount + 1, IsSec, "
+    R1e = exec_fetch_sort(SKey, query1e, ?MAX_TABLE_COUNT, IsSec, "
             select all_tables.*
             from all_tables
             where owner = 'system'"
     ),
-    ?assert(length(R1e) =< AllTableCount),
     ?assert(length(R1e) >= 5),
 
     R1f = exec_fetch_sort(SKey, query1f, 100, IsSec, "
@@ -1647,19 +1639,16 @@ db2_with_or_without_sec(IsSec) ->
         [{<<"1">>}, {<<"4">>}]
     ),
 
-    R5k = exec_fetch_sort(SKey, query5k, AllTableCount + 1, IsSec, "
+    R5k = exec_fetch_sort(SKey, query5k, ?MAX_TABLE_COUNT, IsSec, "
             select to_name(qname)
             from ddTable
             where is_member(to_tuple('{virtual, true}'), opts)"
     ),
-    % ?assert(length(R5k) >= 18),
     ?assert(length(R5k) == 0),      % not used any more for DataTypes
-    % ?assert(lists:member({"imem.atom"},R5k)),
-    % ?assert(lists:member({"imem.userid"},R5k)),
     ?assertNot(lists:member({"imem.ddTable"}, R5k)),
     ?assertNot(lists:member({"imem.ddTable"}, R5k)),
 
-    R5l = exec_fetch_sort(SKey, query5l, AllTableCount + 1, IsSec, "
+    R5l = exec_fetch_sort(SKey, query5l, ?MAX_TABLE_COUNT, IsSec, "
             select to_name(qname)
             from ddTable
             where not is_member(to_tuple('{virtual, true}'), opts)"
@@ -1670,7 +1659,7 @@ db2_with_or_without_sec(IsSec) ->
     ?assert(lists:member({<<"imem.ddTable">>}, R5l)),
     ?assert(lists:member({<<"imem.ddAccount">>}, R5l)),
 
-    R5m = exec_fetch_sort(SKey, query5m, AllTableCount + 1, IsSec, "
+    R5m = exec_fetch_sort(SKey, query5m, ?MAX_TABLE_COUNT, IsSec, "
             select
                 to_name(qname),
                 item2(item) as field,
@@ -1715,7 +1704,7 @@ db2_with_or_without_sec(IsSec) ->
         []
     ),
 
-    R5r = exec_fetch_sort(SKey, query5r, AllTableCount + 1, IsSec, "
+    R5r = exec_fetch_sort(SKey, query5r, ?MAX_TABLE_COUNT, IsSec, "
             select to_name(qname), size, memory
             from ddTable, ddSize
             where element(2,qname) = name 
@@ -1724,7 +1713,7 @@ db2_with_or_without_sec(IsSec) ->
     ),
     ?assert(length(R5r) > 0),
 
-    R5s = exec_fetch_sort(SKey, query5s, AllTableCount + 1, IsSec, "
+    R5s = exec_fetch_sort(SKey, query5s, ?MAX_TABLE_COUNT, IsSec, "
             select to_name(qname), nodef(tte)
             from ddTable, ddSize
             where name = element(2,qname) 
@@ -1734,7 +1723,7 @@ db2_with_or_without_sec(IsSec) ->
     ?assertEqual(length(R5s), length(R5r)),
     ?CTPAL("Full Result R5s: ~n~p", [R5s]),
 
-    R5t = exec_fetch_sort(SKey, query5t, AllTableCount + 1, IsSec, "
+    R5t = exec_fetch_sort(SKey, query5t, ?MAX_TABLE_COUNT, IsSec, "
             select to_name(qname), tte
             from ddTable, ddSize
             where element(2,qname) = name
@@ -1744,7 +1733,7 @@ db2_with_or_without_sec(IsSec) ->
     ?CTPAL("Result R5t DIFF: ~n~p", [R5s -- R5t]),
     ?assert(length(R5t) > 0),
 
-    R5u = exec_fetch_sort(SKey, query5u, AllTableCount + 1, IsSec, "
+    R5u = exec_fetch_sort(SKey, query5u, ?MAX_TABLE_COUNT, IsSec, "
             select to_name(qname), tte
             from ddTable, ddSize
             where element(2,qname) = name
@@ -1755,7 +1744,7 @@ db2_with_or_without_sec(IsSec) ->
     ?assert(length(R5u) > 0),
     ?assert(length(R5u) > length(R5t)),
 
-    R5v = exec_fetch_sort(SKey, query5v, AllTableCount + 1, IsSec, "
+    R5v = exec_fetch_sort(SKey, query5v, ?MAX_TABLE_COUNT, IsSec, "
             select to_name(qname), size, tte
             from ddTable, ddSize
             where element(2,qname) = name

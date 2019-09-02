@@ -58,7 +58,7 @@ end_per_testcase(TestCase, _Config) ->
     catch imem_meta:drop_table(?TPTEST_999999999@_),
     catch imem_meta:drop_table(?TPTEST_100@),
     catch imem_meta:drop_table(?TPTEST_3@),
-    stop_slaves(nodes()),
+    catch imem_test_slave:stop(?TEST_SLAVE_IMEM_NODE_NAME),
     ok.
 
 %%====================================================================
@@ -104,13 +104,13 @@ physical_table_names(_Config) ->
     ?assertEqual([{node(),<<"csv$">>,<<"\"TestCsvFile.csv\"">>}], imem_meta:cluster_table_names(<<"csv$.\"TestCsvFile.csv\"">>)),
 
     ?CTPAL("Start test slave node"),
-    ?assertEqual([], imem_meta:nodes()),
-    [Slave] = start_slaves([?TEST_SLAVE_IMEM_NODE_NAME]),
-    ?CTPAL("Slaves ~p", [Slave]),
+    ?assertNot(imem_test_slave:is_running(?TEST_SLAVE_IMEM_NODE_NAME)),
+    Slave = imem_test_slave:start(?TEST_SLAVE_IMEM_NODE_NAME),
+    ?CTPAL("Slave ~p", [Slave]),
     ct:sleep(5000),
 
     ?CTPAL("slave nodes ~p", [imem_meta:nodes()]),
-    ?assert(lists:member(Slave, imem_meta:nodes())),
+    ?assert(imem_test_slave:is_running(?TEST_SLAVE_IMEM_NODE_NAME)),
     ?CTPAL("data_nodes ~p", [imem_meta:data_nodes()]),
     ?CTPAL("node_shards ~p", [imem_meta:node_shards()]),
     ?assert(lists:member({imem_meta:schema(),node()}, imem_meta:data_nodes())),
@@ -148,52 +148,10 @@ physical_table_names(_Config) ->
     ?assertEqual([{Slave,imem_meta:schema(),ddAccount}], imem_meta:cluster_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
     ?assertEqual([{Slave,imem_meta:schema(),integer}], imem_meta:cluster_table_names("integer@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
 
-    stop_slaves([Slave]),
+    ?assertEqual(ok, imem_test_slave:stop(Slave)),
     ct:sleep(1000),
-    ?assertEqual([], imem_meta:nodes()),
+    ?assertNot(imem_test_slave:is_running(?TEST_SLAVE_IMEM_NODE_NAME)),
     ok.
-
-start_slaves(Slaves0) when is_list(Slaves0), length(Slaves0) > 0 ->
-    Slaves = [S || S <- lists:usort(Slaves0), is_list(S)],
-    if length(Slaves) == 0 -> error(no_slaves); true -> ok end,
-    [NodeName, Host] = string:tokens(atom_to_list(node()), "@"),
-    StartArgFmt = lists:concat([
-        " -setcookie ", erlang:get_cookie(),
-        " -pa ", string:join(code:get_path(), " "),
-        " -kernel"
-            " inet_dist_listen_min 7000"
-            " inet_dist_listen_max 7020",
-        " -imem"
-            " mnesia_node_type ram"
-            " mnesia_schema_name imem"
-            " node_shard ~p"
-            " tcp_server false"
-            " cold_start_recover false"
-    ]),
-    SlaveNodes = start_slaves(NodeName, Host, StartArgFmt, Slaves),
-    lists:foreach(
-        fun(Node) ->
-            ok = rpc:call(Node, application, load, [imem]),
-            CMs = [node() | SlaveNodes] -- [Node],
-            ok = rpc:call(
-                Node, application, set_env, [imem, erl_cluster_mgrs, CMs]
-            ),
-            {ok, _} = rpc:call(Node, application, ensure_all_started, [imem])
-        end,
-        SlaveNodes
-    ),
-    SlaveNodes.
-
-start_slaves(_NodeName, _Host, _StartArgFmt, []) -> [];
-start_slaves(NodeName, Host, StartArgFmt, [Slave | Slaves]) ->
-    SA = lists:flatten(io_lib:format(StartArgFmt, [Slave])),
-    {ok, Node} = slave:start(Host, Slave, SA),
-    [Node | start_slaves(NodeName, Host, StartArgFmt, Slaves)].
-
-stop_slaves([]) -> ok;
-stop_slaves([Slave | Slaves]) ->
-    ok = slave:stop(Slave),
-    stop_slaves(Slaves).
 
 meta_concurrency(_Config) ->
     ?CTPAL("create_table"),
@@ -504,13 +462,11 @@ meta_partitions(_Config) ->
     ?assertEqual(0, imem_meta:table_size(TimePartTable0)),
     ?assertEqual([TimePartTable0], imem_meta:physical_table_names(?TPTEST_1000@)),
     ?assertMatch({ok, _}, imem_meta:create_check_table(?TPTEST_1000@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, [{record_name, ddLog}, {type, ordered_set}], system)),
-
-    ?assert(lists:member({imem_meta:schema(), ?TPTEST_1000@}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
-
+    ct:sleep(1000),
     ?assert(lists:member({imem_meta:schema(), ?TPTEST_1000@}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
     ?assertNot(lists:member({imem_meta:schema(), ?TPTEST_100@}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
-
-    ?CTPAL("parsed table names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
+    ct:sleep(1000),
+    ?CTPAL("parsed alias names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
     ?assertException(throw
         , {'ClientError', {"Name conflict (different rolling period) in ddAlias", ?TPTEST_100@}}
         , imem_meta:create_check_table(?TPTEST_100@
