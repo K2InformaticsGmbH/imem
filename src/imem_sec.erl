@@ -646,10 +646,13 @@ fetch_start(SKey, Pid, all_tables, MatchSpec, BlockSize, Opts) ->
 fetch_start(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
     seco_authorized(SKey),
     Schema = imem_meta:schema(),
+    Node = node(),
     case Table of
-        {Schema,_} ->   fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts);    % local schema select
-        {_,_} ->        fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts);   % ddSysConf / csv$ superuser select
-        _ ->            fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts)     % local schema select
+        {Node,Schema,T} ->  fetch_start_local(SKey, Pid, {Schema,T}, MatchSpec, BlockSize, Opts);    % local schema select
+        {Schema,T} ->       fetch_start_local(SKey, Pid, {Schema,T}, MatchSpec, BlockSize, Opts);    % local schema select
+        {Node,Schema,T} ->  fetch_start_system(SKey, Pid, {Schema,T}, MatchSpec, BlockSize, Opts);   % ddSysConf / csv$ superuser select
+        {_,_} ->            fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts);   % ddSysConf / csv$ superuser select
+        _ ->                fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts)     % local schema select
     end.
 
 fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
@@ -673,9 +676,10 @@ fetch_start_virtual(SKey, Pid, Table, Rows, BlockSize, Limit, Opts) ->
     seco_authorized(SKey),
     % ?LogDebug("imem_sec:fetch_start_virtual ~p",[self()]),
     Schema = imem_meta:schema(),
+    Node = node(),
     case Table of
-        {Schema,_} ->       imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
-        {_Node,Schema,_} -> imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
+        {Schema,T} ->       imem_meta:fetch_start_virtual(Pid, {Schema,T}, Rows, BlockSize, Limit, Opts);
+        {Node,Schema,T} ->  imem_meta:fetch_start_virtual(Pid, {Schema,T}, Rows, BlockSize, Limit, Opts);
         _ ->                ?SecurityException({"Select virtual in foreign schema unauthorized", {Table,SKey}}) 
     end.
 

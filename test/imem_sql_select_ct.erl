@@ -186,8 +186,8 @@ db1_with_or_without_sec(IsSec) ->
 
     CsvFileName = <<"CsvTestFileName123abc.txt">>,
     file:write_file(CsvFileName, <<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>),
-
-    exec_fetch_sort_equal(SKey, query00, 100, IsSec, "
+    ?CTPAL("Csv File written ~p",[CsvFileName]),
+    exec_fetch_sort_equal_csv(SKey, query00, 100, IsSec, "
             select * from csv$." ++ ?DQFN(CsvFileName)
         ,
         [{CsvFileName, <<"0">>, <<"11">>, <<"Col1">>, <<"Col2">>}
@@ -196,7 +196,7 @@ db1_with_or_without_sec(IsSec) ->
         ]
     ),
 
-    exec_fetch_sort_equal(SKey, query01, 100, IsSec, "
+    exec_fetch_sort_equal_csv(SKey, query01, 100, IsSec, "
             select col1, col2 from csv$." ++ ?DQFN(CsvFileName)
         ,
         [{<<"Col1">>, <<"Col2">>}
@@ -205,7 +205,7 @@ db1_with_or_without_sec(IsSec) ->
         ]
     ),
 
-    exec_fetch_sort_equal(SKey, query02, 100, IsSec, "
+    exec_fetch_sort_equal_csv(SKey, query02, 100, IsSec, "
             select col1, col2 from csv$skip1." ++ ?DQFN(CsvFileName)
         ,
         [{<<"A1">>, <<"1">>}
@@ -213,7 +213,7 @@ db1_with_or_without_sec(IsSec) ->
         ]
     ),
 
-    exec_fetch_sort_equal(SKey, query03, 100, IsSec, "
+    exec_fetch_sort_equal_csv(SKey, query03, 100, IsSec, "
             select col1, col2, col3 from csv$skip1$tab$3." ++ ?DQFN(CsvFileName)
         ,
         [{<<"A1">>, <<"1">>, <<>>}
@@ -221,7 +221,7 @@ db1_with_or_without_sec(IsSec) ->
         ]
     ),
 
-    exec_fetch_sort_equal(SKey, query04, 100, IsSec, "
+    exec_fetch_sort_equal_csv(SKey, query04, 100, IsSec, "
             select * from csv$." ++ ?DQFN(CsvFileName) ++ " where col1 like 'A%'"
         ,
         [{CsvFileName, <<"11">>, <<"6">>, <<"A1">>, <<"1">>}
@@ -229,7 +229,7 @@ db1_with_or_without_sec(IsSec) ->
         ]
     ),
 
-    exec_fetch_sort_equal(SKey, query05, 100, IsSec, "
+    exec_fetch_sort_equal_csv(SKey, query05, 100, IsSec, "
             select * from csv$." ++ ?DQFN(CsvFileName) ++ " where bytes = 6"
         ,
         [{CsvFileName, <<"11">>, <<"6">>, <<"A1">>, <<"1">>}
@@ -241,7 +241,7 @@ db1_with_or_without_sec(IsSec) ->
     BigField = binary:copy(<<"Test">>, 1500),
     file:write_file(CsvFileNameLong, <<"Col1\tCol2\r\nA1\t1\r\n", BigField/binary, "\t2\r\n">>),
 
-    exec_fetch_sort_equal(SKey, query06, 100, IsSec, "
+    exec_fetch_sort_equal_csv(SKey, query06, 100, IsSec, "
             select col1, col2, col3 from csv$skip1$tab$3." ++ ?DQFN(CsvFileNameLong)
         ,
         [{<<"A1">>, <<"1">>, <<>>}
@@ -1718,14 +1718,18 @@ db2_with_or_without_sec(IsSec) ->
     R5r = exec_fetch_sort(SKey, query5r, AllTableCount + 1, IsSec, "
             select to_name(qname), size, memory
             from ddTable, ddSize
-            where element(2,qname) = name "
+            where element(2,qname) = name 
+            and element(2,qname) like 'ddA%'
+        "
     ),
     ?assert(length(R5r) > 0),
 
     R5s = exec_fetch_sort(SKey, query5s, AllTableCount + 1, IsSec, "
             select to_name(qname), nodef(tte)
             from ddTable, ddSize
-            where name = element(2,qname)"
+            where name = element(2,qname) 
+            and element(2,qname) like 'ddA%'
+        "
     ),
     ?assertEqual(length(R5s), length(R5r)),
     ?CTPAL("Full Result R5s: ~n~p", [R5s]),
@@ -1734,22 +1738,22 @@ db2_with_or_without_sec(IsSec) ->
             select to_name(qname), tte
             from ddTable, ddSize
             where element(2,qname) = name
-            and tte <> to_atom('undefined')"
+            and tte <> to_atom('undefined')
+        "
     ),
     ?CTPAL("Result R5t DIFF: ~n~p", [R5s -- R5t]),
     ?assert(length(R5t) > 0),
-    ?assert(length(R5t) < length(R5s)),
 
     R5u = exec_fetch_sort(SKey, query5u, AllTableCount + 1, IsSec, "
             select to_name(qname), tte
             from ddTable, ddSize
             where element(2,qname) = name
-            and tte = to_atom('undefined')"
+            and tte = to_atom('undefined') 
+        "
     ),
     ?CTPAL("Result R5u DIFF: ~n~p", [R5s -- R5u]),
     ?assert(length(R5u) > 0),
-    ?assert(length(R5u) < length(R5s)),
-    ?assert(length(R5t) + length(R5u) == length(R5s)),
+    ?assert(length(R5u) > length(R5t)),
 
     R5v = exec_fetch_sort(SKey, query5v, AllTableCount + 1, IsSec, "
             select to_name(qname), size, tte
@@ -2150,7 +2154,7 @@ exec_fetch_sort(SKey, _Id, BS, IsSec, Sql) ->
     ?assertEqual(ok, RetCode),
     #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
-    ?assertEqual([ok], lists:usort(imem_statement:close(SKey, StmtRefs))),
+    ?assertEqual(ok, imem_statement:close(SKey, StmtRefs)),
     [?assert(is_binary(SC#rowCol.alias)) || SC <- RowCols],
     RT = imem_statement:result_tuples(List, RowFun),
     if
@@ -2170,12 +2174,27 @@ exec_fetch_sort_equal(SKey, _Id, BS, IsSec, Sql, Expected) ->
     #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult,
     List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
     ?CTPAL("List:~n~p", [List]),
-    ?assertEqual([ok], lists:usort(imem_statement:close(SKey, StmtRefs))),
+    ?assertEqual(ok, imem_statement:close(SKey, StmtRefs)),
     [?assert(is_binary(SC#rowCol.alias)) || SC <- RowCols],
     RT = imem_statement:result_tuples(List, RowFun),
     ?CTPAL("Result:~n~p", [RT]),
     ?assertEqual(Expected, RT),
     RT.
+
+exec_fetch_sort_equal_csv(SKey, _Id, BS, IsSec, Sql, Expected) ->
+    ?CTPAL("exec_fetch_sort_equal_csv ~p : ~s", [_Id, Sql]),
+    {RetCode, StmtResult} = imem_sql:exec(SKey, Sql, BS, [], IsSec),
+    ?assertEqual(ok, RetCode),
+    #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult,
+    List = imem_statement:fetch_recs_sort(SKey, StmtResult, {self(), make_ref()}, 1000, IsSec),
+    ?CTPAL("List:~n~p", [List]),
+    ?assertEqual(ok, imem_statement:close(SKey, StmtRefs)),
+    [?assert(is_binary(SC#rowCol.alias)) || SC <- RowCols],
+    RT = imem_statement:result_tuples(List, RowFun),
+    ?CTPAL("Result:~n~p", [RT]),
+    ?assertEqual(Expected, RT),
+    RT.
+
 
 if_call_mfa(IsSec, Fun, Args) ->
     case IsSec of

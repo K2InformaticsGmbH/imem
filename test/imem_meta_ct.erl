@@ -91,7 +91,7 @@ physical_table_names(_Config) ->
     ?assertEqual(Result1, imem_meta:cluster_table_names(ddTable)),
     ?assertEqual(Result1, imem_meta:cluster_table_names("ddTable")),
     ?assertEqual(Result1, imem_meta:cluster_table_names(<<"ddTable">>)),
-
+    
     [ ?assertEqual([{node(),imem_meta:schema(),Type}], imem_meta:cluster_table_names(atom_to_list(Type)))
       || Type <- ?DataTypes
     ],
@@ -101,6 +101,7 @@ physical_table_names(_Config) ->
     ?assertEqual([{node(),imem_meta:schema(),LocalCacheName}], imem_meta:cluster_table_names(LocalCacheName)),
     ?assertEqual([], imem_meta:cluster_table_names("ddCache@123")),
     ?assertEqual([{node(),imem_meta:schema(),LocalCacheName}], imem_meta:cluster_table_names("ddCache@")),
+    ?assertEqual([{node(),<<"csv$">>,<<"\"TestCsvFile.csv\"">>}], imem_meta:cluster_table_names(<<"csv$.\"TestCsvFile.csv\"">>)),
 
     ?CTPAL("Start test slave node"),
     ?assertEqual([], imem_meta:nodes()),
@@ -132,6 +133,7 @@ physical_table_names(_Config) ->
     ?assert(lists:member(SlaveLogName, LogNames)),
     ?assertEqual([SlaveLogName], imem_meta:physical_table_names("ddLog_86400@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
     ?assertEqual([], imem_meta:physical_table_names("ddAccount@" ++ ?TEST_SLAVE_IMEM_NODE_NAME)),
+    ?assertEqual([{Slave,<<"csv$">>,<<"\"TestCsvFile.csv\"">>}], imem_meta:cluster_table_names("csv$.\"TestCsvFile.csv\"@"++?TEST_SLAVE_IMEM_NODE_NAME)),
 
     DDCacheClusterNames = imem_meta:cluster_table_names("ddCache@"),
     ?CTPAL("ddCache@ -> ~p", [DDCacheClusterNames]),

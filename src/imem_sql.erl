@@ -81,6 +81,22 @@ params_from_opts(Opts,ParseTree) when is_list(Opts) ->
 
 % imem_sql:exec(undefined, "SELECT * FROM ddAccount", 100, [], false).
 
+% rr(imem_statement).
+% CsvFileName = <<"CsvTestFileName123abc.txt">>.
+% file:write_file(CsvFileName, <<"Col1\tCol2\r\nA1\t1\r\nA2\t2\r\n">>).
+% {RetCode, StmtResult} = imem_sql:exec(undefined, "SELECT * FROM csv$.\"CsvTestFileName123abc.txt\"", 100, [], false).
+% #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult.
+% List = imem_statement:fetch_recs_sort(undefined, StmtResult, {self(), make_ref()}, 1000, false).
+% imem_statement:close(SKey, StmtRefs).
+
+% rr(imem_statement).
+% Sql3p1 = "select item from dual,atom where is_member(item, mfa('imem_sql_funs','filter_funs','[]')) and item like 'list%'".
+% {RetCode, StmtResult} = imem_sql:exec(undefined, Sql3p1, 100, [], false).
+% #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult.
+% List = imem_statement:fetch_recs_sort(undefined, StmtResult, {self(), make_ref()}, 1000, false).
+% imem_statement:close(SKey, StmtRefs).
+
+
 exec(SKey, Sql, BlockSize, Opts, IsSec) ->
     case sqlparse:parsetree(Sql) of
         {ok, [{ParseTree,_}|_]} ->

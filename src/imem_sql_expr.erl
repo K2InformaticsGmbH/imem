@@ -618,6 +618,9 @@ is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]),
 %% throws   ?ClientError
 -spec column_map_tables(list(binary()|{as,_,_}), list(binary()), list(tuple())) -> list(#bind{}).
 column_map_tables(Tables, MetaFields, Params) ->
+    ?Info("column_map_tables Tables ~p",[Tables]),
+    ?Info("column_map_tables MetaFields ~p",[MetaFields]),
+    ?Info("column_map_tables Params ~p",[Params]),
     MetaBinds = column_map_meta_fields(MetaFields,?MetaIdx,[]),
     ParamBinds = column_map_param_fields(Params,?MetaIdx,lists:reverse(MetaBinds)),
     TableBinds = column_map_table_fields(Tables, ?MainIdx, []),
@@ -652,15 +655,21 @@ column_map_param_fields([Param|Params], Ti, Acc) ->
 -spec column_map_table_fields(list(),integer(),list(#bind{})) -> list(#bind{}).
 column_map_table_fields([], _Ti, Acc) -> Acc;
 column_map_table_fields([{as,Table,Alias}|Tables], Ti, Acc) when is_binary(Table),is_binary(Alias) ->
+    ?Info("column_map_table_fields 1 ~p",[{as,Table,Alias}]),
     {S,T} = binstr_to_qname2(Table),
     column_map_table_fields([{S,T,Alias}|Tables], Ti, Acc);
+% column_map_table_fields([{Node,S,T}|Tables], Ti, Acc) when is_atom(Node),is_binary(S),is_binary(T) ->
+%     column_map_table_fields([{S,T,T}|Tables], Ti, Acc);
 column_map_table_fields([Table|Tables], Ti, Acc) when is_binary(Table) ->
+    ?Info("column_map_table_fields 2 ~p",[Table]),
     {S,T} = binstr_to_qname2(Table),
     column_map_table_fields([{S,T,T}|Tables], Ti, Acc);
 column_map_table_fields([{undefined,T,A}|Tables], Ti, Acc) ->
+    ?Info("column_map_table_fields 3 ~p",[{undefined,T,A}]),
     S = ?atom_to_binary(imem_meta:schema()),
     column_map_table_fields([{S,T,A}|Tables], Ti, Acc);
 column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
+    ?Info("column_map_table_fields 4 ~p",[{S,T,A}]),
     Cols = case S of
         ?CSV_SCHEMA_PATTERN ->
             case Ti of

@@ -98,9 +98,9 @@ fetch_recs(SKey, Pid, Sock, Timeout, IsSec) ->
     fetch_recs(SKey, Pid, Sock, Timeout, [], IsSec).
 
 fetch_recs(SKey, #stmtResults{stmtRefs=StmtRefs}, Sock, Timeout, Opts, IsSec) ->
-    fetch_recs(SKey, StmtRefs, Sock, Timeout, Opts, IsSec);
+    fetch_recs(SKey, hd(StmtRefs), Sock, Timeout, Opts, IsSec);
 fetch_recs(SKey, StmtRefs, Sock, Timeout, Opts, IsSec) when is_list(StmtRefs) ->
-     [fetch_recs(SKey, StmtRef, Sock, Timeout, Opts, IsSec) || StmtRef <- StmtRefs];
+    fetch_recs(SKey, hd(StmtRefs), Sock, Timeout, Opts, IsSec);
 fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
     gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}),
     Result = try
@@ -139,9 +139,9 @@ fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
     Result.
 
 fetch_recs_sort(SKey, #stmtResults{stmtRefs=StmtRefs, sortFun=SortFun}, Sock, Timeout, IsSec) ->
-     recs_sort(lists:flatten([fetch_recs(SKey, StmtRef, Sock, Timeout, IsSec) || StmtRef <- StmtRefs]), SortFun);
+     recs_sort(fetch_recs(SKey, hd(StmtRefs), Sock, Timeout, IsSec), SortFun);
 fetch_recs_sort(SKey, StmtRefs, Sock, Timeout, IsSec) when is_list(StmtRefs) ->
-     lists:sort(lists:flatten([fetch_recs(SKey, StmtRef, Sock, Timeout, IsSec) || StmtRef <- StmtRefs]));
+     lists:sort(fetch_recs(SKey, hd(StmtRefs), Sock, Timeout, IsSec));
 fetch_recs_sort(SKey, Pid, Sock, Timeout, IsSec) when is_pid(Pid) ->
     lists:sort(fetch_recs(SKey, Pid, Sock, Timeout, IsSec)).
 
@@ -155,9 +155,9 @@ fetch_recs_async(SKey, StmtResult, Sock, IsSec) ->
      fetch_recs_async(SKey, StmtResult, Sock, [], IsSec).
 
 fetch_recs_async(SKey, #stmtResults{stmtRefs=StmtRefs}, Sock, Opts, IsSec) ->
-     fetch_recs_async(SKey, StmtRefs, Sock, Opts, IsSec);
+     fetch_recs_async(SKey, hd(StmtRefs), Sock, Opts, IsSec);
 fetch_recs_async(SKey, StmtRefs, Sock, Opts, IsSec) when is_list(StmtRefs)->
-     [fetch_recs_async(SKey, StmtRef, Sock, Opts, IsSec) || StmtRef <- StmtRefs];
+     fetch_recs_async(SKey, hd(StmtRefs), Sock, Opts, IsSec);
 fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
     case [{M,V} || {M,V} <- Opts, true =/= lists:member(M, ?VALID_FETCH_OPTS)] of
         [] -> gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
@@ -165,9 +165,9 @@ fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
     end.
 
 fetch_close(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec) ->
-     fetch_close(SKey,  StmtRefs, IsSec);
+     fetch_close(SKey,  hd(StmtRefs), IsSec);
 fetch_close(SKey,  StmtRefs, IsSec) when is_list(StmtRefs) ->
-     [fetch_close(SKey, StmtRef, IsSec) || StmtRef <- StmtRefs];
+     fetch_close(SKey, hd(StmtRefs), IsSec);
 fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {fetch_close, IsSec, SKey}).
 
@@ -175,16 +175,16 @@ filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, IsSec) ->
     filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, [], IsSec).
 
 filter_and_sort(SKey, #stmtResults{stmtRefs=StmtRefs}, FilterSpec, SortSpec, Cols, IsSec) ->
-    filter_and_sort(SKey, StmtRefs, FilterSpec, SortSpec, Cols, IsSec); 
+    filter_and_sort(SKey, hd(StmtRefs), FilterSpec, SortSpec, Cols, IsSec); 
 filter_and_sort(SKey,  StmtRefs, FilterSpec, SortSpec, Cols, IsSec) when is_list(StmtRefs) ->
-     [filter_and_sort(SKey, hd(StmtRefs), FilterSpec, SortSpec, Cols, IsSec)];
+     filter_and_sort(SKey, hd(StmtRefs), FilterSpec, SortSpec, Cols, IsSec);
 filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec) when is_pid(Pid) ->
     gen_server:call(Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, Cols, SKey}).
 
 update_cursor_prepare(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec, ChangeList) ->
-    update_cursor_prepare(SKey, StmtRefs, IsSec, ChangeList);
+    update_cursor_prepare(SKey, hd(StmtRefs), IsSec, ChangeList);
 update_cursor_prepare(SKey, StmtRefs, IsSec, ChangeList) when is_list(StmtRefs) ->
-    [update_cursor_prepare(SKey, StmtRef, IsSec, ChangeList) || StmtRef <- StmtRefs];
+    update_cursor_prepare(SKey, hd(StmtRefs), IsSec, ChangeList);
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
     case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)) of
         ok ->   ok;
@@ -192,9 +192,9 @@ update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
     end.
 
 update_cursor_execute(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec, Lock) ->
-    [update_cursor_execute(SKey, StmtRef, IsSec, Lock) || StmtRef <- StmtRefs];
+    update_cursor_execute(SKey, hd(StmtRefs), IsSec, Lock);
 update_cursor_execute(SKey, StmtRefs, IsSec, Lock) when is_list(StmtRefs) ->
-    [update_cursor_execute(SKey, StmtRef, IsSec, Lock) || StmtRef <- StmtRefs];
+    update_cursor_execute(SKey, hd(StmtRefs), IsSec, Lock);
 update_cursor_execute(SKey, Pid, IsSec, Lock) when is_pid(Pid) ->
     update_cursor_exec(SKey, Pid, IsSec, Lock).
 
@@ -207,9 +207,9 @@ update_cursor_exec(SKey, Pid, IsSec, Lock) when Lock==none;Lock==optimistic ->
     end.
 
 close(SKey, #stmtResults{stmtRefs=StmtRefs}) ->
-    close(SKey, StmtRefs);
+    close(SKey, hd(StmtRefs));
 close(SKey, StmtRefs) when is_list(StmtRefs) ->
-    [close(SKey, StmtRef) || StmtRef <- StmtRefs];
+    close(SKey, hd(StmtRefs));
 close(SKey, Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, {close, SKey}).
 
@@ -346,6 +346,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % ?LogDebug("fetch_recs_async called with Stmt~n~p~n", [Stmt]),
     #statement{tables=[Table|JTabs], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
+    ?Info("fetch_recs_async Table Name ~p", [Table]),
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
         {Skip,undefined} ->      %% {SkipFetch, Pid} = {true|false, uninitialized} -> skip fetch
             Params1 = case lists:keyfind(params, 1, Opts) of
@@ -360,8 +361,8 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                 _ ->                undefined
             end, 
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
-            % ?LogDebug("Meta Rec: ~p~n", [MR]),
-            % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
+            ?Info("Meta Rec: ~p~n", [MR]),
+            ?Info("Main Spec before meta bind:~n~p~n", [MainSpec]),
             case Skip of
                 true ->
                     {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -781,8 +782,8 @@ join_rows(MetaAndMainRows, FetchCtx0, Stmt) ->
     #fetchCtx{blockSize=BlockSize, remaining=RemainingRowQuota}=FetchCtx0,
     JoinTables = tl(Stmt#statement.tables),  %% {Schema,Name,Alias} for each table to join
     JoinSpecs = Stmt#statement.joinSpecs,
-    % ?Info("Join Tables: ~p~n", [JoinTables]),
-    % ?Info("Join Specs: ~p~n", [JoinSpecs]),
+    ?Info("Join Tables: ~p~n", [JoinTables]),
+    ?Info("Join Specs: ~p~n", [JoinSpecs]),
     join_rows(MetaAndMainRows, BlockSize, RemainingRowQuota, JoinTables, JoinSpecs, []).
 
 join_rows([], _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
@@ -1546,7 +1547,7 @@ receive_recs(StmtResult, Complete) ->
 receive_recs(StmtResult, Complete, Timeout) ->
     receive_recs(StmtResult, Complete, Timeout,[]).
 
-receive_recs(#stmtResults{stmtRefs=[StmtRef]}=StmtResult,Complete,Timeout,Acc) ->    
+receive_recs(#stmtResults{stmtRefs=[StmtRef|_]}=StmtResult,Complete,Timeout,Acc) ->    
     case receive
             R ->    % ?Debug("~p got:~n~p~n", [?TIMESTAMP,R]),
                     R
@@ -1556,7 +1557,6 @@ receive_recs(#stmtResults{stmtRefs=[StmtRef]}=StmtResult,Complete,Timeout,Acc) -
         stop ->     
             Unchecked = case Acc of
                 [] ->                       
-%                   [{StmtRef,[],Complete}];
                     throw({no_response,{expecting,Complete}});
                 [{StmtRef,{_,Complete}}|_] -> 
                     lists:reverse(Acc);

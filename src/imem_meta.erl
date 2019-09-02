@@ -713,6 +713,8 @@ column_names(Infos)->
 -spec column_infos(ddTable()) -> ddTableMeta().
 column_infos(TableAlias) when is_atom(TableAlias) ->
     column_infos({schema(),TableAlias});    
+column_infos({_Node,Schema,TableAlias}) ->
+    column_infos({Schema,TableAlias});
 column_infos({?CSV_SCHEMA_PATTERN=S, FileName}) when is_binary(FileName) ->
     [ #ddColumn{name=N,type=T,default=D} || {N,T,D} <- ?CSV_DEFAULT_INFO]
     ++[#ddColumn{name=N,type=binstr,default= <<>>} || N <- imem_if_csv:column_names({S,FileName})];
@@ -988,7 +990,7 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
                 [#ddAlias{}] ->
                     ?ClientError({"Create table fails because columns or owner do not match with ddAlias", TableAlias});
                 [] ->
-                    [_, _, BaseName, _, _, _, _] = parse_table_name(TableAlias), %% [Schema, ".", Name, "_", Period, "@", Node]
+                    [_, _, BaseName, _, _, _, _] = parse_table_name(TableAlias), %% [Schema, ".", Name, "_", Period, "@", Shard]
                     case [ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if_mnesia:read(ddAlias), S==MySchema] of
                         [] -> ok; % No matching aliases registered so far for MySchema 
                         ParsedTNs ->
@@ -1819,7 +1821,8 @@ time_of_partition_expiry(Table) when is_list(Table) ->
     end.
 
 -spec physical_table_name(ddTable()) -> ddMnesiaTable().
-physical_table_name({_S,N}) -> physical_table_name(N);
+physical_table_name({_Node,Schema,N}) -> physical_table_name({Schema,N});
+physical_table_name({_Schema,N}) -> physical_table_name(N);
 physical_table_name(dba_tables) -> ddTable;
 physical_table_name(all_tables) -> ddTable;
 physical_table_name(all_aliases) -> ddAlias;
@@ -1845,7 +1848,8 @@ physical_table_name(TableAlias) when is_list(TableAlias) ->
     end.
 
 -spec physical_table_name(ddTable(), any()) -> ddMnesiaTable().     % must work for any key
-physical_table_name({_S, N}, Key) -> physical_table_name(N, Key);
+physical_table_name({_Node,Schema,N}, Key) -> physical_table_name({Schema,N}, Key);
+physical_table_name({_Schema, N}, Key) -> physical_table_name(N, Key);
 physical_table_name(dba_tables, _) -> ddTable;
 physical_table_name(all_tables, _) -> ddTable;
 physical_table_name(all_aliases, _) -> ddAlias;
@@ -1978,6 +1982,8 @@ physical_table_names(TableAlias) when is_list(TableAlias) ->
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
             lists:filter(Pred, tables_starting_with(N++"_"));
+        [[$c,$s,$v,$$|Rest],_,N,"","","",""] ->
+            [{node(),list_to_binary([$c,$s,$v,$$|Rest]),list_to_binary(N)}];
         [_,_,N,"","","",""] -> 
             [list_to_atom(N)]
     end.
@@ -2005,6 +2011,8 @@ cluster_table_names(TableAlias) when is_list(TableAlias) ->
                 (length(TNS)==NameLen andalso lists:suffix("@_",TNS))
             end,
             [{node(), schema(), T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+        [[$c,$s,$v,$$|Rest],_,N,"","","@","local"] ->
+            [{node(),list_to_binary([$c,$s,$v,$$|Rest]),list_to_binary(N)}];
         [S,_,N,"","","@","local"] when S=="";S==SN ->
             [{node(),schema(),list_to_atom(N++"@"++NS)}];
         ["",_,N,"_",PT,"@","local"] when length(PT) >= ?PartEndDigits -> 
@@ -2019,32 +2027,34 @@ cluster_table_names(TableAlias) when is_list(TableAlias) ->
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
             [{node(), schema(), T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+        [[$c,$s,$v,$$|Rest],_,N,"" ,"","@",Shard] ->
+            [{node_from_shard(Shard),list_to_binary([$c,$s,$v,$$|Rest]),list_to_binary(N)}];
         [S,_,N,"" ,"","@",Shard] ->
             % handle invisible remote tables with {scope,local},{local_content,true} and optional @
             cluster_table_names(S, N, Shard);
         ["","",N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
-            [{shard_node(T),schema(),T} || T <- tables_starting_with(N++"_"++PT++"@")];
+            [{node_from_table(T),schema(),T} || T <- tables_starting_with(N++"_"++PT++"@")];
         [SN,".",N,"_",PT,"@",""] when length(PT) >= ?PartEndDigits -> 
-            [{shard_node(T),schema(),T} || T <- tables_starting_with(N++"_"++PT++"@")];
+            [{node_from_table(T),schema(),T} || T <- tables_starting_with(N++"_"++PT++"@")];
         [S,_,N,"_",_P,"@",""] when S=="";S==SN -> 
             AtPos = length(N) + 2 + ?PartEndDigits,
             Pred = fun(TN) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)>AtPos andalso lists:nth(AtPos,TNS)==$@)
             end,
-            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+            [{node_from_table(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
         ["","",N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
             Pred = fun(TN) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)==length(N)+length(PT)+length(Shard)+2)
             end,
-            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"++PT++"@"++Shard))];
+            [{node_from_table(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"++PT++"@"++Shard))];
         [SN,".",N,"_",PT,"@",Shard] when length(PT) >= ?PartEndDigits -> 
             Pred = fun(TN) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)==length(N)+length(PT)+length(Shard)+2)
             end,
-            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"++PT++"@"++Shard))];
+            [{node_from_table(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"++PT++"@"++Shard))];
         [S,_,N,"_",_P,"@",Shard] when S=="";S==SN -> 
             NameLen = length(N) + 2 + ?PartEndDigits + length(Shard),
             Suffix = "@"++Shard,
@@ -2052,15 +2062,22 @@ cluster_table_names(TableAlias) when is_list(TableAlias) ->
                 TNS = atom_to_list(TN),
                 (length(TNS)==NameLen andalso lists:suffix(Suffix, TNS))
             end,
-            [{shard_node(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
+            [{node_from_table(T),schema(),T} || T <- lists:filter(Pred, tables_starting_with(N++"_"))];
         ["","",N,"","","",""] -> 
             [{node(),schema(),list_to_atom(N)}];
+        [[$c,$s,$v,$$|Rest],_,N,"","","",""] ->
+            [{node(),list_to_binary([$c,$s,$v,$$|Rest]),list_to_binary(N)}];
         [S,".",N,"","","",""] -> 
             [{node(),list_to_atom(S),list_to_atom(N)}]
     end.
 
-shard_node(Table) ->
+node_from_table(Table) ->
     [_,_,_,_,_,_,Shard] = parse_table_name(Table),
+    node_from_shard(Shard).
+
+node_from_shard("") -> node();
+node_from_shard("local") -> node();
+node_from_shard(Shard) ->
     case node_shard() of
         Shard ->   
             node();
@@ -2183,6 +2200,8 @@ qualified_table_names(Table) ->
     end.
 
 -spec qualified_table_name(ddTable()) -> ddQualifiedTable().
+qualified_table_name({_Node,Schema,Table}) ->
+    qualified_table_name({Schema,Table}) ;
 qualified_table_name({undefined,Table}) when is_atom(Table) ->              {schema(), Table};
 qualified_table_name(Table) when is_atom(Table) ->                          {schema(), Table};
 qualified_table_name({Schema,Table}) when is_atom(Schema),is_atom(Table) -> {Schema, Table};
@@ -2204,6 +2223,8 @@ qualified_table_name(Table) when is_binary(Table) ->
     qualified_table_name(imem_sql_expr:binstr_to_qname2(Table)).
 
 -spec qualified_new_table_name(ddTable()) -> ddQualifiedTable().
+qualified_new_table_name({_Node,Schema, Table}) ->
+    qualified_new_table_name({Schema, Table});
 qualified_new_table_name({undefined, Table}) when is_atom(Table) ->               {schema(), Table};
 qualified_new_table_name({undefined, Table}) when is_binary(Table) ->             {schema(), binary_to_atom(Table, utf8)};
 qualified_new_table_name({Schema, Table}) when is_atom(Schema), is_atom(Table) -> {Schema, Table};
@@ -2664,10 +2685,12 @@ apply_validators([D|DefRec], Rec0, Table, User, N) ->
 
 fetch_start(Pid, {ddSysConf,Table}, MatchSpec, BlockSize, Opts) ->
     imem_if_sys_conf:fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);
+fetch_start(Pid, {_Node,?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts) ->
+    imem_if_csv:fetch_start(Pid, {S,FileName}, MatchSpec, BlockSize, Opts);
 fetch_start(Pid, {?CSV_SCHEMA_PATTERN = S,FileName}, MatchSpec, BlockSize, Opts) ->
     imem_if_csv:fetch_start(Pid, {S,FileName}, MatchSpec, BlockSize, Opts);
-fetch_start(Pid, {_Node,_Schema,Table}, MatchSpec, BlockSize, Opts) ->
-    fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
+fetch_start(Pid, {_Node,Schema,Table}, MatchSpec, BlockSize, Opts) ->
+    fetch_start(Pid, {Schema,Table}, MatchSpec, BlockSize, Opts); 
 fetch_start(Pid, {_Schema,Table}, MatchSpec, BlockSize, Opts) ->
     fetch_start(Pid, Table, MatchSpec, BlockSize, Opts);          %% ToDo: may depend on schema
 fetch_start(Pid, Tab, MatchSpec, BlockSize, Opts) when 
@@ -2709,8 +2732,10 @@ close(Pid) ->
 read({ddSysConf,_Table}) -> 
     % imem_if_sys_conf:read(physical_table_name(Table));
     ?UnimplementedException({"Cannot read from ddSysConf schema, use DDerl GUI instead"});
+read({_Node,Schema,Table}) -> 
+    read({Schema,Table});
 read({_Schema,Table}) -> 
-    read(Table);            %% ToDo: may depend on schema
+    read(Table);                %% ToDo: may depend on schema
 read(ddNode) ->
     lists:flatten([read(ddNode,Node) || Node <- [node()|erlang:nodes()]]);
 read(ddSnap) ->
@@ -2735,10 +2760,10 @@ read(Table) ->
 read({ddSysConf,Table}, _Key) -> 
     % imem_if_sys_conf:read(physical_table_name(Table),Key);
     ?UnimplementedException({"Cannot read from ddSysConf schema, use DDerl GUI instead",Table});
-read({_Node,_Schema,Table}, Key) ->
-    read(Table, Key);
+read({_Node,Schema,Table}, Key) ->
+    read({Schema,Table}, Key);
 read({_Schema,Table}, Key) ->
-    read(Table, Key);
+    read(Table, Key);           %% ToDo: may depend on schema
 read(ddNode, Node) when is_atom(Node) ->
     case rpc:call(Node, erlang, statistics, [wall_clock], ?DDNODE_TIMEOUT) of
         {WC, WCDiff} when is_integer(WC), is_integer(WCDiff) ->
@@ -2786,35 +2811,35 @@ read(Table, Key) ->
 dirty_read(Table) -> imem_if_mnesia:dirty_read(physical_table_name(Table)).
 
 dirty_read({ddSysConf,Table}, Key) ->       read({ddSysConf,Table}, Key);
-dirty_read({_Node,_Schema,Table}, Key) ->   dirty_read(Table, Key);
-dirty_read({_Schema,Table}, Key) ->         dirty_read(Table, Key);
+dirty_read({_Node,Schema,Table}, Key) ->    dirty_read({Schema,Table}, Key);
+dirty_read({_Schema,Table}, Key) ->         dirty_read(Table, Key); %% ToDo: may depend on schema
 dirty_read(ddNode,Node) ->                  read(ddNode,Node); 
 dirty_read(ddSchema,Key) ->                 read(ddSchema,Key);
 dirty_read(ddSize,Table) ->                 read(ddSize,Table);
 dirty_read(ddVersion,App) ->                read(ddVersion,App);
 dirty_read(Table, Key) ->                   imem_if_mnesia:dirty_read(physical_table_name(Table), Key).
 
-dirty_index_read({_Node,_Schema,Table}, SecKey,Index) -> 
-    dirty_index_read(Table, SecKey, Index);
+dirty_index_read({_Node,Schema,Table}, SecKey,Index) -> 
+    dirty_index_read({Schema,Table}, SecKey, Index);
 dirty_index_read({_Schema,Table}, SecKey,Index) -> 
-    dirty_index_read(Table, SecKey, Index);
+    dirty_index_read(Table, SecKey, Index);     %% ToDo: may depend on schema
 dirty_index_read(Table, SecKey, Index) ->   
     imem_if_mnesia:dirty_index_read(physical_table_name(Table), SecKey, Index).
 
-read_hlk({_Node,_Schema,Table}, HListKey) -> 
-    read_hlk(Table, HListKey);
+read_hlk({_Node,Schema,Table}, HListKey) -> 
+    read_hlk({Schema,Table}, HListKey);
 read_hlk({_Schema,Table}, HListKey) -> 
-    read_hlk(Table, HListKey);
+    read_hlk(Table, HListKey);                              %% ToDo: may depend on schema
 read_hlk(Table,HListKey) ->
     imem_if_mnesia:read_hlk(Table,HListKey).
 
 
 get_config_hlk(Table, Key, Owner, Context, Default, _Documentation) ->
     get_config_hlk(Table, Key, Owner, Context, Default).
-get_config_hlk({_Node,_Schema,Table}, Key, Owner, Context, Default) ->
-    get_config_hlk(Table, Key, Owner, Context, Default);
+get_config_hlk({_Node,Schema,Table}, Key, Owner, Context, Default) ->
+    get_config_hlk({Schema,Table}, Key, Owner, Context, Default);
 get_config_hlk({_Schema,Table}, Key, Owner, Context, Default) ->
-    get_config_hlk(Table, Key, Owner, Context, Default);
+    get_config_hlk(Table, Key, Owner, Context, Default);    %% ToDo: may depend on schema
 get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list(Context), is_atom(Owner) ->
     Remark = list_to_binary(["auto_provisioned from ",io_lib:format("~p",[Context])]),
     case (catch read_hlk(Table, [Key|Context])) of
@@ -2857,18 +2882,17 @@ get_config_hlk(Table, Key, Owner, Context, Default) when is_atom(Table), is_list
 
 put_config_hlk(Table, Key, Owner, Context, Value, Remark, _Documentation) ->
     put_config_hlk(Table, Key, Owner, Context, Value, Remark).
-put_config_hlk({_Node,_Schema,Table}, Key, Owner, Context, Value, Remark) ->
-    put_config_hlk(Table, Key, Owner, Context, Value, Remark);
+put_config_hlk({_Node,Schema,Table}, Key, Owner, Context, Value, Remark) ->
+    put_config_hlk({Schema,Table}, Key, Owner, Context, Value, Remark);
 put_config_hlk({_Schema,Table}, Key, Owner, Context, Value, Remark) ->
-    put_config_hlk(Table, Key, Owner, Context, Value, Remark);
+    put_config_hlk(Table, Key, Owner, Context, Value, Remark);  %% ToDo: may depend on schema
 put_config_hlk(Table, Key, Owner, Context, Value, Remark) when is_atom(Table), is_list(Context), is_binary(Remark) ->
     dirty_write(Table,#ddConfig{hkl=[Key|Context], val=Value, remark=Remark, owner=Owner}).
 
 select({ddSysConf,Table}, _MatchSpec) ->
-    % imem_if_sys_conf:select(physical_table_name(Table), MatchSpec);
     ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
-select({_Node,_Schema,Table}, MatchSpec) ->
-    select(Table, MatchSpec);           %% ToDo: may depend on schema
+select({_Node,Schema,Table}, MatchSpec) ->
+    select({Schema,Table}, MatchSpec); 
 select({_Schema,Table}, MatchSpec) ->
     select(Table, MatchSpec);           %% ToDo: may depend on schema
 select(Table, MatchSpec) ->
@@ -2880,15 +2904,15 @@ ets(Fun, Args) ->
 select_count({ddSysConf,Table}, _MatchSpec) ->
     % imem_if_sys_conf:select_count(physical_table_name(Table), MatchSpec);
     ?UnimplementedException({"Cannot select_count from ddSysConf schema, use DDerl GUI instead",Table});
-select_count({_Node,_Schema,Table}, MatchSpec) ->
-    select_count(Table, MatchSpec);           %% ToDo: may depend on schema
+select_count({_Node,Schema,Table}, MatchSpec) ->
+    select_count({Schema,Table}, MatchSpec);
 select_count({_Schema,Table}, MatchSpec) ->
     select_count(Table, MatchSpec);           %% ToDo: may depend on schema
 select_count(Table, MatchSpec) ->
     imem_if_mnesia:select_count(physical_table_name(Table), MatchSpec).
 
-dirty_select({_Node,_Schema,Table}, MatchSpec) ->
-    dirty_select(Table, MatchSpec);           %% ToDo: may depend on schema
+dirty_select({_Node,Schema,Table}, MatchSpec) ->
+    dirty_select({Schema,Table}, MatchSpec);
 dirty_select({_Schema,Table}, MatchSpec) ->
     dirty_select(Table, MatchSpec);           %% ToDo: may depend on schema
 dirty_select(Table, MatchSpec) ->
@@ -2897,10 +2921,9 @@ dirty_select(Table, MatchSpec) ->
 select(Table, MatchSpec, 0) ->
     select(Table, MatchSpec);
 select({ddSysConf,Table}, _MatchSpec, _Limit) ->
-    % imem_if_sys_conf:select(physical_table_name(Table), MatchSpec, Limit);
     ?UnimplementedException({"Cannot select from ddSysConf schema, use DDerl GUI instead",Table});
-select({_Node,_Schema,Table}, MatchSpec, Limit) ->
-    select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
+select({_Node,Schema,Table}, MatchSpec, Limit) ->
+    select({Schema,Table}, MatchSpec, Limit);
 select({_Schema,Table}, MatchSpec, Limit) ->
     select(Table, MatchSpec, Limit);        %% ToDo: may depend on schema
 select(Tab, MatchSpec, Limit) when
@@ -2972,8 +2995,8 @@ write_log(Record) -> write(?LOG_TABLE, Record#ddLog{logTime=?TIME_UID}).
 write({ddSysConf,TableAlias}, _Record) -> 
     % imem_if_sys_conf:write(TableAlias, Record);
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});
-write({_Node,_Schema, TableAlias}, Record) ->
-    write(TableAlias, Record);           %% ToDo: may depend on schema 
+write({_Node,Schema,TableAlias}, Record) ->
+    write({Schema,TableAlias}, Record);
 write({_Schema, TableAlias}, Record) ->
     write(TableAlias, Record);           %% ToDo: may depend on schema 
 write(TableAlias, Record) ->
@@ -3000,10 +3023,9 @@ write(TableAlias, Record) ->
     end. 
 
 dirty_write({ddSysConf, TableAlias}, _Record) -> 
-    % imem_if_sys_conf:dirty_write(TableAlias, Record);
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead", TableAlias});
-dirty_write({_Node,_Schema,TableAlias}, Record) -> 
-    dirty_write(TableAlias, Record);           %% ToDo: may depend on schema 
+dirty_write({_Node,Schema,TableAlias}, Record) -> 
+    dirty_write({Schema,TableAlias}, Record); 
 dirty_write({_Schema,TableAlias}, Record) -> 
     dirty_write(TableAlias, Record);           %% ToDo: may depend on schema 
 dirty_write(TableAlias, Record) -> 
@@ -3037,10 +3059,9 @@ insert(TableAlias, Row, User) ->
     insert(TableAlias, Row, User, []).
 
 insert({ddSysConf,TableAlias}, _Row, _User, _TrOpts) ->
-    % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});
-insert({_Node,_Schema,TableAlias}, Row, User, TrOpts) ->
-    insert(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
+insert({_Node,Schema,TableAlias}, Row, User, TrOpts) ->
+    insert({Schema,TableAlias}, Row, User, TrOpts);
 insert({_Schema,TableAlias}, Row, User, TrOpts) ->
     insert(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
 insert(TableAlias, Row, User, TrOpts) when is_atom(TableAlias), is_tuple(Row) ->
@@ -3056,10 +3077,9 @@ update(TableAlias, Row, User) ->
     update(TableAlias, Row, User, []).
 
 update({ddSysConf,TableAlias}, _Row, _User, _TrOpts) ->
-    % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});    
-update({_Node,_Schema,TableAlias}, Row, User, TrOpts) ->
-    update(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
+update({_Node,Schema,TableAlias}, Row, User, TrOpts) ->
+    update({Schema,TableAlias}, Row, User, TrOpts);
 update({_Schema,TableAlias}, Row, User, TrOpts) ->
     update(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
 update(TableAlias, {ORow,NRow}, User, TrOpts) when is_atom(TableAlias), is_tuple(ORow), is_tuple(NRow) ->
@@ -3075,10 +3095,9 @@ merge(TableAlias, Row, User) ->
     merge(TableAlias, Row, User, []).
 
 merge({ddSysConf,TableAlias}, _Row, _User, _TrOpts) ->
-    % imem_if_sys_conf:write(TableAlias, Row);     %% mapped to unconditional write
     ?UnimplementedException({"Cannot write to ddSysConf schema, use DDerl GUI instead",TableAlias});    
-merge({_Node,_Schema,TableAlias}, Row, User, TrOpts) ->
-    merge(TableAlias, Row, User, TrOpts);                %% ToDo: may depend on schema
+merge({_Node,Schema,TableAlias}, Row, User, TrOpts) ->
+    merge({Schema,TableAlias}, Row, User, TrOpts);
 merge({_Schema,TableAlias}, Row, User, TrOpts) ->
     merge(TableAlias, Row, User, TrOpts);                %% ToDo: may depend on schema
 merge(TableAlias, Row, User, TrOpts) when is_atom(TableAlias), is_tuple(Row) ->
@@ -3094,10 +3113,9 @@ remove(TableAlias, Row, User) ->
     remove(TableAlias, Row, User, []).
 
 remove({ddSysConf,TableAlias}, _Row, _User, TrOpts) when is_list(TrOpts) ->
-    % imem_if_sys_conf:delete(TableAlias, Row);    %% mapped to unconditional delete
     ?UnimplementedException({"Cannot delete from ddSysConf schema, use DDerl GUI instead",TableAlias});
-remove({_Node,_Schema,TableAlias}, Row, User, TrOpts) ->
-    remove(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
+remove({_Node,Schema,TableAlias}, Row, User, TrOpts) ->
+    remove({Schema,TableAlias}, Row, User, TrOpts); 
 remove({_Schema,TableAlias}, Row, User, TrOpts) ->
     remove(TableAlias, Row, User, TrOpts);               %% ToDo: may depend on schema
 remove(TableAlias, Row, User, TrOpts) when is_atom(TableAlias), is_tuple(Row), is_list(TrOpts)  ->
@@ -3193,22 +3211,22 @@ list_match([A|List],[A|Pat]) -> list_match(List,Pat);
 list_match([_|List],['_'|Pat]) -> list_match(List,Pat);
 list_match(_,_) -> false.
 
-delete({_Node,_Schema,TableAlias}, Key) ->
-    delete(TableAlias, Key);             %% ToDo: may depend on schema
+delete({_Node,Schema,TableAlias}, Key) ->
+    delete({Schema,TableAlias}, Key);
 delete({_Schema,TableAlias}, Key) ->
     delete(TableAlias, Key);             %% ToDo: may depend on schema
 delete(TableAlias, Key) ->
     imem_if_mnesia:delete(physical_table_name(TableAlias,Key), Key).
 
-dirty_delete({_Node,_Schema,TableAlias}, Key) ->
-    dirty_delete(TableAlias, Key);             %% ToDo: may depend on schema
+dirty_delete({_Node,Schema,TableAlias}, Key) ->
+    dirty_delete({Schema,TableAlias}, Key);
 dirty_delete({_Schema,TableAlias}, Key) ->
     dirty_delete(TableAlias, Key);             %% ToDo: may depend on schema
 dirty_delete(TableAlias, Key) ->
     imem_if_mnesia:dirty_delete(physical_table_name(TableAlias,Key), Key).
 
-delete_object({_Node,_Schema,TableAlias}, Row) ->
-    delete_object(TableAlias, Row);             %% ToDo: may depend on schema
+delete_object({_Node,Schema,TableAlias}, Row) ->
+    delete_object({Schema,TableAlias}, Row);
 delete_object({_Schema,TableAlias}, Row) ->
     delete_object(TableAlias, Row);             %% ToDo: may depend on schema
 delete_object(TableAlias, Row) ->

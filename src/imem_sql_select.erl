@@ -37,11 +37,9 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
     % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
     ?Info("FullMap:~n~p~n", [FullMap]),
-    FullTableNames = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
-    ?Info("FullTableNames:~n~p~n", [FullTableNames]),
-    Tables = flatten_tables([FullTableNames]),
+    Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
     ?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
-    ClusterTables = span_tables(FullTableNames,LocalClusterTableNames ++ RemoteClusterTableNames),
+    ClusterTables = span_tables(Tables, LocalClusterTableNames ++ RemoteClusterTableNames),
     ?Info("ClusterTables: (~p)~n~p", [length(ClusterTables), ClusterTables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
@@ -65,7 +63,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ?LogDebug("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
     % ?LogDebug("MainSpec:~n~p", [MainSpec]),
-    JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(hd(Tables))), WBTree0, FullMap), %% start with last join table, proceed to first 
+    JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
     % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
