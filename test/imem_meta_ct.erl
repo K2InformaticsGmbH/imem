@@ -29,7 +29,7 @@
 -define(TPTEST_1, tpTest_1).
 -define(TPTEST_2, tpTest_2).
 -define(TPTEST_3, tpTest_3).
--define(TPTEST_1@, tpTest_1@).
+-define(TPTEST_3@, tpTest_3@).
 -define(TPTEST_100@, tpTest_100@).
 -define(TPTEST_1000@, tpTest_1000@).
 -define(TPTEST_999999999@_, tpTest_999999999@_).
@@ -57,7 +57,7 @@ end_per_testcase(TestCase, _Config) ->
     catch imem_meta:drop_table(?TPTEST_1000@),
     catch imem_meta:drop_table(?TPTEST_999999999@_),
     catch imem_meta:drop_table(?TPTEST_100@),
-    catch imem_meta:drop_table(?TPTEST_1@),
+    catch imem_meta:drop_table(?TPTEST_3@),
     stop_slaves(nodes()),
     ok.
 
@@ -574,27 +574,27 @@ meta_partitions(_Config) ->
     ?CTPAL("dummy_table_name"),
     ?assertEqual({error, {"Table template not found in ddAlias", dummy_table_name}}, imem_meta:create_partitioned_table_sync(dummy_table_name, dummy_table_name)),
     ?CTPAL("physical_table_names"),
-    ?assertEqual([], imem_meta:physical_table_names(?TPTEST_1@)),
-    ?assertMatch({ok, _}, imem_meta:create_check_table(?TPTEST_1@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),
-    ?assertEqual(1, length(imem_meta:physical_table_names(?TPTEST_1@))),
+    ?assertEqual([], imem_meta:physical_table_names(?TPTEST_3@)),
+    ?assertMatch({ok, _}, imem_meta:create_check_table(?TPTEST_3@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, ?LOG_TABLE_OPTS, system)),
+    ?assertEqual(1, length(imem_meta:physical_table_names(?TPTEST_3@))),
     ?CTPAL("LogRec3"),
     LogRec3 = #ddLog{logTime = ?TIMESTAMP, logLevel = debug, pid = self()
         , module = ?MODULE, function = test, node = node()
         , fields = [], message = <<>>, stacktrace = []
     },  % using 2-tuple ?TIMESTAMP format here for backward compatibility test
-    ?assertEqual(ok, imem_meta:dirty_write(?TPTEST_1@, LogRec3)),     % can write to first partition (maybe second)
-    ?assert(length(imem_meta:physical_table_names(?TPTEST_1@)) >= 1),
-    timer:sleep(999),
-    ?assert(length(imem_meta:physical_table_names(?TPTEST_1@)) >= 2), % created by partition rolling
-    ?assertEqual(ok, imem_meta:dirty_write(?TPTEST_1@, LogRec3#ddLog{logTime = ?TIMESTAMP})), % can write to second partition (maybe third)
-    FL3Tables = imem_meta:physical_table_names(?TPTEST_1@),
-    ?CTPAL("Tables written ~p ~p", [?TPTEST_1@, FL3Tables]),
+    ct:sleep(30),
+    ?assertEqual(ok, imem_meta:dirty_write(?TPTEST_3@, LogRec3)),           % can write to first partition
+    ?assertEqual(1, length(imem_meta:physical_table_names(?TPTEST_3@))),    % one record in this partition now
+    ct:sleep(4000),
+    ?assert(length(imem_meta:physical_table_names(?TPTEST_3@)) >= 2),       % one partition at least created by partition rolling
+    ?assertEqual(ok, imem_meta:dirty_write(?TPTEST_3@, LogRec3#ddLog{logTime = ?TIMESTAMP})), % can write to second partition (maybe third)
+    ct:sleep(4000),
+    FL3Tables = imem_meta:physical_table_names(?TPTEST_3@),
+    ?CTPAL("Tables written ~p ~p", [?TPTEST_3@, FL3Tables]),
     ?assert(length(FL3Tables) >= 3),
-    timer:sleep(999),
-    ?assert(length(imem_meta:physical_table_names(?TPTEST_1@)) >= 4),
-    _ = {timeout, 5, fun() ->
-        ?assertEqual(ok, imem_meta:drop_table(?TPTEST_1@)) end},
-
+    ct:sleep(4000),
+    ?assert(length(imem_meta:physical_table_names(?TPTEST_3@)) >= 4),
+    _ = {timeout, 5, fun() -> ?assertEqual(ok, imem_meta:drop_table(?TPTEST_3@)) end},
     ok.
 
 meta_preparations(_Config) ->
