@@ -378,9 +378,9 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                         {TailSpec,FilterFun,FetchStartResult} = case imem_meta:is_virtual_table(Table) of 
                             false ->    
                                 {SS,TS,FF} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
-                                % ?LogDebug("Scan Spec after meta bind:~n~p", [SS]),
-                                % ?LogDebug("Tail Spec after meta bind:~n~p", [TS]),
-                                % ?LogDebug("Filter Fun after meta bind:~n~p", [FF]),
+                                ?Info("Scan Spec after meta bind:~n~p", [SS]),
+                                ?Info("Tail Spec after meta bind:~n~p", [TS]),
+                                ?Info("Filter Fun after meta bind:~n~p", [FF]),
                                 {TS,FF,if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SS, BlockSize, Opts])};
                             true ->     
                                 {[{_,[SG],_}],TS,FF} = imem_sql_expr:bind_virtual(?MainIdx,{MR},MainSpec),
@@ -416,6 +416,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                         end
                     catch
                         _:Err ->
+                            ?Info("fetch_recs_async error stack trace ~n~p",[erlang:get_stacktrace()]),
                             send_reply_to_client(Sock, {error, Err}),
                             FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
                             {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
@@ -452,7 +453,7 @@ handle_cast(Request, State) ->
     {noreply, State}.
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
-    % ?Debug("received end of table in fetch status ~p~n", [FetchCtx0#fetchCtx.status]),
+    ?Info("received end of table in fetch status ~p~n", [FetchCtx0#fetchCtx.status]),
     ?Info("received end of table in state~n~p~n", [State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
@@ -483,6 +484,7 @@ handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, 
     {noreply, NewState};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
+    ?Info("received rows ~n~p~n in fetch status ~p~n", [Rows0,FetchCtx0#fetchCtx.status]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             ?Info("received ~p rows for ~p data complete", [length(Rows0)-2,element(2,Stmt)]),
@@ -1079,6 +1081,7 @@ generate_limit_check(_,_,_) -> ok.
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(), Result},
+    ?Info("send_reply_to_client ~p",[NewResult]),
     imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, [{_Node,Schema,Table}|_], ColMap, ChangeList) ->
