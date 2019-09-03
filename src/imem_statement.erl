@@ -72,12 +72,12 @@
 
 create_stmt(Statement, SKey, IsSec) ->
     Node = element(1,hd(Statement#statement.tables)),
-    Node = node(),  % ToDo: switch to remove lock to local execution
+    % Node = node(),  % ToDo: switch to remove lock to local execution
     case {IsSec,node()} of
         {false,Node} ->     % meta, local
             gen_server:start(?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]);
         {false,_} ->        % meta, remote
-            rpc:call( Node, gen_server, start
+            rpc:call(Node, gen_server, start
                     , [?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]]
             );
         {true,Node} ->      % sec, local
@@ -86,11 +86,11 @@ create_stmt(Statement, SKey, IsSec) ->
             ok = gen_server:call(Pid, {set_seco, NewSKey}),
             {ok, Pid};
         {true,_} ->         % sec, remote
-            {ok, Pid} = rpc:call( Node, gen_server, start
+            {ok, Pid} = rpc:call(Node, gen_server, start
                                 , [?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]]
                                 ),
             NewSKey = imem_sec:clone_seco(SKey, Pid),
-            ok = rpc:call(gen_server,call,[Pid, {set_seco, NewSKey}]),
+            ok = rpc:call(Node,gen_server,call,[Pid, {set_seco, NewSKey}]),
             {ok, Pid}
     end.
 
@@ -102,39 +102,39 @@ fetch_recs(SKey, #stmtResults{stmtRefs=StmtRefs}, Sock, Timeout, Opts, IsSec) ->
 fetch_recs(SKey, StmtRefs, Sock, Timeout, Opts, IsSec) when is_list(StmtRefs) ->
     fetch_recs(SKey, hd(StmtRefs), Sock, Timeout, Opts, IsSec);
 fetch_recs(SKey, Pid, Sock, Timeout, Opts, IsSec) when is_pid(Pid) ->
-    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}),
+    fetch_recs_async(SKey, Pid, Sock, Opts, IsSec),
     Result = try
         case receive 
             R ->    R
         after Timeout ->
             ?Debug("fetch_recs timeout ~p~n", [Timeout]),
-            gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
+            fetch_close(SKey, Pid, IsSec), 
             ?ClientError({"Fetch timeout, increase timeout and retry",Timeout})
         end of
             {_, {Pid,{List, true}}} ->   List;
             {_, {Pid,{List, false}}} ->  
                 ?Debug("fetch_recs too much data~n", []),
-                gen_server:call(Pid, {fetch_close, IsSec, SKey}), 
+                fetch_close(SKey, Pid, IsSec),
                 ?ClientError({"Too much data, increase block size or receive in streaming mode",length(List)});
             {_, {Pid,{error, {'SystemException', Reason}}}} ->
                 ?Debug("fetch_recs exception ~p ~p~n", ['SystemException', Reason]),
-                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                fetch_close(SKey, Pid, IsSec),
                 ?SystemException(Reason);            
             {_, {Pid,{error, {'ClientError', Reason}}}} ->
                 ?Debug("fetch_recs exception ~p ~p~n", ['ClientError', Reason]),
-                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                fetch_close(SKey, Pid, IsSec),
                 ?ClientError(Reason);            
             {_, {Pid,{error, {'UnimplementedException', Reason}}}} ->
                 ?Debug("fetch_recs exception ~p ~p~n", ['UnimplementedException', Reason]),
-                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                fetch_close(SKey, Pid, IsSec),
                 ?UnimplementedException(Reason);
             Error ->
                 ?Debug("fetch_recs bad async receive~n~p~n", [Error]),
-                gen_server:call(Pid, {fetch_close, IsSec, SKey}),                
+                fetch_close(SKey, Pid, IsSec),
                 ?SystemException({"Bad async receive",Error})            
         end
     after
-        gen_server:call(Pid, {fetch_close, IsSec, SKey})
+        fetch_close(SKey, Pid, IsSec)
     end,
     Result.
 
@@ -160,8 +160,16 @@ fetch_recs_async(SKey, StmtRefs, Sock, Opts, IsSec) when is_list(StmtRefs)->
      fetch_recs_async(SKey, hd(StmtRefs), Sock, Opts, IsSec);
 fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
     case [{M,V} || {M,V} <- Opts, true =/= lists:member(M, ?VALID_FETCH_OPTS)] of
-        [] -> gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
-        InvalidOpt -> ?ClientError({"Invalid option for fetch", InvalidOpt})
+        [] -> 
+            LocalNode = node(),
+            case node(Pid) of 
+                LocalNode ->
+                    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
+                RemoteNode ->
+                    rpc:call(RemoteNode, gen_server, cast, [{fetch_recs_async, IsSec, SKey, Sock, Opts}])
+            end;
+        InvalidOpt -> 
+            ?ClientError({"Invalid option for fetch", InvalidOpt})
     end.
 
 fetch_close(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec) ->
@@ -169,7 +177,13 @@ fetch_close(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec) ->
 fetch_close(SKey,  StmtRefs, IsSec) when is_list(StmtRefs) ->
      fetch_close(SKey, hd(StmtRefs), IsSec);
 fetch_close(SKey, Pid, IsSec) when is_pid(Pid) ->
-    gen_server:call(Pid, {fetch_close, IsSec, SKey}).
+    LocalNode = node(),
+    case node(Pid) of 
+        LocalNode ->
+            gen_server:call(Pid, {fetch_close, IsSec, SKey});
+        RemoteNode ->
+            rpc:call(RemoteNode, gen_server, call, [Pid, {fetch_close, IsSec, SKey}])
+    end.
 
 filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, IsSec) ->
     filter_and_sort(SKey, StmtResult, FilterSpec, SortSpec, [], IsSec).
@@ -179,16 +193,31 @@ filter_and_sort(SKey, #stmtResults{stmtRefs=StmtRefs}, FilterSpec, SortSpec, Col
 filter_and_sort(SKey,  StmtRefs, FilterSpec, SortSpec, Cols, IsSec) when is_list(StmtRefs) ->
      filter_and_sort(SKey, hd(StmtRefs), FilterSpec, SortSpec, Cols, IsSec);
 filter_and_sort(SKey, Pid, FilterSpec, SortSpec, Cols, IsSec) when is_pid(Pid) ->
-    gen_server:call(Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, Cols, SKey}).
+    LocalNode = node(),
+    case node(Pid) of 
+        LocalNode ->
+            gen_server:call(Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, Cols, SKey});
+        RemoteNode ->
+            rpc:call(RemoteNode, gen_server, call, [Pid, {filter_and_sort, IsSec, FilterSpec, SortSpec, Cols, SKey}])
+    end.
 
 update_cursor_prepare(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec, ChangeList) ->
     update_cursor_prepare(SKey, hd(StmtRefs), IsSec, ChangeList);
 update_cursor_prepare(SKey, StmtRefs, IsSec, ChangeList) when is_list(StmtRefs) ->
     update_cursor_prepare(SKey, hd(StmtRefs), IsSec, ChangeList);
 update_cursor_prepare(SKey, Pid, IsSec, ChangeList) when is_pid(Pid) ->
-    case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)) of
-        ok ->   ok;
-        Error-> throw(Error)
+    LocalNode = node(),
+    case node(Pid) of 
+        LocalNode ->
+            case gen_server:call(Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)) of
+                ok ->   ok;
+                Error-> throw(Error)
+            end;
+        RemoteNode ->
+            case rpc:call(RemoteNode, gen_server, call, [Pid, {update_cursor_prepare, IsSec, SKey, ChangeList},?CALL_TIMEOUT(update_cursor_prepare)]) of
+                ok ->   ok;
+                Error-> throw(Error)
+            end
     end.
 
 update_cursor_execute(SKey, #stmtResults{stmtRefs=StmtRefs}, IsSec, Lock) ->
@@ -199,7 +228,13 @@ update_cursor_execute(SKey, Pid, IsSec, Lock) when is_pid(Pid) ->
     update_cursor_exec(SKey, Pid, IsSec, Lock).
 
 update_cursor_exec(SKey, Pid, IsSec, Lock) when Lock==none;Lock==optimistic ->
-    Result = gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, Lock},?CALL_TIMEOUT(update_cursor_execute)),
+    LocalNode = node(),
+    Result = case node(Pid) of 
+        LocalNode ->
+            gen_server:call(Pid, {update_cursor_execute, IsSec, SKey, Lock},?CALL_TIMEOUT(update_cursor_execute));
+        RemoteNode ->
+            rpc:call(RemoteNode, gen_server, call, [Pid, {update_cursor_execute, IsSec, SKey, Lock},?CALL_TIMEOUT(update_cursor_execute)])
+    end,
     % ?Debug("update_cursor_execute ~p~n", [Result]),
     case Result of
         KeyUpd when is_list(KeyUpd) ->  KeyUpd;
@@ -211,7 +246,13 @@ close(SKey, #stmtResults{stmtRefs=StmtRefs}) ->
 close(SKey, StmtRefs) when is_list(StmtRefs) ->
     close(SKey, hd(StmtRefs));
 close(SKey, Pid) when is_pid(Pid) ->
-    gen_server:cast(Pid, {close, SKey}).
+    LocalNode = node(),
+    case node(Pid) of 
+        LocalNode ->
+            gen_server:cast(Pid, {close, SKey});
+        RemoteNode ->
+            rpc:call(RemoteNode, gen_server, cast, [Pid, {close, SKey}])
+    end.
 
 init([Statement,ParentPid]) ->
     imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
