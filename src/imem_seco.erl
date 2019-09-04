@@ -50,6 +50,7 @@
         , set_login_time/2
         , logout/1
         , clone_seco/2
+        , cluster_clone_seco/2
         , account_id/1
         , account_name/1
         , password_strength_fun/0
@@ -840,6 +841,10 @@ clone_seco(SKeyParent, Pid) ->
     monitor_pid(SKey,Pid),
     if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     SKey.
+
+cluster_clone_seco(SKey, Node) ->
+    SeCo = seco_authorized(SKey),
+    rpc:call(Node, imem_meta,write,[SeCo]).
 
 -spec password_strength_fun() ->
     fun((list()|binary()) -> short|weak|medium|strong).

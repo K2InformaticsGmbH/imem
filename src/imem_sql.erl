@@ -79,7 +79,10 @@ params_from_opts(Opts,ParseTree) when is_list(Opts) ->
             end
     end.
 
-% imem_sql:exec(undefined, "SELECT * FROM ddAccount", 100, [], false).
+% {RetCode, StmtResult} = imem_sql:exec(undefined, "SELECT * FROM ddAccount", 100, [], false).
+% #stmtResults{stmtRefs=StmtRefs, rowCols=RowCols, rowFun=RowFun} = StmtResult.
+% List = imem_statement:fetch_recs_sort(undefined, StmtResult, {self(), make_ref()}, 1000, false).
+% imem_statement:close(SKey, StmtRefs).
 
 % rr(imem_statement).
 % CsvFileName = <<"CsvTestFileName123abc.txt">>.

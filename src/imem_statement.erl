@@ -82,15 +82,15 @@ create_stmt(Statement, SKey, IsSec) ->
             );
         {true,Node} ->      % sec, local
             {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),
-            NewSKey = imem_sec:clone_seco(SKey, Pid),
-            ok = gen_server:call(Pid, {set_seco, NewSKey}),
+            ok = imem_seco:cluster_clone_seco(SKey, Node),
+            ok = gen_server:call(Pid, {set_seco, SKey}),
             {ok, Pid};
         {true,_} ->         % sec, remote
             {ok, Pid} = rpc:call(Node, gen_server, start
                                 , [?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]]
                                 ),
-            NewSKey = imem_sec:clone_seco(SKey, Pid),
-            ok = rpc:call(Node,gen_server,call,[Pid, {set_seco, NewSKey}]),
+            ok = imem_seco:cluster_clone_seco(SKey, Node),
+            ok = rpc:call(Node,gen_server,call,[Pid, {set_seco, SKey}]),
             {ok, Pid}
     end.
 
