@@ -77,20 +77,20 @@ create_stmt(Statement, SKey, IsSec) ->
         {false,Node} ->     % meta, local
             gen_server:start(?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]);
         {false,_} ->        % meta, remote
-            rpc:call(Node, gen_server, start
+            rpc:call( Node, gen_server, start
                     , [?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]]
             );
         {true,Node} ->      % sec, local
             {ok, Pid} = gen_server:start(?MODULE, [Statement,self()], []),
-            ok = imem_seco:cluster_clone_seco(SKey, Node),
-            ok = gen_server:call(Pid, {set_seco, SKey}),
+            NewSKey = imem_sec:clone_seco(SKey, Pid),
+            ok = gen_server:call(Pid, {set_seco, NewSKey}),
             {ok, Pid};
         {true,_} ->         % sec, remote
-            {ok, Pid} = rpc:call(Node, gen_server, start
+            {ok, Pid} = rpc:call( Node, gen_server, start
                                 , [?MODULE, [Statement,self()], [{spawn_opt, [{fullsweep_after, 0}]}]]
                                 ),
-            ok = imem_seco:cluster_clone_seco(SKey, Node),
-            ok = rpc:call(Node,gen_server,call,[Pid, {set_seco, SKey}]),
+            NewSKey = imem_seco:cluster_clone_seco(SKey, Node, Pid),
+            ok = gen_server:call(Pid, {set_seco, NewSKey}),
             {ok, Pid}
     end.
 
@@ -161,13 +161,14 @@ fetch_recs_async(SKey, StmtRefs, Sock, Opts, IsSec) when is_list(StmtRefs)->
 fetch_recs_async(SKey, Pid, Sock, Opts, IsSec) when is_pid(Pid) ->
     case [{M,V} || {M,V} <- Opts, true =/= lists:member(M, ?VALID_FETCH_OPTS)] of
         [] -> 
-            LocalNode = node(),
-            case node(Pid) of 
-                LocalNode ->
-                    gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
-                RemoteNode ->
-                    rpc:call(RemoteNode, gen_server, cast, [{fetch_recs_async, IsSec, SKey, Sock, Opts}])
-            end;
+            gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
+            % LocalNode = node(),
+            % case node(Pid) of 
+            %     LocalNode ->
+            %         gen_server:cast(Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts});
+            %     RemoteNode ->
+            %         rpc:call(RemoteNode, gen_server, cast, [Pid, {fetch_recs_async, IsSec, SKey, Sock, Opts}])
+            % end;
         InvalidOpt -> 
             ?ClientError({"Invalid option for fetch", InvalidOpt})
     end.
