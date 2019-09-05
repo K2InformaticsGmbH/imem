@@ -526,7 +526,6 @@ handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, 
     {noreply, NewState};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
-    ?Info("received rows ~n~p~n in fetch status ~p~n", [Rows0,FetchCtx0#fetchCtx.status]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             ?Info("received ~p rows for ~p data complete", [length(Rows0)-2,element(2,Stmt)]),
@@ -1123,7 +1122,7 @@ generate_limit_check(_,_,_) -> ok.
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(), Result},
-    ?Info("send_reply_to_client ~p",[NewResult]),
+    ?Info("Reply ~p",[NewResult]),
     imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, [{_Node,Schema,Table}|_], ColMap, ChangeList) ->

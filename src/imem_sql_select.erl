@@ -36,7 +36,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
     % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
-    ?Info("FullMap:~n~p~n", [FullMap]),
+    ?Info("FullMap:~n~p", [FullMap]),
     Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
     ?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
     ClusterTables = span_tables(Tables, LocalClusterTableNames ++ RemoteClusterTableNames),
