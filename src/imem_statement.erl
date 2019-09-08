@@ -325,26 +325,26 @@ handle_call({filter_and_sort, _IsSec, FilterSpec, SortSpec, Cols0, _SKey}, _From
     % ?LogDebug("FullMap~n~p~n", [FullMap]),
     Reply = try
         NewSortFun = imem_sql_expr:sort_spec_fun(SortSpec, FullMap, ColMap),
-        % ?Info("NewSortFun ~p~n", [NewSortFun]),
+        %?Info("NewSortFun ~p~n", [NewSortFun]),
         OrderBy = imem_sql_expr:sort_spec_order(SortSpec, FullMap, ColMap),
-        % ?Info("OrderBy ~p~n", [OrderBy]),
+        %?Info("OrderBy ~p~n", [OrderBy]),
         Filter =  imem_sql_expr:filter_spec_where(FilterSpec, ColMap, WhereTree),
-        % ?Info("Filter ~p~n", [Filter]),
+        %?Info("Filter ~p~n", [Filter]),
         Cols1 = case Cols0 of
             [] ->   lists:seq(1,length(ColMap));
             _ ->    Cols0
         end,
         AllFields = imem_sql_expr:column_map_items(ColMap, ptree),
-        % ?Info("AllFields ~p~n", [AllFields]),
+        %?Info("AllFields ~p~n", [AllFields]),
         NewFields =  [lists:nth(N,AllFields) || N <- Cols1],
-        % ?Info("NewFields ~p~n", [NewFields]),
+        %?Info("NewFields ~p~n", [NewFields]),
         NewSections0 = lists:keyreplace('fields', 1, SelectSections, {'fields',NewFields}),
         NewSections1 = lists:keyreplace('where', 1, NewSections0, {'where',Filter}),
-        % ?Info("NewSections1~n~p~n", [NewSections1]),
+        %?Info("NewSections1~n~p~n", [NewSections1]),
         NewSections2 = lists:keyreplace('order by', 1, NewSections1, {'order by',OrderBy}),
-        % ?Info("NewSections2~n~p~n", [NewSections2]),
+        %?Info("NewSections2~n~p~n", [NewSections2]),
         NewSql = sqlparse_fold:top_down(sqlparse_format_flat,{select,NewSections2}, []),     % sql_box:flat_from_pt({select,NewSections2}),
-        % ?Info("NewSql~n~p~n", [NewSql]),
+        %?Info("NewSql~n~p~n", [NewSql]),
         {ok, NewSql, NewSortFun}
     catch
         _:Reason ->
@@ -388,7 +388,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     % ?LogDebug("fetch_recs_async called with Stmt~n~p~n", [Stmt]),
     #statement{tables=[Table|JTabs], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
-    ?Info("fetch_recs_async Table Name ~p", [Table]),
+    %?Info("fetch_recs_async Table Name ~p", [Table]),
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
         {Skip,undefined} ->      %% {SkipFetch, Pid} = {true|false, uninitialized} -> skip fetch
             Params1 = case lists:keyfind(params, 1, Opts) of
@@ -420,9 +420,9 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                         {TailSpec,FilterFun,FetchStartResult} = case imem_meta:is_virtual_table(Table) of 
                             false ->    
                                 {SS,TS,FF} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
-                                ?Info("Scan Spec after meta bind:~n~p", [SS]),
-                                ?Info("Tail Spec after meta bind:~n~p", [TS]),
-                                ?Info("Filter Fun after meta bind:~n~p", [FF]),
+                                %?Info("Scan Spec after meta bind:~n~p", [SS]),
+                                %?Info("Tail Spec after meta bind:~n~p", [TS]),
+                                %?Info("Filter Fun after meta bind:~n~p", [FF]),
                                 {TS,FF,if_call_mfa(IsSec, fetch_start, [SKey, self(), Table, SS, BlockSize, Opts])};
                             true ->     
                                 {[{_,[SG],_}],TS,FF} = imem_sql_expr:bind_virtual(?MainIdx,{MR},MainSpec),
@@ -487,7 +487,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
     end;
 handle_cast({close, _SKey}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[],"close statement"),
-    ?Info("received close for ~p", [element(2,State#state.statement)]),
+    %?Info("received close for ~p", [element(2,State#state.statement)]),
     {stop, normal, State}; 
 handle_cast(Request, State) ->
     ?Debug("received unsolicited cast ~p~nin state ~p~n", [Request, State]),
@@ -495,8 +495,8 @@ handle_cast(Request, State) ->
     {noreply, State}.
 
 handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
-    ?Info("received end of table in fetch status ~p~n", [FetchCtx0#fetchCtx.status]),
-    ?Info("received end of table in state~n~p~n", [State]),
+    %?Info("received end of table in fetch status ~p~n", [FetchCtx0#fetchCtx.status]),
+    %?Info("received end of table in state~n~p~n", [State]),
     case FetchCtx0#fetchCtx.status of
         fetching ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row, ?eot},{status,fetching},{sock,Sock}],"eot"),
@@ -510,7 +510,7 @@ handle_info({row, ?eot}, #state{reply=Sock,fetchCtx=FetchCtx0}=State) ->
     end;        
 handle_info({mnesia_table_event, {write, _Table, {schema, _TableName, _TableNewProperties}, _OldRecords, _ActivityId}}, State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write, schema}],"tail delete"),
-    ?Info("received mnesia subscription event ~p ~p ~p~n", [write_schema, _TableName, _TableNewProperties]),
+    %?Info("received mnesia subscription event ~p ~p ~p~n", [write_schema, _TableName, _TableNewProperties]),
     {noreply, State};
 handle_info({mnesia_table_event,{write,_Table,R0,_OldRecords,_ActivityId}},#state{reply=Sock}=State) ->
     case process_tail_row(R0, State) of
@@ -528,32 +528,32 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
-            ?Info("received ~p rows for ~p data complete", [length(Rows0)-2,element(2,Stmt)]),
+            %?Info("received ~p rows for ~p data complete", [length(Rows0)-2,element(2,Stmt)]),
             {R,true};
         {waiting,[?sot|R]} ->            
-            ?Info("received ~p rows for ~p data first", [length(Rows0)-1,element(2,Stmt)]),
+            %?Info("received ~p rows for ~p data first", [length(Rows0)-1,element(2,Stmt)]),
             {R,false};
         {fetching,[?eot|R]} ->
-            ?Info("received ~p rows for ~p data complete", [length(Rows0)-1,element(2,Stmt)]),
+            %?Info("received ~p rows for ~p data complete", [length(Rows0)-1,element(2,Stmt)]),
             {R,true};
         {fetching,[?sot,?eot|_R]} ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
-            ?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-2,element(2,Stmt)]),
+            %?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-2,element(2,Stmt)]),
             handle_fetch_complete(State);
         {fetching,[?sot|_R]} ->
             imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
-            ?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-1,element(2,Stmt)]),
+            %?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-1,element(2,Stmt)]),
             handle_fetch_complete(State);
         {fetching,R} ->            
             % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
-            ?Info("received ~p rows for ~p", [length(Rows0),element(2,Stmt)]),
+            %?Info("received ~p rows for ~p", [length(Rows0),element(2,Stmt)]),
             {R,false};
         {BadStatus,R} ->            
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
-            ?Info("received ~p rows for ~p bad status", [length(Rows0),element(2,Stmt)]),
+            %?Info("received ~p rows for ~p bad status", [length(Rows0),element(2,Stmt)]),
             {R,false}        
     end,   
-    % ?Info("Filtering ~p rows with filter ~p~n", [length(Rows1),FilterFun]),
+    %?Info("Filtering ~p rows with filter ~p~n", [length(Rows1),FilterFun]),
     MR1 = case RowNum of
         undefined -> MR0;
         _ ->         setelement(?RownumIdx,MR0,RowNum)
@@ -825,8 +825,8 @@ join_rows(MetaAndMainRows, FetchCtx0, Stmt) ->
     #fetchCtx{blockSize=BlockSize, remaining=RemainingRowQuota}=FetchCtx0,
     JoinTables = tl(Stmt#statement.tables),  %% {Schema,Name,Alias} for each table to join
     JoinSpecs = Stmt#statement.joinSpecs,
-    ?Info("Join Tables: ~p~n", [JoinTables]),
-    ?Info("Join Specs: ~p~n", [JoinSpecs]),
+    %?Info("Join Tables: ~p~n", [JoinTables]),
+    %?Info("Join Specs: ~p~n", [JoinSpecs]),
     join_rows(MetaAndMainRows, BlockSize, RemainingRowQuota, JoinTables, JoinSpecs, []).
 
 join_rows([], _, _, _, _, Acc) -> Acc;                              %% lists:reverse(Acc);
@@ -849,9 +849,9 @@ join_table(Rec, _BlockSize, Ti, Table, #scanSpec{limit=Limit}=JoinSpec) ->
     % ?LogDebug("Join ~p table ~p~n", [Ti,Table]),
     % ?LogDebug("Rec used for join bind~n~p~n", [Rec]),
     {SSpec,_TailSpec,FilterFun} = imem_sql_expr:bind_scan(Ti,Rec,JoinSpec),
-    % ?Info("SSpec for join~n~p~n", [SSpec]),
-    % ?Info("TailSpec for join~n~p~n", [_TailSpec]),
-    % ?Info("FilterFun for join~n~p~n", [FilterFun]),
+    %?Info("SSpec for join~n~p~n", [SSpec]),
+    %?Info("TailSpec for join~n~p~n", [_TailSpec]),
+    %?Info("FilterFun for join~n~p~n", [FilterFun]),
     MaxSize = Limit+1000,   %% TODO: Move away from single shot join fetch, use async block fetch here as well.
     case imem_meta:select(Table, SSpec, MaxSize) of
         {[], true} ->   [];
@@ -1122,7 +1122,7 @@ generate_limit_check(_,_,_) -> ok.
 
 send_reply_to_client(SockOrPid, Result) ->
     NewResult = {self(), Result},
-    ?Info("Reply ~p",[NewResult]),
+    %?Info("Reply ~p",[NewResult]),
     imem_server:send_resp(NewResult, SockOrPid).
 
 update_prepare(IsSec, SKey, [{_Node,Schema,Table}|_], ColMap, ChangeList) ->
@@ -1154,8 +1154,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap,
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
-    % ?Info("update_prepare ColMap~n~p", [ColMap]),
-    % ?Info("update_prepare Values~n~p", [Values]),
+    %?Info("update_prepare ColMap~n~p", [ColMap]),
+    %?Info("update_prepare Values~n~p", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Too few values",{Item,Values}});        
@@ -1447,8 +1447,8 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
 update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,Recs|Values]|CList], Acc) ->
-    % ?Info("ColMap~n~p~n", [ColMap]),
-    % ?Info("Values~n~p~n", [Values]),
+    %?Info("ColMap~n~p~n", [ColMap]),
+    %?Info("Values~n~p~n", [Values]),
     if  
         length(Values) > length(ColMap) ->      ?ClientError({"Too many values",{Item,Values}});        
         length(Values) < length(ColMap) ->      ?ClientError({"Not enough values",{Item,Values}});        

@@ -117,6 +117,7 @@
         , qualified_table_name/1
         , qualified_table_names/1
         , qualified_new_table_name/1
+        , qualified_alias/1
         , physical_table_name/1
         , physical_table_name/2
         , physical_table_names/1
@@ -1921,6 +1922,60 @@ table_opts(Schema, TableName) ->
             end
     end.
 
+-spec qualified_alias(ddTable()) -> [ddQualifiedTable()].
+qualified_alias(TableAlias) when is_binary(TableAlias) ->
+    qualified_alias(binary_to_list(TableAlias));
+qualified_alias(TableAlias) when is_list(TableAlias) ->
+    NS = node_shard(),
+    SN = atom_to_list(schema()),     
+    {QS,QN} = case parse_table_name(TableAlias) of
+        % [Schema, ".", Name, "_", Period, "@", Node]
+        ["","",N, "","","@","_"] ->     
+            {SN, N++"@_"};              % plain shared table (e.g. audit)
+        [S,".",N, "","","@","_"] ->     
+            {S, N++"@_"};               % plain shared table (e.g. audit)
+        ["","",N,"_",PT,"@","_"] ->     
+            {SN, N++"_"++PT++"@_"};     % particular shared time partition 
+        [S,".",N,"_",PT,"@","_"] ->     
+            {S, N++"_"++PT++"@_"};      % particular shared time partition 
+        [[$c,$s,$v,$$|Rest],_,N,"","","@","local"] ->
+            {[$c,$s,$v,$$|Rest], N};
+        [S,_,N,"","","@","local"] when S=="";S==SN ->
+            {SN, N++"@"++NS};
+        ["",_,N,"_",PT,"@","local"] -> 
+            {SN, N++"_"++PT++"@"++NS};
+        [SN,_,N,"_",PT,"@","local"] -> 
+            {SN, N++"_"++PT++"@"++NS};
+        [[$c,$s,$v,$$|Rest],_,N,"" ,"","@",_] ->
+            {[$c,$s,$v,$$|Rest], N};
+        [S,_,N,"" ,"","@",Shard] ->
+            % handle invisible remote tables with {scope,local},{local_content,true} and optional @
+            cluster_alias_name(S, N, Shard);
+        [S,_,N,"_",PT,"@",""] when S=="";S==SN -> 
+            {SN, N++"_"++PT++"@"};
+        [S,_,N,"_",PT,"@",Shard] when S=="";S==SN -> 
+            {SN, N++"_"++PT++"@"++Shard};
+        ["","",N,"","","",""] -> 
+            {SN, N};
+        [[$c,$s,$v,$$|Rest],_,N,"","","",""] ->
+            {[$c,$s,$v,$$|Rest], N};
+        [S,".",N,"","","",""] -> 
+            {S, N}
+    end,
+    {list_to_binary(QS), list_to_binary(QN)}.
+
+cluster_alias_name(Schema, BaseName, Shard) ->
+    case table_opts(Schema, BaseName++"@"++ node_shard()) of
+        undefined ->
+            case table_opts(Schema, BaseName) of 
+                undefined -> [];
+                _Opts1 ->           % table exists locally or is a virtual type table
+                    {default_schema_str(Schema), BaseName}
+            end;
+        _Opts2 ->       % table exists locally or is a virtual type table
+            {default_schema_str(Schema), BaseName++"@"++Shard}
+    end.
+
 -spec physical_table_names(ddTable()) -> [ddMnesiaTable()].
 physical_table_names({_S,N}) -> physical_table_names(N);
 physical_table_names(dba_tables) -> [ddTable];
@@ -2120,6 +2175,9 @@ cluster_table_names(Schema, BaseName) ->
 
 default_schema("") -> schema();
 default_schema(Schema) -> list_to_existing_atom(Schema).
+
+default_schema_str("") -> atom_to_list(schema());
+default_schema_str(Schema) -> Schema.
 
 remote_non_sharded(Node, Schema, BaseName) -> 
     Shard = rpc:call(Node, imem_meta, node_shard, []),

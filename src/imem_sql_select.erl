@@ -16,43 +16,43 @@
 exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     % ToDo: spawn imem_statement here and execute in its own security context (compile & run from same process)
     ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
-    % ?LogDebug("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
+    %Info("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
     {_, TableList0} = lists:keyfind(from, 1, SelectSections),
-    ?Info("TableList0: ~p~n", [TableList0]),
+    %?Info("TableList0: ~p~n", [TableList0]),
     Params = imem_sql:params_from_opts(Opts,ParseTree),
-    % ?Info("Params: ~p~n", [Params]),
+    %?Info("Params: ~p~n", [Params]),
     TableList = bind_table_names(Params, TableList0),
-    ?Info("TableList: ~p~n", [TableList]),
+    %?Info("TableList: ~p~n", [TableList]),
     Class = imem_sql:statement_class(hd(TableList)),
-    ?Info("Statement Class: ~p", [Class]),
+    %?Info("Statement Class: ~p", [Class]),
     ClusterTableNames = lists:sort(imem_sql:cluster_table_names(hd(TableList))),
     %?Info("ClusterTableNames: ~p", [ClusterTableNames]),
     LT = fun({N,_S,_T}) -> (N==node()) end,
     LocalClusterTableNames = lists:filter(LT,ClusterTableNames),
-    ?Info("LocalClusterTableNames: ~p", [LocalClusterTableNames]),
+    %?Info("LocalClusterTableNames: ~p", [LocalClusterTableNames]),
     RT = fun({N,_S,_T}) -> (N=/=node()) end,
     RemoteClusterTableNames = lists:filter(RT,ClusterTableNames),
-    ?Info("RemoteClusterTableNames: ~p", [RemoteClusterTableNames]),
+    %?Info("RemoteClusterTableNames: ~p", [RemoteClusterTableNames]),
     MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
     FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
-    % ?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
-    ?Info("FullMap:~n~p", [FullMap]),
+    %?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
+    %?Info("FullMap:~n~p", [FullMap]),
     Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
-    ?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
+    %?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
     ClusterTables = span_tables(Tables, LocalClusterTableNames ++ RemoteClusterTableNames),
-    ?Info("ClusterTables: (~p)~n~p", [length(ClusterTables), ClusterTables]),
+    %?Info("ClusterTables: (~p)~n~p", [length(ClusterTables), ClusterTables]),
     ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
         false -> 
             imem_sql_expr:column_map_columns([],FullMap);
         {_, ParsedFieldList} -> 
             imem_sql_expr:column_map_columns(ParsedFieldList, FullMap)
     end,
-    % ?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
-    % ?LogDebug("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
+    %?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
+    %?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
     RowCols = [#rowCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
-    % ?LogDebug("Row columns: ~n~p~n", [RowCols]),
+    %?Info("Row columns: ~n~p~n", [RowCols]),
     {_, WPTree} = lists:keyfind(where, 1, SelectSections),
-    % ?LogDebug("WhereParseTree~n~p", [WPTree]),
+    %?Info("WhereParseTree~n~p", [WPTree]),
     WBTree0 = case WPTree of
         ?EmptyWhere ->  
             true;
@@ -60,22 +60,22 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
             #bind{btree=WBT} = imem_sql_expr:expr(WPTree, FullMap, #bind{type=boolean,default=true}),
             WBT
     end,
-    % ?LogDebug("WhereBindTree0~n~p~n", [WBTree0]),
+    %?Info("WhereBindTree0~n~p~n", [WBTree0]),
     MainSpec = imem_sql_expr:main_spec(WBTree0,FullMap),
-    % ?LogDebug("MainSpec:~n~p", [MainSpec]),
+    %?Info("MainSpec:~n~p", [MainSpec]),
     JoinSpecs = imem_sql_expr:join_specs(?TableIdx(length(Tables)), WBTree0, FullMap), %% start with last join table, proceed to first 
-    % ?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
+    %?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
-    % ?Info("ColMap1:~n~p", [ColMap1]),
+    %?Info("ColMap1:~n~p", [ColMap1]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap1);
         str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
     end,
-    % ?Info("RowFun:~n~p~n", [RowFun]),
+    %?Info("RowFun:~n~p~n", [RowFun]),
     SortFun = imem_sql_expr:sort_fun(SelectSections, FullMap, ColMap1),
     SortSpec = imem_sql_expr:sort_spec(SelectSections, FullMap, ColMap1),
-    % ?LogDebug("SortSpec:~p~n", [SortSpec]),
+    %Info("SortSpec:~p~n", [SortSpec]),
     Statements = [Stmt#statement{
                     stmtParse = {select, SelectSections},
                     stmtParams = Params,
