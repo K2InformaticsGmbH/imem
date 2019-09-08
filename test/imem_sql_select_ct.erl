@@ -86,7 +86,10 @@ db1_with_or_without_sec(IsSec) ->
     ?assertEqual([imem], imem_datatype:field_value(tag, list, 0, 0, [], <<"[imem]">>)),
 
     FullNodeStr = atom_to_list(node()),
-    FullNodeBin = list_to_binary(FullNodeStr),
+    FullNodeBin = case (catch atom_to_list(list_to_existing_atom("'"++FullNodeStr++"'"))) of
+        FullNodeStr ->  list_to_binary("'"++FullNodeStr++"'");
+        _ ->            list_to_binary(FullNodeStr)
+    end,
     ?CTPAL("FullNodeBin ~p", [FullNodeBin]),
 
     timer:sleep(500),
@@ -1247,7 +1250,10 @@ db2_with_or_without_sec(IsSec) ->
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
 
     FullNodeStr = atom_to_list(node()),
-    FullNodeBin = list_to_binary(FullNodeStr),
+    FullNodeBin = case (catch atom_to_list(list_to_existing_atom("'"++FullNodeStr++"'"))) of
+        FullNodeStr ->  list_to_binary("'"++FullNodeStr++"'");
+        _ ->            list_to_binary(FullNodeStr)
+    end,
     ?CTPAL("FullNodeBin ~p", [FullNodeBin]),
 
     ?assertEqual([], imem_statement:receive_raw()),
