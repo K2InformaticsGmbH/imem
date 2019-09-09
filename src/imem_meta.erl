@@ -99,6 +99,7 @@
         , host_name/1
         , node_name/1
         , node_hash/1
+        , clean_host_name/1
         , record_hash/2
         , nodes/0
         , integer_uid/0
@@ -417,7 +418,7 @@ init_create_or_replace_index(TableName,IndexDefinition) when is_list(IndexDefini
 
 init(_Args) ->
     Result = try
-        application:set_env(imem, node_shard, node_shard()),
+        application:set_env(imem, node_shard, node_shard()), % read node_shard config, evaluate and write back (cache)
         init_create_table(ddAlias, {record_info(fields, ddAlias), ?ddAlias, #ddAlias{}}, ?DD_ALIAS_OPTS, system),         %% may not be able to register in ddTable
         init_create_table(?CACHE_TABLE, {record_info(fields, ddCache), ?ddCache, #ddCache{}}, ?DD_CACHE_OPTS, system),  %% may not be able to register in ddTable
         init_create_table(ddTable, {record_info(fields, ddTable), ?ddTable, #ddTable{}}, ?DD_TABLE_OPTS, system),
@@ -2489,6 +2490,21 @@ host_fqdn(Node) when is_atom(Node) ->
 host_name(Node) when is_atom(Node) -> 
     [Host|_] = string:tokens(host_fqdn(Node), "."),
     Host.
+
+clean_host_name(Node) when is_atom(Node) -> 
+    clean_host_name(host_name(Node),[]).
+
+clean_host_name([], Acc) -> lists:reverse(Acc);
+clean_host_name([Ch|Name], Acc) when Ch >= $@, Ch=<$Z ->
+    clean_host_name(Name, [Ch|Acc]);
+clean_host_name([Ch|Name], Acc) when Ch >= $a, Ch=<$z ->
+    clean_host_name(Name, [Ch|Acc]);
+clean_host_name([Ch|Name], Acc) when Ch >= $0, Ch=<$9 ->
+    clean_host_name(Name, [Ch|Acc]);
+clean_host_name([$_|Name], Acc) ->
+    clean_host_name(Name, [$_|Acc]);
+clean_host_name([_|Name], Acc) ->
+    clean_host_name(Name, Acc).
 
 node_name(Node) when is_atom(Node) -> 
     NodeStr = atom_to_list(Node),
