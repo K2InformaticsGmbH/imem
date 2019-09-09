@@ -85,12 +85,8 @@ db1_with_or_without_sec(IsSec) ->
     ?assertEqual([], imem_statement:receive_raw()),
     ?assertEqual([imem], imem_datatype:field_value(tag, list, 0, 0, [], <<"[imem]">>)),
 
-    FullNodeStr = atom_to_list(node()),
-    FullNodeBin = case (catch atom_to_list(list_to_existing_atom("'"++FullNodeStr++"'"))) of
-        FullNodeStr ->  list_to_binary("'"++FullNodeStr++"'");
-        _ ->            list_to_binary(FullNodeStr)
-    end,
-    ?CTPAL("FullNodeBin ~p", [FullNodeBin]),
+    FullNodeStr = atom_to_list(node()),                         % without single quotes
+    FullNodeBin = imem_datatype:atom_to_quoted_binary(node()),  % with single quotes if needed
 
     timer:sleep(500),
     _LoginTime = calendar:local_time(),
@@ -1249,11 +1245,8 @@ db2_with_or_without_sec(IsSec) ->
     ?assertEqual(true, is_atom(imem_meta:schema())),
     ?assertEqual(true, lists:member({imem_meta:schema(), node()}, imem_meta:data_nodes())),
 
-    FullNodeStr = atom_to_list(node()),
-    FullNodeBin = case (catch atom_to_list(list_to_existing_atom("'"++FullNodeStr++"'"))) of
-        FullNodeStr ->  list_to_binary("'"++FullNodeStr++"'");
-        _ ->            list_to_binary(FullNodeStr)
-    end,
+    FullNodeBin = imem_datatype:atom_to_quoted_binary(node()),  % with single quotes if needed
+
     ?CTPAL("FullNodeBin ~p", [FullNodeBin]),
 
     ?assertEqual([], imem_statement:receive_raw()),
