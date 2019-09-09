@@ -672,7 +672,7 @@ meta_field_info(<<"systimestamp">>=N) ->
 meta_field_info(<<"schema">>=N) ->
     #ddColumn{name=N, type='atom', len=10, prec=0};
 meta_field_info(<<"node">>=N) ->
-    #ddColumn{name=N, type='atom', len=30, prec=0};
+    #ddColumn{name=N, type='atom', len=100, prec=0};
 meta_field_info(<<"user">>=N) ->
     #ddColumn{name=N, type='userid', len=20, prec=0};
 meta_field_info(<<"username">>=N) ->

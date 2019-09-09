@@ -624,6 +624,9 @@ column_map_tables(Tables, MetaFields, Params) ->
     MetaBinds = column_map_meta_fields(MetaFields,?MetaIdx,[]),
     ParamBinds = column_map_param_fields(Params,?MetaIdx,lists:reverse(MetaBinds)),
     TableBinds = column_map_table_fields(Tables, ?MainIdx, []),
+    ?Info("column_map_tables TableBinds ~p",[TableBinds]),
+    ?Info("column_map_tables MetaBinds ~p",[MetaBinds]),
+    ?Info("column_map_tables ParamBinds ~p",[ParamBinds]),
     ParamBinds ++ TableBinds.
 
 -spec column_map_meta_fields(list(atom()), integer(), list(#bind{})) -> list(#bind{}).
