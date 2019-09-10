@@ -24,7 +24,7 @@
 -define(Table(__N,__Rec), element(?TableIdx(__N),__Rec)). %% pick table N tuple out for master tuple
 
 -define(RownumIdx,1).                                     %% Position of rownum value in Meta Record
--define(RownumBind, #bind{tind=1,cind=1,table= <<"_meta_">>,name= <<"rownum">>}).  %% Bind pattern for rownum variable
+-define(RownumBind, #bind{tind=1,cind=1,table= <<"_meta_">>,name= ?META_ROWNUM}).  %% Bind pattern for rownum variable
 
 -define(BoundVal(__Bind,__X), 
           case __Bind#bind.cind of

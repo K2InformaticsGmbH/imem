@@ -89,18 +89,18 @@ test_with_or_without_sec_part1(IsSec) ->
     [{<<"12">>, <<"144">>}] = receive_tuples(SR00, true),
 
     ChangeList00 = [
-        [1, upd, {?EmptyMR, {fun_test, 12, 144}}, <<"13">>, <<"0">>]
+        [1, upd, {{1,node()}, {fun_test, 12, 144}}, <<"13">>, <<"0">>]
     ],
     ?CTPAL("ChangeList00"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR00, IsSec, ChangeList00)),
-    ?assertEqual([{1, {?EmptyMR, {fun_test, 13, 169}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
+    ?assertEqual([{1, {{1,node()}, {fun_test, 13, 169}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
 
     ChangeList01 = [
-        [2, ins, {?EmptyMR, {}}, <<"15">>, <<"1">>]
+        [2, ins, {{2,node()}, {}}, <<"15">>, <<"1">>]
     ],
     ?CTPAL("ChangeList01"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR00, IsSec, ChangeList01)),
-    ?assertEqual([{2, {?EmptyMR, {fun_test, 15, 225}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
+    ?assertEqual([{2, {{1,node()}, {fun_test, 15, 225}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
 
     ?assertEqual(ok, imem_statement:fetch_close(SKey, SR00, IsSec)),
     ?assertEqual(ok, fetch_async(SKey, SR00, [], IsSec)),

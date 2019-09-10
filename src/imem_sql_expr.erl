@@ -780,7 +780,7 @@ column_map_lookup(QN3,FullMap) ->
     end.                                
 
 field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
-    % ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,Name]),
+    ?Info("column_map lookup ~p ~p ~p~n", [Schema,Table,NameIn]),
     NameInString = case is_binary(NameIn) of
                        true ->
                            string:to_lower(binary_to_list(NameIn));

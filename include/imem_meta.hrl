@@ -11,6 +11,8 @@
 -define(LOG_TABLE,ddLog_86400@).                    %% 86400 = 1 Day
 -define(MONITOR_TABLE,ddMonitor_86400@).            %% 86400 = 1 Day
 -define(CACHE_TABLE,ddCache@).
+-define(META_ROWNUM, <<"rownum">>).
+-define(META_NODE, <<"node">>). 
 
 -record(ddColumn,                           %% column definition    
 				  { name                    ::atom()
