@@ -89,18 +89,18 @@ test_with_or_without_sec_part1(IsSec) ->
     [{<<"12">>, <<"144">>}] = receive_tuples(SR00, true),
 
     ChangeList00 = [
-        [1, upd, {?EmptyMR, {fun_test, 12, 144}}, <<"13">>, <<"0">>]
+        [1, upd, {{1,node()}, {fun_test, 12, 144}}, <<"13">>, <<"0">>]
     ],
     ?CTPAL("ChangeList00"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR00, IsSec, ChangeList00)),
-    ?assertEqual([{1, {?EmptyMR, {fun_test, 13, 169}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
+    ?assertEqual([{1, {{1,node()}, {fun_test, 13, 169}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
 
     ChangeList01 = [
-        [2, ins, {?EmptyMR, {}}, <<"15">>, <<"1">>]
+        [2, ins, {{2,node()}, {}}, <<"15">>, <<"1">>]
     ],
     ?CTPAL("ChangeList01"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR00, IsSec, ChangeList01)),
-    ?assertEqual([{2, {?EmptyMR, {fun_test, 15, 225}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
+    ?assertEqual([{2, {{1,node()}, {fun_test, 15, 225}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
 
     ?assertEqual(ok, imem_statement:fetch_close(SKey, SR00, IsSec)),
     ?assertEqual(ok, fetch_async(SKey, SR00, [], IsSec)),
@@ -195,9 +195,9 @@ test_with_or_without_sec_part1(IsSec) ->
     O3 = {tuple_test, {key3, nonode@nohost}, [key3a, key3b], {1, 2}, 3},
 
     TT1aChange = [
-          [1, upd, {?EmptyMR, O1}, <<"keyX">>, <<"key1">>, <<"{key1a,key1b}">>, <<"1">>]
-        , [2, upd, {?EmptyMR, O2}, <<"key2">>, <<"a">>, <<"b">>, <<"">>]
-        , [3, upd, {?EmptyMR, O3}, <<"key3">>, <<"1">>, <<"2">>, <<"3">>]
+          [1, upd, {{1,node()}, O1}, <<"keyX">>, <<"key1">>, <<"{key1a,key1b}">>, <<"1">>]
+        , [2, upd, {{2,node()}, O2}, <<"key2">>, <<"a">>, <<"b">>, <<"">>]
+        , [3, upd, {{3,node()}, O3}, <<"key3">>, <<"1">>, <<"2">>, <<"3">>]
     ],
     ?CTPAL("TT1aChange"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, TT1b, IsSec, TT1aChange)),
@@ -312,7 +312,7 @@ test_with_or_without_sec_part1(IsSec) ->
 
     %% ChangeList2 = [[OP,ID] ++ L || {OP,ID,L} <- lists:zip3([nop, ins, del, upd], [1,2,3,4], lists:map(RowFun2,List2a))],
     ChangeList2 = [
-        [4, upd, {?EmptyMR, {def, <<"12">>, 12}}, <<"112">>, <<"12">>]
+        [4, upd, {{1,node()}, {def, <<"12">>, 12}}, <<"112">>, <<"12">>]
     ],
     ?CTPAL("ChangeList2"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR1, IsSec, ChangeList2)),
@@ -325,11 +325,11 @@ test_with_or_without_sec_part1(IsSec) ->
     ?assertEqual(false, lists:member({def, "12", 12}, TableRows2)),
 
     ChangeList3 = [
-        [1, nop, {?EmptyMR, {def, <<"2">>, 2}}, <<"2">>, <<"2">>],         %% no operation on this line
+        [1, nop, {{1,node()}, {def, <<"2">>, 2}}, <<"2">>, <<"2">>],         %% no operation on this line
         [5, ins, {}, <<"99">>, <<"undefined">>],             %% insert {def,"99", undefined}
-        [3, del, {?EmptyMR, {def, <<"5">>, 5}}, <<"5">>, <<"5">>],         %% delete {def,"5",5}
-        [4, upd, {?EmptyMR, {def, <<"112">>, 12}}, <<"112">>, <<"12">>],   %% nop update {def,"112",12}
-        [6, upd, {?EmptyMR, {def, <<"10">>, 10}}, <<"10">>, <<"110">>]     %% update {def,"10",10} to {def,"10",110}
+        [3, del, {{3,node()}, {def, <<"5">>, 5}}, <<"5">>, <<"5">>],         %% delete {def,"5",5}
+        [4, upd, {{4,node()}, {def, <<"112">>, 12}}, <<"112">>, <<"12">>],   %% nop update {def,"112",12}
+        [6, upd, {{6,node()}, {def, <<"10">>, 10}}, <<"10">>, <<"110">>]     %% update {def,"10",10} to {def,"10",110}
     ],
     ExpectedRows3 = [
         {def, <<"2">>, 2},                            %% no operation on this line
@@ -341,11 +341,11 @@ test_with_or_without_sec_part1(IsSec) ->
         {def, <<"5">>, 5}                             %% delete {def,"5",5}
     ],
     ExpectedKeys3 = [
-        {1, {?EmptyMR, {def, <<"2">>, 2}}},
-        {3, {?EmptyMR, {}}},
-        {4, {?EmptyMR, {def, <<"112">>, 12}}},
-        {5, {?EmptyMR, {def, <<"99">>, undefined}}},
-        {6, {?EmptyMR, {def, <<"10">>, 110}}}
+        {1, {{1,node()}, {def, <<"2">>, 2}}},
+        {3, {{3,node()}, {}}},
+        {4, {{4,node()}, {def, <<"112">>, 12}}},
+        {5, {{5,node()}, {def, <<"99">>, undefined}}},
+        {6, {{6,node()}, {def, <<"10">>, 110}}}
     ],
     ?CTPAL("ChangeList3"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
@@ -354,7 +354,7 @@ test_with_or_without_sec_part1(IsSec) ->
     ?CTPAL("TableRows3"),
     [?assert(lists:member(R, TableRows3)) || R <- ExpectedRows3],
     [?assertNot(lists:member(R, TableRows3)) || R <- RemovedRows3],
-    ?assertEqual(ExpectedKeys3, lists:sort([{I, setelement(?MetaIdx, C, ?EmptyMR)} || {I, C} <- ChangedKeys3])),
+    ?assertEqual(ExpectedKeys3, lists:sort([{I, setelement(?MetaIdx, C, {1,node()})} || {I, C} <- ChangedKeys3])),
 
     ?assertEqual(ok, imem_statement:if_call_mfa(IsSec, truncate_table, [SKey, def])),
     ?assertEqual(0, imem_meta:table_size(def)),
@@ -818,7 +818,7 @@ test_with_or_without_sec_part3(IsSec) ->
     ?assertEqual(11, length(List10a)),
 
     ChangeList10 = [
-        [1, upd, {?EmptyMR, {def, <<"5">>, 5}, {def, <<"5">>, 5}}, <<"X">>, <<"Y">>]
+        [1, upd, {{1,node()}, {def, <<"5">>, 5}, {def, <<"5">>, 5}}, <<"X">>, <<"Y">>]
     ],
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR10, IsSec, ChangeList10)),
     ?CTPAL("Result10b"),
