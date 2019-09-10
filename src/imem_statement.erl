@@ -403,8 +403,8 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                 _ ->                undefined
             end, 
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
-            ?Info("Meta Rec: ~p~n", [MR]),
-            ?Info("Main Spec before meta bind:~n~p~n", [MainSpec]),
+            %?Info("Meta Rec: ~p~n", [MR]),
+            %?Info("Main Spec before meta bind:~n~p~n", [MainSpec]),
             case Skip of
                 true ->
                     {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -526,6 +526,7 @@ handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, 
     {noreply, NewState};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
+    %?Info("received ~p rows ~n~p", [length(Rows0)-2,Rows0]),
     {Rows1,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             %?Info("received ~p rows for ~p data complete", [length(Rows0)-2,element(2,Stmt)]),

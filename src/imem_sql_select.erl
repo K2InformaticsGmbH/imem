@@ -33,20 +33,21 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     RT = fun({N,_S,_T}) -> (N=/=node()) end,
     RemoteClusterTableNames = lists:filter(RT,ClusterTableNames),
     %?Info("RemoteClusterTableNames: ~p", [RemoteClusterTableNames]),
-    MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),       
-    FullMap = imem_sql_expr:column_map_tables(TableList,MetaFields,Params),
+    MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),
+    AllMetaFields = case lists:member(?META_NODE, MetaFields) of 
+        true -> MetaFields;
+        false -> [?META_NODE|MetaFields]
+    end,
+    %?Info("AllMetaFields ~p",[AllMetaFields]), 
+    FullMap = imem_sql_expr:column_map_tables(TableList,AllMetaFields,Params),
     %?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
     %?Info("FullMap:~n~p", [FullMap]),
     Tables = [imem_meta:qualified_table_name({TS,TN})|| #bind{tind=Ti,cind=Ci,schema=TS,table=TN} <- FullMap,Ti/=?MetaIdx,Ci==?FirstIdx],
     %?Info("Tables: (~p)~n~p", [length(Tables),Tables]),
     ClusterTables = span_tables(Tables, LocalClusterTableNames ++ RemoteClusterTableNames),
     %?Info("ClusterTables: (~p)~n~p", [length(ClusterTables), ClusterTables]),
-    ColMap0 = case lists:keyfind(fields, 1, SelectSections) of
-        false -> 
-            imem_sql_expr:column_map_columns([],FullMap);
-        {_, ParsedFieldList} -> 
-            imem_sql_expr:column_map_columns(ParsedFieldList, FullMap)
-    end,
+    {_, ParsedFields} = lists:keyfind(fields, 1, SelectSections),
+    ColMap0 = imem_sql_expr:column_map_columns(ParsedFields, FullMap),
     %?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),?FP(ColMap0,"23678(15)")]),
     %?Info("ColMap0: (~p)~n~p~n", [length(ColMap0),ColMap0]),
     RowCols = [#rowCol{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} || #bind{tag=Tag,alias=A,type=T,len=L,prec=P,readonly=R} <- ColMap0],
@@ -67,7 +68,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     %?Info("JoinSpecs:~n~p~n", [JoinSpecs]),
     ColMap1 = [ if (Ti==0) and (Ci==0) -> CMap#bind{func=imem_sql_funs:expr_fun(BTree)}; true -> CMap end 
                 || #bind{tind=Ti,cind=Ci,btree=BTree}=CMap <- ColMap0],
-    %?Info("ColMap1:~n~p", [ColMap1]),
+    %?Info("ColMap1: (~p)~n~p~n", [length(ColMap1),ColMap1]),
     RowFun = case ?DefaultRendering of
         raw ->  imem_datatype:select_rowfun_raw(ColMap1);
         str ->  imem_datatype:select_rowfun_str(ColMap1, ?GET_DATE_FORMAT(IsSec), ?GET_NUM_FORMAT(IsSec), ?GET_STR_FORMAT(IsSec))
@@ -80,7 +81,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
                     stmtParse = {select, SelectSections},
                     stmtParams = Params,
                     stmtClass = Class,
-                    metaFields=MetaFields, 
+                    metaFields=AllMetaFields, 
                     tables=CTabs,
                     colMap=ColMap1, fullMap=FullMap,
                     rowFun=RowFun, sortFun=SortFun, sortSpec=SortSpec,

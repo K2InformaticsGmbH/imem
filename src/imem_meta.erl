@@ -19,7 +19,7 @@
 -define(DDNODE_TIMEOUT, 3000).       % RPC timeout for ddNode evaluation
 
 -define(META_TABLES, [?CACHE_TABLE, ?LOG_TABLE, ?MONITOR_TABLE, ?CONFIG_TABLE, dual, ddNode, ddSnap, ddSchema, ddSize, ddAlias, ddTable]).
--define(META_FIELDS, [<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>,<<"node">>]). 
+-define(META_FIELDS, [?META_NODE,<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>]). 
 -define(META_OPTS, [purge_delay, trigger]). % table options only used in imem_meta and above
 -define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit, [] , 1000, "Maximum number of rows which can be generated in first (and only) result block")).
 
