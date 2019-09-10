@@ -398,10 +398,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             RecName = try imem_meta:table_record_name(Table)
                 catch {'ClientError', {"Table does not exist", _}} -> undefined
             end,
-            RowNum = case MetaFields of
-                [<<"rownum">>|_] -> 1;
-                _ ->                undefined
-            end, 
+            RowNum = 1,
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
             %?Info("Meta Rec: ~p~n", [MR]),
             %?Info("Main Spec before meta bind:~n~p~n", [MainSpec]),
@@ -431,7 +428,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                                 % ?LogDebug("Virtual Scan SGuard after meta bind:~n~p", [SG]),
                                 SGuard = imem_sql_expr:to_guard(SG),
                                 % ?LogDebug("Virtual Scan SGuard after meta bind:~n~p", [SGuard]),
-                                Rows = [{RecName,I,K} ||{I,K} <- generate_virtual_data(RecName,{MR},SGuard,RowNum)],
+                                Rows = [{RecName,I,K} ||{I,K} <- generate_virtual_data(RecName,{MR},SGuard,MainSpec#scanSpec.limit)],
                                 % ?LogDebug("Generated virtual scan data ~p~n~p", [Table,Rows]),
                                 {TS,FF,if_call_mfa(IsSec, fetch_start_virtual, [SKey, self(), Table, Rows, BlockSize, RowNum, Opts])}
                         end,

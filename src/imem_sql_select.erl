@@ -1,5 +1,6 @@
 -module(imem_sql_select).
 
+-include("imem_meta.hrl").
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
@@ -33,12 +34,9 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     RT = fun({N,_S,_T}) -> (N=/=node()) end,
     RemoteClusterTableNames = lists:filter(RT,ClusterTableNames),
     %?Info("RemoteClusterTableNames: ~p", [RemoteClusterTableNames]),
-    MetaFields = imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree),
-    AllMetaFields = case lists:member(?META_NODE, MetaFields) of 
-        true -> MetaFields;
-        false -> [?META_NODE|MetaFields]
-    end,
-    %?Info("AllMetaFields ~p",[AllMetaFields]), 
+    MetaFields = lists:usort(imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree))--[?META_ROWNUM,?META_NODE],
+    AllMetaFields = [?META_ROWNUM,?META_NODE|MetaFields],  
+    ?Info("AllMetaFields ~p",[AllMetaFields]), 
     FullMap = imem_sql_expr:column_map_tables(TableList,AllMetaFields,Params),
     %?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
     %?Info("FullMap:~n~p", [FullMap]),

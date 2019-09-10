@@ -19,7 +19,7 @@
 -define(DDNODE_TIMEOUT, 3000).       % RPC timeout for ddNode evaluation
 
 -define(META_TABLES, [?CACHE_TABLE, ?LOG_TABLE, ?MONITOR_TABLE, ?CONFIG_TABLE, dual, ddNode, ddSnap, ddSchema, ddSize, ddAlias, ddTable]).
--define(META_FIELDS, [?META_NODE,<<"rownum">>,<<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>]). 
+-define(META_FIELDS, [?META_ROWNUM, ?META_NODE, <<"systimestamp">>,<<"user">>,<<"username">>,<<"sysdate">>,<<"schema">>]). 
 -define(META_OPTS, [purge_delay, trigger]). % table options only used in imem_meta and above
 -define(VIRTUAL_TABLE_ROW_LIMIT,?GET_CONFIG(virtualTableRowLimit, [] , 1000, "Maximum number of rows which can be generated in first (and only) result block")).
 
@@ -672,23 +672,23 @@ meta_field_info(<<"systimestamp">>=N) ->
     #ddColumn{name=N, type='timestamp', len=20, prec=0};
 meta_field_info(<<"schema">>=N) ->
     #ddColumn{name=N, type='atom', len=10, prec=0};
-meta_field_info(<<"node">>=N) ->
+meta_field_info(?META_NODE=N) ->
     #ddColumn{name=N, type='atom', len=100, prec=0};
 meta_field_info(<<"user">>=N) ->
     #ddColumn{name=N, type='userid', len=20, prec=0};
 meta_field_info(<<"username">>=N) ->
     #ddColumn{name=N, type='binstr', len=20, prec=0};
-meta_field_info(<<"rownum">>=N) ->
+meta_field_info(?META_ROWNUM=N) ->
     #ddColumn{name=N, type='integer', len=10, prec=0};
 meta_field_info(Name) ->
     ?ClientError({"Unknown meta column",Name}). 
 
-meta_field_value(<<"rownum">>) ->   1; 
-meta_field_value(rownum) ->         1; 
+meta_field_value(?META_ROWNUM) ->   1; 
+%meta_field_value(rownum) ->         1; 
 meta_field_value(<<"username">>) -> <<"unknown">>; 
-meta_field_value(username) ->       <<"unknown">>; 
+%meta_field_value(username) ->       <<"unknown">>; 
 meta_field_value(<<"user">>) ->     unknown; 
-meta_field_value(user) ->           unknown; 
+%meta_field_value(user) ->           unknown; 
 meta_field_value(Name) ->
     imem_if_mnesia:meta_field_value(Name). 
 
