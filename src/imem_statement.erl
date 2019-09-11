@@ -56,6 +56,7 @@
                     , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
                     , filter    ::any()             %% filter specification {Guard,Binds}
                     , recName   ::atom()
+                    , lastmeta  ::tuple()
                     }).
 
 -record(state,                  %% state for statment process, including fetch subprocess
@@ -278,17 +279,13 @@ handle_call({update_cursor_execute, _IsSec, _SKey, _Lock}, _From, #state{updPlan
     % nothing to do, return empty keylist
     {reply, [], State};
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MR}=FetchCtx0,
+    #fetchCtx{lastmeta=MR}=FetchCtx0,
     ?Info("UpdateMetaRec ~p", [MR]),
     STT = ?TIMESTAMP,
     Reply = try 
-        % case FetchCtx0#fetchCtx.monref of
-        %     undefined ->    ok;
-        %     MonitorRef ->   kill_fetch(MonitorRef, FetchCtx0#fetchCtx.pid)
-        % end,
-        % ?Debug("UpdatePlan ~p~n", [UpdatePlan]),
+        %?Info("UpdatePlan ~p~n", [UpdatePlan]),
         KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
-        % ?Debug("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
+        %?Info("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
             1 ->    
                 WrapOut = fun({Tag,X}) -> {Tag,?MetaMain(MR, X)} end,
@@ -410,7 +407,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                     {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
                     % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
                     % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-                    FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
+                    FetchSkip = #fetchCtx{status=undefined,metarec=MR,lastmeta=MR,blockSize=BlockSize
                                          ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
                                          ,opts=Opts,tailSpec=TailSpec
                                          ,filter=FilterFun,recName=RecName},
@@ -446,7 +443,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                                           catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
                                           end,
                                 FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
-                                                      ,metarec=MR,blockSize=BlockSize
+                                                      ,metarec=MR,lastmeta=MR,blockSize=BlockSize
                                                       ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
                                                       ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
                                                       ,recName=RecName},
@@ -471,7 +468,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
             % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-            FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
+            FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,lastmeta=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
@@ -482,7 +479,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
             Pid ! next,
             % ?LogDebug("fetch opts ~p~n", [Opts]),
-            FetchContinue = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun}, 
+            FetchContinue = FetchCtx0#fetchCtx{metarec=MR,lastmeta=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun}, 
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
 handle_cast({close, _SKey}, State) ->
