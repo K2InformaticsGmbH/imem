@@ -92,11 +92,13 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
         [ok] -> 
             StmtRefs = [element(2,R2) || R2 <- CreateResult],
             {ok, #stmtResults{stmtRefs=StmtRefs,stmtClass=Class,rowCols=RowCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}};
-        [Error|_] ->
+        [] ->
+            ?ClientError({"Select statement(s) cannot be created", []});
+        Error ->
             Pred = fun(Res) -> (element(1,Res) == ok) end,
             RollbackRefs = [element(2,R3) || R3 <- lists:filter(Pred, CreateResult)],
-            imem_statement:close(SKey, RollbackRefs),
-            ?ClientError({"Exec error",Error})
+            [catch imem_statement:close(SKey, RollbackRef) || RollbackRef <- RollbackRefs],
+            ?ClientError({"Select statement(s) cannot be created", Error})
     end.
 
 bind_table_names([], TableList) -> TableList;
