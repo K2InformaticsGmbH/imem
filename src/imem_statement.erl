@@ -274,6 +274,9 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
     end,
     imem_meta:log_slow_process(?MODULE, update_cursor_prepare, STT, 100, 4000, [{table,hd(Stmt#statement.tables)},{rows,length(ChangeList)}]),    
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
+handle_call({update_cursor_execute, _IsSec, _SKey, _Lock}, _From, #state{updPlan=UpdatePlan}=State) when UpdatePlan==[] ->
+    % nothing to do, return empty keylist
+    {reply, [], State};
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR}=FetchCtx0,
     % ?Debug("UpdateMetaRec ~p~n", [MR]),
@@ -1143,14 +1146,17 @@ update_prepare(IsSec, SKey, [{Node,Schema,Table}|_], ColMap, ChangeList) ->
 -define(replace(__X,__Cx,__New), setelement(?MainIdx, __X, setelement(__Cx,element(?MainIdx,__X), __New))). 
 -define(ins_repl(__X,__Cx,__New), setelement(__Cx,__X, __New)). 
 
-node_from_recs(Recs) -> element(2,element(?MainIdx,Recs)).  % second item in MetaRec
+node_from_recs(Recs) -> element(2,element(?MetaIdx,Recs)).  % second item in MetaRec
 
-update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> Acc;
+update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> 
+    ?Info("UpdatePlan on ~p ~p",[self(),Acc]),
+    Acc;
 update_prepare(IsSec, SKey, TableInfo, ColMap, [CItem|CList], Acc) ->
     Node=element(1,TableInfo),
     case node_from_recs(lists:nth(3,CItem)) of
         Node -> update_prepare_local(IsSec, SKey, TableInfo, ColMap, [CItem|CList], Acc);
-        _ ->    update_prepare(IsSec, SKey, TableInfo, ColMap, CList, Acc)
+        _ ->    ?Info("update_prepare skipped ~p ~p",[TableInfo,CItem]),
+                update_prepare(IsSec, SKey, TableInfo, ColMap, CList, Acc)
     end.
 
 update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
