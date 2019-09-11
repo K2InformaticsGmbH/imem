@@ -342,10 +342,10 @@ test_with_or_without_sec_part1(IsSec) ->
     ],
     ExpectedKeys3 = [
         {1, {{1,node()}, {def, <<"2">>, 2}}},
-        {3, {{3,node()}, {}}},
-        {4, {{4,node()}, {def, <<"112">>, 12}}},
-        {5, {{5,node()}, {def, <<"99">>, undefined}}},
-        {6, {{6,node()}, {def, <<"10">>, 110}}}
+        {3, {{1,node()}, {}}},
+        {4, {{1,node()}, {def, <<"112">>, 12}}},
+        {5, {{1,node()}, {def, <<"99">>, undefined}}},
+        {6, {{1,node()}, {def, <<"10">>, 110}}}
     ],
     ?CTPAL("ChangeList3"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR1, IsSec, ChangeList3)),
