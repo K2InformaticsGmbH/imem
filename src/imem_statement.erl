@@ -279,7 +279,7 @@ handle_call({update_cursor_execute, _IsSec, _SKey, _Lock}, _From, #state{updPlan
     {reply, [], State};
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{metarec=MR}=FetchCtx0,
-    % ?Debug("UpdateMetaRec ~p~n", [MR]),
+    ?Info("UpdateMetaRec ~p", [MR]),
     STT = ?TIMESTAMP,
     Reply = try 
         % case FetchCtx0#fetchCtx.monref of
@@ -1132,7 +1132,7 @@ update_prepare(IsSec, SKey, [{Node,Schema,Table}|_], ColMap, ChangeList) ->
     TableInfo = {Node,Schema,Table,TableType,list_to_tuple(DefRec),Trigger,User,[]},  % No trigger options supported for now
     %% transform a ChangeList   
         % [1,nop,{?MR,{def,"2","'2'"}},"2"],                    %% no operation on this line
-        % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
+        % [5,ins,{?MR},"99"],                                   %% insert {def,"99", undefined}
         % [3,del,{?MR,{def,"5","'5'"}},"5"],                    %% delete {def,"5","'5'"}
         % [4,upd,{?MR,{def,"12","'12'"}},"112"]                 %% update {def,"12","'12'"} to {def,"112","'12'"}
     %% into an UpdatePlan                                       {table} = {Node,Schema,PTN,Type}
@@ -1155,7 +1155,7 @@ update_prepare(IsSec, SKey, TableInfo, ColMap, [CItem|CList], Acc) ->
     Node=element(1,TableInfo),
     case node_from_recs(lists:nth(3,CItem)) of
         Node -> update_prepare_local(IsSec, SKey, TableInfo, ColMap, [CItem|CList], Acc);
-        _ ->    ?Info("update_prepare skipped ~p ~p",[TableInfo,CItem]),
+        _ ->    %?Info("update_prepare skipped ~p ~p",[TableInfo,CItem]),
                 update_prepare(IsSec, SKey, TableInfo, ColMap, CList, Acc)
     end.
 
