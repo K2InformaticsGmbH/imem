@@ -56,6 +56,7 @@
                     , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
                     , filter    ::any()             %% filter specification {Guard,Binds}
                     , recName   ::atom()
+                    , lastmeta  ::tuple()
                     }).
 
 -record(state,                  %% state for statment process, including fetch subprocess
@@ -274,18 +275,17 @@ handle_call({update_cursor_prepare, IsSec, _SKey, ChangeList}, _From, #state{sta
     end,
     imem_meta:log_slow_process(?MODULE, update_cursor_prepare, STT, 100, 4000, [{table,hd(Stmt#statement.tables)},{rows,length(ChangeList)}]),    
     {reply, Reply, State#state{updPlan=UpdatePlan1}};  
+handle_call({update_cursor_execute, _IsSec, _SKey, _Lock}, _From, #state{updPlan=UpdatePlan}=State) when UpdatePlan==[] ->
+    % nothing to do, return empty keylist
+    {reply, [], State};
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MR}=FetchCtx0,
-    % ?Debug("UpdateMetaRec ~p~n", [MR]),
+    #fetchCtx{lastmeta=MR}=FetchCtx0,
+    ?Info("UpdateMetaRec ~p", [MR]),
     STT = ?TIMESTAMP,
     Reply = try 
-        % case FetchCtx0#fetchCtx.monref of
-        %     undefined ->    ok;
-        %     MonitorRef ->   kill_fetch(MonitorRef, FetchCtx0#fetchCtx.pid)
-        % end,
-        % ?Debug("UpdatePlan ~p~n", [UpdatePlan]),
+        %?Info("UpdatePlan ~p~n", [UpdatePlan]),
         KeyUpdateRaw = if_call_mfa(IsSec,update_tables,[SKey, UpdatePlan, Lock]),
-        % ?Debug("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
+        %?Info("KeyUpdateRaw ~p~n", [KeyUpdateRaw]),
         case length(Stmt#statement.tables) of
             1 ->    
                 WrapOut = fun({Tag,X}) -> {Tag,?MetaMain(MR, X)} end,
@@ -407,7 +407,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                     {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
                     % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
                     % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-                    FetchSkip = #fetchCtx{status=undefined,metarec=MR,blockSize=BlockSize
+                    FetchSkip = #fetchCtx{status=undefined,metarec=MR,lastmeta=MR,blockSize=BlockSize
                                          ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
                                          ,opts=Opts,tailSpec=TailSpec
                                          ,filter=FilterFun,recName=RecName},
@@ -443,7 +443,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                                           catch {'ClientError', {"Table does not exist", _TableName}} -> undefined
                                           end,
                                 FetchStart = #fetchCtx{pid=TransPid,monref=MonitorRef,status=waiting
-                                                      ,metarec=MR,blockSize=BlockSize
+                                                      ,metarec=MR,lastmeta=MR,blockSize=BlockSize
                                                       ,rownum=RowNum,remaining=MainSpec#scanSpec.limit
                                                       ,opts=Opts,tailSpec=TailSpec,filter=FilterFun
                                                       ,recName=RecName},
@@ -468,7 +468,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
             % ?LogDebug("Tail Spec after meta bind:~n~p~n", [TailSpec]),
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
-            FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
+            FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,lastmeta=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
             MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
@@ -479,7 +479,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             % ?LogDebug("Filter Fun after meta bind:~n~p~n", [FilterFun]),
             Pid ! next,
             % ?LogDebug("fetch opts ~p~n", [Opts]),
-            FetchContinue = FetchCtx0#fetchCtx{metarec=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun}, 
+            FetchContinue = FetchCtx0#fetchCtx{metarec=MR,lastmeta=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun}, 
             {noreply, State#state{reply=Sock,fetchCtx=FetchContinue}}  
     end;
 handle_cast({close, _SKey}, State) ->
@@ -1123,17 +1123,16 @@ send_reply_to_client(SockOrPid, Result) ->
     %?Info("Reply ~p",[NewResult]),
     imem_server:send_resp(NewResult, SockOrPid).
 
-update_prepare(IsSec, SKey, [{_Node,Schema,Table}|_], ColMap, ChangeList) ->
-    PTN = imem_meta:physical_table_name(Table),
-    {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,PTN}),
+update_prepare(IsSec, SKey, [{Node,Schema,Table}|_], ColMap, ChangeList) ->
     User = if_call_mfa(IsSec, meta_field_value, [SKey, user]),
-    TableInfo = {Schema,PTN,TableType,list_to_tuple(DefRec),Trigger,User,[]},  % No trigger options supported for now
+    {TableType, DefRec, Trigger} =  imem_meta:trigger_infos({Schema,Table}),
+    TableInfo = {Node,Schema,Table,TableType,list_to_tuple(DefRec),Trigger,User,[]},  % No trigger options supported for now
     %% transform a ChangeList   
-        % [1,nop,{?EmptyMR,{def,"2","'2'"}},"2"],               %% no operation on this line
-        % [5,ins,{},"99"],                                      %% insert {def,"99", undefined}
-        % [3,del,{?EmptyMR,{def,"5","'5'"}},"5"],               %% delete {def,"5","'5'"}
-        % [4,upd,{?EmptyMR,{def,"12","'12'"}},"112"]            %% update {def,"12","'12'"} to {def,"112","'12'"}
-    %% into an UpdatePlan                                       {table} = {Schema,PTN,Type}
+        % [1,nop,{?MR,{def,"2","'2'"}},"2"],                    %% no operation on this line
+        % [5,ins,{?MR},"99"],                                   %% insert {def,"99", undefined}
+        % [3,del,{?MR,{def,"5","'5'"}},"5"],                    %% delete {def,"5","'5'"}
+        % [4,upd,{?MR,{def,"12","'12'"}},"112"]                 %% update {def,"12","'12'"} to {def,"112","'12'"}
+    %% into an UpdatePlan                                       {table} = {Node,Schema,PTN,Type}
         % [1,{table},{def,"2","'2'"},{def,"2","'2'"}],          %% no operation on this line
         % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
@@ -1144,14 +1143,26 @@ update_prepare(IsSec, SKey, [{_Node,Schema,Table}|_], ColMap, ChangeList) ->
 -define(replace(__X,__Cx,__New), setelement(?MainIdx, __X, setelement(__Cx,element(?MainIdx,__X), __New))). 
 -define(ins_repl(__X,__Cx,__New), setelement(__Cx,__X, __New)). 
 
-update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> Acc;
-update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
+node_from_recs(Recs) -> element(2,element(?MetaIdx,Recs)).  % second item in MetaRec
+
+update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> 
+    ?Info("UpdatePlan on ~p ~p",[self(),Acc]),
+    Acc;
+update_prepare(IsSec, SKey, TableInfo, ColMap, [CItem|CList], Acc) ->
+    Node=element(1,TableInfo),
+    case node_from_recs(lists:nth(3,CItem)) of
+        Node -> update_prepare_local(IsSec, SKey, TableInfo, ColMap, [CItem|CList], Acc);
+        _ ->    %?Info("update_prepare skipped ~p ~p",[TableInfo,CItem]),
+                update_prepare(IsSec, SKey, TableInfo, ColMap, CList, Acc)
+    end.
+
+update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,nop,Recs|_]|CList], Acc) ->
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), element(?MainIdx,Recs), Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
+update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,_,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,del,Recs|_]|CList], Acc) ->
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), {}, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
+update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,upd,Recs|Values]|CList], Acc) ->
     %?Info("update_prepare ColMap~n~p", [ColMap]),
     %?Info("update_prepare Values~n~p", [Values]),
     if  
@@ -1206,7 +1217,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,Pos,Fx};
-                     {bytes,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind,LenBind} when T==bitstring;T==binary;T==term;T==binterm ->    
+                    {bytes,#bind{tind=?MainIdx,cind=Cx,type=T}=B,StartBind,LenBind} when T==bitstring;T==binary;T==term;T==binterm ->    
                         Start=imem_sql_expr:bind_tree(StartBind,Recs), 
                         Len=imem_sql_expr:bind_tree(LenBind,Recs), 
                         Fx = fun(X) -> 
@@ -1282,7 +1293,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                             end
                         end,     
                         {Cx,abs(Start)+1,Fx};
-                   {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1409,9 +1420,9 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                                                     OldVal ->   
                                                         X;
                                                     NewVal2 ->   
-                                                         NewParent2 = imem_json:put(AttName,NewVal2,imem_json:get(ParentName,?BoundVal(B,X))),
+                                                        NewParent2 = imem_json:put(AttName,NewVal2,imem_json:get(ParentName,?BoundVal(B,X))),
                                                         ?replace(X,Cx,imem_json:put(ParentName,NewParent2,?BoundVal(B,X)))
-                                               end
+                                            end
                                             end
                                     end
                             end
@@ -1435,16 +1446,16 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
                     ?replace(X,Cx,imem_datatype:io_to_db(Item,?BoundVal(CMap,X),T,L,P,D,false,Value))
                 end,     
                 {Cx,0,Fx}
-          end
-          || 
-          {#bind{readonly=R}=CMap,Value} 
-          <- lists:zip(ColMap,Values), R==false % , Value /= ?navio
+        end
+        || 
+        {#bind{readonly=R}=CMap,Value} 
+        <- lists:zip(ColMap,Values), R==false % , Value /= ?navio
         ]),    
     UpdatedRecs = update_recs(Recs, UpdateMap),
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, element(?MainIdx, UpdatedRecs), Tab]),
     Action = [{S,Tab,Typ}, Item, element(?MainIdx,Recs), NewRec, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,Recs|Values]|CList], Acc) ->
+update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, ColMap, [[Item,ins,Recs|Values]|CList], Acc) ->
     %?Info("ColMap~n~p~n", [ColMap]),
     %?Info("Values~n~p~n", [Values]),
     if  
@@ -1544,7 +1555,7 @@ update_prepare(IsSec, SKey, {S,Tab,Typ,DefRec,Trigger,User,TrOpts}=TableInfo, Co
     NewRec = if_call_mfa(IsSec, apply_validators, [SKey, DefRec, update_recs(DefRec, InsertMap), Tab]),
     Action = [{S,Tab,Typ}, Item, {},  NewRec, Trigger, User, TrOpts],     
     update_prepare(IsSec, SKey, TableInfo, ColMap, CList, [Action|Acc]);
-update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [CLItem|_], _Acc) ->
+update_prepare_local(_IsSec, _SKey, _TableInfo, _ColMap, [CLItem|_], _Acc) ->
     ?ClientError({"Invalid format of change list", CLItem}).
 
 update_recs(Recs, []) -> Recs;

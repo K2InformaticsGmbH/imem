@@ -1,13 +1,16 @@
 -module(imem_sql_select).
 
+-include("imem_meta.hrl").
 -include("imem_seco.hrl").
 -include("imem_sql.hrl").
 
 -define(DefaultRendering, str ).         %% gui (strings when necessary) | str (always strings) | raw (erlang terms) 
 
--define(GET_DATE_FORMAT(__IsSec),?GET_CONFIG(dateFormat,[__IsSec],eu,"Default date format (eu/us/iso/raw) to return in SQL queries.")).            %% eu | us | iso | raw
--define(GET_NUM_FORMAT(__IsSec),?GET_CONFIG(numberFormat,[__IsSec],{prec,2},"Default number formats and precision (not used yet).")).     %% not used yet
+-define(GET_DATE_FORMAT(__IsSec),?GET_CONFIG(dateFormat,[__IsSec],eu,"Default date format (eu/us/iso/raw) to return in SQL queries.")).             %% eu | us | iso | raw
+-define(GET_NUM_FORMAT(__IsSec),?GET_CONFIG(numberFormat,[__IsSec],{prec,2},"Default number formats and precision (not used yet).")).               %% not used yet
 -define(GET_STR_FORMAT(__IsSec),?GET_CONFIG(stringFormat,[__IsSec],[],"Default string format to return in SQL queries (not used yet).")).           %% not used yet
+-define(GET_ALLOW_CLUSTER_QUERY(__AccountId),?GET_CONFIG(allowClusterQuery,[__AccountId],false,"Is user allowed to perform cluster queries (C = across all nodes)?")).
+-define(GET_ALLOW_RANGE_QUERY(__AccountId),?GET_CONFIG(allowRangeQuery,[__AccountId],false,"Is user allowed to perform partition queries (P = across all partitions)?")).
 
 -export([ exec/5
         , flatten_tables/1
@@ -25,6 +28,22 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     %?Info("TableList: ~p~n", [TableList]),
     Class = imem_sql:statement_class(hd(TableList)),
     %?Info("Statement Class: ~p", [Class]),
+    AccountId = case IsSec of 
+        false   ->  undefined;
+        true ->     imem_seco:account_id(SKey)
+    end,
+    case { ?GET_ALLOW_CLUSTER_QUERY(AccountId), lists:member($C, Class)} of
+        {true,_} ->         ok;
+        {false,false} ->    ok;
+        {false,true} ->
+            ?ClientError({"You are not allowed to run cluster queries. Please select on each node separately.", AccountId})
+    end,
+    case { ?GET_ALLOW_RANGE_QUERY(AccountId), lists:member($P, Class)} of
+        {true,_} ->         ok;
+        {false,false} ->    ok;
+        {false,true} ->
+            ?ClientError({"You are not allowed to run range queries. Please select each time partition separately.", AccountId})
+    end,
     ClusterTableNames = lists:sort(imem_sql:cluster_table_names(hd(TableList))),
     %?Info("ClusterTableNames: ~p", [ClusterTableNames]),
     LT = fun({N,_S,_T}) -> (N==node()) end,
@@ -91,11 +110,13 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
         [ok] -> 
             StmtRefs = [element(2,R2) || R2 <- CreateResult],
             {ok, #stmtResults{stmtRefs=StmtRefs,stmtClass=Class,rowCols=RowCols,rowFun=RowFun,sortFun=SortFun,sortSpec=SortSpec}};
-        [Error|_] ->
+        [] ->
+            ?ClientError({"Select statement(s) cannot be created. Maybe a data node is stopped.", []});
+        Error ->
             Pred = fun(Res) -> (element(1,Res) == ok) end,
             RollbackRefs = [element(2,R3) || R3 <- lists:filter(Pred, CreateResult)],
-            imem_statement:close(SKey, RollbackRefs),
-            ?ClientError({"Exec error",Error})
+            [catch imem_statement:close(SKey, RollbackRef) || RollbackRef <- RollbackRefs],
+            ?ClientError({"Select statement(s) cannot be created. Maybe a data node is stopped.", Error})
     end.
 
 bind_table_names([], TableList) -> TableList;
