@@ -54,7 +54,7 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     %?Info("RemoteClusterTableNames: ~p", [RemoteClusterTableNames]),
     MetaFields = lists:usort(imem_sql:prune_fields(imem_meta:meta_field_list(),ParseTree))--[?META_ROWNUM,?META_NODE],
     AllMetaFields = [?META_ROWNUM,?META_NODE|MetaFields],  
-    ?Info("AllMetaFields ~p",[AllMetaFields]), 
+    %?Info("AllMetaFields ~p",[AllMetaFields]), 
     FullMap = imem_sql_expr:column_map_tables(TableList,AllMetaFields,Params),
     %?Info("FullMap:~n~p~n", [?FP(FullMap,"23678")]),
     %?Info("FullMap:~n~p", [FullMap]),

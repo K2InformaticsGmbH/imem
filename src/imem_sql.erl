@@ -225,17 +225,17 @@ statement_class_test_() ->
     , {"C_5", ?_assertEqual("C", statement_class({as,ddTest@,<<"TEST">>}))}
     , {"C_6", ?_assertEqual("C", statement_class(<<"ddTest_1234567890@">>))} 
 
-    , {"PC_1", ?_assertEqual("PC",statement_class("ddTest_1234@"))}
-    , {"PC_2", ?_assertEqual("PC",statement_class(<<"ddTest_1234@">>))}
-    , {"PC_3", ?_assertEqual("PC",statement_class(ddTest_1234@))}
-    , {"PC_4", ?_assertEqual("PC",statement_class({imem_meta:schema(),ddTest_1234@}))}
-    , {"PC_5", ?_assertEqual("PC",statement_class({as,ddTest_1234@,<<"TEST">>}))}
+    , {"PC_1", ?_assertEqual("CP",statement_class("ddTest_1234@"))}
+    , {"PC_2", ?_assertEqual("CP",statement_class(<<"ddTest_1234@">>))}
+    , {"PC_3", ?_assertEqual("CP",statement_class(ddTest_1234@))}
+    , {"PC_4", ?_assertEqual("CP",statement_class({imem_meta:schema(),ddTest_1234@}))}
+    , {"PC_5", ?_assertEqual("CP",statement_class({as,ddTest_1234@,<<"TEST">>}))}
 
-    , {"PR_1", ?_assertEqual("PR", statement_class("ddTest_1234@007"))} 
-    , {"PR_2", ?_assertEqual("PR", statement_class(<<"ddTest_1234@007">>))} 
-    , {"PR_3", ?_assertEqual("PR", statement_class(ddTest_1234@007))}
-    , {"PR_4", ?_assertEqual("PR", statement_class({imem_meta:schema(),ddTest_1234@007}))} 
-    , {"PR_5", ?_assertEqual("PR", statement_class({as,ddTest_1234@007,<<"TEST">>}))}
+    , {"PR_1", ?_assertEqual("RP", statement_class("ddTest_1234@007"))} 
+    , {"PR_2", ?_assertEqual("RP", statement_class(<<"ddTest_1234@007">>))} 
+    , {"PR_3", ?_assertEqual("RP", statement_class(ddTest_1234@007))}
+    , {"PR_4", ?_assertEqual("RP", statement_class({imem_meta:schema(),ddTest_1234@007}))} 
+    , {"PR_5", ?_assertEqual("RP", statement_class({as,ddTest_1234@007,<<"TEST">>}))}
     ].
 
 parse_sql_name_test_() ->
