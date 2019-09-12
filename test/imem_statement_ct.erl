@@ -96,7 +96,7 @@ test_with_or_without_sec_part1(IsSec) ->
     ?assertEqual([{1, {{1,node()}, {fun_test, 13, 169}}}], imem_statement:update_cursor_execute(SKey, SR00, IsSec, optimistic)),
 
     ChangeList01 = [
-        [2, ins, {{2,node()}, {}}, <<"15">>, <<"1">>]
+        [2, ins, {{0,node()},{}}, <<"15">>, <<"1">>]
     ],
     ?CTPAL("ChangeList01"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, SR00, IsSec, ChangeList01)),
@@ -211,7 +211,7 @@ test_with_or_without_sec_part1(IsSec) ->
 
     O4X = {tuple_test, {key4}, [], {<<"">>, <<"">>}, 4},
 
-    TT1bChange = [[4, ins, {}, <<"key4">>, <<"">>, <<"">>, <<"4">>]],
+    TT1bChange = [[4, ins, {{0,node()},{}}, <<"key4">>, <<"">>, <<"">>, <<"4">>]],
     ?CTPAL("TT1bChange"),
     ?assertEqual(ok, imem_statement:update_cursor_prepare(SKey, TT1b, IsSec, TT1bChange)),
     imem_statement:update_cursor_execute(SKey, TT1b, IsSec, optimistic),
@@ -232,8 +232,8 @@ test_with_or_without_sec_part1(IsSec) ->
     ?assertEqual(1, length(ListTT2a)),
 
     TT2aChange = [
-        [5, ins, {}, <<"{key5,nonode@nohost}">>, <<"a5">>, <<"b5">>, <<"5">>]
-        , [6, ins, {}, <<"{key6,somenode@somehost}">>, <<"">>, <<"b6">>, <<"">>]
+        [5, ins, {{0,node()},{}}, <<"{key5,nonode@nohost}">>, <<"a5">>, <<"b5">>, <<"5">>]
+        , [6, ins, {{0,node()},{}}, <<"{key6,somenode@somehost}">>, <<"">>, <<"b6">>, <<"">>]
     ],
     O5X = {tuple_test, {key5, nonode@nohost}, [a5, b5], {}, 5},
     O6X = {tuple_test, {key6, somenode@somehost}, [<<"">>, b6], {}, undefined},
@@ -326,7 +326,7 @@ test_with_or_without_sec_part1(IsSec) ->
 
     ChangeList3 = [
         [1, nop, {{1,node()}, {def, <<"2">>, 2}}, <<"2">>, <<"2">>],         %% no operation on this line
-        [5, ins, {}, <<"99">>, <<"undefined">>],             %% insert {def,"99", undefined}
+        [5, ins, {{0,node()},{}}, <<"99">>, <<"undefined">>],                %% insert {def,"99", undefined}
         [3, del, {{3,node()}, {def, <<"5">>, 5}}, <<"5">>, <<"5">>],         %% delete {def,"5",5}
         [4, upd, {{4,node()}, {def, <<"112">>, 12}}, <<"112">>, <<"12">>],   %% nop update {def,"112",12}
         [6, upd, {{6,node()}, {def, <<"10">>, 10}}, <<"10">>, <<"110">>]     %% update {def,"10",10} to {def,"10",110}

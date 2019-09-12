@@ -457,7 +457,8 @@ meta_partitions(_Config) ->
     ?CTPAL("TimePartTable ~p", [TimePartTable0]),
     ?assertEqual(TimePartTable0, imem_meta:physical_table_name(?TPTEST_1000@, ?TIMESTAMP)),
     ?assertMatch({ok, _}, imem_meta:create_check_table(?TPTEST_1000@, {record_info(fields, ddLog), ?ddLog, #ddLog{}}, [{record_name, ddLog}, {type, ordered_set}], system)),
-    ?CTPAL("Alias0 ~p", [[element(2, A) || A <- imem_meta:read(ddAlias)]]),
+    % ?CTPAL("Alias0 ~p", [[element(2, A) || A <- imem_meta:read(ddAlias)]]),
+    ?CTPAL("Alias0~n~p", [imem_meta:read(ddAlias)]),
     ?assertEqual(ok, imem_meta:check_table(TimePartTable0)),
     ?assertEqual(0, imem_meta:table_size(TimePartTable0)),
     ?assertEqual([TimePartTable0], imem_meta:physical_table_names(?TPTEST_1000@)),
@@ -466,7 +467,8 @@ meta_partitions(_Config) ->
     ?assert(lists:member({imem_meta:schema(), ?TPTEST_1000@}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
     ?assertNot(lists:member({imem_meta:schema(), ?TPTEST_100@}, [element(2, A) || A <- imem_meta:read(ddAlias)])),
     ct:sleep(1000),
-    ?CTPAL("parsed alias names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
+    ?CTPAL("Alias1~n~p", [imem_meta:read(ddAlias)]),
+    %?CTPAL("parsed alias names ~p", [[imem_meta:parse_table_name(TA) || #ddAlias{qname = {S, TA}} <- imem_if_mnesia:read(ddAlias), S == imem_meta:schema()]]),
     ?assertException(throw
         , {'ClientError', {"Name conflict (different rolling period) in ddAlias", ?TPTEST_100@}}
         , imem_meta:create_check_table(?TPTEST_100@
