@@ -280,7 +280,7 @@ handle_call({update_cursor_execute, _IsSec, _SKey, _Lock}, _From, #state{updPlan
     {reply, [], State};
 handle_call({update_cursor_execute, IsSec, _SKey, Lock}, _From, #state{seco=SKey, fetchCtx=FetchCtx0, updPlan=UpdatePlan, statement=Stmt}=State) ->
     #fetchCtx{lastmeta=MR}=FetchCtx0,
-    ?Info("UpdateMetaRec ~p", [MR]),
+    %?Info("UpdateMetaRec ~p", [MR]),
     STT = ?TIMESTAMP,
     Reply = try 
         %?Info("UpdatePlan ~p~n", [UpdatePlan]),
@@ -1146,7 +1146,7 @@ update_prepare(IsSec, SKey, [{Node,Schema,Table}|_], ColMap, ChangeList) ->
 node_from_recs(Recs) -> element(2,element(?MetaIdx,Recs)).  % second item in MetaRec
 
 update_prepare(_IsSec, _SKey, _TableInfo, _ColMap, [], Acc) -> 
-    ?Info("UpdatePlan on ~p ~p",[self(),Acc]),
+    %?Info("UpdatePlan on ~p ~p",[self(),Acc]),
     Acc;
 update_prepare(IsSec, SKey, TableInfo, ColMap, [CItem|CList], Acc) ->
     Node=element(1,TableInfo),
