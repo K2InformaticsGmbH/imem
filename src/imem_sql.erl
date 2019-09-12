@@ -31,12 +31,12 @@ statement_class(TableAlias) ->
                  , imem_meta:is_node_sharded_alias(TableAlias)
                  , imem_meta:is_local_alias(TableAlias)
                  } of 
-        {false,false,false} ->  "R";
-        {false,false,true} ->   "L";
-        {false,true, false} ->  "C";
-        {true ,false,false} ->  "PR";
-        {true ,false,true} ->   "P";
-        {true ,true ,false} ->  "PC"
+        {false,false,false} ->  "R";    % remote query of a simple table/partition on another node
+        {false,false,true} ->   "L";    % local query (mapped to "" in GUI)
+        {false,true, false} ->  "C";    % cluster sharded query, simple table/partition across all nodes
+        {true ,false,false} ->  "RP";   % remote partitioned, time partitions on another node
+        {true ,false,true} ->   "P";    % partitioned, time partitions on local node
+        {true ,true ,false} ->  "CP"    % cluster partitioned, all partitions on all nodes
     end.
 
 -spec parse_sql_name(ddString()) -> tuple().
