@@ -529,16 +529,17 @@ mod_source(Module) when is_atom(Module) ->
     end.
 
 mod_gitOrigin(Module) when is_atom(Module) ->
-    case proplists:get_value(
-        gitOrigin,
-        proplists:get_value(
-            compile_info,
-            proplists:get_value(options, Module:module_info(compile)),
-            []
-        )
-    ) of
-        undefined -> undefined;
-        Url when is_binary(Url) -> Url
+    case lists:keyfind(options, 1, Module:module_info(compile)) of
+        {options, Options} ->
+            case lists:keyfind(compile_info, 1, Options) of
+                {compile_info, CompileInfo} ->
+                    case lists:keyfind(gitOrigin, 1, CompileInfo) of
+                        {gitOrigin, Url} when is_binary(Url) -> Url;
+                        _ -> undefined
+                    end;
+                _ -> undefined
+            end;
+        _ -> undefined
     end.
 
 git_info(#{git := false}, _) -> {<<>>, <<>>};
