@@ -7,7 +7,7 @@
 ![GitHub Release Date](https://img.shields.io/github/release-date/K2InformaticsGmbH/imem.svg)
 ![GitHub commits since latest release](https://img.shields.io/github/commits-since/K2InformaticsGmbH/imem/3.3.1.svg)
 
-Clustered in-memory database based on MNESIA with simple SQL layer.
+Clustered in-memory database based on MNESIA with simple SQL layer. Branch test!
 
 * Support for application configuration management.
 * Support for application control by use of MNESIA data change notifications.

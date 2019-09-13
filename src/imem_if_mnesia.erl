@@ -295,6 +295,7 @@ add_attribute(A, Opts) -> update_opts({attributes,A}, Opts).
 
 update_opts({K,_} = T, Opts) when is_atom(K) -> lists:keystore(K, 1, Opts, T).
 
+-spec data_nodes() -> list({Schema::atom,Node::atom()}).
 data_nodes() ->
     data_nodes(mnesia:system_info(running_db_nodes), []).
 data_nodes([], Acc) -> lists:reverse(Acc);
@@ -373,7 +374,7 @@ check_local_table_copy(Table) ->
 %% ---------- MNESIA FUNCTIONS ------ exported -------------------------------
 
 -spec create_table(ddMnesiaTable(), ddColumnList(), ddOptions()) -> ok.
-create_table(Table, ColumnNames, Opts) ->
+create_table(Table, ColumnNames, Opts) when is_atom(Table) ->
     Local = lists:member({scope,local}, Opts),
     Cluster = lists:member({scope,cluster}, Opts),
     if
@@ -594,7 +595,7 @@ select(Table, MatchSpec) when is_atom(Table) ->
         Result ->                           return_atomic_list(Result)
     end.
 
-select_sort(Table, MatchSpec) ->
+select_sort(Table, MatchSpec) when is_atom(Table) ->
     {L, true} = select(Table, MatchSpec),
     {lists:sort(L), true}.
 
@@ -625,11 +626,11 @@ select(Table, MatchSpec, Limit) when is_atom(Table) ->
         Error ->                                ?SystemExceptionNoLogging(Error)
     end.
 
-select_sort(Table, MatchSpec, Limit) ->
+select_sort(Table, MatchSpec, Limit) when is_atom(Table) ->
     {Result, AllRead} = select(Table, MatchSpec, Limit),
     {lists:sort(Result), AllRead}.
 
-fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) ->
+fetch_start(Pid, Table, MatchSpec, BlockSize, Opts) when is_atom(Table) ->
     F =
     fun(F,Contd0) ->
         receive

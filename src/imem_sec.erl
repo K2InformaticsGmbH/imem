@@ -143,7 +143,9 @@ clone_seco(SKey, Pid) ->
 
 %% from imem_meta --- HELPER FUNCTIONS do not export!! --------
 
-if_is_system_table(SKey,{_,Table}) -> 
+if_is_system_table(SKey,{_Node,Schema,Table}) -> 
+    if_is_system_table(SKey,{Schema,Table});
+if_is_system_table(SKey,{_Schema,Table}) -> 
     if_is_system_table(SKey,Table);       % TODO: May depend on Schema
 if_is_system_table(_SKey,Table) when is_atom(Table) ->
     case lists:member(Table,?SECO_TABLES) of
@@ -218,6 +220,8 @@ all_tables(SKey) ->
     all_selectable_tables(SKey, imem_meta:all_tables(), []).
 
 all_selectable_tables(_SKey, [], Acc) -> lists:sort(Acc);
+all_selectable_tables(SKey, [{_Node,Schema,Table}|Rest], Acc0) -> 
+    all_selectable_tables(SKey, [{Schema,Table}|Rest], Acc0);
 all_selectable_tables(SKey, [Table|Rest], Acc0) -> 
     Acc1 = case have_table_permission(SKey, Table, select) of
         false ->    Acc0;
@@ -225,6 +229,8 @@ all_selectable_tables(SKey, [Table|Rest], Acc0) ->
     end,
     all_selectable_tables(SKey, Rest, Acc1).
 
+is_readable_table(SKey,{_Node,Schema,Table}) ->
+    is_readable_table(SKey,{Schema,Table});
 is_readable_table(SKey,Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:is_readable_table(Table);
@@ -246,42 +252,52 @@ atoms_starting_with(Prefix,[A|Atoms],Acc) ->
         false ->    atoms_starting_with(Prefix,Atoms,Acc)
     end.
 
+table_type(SKey, {_Node,Schema,Table}) ->
+    table_type(SKey, {Schema,Table});
 table_type(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_type(Table);
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
-physical_table_name(SKey,Name) ->
+physical_table_name(SKey, Name) ->
     PhysicalName = imem_meta:physical_table_name(Name),
     case have_table_permission(SKey, PhysicalName, select) of
         true ->     PhysicalName;
         false ->    ?SecurityException({"Select unauthorized", {PhysicalName,SKey}})
     end.
 
-physical_table_names(SKey,Name) ->
+physical_table_names(SKey, Name) ->
     PhysicalNames = imem_meta:physical_table_names(Name),
     Pred = fun(PN) -> have_table_permission(SKey, PN, select) end,
     lists:filter(Pred,PhysicalNames).
 
+table_columns(SKey, {_Node,Schema,Table}) ->
+    table_columns(SKey, {Schema,Table});
 table_columns(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_columns(Table);
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
+table_record_name(SKey, {_Node,Schema,Table}) ->
+    table_record_name(SKey, {Schema,Table});
 table_record_name(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_record_name(Table);
         false ->    ?SecurityException({"Select unauthorized", {Table,SKey}})
     end.
 
+table_size(SKey, {_Node,Schema,Table}) ->
+    table_size(SKey, {Schema,Table});
 table_size(SKey, Table) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:table_size(Table);
         false ->    ?SecurityException({"Select unauthorized", {Table, SKey}})
     end.
 
+subscribe(SKey, {table, {_Node,Schema,Table}, Level}) ->
+    subscribe(SKey, {table, {Schema,Table}, Level});
 subscribe(SKey, {table, Table, Level}) ->
     case have_table_permission(SKey, Table, select) of
         true ->     imem_meta:subscribe({table, Table, Level});
@@ -646,10 +662,13 @@ fetch_start(SKey, Pid, all_tables, MatchSpec, BlockSize, Opts) ->
 fetch_start(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
     seco_authorized(SKey),
     Schema = imem_meta:schema(),
+    Node = node(),
     case Table of
-        {Schema,_} ->   fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts);    % local schema select
-        {_,_} ->        fetch_start_system(SKey, Pid, Table, MatchSpec, BlockSize, Opts);   % ddSysConf / csv$ superuser select
-        _ ->            fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts)     % local schema select
+        {Node,Schema,T} ->  fetch_start_local(SKey, Pid, {Schema,T}, MatchSpec, BlockSize, Opts);    % local schema select
+        {Schema,T} ->       fetch_start_local(SKey, Pid, {Schema,T}, MatchSpec, BlockSize, Opts);    % local schema select
+        {Node,S,T} ->       fetch_start_system(SKey, Pid, {S,T}, MatchSpec, BlockSize, Opts);        % ddSysConf / csv$ superuser select
+        {S,T} ->            fetch_start_system(SKey, Pid, {S,T}, MatchSpec, BlockSize, Opts);   % ddSysConf / csv$ superuser select
+        _ ->                ?SecurityException({"Select unauthorized on foreign node", {Table,SKey}})  
     end.
 
 fetch_start_local(SKey, Pid, Table, MatchSpec, BlockSize, Opts) ->
@@ -673,9 +692,11 @@ fetch_start_virtual(SKey, Pid, Table, Rows, BlockSize, Limit, Opts) ->
     seco_authorized(SKey),
     % ?LogDebug("imem_sec:fetch_start_virtual ~p",[self()]),
     Schema = imem_meta:schema(),
+    Node = node(),
     case Table of
-        {Schema,_} ->   imem_meta:fetch_start_virtual(Pid, Table, Rows, BlockSize, Limit, Opts);
-        _ ->            ?SecurityException({"Select virtual in foreign schema unauthorized", {Table,SKey}}) 
+        {Schema,T} ->       imem_meta:fetch_start_virtual(Pid, {Schema,T}, Rows, BlockSize, Limit, Opts);
+        {Node,Schema,T} ->  imem_meta:fetch_start_virtual(Pid, {Schema,T}, Rows, BlockSize, Limit, Opts);
+        _ ->                ?SecurityException({"Select virtual in foreign schema unauthorized", {Table,SKey}}) 
     end.
 
 fetch_close(SKey, Pid) ->
@@ -886,6 +907,8 @@ have_permission(SKey, Permission) ->
             Result
     end.      
 
+have_table_permission(SKey, {_Node,Schema,Table}, Operation) ->
+    have_table_permission(SKey, {Schema,Table}, Operation);
 have_table_permission(SKey, Table, Operation) ->
     Permission = {table,Table,Operation},
     case get_permission_cache(SKey, Permission) of
@@ -929,8 +952,8 @@ seco_authorized(SKey) ->
             ?SecurityException({"Not logged in", SKey})
     end.   
 
-% have_table_ownership(SKey, {Schema,Table,_Alias}) ->
-%     have_table_ownership(SKey, {Schema,Table});
+have_table_ownership(SKey, {_Node,Schema,Table}) ->
+    have_table_ownership(SKey, {Schema,Table});
 have_table_ownership(SKey, {Schema,Table}) when is_atom(Schema), is_atom(Table) ->
     #ddSeCo{accountId=AccountId} = seco_authorized(SKey),
     Owner = case imem_meta:read(ddTable, {Schema,Table}) of
@@ -946,11 +969,13 @@ have_table_ownership(SKey, {Schema,Table}) when is_atom(Schema), is_atom(Table) 
 have_table_ownership(SKey, Table) when is_binary(Table) ->
     have_table_ownership(SKey, imem_meta:qualified_table_name(Table)).
 
-have_table_permission(SKey, {Schema,Table,_Alias}, Operation, Type) ->
-    have_table_permission(SKey, {Schema,Table}, Operation, Type);
+% have_table_permission(SKey, {Schema,Table,Alias}, Operation, Type) ->
+%     have_table_permission(SKey, {Schema,Table}, Operation, Type);
+have_table_permission(SKey, {_Node,Schema,Table}, Operation, true) ->
+    have_table_permission(SKey, {Schema,Table}, Operation, true);
 have_table_permission(_SKey, {_,dual}, select, _) ->  true;
 have_table_permission(_SKey, {_,dual}, _, _) ->  false;
-have_table_permission(SKey, {_,Table}, Operation, true) ->
+have_table_permission(SKey, {_Schema,Table}, Operation, true) ->
     imem_seco:have_permission(SKey, [manage_system_tables, {table,Table,Operation}]);
 have_table_permission(SKey, {Schema,Table}, select, false) ->
     case imem_seco:have_permission(SKey, [manage_user_tables]) of

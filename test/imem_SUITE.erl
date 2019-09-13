@@ -9,6 +9,7 @@
 
 -module(imem_SUITE).
 -include_lib("common_test/include/ct.hrl").
+-include("imem_ct.hrl").
 
 -export([
     all/0,
@@ -35,6 +36,7 @@
     meta_operations/1,
     meta_partitions/1,
     meta_preparations/1,
+    physical_table_names/1,
     monitor_operations/1,
     sec_test/1,
     seco_test/1,
@@ -70,7 +72,6 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":all/0 - Start ===>~n", []),
     [
         {group, imem_cache},
         {group, imem_config},
@@ -101,7 +102,6 @@ all() ->
 %%--------------------------------------------------------------------
 
 suite() ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":suite/0 - Start ===>~n", []),
     [
         {timetrap, {minutes, 10}}
     ].
@@ -111,14 +111,14 @@ suite() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_suite/1 - Start ===>~n", []),
+    ?CTPAL("Start imem"),
     application:load(imem),
     application:set_env(imem, mnesia_node_type, disc),
     imem:start(),
     Config.
 
 end_per_suite(_Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_suite/1 - Start ===>~n", []),
+    ?CTPAL("Stop imem"),
     imem:stop(),
     ok.
 
@@ -127,7 +127,6 @@ end_per_suite(_Config) ->
 %%--------------------------------------------------------------------
 
 groups() ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":groups/0 - Start ===>~n", []),
     [
         {
             imem_cache, [],
@@ -171,6 +170,7 @@ groups() ->
         {
             imem_meta, [],
             [
+                physical_table_names,
                 meta_operations,
                 meta_preparations,
                 meta_partitions,
@@ -287,128 +287,91 @@ groups() ->
 %%--------------------------------------------------------------------
 
 init_per_testcase(dal_skvh_concurrency = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(dal_skvh_operations = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(dal_skvh_purge_history = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(sql_select_db1_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(sql_select_db1_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(sql_select_db2_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(sql_select_db2_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":init_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
+    ?CTPAL("Start ~p", [TestCase]),
     Config.
 
 end_per_testcase(config_operations = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_config_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(dal_skvh_concurrency = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(dal_skvh_operations = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(dal_skvh_purge_history = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(if_mnesia_table_operations = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_if_mnesia_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(import_test_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_import_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(import_test_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_import_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(meta_concurrency = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
+    imem_meta_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(physical_table_names = TestCase, Config) ->
     imem_meta_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(meta_operations = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_meta_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(meta_partitions = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_meta_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(meta_preparations = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_meta_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sec_test = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sec_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(seco_test = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_seco_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_account_test_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_account_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_expr_test_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_expr_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_index_test_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_index_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_index_test_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_index_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_insert_test_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_insert_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_insert_test_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_insert_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_select_db1_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_select_db1_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_select_db2_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_select_db2_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_select_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_table_test_with_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_table_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_table_test_without_sec = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_sql_table_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_with_sec_part1 = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_with_sec_part2 = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_with_sec_part3 = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_without_sec_part1 = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_without_sec_part2 = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_without_sec_part3 = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(test_test = TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
     imem_test_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(TestCase, Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":end_per_testcase/2 - ~p - Start ===>~n", [TestCase]),
+    ?CTPAL("Start ~p", [TestCase]),
     Config.
 
 %%====================================================================
@@ -416,7 +379,7 @@ end_per_testcase(TestCase, Config) ->
 %%====================================================================
 
 config_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":config_operations/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_config_ct:config_operations(Config).
 
 %%====================================================================
@@ -424,7 +387,7 @@ config_operations(Config) ->
 %%====================================================================
 
 cache_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":cache_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_cache_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -432,7 +395,7 @@ cache_test_without_sec(Config) ->
 %%====================================================================
 
 partition_size_metric(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":partition_size_metric/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_metrics_ct:test_partition_size(Config).
 
 %%====================================================================
@@ -440,15 +403,15 @@ partition_size_metric(Config) ->
 %%====================================================================
 
 dal_skvh_concurrency(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":dal_skvh_concurrency/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_dal_skvh_ct:skvh_concurrency(Config).
 
 dal_skvh_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":dal_skvh_operations/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_dal_skvh_ct:skvh_operations(Config).
 
 dal_skvh_purge_history(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":dal_skvh_purge_history/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_dal_skvh_ct:skvh_purge_history(Config).
 
 %%====================================================================
@@ -456,7 +419,7 @@ dal_skvh_purge_history(Config) ->
 %%====================================================================
 
 if_csv_test_csv_1(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":if_csv_test_csv_1/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_if_csv_ct:test_csv_1(Config).
 
 %%====================================================================
@@ -464,7 +427,7 @@ if_csv_test_csv_1(Config) ->
 %%====================================================================
 
 if_mnesia_table_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":if_mnesia_table_operations/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_if_mnesia_ct:table_operations(Config).
 
 %%====================================================================
@@ -472,31 +435,35 @@ if_mnesia_table_operations(Config) ->
 %%====================================================================
 
 import_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":import_test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_import_ct:test_with_sec(Config).
 
 import_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":import_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_import_ct:test_without_sec(Config).
 
 %%====================================================================
 %% Test cases: imem_meta.
 %%====================================================================
 
+physical_table_names(Config) ->
+    ?CTPAL("Start"),
+    imem_meta_ct:physical_table_names(Config).
+
 meta_concurrency(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_concurrency/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_meta_ct:meta_concurrency(Config).
 
 meta_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_operations/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_meta_ct:meta_operations(Config).
 
 meta_partitions(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_partitions/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_meta_ct:meta_partitions(Config).
 
 meta_preparations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":meta_preparations/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_meta_ct:meta_preparations(Config).
 
 %%====================================================================
@@ -504,7 +471,7 @@ meta_preparations(Config) ->
 %%====================================================================
 
 monitor_operations(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":monitor_operations/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_monitor_ct:monitor_operations(Config).
 
 %%====================================================================
@@ -512,7 +479,7 @@ monitor_operations(Config) ->
 %%====================================================================
 
 sec_test(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sec_test/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sec_ct:test(Config).
 
 %%====================================================================
@@ -520,7 +487,7 @@ sec_test(Config) ->
 %%====================================================================
 
 seco_test(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":seco_test/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_seco_ct:test(Config).
 
 %%====================================================================
@@ -528,7 +495,7 @@ seco_test(Config) ->
 %%====================================================================
 
 snap_test_snapshot(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":snap_test_snapshot/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_snap_ct:test_snapshot(Config).
 
 %%====================================================================
@@ -536,11 +503,11 @@ snap_test_snapshot(Config) ->
 %%====================================================================
 
 sql_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_ct:test_with_sec(Config).
 
 sql_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -548,7 +515,7 @@ sql_test_without_sec(Config) ->
 %%====================================================================
 
 sql_account_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_account_test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_account_ct:test_with_sec(Config).
 
 %%====================================================================
@@ -556,7 +523,7 @@ sql_account_test_with_sec(Config) ->
 %%====================================================================
 
 sql_expr_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_expr_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_expr_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -564,11 +531,11 @@ sql_expr_test_without_sec(Config) ->
 %%====================================================================
 
 sql_funs_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_funs_test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_funs_ct:test_with_sec(Config).
 
 sql_funs_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_funs_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_funs_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -576,11 +543,11 @@ sql_funs_test_without_sec(Config) ->
 %%====================================================================
 
 sql_index_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_index_test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_index_ct:test_with_sec(Config).
 
 sql_index_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_index_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_index_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -588,11 +555,11 @@ sql_index_test_without_sec(Config) ->
 %%====================================================================
 
 sql_insert_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_insert_test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_insert_ct:test_with_sec(Config).
 
 sql_insert_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_insert_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_insert_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -600,19 +567,19 @@ sql_insert_test_without_sec(Config) ->
 %%====================================================================
 
 sql_select_db1_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_select_db1_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_select_ct:db1_with_sec(Config).
 
 sql_select_db1_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_select_db1_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_select_ct:db1_without_sec(Config).
 
 sql_select_db2_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_select_db2_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_select_ct:db2_with_sec(Config).
 
 sql_select_db2_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_select_db2_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_select_ct:db2_without_sec(Config).
 
 %%====================================================================
@@ -620,11 +587,11 @@ sql_select_db2_without_sec(Config) ->
 %%====================================================================
 
 sql_table_test_with_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_table_test_with_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_table_ct:test_with_sec(Config).
 
 sql_table_test_without_sec(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":sql_table_test_without_sec/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_sql_table_ct:test_without_sec(Config).
 
 %%====================================================================
@@ -632,27 +599,27 @@ sql_table_test_without_sec(Config) ->
 %%====================================================================
 
 statement_test_with_sec_part1(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_with_sec_part1/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_statement_ct:test_with_sec_part1(Config).
 
 statement_test_with_sec_part2(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_with_sec_part1/2 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_statement_ct:test_with_sec_part2(Config).
 
 statement_test_with_sec_part3(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_with_sec_part3/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_statement_ct:test_with_sec_part3(Config).
 
 statement_test_without_sec_part1(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_without_sec_part1/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_statement_ct:test_without_sec_part1(Config).
 
 statement_test_without_sec_part2(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_without_sec_part2/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_statement_ct:test_without_sec_part2(Config).
 
 statement_test_without_sec_part3(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":statement_test_without_sec_part3/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_statement_ct:test_without_sec_part3(Config).
 
 %%====================================================================
@@ -660,5 +627,5 @@ statement_test_without_sec_part3(Config) ->
 %%====================================================================
 
 test_test(Config) ->
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":test_test/1 - Start ===>~n", []),
+    ?CTPAL("Start"),
     imem_test_ct:test(Config).

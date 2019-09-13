@@ -380,8 +380,8 @@ all_apps_version_info(Opts) ->
                 (_) -> false
             end,
             ?GET_CONFIG(
-                itemBlacklist, [], [],
-                "Leaf file/folder to exclude from hash processing"
+                itemBlacklist, [], [node_modules,dist,swagger,dev],
+                "Leaf files/folders to exclude from hash processing for ddVersion"
             )
         ),
     all_apps_version_info(

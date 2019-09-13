@@ -62,8 +62,8 @@ rownum_limit() -> ?GET_ROWNUM_LIMIT.
 -spec bind_scan(integer(),tuple(), #scanSpec{}) -> {#scanSpec{},any(),any()}.
 bind_scan(Ti,X,ScanSpec0) ->
     #scanSpec{sspec=SSpec0,stree=STree0,ftree=FTree0,tailSpec=TailSpec0,filterFun=FilterFun0} = ScanSpec0,
-    % ?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
-    % ?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
+    %?Info("STree before scan (~p) bind :~n~p~n", [Ti,to_guard(STree0)]),
+    %?Info("FTree before scan (~p) bind :~n~p~n", [Ti,to_guard(FTree0)]),
     case {STree0,FTree0} of
         {true,true} ->
             {SSpec0,TailSpec0,FilterFun0};          %% use pre-calculated SSpec0
@@ -80,8 +80,8 @@ bind_scan(Ti,X,ScanSpec0) ->
             [{SHead, [undefined], [Result]}] = SSpec0,
             STree1 = bind_table(Ti, STree0, X),
             {STree2,FTree} = split_filter_from_guard(STree1),
-            % ?Info("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
-            % ?Info("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
+            %?Info("STree after split (~p) :~n~p~n", [Ti,to_guard(STree2)]),
+            %?Info("FTree after split (~p) :~n~p~n", [Ti,to_guard(FTree)]),
             SSpec1 = [{SHead, [to_guard(STree2)], [Result]}],
             FilterFun1 = imem_sql_funs:filter_fun(FTree),
             case Ti of
@@ -301,7 +301,7 @@ bind_fun(Value) ->
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_table(integer(), tuple(), tuple()) -> tuple().
 bind_table(Ti, BTree, X) ->
-    % ?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
+    %?Info("bind_table ~p ~p ~p",[Ti, BTree, X]),
     case bind_tab(Ti, BTree, X) of
         ?nav ->     
             false;
@@ -365,7 +365,7 @@ bind_t(A, _) ->                  bind_value(A). % TODO: may need to bind lists h
 %% throws   ?ClientError, ?UnimplementedException, ?SystemException
 -spec bind_subtree_const(binary()|tuple()) -> list().
 bind_subtree_const(#bind{tind=0,cind=0,btree=BT}=BTree) ->
-    % ?Info("Bind subtree constants~n~p",[BTree]),
+    %?Info("Bind subtree constants~n~p",[BTree]),
     case bind_table(1,BT,unknown) of
         ?nav ->     ?ClientError({"Cannot bind subtree constants", BT});
         Tree ->     BTree#bind{btree=Tree}
@@ -608,7 +608,7 @@ is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{}}}) when Op==bytes;Op==bits -
 is_readonly(#bind{tind=0,cind=0,btree={Op,_,#bind{},#bind{}}}) when Op==bytes;Op==bits -> false;    %% editable projections
 is_readonly(#bind{tind=0,cind=0,btree={from_binterm,_Bind}}) -> false;
 is_readonly(#bind{tind=0,cind=0,type=json}) -> false;
-is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]), 
+is_readonly(_BTree) -> true.  %%?Info("is_readonly ~p",[_BTree]), 
 
 %% @doc Creates full map (all fields of all tables) of bind information to which column
 %% names can be assigned in column_map_columns. A virtual table binding for metadata is prepended.
@@ -618,9 +618,15 @@ is_readonly(_BTree) -> true.  %% ?Info("is_readonly ~p",[_BTree]),
 %% throws   ?ClientError
 -spec column_map_tables(list(binary()|{as,_,_}), list(binary()), list(tuple())) -> list(#bind{}).
 column_map_tables(Tables, MetaFields, Params) ->
+    %?Info("column_map_tables Tables ~p",[Tables]),
+    %?Info("column_map_tables MetaFields ~p",[MetaFields]),
+    %?Info("column_map_tables Params ~p",[Params]),
     MetaBinds = column_map_meta_fields(MetaFields,?MetaIdx,[]),
     ParamBinds = column_map_param_fields(Params,?MetaIdx,lists:reverse(MetaBinds)),
     TableBinds = column_map_table_fields(Tables, ?MainIdx, []),
+    %?Info("column_map_tables TableBinds ~p",[TableBinds]),
+    %?Info("column_map_tables MetaBinds ~p",[MetaBinds]),
+    %?Info("column_map_tables ParamBinds ~p",[ParamBinds]),
     ParamBinds ++ TableBinds.
 
 -spec column_map_meta_fields(list(atom()), integer(), list(#bind{})) -> list(#bind{}).
@@ -652,15 +658,19 @@ column_map_param_fields([Param|Params], Ti, Acc) ->
 -spec column_map_table_fields(list(),integer(),list(#bind{})) -> list(#bind{}).
 column_map_table_fields([], _Ti, Acc) -> Acc;
 column_map_table_fields([{as,Table,Alias}|Tables], Ti, Acc) when is_binary(Table),is_binary(Alias) ->
-    {S,T} = binstr_to_qname2(Table),
+    %?Info("column_map_table_fields 1 ~p",[{as,Table,Alias}]),
+    {S,T} = imem_meta:qualified_alias(Table),   % binstr_to_qname2(Table),
     column_map_table_fields([{S,T,Alias}|Tables], Ti, Acc);
 column_map_table_fields([Table|Tables], Ti, Acc) when is_binary(Table) ->
-    {S,T} = binstr_to_qname2(Table),
+    %?Info("column_map_table_fields 2 ~p",[Table]),
+    {S,T} = imem_meta:qualified_alias(Table),   % binstr_to_qname2(Table),
     column_map_table_fields([{S,T,T}|Tables], Ti, Acc);
 column_map_table_fields([{undefined,T,A}|Tables], Ti, Acc) ->
+    %?Info("column_map_table_fields 3 ~p",[{undefined,T,A}]),
     S = ?atom_to_binary(imem_meta:schema()),
     column_map_table_fields([{S,T,A}|Tables], Ti, Acc);
 column_map_table_fields([{S,T,A}|Tables], Ti, Acc) ->
+    %?Info("column_map_table_fields 4 ~p",[{S,T,A}]),
     Cols = case S of
         ?CSV_SCHEMA_PATTERN ->
             case Ti of
@@ -770,7 +780,7 @@ column_map_lookup(QN3,FullMap) ->
     end.                                
 
 field_map_lookup({Schema,Table,NameIn}=QN3,FullMap) ->
-    % ?LogDebug("column_map lookup ~p ~p ~p~n", [Schema,Table,Name]),
+    %?Info("column_map lookup ~p ~p ~p~n", [Schema,Table,NameIn]),
     NameInString = case is_binary(NameIn) of
                        true ->
                            string:to_lower(binary_to_list(NameIn));
@@ -871,14 +881,14 @@ expr(PTree, FullMap, BindTemplate) when is_binary(PTree) ->
                     end
             end;
         {B,Tbind} when Tbind==#bind{} ->    %% assume binstr, use to_<datatype>() to override
-            % ?Info("~p guessing for ~p -> ~p ~p",[undefined,B,binstr,nowrap]),
+            %?Info("~p guessing for ~p -> ~p ~p",[undefined,B,binstr,nowrap]),
             #bind{tind=0,cind=0,type=binstr,default= <<>>,readonly=true,btree=imem_sql:un_escape_sql(B)};
         {B,#bind{type=binstr}} ->           %% just take the literal value from SQL text
-            % ?Info("~p guessing for ~p -> ~p ~p",[binstr,B,binstr,nowrap]),
+            %?Info("~p guessing for ~p -> ~p ~p",[binstr,B,binstr,nowrap]),
             #bind{tind=0,cind=0,type=binstr,default= <<>>,readonly=true,btree=imem_sql:un_escape_sql(B)};
         {B,#bind{type=T,len=L,prec=P,default=D,tag=Tag}} ->     %% best effort conversion to proposed type
             {_,ValWrap,Type,Prec} = imem_datatype:field_value_type(Tag,T,L,P,D,imem_sql:un_escape_sql(B)),
-            % ?Info("~p guessing for ~p -> ~p ~p",[T,B,Type,ValWrap]),
+            %?Info("~p guessing for ~p -> ~p ~p",[T,B,Type,ValWrap]),
             #bind{tind=0,cind=0,type=Type,default=D,len=L,prec=Prec,readonly=true,btree=ValWrap}
     end;
 expr({param,Name}, FullMap, _) when is_binary(Name) -> 
@@ -1072,8 +1082,8 @@ expr({'between', A, Low, High}, FullMap, BT) ->
 expr({Op, A, B}, FullMap, _) when Op=='=';Op=='>';Op=='>=';Op=='<';Op=='<=';Op=='<>' ->
     CMapA = expr(A,FullMap,#bind{type=binstr}), 
     CMapB = expr(B,FullMap,#bind{type=binstr}),         
-    % ?Info("Comparison ~p CMapA~n~p", [Op,CMapA]),
-    % ?Info("Comparison ~p CMapB~n~p", [Op,CMapB]),
+    %?Info("Comparison ~p CMapA~n~p", [Op,CMapA]),
+    %?Info("Comparison ~p CMapB~n~p", [Op,CMapB]),
     BTree = case {CMapA#bind.tind, CMapB#bind.tind} of
         {0,0} -> 
             case CMapA#bind.type > CMapB#bind.type of    
@@ -1379,9 +1389,9 @@ filter_reorder({Idx,[Pref|Vals]}) ->
 filter_spec_where(?NoMoreFilter, _, WhereTree) -> 
     WhereTree;
 filter_spec_where({FType,[ColF|ColFs]}, ColMap, WhereTree) ->
-    % ?Info("filter_spec_where ColMap ~p",[ColMap]),    
+    %?Info("filter_spec_where ColMap ~p",[ColMap]),    
     FCond = filter_condition(filter_reorder(ColF), ColMap),
-    % ?Info("filter_spec_where ColF ~p FCond ~p",[ColF,FCond]),
+    %?Info("filter_spec_where ColF ~p FCond ~p",[ColF,FCond]),
     filter_spec_where({FType,ColFs}, ColMap, WhereTree, FCond).
 
 filter_spec_where(?NoMoreFilter, _, ?EmptyWhere, LeftTree) ->
@@ -1402,9 +1412,9 @@ filter_condition({Idx,[<<"$in$">>,?NavString|Vals]}, ColMap) ->
     {Name,_Values} = filter_name_value(in,Idx,?NavString,ColMap),
     {'or',{'fun',<<"is_nav">>,[Name]},filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap)};
 filter_condition({Idx,[<<"$in$">>|Vals]}, ColMap) ->
-    % ?Info("filter_condition Vals ~p",[Vals]),   
+    %?Info("filter_condition Vals ~p",[Vals]),   
     {Name,Values} = filter_name_value(in,Idx,Vals,ColMap),
-    % ?Info("filter_condition Name ~p, Values ~p",[Name,Values]),   
+    %?Info("filter_condition Name ~p, Values ~p",[Name,Values]),   
     {'in',Name,{'list',Values}};
 filter_condition({Idx,[<<"$not_in$">>,?NavString]}, ColMap) ->
     {Name,_Value} = filter_name_value(in,Idx,?NavString,ColMap),
@@ -1428,16 +1438,16 @@ filter_condition({Idx,[<<"$not_like$">>|Vals]}, ColMap) ->
     and_not_like_expr(Conditions).
 
 filter_name_value(F,Idx,Vals,ColMap) ->
-    % ?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
+    %?Info("Idx ~p Val ~p Colmap ~p",[Idx,Val,ColMap]),
     #bind{tind=Ti,cind=Ci,schema=S,table=T,name=N,ptree=PTree,type=Type,len=L,prec=P,default=D} = lists:nth(Idx,ColMap), 
     Tag = "Col" ++ integer_to_list(Idx),
-    % ?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
+    %?Info("filter_name_value Idx ~p Val ~p PTree ~p",[Idx,Val,PTree]),
     Name = case {Ti,Ci,PTree} of 
         {0,0,{as,PTA,_}} -> sqlparse_fold:top_down(sqlparse_format_flat,{fields,[PTA]}, []);
         {0,0,PT} ->         sqlparse_fold:top_down(sqlparse_format_flat,{fields,[PT]}, []);
         _ ->                qname3_to_binstr({S,T,N})
     end,
-    % ?Info("filter_name_values Name ~p",[Name]),
+    %?Info("filter_name_values Name ~p",[Name]),
     if
         is_list(Vals) ->    {Name,[filter_value_tree(F,Tag,Type,L,P,D,V) || V <- Vals]};
         true ->             {Name,filter_value_tree(F,Tag,Type,L,P,D,Vals)}

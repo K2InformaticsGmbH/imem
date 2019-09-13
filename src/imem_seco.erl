@@ -50,6 +50,7 @@
         , set_login_time/2
         , logout/1
         , clone_seco/2
+        , cluster_clone_seco/3
         , account_id/1
         , account_name/1
         , password_strength_fun/0
@@ -840,6 +841,20 @@ clone_seco(SKeyParent, Pid) ->
     monitor_pid(SKey,Pid),
     if_write(SKeyParent, ddSeCo@, SeCo#ddSeCo{skey=SKey}),
     SKey.
+
+cluster_clone_seco(SKeyParent, Node, Pid) ->
+    SeCoParent = seco_authorized(SKeyParent),
+    SeCo = SeCoParent#ddSeCo{skey=undefined, pid=Pid},
+    SKey = erlang:phash2(SeCo), 
+    case rpc:call(Node, gen_server, call, [?MODULE, {monitor,SKey,Pid}]) of
+        Ref when is_reference(Ref) -> 
+            case rpc:call(Node, imem_meta, write, [ddSeCo@, SeCo#ddSeCo{skey=SKey}]) of
+                ok ->       SKey;
+                Error ->    throw(Error)
+            end;
+        Error ->
+            throw(Error)
+    end.
 
 -spec password_strength_fun() ->
     fun((list()|binary()) -> short|weak|medium|strong).

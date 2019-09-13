@@ -45,7 +45,7 @@ imem_mnesia_test_() ->
     }.
 
 run_test_eunit(_) ->
-    ?LogDebug("---TEST---~n", []),
+    %?LogDebug("---TEST---~n", []),
     run_test_core().
 
 run_test_core() ->

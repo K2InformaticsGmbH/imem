@@ -36,7 +36,7 @@ to_strbinterm_test_() ->
     }.
 
 strbinterm(_) ->
-    ?LogDebug("---TEST---"),
+    %?LogDebug("---TEST---"),
     ?assertEqual(sext:encode(["123456", "IPCON_"]), imem_json_data:to_strbinterm([<<"123456">>,<<"IPCON_">>])),
     ?assertEqual(sext:encode({"123456", "IPCON_"}), imem_json_data:to_strbinterm({<<"123456">>,<<"IPCON_">>})),
     ?assertEqual(sext:encode("123456"), imem_json_data:to_strbinterm(<<"123456">>)),
