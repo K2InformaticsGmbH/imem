@@ -945,8 +945,9 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_list(TableAlias)
 create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias) ->
     MySchema = schema(),
     PTN = physical_table_name(TableAlias),
-    case PTN of
-        ddAlias ->          % create it, even if ddTable is not yet there, register it if missing)
+    case parse_table_name(TableAlias) of
+        [_,_,_,"","","",""] when PTN==ddAlias ->
+            % create it, even if ddTable is not yet there, register it if missing)
             DDTableRow = #ddTable{qname={MySchema, PTN}, columns=ColInfos, opts=Opts0, owner=Owner},
             case (catch imem_if_mnesia:read(ddTable, {MySchema, PTN})) of
                 [] ->   % ddTable exists but has no ddAlias entry, ddAlias may or may not (due to errors) exist 
@@ -957,7 +958,8 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
             {ok, {MySchema, PTN}};
-        ?CACHE_TABLE ->     % create it, even if ddTable is not yet there, register it if missing)
+        [_,_,_,"","","",""] when PTN==?CACHE_TABLE ->
+            % create it, even if ddTable is not yet there, register it if missing)
             DDTableRow = #ddTable{qname={MySchema, PTN}, columns=ColInfos, opts=Opts0, owner=Owner},
             case (catch imem_if_mnesia:read(ddTable, {MySchema, PTN})) of
                 [] ->   % ddTable exists but has no ddCache@ entry, ddCache@ may or may not (due to errors) exist 
@@ -968,8 +970,8 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
             {ok, {MySchema, PTN}};
-        TableAlias ->
-            %% not a time or node sharded table
+        [_,_,_,"","","",""] ->
+            %% not a time or node sharded alias
             DDTableRow = #ddTable{qname={MySchema, PTN}, columns=ColInfos, opts=Opts0, owner=Owner},
             try
                 imem_if_mnesia:create_table(PTN, column_names(ColInfos), if_opts(Opts0)++[{user_properties, [DDTableRow]}]),
@@ -984,23 +986,23 @@ create_mnesia_table(TableAlias, ColInfos, Opts0, Owner) when is_atom(TableAlias)
             end,
             imem_cache:clear({?MODULE, trigger, MySchema, PTN}),
             {ok, {MySchema, PTN}};
-        _ ->
-            %% Time or node sharded table, check if ddAlias parameters match (if alias record already exists)
+        [_,_,BaseName,_,_,_,_] ->
+            %% Time or node sharded alias
+            %% check if ddAlias parameters match (if alias record already exists)
+            case [parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if_mnesia:read(ddAlias), S==MySchema] of
+                [] -> ok; % No matching aliases registered so far for MySchema 
+                ParsedTNs ->
+                    case length([ BB || [_,_,BB,_,_,_,_] <- ParsedTNs, BB==BaseName]) of
+                        0 ->    ok;
+                        _ ->    ?ClientError({"Name conflict (different rolling period) in ddAlias", TableAlias})
+                    end   
+            end,
             Opts = case imem_if_mnesia:read(ddAlias, {MySchema, TableAlias}) of
                 [#ddAlias{columns=ColInfos, opts=Opts1, owner=Owner}] ->
                     Opts1;  %% ddAlias options override the given values for new partitions
                 [#ddAlias{}] ->
                     ?ClientError({"Create table fails because columns or owner do not match with ddAlias", TableAlias});
                 [] ->
-                    [_, _, BaseName, _, _, _, _] = parse_table_name(TableAlias), %% [Schema, ".", Name, "_", Period, "@", Shard]
-                    case [ parse_table_name(TA) || #ddAlias{qname={S,TA}} <- imem_if_mnesia:read(ddAlias), S==MySchema] of
-                        [] -> ok; % No matching aliases registered so far for MySchema 
-                        ParsedTNs ->
-                            case length([ BB || [_,_,BB,_,_,_,_] <- ParsedTNs, BB==BaseName]) of
-                                0 ->    ok;
-                                _ ->    ?ClientError({"Name conflict (different rolling period) in ddAlias", TableAlias})
-                            end   
-                    end,
                     case lists:keyfind(record_name, 1, Opts0) of
                         false ->    Opts0++[{record_name, list_to_atom(BaseName)}];
                         _ ->        Opts0
