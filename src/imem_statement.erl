@@ -237,7 +237,6 @@ update_cursor_exec(SKey, Pid, IsSec, Lock) when Lock==none;Lock==optimistic ->
         RemoteNode ->
             rpc:call(RemoteNode, gen_server, call, [Pid, {update_cursor_execute, IsSec, SKey, Lock},?CALL_TIMEOUT(update_cursor_execute)])
     end,
-    % ?Debug("update_cursor_execute ~p~n", [Result]),
     case Result of
         KeyUpd when is_list(KeyUpd) ->  KeyUpd;
         Error ->                        throw(Error)
@@ -1293,7 +1292,7 @@ update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=Table
                             end
                         end,     
                         {Cx,abs(Start)+1,Fx};
-                {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
+                    {nth,PosBind,#bind{tind=?MainIdx,cind=Cx,type=Type}=B} ->
                         Pos = imem_sql_expr:bind_tree(PosBind,Recs),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
@@ -1329,12 +1328,24 @@ update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=Table
                         end,     
                         {Cx,1,Fx};
                     {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
+                        ?Info("update json_value ~p",[AttName]),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
                             case {Value, OldVal} of 
                                 {<<>>,?nav} ->  
                                     X;                         % attribute still not present
-                                {<<>>,_} ->     
+                                {?navio,?nav} ->  
+                                    X;                         % attribute still not present
+                                {?navio,_} ->     
+                                    ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X))); 
+                                {<<>>,OV} when is_binary(OV) ->
+                                    ?Info("Clear json string ~p",[OV]),     
+                                    ?replace(X,Cx,imem_json:put(AttName,<<>>,?BoundVal(B,X))); 
+                                {<<>>,OV} when is_number(OV) ->
+                                    ?Info("Clear json number ~p",[OV]),     
+                                    ?replace(X,Cx,imem_json:put(AttName,0,?BoundVal(B,X))); 
+                                {<<>>,OV} ->
+                                    ?Info("Remove ~p",[OV]),     
                                     ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X))); 
                                 _ ->
                                     case Value of
@@ -1395,6 +1406,7 @@ update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=Table
                         end,     
                         {Cx,2,Fx};
                     {json_value,AttName,{json_value,ParentName,#bind{tind=?MainIdx,cind=Cx}=B}} -> 
+                        ?Info("update json_value ~p child of ~p",[AttName,ParentName]),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
                             case {Value, OldVal} of 
