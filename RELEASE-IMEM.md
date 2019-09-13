@@ -3,6 +3,14 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.6.0 (Release Date 13.09.2019)
+=======================================
+* Cluster Query support
+* On demand cluster snapshotting
+* Purge History tables (older than configured days)
+* Partition size metric
+* Virtual memory metric for windows
+
 Version 3.5.0 (Release Date 19.06.2019)
 =======================================
 * Moved lager handlers into config 
