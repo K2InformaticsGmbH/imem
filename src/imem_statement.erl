@@ -1132,11 +1132,11 @@ update_prepare(IsSec, SKey, [{Node,Schema,Table}|_], ColMap, ChangeList) ->
         % [5,ins,{?MR},"99"],                                   %% insert {def,"99", undefined}
         % [3,del,{?MR,{def,"5","'5'"}},"5"],                    %% delete {def,"5","'5'"}
         % [4,upd,{?MR,{def,"12","'12'"}},"112"]                 %% update {def,"12","'12'"} to {def,"112","'12'"}
-    %% into an UpdatePlan                                       {table} = {Node,Schema,PTN,Type}
+    %% into an UpdatePlan (per own statement only)              %% {table} = {Schema,PTN,Type}
         % [1,{table},{def,"2","'2'"},{def,"2","'2'"}],          %% no operation on this line
         % [5,{table},{},{def,"99", undefined}],                 %% insert {def,"99", undefined}
         % [3,{table},{def,"5","'5'"},{}],                       %% delete {def,"5","'5'"}
-        % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% failing update {def,"12","'12'"} to {def,"112","'12'"}
+        % [4,{table},{def,"12","'12'"},{def,"112","'12'"}]      %% update {def,"12","'12'"} to {def,"112","'12'"}
     UpdPlan = update_prepare(IsSec, SKey, TableInfo, ColMap, ChangeList, []),
     UpdPlan.
 
