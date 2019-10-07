@@ -7,7 +7,7 @@
 init() ->
     case os:type() of
         {win32, nt} ->
-            erlang:load_nif(imem:priv_dir() ++ "/imem_win32", 0);
+            ok = erlang:load_nif(imem:priv_dir() ++ "/imem_win32", 0);
         _ -> ok
     end.
 
