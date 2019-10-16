@@ -53,7 +53,7 @@
         , all_local_time_partitioned_tables/0
         ]).
 
--export([do_cluster_snapshot/0]).
+-export([do_cluster_snapshot/0, filter_cluster_snapshot/1]).
 
 -safe([all_snap_tables, filter_candidate_list, get_snap_properties,
        set_snap_properties, snap_log,snap_err,take, do_snapshot,
@@ -118,6 +118,13 @@
 -define(GET_CLUSTER_SNAPSHOT_TOD,
             ?GET_CONFIG(snapshotClusterHourOfDay, [], 14,
                         "Hour of (00..23)day in which important tables must be snapshotted.")).
+
+-define(GET_SNAPSHOT_FILTER(_Table),
+    ?GET_CONFIG(
+        snapshotFilter, [_Table], [["*"]],
+        "Filters to apply during copying cluster snapshot."
+    )
+).
 
 -spec(
     start_snap_loop() -> ok | pid()
@@ -921,6 +928,68 @@ maybe_coldstart_restore(SnapDir) ->
         {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
         {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
         _ -> ok
+    end.
+
+filter_cluster_snapshot(Target) ->
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
+    case lists:reverse(
+        lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX"*.zip", SnapDir))
+    ) of
+        [] ->
+            ?Warn(
+                "unable to filter cluster snapshot : no "?BKP_ZIP_PREFIX"*.zip"
+                " found in snapshot directory ~s",
+                [SnapDir]
+            );
+        [ZipFile | _ ] ->
+            Source = filename:join(SnapDir, ZipFile),
+            ?Info(
+                "creating filtered copy of clusterd snapshot from ~s to ~s",
+                [Source, Target]
+            ),
+            {ok, Files} = zip:foldl(
+                fun(FileInArchive, GetInfoFun, GetBinFun, Files) ->
+                    Table = filename:basename(
+                        FileInArchive, filename:extension(FileInArchive)
+                    ),
+                    io:format("Table ~s : ", [Table]),
+                    apply_filter(GetBinFun()),
+                    Files#{
+                        Table => #{
+                            fileName => FileInArchive,
+                            tableName => Table,
+                            getInfo => GetInfoFun,
+                            getBin => GetBinFun,
+                            filters => ?GET_SNAPSHOT_FILTER(Table)
+                        }
+                    }
+                end,
+                #{},
+                Source
+            ),
+            Files
+    end.
+
+apply_filter(Bytes) -> apply_filter(Bytes, #{}).
+
+apply_filter(<<>>, _) ->
+    io:format("Finished!!~n");
+apply_filter(<<Length:32, Rest/binary>>, #{skvhTable := true}) ->
+    io:format("SKVH~n");
+apply_filter(<<Length:32, Rest/binary>>, #{skvhTable := false}) ->
+    io:format("NOT SKVH~n");
+apply_filter(<<Length:32, Rest/binary>>, Ctx) ->
+    <<BinTerm:Length/binary, Rest1/binary>> = Rest,
+    case binary_to_term(BinTerm) of
+        {prop, [#ddTable{opts = Opts}]} ->
+            case maps:from_list(Opts) of
+                #{record_name := skvhTable} ->
+                    apply_filter(Rest1, Ctx#{skvhTable => true});
+                _ ->
+                    apply_filter(Rest1, Ctx#{skvhTable => false})
+            end;
+        Other ->
+            error({unexpected, Other})
     end.
 
 do_cluster_snapshot() ->
