@@ -15,6 +15,7 @@
 
 % snapshot interface
 -export([ info/1
+        , info/2
         , restore/4
         , restore/5
         , restore_as/5
@@ -119,10 +120,55 @@
             ?GET_CONFIG(snapshotClusterHourOfDay, [], 14,
                         "Hour of (00..23)day in which important tables must be snapshotted.")).
 
--define(GET_SNAPSHOT_FILTER(_Table),
+-define(GET_SNAPSHOT_COPY_FILTER(_Table),
     ?GET_CONFIG(
-        snapshotFilter, [_Table], [["*"]],
+        snapshotCopyFilter, [_Table], [["*"]],
         "Filters to apply during copying cluster snapshot."
+    )
+).
+
+-define(B(_B), <<??_B>>).
+-define(GET_SNAPSHOT_COPY_FILTER_FUN(_Table),
+    ?GET_CONFIG(
+        snapshotCopyFilterFun, [_Table],
+        ?B(
+            fun
+                ({prop, _} = Prop, #{foldFnAcc := Acc} = Ctx) ->
+                    if 
+                        copy -> {true, Ctx};
+                        skip -> {false, Ctx};
+                        change ->
+                            Prop1 = Prop,
+                            {true, Prop1, Ctx};
+                        true ->
+                            Acc1 = Acc,
+                            {true, Prop, Ctx#{foldFnAcc := Acc1}}
+                    end;
+                (#{ckey := _Key, cvalue := _Map} = SkvhMap, #{foldFnAcc := Acc} = Ctx) ->
+                    if 
+                        copy -> {true, Ctx};
+                        skip -> {false, Ctx};
+                        change ->
+                            SkvhMap1 = SkvhMap,
+                            {true, SkvhMap1, Ctx};
+                        true ->
+                            Acc1 = Acc,
+                            {true, SkvhMap, Ctx#{foldFnAcc := Acc1}}
+                    end;
+                (RecTuple, #{foldFnAcc := Acc} = Ctx) ->
+                    if 
+                        copy -> {true, Ctx};
+                        skip -> {false, Ctx};
+                        change ->
+                            RecTuple1 = RecTuple,
+                            {true, RecTuple1, Ctx};
+                        true ->
+                            Acc1 = Acc,
+                            {true, RecTuple, Ctx#{foldFnAcc := Acc1}}
+                    end
+            end
+        ),
+        "Function to apply on every record of the table."
     )
 ).
 
@@ -215,12 +261,9 @@ cluster_snap(Tabs, '$replace_with_timestamp', Dir) ->
     cluster_snap(Tabs, ?TIMESTAMP, Dir);
 cluster_snap([], StartTime, Dir) ->
     ZipFile = filename:join(filename:dirname(Dir), filename:basename(Dir)++".zip"),
-    ZipCandidates = [begin
-                         {ok, Bin} = file:read_file(filename:join(Dir,F)),
-                         {F, Bin}
-                     end || F <- filelib:wildcard("*.bkp", Dir)],
+    ZipCandidates = filelib:wildcard("*.bkp", Dir),
     ?Debug("zip:zip(~p, ~p)", [ZipFile, ZipCandidates]),
-    case zip:zip(ZipFile, ZipCandidates) of
+    case zip:zip(ZipFile, ZipCandidates, [{cwd, Dir}]) of
         {error, Reason} ->
             ?Error("cluster snapshot ~s failed reason : ~p", [ZipFile, Reason]);
         _ ->
@@ -372,9 +415,10 @@ zip({re, MatchPattern}) ->
     zip({files, SnapFiles});
 zip({files, SnapFiles}) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
-    ZipCandidates = [filename:join([SnapDir, SF])
-                    || SF <- SnapFiles
-                    , filelib:file_size(filename:join([SnapDir, SF])) > 0],
+    ZipCandidates = [
+        SF || SF <- SnapFiles,
+        filelib:file_size(filename:join([SnapDir, SF])) > 0
+    ],
     if ZipCandidates =:= [] -> ok;
         true ->
             {Secs, Micros} = ?TIMESTAMP,
@@ -386,7 +430,7 @@ zip({files, SnapFiles}) ->
                                         ]), "[<>:\"\\\\|?*]", "", [global, {return, list}]),
             % to make the file name valid for windows
             ZipFileFullPath = filename:join(SnapDir, ZipFileName),
-            case zip:zip(ZipFileFullPath, ZipCandidates) of
+            case zip:zip(ZipFileFullPath, ZipCandidates, [{cwd, SnapDir}]) of
                 {error, Reason} ->
                     lists:flatten(io_lib:format("old snapshot backup to ~s failed reason : ~p"
                                                 , [ZipFileFullPath, Reason]));
@@ -947,50 +991,172 @@ filter_cluster_snapshot(Target) ->
                 "creating filtered copy of clusterd snapshot from ~s to ~s",
                 [Source, Target]
             ),
+            Path = filename:dirname(Target),
+            File = filename:basename(Target),
+            TempDir = filename:join(
+                Path,
+                "_temp" ++ filename:rootname(File)
+            ),
+            del_all_dir_tree(TempDir),
+            ok = filelib:ensure_dir(filename:join(TempDir, "dummy.txt")),
+            ?Info("TargetPath ~s", [TempDir]),
             {ok, Files} = zip:foldl(
                 fun(FileInArchive, GetInfoFun, GetBinFun, Files) ->
                     Table = filename:basename(
                         FileInArchive, filename:extension(FileInArchive)
                     ),
-                    io:format("Table ~s : ", [Table]),
-                    apply_filter(GetBinFun()),
+                    Filters = ?GET_SNAPSHOT_COPY_FILTER(Table),
+                    FoldFun = imem_compiler:compile(
+                        ?GET_SNAPSHOT_COPY_FILTER_FUN(Table)
+                    ),
+                    TargetFile = filename:join(TempDir, FileInArchive),
+                    ?Info("TargetFile ~p", [TargetFile]),
+                    {ok, TargetFileHandle} = file:open(TargetFile, [write, raw]),                    
+                    Stats = try
+                        Sts = fold_snap(
+                            GetBinFun(), FoldFun, Filters, TargetFileHandle
+                        ),
+                        ok = file:close(TargetFileHandle),
+                        Sts
+                    catch
+                        FoldError:Exception ->
+                            catch file:close(TargetFileHandle),
+                            error({FoldError, Exception})
+                    end,
+                    ?Info("processed '~s' : ~p", [Table, Stats]),
                     Files#{
                         Table => #{
+                            targetFile => TargetFile,
                             fileName => FileInArchive,
                             tableName => Table,
                             getInfo => GetInfoFun,
                             getBin => GetBinFun,
-                            filters => ?GET_SNAPSHOT_FILTER(Table)
+                            filters => Filters,
+                            stats => Stats
                         }
                     }
                 end,
                 #{},
                 Source
             ),
+            FilesList = filelib:wildcard("*.bkp", TempDir),
+            {ok, _} = zip:zip(Target, FilesList, [{cwd, TempDir}]),
+            del_all_dir_tree(TempDir),
             Files
     end.
 
-apply_filter(Bytes) -> apply_filter(Bytes, #{}).
-
-apply_filter(<<>>, _) ->
-    io:format("Finished!!~n");
-apply_filter(<<Length:32, Rest/binary>>, #{skvhTable := true}) ->
-    io:format("SKVH~n");
-apply_filter(<<Length:32, Rest/binary>>, #{skvhTable := false}) ->
-    io:format("NOT SKVH~n");
-apply_filter(<<Length:32, Rest/binary>>, Ctx) ->
-    <<BinTerm:Length/binary, Rest1/binary>> = Rest,
-    case binary_to_term(BinTerm) of
-        {prop, [#ddTable{opts = Opts}]} ->
-            case maps:from_list(Opts) of
-                #{record_name := skvhTable} ->
-                    apply_filter(Rest1, Ctx#{skvhTable => true});
-                _ ->
-                    apply_filter(Rest1, Ctx#{skvhTable => false})
-            end;
-        Other ->
-            error({unexpected, Other})
+del_all_dir_tree(DirOrFile) ->
+    case {filelib:is_dir(DirOrFile), filelib:is_regular(DirOrFile)} of
+        {false, true} -> ok = file:delete(DirOrFile);
+        {false, false} -> ok;
+        {true, _} ->
+            case file:del_dir(DirOrFile) of
+                ok -> ok;
+                {error, enoent} -> ok;
+                {error, eexist} ->
+                    {ok, Filenames} = file:list_dir(DirOrFile),
+                    lists:foreach(
+                        fun(F) ->
+                            del_all_dir_tree(filename:join(DirOrFile, F))
+                        end,
+                        Filenames
+                    ),
+                    del_all_dir_tree(DirOrFile)
+            end
     end.
+
+fold_snap(Bytes, FoldFun, Filters, TargetFileHandle) ->
+    fold_snap(
+        Bytes, FoldFun, Filters,
+        #{
+            bytes => byte_size(Bytes), foldFnAcc => undefined,
+            rows => #{total => 0, skipped => 0, copied => 0, changed => 0},
+            chunks => #{total => 0, skipped => 0, copied => 0, changed => 0}
+        },
+        TargetFileHandle
+    ).
+
+fold_snap(<<>>, _FoldFun, _Filters, Ctx, _TargetFileHandle) -> Ctx;
+fold_snap(
+    <<Length:32, TermAndRest/binary>>, FoldFun, Filters, Ctx, TargetFileHandle
+) ->
+    <<ChunkBin:Length/binary, Rest/binary>> = TermAndRest,
+    ChunkTerm = binary_to_term(ChunkBin),
+    {NewChunkTerm, Ctx1} = process_chunk(ChunkTerm, FoldFun, Ctx),
+    Ctx2 = case NewChunkTerm of
+        skip -> incr(chunks, skipped, 1, Ctx1);
+        ChunkTerm ->
+            ok = file:write(
+                TargetFileHandle,
+                <<(byte_size(ChunkBin)):32, ChunkBin/binary>>
+            ),
+            incr(chunks, copied, 1, Ctx1);
+        NewChunkTerm ->
+            NewChunkBin = term_to_binary(NewChunkTerm),
+            ok = file:write(
+                TargetFileHandle,
+                <<(byte_size(NewChunkBin)):32, NewChunkBin/binary>>
+            ),
+            incr(chunks, changed, 1, Ctx1)
+    end,
+    fold_snap(
+        Rest, FoldFun, Filters, incr(chunks, total, 1, Ctx2), TargetFileHandle
+    ).
+
+process_chunk(Rows, FoldFun, Ctx) when is_list(Rows) ->
+    lists:foldr(
+        fun(Row, {NewRows, ICtx}) ->
+            case process_chunk(Row, FoldFun, ICtx) of
+                {skip, ICtx1} ->
+                    {NewRows, incr(rows, skipped, 1, ICtx1)};
+                {copy, ICtx1} ->
+                    {[Row | NewRows], incr(rows, copied, 1, ICtx1)};
+                {write, Row, ICtx1} ->
+                    {[Row | NewRows], incr(rows, copied, 1, ICtx1)};
+                {write, NewRow, ICtx1} ->
+                    {[NewRow | NewRows], incr(rows, changed, 1, ICtx1)}
+            end
+        end,
+        {[], incr(rows, total, length(Rows), Ctx)}, Rows
+    );
+process_chunk({prop, [#ddTable{opts = Opts}]} = Prop, FoldFun, Ctx) ->
+    case apply_fold_fun(Prop, FoldFun, Ctx#{skvh => is_skvh(Opts)}) of
+        {skip, Ctx1} -> {skip, Ctx1};
+        {copy, Ctx1} -> {Prop, Ctx1};
+        {write, Prop1, Ctx1} -> {Prop1, Ctx1}
+    end;
+process_chunk(SkvhRec, FoldFun, #{skvh := true} = Ctx) ->
+    SkvhMap = imem_dal_skvh:skvh_rec_to_map(SkvhRec),
+    case apply_fold_fun(SkvhMap, FoldFun, Ctx) of
+        {write, NewSkvhMap, Ctx1} ->
+            {write, imem_dal_skvh:map_to_skvh_rec(NewSkvhMap), Ctx1};
+        Other -> Other
+    end;
+process_chunk(Rec, FoldFun, Ctx) ->
+    apply_fold_fun(Rec, FoldFun, Ctx).
+
+apply_fold_fun(Term, FoldFun, Ctx) ->
+    case FoldFun(Term, Ctx) of
+        {true, #{foldFnAcc := Priv}} ->
+            {copy, Ctx#{foldFnAcc => Priv}};
+        {false, #{foldFnAcc := Priv}} ->
+            {skip, Ctx#{foldFnAcc => Priv}};
+        {true, NewTerm, #{foldFnAcc := Priv}} ->
+            {write, NewTerm, Ctx#{foldFnAcc => Priv}};
+        Other ->
+            ?Warn("Bad fun return ~p, skipping", [Other]),
+            Ctx
+    end.
+
+is_skvh(Opts) ->
+    case maps:from_list(Opts) of
+        #{record_name := skvhTable} -> true;
+        _ -> false
+    end.
+
+incr(GroupKey, Key, Amount,  Ctx) ->
+    #{GroupKey := #{Key := Val} = Group} = Ctx,
+    Ctx#{GroupKey => Group#{Key => Val + Amount}}.
 
 do_cluster_snapshot() ->
     Start = os:timestamp(),
@@ -1004,15 +1170,9 @@ do_cluster_snapshot() ->
     Snappers = snap_tables(Tables, Dir),
     wait_snap_tables(Snappers),
     ?Info("finished snapshotting ~p tables, zipping...", [length(Tables)]),
-    ZipCandidates = lists:foldr(
-        fun(File, Acc) ->
-            {ok, Bin} = file:read_file(filename:join(Dir, File)),
-            ?Info("reading bkp ~s, ~p bytes", [File, byte_size(Bin)]),
-            [{File, Bin} | Acc]
-        end, [], filelib:wildcard("*.bkp", Dir)
-    ),
+    ZipCandidates = filelib:wildcard("*.bkp", Dir),
     ?Info("zipping ~p files", [length(ZipCandidates)]),
-    case zip:zip(ZipFile, ZipCandidates) of
+    case zip:zip(ZipFile, ZipCandidates, [{cwd, Dir}]) of
         {error, Reason} ->
             ?Error("zip ~s failed reason : ~p", [ZipFile, Reason]);
         _ ->
