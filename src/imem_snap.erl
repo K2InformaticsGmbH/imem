@@ -54,7 +54,7 @@
         , all_local_time_partitioned_tables/0
         ]).
 
--export([do_cluster_snapshot/0, filter_cluster_snapshot/1]).
+-export([do_cluster_snapshot/0, filter_cluster_snapshot/1, filter2guard/1]).
 
 -safe([all_snap_tables, filter_candidate_list, get_snap_properties,
        set_snap_properties, snap_log,snap_err,take, do_snapshot,
@@ -133,16 +133,15 @@
         snapshotCopyFilterFun, [_Table],
         ?B(
             fun
-                ({prop, _} = Prop, #{foldFnAcc := Acc} = Ctx) ->
+                ({prop, DDTableProperties}, #{foldFnAcc := Acc} = Ctx) ->
                     if 
                         copy -> {true, Ctx};
-                        skip -> {false, Ctx};
                         change ->
-                            Prop1 = Prop,
-                            {true, Prop1, Ctx};
+                            NewDDTableProperties = DDTableProperties,
+                            {true, NewDDTableProperties, Ctx};
                         true ->
                             Acc1 = Acc,
-                            {true, Prop, Ctx#{foldFnAcc := Acc1}}
+                            {true, DDTableProperties, Ctx#{foldFnAcc := Acc1}}
                     end;
                 (#{ckey := _Key, cvalue := _Map} = SkvhMap, #{foldFnAcc := Acc} = Ctx) ->
                     if 
@@ -921,19 +920,14 @@ do_snapshot(SnapFun) ->
             {error,{"cannot snap",Err}}
     end.
 
--spec(
-    get_snap_properties(atom()) -> {} | #snap_properties{}
-).
+-spec(get_snap_properties(atom()) -> {} | #snap_properties{}).
 get_snap_properties(Tab) ->
     case ets:lookup(?SNAP_ETS_TAB, Tab) of
         [] ->       {};
         [Prop] ->   {Prop, Prop#snap_properties.last_write, Prop#snap_properties.last_snap}
     end.
 
--spec(
-    set_snap_properties(#snap_properties{}) ->
-        true
-).
+-spec(set_snap_properties(#snap_properties{}) -> true).
 set_snap_properties(Prop) ->
     ets:insert(?SNAP_ETS_TAB, Prop#snap_properties{last_snap=?TIMESTAMP}).
 
@@ -943,16 +937,12 @@ snap_log(_P,_A) -> ?Info(_P,_A).
 -spec(snap_err(string(), list()) -> ok).
 snap_err(P,A) -> ?Error(P,A).
 
--spec(
-    snap_file_count() -> integer()
-).
+-spec(snap_file_count() -> integer()).
 snap_file_count() ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     length(filelib:wildcard("*.{bkp,zip}",SnapDir)).
 
--spec(
-    exclude_table_pattern(binary() | list()) -> ok
-).
+-spec(exclude_table_pattern(binary() | list()) -> ok).
 exclude_table_pattern(TablePattern) when is_binary(TablePattern) ->
     exclude_table_pattern(binary_to_list(TablePattern));
 exclude_table_pattern(TablePattern) when is_list(TablePattern) ->
@@ -1082,7 +1072,9 @@ fold_snap(
 ) ->
     <<ChunkBin:Length/binary, Rest/binary>> = TermAndRest,
     ChunkTerm = binary_to_term(ChunkBin),
-    {NewChunkTerm, Ctx1} = process_chunk(ChunkTerm, FoldFun, Ctx),
+    {NewChunkTerm, Ctx1} = process_chunk(
+        ChunkTerm, FoldFun, Ctx#{filters => Filters}
+    ),
     Ctx2 = case NewChunkTerm of
         skip -> incr(chunks, skipped, 1, Ctx1);
         ChunkTerm ->
@@ -1103,7 +1095,15 @@ fold_snap(
         Rest, FoldFun, Filters, incr(chunks, total, 1, Ctx2), TargetFileHandle
     ).
 
-process_chunk(Rows, FoldFun, Ctx) when is_list(Rows) ->
+process_chunk(
+    RawRows, FoldFun,
+    #{matchSpecCompiled := CompiledMatchSpec, skvh := Skvh} = Ctx
+) when is_list(RawRows) ->
+    Rows = if
+        Skvh ->
+            [imem_dal_skvh:skvh_rec_to_map(SkvhRec) || SkvhRec <- RawRows];
+        true -> RawRows
+    end,
     lists:foldr(
         fun(Row, {NewRows, ICtx}) ->
             case process_chunk(Row, FoldFun, ICtx) of
@@ -1117,16 +1117,27 @@ process_chunk(Rows, FoldFun, Ctx) when is_list(Rows) ->
                     {[NewRow | NewRows], incr(rows, changed, 1, ICtx1)}
             end
         end,
-        {[], incr(rows, total, length(Rows), Ctx)}, Rows
+        {[], incr(rows, total, length(Rows), Ctx)},
+        ets:match_spec_run(Rows, CompiledMatchSpec)
     );
-process_chunk({prop, [#ddTable{opts = Opts}]} = Prop, FoldFun, Ctx) ->
-    case apply_fold_fun(Prop, FoldFun, Ctx#{skvh => is_skvh(Opts)}) of
-        {skip, Ctx1} -> {skip, Ctx1};
+process_chunk(
+    {prop, [#ddTable{opts = Opts}]} = Prop, FoldFun,
+    #{filters := Filters} = Ctx
+) ->
+    Skvh = is_skvh(Opts),
+    MatchSpec = filters2ms(Skvh, Filters),
+    MatchSpecCompiled = ets:match_spec_compile(MatchSpec),
+    case apply_fold_fun(
+        Prop, FoldFun,
+        Ctx#{
+            skvh => Skvh, matchSpec => MatchSpec,
+            matchSpecCompiled => MatchSpecCompiled
+        }
+    ) of
         {copy, Ctx1} -> {Prop, Ctx1};
-        {write, Prop1, Ctx1} -> {Prop1, Ctx1}
+        {write, Prop1, Ctx1} -> {{prop, Prop1}, Ctx1}
     end;
-process_chunk(SkvhRec, FoldFun, #{skvh := true} = Ctx) ->
-    SkvhMap = imem_dal_skvh:skvh_rec_to_map(SkvhRec),
+process_chunk(SkvhMap, FoldFun, #{skvh := true} = Ctx) ->
     case apply_fold_fun(SkvhMap, FoldFun, Ctx) of
         {write, NewSkvhMap, Ctx1} ->
             {write, imem_dal_skvh:map_to_skvh_rec(NewSkvhMap), Ctx1};
@@ -1134,6 +1145,21 @@ process_chunk(SkvhRec, FoldFun, #{skvh := true} = Ctx) ->
     end;
 process_chunk(Rec, FoldFun, Ctx) ->
     apply_fold_fun(Rec, FoldFun, Ctx).
+
+filters2ms(_Skvh, Filters) when
+    Filters == [["*"]]; Filters == [['*']]; Filters == [{"*"}];
+    Filters == [{'*'}]; Filters == ['*']
+-> [{'_', [], ['$_']}].
+%filters2ms(true, Filters) ->
+%    MatchHead = #{ckey => '$1'},
+%    MatchBody = ['$_'],
+%    lists:foldl(
+%        fun(["*"], Acc) when Acc /= [{'_', [], ['$_']}] -> [{'_', [], ['$_']}];
+%    )
+%    [case Filter of
+%        ["*"]
+%     end || Filter <- Filters]
+%    [{'_', [], ['$_']}].
 
 apply_fold_fun(Term, FoldFun, Ctx) ->
     case FoldFun(Term, Ctx) of
@@ -1234,3 +1260,72 @@ wait_snap_tables(Snappers) ->
             end,
             wait_snap_tables(NewSnappers)
     end.
+
+filter2guard(Filter) -> unimplemented.
+
+%-------------------------------------------------------------------------------
+% TESTS
+%-------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+filter2guard_test() ->
+    {
+        inparallel,
+        [{Title, ?_assertEqual(MatchSpec, filter2guard(Filter))} ||
+            {Title, Filter, MatchSpec} <- [
+                {"match all",           '*',    []},
+                {"match list all",      ['*'],  [{is_list, '$1'}]},
+                {"match list any one",  ['_'],  [{'==', {length, '$1'}, 1}]},
+                {"match list single",   ["one"],
+                    [{
+                        'andalso',
+                        {'==', {length, '$1'}, 1},
+                        {'==', {hd, '$1'}, "one"}
+                    }]
+                },
+                {"match 2 list both",  ["one", "two"],
+                    [{
+                        'andalso',
+                        {'==', {length, '$1'}, 2},
+                        {
+                            'andalso',
+                            {'==', {hd, '$1'}, "one"},
+                            {'==', {hd, {tl, '$1'}}, "two"}
+                        }
+                    }]
+                },
+                {"match 2 list second",  ['_', "two"],
+                    [{
+                        'andalso',
+                        {'==', {length, '$1'}, 2},
+                        {
+                            'andalso',
+                            {'==', {hd, {tl, '$1'}}, "two"}
+                        }
+                    }]
+                },
+                {"match 4 list first and last",  ["one", '_', '_', "three"],
+                    [{
+                        'andalso',
+                        {'==', {length, '$1'}, 4},
+                        {
+                            'andalso',
+                            {'==', {hd, '$1'}, "one"}
+                            {'==', {hd, {tl, {tl, '$1'}}}, "three"}
+                        }
+                    }]
+                },
+                {"match open list second",  ['_', "two", '*'],
+                    [{
+                        'andalso',
+                        {'>=', {length, '$1'}, 2},
+                        {'==', {hd, {tl, '$1'}}, "two"}
+                    }]
+                },
+                {"match all tuple", {'*'},  [{is_tuple, '$1'}]}
+            ]
+        ]
+    }.
+
+-endif.
