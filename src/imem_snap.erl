@@ -54,7 +54,7 @@
         , all_local_time_partitioned_tables/0
         ]).
 
--export([do_cluster_snapshot/0, filter_cluster_snapshot/1, filter2guard/1]).
+-export([do_cluster_snapshot/0, filter_cluster_snapshot/1]).
 
 -safe([all_snap_tables, filter_candidate_list, get_snap_properties,
        set_snap_properties, snap_log,snap_err,take, do_snapshot,
@@ -964,6 +964,10 @@ maybe_coldstart_restore(SnapDir) ->
         _ -> ok
     end.
 
+%-------------------------------------------------------------------------------
+% filter_cluster_snapshot and helpers
+%-------------------------------------------------------------------------------
+
 filter_cluster_snapshot(Target) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     case lists:reverse(
@@ -1146,20 +1150,9 @@ process_chunk(SkvhMap, FoldFun, #{skvh := true} = Ctx) ->
 process_chunk(Rec, FoldFun, Ctx) ->
     apply_fold_fun(Rec, FoldFun, Ctx).
 
-filters2ms(_Skvh, Filters) when
-    Filters == [["*"]]; Filters == [['*']]; Filters == [{"*"}];
-    Filters == [{'*'}]; Filters == ['*']
--> [{'_', [], ['$_']}].
-%filters2ms(true, Filters) ->
-%    MatchHead = #{ckey => '$1'},
-%    MatchBody = ['$_'],
-%    lists:foldl(
-%        fun(["*"], Acc) when Acc /= [{'_', [], ['$_']}] -> [{'_', [], ['$_']}];
-%    )
-%    [case Filter of
-%        ["*"]
-%     end || Filter <- Filters]
-%    [{'_', [], ['$_']}].
+filters2ms(true, Filters) ->
+    [{#{ckey => '$1'}, f2mc(Filter), ['$_']} || Filter <- Filters];
+filters2ms(false, _Filters) -> [{'_', [], ['$_']}].
 
 apply_fold_fun(Term, FoldFun, Ctx) ->
     case FoldFun(Term, Ctx) of
@@ -1183,6 +1176,47 @@ is_skvh(Opts) ->
 incr(GroupKey, Key, Amount,  Ctx) ->
     #{GroupKey := #{Key := Val} = Group} = Ctx,
     Ctx#{GroupKey => Group#{Key => Val + Amount}}.
+
+f2mc('*') -> [];
+f2mc(['*']) -> [{is_list, '$1'}];
+f2mc({'*'}) -> [{is_tuple, '$1'}];
+f2mc(['_']) -> [{'==', {length, '$1'}, 1}];
+f2mc([_] = M) -> [{'==', '$1', M}];
+f2mc({_} = M) -> [{'==', '$1', {const, M}}];
+f2mc(M) when is_list(M), length(M) > 0 ->
+    M1 = M -- ['*'],
+    Star = case {length(M) - length(M1), lists:last(M)} of
+        {0, _} -> false;
+        {1, '*'} -> true;
+        _ -> error({bad_filter, M})
+    end,
+    case {Star, length([F || F <- M1, F /= '_'])} of
+        {false, 0} -> [{'==', {length, '$1'}, length(M1)}];
+        _ ->
+            [Guard] = guards(M1),
+            if Star ->
+                [{
+                    'andalso',
+                    {'>=', {length, '$1'}, length(M1)},
+                    Guard
+                }];
+            true ->
+                [{
+                    'andalso',
+                    {'==', {length, '$1'}, length(M1)},
+                    Guard
+                }]
+            end
+    end.
+
+guards(Filters) -> guards(Filters, '$1', []).
+guards([], _At, Guard) -> Guard;
+guards(['_' | Rest], At, Guard) -> guards(Rest, {tl, At}, Guard);
+guards([Elm | Rest], At, []) -> guards(Rest, {tl, At}, [{'==', {hd, At}, Elm}]);
+guards([Elm | Rest], At, [Guard]) ->
+    guards(Rest, {tl, At}, [{'andalso', {'==', {hd, At}, Elm}, Guard}]).
+
+%-------------------------------------------------------------------------------
 
 do_cluster_snapshot() ->
     Start = os:timestamp(),
@@ -1261,69 +1295,91 @@ wait_snap_tables(Snappers) ->
             wait_snap_tables(NewSnappers)
     end.
 
-filter2guard(Filter) -> unimplemented.
-
 %-------------------------------------------------------------------------------
 % TESTS
 %-------------------------------------------------------------------------------
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-filter2guard_test() ->
+f2mc_test_() ->
     {
         inparallel,
-        [{Title, ?_assertEqual(MatchSpec, filter2guard(Filter))} ||
+        [{Title, ?_assertEqual(MatchSpec, f2mc(Filter))} ||
             {Title, Filter, MatchSpec} <- [
-                {"match all",           '*',    []},
-                {"match list all",      ['*'],  [{is_list, '$1'}]},
-                {"match list any one",  ['_'],  [{'==', {length, '$1'}, 1}]},
-                {"match list single",   ["one"],
-                    [{
-                        'andalso',
-                        {'==', {length, '$1'}, 1},
-                        {'==', {hd, '$1'}, "one"}
-                    }]
-                },
-                {"match 2 list both",  ["one", "two"],
+                {"all",           '*',     []},
+                {"list all",      ['*'],   [{is_list, '$1'}]},
+                {"all tuple",     {'*'},   [{is_tuple, '$1'}]},
+                {"list any one",  ['_'],   [{'==', {length, '$1'}, 1}]},
+                {"list single",   ["one"], [{'==', '$1', ["one"]}]},
+                {"tuple single",  {"one"}, [{'==', '$1', {const, {"one"}}}]},
+                {"2 list both",   ["one", "two"],
                     [{
                         'andalso',
                         {'==', {length, '$1'}, 2},
                         {
                             'andalso',
-                            {'==', {hd, '$1'}, "one"},
-                            {'==', {hd, {tl, '$1'}}, "two"}
+                            {'==', {hd, {tl, '$1'}}, "two"},
+                            {'==', {hd, '$1'}, "one"}
                         }
                     }]
                 },
-                {"match 2 list second",  ['_', "two"],
+                {"2 list second",  ['_', "two"],
                     [{
                         'andalso',
                         {'==', {length, '$1'}, 2},
-                        {
-                            'andalso',
-                            {'==', {hd, {tl, '$1'}}, "two"}
-                        }
+                        {'==', {hd, {tl, '$1'}}, "two"}
                     }]
                 },
-                {"match 4 list first and last",  ["one", '_', '_', "three"],
+                {"4 list first and last",  ["one", '_', '_', "three"],
                     [{
                         'andalso',
                         {'==', {length, '$1'}, 4},
                         {
                             'andalso',
+                            {'==', {hd, {tl, {tl, {tl, '$1'}}}}, "three"},
                             {'==', {hd, '$1'}, "one"}
-                            {'==', {hd, {tl, {tl, '$1'}}}, "three"}
                         }
                     }]
                 },
-                {"match open list second",  ['_', "two", '*'],
+                {"open list second",  ['_', "two", '*'],
                     [{
                         'andalso',
                         {'>=', {length, '$1'}, 2},
                         {'==', {hd, {tl, '$1'}}, "two"}
                     }]
-                },
-                {"match all tuple", {'*'},  [{is_tuple, '$1'}]}
+                }
+            ]
+        ]
+    }.
+
+msrun_test_() ->
+    Rows = [
+        ["a"],
+        ["a", 1],
+        ["a", 1, c],
+        ["b"],
+        ["b", 1],
+        ["b", 2],
+        {"a"},
+        {"a", 1}
+    ],
+    {
+        inparallel,
+        [{
+            Title,
+            fun() ->
+                MCond = f2mc(Filter),
+                MSC = ets:match_spec_compile([{'$1', MCond, ['$_']}]),
+                ?assertEqual(FilteredRows, ets:match_spec_run(Rows, MSC))
+            end
+        } ||
+            {Title, Filter, FilteredRows} <- [
+                {"all",         '*',        Rows},
+                {"list",        ['*'],      [R || R <- Rows, not is_tuple(R)]},
+                {"tuple",       {'*'},      [R || R <- Rows, not is_list(R)]},
+                {"first",       ["a",'*'],  [["a"], ["a", 1], ["a", 1, c]]},
+                {"first two",   ['_','_'],  [["a",1], ["b",1], ["b",2]]},
+                {"second",      ['_',1],    [["a",1], ["b",1]]}
             ]
         ]
     }.
