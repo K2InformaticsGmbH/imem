@@ -1129,8 +1129,12 @@ process_chunk(
     #{filters := Filters} = Ctx
 ) ->
     Skvh = is_skvh(Opts),
-    MatchSpec = filters2ms(Skvh, Filters),
-    MatchSpecCompiled = ets:match_spec_compile(MatchSpec),
+    {MatchSpec, MatchSpecCompiled} = case catch ets:match_spec_compile(Filters) of
+        {'EXIT', _} ->
+            MC = filters2ms(Skvh, Filters),
+            {MC, ets:match_spec_compile(MC)};
+        MSC -> {Filters, MSC}
+    end,
     case apply_fold_fun(
         Prop, FoldFun,
         Ctx#{
@@ -1151,8 +1155,9 @@ process_chunk(Rec, FoldFun, Ctx) ->
     apply_fold_fun(Rec, FoldFun, Ctx).
 
 filters2ms(true, Filters) ->
-    [{#{ckey => '$1'}, f2mc(Filter), ['$_']} || Filter <- Filters];
-filters2ms(false, _Filters) -> [{'_', [], ['$_']}].
+    [{#{ckey => '$1'}, f2mc(Filter, '$1'), ['$_']} || Filter <- Filters];
+filters2ms(false, Filters) ->
+    [{'$1', f2mc(Filter, {element, 2, '$1'}), ['$_']} || Filter <- Filters].
 
 apply_fold_fun(Term, FoldFun, Ctx) ->
     case FoldFun(Term, Ctx) of
@@ -1177,44 +1182,59 @@ incr(GroupKey, Key, Amount,  Ctx) ->
     #{GroupKey := #{Key := Val} = Group} = Ctx,
     Ctx#{GroupKey => Group#{Key => Val + Amount}}.
 
-f2mc('*') -> [];
-f2mc(['*']) -> [{is_list, '$1'}];
-f2mc({'*'}) -> [{is_tuple, '$1'}];
-f2mc(['_']) -> [{'==', {length, '$1'}, 1}];
-f2mc([_] = M) -> [{'==', '$1', M}];
-f2mc({_} = M) -> [{'==', '$1', {const, M}}];
-f2mc(M) when is_list(M), length(M) > 0 ->
-    M1 = M -- ['*'],
-    Star = case {length(M) - length(M1), lists:last(M)} of
-        {0, _} -> false;
-        {1, '*'} -> true;
-        _ -> error({bad_filter, M})
+f2mc('*', _) -> [];
+f2mc(['*'], C) -> [{is_list, C}];
+f2mc({'*'}, C) -> [{is_tuple, C}];
+f2mc(['_'], C) -> [{'==', {length, C}, 1}];
+f2mc({'_'}, C) -> [{'==', {size, C}, 1}];
+f2mc([_] = M, C) -> [{'==', C, M}];
+f2mc({_} = M, C) -> [{'==', C, {const, M}}];
+f2mc(M, C) when is_list(M) ->
+    [case M -- ['_', '*'] of
+        M -> {
+            'andalso',
+            {'==', {length, C}, length(M)},
+            f2mc_list(M, C, undefined)
+        };
+        _ -> f2mc_list(M, C, undefined)
+    end];
+f2mc(M, C) when is_tuple(M) -> [f2mc_tuple(M, C, undefined)].
+
+f2mc_list([], _C, M) -> M;
+f2mc_list([H|T], C, M) ->
+    L = case io_lib:printable_unicode_list(H) of
+        false when is_list(H) -> f2mc_list(H, {hd, C}, undefined);
+        false when is_tuple(H) -> f2mc_tuple(H, {hd, C}, undefined);
+        _ when H == '_' -> f2mc_list(T, {tl, C}, M);
+        _ -> {'==', {hd, C}, {const, H}}
     end,
-    case {Star, length([F || F <- M1, F /= '_'])} of
-        {false, 0} -> [{'==', {length, '$1'}, length(M1)}];
-        _ ->
-            [Guard] = guards(M1),
-            if Star ->
-                [{
-                    'andalso',
-                    {'>=', {length, '$1'}, length(M1)},
-                    Guard
-                }];
-            true ->
-                [{
-                    'andalso',
-                    {'==', {length, '$1'}, length(M1)},
-                    Guard
-                }]
-            end
+    case T of
+        [] when M == undefined -> L;
+        [] -> {'andalso', L, M};
+        _ -> {'andalso', L, f2mc_list(T, {tl, C}, M)}
     end.
 
-guards(Filters) -> guards(Filters, '$1', []).
-guards([], _At, Guard) -> Guard;
-guards(['_' | Rest], At, Guard) -> guards(Rest, {tl, At}, Guard);
-guards([Elm | Rest], At, []) -> guards(Rest, {tl, At}, [{'==', {hd, At}, Elm}]);
-guards([Elm | Rest], At, [Guard]) ->
-    guards(Rest, {tl, At}, [{'andalso', {'==', {hd, At}, Elm}, Guard}]).
+f2mc_tuple(F, {element, I, _} = C, M) when is_tuple(F) ->
+    H = element(I, F),
+    L = case io_lib:printable_unicode_list(H) of
+        false when is_list(H) -> f2mc_list(H, C, undefined);
+        false when is_tuple(H) -> f2mc_tuple(H, C, undefined);
+        _ -> {'==', C, {const, H}}
+    end,
+    case tuple_size(F) - I of
+        0 when M == undefined -> L;
+        0 -> {'andalso', L, M};
+        _ -> {'andalso', L, f2mc_list(F, {element, I + 1, C}, M)}
+    end;
+f2mc_tuple(F, C, M) when is_tuple(F) ->
+    f2mc_tuple(F, {element, 1, C}, M).
+
+%guards(Filters, C) -> guards(Filters, C, []).
+%guards([], _At, Guard) -> Guard;
+%guards(['_' | Rest], At, Guard) -> guards(Rest, {tl, At}, Guard);
+%guards([Elm | Rest], At, []) -> guards(Rest, {tl, At}, [{'==', {hd, At}, Elm}]);
+%guards([Elm | Rest], At, [Guard]) ->
+%    guards(Rest, {tl, At}, [{'andalso', {'==', {hd, At}, Elm}, Guard}]).
 
 %-------------------------------------------------------------------------------
 
@@ -1304,7 +1324,7 @@ wait_snap_tables(Snappers) ->
 f2mc_test_() ->
     {
         inparallel,
-        [{Title, ?_assertEqual(MatchSpec, f2mc(Filter))} ||
+        [{Title, ?_assertEqual(MatchSpec, f2mc(Filter, '$1'))} ||
             {Title, Filter, MatchSpec} <- [
                 {"all",           '*',     []},
                 {"list all",      ['*'],   [{is_list, '$1'}]},
@@ -1318,8 +1338,8 @@ f2mc_test_() ->
                         {'==', {length, '$1'}, 2},
                         {
                             'andalso',
-                            {'==', {hd, {tl, '$1'}}, "two"},
-                            {'==', {hd, '$1'}, "one"}
+                            {'==', {hd, '$1'}, {const, "one"}},
+                            {'==', {hd, {tl, '$1'}}, {const, "two"}}
                         }
                     }]
                 },
@@ -1368,7 +1388,7 @@ msrun_test_() ->
         [{
             Title,
             fun() ->
-                MCond = f2mc(Filter),
+                MCond = f2mc(Filter, '$1'),
                 MSC = ets:match_spec_compile([{'$1', MCond, ['$_']}]),
                 ?assertEqual(FilteredRows, ets:match_spec_run(Rows, MSC))
             end
