@@ -1361,7 +1361,12 @@ msrun_test_() ->
         ["b", 1],
         ["b", 2],
         {"a"},
-        {"a", 1}
+        {"a", 1},
+        1,
+        1.234,
+        'a',
+        <<"a">>,
+        "a"
     ],
     {
         inparallel,
@@ -1374,12 +1379,18 @@ msrun_test_() ->
             end
         } ||
             {Title, Filter, FilteredRows} <- [
-                {"all",         '*',        Rows},
-                {"list",        ['*'],      [R || R <- Rows, not is_tuple(R)]},
-                {"tuple",       {'*'},      [R || R <- Rows, not is_list(R)]},
+                {"all*",        '*',        Rows},
+                {"all_",        '_',        Rows},
+                {"integer1",    1,          [1]},
+                {"integer2",    2,          []},
+                {"float1.234",  1.234,      [1.234]},
+                {"float2.234",  2.234,      []},
+                {"list",        ['*'],      [R || R <- Rows, is_list(R)]},
+                {"tuple",       {'*'},      [R || R <- Rows, is_tuple(R)]},
                 {"first",       ["a",'*'],  [["a"], ["a", 1], ["a", 1, c]]},
                 {"first two",   ['_','_'],  [["a",1], ["b",1], ["b",2]]},
                 {"second",      ['_',1],    [["a",1], ["b",1]]}
+%               {"mix",         ['a',1,5,a,<<"a">>], []}
             ]
         ]
     }.
