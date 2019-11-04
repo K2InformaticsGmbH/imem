@@ -534,6 +534,7 @@ skvh_operations(_Config) ->
     ?assertEqual(maps:get(ckey, Map2), imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map1))),
     ?assertEqual(maps:get(ckey, Map3), imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map2))),
     ?assertEqual('$end_of_table', imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map3))),
+    ?assertEqual(ok, imem_dal_skvh:drop_table(?Channel)),
 
     ?CTPAL("create_table"),
     ?assertMatch({ok, _}, imem_dal_skvh:create_table(skvhTest, [], [], system)),
