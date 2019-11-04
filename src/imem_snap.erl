@@ -54,7 +54,7 @@
         , all_local_time_partitioned_tables/0
         ]).
 
--export([do_cluster_snapshot/0, filter_cluster_snapshot/1]).
+-export([do_cluster_snapshot/0, filter_cluster_snapshot/1, f2mc/2]).
 
 -safe([all_snap_tables, filter_candidate_list, get_snap_properties,
        set_snap_properties, snap_log,snap_err,take, do_snapshot,
@@ -1155,7 +1155,10 @@ process_chunk(Rec, FoldFun, Ctx) ->
     apply_fold_fun(Rec, FoldFun, Ctx).
 
 filters2ms(true, Filters) ->
-    [{#{ckey => '$1'}, f2mc(Filter, '$1'), ['$_']} || Filter <- Filters];
+    [case hasWild(Filter) of
+        false -> {#{ckey => Filter}, [], ['$_']};
+        true -> {#{ckey => '$1'}, f2mc(Filter, '$1'), ['$_']}
+    end || Filter <- Filters];
 filters2ms(false, Filters) ->
     [{'$1', f2mc(Filter, {element, 2, '$1'}), ['$_']} || Filter <- Filters].
 
@@ -1183,58 +1186,113 @@ incr(GroupKey, Key, Amount,  Ctx) ->
     Ctx#{GroupKey => Group#{Key => Val + Amount}}.
 
 f2mc('*', _) -> [];
-f2mc(['*'], C) -> [{is_list, C}];
-f2mc({'*'}, C) -> [{is_tuple, C}];
-f2mc(['_'], C) -> [{'==', {length, C}, 1}];
-f2mc({'_'}, C) -> [{'==', {size, C}, 1}];
-f2mc([_] = M, C) -> [{'==', C, M}];
-f2mc({_} = M, C) -> [{'==', C, {const, M}}];
-f2mc(M, C) when is_list(M) ->
-    [case M -- ['_', '*'] of
-        M -> {
-            'andalso',
-            {'==', {length, C}, length(M)},
-            f2mc_list(M, C, undefined)
-        };
-        _ -> f2mc_list(M, C, undefined)
-    end];
-f2mc(M, C) when is_tuple(M) -> [f2mc_tuple(M, C, undefined)].
+f2mc('_', _) -> [];
+f2mc(F, C) ->
+    [case hasWild(F) of
+        false -> {'==', C, {const, F}};
+        true ->
+            if
+                is_tuple(F) andalso tuple_size(F) > 0 -> f2mc_tuple(F, C);
+                is_list(F)  andalso length(F) > 0 -> f2mc_list(F, C);
+                true ->  error({badfilter, F})
+            end
+    end].
 
+hasWild(F) -> hasWild(F, false).
+hasWild([], false) -> false;
+hasWild(['_'|_], false) -> true;
+hasWild(['*'|_], false) -> true;
+hasWild([_|T], false) -> hasWild(T, false);
+hasWild(T, false) when is_tuple(T) -> hasWild(tuple_to_list(T), false);
+hasWild(_, W) -> W.
+
+f2mc_list(['*'], C) -> {is_list, C};
+f2mc_list(F, C) ->
+    NoUnderscore = lists:filter(fun('_') -> false; (_) -> true end, F),
+    NoStar = lists:filter(fun('*') -> false; (_) -> true end, F),
+    case {NoUnderscore, NoStar} of
+        % only '_'
+        {[], F} -> {'==', {length, C}, length(F)};
+        % no '*' (also includes no '_' case)
+        {_, F} ->
+            L = {'==', {length, C}, length(F)},
+            case f2mc_list(F, C, undefined) of
+                undefined -> L;
+                R -> {'andalso', L, R}
+            end;
+        % '*'
+        {_, _} ->
+            case lists:last(F) /= '*' orelse length(NoStar) + 1 /= length(F) of
+                true -> error({badfilter, F});
+                _ -> ok
+            end,
+            L = {'>=', {length, C}, length(NoStar)},
+            case f2mc_list(F, C, undefined) of
+                undefined -> L;
+                R -> {'andalso', L, R}
+            end
+    end.
 f2mc_list([], _C, M) -> M;
+f2mc_list(['*'], _C, M) -> M;
+f2mc_list(['_'|T], C, M) -> f2mc_list(T, {tl, C}, M);
+f2mc_list([H|T], C, M) when is_tuple(H), tuple_size(H) > 0 ->
+    L = f2mc_tuple(H, {hd, C}),
+    if M == undefined -> f2mc_list(T, C, L);
+    true -> f2mc_list(T, C, {'andalso', M, L})
+    end;
 f2mc_list([H|T], C, M) ->
+    C1 = {hd, C},
     L = case io_lib:printable_unicode_list(H) of
-        false when is_list(H) -> f2mc_list(H, {hd, C}, undefined);
-        false when is_tuple(H) -> f2mc_tuple(H, {hd, C}, undefined);
-        _ when H == '_' -> f2mc_list(T, {tl, C}, M);
-        _ -> {'==', {hd, C}, {const, H}}
+        false when is_list(H) -> f2mc_list(H, C1);
+        _ -> {'==', C1, {const, H}}
     end,
-    case T of
-        [] when M == undefined -> L;
-        [] -> {'andalso', L, M};
-        _ -> {'andalso', L, f2mc_list(T, {tl, C}, M)}
+    if M == undefined -> f2mc_list(T, {tl, C}, L);
+    true -> f2mc_list(T, {tl, C}, {'andalso', M, L})
     end.
 
-f2mc_tuple(F, {element, I, _} = C, M) when is_tuple(F) ->
-    H = element(I, F),
+f2mc_tuple({'*'}, C) -> {is_tuple, C};
+f2mc_tuple(T, C0) ->
+    C = {element, 1, C0},
+    F = tuple_to_list(T),
+    NoUnderscore = lists:filter(fun('_') -> false; (_) -> true end, F),
+    NoStar = lists:filter(fun('*') -> false; (_) -> true end, F),
+    case {NoUnderscore, NoStar} of
+        % only '_'
+        {[], F} -> {'andalso', {is_tuple, C}, {'==', {size, C}, length(F)}};
+        % no '*' (also includes no '_' case)
+        {_, F} ->
+            L = {'andalso', {is_tuple, C}, {'==', {size, C}, length(NoStar)}},
+            case f2mc_tuple(F, C, undefined) of
+                undefined -> L;
+                R -> {'andalso', L, R}
+            end;
+        % '*'
+        {_, _} ->
+            L = {'andalso', {is_tuple, C}, {'>=', {size, C}, length(NoStar)}},
+            case lists:last(F) /= '*' orelse length(NoStar) + 1 /= length(F) of
+                true -> error({badfilter, T});
+                _ -> ok
+            end,
+            case f2mc_tuple(F, C, undefined) of
+                undefined -> L;
+                R -> {'andalso', L, R}
+            end
+    end.
+f2mc_tuple([], _C, M) -> M;
+f2mc_tuple(['*'], _C, M) -> M;
+f2mc_tuple(['_'|T], {element, I, C}, M) ->
+    f2mc_tuple(T, {element, I + 1, C}, M);
+f2mc_tuple([H|T], {element, I, C}, M) ->
     L = case io_lib:printable_unicode_list(H) of
-        false when is_list(H) -> f2mc_list(H, C, undefined);
-        false when is_tuple(H) -> f2mc_tuple(H, C, undefined);
-        _ -> {'==', C, {const, H}}
+        false when is_list(H) -> f2mc_list(H, {element, I, C});
+        false when is_tuple(H), tuple_size(H) > 0 ->
+            f2mc_tuple(H, {element, I, C});
+        _ -> {'==', {element, I, C}, {const, H}}
     end,
-    case tuple_size(F) - I of
-        0 when M == undefined -> L;
-        0 -> {'andalso', L, M};
-        _ -> {'andalso', L, f2mc_list(F, {element, I + 1, C}, M)}
-    end;
-f2mc_tuple(F, C, M) when is_tuple(F) ->
-    f2mc_tuple(F, {element, 1, C}, M).
-
-%guards(Filters, C) -> guards(Filters, C, []).
-%guards([], _At, Guard) -> Guard;
-%guards(['_' | Rest], At, Guard) -> guards(Rest, {tl, At}, Guard);
-%guards([Elm | Rest], At, []) -> guards(Rest, {tl, At}, [{'==', {hd, At}, Elm}]);
-%guards([Elm | Rest], At, [Guard]) ->
-%    guards(Rest, {tl, At}, [{'andalso', {'==', {hd, At}, Elm}, Guard}]).
+    C1 = {element, I + 1, C},
+    if M == undefined -> f2mc_tuple(T, C1, L);
+    true -> f2mc_tuple(T, C1, {'andalso', M, L})
+    end.
 
 %-------------------------------------------------------------------------------
 
@@ -1324,30 +1382,46 @@ wait_snap_tables(Snappers) ->
 f2mc_test_() ->
     {
         inparallel,
-        [{Title, ?_assertEqual(MatchSpec, f2mc(Filter, '$1'))} ||
-            {Title, Filter, MatchSpec} <- [
+        [{
+            lists:flatten(io_lib:format("~s : ~p", [Title, Filter])),
+            fun() ->
+                case catch f2mc(Filter, '$1') of
+                    {'EXIT', Exception} ->
+                        ?debugFmt(
+                            "~n~s : imem_snap:f2mc(~p, '$1').~n"
+                            "Expected   : ~p~n"
+                            "Exception  : ~p",
+                            [Title, Filter, MatchSpec, Exception]
+                        ),
+                        error(failed);
+                    CalculatedMs ->
+                        if CalculatedMs /= MatchSpec ->
+                                ?debugFmt(
+                                    "~n~s : imem_snap:f2mc(~p, '$1').~n"
+                                    "Expected   : ~p~n"
+                                    "Got        : ~p",
+                                    [Title, Filter, MatchSpec, CalculatedMs]
+                                );
+                            true -> ok
+                        end,
+                        ?assertEqual(MatchSpec, CalculatedMs)
+                end
+            end
+        } || {Title, Filter, MatchSpec} <- [
                 {"all",           '*',     []},
                 {"list all",      ['*'],   [{is_list, '$1'}]},
                 {"all tuple",     {'*'},   [{is_tuple, '$1'}]},
                 {"list any one",  ['_'],   [{'==', {length, '$1'}, 1}]},
-                {"list single",   ["one"], [{'==', '$1', ["one"]}]},
+                {"list single",   ["one"], [{'==', '$1', {const, ["one"]}}]},
                 {"tuple single",  {"one"}, [{'==', '$1', {const, {"one"}}}]},
                 {"2 list both",   ["one", "two"],
-                    [{
-                        'andalso',
-                        {'==', {length, '$1'}, 2},
-                        {
-                            'andalso',
-                            {'==', {hd, '$1'}, {const, "one"}},
-                            {'==', {hd, {tl, '$1'}}, {const, "two"}}
-                        }
-                    }]
+                    [{'==', '$1', {const, ["one","two"]}}]
                 },
                 {"2 list second",  ['_', "two"],
                     [{
                         'andalso',
                         {'==', {length, '$1'}, 2},
-                        {'==', {hd, {tl, '$1'}}, "two"}
+                        {'==', {hd, {tl, '$1'}}, {const, "two"}}
                     }]
                 },
                 {"4 list first and last",  ["one", '_', '_', "three"],
@@ -1356,8 +1430,8 @@ f2mc_test_() ->
                         {'==', {length, '$1'}, 4},
                         {
                             'andalso',
-                            {'==', {hd, {tl, {tl, {tl, '$1'}}}}, "three"},
-                            {'==', {hd, '$1'}, "one"}
+                            {'==', {hd, '$1'}, {const, "one"}},
+                            {'==', {hd, {tl, {tl, {tl, '$1'}}}}, {const, "three"}}
                         }
                     }]
                 },
@@ -1365,7 +1439,7 @@ f2mc_test_() ->
                     [{
                         'andalso',
                         {'>=', {length, '$1'}, 2},
-                        {'==', {hd, {tl, '$1'}}, "two"}
+                        {'==', {hd, {tl, '$1'}}, {const, "two"}}
                     }]
                 }
             ]
@@ -1393,24 +1467,24 @@ msrun_test_() ->
         [{
             Title,
             fun() ->
-                MCond = f2mc(Filter, '$1'),
-                MSC = ets:match_spec_compile([{'$1', MCond, ['$_']}]),
+                MS = [{'$1', f2mc(Filter, '$1'), ['$_']} || Filter <- Filters],
+                MSC = ets:match_spec_compile(MS),
                 ?assertEqual(FilteredRows, ets:match_spec_run(Rows, MSC))
             end
         } ||
-            {Title, Filter, FilteredRows} <- [
-                {"all*",        '*',        Rows},
-                {"all_",        '_',        Rows},
-                {"integer1",    1,          [1]},
-                {"integer2",    2,          []},
-                {"float1.234",  1.234,      [1.234]},
-                {"float2.234",  2.234,      []},
-                {"list",        ['*'],      [R || R <- Rows, is_list(R)]},
-                {"tuple",       {'*'},      [R || R <- Rows, is_tuple(R)]},
-                {"first",       ["a",'*'],  [["a"], ["a", 1], ["a", 1, c]]},
-                {"first two",   ['_','_'],  [["a",1], ["b",1], ["b",2]]},
-                {"second",      ['_',1],    [["a",1], ["b",1]]}
-%               {"mix",         ['a',1,5,a,<<"a">>], []}
+            {Title, Filters, FilteredRows} <- [
+                {"all*",        ['*'],          Rows},
+                {"all_",        ['_'],          Rows},
+                {"integer1",    [1],            [1]},
+                {"integer2",    [2],            []},
+                {"float1.234",  [1.234],        [1.234]},
+                {"float2.234",  [2.234],        []},
+                {"mix",         ['a',1,5,a,<<"a">>],    [1,a,<<"a">>]},
+                {"list",        [['*']],        [R || R <- Rows, is_list(R)]},
+                {"tuple",       [{'*'}],        [R || R <- Rows, is_tuple(R)]},
+                {"first",       [["a",'*']],    [["a"], ["a", 1], ["a", 1, c]]},
+                {"first two",   [['_','_']],    [["a",1], ["b",1], ["b",2]]},
+                {"second",      [['_',1]],      [["a",1], ["b",1]]}
             ]
         ]
     }.
