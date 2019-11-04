@@ -530,9 +530,9 @@ skvh_operations(_Config) ->
     ?assertEqual(Map1, imem_dal_skvh:insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
     ?assertEqual(Map2, imem_dal_skvh:insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
     ?assertEqual(Map3, imem_dal_skvh:insert(system, ?Channel, maps:get(ckey, Map3), maps:get(cvalue, Map3))),
-    ?assertEqual(Map1, imem_dal_skvh:dirty_next(?Channel, 0)),
-    ?assertEqual(Map2, imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map1))),
-    ?assertEqual(Map3, imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map2))),
+    ?assertEqual(maps:get(ckey, Map1), imem_dal_skvh:dirty_next(?Channel, 0)),
+    ?assertEqual(maps:get(ckey, Map2), imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map1))),
+    ?assertEqual(maps:get(ckey, Map3), imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map2))),
     ?assertEqual('$end_of_table', imem_dal_skvh:dirty_next(?Channel, maps:get(ckey, Map3))),
 
     ?CTPAL("create_table"),
