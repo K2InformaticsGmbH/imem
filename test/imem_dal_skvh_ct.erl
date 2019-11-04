@@ -525,6 +525,16 @@ skvh_operations(_Config) ->
     ?assertEqual(ok, imem_meta:drop_table(skvhTestAudit_86400@_)),
     ?assertEqual(ok, imem_meta:drop_table(skvhTestHist)),
 
+    ?CTPAL("dirty_next_check"),
+    ?assertEqual(ok, imem_dal_skvh:create_check_channel(?Channel)),
+    ?assertEqual(Map1, imem_dal_skvh:insert(system, ?Channel, maps:get(ckey, Map1), maps:get(cvalue, Map1))),
+    ?assertEqual(Map2, imem_dal_skvh:insert(system, ?Channel, maps:get(ckey, Map2), maps:get(cvalue, Map2))),
+    ?assertEqual(Map3, imem_dal_skvh:insert(system, ?Channel, maps:get(ckey, Map3), maps:get(cvalue, Map3))),
+    ?assertEqual(Map1, imem_dal_skvh:dirty_next_check(?Channel, 0)),
+    ?assertEqual(Map2, imem_dal_skvh:dirty_next_check(?Channel, maps:get(ckey, Map1))),
+    ?assertEqual(Map3, imem_dal_skvh:dirty_next_check(?Channel, maps:get(ckey, Map2))),
+    ?assertEqual('$end_of_table', imem_dal_skvh:dirty_next_check(?Channel, maps:get(ckey, Map3))),
+
     ?CTPAL("create_table"),
     ?assertMatch({ok, _}, imem_dal_skvh:create_table(skvhTest, [], [], system)),
     ?assertEqual(ok, imem_dal_skvh:drop_table(skvhTest)),
