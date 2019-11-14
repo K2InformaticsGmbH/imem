@@ -51,7 +51,7 @@
         , all_local_time_partitioned_tables/0
         ]).
 
--export([do_cluster_snapshot/0, filter_cluster_snapshot/1, f2mc/2]).
+-export([do_cluster_snapshot/0, filter_cluster_snapshot/1, filters2ms/2, f2mc/2, hasWild/1]).
 
 -safe([all_snap_tables, filter_candidate_list, get_snap_properties,
        set_snap_properties, snap_log,snap_err,take, do_snapshot,
@@ -74,16 +74,16 @@
             ?GET_CONFIG(snapshotScript, [], true,
                         "Do we want to use a specialized snapshot script function?")).
 -define(GET_SNAPSHOT_EXCLUSION_PATTERNS,
-            ?GET_CONFIG(snapshotExclusuionPatterns, [], 
-                        ["Dyn@.*", "Dyn$", "Audit_.*", "Audit$", "Hist$", "Idx$"], 
+            ?GET_CONFIG(snapshotExclusuionPatterns, [],
+                        ["Dyn@.*", "Dyn$", "Audit_.*", "Audit$", "Hist$", "Idx$"],
                         "Snapshot excusion table name patterns")).
--define(PUT_SNAPSHOT_EXCLUSION_PATTERNS(__TablePatterns, __Remark), 
+-define(PUT_SNAPSHOT_EXCLUSION_PATTERNS(__TablePatterns, __Remark),
             ?PUT_CONFIG(snapshotExclusuionPatterns, [], __TablePatterns, __Remark)).
 -define(GET_SNAPSHOT_SCRIPT_FUN,
             ?GET_CONFIG(snapshotScriptFun, [],
                         <<"fun(ExcludePatterns) ->
                             ExcludeList = [dual, ddSize, ddNode | [imem_meta:physical_table_name(T) || T <- [ddCache@,ddSeCo@,ddPerm@]]],
-                            Candidates = imem_snap:filter_candidate_list(ExcludePatterns,imem_snap:all_snap_tables() -- ExcludeList), 
+                            Candidates = imem_snap:filter_candidate_list(ExcludePatterns,imem_snap:all_snap_tables() -- ExcludeList),
                             [(fun() ->
                                 case imem_snap:get_snap_properties(T) of
                                     {} ->               ok;
@@ -131,7 +131,7 @@
         ?B(
             fun
                 ({prop, DDTableProperties}, #{foldFnAcc := Acc} = Ctx) ->
-                    if 
+                    if
                         copy -> {true, Ctx};
                         change ->
                             NewDDTableProperties = DDTableProperties,
@@ -141,7 +141,7 @@
                             {true, DDTableProperties, Ctx#{foldFnAcc := Acc1}}
                     end;
                 (#{ckey := _Key, cvalue := _Map} = SkvhMap, #{foldFnAcc := Acc} = Ctx) ->
-                    if 
+                    if
                         copy -> {true, Ctx};
                         skip -> {false, Ctx};
                         change ->
@@ -152,7 +152,7 @@
                             {true, SkvhMap, Ctx#{foldFnAcc := Acc1}}
                     end;
                 (RecTuple, #{foldFnAcc := Acc} = Ctx) ->
-                    if 
+                    if
                         copy -> {true, Ctx};
                         skip -> {false, Ctx};
                         change ->
@@ -273,7 +273,7 @@ cluster_snap([], StartTime, Dir) ->
 cluster_snap(Tabs, StartTime, '$create_when_needed') ->
     cluster_snap(Tabs, StartTime, create_clean_dir(?BKP_ZIP_PREFIX));
 cluster_snap([T|Tabs], {_,_} = StartTime, Dir) ->
-    NextTabs = case catch take_chunked(imem_meta:physical_table_name(T), Dir) of                   
+    NextTabs = case catch take_chunked(imem_meta:physical_table_name(T), Dir) of
                    ok ->
                        ?Info("cluster snapshot ~p", [T]),
                         Tabs;
@@ -361,9 +361,9 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
     end;
 handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
     case SnapTimer of
-        undefined -> 
+        undefined ->
             ok;
-        SnapTimer -> 
+        SnapTimer ->
             ?Debug("timer paused~n"),
             erlang:cancel_timer(SnapTimer)
     end,
@@ -512,7 +512,7 @@ take({tabs, Tabs}) ->                               % list of tables as atoms or
     || Tab <- Tabs]);
 take(Tab) when is_atom(Tab) ->                      % single table as atom (internal use)
     take({tabs, [Tab]});
-take(Tab) when is_map(Tab) ->                       % single table using transform map 
+take(Tab) when is_map(Tab) ->                       % single table using transform map
     take({tabs, [Tab]}).
 
 
@@ -551,7 +551,7 @@ restore_as(Op, SrcTab, DstTab, Strategy, Simulate) when is_binary(DstTab) ->
     restore_as(Op, SrcTab, binary_to_list(DstTab), Strategy, Simulate);
 restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
     suspend_snap_loop(),
-    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),    
+    {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     DstSnapFile = filename:join([SnapDir, DstTab++?BKP_EXTN]),
     SnapFile = case filelib:is_file(DstSnapFile) of
                    true -> DstSnapFile;
@@ -562,7 +562,7 @@ restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
             ?Info("Restored table ~s as ~s from ~s with result ~p", [SrcTab, DstTab, SnapFile, {L1,L2,L3}]),
             start_snap_loop(),
             ok;
-        Error -> 
+        Error ->
             start_snap_loop(),
             Error
     end.
@@ -622,8 +622,8 @@ restore_chunked(Tab, SnapFile, Strategy, Simulate) ->
     ?Debug("restoring ~p from ~p by ~p~n", [Tab, SnapFile, Strategy]),
     case file:open(SnapFile, [read, raw, binary]) of
        {ok, FHndl} ->
-           if 
-                (Simulate /= true) andalso (Strategy =:= destroy) -> 
+           if
+                (Simulate /= true) andalso (Strategy =:= destroy) ->
                     catch imem_meta:truncate_table(Tab);
                 true -> ok
            end,
@@ -814,7 +814,7 @@ take_chunked(Tab) ->
     take_chunked(Tab, SnapDir).
 
 take_chunked(Tab, SnapDir) when is_atom(Tab) ->
-    take_chunked(#{table=>Tab}, SnapDir);  
+    take_chunked(#{table=>Tab}, SnapDir);
 take_chunked(Map, SnapDir) when is_map(Map) ->
     NTrans = fun(Name) -> atom_to_list(Name) end,
     PTrans = fun(Prop) -> Prop end,
@@ -850,7 +850,7 @@ take_chunked_transform(#{table:=Tab, nTrans:=NTrans, pTrans:=PTrans, rTrans:=RTr
                             , {delayed_write, erlang:round(ChunkSize * AvgRowSize)
                               , 2 * ?GET_SNAPSHOT_CHUNK_FETCH_TIMEOUT}]) of
             {ok, FileHandle} -> FileHandle;
-            {error, Error} -> 
+            {error, Error} ->
                 ?Error("Error : ~p opening file : ~p", [Error, NewBackFile]),
                 error(Error)
         end,
@@ -1001,36 +1001,39 @@ filter_cluster_snapshot(Target) ->
                     Table = filename:basename(
                         FileInArchive, filename:extension(FileInArchive)
                     ),
-                    Filters = ?GET_SNAPSHOT_COPY_FILTER(Table),
-                    FoldFun = imem_compiler:compile(
-                        ?GET_SNAPSHOT_COPY_FILTER_FUN(Table)
-                    ),
-                    TargetFile = filename:join(TempDir, FileInArchive),
-                    ?Info("TargetFile ~p", [TargetFile]),
-                    {ok, TargetFileHandle} = file:open(TargetFile, [write, raw]),                    
-                    Stats = try
-                        Sts = fold_snap(
-                            GetBinFun(), FoldFun, Filters, TargetFileHandle
-                        ),
-                        ok = file:close(TargetFileHandle),
-                        Sts
-                    catch
-                        FoldError:Exception ->
-                            catch file:close(TargetFileHandle),
-                            error({FoldError, Exception})
-                    end,
-                    ?Info("processed '~s' : ~p", [Table, Stats]),
-                    Files#{
-                        Table => #{
-                            targetFile => TargetFile,
-                            fileName => FileInArchive,
-                            tableName => Table,
-                            getInfo => GetInfoFun,
-                            getBin => GetBinFun,
-                            filters => Filters,
-                            stats => Stats
-                        }
-                    }
+                    case ?GET_SNAPSHOT_COPY_FILTER(Table) of
+                        [] -> Files;
+                        Filters ->
+                            FoldFun = imem_compiler:compile(
+                                ?GET_SNAPSHOT_COPY_FILTER_FUN(Table)
+                            ),
+                            TargetFile = filename:join(TempDir, FileInArchive),
+                            ?Info("TargetFile ~p", [TargetFile]),
+                            {ok, TargetFileHandle} = file:open(TargetFile, [write, raw]),
+                            Stats = try
+                                Sts = fold_snap(
+                                    GetBinFun(), FoldFun, Filters, TargetFileHandle
+                                ),
+                                ok = file:close(TargetFileHandle),
+                                Sts
+                            catch
+                                FoldError:Exception ->
+                                    catch file:close(TargetFileHandle),
+                                    error({FoldError, Exception})
+                            end,
+                            ?Info("processed '~s' : ~p", [Table, Stats]),
+                            Files#{
+                                Table => #{
+                                    targetFile => TargetFile,
+                                    fileName => FileInArchive,
+                                    tableName => Table,
+                                    getInfo => GetInfoFun,
+                                    getBin => GetBinFun,
+                                    filters => Filters,
+                                    stats => Stats
+                                }
+                            }
+                    end
                 end,
                 #{},
                 Source
@@ -1201,10 +1204,11 @@ f2mc(F, C) ->
     end].
 
 hasWild(F) -> hasWild(F, false).
+hasWild(_, true) -> true;
 hasWild([], false) -> false;
 hasWild(['_'|_], false) -> true;
 hasWild(['*'|_], false) -> true;
-hasWild([_|T], false) -> hasWild(T, false);
+hasWild([H|T], false) -> hasWild(T, hasWild(H, false));
 hasWild(T, false) when is_tuple(T) -> hasWild(tuple_to_list(T), false);
 hasWild(_, W) -> W.
 
