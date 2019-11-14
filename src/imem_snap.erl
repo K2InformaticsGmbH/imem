@@ -25,9 +25,6 @@
         , snap_file_count/0
         , exclude_table_pattern/1
         , filter_candidate_list/2
-        , suspend_snap_loop/0
-        , start_snap_loop/0
-        , restart_snap_loop/0
         ]).
 
 % gen_server callbacks
@@ -122,19 +119,10 @@
 -spec(
     start_snap_loop() -> ok | pid()
 ).
--spec(
-    restart_snap_loop() -> ok | term()
-).
 -ifdef(TEST).
     start_snap_loop() -> ok.
-    restart_snap_loop() -> ok.
 -else.
     start_snap_loop() ->
-        spawn(fun() ->
-            catch ?Info("~s~n", [zip({re, "*.bkp"})]),
-            restart_snap_loop()
-        end).
-    restart_snap_loop() ->
         erlang:whereis(?MODULE) ! imem_snap_loop.
 -endif.
 
@@ -161,6 +149,10 @@ start_link(Params) ->
 init(_) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
+    ?Info("snapshot directory ~s~n", [SnapshotDir]),
+    process_flag(trap_exit, true),
+    catch ?Info("~s~n", [zip({re, "*.bkp"})]),
+    start_snap_loop(),
     case filelib:is_dir(SnapDir) of
         false ->
             case filelib:ensure_dir(SnapshotDir) of
@@ -174,11 +166,14 @@ init(_) ->
                 {error, Error} ->
                     ?Warn("unable to create snapshot directory ~p : ~p~n", [SnapDir, Error])
             end;
-        _ -> maybe_coldstart_restore(SnapshotDir)
+        _ ->
+            case maybe_coldstart_restore(SnapshotDir) of
+                true ->
+                    no_op;
+                false ->
+                    start_snap_loop()
+            end
     end,
-    ?Info("snapshot directory ~s~n", [SnapshotDir]),
-    process_flag(trap_exit, true),
-    start_snap_loop(),
     erlang:send_after(
       1000, ?MODULE,
       {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
@@ -315,7 +310,6 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
             SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
             {noreply, State#state{snap_timer = SnapTimer}}
     end;
-
 handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
     case SnapTimer of
         undefined -> 
@@ -490,7 +484,7 @@ restore(bkp, Tabs, Strategy, Simulate) when is_list(Tabs) ->
         {Tab, restore_chunked(list_to_atom(Table), SnapFile, Strategy, Simulate)}
     end)()
     || Tab <- Tabs],
-    restart_snap_loop(),
+    start_snap_loop(),
     Res.
 
 % snapshot restore_as interface
@@ -516,10 +510,10 @@ restore_as(bkp, SrcTab, DstTab, Strategy, Simulate) ->
     case restore_chunked(list_to_atom(DstTab), SnapFile, Strategy, Simulate) of
         {L1,L2,L3} ->
             ?Info("Restored table ~s as ~s from ~s with result ~p", [SrcTab, DstTab, SnapFile, {L1,L2,L3}]),
-            restart_snap_loop(),
+            start_snap_loop(),
             ok;
         Error -> 
-            restart_snap_loop(),
+            start_snap_loop(),
             Error
     end.
 
@@ -548,7 +542,7 @@ restore(zip, ZipFile, TabRegEx, Strategy, Simulate) when is_list(ZipFile) ->
                 end,
                 [], Files
             ),
-            restart_snap_loop(),
+            start_snap_loop(),
             Res;
         _ ->
             {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
@@ -913,14 +907,22 @@ maybe_coldstart_restore(SnapDir) ->
     case {application:get_env(imem, cold_start_recover), imem_meta:nodes()} of
         {{ok, true}, []} ->
             case lists:reverse(lists:sort(filelib:wildcard(?BKP_ZIP_PREFIX"*.zip", SnapDir))) of
-                [] -> ?Warn("Cold Start : unable to auto restore, no "?BKP_ZIP_PREFIX"*.zip found in snapshot directory ~s", [SnapDir]);
+                [] ->
+                    ?Warn("Cold Start : unable to auto restore, no "?BKP_ZIP_PREFIX"*.zip found in snapshot directory ~s", [SnapDir]),
+                    false;
                 [ZipFile | _ ] ->
                     ?Info("Cold Start : auto restoring ~s found at ~s", [ZipFile, SnapDir]),
-                    restore(zip, filename:join(SnapDir, ZipFile), [], replace, false)
+                    restore(zip, filename:join(SnapDir, ZipFile), [], replace, false),
+                    true
             end;
-        {{ok, true}, _} -> ?Info("Not Cold Start : auto restore from cluster snapshot is skipped");
-        {_, []} -> ?Warn("Cold Start : auto restore from cluster snapshot is disabled");
-        _ -> ok
+        {{ok, true}, _} ->
+            ?Info("Not Cold Start : auto restore from cluster snapshot is skipped"),
+            false;
+        {_, []} ->
+            ?Warn("Cold Start : auto restore from cluster snapshot is disabled"),
+            false;
+        _ ->
+            false
     end.
 
 do_cluster_snapshot() ->
