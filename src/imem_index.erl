@@ -587,7 +587,9 @@ preview_exact(IndexTable, ID, iv_h, SearchTerm, _Key, _Limit, Iff) ->
         [#ddIndex{stu = {ID, SearchTerm}, lnk = Hash}] ->
             preview_expand_hash(exact_match, IndexTable, ID, Hash, SearchTerm, ?SMALLEST_TERM, Iff);
         _ -> []
-    end.
+    end;
+preview_exact(_IndexTable, _ID, _Type, _SearchTerm, _Key, _Limit, _Iff) ->
+    [].
 
 -spec preview_head_unique(atom(), integer(), binary(), tuple(), integer(), function(), list()) -> list().
 preview_head_unique(_IndexTable, _ID, _SearchTerm, _PrevStu, 0, _Iff, Acc) -> Acc;

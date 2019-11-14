@@ -133,6 +133,7 @@
         , get_longest_prefix/4
         , check_age_audit_entry/4 %% (User, Channel, Key, TS1)      returns the records if there is any for the key after the timestamp TS1
         , audit_write_noop/3 %% (User, Channel, Key)                creates an entry in audit table for channel wehere nvalue and ovalue are the same
+        , dirty_next/2      %% (Channel, Key)                       gets the next key after Key and returns decoded key
         ]).
 
 -export([build_aux_table_info/1,
@@ -620,6 +621,15 @@ audit_write_noop(User, Channel, Key) ->
                 write_audit(AuditInfo)
             end,
             imem_meta:return_atomic(imem_meta:transaction(AuditNoop))
+    end.
+
+-spec dirty_next(binary(), term()) ->  term() | '$end_of_table'.
+dirty_next(Channel, Key) ->
+    case imem_meta:dirty_next(atom_table_name(Channel), sext:encode(Key)) of
+        '$end_of_table' ->
+            '$end_of_table';
+        NextEncKey ->
+            sext:decode(NextEncKey)
     end.
 
 write_audit([]) -> ok;
