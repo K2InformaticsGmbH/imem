@@ -1318,7 +1318,7 @@ do_cluster_snapshot() ->
     end,
     ?Info("recursively delete ~s", [Dir]),
     lists:foreach(
-        fun({File, _}) ->
+        fun(File) ->
             ?Info("deleting ~s", [File]),
             ok = file:delete(filename:join(Dir, File))
         end,
