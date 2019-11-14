@@ -130,10 +130,8 @@
     restart_snap_loop() -> ok.
 -else.
     start_snap_loop() ->
-        spawn(fun() ->
-            catch ?Info("~s~n", [zip({re, "*.bkp"})]),
-            restart_snap_loop()
-        end).
+        erlang:whereis(?MODULE) ! zip_all,
+        restart_snap_loop().
     restart_snap_loop() ->
         erlang:whereis(?MODULE) ! imem_snap_loop.
 -endif.
@@ -161,6 +159,9 @@ start_link(Params) ->
 init(_) ->
     {_, SnapDir} = application:get_env(imem, imem_snapshot_dir),
     SnapshotDir = filename:absname(SnapDir),
+    ?Info("snapshot directory ~s~n", [SnapshotDir]),
+    process_flag(trap_exit, true),
+    start_snap_loop(),
     case filelib:is_dir(SnapDir) of
         false ->
             case filelib:ensure_dir(SnapshotDir) of
@@ -176,9 +177,6 @@ init(_) ->
             end;
         _ -> maybe_coldstart_restore(SnapshotDir)
     end,
-    ?Info("snapshot directory ~s~n", [SnapshotDir]),
-    process_flag(trap_exit, true),
-    start_snap_loop(),
     erlang:send_after(
       1000, ?MODULE,
       {cluster_snap, '$replace_with_timestamp', '$create_when_needed'}),
@@ -315,7 +313,9 @@ handle_info(imem_snap_loop, #state{snapFun=SFun,snapHash=SHash} = State) ->
             SnapTimer = erlang:send_after(10000, self(), imem_snap_loop),
             {noreply, State#state{snap_timer = SnapTimer}}
     end;
-
+handle_info(zip_all, State) ->
+    catch ?Info("~s~n", [zip({re, "*.bkp"})]),
+    {noreply, State};
 handle_info(imem_snap_loop_cancel, #state{snap_timer=SnapTimer} = State) ->
     case SnapTimer of
         undefined -> 
