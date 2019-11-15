@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.7.0 (Release Date 15.11.2019)
+=======================================
+* imem_dal_skvh dirty_next api implemented
+* imem_snap initial zip taken synchronously
+
 Version 3.6.0 (Release Date 13.09.2019)
 =======================================
 * Cluster Query support
