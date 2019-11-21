@@ -933,12 +933,12 @@ read_deep_single(Channel, TableName, CurrentKey, EndKey) ->
 get_longest_prefix(User, Channel, StartKey, EndKey) when is_binary(Channel) ->
     StartKeyEnc = sext:encode(StartKey),
     EndKeyEnc = sext:encode(EndKey),
-    case imem_meta:transaction(
+    case imem_if_mnesia:return_atomic(imem_meta:transaction(
            fun() ->
                    get_longest_prefix(User, {table, atom_table_name(Channel)},
                                       StartKeyEnc, EndKeyEnc)
-           end) of
-        {atomic, KeyEnc} -> sext:decode(KeyEnc);
+           end)) of
+        KeyEnc when is_binary(KeyEnc) -> sext:decode(KeyEnc);
         Error -> {error, Error}
     end;
 get_longest_prefix(User, {table, Table}, StartKeyEnc, EndKeyEnc) ->
