@@ -1257,18 +1257,18 @@ f2mc_list([H|T], C, M) ->
     end.
 
 f2mc_tuple({'*'}, C) -> {is_tuple, C};
-f2mc_tuple(T, C0) ->
-    C = {element, 1, C0},
+f2mc_tuple(T, C) ->
     F = tuple_to_list(T),
     NoUnderscore = lists:filter(fun('_') -> false; (_) -> true end, F),
     NoStar = lists:filter(fun('*') -> false; (_) -> true end, F),
+    C1 = {element, 1, C},
     case {NoUnderscore, NoStar} of
         % only '_'
         {[], F} -> {'andalso', {is_tuple, C}, {'==', {size, C}, length(F)}};
         % no '*' (also includes no '_' case)
         {_, F} ->
             L = {'andalso', {is_tuple, C}, {'==', {size, C}, length(NoStar)}},
-            case f2mc_tuple(F, C, undefined) of
+            case f2mc_tuple(F, C1, undefined) of
                 undefined -> L;
                 R -> {'andalso', L, R}
             end;
@@ -1279,7 +1279,7 @@ f2mc_tuple(T, C0) ->
                 true -> error({badfilter, T});
                 _ -> ok
             end,
-            case f2mc_tuple(F, C, undefined) of
+            case f2mc_tuple(F, C1, undefined) of
                 undefined -> L;
                 R -> {'andalso', L, R}
             end
