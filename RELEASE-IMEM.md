@@ -3,6 +3,10 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.7.1 (Release Date 22.11.2019)
+=======================================
+* Return_atomic wrap on transaction calls #302
+
 Version 3.7.0 (Release Date 15.11.2019)
 =======================================
 * imem_dal_skvh dirty_next api implemented
