@@ -373,9 +373,7 @@ preview_regexp_init(IndexTable, ID, Type, SearchTerm, Limit, Iff, FromStu) ->
     ReplacedStar = binary:replace(SearchTerm, [<<"*">>], <<"%">>, [global]),
     ReplacedMark = binary:replace(ReplacedStar, [<<"?">>], <<"_">>, [global]),
     Pattern = imem_sql_funs:like_compile(ReplacedMark),
-    {atomic, ResultRegexp} =
-        imem_if_mnesia:transaction(fun() -> preview_regexp(IndexTable, ID, Type, Pattern, StartingStu, Limit, Iff) end),
-    ResultRegexp.
+    imem_if_mnesia:return_atomic(imem_if_mnesia:transaction(fun() -> preview_regexp(IndexTable, ID, Type, Pattern, StartingStu, Limit, Iff) end)).
 
 -spec preview_regexp_unique(atom(), integer(), term(), tuple(), integer(), function(), list()) -> list().
 preview_regexp_unique(_IndexTable, _ID, _Pattern, _PrevStu, 0, _Iff, Acc) -> Acc;
@@ -454,9 +452,7 @@ preview_regexp(IndexTable, ID, iv_h, Pattern, {ID, Value} = Stu, Limit, Iff) ->
 -spec preview_range_init(atom(), integer(), atom(), {term(), term()}, integer(), function(), tuple() | <<>>) -> list().
 preview_range_init(IndexTable, ID, Type, SearchTerm, Limit, Iff, FromStu) ->
     StartingStu = create_starting_stu(Type, ID, range_match, SearchTerm, FromStu),
-    {atomic, ResultRange} =
-        imem_if_mnesia:transaction(fun() -> preview_range(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, Iff) end),
-    ResultRange.
+    imem_if_mnesia:return_atomic(imem_if_mnesia:transaction(fun() -> preview_range(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, Iff) end)).
 
 -spec preview_range_unique(atom(), integer(), term(), term(), tuple(), integer(), function(), list()) -> list().
 preview_range_unique(_IndexTable, _ID, _RangeStart, _RangeEnd, _PrevStu, 0, _Iff, Acc) -> Acc;
@@ -512,14 +508,14 @@ preview_range(IndexTable, ID, iv_h, {RangeStart, RangeEnd} = SearchTerm, Stu, Li
 preview_execute(_IndexTable, _ID, _Type, [], _SearchTerm, _Limit, _Iff, _PrevStrategy, _FromStu) -> [];
 preview_execute(_IndexTable, _ID, _Type, _Strategies, _Term, Limit, _Iff, _PrevStrategy, _FromStu) when Limit =< 0 -> [];
 preview_execute(IndexTable, ID, Type, [exact_match | SearchStrategies], SearchTerm, Limit, Iff, undefined, FromStu) ->
-    {atomic, ResultExact} =
-        imem_if_mnesia:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff, FromStu) end),
+    ResultExact =
+        imem_if_mnesia:return_atomic(imem_if_mnesia:transaction(fun() -> preview_exact(IndexTable, ID, Type, SearchTerm, ?SMALLEST_TERM, Limit, Iff, FromStu) end)),
     ResultExact ++ preview_execute(IndexTable, ID, Type, SearchStrategies, SearchTerm, Limit - length(ResultExact), Iff, exact_match, FromStu);
 preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy, FromStu) ->
     StartingStu = create_starting_stu(Type, ID, head_match, SearchTerm, FromStu),
     IffAndNotAdded = add_filter_duplicated(PrevStrategy, SearchTerm, Iff),
-    {atomic, ResultHead} =
-        imem_if_mnesia:transaction(fun() -> preview_head(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffAndNotAdded) end),
+    ResultHead =
+        imem_if_mnesia:return_atomic(imem_if_mnesia:transaction(fun() -> preview_head(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffAndNotAdded) end)),
     case lists:member(body_match, SearchStrategies) of
         true ->
             ResultHead ++ preview_execute(IndexTable, ID, Type, [body_match], SearchTerm, Limit - length(ResultHead), Iff, head_match, FromStu);
@@ -529,8 +525,8 @@ preview_execute(IndexTable, ID, Type, [head_match | SearchStrategies], SearchTer
 preview_execute(IndexTable, ID, Type, [body_match | _SearchStrategies], SearchTerm, Limit, Iff, PrevStrategy, FromStu) ->
     StartingStu = create_starting_stu(Type, ID, body_match, SearchTerm, FromStu),
     IffNotAdded = add_filter_duplicated(PrevStrategy, SearchTerm, Iff),
-    {atomic, ResultBody} =
-        imem_if_mnesia:transaction(fun() -> preview_body(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffNotAdded) end),
+    ResultBody =
+        imem_if_mnesia:return_atomic(imem_if_mnesia:transaction(fun() -> preview_body(IndexTable, ID, Type, SearchTerm, StartingStu, Limit, IffNotAdded) end)),
     %% Body is the last since including head or exact will duplicate results.
     ResultBody.
 
