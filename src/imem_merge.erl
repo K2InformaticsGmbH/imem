@@ -53,6 +53,10 @@ term_diff(binary, Data, binary, Data, Opts, _User) ->
     [#ddTermDiff{id=1,left=Data,cmp=imem_cmp:cmp(Data,Data,Opts),right=Data}];
 term_diff(binary, LeftData, binary, RightData, Opts, _User) ->
     [#ddTermDiff{id=1,left=LeftData,cmp=imem_cmp:cmp(LeftData,RightData,Opts),right=RightData}];
+term_diff(LeftType, LeftData, RightType, RightData, Opts, User) when LeftType==integer;LeftType==float ->
+    term_diff(number, LeftData, RightType, RightData, Opts, User);
+term_diff(LeftType, LeftData, RightType, RightData, Opts, User) when RightType==integer;RightType==float ->
+    term_diff(LeftType, LeftData, number, RightData, Opts, User);
 term_diff(number, LeftData, number, RightData, _Opts, _User) ->
     try
         [#ddTermDiff{id=1
