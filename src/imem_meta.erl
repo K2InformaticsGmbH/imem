@@ -126,6 +126,7 @@
         , partitioned_table_name_str/2
         , partitioned_table_name/2
         , parse_table_name/1
+        , parse_simple_name/1
         , index_table/1
         , index_table_name/1
         , is_system_table/1
@@ -1745,7 +1746,7 @@ parse_table_name(TableName) when is_atom(TableName) ->
     parse_table_name(atom_to_list(TableName));
 parse_table_name(TableName) when is_list(TableName) ->
     case imem_sql:parse_sql_name(TableName) of
-        {"",N} ->       ["",""|parse_simple_name(N)];
+        {[],N} ->       ["",""|parse_simple_name(N)];
         {S,N} ->        [S,"."|parse_simple_name(N)]
     end;
 parse_table_name(TableName) when is_binary(TableName) ->
@@ -1754,35 +1755,23 @@ parse_table_name(TableName) when is_binary(TableName) ->
 -spec parse_simple_name(ddString()) -> [ddString()].
 parse_simple_name(TableName) when is_list(TableName) ->
     %% TableName -> [Name,"_",Period,"@",Node] all strings , all optional except Name        
-    case string:tokens(TableName, "@") of
+    case string:split(TableName, "@", trailing) of
         [TableName] ->    
             [TableName,"","","",""];
-        [Name] ->    
-            case string:tokens(Name, "_") of  
-                [Name] ->  
-                    [Name,"","","@",""];
-                BL ->     
-                    case catch list_to_integer(lists:last(BL)) of
-                        I when is_integer(I) ->
-                            [string:join(lists:sublist(BL,length(BL)-1),"."),"_",lists:last(BL),"@",""];
-                        _ ->
-                            [Name,"","","@",""]
-                    end
-            end;
+        [[],_] ->
+            [TableName,"","","",""];
         [Name,Node] ->
-            case string:tokens(Name, "_") of  
+            case string:split(Name, "_", all) of  
                 [Name] ->  
                     [Name,"","","@",Node];
                 BL ->     
                     case catch list_to_integer(lists:last(BL)) of
                         I when is_integer(I) ->
-                            [string:join(lists:sublist(BL,length(BL)-1),"."),"_",lists:last(BL),"@",Node];
+                            [string:join(lists:sublist(BL,length(BL)-1),"_"),"_",lists:last(BL),"@",Node];
                         _ ->
                             [Name,"","","@",Node]
                     end
-            end;
-        _ ->
-            [TableName,"","","",""]
+            end
     end.
 
 -spec index_table_name(ddSimpleTable()) -> ddBinStr().

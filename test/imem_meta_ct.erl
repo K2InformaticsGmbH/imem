@@ -87,6 +87,8 @@ physical_table_names(_Config) ->
     ?assertEqual([], imem_meta:physical_table_names("ddCache@123")),
     ?assertEqual([LocalCacheName], imem_meta:physical_table_names("ddCache@")),
 
+    ?assertEqual([s_tab_1568764800@_], imem_meta:simple_or_local_node_sharded_tables(s_tab_1568764800@_)),
+
     Result1 = [{node(),imem_meta:schema(),ddTable}],
     ?assertEqual(Result1, imem_meta:cluster_table_names(ddTable)),
     ?assertEqual(Result1, imem_meta:cluster_table_names("ddTable")),
