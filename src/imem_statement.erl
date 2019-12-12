@@ -37,6 +37,7 @@
         , receive_recs/3
         , recs_sort/2
         , result_tuples/2
+        , join_rows_parallel/5
         ]).
 
 % Functions applied with Common Test
@@ -45,18 +46,20 @@
         ]).
 
 -record(fetchCtx,               %% state for fetch process
-                    { pid       ::pid()
-                    , monref    ::any()             %% fetch monitor ref
-                    , status    ::atom()            %% undefined | waiting | fetching | done | tailing | aborted
-                    , metarec   ::tuple()
+                    { pid           ::pid() 
+                    , monref        ::any()         %% fetch monitor ref
+                    , status        ::atom()        %% undefined | waiting | fetching | done | tailing | aborted
+                    , metarec       ::tuple()
                     , blockSize=100 ::integer()     %% could be adaptive
                     , rownum    ::undefined|integer %% next rownum to be used, if any, element(1,MetaRec)
                     , remaining=0   ::integer()     %% rows remaining to be fetched. initialized to Limit and decremented
-                    , opts = [] ::list()            %% fetch options like {tail_mode,true}
-                    , tailSpec  ::any()             %% compiled matchspec for master table condition (bound with MetaRec) 
-                    , filter    ::any()             %% filter specification {Guard,Binds}
-                    , recName   ::atom()
-                    , lastmeta  ::tuple()
+                    , opts = []     ::list()        %% fetch options like {tail_mode,true}
+                    , tailSpec      ::any()         %% compiled matchspec for master table condition (bound with MetaRec) 
+                    , filter        ::any()         %% filter specification {Guard,Binds}
+                    , recName       ::atom()
+                    , lastmeta      ::tuple()
+                    , joinPids=[]   ::list()
+                    , joinComplete=false ::boolean()
                     }).
 
 -record(state,                  %% state for statment process, including fetch subprocess
@@ -256,6 +259,7 @@ close(SKey, Pid) when is_pid(Pid) ->
     end.
 
 init([Statement,ParentPid]) ->
+    %?Info("imem_statement:init ~p for parent ~p",[self(), ParentPid]),
     imem_meta:log_to_db(info,?MODULE,init,[],Statement#statement.stmtStr),
     {ok, #state{statement=Statement, parmonref=erlang:monitor(process, ParentPid)}}.
 
@@ -454,7 +458,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                         end
                     catch
                         _:Err ->
-                            ?Info("fetch_recs_async error stack trace ~n~p",[erlang:get_stacktrace()]),
+                            ?Warn("fetch_recs_async error stack trace ~n~p",[erlang:get_stacktrace()]),
                             send_reply_to_client(Sock, {error, Err}),
                             FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
                             {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
@@ -521,75 +525,99 @@ handle_info({mnesia_table_event,{delete, _Table, _What, DelRows, _ActivityId}}, 
     NewState = process_tail_delete_rows(DelRows, State),
     {noreply, NewState};
 handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0, statement=Stmt}=State) ->
-    #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun, opts=Opts}=FetchCtx0,
+    #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,status=Status,filter=FilterFun,opts=Opts,joinPids=JoinPids}=FetchCtx0,
+    TailMode = lists:member({tail_mode,true},Opts),
     %?Info("received ~p rows ~n~p", [length(Rows0)-2,Rows0]),
-    {Rows1,Complete} = case {Status,Rows0} of
+    {Rows1,SingleBlock,Complete} = case {Status,Rows0} of
         {waiting,[?sot,?eot|R]} ->
             %?Info("received ~p rows for ~p data complete", [length(Rows0)-2,element(2,Stmt)]),
-            {R,true};
+            {R,true,true};
         {waiting,[?sot|R]} ->            
             %?Info("received ~p rows for ~p data first", [length(Rows0)-1,element(2,Stmt)]),
-            {R,false};
+            {R,false,false};
         {fetching,[?eot|R]} ->
             %?Info("received ~p rows for ~p data complete", [length(Rows0)-1,element(2,Stmt)]),
-            {R,true};
-        {fetching,[?sot,?eot|_R]} ->
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
-            %?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-2,element(2,Stmt)]),
-            handle_fetch_complete(State);
-        {fetching,[?sot|_R]} ->
-            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(_R)}],"data transaction restart"),     
-            %?Info("received ~p rows for ~p data transaction restart", [length(Rows0)-1,element(2,Stmt)]),
-            handle_fetch_complete(State);
+            {R,false,true};
+        {fetching,[?sot,?eot|R]} ->
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(R)}],"data transaction restart"),     
+            ?Error("received ~p rows for ~p data transaction restart", [length(Rows0)-2,element(2,Stmt)]),
+            {R,true,true};
+        {fetching,[?sot|R]} ->
+            imem_meta:log_to_db(warning,?MODULE,handle_info,[{row,length(R)}],"data transaction restart"),     
+            ?Error("received ~p rows for ~p data transaction restart", [length(Rows0)-1,element(2,Stmt)]),
+            {R,false,false};
         {fetching,R} ->            
-            % imem_meta:log_to_db(debug,?MODULE,handle_info,[{row,length(R)}],"data"),     
             %?Info("received ~p rows for ~p", [length(Rows0),element(2,Stmt)]),
-            {R,false};
+            {R,false,false};
         {BadStatus,R} ->            
             imem_meta:log_to_db(error,?MODULE,handle_info,[{status,BadStatus},{row,length(R)}],"data"),     
-            %?Info("received ~p rows for ~p bad status", [length(Rows0),element(2,Stmt)]),
-            {R,false}        
+            ?Error("received ~p rows for ~p bad status", [length(Rows0),element(2,Stmt)]),
+            {R,true,true}        
     end,   
-    %?Info("Filtering ~p rows with filter ~p~n", [length(Rows1),FilterFun]),
     MR1 = case RowNum of
         undefined -> MR0;
         _ ->         setelement(?RownumIdx,MR0,RowNum)
     end,
     Wrap = fun(X) -> ?MetaMain(MR1, X) end,
-    Result = case {length(Stmt#statement.tables),FilterFun,RowNum} of
-        {_,false,_} ->
+    Result = case {length(Stmt#statement.tables),FilterFun,RowNum,SingleBlock or TailMode} of
+        {_,false,_,_} ->
             [];
-        {1,true,undefined} ->
+        {1,true,undefined,_} ->
             take_remaining(Rem0, lists:map(Wrap, Rows1));
-        {1,_,undefined} ->
+        {1,_,undefined,_} ->
             take_remaining(Rem0, lists:filter(FilterFun,lists:map(Wrap, Rows1)));
-        {_,true,undefined} ->
-            join_rows(lists:map(Wrap, Rows1), FetchCtx0, Stmt);
-        {_,_,undefined} ->
-            join_rows(lists:filter(FilterFun,lists:map(Wrap, Rows1)), FetchCtx0, Stmt);
-        {1,true,FirstRN} ->
+        {_,true,undefined,false} ->
+            {join, lists:map(Wrap, Rows1)};
+        {_,true,undefined,true} ->
+            join_rows(lists:map(Wrap, Rows1),FetchCtx0, Stmt);
+        {_,_,undefined,false} ->
+            {join, lists:filter(FilterFun,lists:map(Wrap, Rows1))};
+        {_,_,undefined,true} ->
+            join_rows(lists:filter(FilterFun,lists:map(Wrap, Rows1)),FetchCtx0, Stmt);
+        {1,true,FirstRN,_} ->
             update_row_num(MR1, FirstRN, take_remaining(Rem0, lists:map(Wrap, Rows1)));
-        {_,true,FirstRN} ->
+        {_,true,FirstRN,true} ->
             JoinedRows = join_rows(lists:map(Wrap, Rows1), FetchCtx0, Stmt),
             update_row_num(MR1, FirstRN, JoinedRows);
-        {_,_,FirstRN} ->
+        {_,true,_,false} ->
+            {join, lists:map(Wrap, Rows1)};
+        {_,_,FirstRN,true} ->
             JoinedRows = join_rows(lists:filter(FilterFun,lists:map(Wrap,Rows1)), FetchCtx0, Stmt),
-            update_row_num(MR1, FirstRN, JoinedRows)
+            update_row_num(MR1, FirstRN, JoinedRows);
+        {_,_,_,false} ->
+            {join, lists:filter(FilterFun,lists:map(Wrap,Rows1))}
     end,
+    case Result of 
+        {join, MainRows} ->
+            JoinPid = spawn(imem_statement, join_rows_parallel, [MainRows, FetchCtx0, Stmt, Complete, self()]),
+            case Complete of 
+                false -> 
+                    %?Info("sent ~p rows to join_rows_parallel ~p with prefetch", [length(MainRows), JoinPid]),
+                    gen_server:cast(self(),{fetch_recs_async, IsSec, SKey, Sock, Opts});
+                _ ->
+                    %?Info("sent ~p rows to join_rows_parallel ~p", [length(MainRows), JoinPid]),
+                    ok
+            end,
+            {noreply, State#state{fetchCtx=FetchCtx0#fetchCtx{status=fetching, joinPids=[JoinPid|JoinPids]}}};
+        SimpleRows when is_list(SimpleRows) ->
+            handle_info({simple_rows, SimpleRows, Complete}, State#state{fetchCtx=FetchCtx0#fetchCtx{status=fetching}})
+    end;
+handle_info({simple_rows, Result, Complete}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=FetchCtx0}=State) ->
+    #fetchCtx{rownum=RowNum,remaining=Rem0,opts=Opts}=FetchCtx0,
+    %?Info("received ~p simple_rows", [length(Result)]),
     case is_number(Rem0) of
         true ->
-            % ?Debug("sending rows ~p~n", [Result]),
             case length(Result) >= Rem0 of
                 true ->     
-                    % ?LogDebug("send~n~p~n", [{Result, true}]),
+                    %?Info("send~n~p~n", [{Result, true}]),
                     send_reply_to_client(Sock, {Result, true}),
                     handle_fetch_complete(State);
                 false ->    
-                    % ?LogDebug("send~n~p~n", [{Result, Complete}]),
+                    %?Info("send~n~p~n", [{Result, Complete}]),
                     send_reply_to_client(Sock, {Result, Complete}),
                     FetchCtx1 = case RowNum of
-                        undefined ->    FetchCtx0#fetchCtx{remaining=Rem0-length(Result),status=fetching};
-                        _ ->            FetchCtx0#fetchCtx{rownum=RowNum+length(Result),remaining=Rem0-length(Result),status=fetching}
+                        undefined ->    FetchCtx0#fetchCtx{remaining=Rem0-length(Result)};
+                        _ ->            FetchCtx0#fetchCtx{rownum=RowNum+length(Result),remaining=Rem0-length(Result)}
                     end,
                     PushMode = lists:member({fetch_mode,push},Opts),
                     if
@@ -603,16 +631,62 @@ handle_info({row, Rows0}, #state{reply=Sock, isSec=IsSec, seco=SKey, fetchCtx=Fe
                     end
             end;
         false ->
-            ?Debug("receiving rows ~n~p~n", [Rows0]),
+            ?Debug("receiving simple_rows ~n~p~n", [Result]),
             ?Debug("in unexpected state ~n~p~n", [State]),
+            {noreply, State}
+    end;
+handle_info({joined_rows, JoinPid, Result, Complete}, #state{reply=Sock, fetchCtx=FetchCtx0}=State) ->
+    #fetchCtx{metarec=MR0,rownum=RowNum,remaining=Rem0,joinPids=JoinPids,joinComplete=JoinComplete}=FetchCtx0,
+    %?Info("received ~p joined_rows from ~p", [length(Result), JoinPid]),
+    PendingJoinPids = JoinPids--[JoinPid],
+    AnyJoinComplete = (JoinComplete or Complete),
+    case is_number(Rem0) of
+        true ->
+            FetchCtx1 = case RowNum of
+                undefined ->
+                    FetchCtx0#fetchCtx{remaining=Rem0-length(Result)
+                                      ,joinPids=PendingJoinPids
+                                      ,joinComplete=AnyJoinComplete};
+                _ ->
+                    FetchCtx0#fetchCtx{rownum=RowNum+length(Result)
+                                      ,remaining=Rem0-length(Result)
+                                      ,joinPids=PendingJoinPids
+                                      ,joinComplete=AnyJoinComplete}
+            end,
+            RowLimitReached = (length(Result)>=Rem0),
+            MR1 = case RowNum of
+                undefined -> MR0;
+                _ ->         setelement(?RownumIdx,MR0,RowNum)
+            end,
+            if 
+                RowLimitReached ->     
+                    %?Info("received enough join_rows, send ~p", [{length(Result), true}]),
+                    send_reply_to_client(Sock, {update_row_num(MR1, RowNum, Result), true}),
+                    handle_fetch_complete(State);
+                AnyJoinComplete andalso PendingJoinPids==[] ->    
+                    %?Info("received join_rows, send ~p", [{length(Result), true}]),
+                    send_reply_to_client(Sock, {update_row_num(MR1, RowNum, Result), true}),
+                    handle_fetch_complete(State#state{fetchCtx=FetchCtx1});
+                true ->    
+                    %?Info("received join_rows, send ~p complete ~p pending ~p", [{length(Result), false}, AnyJoinComplete, length(PendingJoinPids)]),
+                    send_reply_to_client(Sock, {update_row_num(MR1, RowNum, Result), false}),
+                    {noreply, State#state{fetchCtx=FetchCtx1}}
+            end;
+        false ->
+            ?Warn("receiving joined_rows ~n~p~n", [Result]),
+            ?Warn("in unexpected state ~n~p~n", [State]),
             {noreply, State}
     end;
 handle_info({'DOWN', PMR, process, _Pid, normal}, #state{parmonref=PMR}=State) ->
     % ?Debug("received normal exit from parent ~p ref ~p", [_Pid, PMR]),
     {stop, normal, State};
 handle_info({'DOWN', PMR, process, _Pid, Reason}, #state{parmonref=PMR}=State) ->
-    ?Info("received unexpected exit info from parent ~p ref ~p reason ~p", [_Pid, PMR, Reason]),
+    %?Warn("received unexpected exit info from parent ~p ref ~p reason ~p", [_Pid, PMR, Reason]),
     {stop, {shutdown,Reason}, State};
+handle_info({'DOWN', Ref, process, _Pid, normal}, #state{fetchCtx=#fetchCtx{monref=Ref}}=State) ->
+    #state{fetchCtx=FetchCtx1} = State,
+    FetchCtx2 = FetchCtx1#fetchCtx{monref=undefined},
+    {noreply, State#state{fetchCtx=FetchCtx2}};
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetchCtx=FetchCtx0}=State) ->
     % ?Debug("received expected exit info from cursor process ~p ref ~p reason ~p~n", [_Pid, _Ref, _Reason]),
     FetchCtx1 = FetchCtx0#fetchCtx{monref=undefined, status=undefined},   
@@ -620,7 +694,7 @@ handle_info({'DOWN', _Ref, process, _Pid, _Reason}, #state{reply=undefined,fetch
 handle_info({'DOWN', Ref, process, Pid, {aborted, {no_exists,{_TableName,_}}=Reason}}, State) ->
     handle_info({'DOWN', Ref, process, Pid, Reason}, State);
 handle_info({'DOWN', Ref, process, _Pid, {no_exists,{TableName,_}}=_Reason}, #state{reply=Sock,fetchCtx=#fetchCtx{monref=Ref}}=State) ->
-    ?Info("received unexpected exit info from cursor process ~p ref ~p reason ~p", [_Pid, Ref, _Reason]),
+    ?Warn("received unexpected exit info from cursor process ~p ref ~p reason ~p", [_Pid, Ref, _Reason]),
     send_reply_to_client(Sock, {error, {'ClientError', {"Table does not exist", TableName}}}),
     {noreply, State#state{fetchCtx=#fetchCtx{pid=undefined, monref=undefined, status=aborted}}};
 handle_info(_Info, State) ->
@@ -817,6 +891,9 @@ update_row_num(MR, FirstRN, Rows) ->
 
 zip_row_num(FirstRN,Rows) ->    
     lists:zip(lists:seq(FirstRN, FirstRN+length(Rows)-1), Rows).
+
+join_rows_parallel(MetaAndMainRows, FetchCtx0, Stmt, Complete, CallerPid) ->
+    CallerPid ! {joined_rows, self(), join_rows(MetaAndMainRows, FetchCtx0, Stmt), Complete}.
 
 join_rows(MetaAndMainRows, FetchCtx0, Stmt) ->
     #fetchCtx{blockSize=BlockSize, remaining=RemainingRowQuota}=FetchCtx0,
@@ -1328,7 +1405,7 @@ update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=Table
                         end,     
                         {Cx,1,Fx};
                     {json_value,AttName,#bind{tind=?MainIdx,cind=Cx}=B} ->
-                        ?Info("update json_value ~p",[AttName]),
+                        %?Info("update json_value ~p",[AttName]),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
                             case {Value, OldVal} of 
@@ -1338,14 +1415,14 @@ update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=Table
                                     X;                         % attribute still not present
                                 {?navio,_} ->     
                                     ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X))); 
-                                {<<>>,OV} when is_binary(OV) ->
-                                    ?Info("Clear json string ~p",[OV]),     
+                                {<<>>,_OV} when is_binary(_OV) ->
+                                    %?Info("Clear json string ~p",[_OV]),     
                                     ?replace(X,Cx,imem_json:put(AttName,<<>>,?BoundVal(B,X))); 
-                                {<<>>,OV} when is_number(OV) ->
-                                    ?Info("Clear json number ~p",[OV]),     
+                                {<<>>,_OV} when is_number(_OV) ->
+                                    %?Info("Clear json number ~p",[_OV]),     
                                     ?replace(X,Cx,imem_json:put(AttName,0,?BoundVal(B,X))); 
-                                {<<>>,OV} ->
-                                    ?Info("Remove ~p",[OV]),     
+                                {<<>>,_OV} ->
+                                    %?Info("Remove ~p",[_OV]),     
                                     ?replace(X,Cx,imem_json:remove(AttName,?BoundVal(B,X))); 
                                 _ ->
                                     case Value of
@@ -1406,7 +1483,7 @@ update_prepare_local(IsSec, SKey, {_,S,Tab,Typ,DefRec,Trigger,User,TrOpts}=Table
                         end,     
                         {Cx,2,Fx};
                     {json_value,AttName,{json_value,ParentName,#bind{tind=?MainIdx,cind=Cx}=B}} -> 
-                        ?Info("update json_value ~p child of ~p",[AttName,ParentName]),
+                        %?Info("update json_value ~p child of ~p",[AttName,ParentName]),
                         Fx = fun(X) -> 
                             OldVal = Proj(X),
                             case {Value, OldVal} of 
