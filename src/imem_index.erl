@@ -340,6 +340,8 @@ preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf, #{<<"match
     preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu);
 preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vnf, FromStu) ->
     case {Vnf(RangeStart), Vnf(RangeEnd)} of
+        {[<<>>], _} -> [];
+        {_, [<<>>]} -> [];
         {[?nav], _} -> [];
         {_, [?nav]} -> [];
         {[NormStart], [NormEnd]} ->
@@ -347,6 +349,7 @@ preview(IndexTable,ID,Type,_SearchStrategies,{RangeStart, RangeEnd},Limit,Iff,Vn
     end;
 preview(IndexTable,ID,Type,SearchStrategies,SearchTerm,Limit,Iff,Vnf,FromStu) ->
     case Vnf(SearchTerm) of
+        [<<>>] -> [];
         [?nav] -> [];
         [NormalizedTerm | _] ->
             case is_regexp_search(SearchStrategies, NormalizedTerm) of
