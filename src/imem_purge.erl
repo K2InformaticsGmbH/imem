@@ -224,9 +224,9 @@ try_cleanup(MinMemFreePerCent, TableExpiryMarginSec, MaxTableCountPercent, PartT
                      info, imem_meta, purgeScriptFun,
                      [{table, T}, {memFreePerCent, MemFreePerCent}],
                      "truncate table"),
-            % imem_meta:truncate_table(T),
-            % ?Info("[~p] Truncated table ~p", [Os, T]);
-            ?Info("[~p] table ~p need truncation", [Os, T]);
+            imem_meta:truncate_table(T),
+            ?Info("[~p] Truncated table ~p", [Os, T]);
+            %?Info("[~p] table ~p need truncation", [Os, T]);
         [{_, _, _, T} | _] ->
           imem_meta:log_to_db(
                 info, imem_meta, purgeScriptFun,
