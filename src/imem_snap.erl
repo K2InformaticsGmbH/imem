@@ -15,7 +15,6 @@
 
 % snapshot interface
 -export([ info/1
-        , info/2
         , restore/4
         , restore/5
         , restore_as/5
@@ -51,7 +50,7 @@
         , all_local_time_partitioned_tables/0
         ]).
 
--export([do_cluster_snapshot/0, filter_cluster_snapshot/1, filters2ms/2, f2mc/2, hasWild/1]).
+-export([do_cluster_snapshot/0, filter_cluster_snapshot/1]).
 
 -safe([all_snap_tables, filter_candidate_list, get_snap_properties,
        set_snap_properties, snap_log,snap_err,take, do_snapshot,
