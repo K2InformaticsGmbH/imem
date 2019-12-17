@@ -3,6 +3,12 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.7.2 (Release Date 27.12.2019)
+=======================================
+* Frameworks and APIs to filter cluster snapshot (#299)
+* Activated auto truncate on high memory (#306)
+* Float support of diff 
+
 Version 3.7.1 (Release Date 22.11.2019)
 =======================================
 * Return_atomic wrap on transaction calls #302
