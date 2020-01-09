@@ -1,54 +1,69 @@
 %% -*- mode: erlang -*-
 %% ex: ft=erlang
-{application, imem, [
-    {description, "Replication cluster DB"},
-    {vsn, "3.7.2"},
-    {applications, [
-        inets,
-        kernel,
-        os_mon,
-        sasl,
-        ssl,
-        stdlib,
-        runtime_tools,
-        ssh,
-        erlscrypt,
-        goldrush,
-        jsx,
-        lager,
-        ranch,
-        sext,
-        sqlparse
-    ]},
-    {env, [
-        {erl_cluster_mgrs, []},
-        {mnesia_schema_name, imem},
-        {mnesia_wait_table_config, {30, 30000}},
-        {mnesia_node_type, undefined},
-        {imem_timeout, 30000},
-        {imem_snapshot_dir, "snapshot"},
-        {cold_start_recover, true},
-        {default_admin_pswd, <<"change_on_install">>},
-        {node_shard, node_shard_fun},
-        {node_shard_fun, "fun(N) -> imem_meta:clean_host_name(N) end"},
-        {if_sys_conf_server, true},
-        {meta_server, true},
-        {config_server, true},
-        {monitor_server, true},
-        {proll_server, true},
-        {purge_server, true},
-        {seco_server, true},
-        {domain_server, true},
-        {snap_server, true},
-        {tcp_server, true},
-        {client_server, true},
-        {tcp_ip, "0.0.0.0"},
-        {tcp_port, 8124},
-        {ssl, [{certfile, "priv/certs/server.crt"},
-               {keyfile, "priv/certs/server.key"},
-               {versions, ['tlsv1.2', 'tlsv1.1', 'tlsv1']}
-        ]}
-    ]},
-    {included_applications, [mnesia]},
-    {mod, {imem, []}}
-]}.
+
+{
+    application,
+    imem,
+    [
+        {description, "Replication cluster DB"},
+        {vsn, "3.7.2"},
+        {
+            applications,
+            [
+                inets,
+                kernel,
+                os_mon,
+                sasl,
+                ssl,
+                stdlib,
+                runtime_tools,
+                ssh,
+                erlscrypt,
+                goldrush,
+                jsx,
+                lager,
+                ranch,
+                sext,
+                sqlparse
+            ]
+        },
+        {
+            env,
+            [
+                {erl_cluster_mgrs, []},
+                {mnesia_schema_name, imem},
+                {mnesia_wait_table_config, {30, 30000}},
+                {mnesia_node_type, undefined},
+                {imem_timeout, 30000},
+                {imem_snapshot_dir, "snapshot"},
+                {cold_start_recover, true},
+                {default_admin_pswd, <<"change_on_install">>},
+                {node_shard, node_shard_fun},
+                {node_shard_fun, "fun(N) -> imem_meta:clean_host_name(N) end"},
+                {if_sys_conf_server, true},
+                {meta_server, true},
+                {config_server, true},
+                {monitor_server, true},
+                {proll_server, true},
+                {purge_server, true},
+                {seco_server, true},
+                {domain_server, true},
+                {snap_server, true},
+                {tcp_server, true},
+                {client_server, true},
+                {tcp_ip, "0.0.0.0"},
+                {tcp_port, 8124},
+                {
+                    ssl,
+                    [
+                        {certfile, "priv/certs/server.crt"},
+                        {keyfile, "priv/certs/server.key"},
+                        {versions, ['tlsv1.2', 'tlsv1.1', tlsv1]}
+                    ]
+                }
+            ]
+        },
+        {included_applications, [mnesia]},
+        {mod, {imem, []}}
+    ]
+}.

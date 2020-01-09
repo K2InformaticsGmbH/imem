@@ -8,63 +8,58 @@
 %%%-------------------------------------------------------------------
 
 -module(imem_SUITE).
+
 -include_lib("common_test/include/ct.hrl").
+
 -include("imem_ct.hrl").
 
--export([
-    all/0,
-    end_per_suite/1,
-    end_per_testcase/2,
-    groups/0,
-    init_per_suite/1,
-    init_per_testcase/2,
-    suite/0
-]).
-
--export([
-    cache_test_without_sec/1,
-    partition_size_metric/1,
-    config_operations/1,
-    dal_skvh_concurrency/1,
-    dal_skvh_operations/1,
-    dal_skvh_purge_history/1,
-    if_csv_test_csv_1/1,
-    if_mnesia_table_operations/1,
-    import_test_with_sec/1,
-    import_test_without_sec/1,
-    meta_concurrency/1,
-    meta_operations/1,
-    meta_partitions/1,
-    meta_preparations/1,
-    physical_table_names/1,
-    monitor_operations/1,
-    sec_test/1,
-    seco_test/1,
-    snap_test_snapshot/1,
-    sql_account_test_with_sec/1,
-    sql_expr_test_without_sec/1,
-    sql_funs_test_with_sec/1,
-    sql_funs_test_without_sec/1,
-    sql_index_test_with_sec/1,
-    sql_index_test_without_sec/1,
-    sql_insert_test_with_sec/1,
-    sql_insert_test_without_sec/1,
-    sql_select_db1_with_sec/1,
-    sql_select_db1_without_sec/1,
-    sql_select_db2_with_sec/1,
-    sql_select_db2_without_sec/1,
-    sql_table_test_with_sec/1,
-    sql_table_test_without_sec/1,
-    sql_test_with_sec/1,
-    sql_test_without_sec/1,
-    statement_test_with_sec_part1/1,
-    statement_test_with_sec_part2/1,
-    statement_test_with_sec_part3/1,
-    statement_test_without_sec_part1/1,
-    statement_test_without_sec_part2/1,
-    statement_test_without_sec_part3/1,
-    test_test/1
-]).
+-export([all/0, end_per_suite/1, end_per_testcase/2, groups/0, init_per_suite/1, init_per_testcase/2, suite/0]).
+-export(
+    [
+        cache_test_without_sec/1,
+        partition_size_metric/1,
+        config_operations/1,
+        dal_skvh_concurrency/1,
+        dal_skvh_operations/1,
+        dal_skvh_purge_history/1,
+        if_csv_test_csv_1/1,
+        if_mnesia_table_operations/1,
+        import_test_with_sec/1,
+        import_test_without_sec/1,
+        meta_concurrency/1,
+        meta_operations/1,
+        meta_partitions/1,
+        meta_preparations/1,
+        physical_table_names/1,
+        monitor_operations/1,
+        sec_test/1,
+        seco_test/1,
+        snap_test_snapshot/1,
+        sql_account_test_with_sec/1,
+        sql_expr_test_without_sec/1,
+        sql_funs_test_with_sec/1,
+        sql_funs_test_without_sec/1,
+        sql_index_test_with_sec/1,
+        sql_index_test_without_sec/1,
+        sql_insert_test_with_sec/1,
+        sql_insert_test_without_sec/1,
+        sql_select_db1_with_sec/1,
+        sql_select_db1_without_sec/1,
+        sql_select_db2_with_sec/1,
+        sql_select_db2_without_sec/1,
+        sql_table_test_with_sec/1,
+        sql_table_test_without_sec/1,
+        sql_test_with_sec/1,
+        sql_test_without_sec/1,
+        statement_test_with_sec_part1/1,
+        statement_test_with_sec_part2/1,
+        statement_test_with_sec_part3/1,
+        statement_test_without_sec_part1/1,
+        statement_test_without_sec_part2/1,
+        statement_test_without_sec_part3/1,
+        test_test/1
+    ]
+).
 
 %%--------------------------------------------------------------------
 %% Returns the list of all test cases and test case groups
@@ -98,13 +93,12 @@ all() ->
     ].
 
 %%--------------------------------------------------------------------
+
 % The test suite information function.
+
 %%--------------------------------------------------------------------
 
-suite() ->
-    [
-        {timetrap, {minutes, 10}}
-    ].
+suite() -> [{timetrap, {minutes, 10}}].
 
 %%--------------------------------------------------------------------
 %% Suite related setup and teardown functions.
@@ -123,148 +117,40 @@ end_per_suite(_Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+
 % Defines test case groups.
+
 %%--------------------------------------------------------------------
 
 groups() ->
     [
+        {imem_cache, [], [cache_test_without_sec]},
+        {imem_config, [], [config_operations]},
+        {imem_dal_skvh, [], [dal_skvh_operations, dal_skvh_concurrency, dal_skvh_purge_history]},
+        {imem_if_csv, [], [if_csv_test_csv_1]},
+        {imem_if_mnesia, [], [if_mnesia_table_operations]},
+        {imem_import, [], [import_test_without_sec, import_test_with_sec]},
+        {imem_meta, [], [physical_table_names, meta_operations, meta_preparations, meta_partitions, meta_concurrency]},
+        {imem_metrics, [], [partition_size_metric]},
+        {imem_monitor, [], [monitor_operations]},
+        {imem_sec, [], [sec_test]},
+        {imem_seco, [], [seco_test]},
+        {imem_snap, [], [snap_test_snapshot]},
+        {imem_sql, [], [sql_test_without_sec, sql_test_with_sec]},
+        {imem_sql_account, [], [sql_account_test_with_sec]},
+        {imem_sql_expr, [], [sql_expr_test_without_sec]},
+        {imem_sql_funs, [], [sql_funs_test_without_sec, sql_funs_test_with_sec]},
+        {imem_sql_index, [], [sql_index_test_without_sec, sql_index_test_with_sec]},
+        {imem_sql_insert, [], [sql_insert_test_without_sec, sql_insert_test_with_sec]},
         {
-            imem_cache, [],
-            [
-                cache_test_without_sec
-            ]
+            imem_sql_select,
+            [],
+            [sql_select_db1_without_sec, sql_select_db1_with_sec, sql_select_db2_without_sec, sql_select_db2_with_sec]
         },
+        {imem_sql_table, [], [sql_table_test_without_sec, sql_table_test_with_sec]},
         {
-            imem_config, [],
-            [
-                config_operations
-            ]
-        },
-        {
-            imem_dal_skvh, [],
-            [
-                dal_skvh_operations,
-                dal_skvh_concurrency,
-                dal_skvh_purge_history
-            ]
-        },
-        {
-            imem_if_csv, [],
-            [
-                if_csv_test_csv_1
-            ]
-        },
-        {
-            imem_if_mnesia, [],
-            [
-                if_mnesia_table_operations
-            ]
-        },
-        {
-            imem_import, [],
-            [
-                import_test_without_sec,
-                import_test_with_sec
-            ]
-        },
-        {
-            imem_meta, [],
-            [
-                physical_table_names,
-                meta_operations,
-                meta_preparations,
-                meta_partitions,
-                meta_concurrency
-            ]
-        },
-        {
-            imem_metrics, [],
-            [
-                partition_size_metric
-            ]
-        },
-        {
-            imem_monitor, [],
-            [
-                monitor_operations
-            ]
-        },
-        {
-            imem_sec, [],
-            [
-                sec_test
-            ]
-        },
-        {
-            imem_seco, [],
-            [
-                seco_test
-            ]
-        },
-        {
-            imem_snap, [],
-            [
-                snap_test_snapshot
-            ]
-        },
-        {
-            imem_sql, [],
-            [
-                sql_test_without_sec,
-                sql_test_with_sec
-            ]
-        },
-        {
-            imem_sql_account, [],
-            [
-                sql_account_test_with_sec
-            ]
-        },
-        {
-            imem_sql_expr, [],
-            [
-                sql_expr_test_without_sec
-            ]
-        },
-        {
-            imem_sql_funs, [],
-            [
-                sql_funs_test_without_sec,
-                sql_funs_test_with_sec
-            ]
-        },
-        {
-            imem_sql_index, [],
-            [
-                sql_index_test_without_sec,
-                sql_index_test_with_sec
-            ]
-        },
-        {
-            imem_sql_insert, [],
-            [
-                sql_insert_test_without_sec,
-                sql_insert_test_with_sec
-            ]
-        },
-        {
-            imem_sql_select, [],
-            [
-                sql_select_db1_without_sec,
-                sql_select_db1_with_sec,
-                sql_select_db2_without_sec,
-                sql_select_db2_with_sec
-            ]
-        },
-        {
-            imem_sql_table, [],
-            [
-                sql_table_test_without_sec,
-                sql_table_test_with_sec
-            ]
-        },
-        {
-            imem_statement, [],
+            imem_statement,
+            [],
             [
                 statement_test_without_sec_part1,
                 statement_test_without_sec_part2,
@@ -274,88 +160,56 @@ groups() ->
                 statement_test_with_sec_part3
             ]
         },
-        {
-            imem_test, [],
-            [
-                test_test
-            ]
-        }
+        {imem_test, [], [test_test]}
     ].
 
 %%--------------------------------------------------------------------
 %% Test case related setup and teardown functions.
 %%--------------------------------------------------------------------
 
-init_per_testcase(dal_skvh_concurrency = TestCase, Config) ->
-    imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
-init_per_testcase(dal_skvh_operations = TestCase, Config) ->
-    imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
-init_per_testcase(dal_skvh_purge_history = TestCase, Config) ->
-    imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
-init_per_testcase(sql_select_db1_with_sec = TestCase, Config) ->
-    imem_sql_select_ct:init_per_testcase(TestCase, Config);
+init_per_testcase(dal_skvh_concurrency = TestCase, Config) -> imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
+init_per_testcase(dal_skvh_operations = TestCase, Config) -> imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
+init_per_testcase(dal_skvh_purge_history = TestCase, Config) -> imem_dal_skvh_ct:init_per_testcase(TestCase, Config);
+init_per_testcase(sql_select_db1_with_sec = TestCase, Config) -> imem_sql_select_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(sql_select_db1_without_sec = TestCase, Config) ->
     imem_sql_select_ct:init_per_testcase(TestCase, Config);
-init_per_testcase(sql_select_db2_with_sec = TestCase, Config) ->
-    imem_sql_select_ct:init_per_testcase(TestCase, Config);
+init_per_testcase(sql_select_db2_with_sec = TestCase, Config) -> imem_sql_select_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(sql_select_db2_without_sec = TestCase, Config) ->
     imem_sql_select_ct:init_per_testcase(TestCase, Config);
 init_per_testcase(TestCase, Config) ->
     ?CTPAL("Start ~p", [TestCase]),
     Config.
 
-end_per_testcase(config_operations = TestCase, Config) ->
-    imem_config_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(dal_skvh_concurrency = TestCase, Config) ->
-    imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(dal_skvh_operations = TestCase, Config) ->
-    imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(dal_skvh_purge_history = TestCase, Config) ->
-    imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(if_mnesia_table_operations = TestCase, Config) ->
-    imem_if_mnesia_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(import_test_with_sec = TestCase, Config) ->
-    imem_import_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(import_test_without_sec = TestCase, Config) ->
-    imem_import_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(meta_concurrency = TestCase, Config) ->
-    imem_meta_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(physical_table_names = TestCase, Config) ->
-    imem_meta_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(meta_operations = TestCase, Config) ->
-    imem_meta_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(meta_partitions = TestCase, Config) ->
-    imem_meta_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(meta_preparations = TestCase, Config) ->
-    imem_meta_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sec_test = TestCase, Config) ->
-    imem_sec_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(seco_test = TestCase, Config) ->
-    imem_seco_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(config_operations = TestCase, Config) -> imem_config_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(dal_skvh_concurrency = TestCase, Config) -> imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(dal_skvh_operations = TestCase, Config) -> imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(dal_skvh_purge_history = TestCase, Config) -> imem_dal_skvh_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(if_mnesia_table_operations = TestCase, Config) -> imem_if_mnesia_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(import_test_with_sec = TestCase, Config) -> imem_import_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(import_test_without_sec = TestCase, Config) -> imem_import_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(meta_concurrency = TestCase, Config) -> imem_meta_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(physical_table_names = TestCase, Config) -> imem_meta_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(meta_operations = TestCase, Config) -> imem_meta_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(meta_partitions = TestCase, Config) -> imem_meta_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(meta_preparations = TestCase, Config) -> imem_meta_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sec_test = TestCase, Config) -> imem_sec_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(seco_test = TestCase, Config) -> imem_seco_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_account_test_with_sec = TestCase, Config) ->
     imem_sql_account_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_expr_test_without_sec = TestCase, Config) ->
-    imem_sql_expr_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_index_test_with_sec = TestCase, Config) ->
-    imem_sql_index_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_index_test_without_sec = TestCase, Config) ->
-    imem_sql_index_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_insert_test_with_sec = TestCase, Config) ->
-    imem_sql_insert_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_expr_test_without_sec = TestCase, Config) -> imem_sql_expr_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_index_test_with_sec = TestCase, Config) -> imem_sql_index_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_index_test_without_sec = TestCase, Config) -> imem_sql_index_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_insert_test_with_sec = TestCase, Config) -> imem_sql_insert_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_insert_test_without_sec = TestCase, Config) ->
     imem_sql_insert_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_select_db1_with_sec = TestCase, Config) ->
-    imem_sql_select_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_select_db1_with_sec = TestCase, Config) -> imem_sql_select_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_select_db1_without_sec = TestCase, Config) ->
     imem_sql_select_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_select_db2_with_sec = TestCase, Config) ->
-    imem_sql_select_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_select_db2_with_sec = TestCase, Config) -> imem_sql_select_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(sql_select_db2_without_sec = TestCase, Config) ->
     imem_sql_select_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_table_test_with_sec = TestCase, Config) ->
-    imem_sql_table_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(sql_table_test_without_sec = TestCase, Config) ->
-    imem_sql_table_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_table_test_with_sec = TestCase, Config) -> imem_sql_table_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(sql_table_test_without_sec = TestCase, Config) -> imem_sql_table_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_with_sec_part1 = TestCase, Config) ->
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_with_sec_part2 = TestCase, Config) ->
@@ -368,8 +222,7 @@ end_per_testcase(statement_test_without_sec_part2 = TestCase, Config) ->
     imem_statement_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(statement_test_without_sec_part3 = TestCase, Config) ->
     imem_statement_ct:end_per_testcase(TestCase, Config);
-end_per_testcase(test_test = TestCase, Config) ->
-    imem_test_ct:end_per_testcase(TestCase, Config);
+end_per_testcase(test_test = TestCase, Config) -> imem_test_ct:end_per_testcase(TestCase, Config);
 end_per_testcase(TestCase, Config) ->
     ?CTPAL("Start ~p", [TestCase]),
     Config.

@@ -12,13 +12,12 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([
-    monitor_operations/1
-]).
+-export([monitor_operations/1]).
 
 -define(NODEBUG, true).
 
 -include_lib("imem.hrl").
+
 -include("imem_meta.hrl").
 
 %%====================================================================
@@ -27,7 +26,6 @@
 
 monitor_operations(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":monitor_operations/1 - Start ===>~n", []),
-
     ?assertEqual(ok, imem_monitor:write_monitor()),
     MonRecs = imem_meta:read(?MONITOR_TABLE),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":MonRecs count ~p~n", [length(MonRecs)]),
@@ -36,5 +34,4 @@ monitor_operations(_Config) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":MonRecs ~p~n", [MonRecs]),
     ?assert(length(MonRecs) > 0),
     %?LogDebug("success ~p~n", [monitor]),
-
     ok.
