@@ -8,6 +8,7 @@ otp_release:
   - 20.3
   - 20.2
 script:
+  - ./rebar3 steamroll --check
   - ./rebar3 compile
   - ./rebar3 ct
   - ./rebar3 eunit

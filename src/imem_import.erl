@@ -1,18 +1,28 @@
 -module(imem_import).
 
--export([ create_from_string/5
-        ]).
+-export([create_from_string/5]).
 
--record(state,  { table      :: list()      %% table name
-                , sep        :: list()      %% separator character(s)
-                , names      :: list()      %% field names 
-                , types      :: list()      %% field data types
-                , defaults   :: list()      %% default values
-                , data       :: list()      %% remaining to be imported 
-        }).
+-record(
+    state,
+    {
+        %% table name
+        table :: list(),
+        %% separator character(s)
+        sep :: list(),
+        %% field names
+        names :: list(),
+        %% field data types
+        types :: list(),
+        %% default values
+        defaults :: list(),
+        %% remaining to be imported
+        data :: list()
+    }
+).
 
 create_from_string(_SKey, Str, _Opts, _Schema, _IsSec) when is_list(Str) ->
-    HS = process_header(#state{data=re:split(Str,"[\n]",[{return,list}])}),       %% HeaderState
+    %% HeaderState
+    HS = process_header(#state{data = re:split(Str, "[\n]", [{return, list}])}),
     %% ToDo: implement
     % Table = list_to_atom(HS#state.table),
     % Names = list_to_atom(HS#state.names),
@@ -28,7 +38,6 @@ process_header(_S) ->
 import_data(_HS) ->
     %% ToDo: implement
     ok.
-
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 

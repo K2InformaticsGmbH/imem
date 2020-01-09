@@ -32,26 +32,27 @@ overall_test_() ->
     {
         setup,
         fun setup_default/0,
-        fun() ->
-            [
-                {prune("TEST_01", ?TEST_01, ?TEST_01_RESULT)},
-                {prune("TEST_02", ?TEST_02, ?TEST_02_RESULT)},
-                {prune("TEST_03", ?TEST_03, ?TEST_03_RESULT)},
-                {prune("TEST_04", ?TEST_04, ?TEST_04_RESULT)},
-                {prune("TEST_05", ?TEST_05, ?TEST_05_RESULT)},
-                {prune("TEST_06", ?TEST_06, ?TEST_06_RESULT)},
-                {prune("TEST_07", ?TEST_07, ?TEST_07_RESULT)},
-                {prune("TEST_08", ?TEST_08, ?TEST_08_RESULT)},
-                {prune("TEST_09", ?TEST_09, ?TEST_09_RESULT)},
-                {prune("TEST_10", ?TEST_10, ?TEST_10_RESULT)},
-                {prune("TEST_11", ?TEST_11, ?TEST_11_RESULT)},
-                {prune("TEST_12", ?TEST_12, ?TEST_12_RESULT)},
-                {prune("TEST_13", ?TEST_13, ?TEST_13_RESULT)},
-                {prune("TEST_14", ?TEST_14, ?TEST_14_RESULT)},
-                {prune("TEST_15", ?TEST_15, ?TEST_15_RESULT)},
-                {prune("TEST_16", ?TEST_16, ?TEST_16_RESULT)},
-                {prune("TEST_17", ?TEST_17, ?TEST_17_RESULT)}
-            ]
+        fun
+            () ->
+                [
+                    {prune("TEST_01", ?TEST_01, ?TEST_01_RESULT)},
+                    {prune("TEST_02", ?TEST_02, ?TEST_02_RESULT)},
+                    {prune("TEST_03", ?TEST_03, ?TEST_03_RESULT)},
+                    {prune("TEST_04", ?TEST_04, ?TEST_04_RESULT)},
+                    {prune("TEST_05", ?TEST_05, ?TEST_05_RESULT)},
+                    {prune("TEST_06", ?TEST_06, ?TEST_06_RESULT)},
+                    {prune("TEST_07", ?TEST_07, ?TEST_07_RESULT)},
+                    {prune("TEST_08", ?TEST_08, ?TEST_08_RESULT)},
+                    {prune("TEST_09", ?TEST_09, ?TEST_09_RESULT)},
+                    {prune("TEST_10", ?TEST_10, ?TEST_10_RESULT)},
+                    {prune("TEST_11", ?TEST_11, ?TEST_11_RESULT)},
+                    {prune("TEST_12", ?TEST_12, ?TEST_12_RESULT)},
+                    {prune("TEST_13", ?TEST_13, ?TEST_13_RESULT)},
+                    {prune("TEST_14", ?TEST_14, ?TEST_14_RESULT)},
+                    {prune("TEST_15", ?TEST_15, ?TEST_15_RESULT)},
+                    {prune("TEST_16", ?TEST_16, ?TEST_16_RESULT)},
+                    {prune("TEST_17", ?TEST_17, ?TEST_17_RESULT)}
+                ]
         end
     }.
 
@@ -61,18 +62,14 @@ overall_test_() ->
 
 prune(Title, Source, Result) ->
     case imem_prune_fields:match(Source, ?IN_FIELDS) of
-        OutFields when is_list(OutFields) ->
-            ?assertEqual(Result, OutFields, Title);
+        OutFields when is_list(OutFields) -> ?assertEqual(Result, OutFields, Title);
         ErrorResult ->
-            io:format(user, "~n" ++ ?MODULE_STRING ++
-                " : Error in eunit_test : Title      ~n > ~p~n", [Title]),
-            io:format(user, "~n" ++ ?MODULE_STRING ++
-                " : Error in eunit_test : ErrorResult~n > ~p~n", [ErrorResult])
+            io:format(user, "~n" ++ ?MODULE_STRING ++ " : Error in eunit_test : Title      ~n > ~p~n", [Title]),
+            io:format(user, "~n" ++ ?MODULE_STRING ++ " : Error in eunit_test : ErrorResult~n > ~p~n", [ErrorResult])
     end.
 
 %%------------------------------------------------------------------------------
 %% Setup functions.
 %%------------------------------------------------------------------------------
 
-setup_default() ->
-    ok.
+setup_default() -> ok.
