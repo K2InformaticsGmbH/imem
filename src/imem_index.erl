@@ -1128,7 +1128,8 @@ binstr_only_valid(BinStr, PH) when is_binary(BinStr) -> b_vfilter(BinStr, PH, <<
 
 b_vfilter(<<>>, _, A) -> A;
 % Displayable One-byte UTF8 (== ASCII)
-b_vfilter(<<C, R/binary>>, PH, A) % \n
+b_vfilter(<<C, R/binary>>, PH, A)
+% \n
 % \r
 % character range
 when C =:= 10; C =:= 13; C >= 32, C =< 126 -> b_vfilter(R, PH, <<A/binary, C>>);
@@ -1174,7 +1175,8 @@ binstr_only_latin1(BinStr, PH) when is_binary(BinStr) -> b_lfilter(BinStr, PH, <
 
 b_lfilter(<<>>, _, A) -> A;
 % Displayable One-byte UTF8 (== ASCII)
-b_lfilter(<<C, R/binary>>, PH, A) % \n
+b_lfilter(<<C, R/binary>>, PH, A)
+% \n
 % \r
 % character range
 when C =:= 10; C =:= 13; C >= 32, C =< 126 -> b_lfilter(R, PH, <<A/binary, C>>);
