@@ -492,7 +492,7 @@ create_nonexisting_partitioned_table(TableAlias, TableName) ->
     % find out ColumnsInfos, Opts, Owner from ddAlias
     case imem_if_mnesia:read(ddAlias,{schema(), TableAlias}) of
         [] ->
-            ?Error("Table template not found in ddAlias ~p", [TableAlias]),   
+            %?Error("Table template not found in ddAlias ~p", [TableAlias]),   
             {error, {"Table template not found in ddAlias", TableAlias}}; 
         [#ddAlias{columns=ColumnInfos, opts=Opts, owner=Owner}] ->
             try
