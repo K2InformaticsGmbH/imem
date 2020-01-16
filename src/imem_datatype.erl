@@ -154,6 +154,8 @@
         , select_rowfun_str/4   %% convert all rows to string
         ]).
 
+-export([ subnet_mask/2 ]).
+
 -safe(all).
 
 atom_to_quoted_list(A) -> lists:flatten(io_lib:format("~p",[A])).
@@ -1517,6 +1519,30 @@ hex(X) ->
           16#4545, 16#4546, 16#4630, 16#4631, 16#4632, 16#4633, 16#4634,
           16#4635, 16#4636, 16#4637, 16#4638, 16#4639, 16#4641, 16#4642,
           16#4643, 16#4644, 16#4645, 16#4646}).
+
+subnet_mask(Ip, MaskBits) when is_binary(Ip) ->
+    subnet_mask(binary_to_list(Ip), MaskBits);
+subnet_mask(Ip, MaskBits) when is_tuple(Ip), is_integer(MaskBits) ->
+    <<Subnet:MaskBits/bitstring, _/bitstring>>
+        = list_to_binary(tuple_to_list(Ip)),
+    SubnetStr = string:trim(
+        list_to_binary(io_lib:format("~p", [Subnet])), both, "<>"
+    ),
+    list_to_binary(io_lib:format("<<~s/bitstring, _/bitstring>>", [SubnetStr]));
+subnet_mask(Ip, MaskBits) ->
+    try
+        case inet:getaddr(Ip, inet6) of
+            {ok, IPv6} -> subnet_mask(IPv6, MaskBits);
+            {error, nxdomain} ->
+                case inet:getaddr(Ip, inet) of
+                    {ok, IPv4} -> subnet_mask(IPv4, MaskBits);
+                    {error, Error} ->
+                        ?ClientErrorNoLogging({"Bad IPv4 address", Error})
+                end;
+            {error, Error} -> ?ClientErrorNoLogging({"Bad IPv6 address", Error})
+        end
+    catch C:E -> ?ClientErrorNoLogging({"Illegal IP address", Ip, {C, E}})
+    end.
 
 %% ----- TESTS ------------------------------------------------
 -ifdef(TEST).
