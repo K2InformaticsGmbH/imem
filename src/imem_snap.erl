@@ -1205,6 +1205,7 @@ f2mc(F, C) ->
 hasWild(F) -> hasWild(F, false).
 hasWild(_, true) -> true;
 hasWild([], false) -> false;
+hasWild('*',false) -> true;
 hasWild(['_'|_], false) -> true;
 hasWild(['*'|_], false) -> true;
 hasWild([H|T], false) -> hasWild(T, hasWild(H, false));
