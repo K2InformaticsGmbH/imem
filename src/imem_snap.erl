@@ -1452,6 +1452,42 @@ f2mc_test_() ->
         ]
     }.
 
+filters2ms_test_() ->
+  {
+    inparallel,
+    [{
+      lists:flatten(io_lib:format("~s : ~p", [Title, Filter])),
+      fun() ->
+        case catch filters2ms(true,Filter) of
+          {'EXIT', Exception} ->
+            ?debugFmt(
+              "~n~s : imem_snap:filters2ms(true,~p).~n"
+              "Expected   : ~p~n"
+              "Exception  : ~p",
+              [Title, Filter, MatchSpec, Exception]
+            ),
+            error(failed);
+          CalculatedMs ->
+            if CalculatedMs /= MatchSpec ->
+              ?debugFmt(
+                "~n~s : imem_snap:filters2ms(~p, '$1').~n"
+                "Expected   : ~p~n"
+                "Got        : ~p",
+                [Title, Filter, MatchSpec, CalculatedMs]
+              );
+              true -> ok
+            end,
+            ?assertEqual(MatchSpec, CalculatedMs)
+        end
+      end
+    } || {Title, Filter, MatchSpec} <- [
+      {"all",           ['*'],  [{#{ckey => '$1'},[],['$_']}]},
+      {"list all",      [['*']],   [{#{ckey => '$1'},[{is_list,'$1'}],['$_']}] },
+      {"all tuple",     [{'*'}],   [{#{ckey => '$1'},[{is_tuple,'$1'}],['$_']}]}
+    ]
+    ]
+  }.
+
 msrun_test_() ->
     Rows = [
         ["a"],
