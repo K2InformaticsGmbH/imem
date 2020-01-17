@@ -1206,7 +1206,6 @@ f2mc(F, C) ->
 hasWild(F) -> hasWild(F, false).
 hasWild(_, true) -> true;
 hasWild([], false) -> false;
-hasWild('*',false) -> true;
 hasWild(['_'|_], false) -> true;
 hasWild(['*'|_], false) -> true;
 hasWild([H|T], false) -> hasWild(T, hasWild(H, false));
@@ -1459,27 +1458,8 @@ filters2ms_test_() ->
     [{
       lists:flatten(io_lib:format("~s : ~p", [Title, Filter])),
       fun() ->
-        case catch filters2ms(Skvh,Filter) of
-          {'EXIT', Exception} ->
-            ?debugFmt(
-              "~n~s : imem_snap:filters2ms(true,~p).~n"
-              "Expected   : ~p~n"
-              "Exception  : ~p",
-              [Title, Filter, MatchSpec, Exception]
-            ),
-            error(failed);
-          CalculatedMs ->
-            if CalculatedMs /= MatchSpec ->
-              ?debugFmt(
-                "~n~s : imem_snap:filters2ms(~p, '$1').~n"
-                "Expected   : ~p~n"
-                "Got        : ~p",
-                [Title, Filter, MatchSpec, CalculatedMs]
-              );
-              true -> ok
-            end,
-            ?assertEqual(MatchSpec, CalculatedMs)
-        end
+        CalculatedMs = filters2ms(Skvh,Filter),
+        ?assertEqual(MatchSpec, CalculatedMs)
       end
     } || {Title, Skvh, Filter, MatchSpec} <- [
       {"all skvh",   true,    ['*'],     [{'$1',[],['$_']}]},
