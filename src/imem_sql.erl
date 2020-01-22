@@ -101,6 +101,8 @@ params_from_opts(Opts,ParseTree) when is_list(Opts) ->
 
 
 exec(SKey, Sql, BlockSize, Opts, IsSec) ->
+    % TBD :  io:format("Opts ~p~n",[Opts]),
+    % _ParamRec = [imem_datatype:io_to_db(N,undefined,T,0,P,undefined,false,Value) || {N,T,P,[Value|_]} <- Params],  
     case sqlparse:parsetree(Sql) of
         {ok, [{ParseTree,_}|_]} ->
             exec(SKey, element(1,ParseTree), ParseTree, 
