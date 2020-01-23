@@ -33,7 +33,7 @@ end_per_testcase(TestCase, _Config) ->
     catch imem_meta:drop_table(fun_test),
     catch imem_meta:drop_table(key_test),
     catch imem_meta:drop_table(not_null),
-    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(test_ins_test),
 
     ok.
 
@@ -75,112 +75,112 @@ test_with_or_without_sec(IsSec) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql0b:~n~s~n", [Sql0b]),
     ?assertEqual([{fun_test, 12, 144}], imem_sql:exec(SKey, Sql0b, 0, [{schema, imem}], IsSec)),
 
-    Sql1 = "create table def (col1 string, col2 integer, col3 term);",
+    Sql1 = "create table test_ins_test (col1 string, col2 integer, col3 term);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql1: ~p~n", [Sql1]),
     ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql1, 0, [{schema, imem}], IsSec)),
-    ?assertEqual(0, imem_sql_insert:if_call_mfa(IsSec, table_size, [SKey, def])),
+    ?assertEqual(0, imem_sql_insert:if_call_mfa(IsSec, table_size, [SKey, test_ins_test])),
 
-    [_Meta1] = imem_sql_insert:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, def}]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Meta table def:~n~p~n", [_Meta1]),
+    [_Meta1] = imem_sql_insert:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, test_ins_test}]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Meta table test_ins_test:~n~p~n", [_Meta1]),
 
 
-    Sql8 = "insert into def (col1,col3) values (:J, :A);",
+    Sql8 = "insert into test_ins_test (col1,col3) values (:J, :A);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql8: ~p~n", [Sql8]),
     Pstring8 = {<<":J">>, <<"string">>, <<"0">>, [<<"\"J\"">>]},
     Patom8 = {<<":A">>, <<"atom">>, <<"0">>, [<<"another_atom">>]},
-    ?assertEqual([{def, "J", undefined, another_atom}], imem_sql:exec(SKey, Sql8, 0, [{params, [Pstring8, Patom8]}], IsSec)),
-    ?assertEqual([{def, "J", undefined, 'another_atom'}], imem_meta:read({Schema, def}, "J")),
+    ?assertEqual([{test_ins_test, "J", undefined, another_atom}], imem_sql:exec(SKey, Sql8, 0, [{params, [Pstring8, Patom8]}], IsSec)),
+    ?assertEqual([{test_ins_test, "J", undefined, 'another_atom'}], imem_meta:read({Schema, test_ins_test}, "J")),
 
 
-    % ?assertEqual(ok, insert_range(SKey, 3, "def", imem, IsSec)),
+    % ?assertEqual(ok, insert_range(SKey, 3, "test_ins_test", imem, IsSec)),
 
-    Sql1a = "insert into def (col1) values ('a');",
+    Sql1a = "insert into test_ins_test (col1) values ('a');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql1a: ~p~n", [Sql1a]),
     ?assertException(throw, {ClEr, {"Wrong data type for value, expecting type or default", {<<"a">>, string, []}}}, imem_sql:exec(SKey, Sql1a, 0, [{schema, imem}], IsSec)),
 
-    Sql2 = "insert into def (col1) values ('\"{B}\"');",
+    Sql2 = "insert into test_ins_test (col1) values ('\"{B}\"');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql2: ~p~n", [Sql2]),
-    ?assertEqual([{def, "{B}", undefined, undefined}], imem_sql:exec(SKey, Sql2, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, "{B}", undefined, undefined}], imem_sql:exec(SKey, Sql2, 0, [{schema, imem}], IsSec)),
 
-    Sql2b = "insert into def (col1,col2) values ('\"[]\"', 6);",
+    Sql2b = "insert into test_ins_test (col1,col2) values ('\"[]\"', 6);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql2b: ~p~n", [Sql2b]),
-    ?assertEqual([{def, "[]", 6, undefined}], imem_sql:exec(SKey, Sql2b, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, "[]", 6, undefined}], imem_sql:exec(SKey, Sql2b, 0, [{schema, imem}], IsSec)),
 
-    Sql2c = "drop table def;",
+    Sql2c = "drop table test_ins_test;",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql2c: ~p~n", [Sql2c]),
     ?assertEqual(ok, imem_sql:exec(SKey, Sql2c, 0, [{schema, imem}], IsSec)),
 
-    Sql2d = "create table def (col1 varchar2(10), col2 integer, col3 term);",
+    Sql2d = "create table test_ins_test (col1 varchar2(10), col2 integer, col3 term);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql2d: ~p~n", [Sql2d]),
     ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql2d, 0, [{schema, imem}], IsSec)),
-    ?assertEqual(0, imem_sql_insert:if_call_mfa(IsSec, table_size, [SKey, def])),
+    ?assertEqual(0, imem_sql_insert:if_call_mfa(IsSec, table_size, [SKey, test_ins_test])),
 
-    Sql3 = "insert into def (col1,col2) values ('C', 7+1);",
+    Sql3 = "insert into test_ins_test (col1,col2) values ('C', 7+1);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3: ~p~n", [Sql3]),
-    ?assertEqual([{def, <<"C">>, 8, undefined}], imem_sql:exec(SKey, Sql3, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"C">>, 8, undefined}], imem_sql:exec(SKey, Sql3, 0, [{schema, imem}], IsSec)),
 
-    Sql3a = "insert into def (col1,col2) values ('D''s', 'undefined');",
+    Sql3a = "insert into test_ins_test (col1,col2) values ('D''s', 'undefined');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3a: ~p~n", [Sql3a]),
-    ?assertEqual([{def, <<"D's">>, undefined, undefined}], imem_sql:exec(SKey, Sql3a, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"D's">>, undefined, undefined}], imem_sql:exec(SKey, Sql3a, 0, [{schema, imem}], IsSec)),
 
-    Sql3b = "insert into def (col1,col2) values ('E', 'undefined');",
+    Sql3b = "insert into test_ins_test (col1,col2) values ('E', 'undefined');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3b: ~p~n", [Sql3b]),
-    ?assertEqual([{def, <<"E">>, undefined, undefined}], imem_sql:exec(SKey, Sql3b, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"E">>, undefined, undefined}], imem_sql:exec(SKey, Sql3b, 0, [{schema, imem}], IsSec)),
 
-    Sql4 = "insert into def (col1,col3) values ('F', \"COL\");",
+    Sql4 = "insert into test_ins_test (col1,col3) values ('F', \"COL\");",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3b: ~p~n", [Sql4]),
     ?assertException(throw, {ClEr, {"Unknown field or table name", <<"COL">>}}, imem_sql:exec(SKey, Sql4, 0, [{schema, imem}], IsSec)),
 
-    Sql4a = "insert into def (col1,col3) values ('G', '[1,2,3]');",
+    Sql4a = "insert into test_ins_test (col1,col3) values ('G', '[1,2,3]');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3b: ~p~n", [Sql4a]),
-    ?assertEqual([{def, <<"G">>, undefined, [1, 2, 3]}], imem_sql:exec(SKey, Sql4a, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"G">>, undefined, [1, 2, 3]}], imem_sql:exec(SKey, Sql4a, 0, [{schema, imem}], IsSec)),
 
-    Sql4b = "insert into def (col1,col3) values ('H', undefined);",
+    Sql4b = "insert into test_ins_test (col1,col3) values ('H', undefined);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3b: ~p~n", [Sql4b]),
     ?assertException(throw, {ClEr, {"Unknown field or table name", <<"undefined">>}}, imem_sql:exec(SKey, Sql4b, 0, [{schema, imem}], IsSec)),
 
-    Sql4c = "insert into def (col1,col3) values ('I', to_atom('an_atom'));",
+    Sql4c = "insert into test_ins_test (col1,col3) values ('I', to_atom('an_atom'));",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3c: ~p~n", [Sql4c]),
-    ?assertEqual([{def, <<"I">>, undefined, 'an_atom'}], imem_sql:exec(SKey, Sql4c, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"I">>, undefined, 'an_atom'}], imem_sql:exec(SKey, Sql4c, 0, [{schema, imem}], IsSec)),
 
-    Sql4d = "insert into def (col1,col3) values ('J', sqrt(2));",
+    Sql4d = "insert into test_ins_test (col1,col3) values ('J', sqrt(2));",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3d: ~p~n", [Sql4d]),
-    ?assertEqual([{def, <<"J">>, undefined, math:sqrt(2)}], imem_sql:exec(SKey, Sql4d, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"J">>, undefined, math:sqrt(2)}], imem_sql:exec(SKey, Sql4d, 0, [{schema, imem}], IsSec)),
 
-    Sql4e = "insert into def (col1,col3) values ('K', '\"undefined\"');",
+    Sql4e = "insert into test_ins_test (col1,col3) values ('K', '\"undefined\"');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3e: ~p~n", [Sql4e]),
-    ?assertEqual([{def, <<"K">>, undefined, "undefined"}], imem_sql:exec(SKey, Sql4e, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"K">>, undefined, "undefined"}], imem_sql:exec(SKey, Sql4e, 0, [{schema, imem}], IsSec)),
 
-    Sql4f = "insert into def (col1,col3) values ('L', 1+(2*3));",
+    Sql4f = "insert into test_ins_test (col1,col3) values ('L', 1+(2*3));",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3f: ~p~n", [Sql4f]),
-    ?assertEqual([{def, <<"L">>, undefined, 7}], imem_sql:exec(SKey, Sql4f, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"L">>, undefined, 7}], imem_sql:exec(SKey, Sql4f, 0, [{schema, imem}], IsSec)),
 
-    Sql4g = "insert into def (col1,col3) values ('M''s', 'undefined');",
+    Sql4g = "insert into test_ins_test (col1,col3) values ('M''s', 'undefined');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3g: ~p~n", [Sql4g]),
-    ?assertEqual([{def, <<"M's">>, undefined, undefined}], imem_sql:exec(SKey, Sql4g, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"M's">>, undefined, undefined}], imem_sql:exec(SKey, Sql4g, 0, [{schema, imem}], IsSec)),
 
-    Sql4h = "insert into def (col1,col3) values ('N', 'not quite undefined');",
+    Sql4h = "insert into test_ins_test (col1,col3) values ('N', 'not quite undefined');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql3h: ~p~n", [Sql4h]),
-    ?assertEqual([{def, <<"N">>, undefined, <<"not quite undefined">>}], imem_sql:exec(SKey, Sql4h, 0, [{schema, imem}], IsSec)),
+    ?assertEqual([{test_ins_test, <<"N">>, undefined, <<"not quite undefined">>}], imem_sql:exec(SKey, Sql4h, 0, [{schema, imem}], IsSec)),
 
-    Sql5 = "insert into def (col1) values ('C', 5);",
+    Sql5 = "insert into test_ins_test (col1) values ('C', 5);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql5: ~p~n", [Sql5]),
     ?assertException(throw, {ClEr, {"Too many values", _}}, imem_sql:exec(SKey, Sql5, 0, [{schema, imem}], IsSec)),
 
-    Sql5a = "insert into def (col1,col2,col3) values ('C', 5);",
+    Sql5a = "insert into test_ins_test (col1,col2,col3) values ('C', 5);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql5a: ~p~n", [Sql5a]),
     ?assertException(throw, {ClEr, {"Too few values", _}}, imem_sql:exec(SKey, Sql5a, 0, [{schema, imem}], IsSec)),
 
-    Sql6 = "insert into def (col1) values ('C');",
+    Sql6 = "insert into test_ins_test (col1) values ('C');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql6: ~p~n", [Sql6]),
     ?assertException(throw, {CoEx, {"Insert failed, key already exists in", _}}, imem_sql:exec(SKey, Sql6, 0, [{schema, imem}], IsSec)),
 
-    Sql6a = "insert into def (col1,col2) values ( 'O', sqrt(2)+1);",
+    Sql6a = "insert into test_ins_test (col1,col2) values ( 'O', sqrt(2)+1);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql6a: ~p~n", [Sql6a]),
     ?assertException(throw, {ClEr, {"Wrong data type for value, expecting type or default", _}}, imem_sql:exec(SKey, Sql6a, 0, [{schema, imem}], IsSec)),
 
-    {_List2, true} = imem_sql_insert:if_call_mfa(IsSec, select, [SKey, def, ?MatchAllRecords]),
-    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":table def 2~n~p~n", [lists:sort(_List2)]),
+    {_List2, true} = imem_sql_insert:if_call_mfa(IsSec, select, [SKey, test_ins_test, ?MatchAllRecords]),
+    ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":table test_ins_test 2~n~p~n", [lists:sort(_List2)]),
 
     Sql20 = "create table not_null (col1 varchar2 not null, col2 integer not null);",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql20: ~p~n", [Sql20]),
@@ -222,7 +222,7 @@ test_with_or_without_sec(IsSec) ->
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql98: ~p~n", [Sql98]),
     ?assertEqual(ok, imem_sql:exec(SKey, Sql98, 0, [{schema, imem}], IsSec)),
 
-    Sql99 = "drop table def;",
+    Sql99 = "drop table test_ins_test;",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql99: ~p~n", [Sql99]),
     ?assertEqual(ok, imem_sql:exec(SKey, Sql99, 0, [{schema, imem}], IsSec)),
 

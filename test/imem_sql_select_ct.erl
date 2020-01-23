@@ -48,7 +48,7 @@
 init_per_testcase(_TestCase, Config) ->
 
     catch imem_meta:drop_table(member_test),
-    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(test_sel_test),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
     catch imem_meta:drop_table(skvhSqlTest),
@@ -60,7 +60,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
 
     catch imem_meta:drop_table(member_test),
-    catch imem_meta:drop_table(def),
+    catch imem_meta:drop_table(test_sel_test),
     catch imem_meta:drop_table(ddViewTest),
     catch imem_meta:drop_table(ddCmdTest),
     catch imem_meta:drop_table(skvhSqlTest),
@@ -323,10 +323,10 @@ db1_with_or_without_sec(IsSec) ->
     ?CTPAL("Rows from ddSysConf.\"imem.app.src\":~n~p~n", [R9b]),
     ?assertEqual(5, length(R9b)),
 
-    %% test table def
+    %% test table test_sel_test
 
     ?assertMatch({ok, _}, imem_sql:exec(SKey,
-        "create table def (
+        "create table test_sel_test (
             col1 integer,
             col2 varchar2(2000),
             col3 date,
@@ -335,12 +335,12 @@ db1_with_or_without_sec(IsSec) ->
         );", 0, [{schema, imem}], IsSec)),
 
     ?CTPAL("Test json(3) :~n~p~n", [?TEST_JSON(3)]),
-    ?assertEqual(ok, insert_json(SKey, 3, def, imem, IsSec)),
-    ?CTPAL("Test table def :~n~p~n", [imem_meta:read(def)]),
+    ?assertEqual(ok, insert_json(SKey, 3, test_sel_test, imem, IsSec)),
+    ?CTPAL("Test table test_sel_test :~n~p~n", [imem_meta:read(test_sel_test)]),
 
     exec_fetch_sort_equal(SKey, query9a, 100, IsSec, "
             select col2
-            from def
+            from test_sel_test
             "
         ,
         [{<<"{\"name\":\"John1\",\"age\":1,\"empty\":null}">>}
@@ -351,7 +351,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query9b, 100, IsSec, "
             select col2|#keys|
-            from def
+            from test_sel_test
             "
         ,
         [{<<"[\"name\",\"age\",\"empty\"]">>}
@@ -366,7 +366,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query9c, 100, IsSec, "
             select col2|#values|
-            from def
+            from test_sel_test
             "
         ,
         [{<<"[\"John1\",1,null]">>}
@@ -377,7 +377,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query9d, 100, IsSec, "
             select col2|{}|
-            from def
+            from test_sel_test
             "
         ,
         [{<<"{\"name\":\"John1\",\"age\":1,\"empty\":null}">>}
@@ -388,7 +388,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query9e, 100, IsSec, "
             select col2|{name,age}|
-            from def
+            from test_sel_test
             "
         ,
         [{<<"{\"name\":\"John1\",\"age\":1}">>}
@@ -399,7 +399,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query9f, 100, IsSec, "
             select col2|{name,noattr}|
-            from def
+            from test_sel_test
             "
         ,
         [{<<"{\"name\":\"John1\",\"noattr\":\"$not_a_value\"}">>}
@@ -408,14 +408,14 @@ db1_with_or_without_sec(IsSec) ->
         ]
     ),
 
-    ?assertEqual(ok, imem_sql:exec(SKey, "truncate table def;", 0, [{schema, imem}], IsSec)),
-    ?assertEqual(ok, insert_json_int_list(SKey, 5, def, imem, IsSec)),
-    ?assertEqual(ok, insert_json_str_list(SKey, 2, def, imem, IsSec)),
-    ?CTPAL("Test table def :~n~p~n", [imem_meta:read(def)]),
+    ?assertEqual(ok, imem_sql:exec(SKey, "truncate table test_sel_test;", 0, [{schema, imem}], IsSec)),
+    ?assertEqual(ok, insert_json_int_list(SKey, 5, test_sel_test, imem, IsSec)),
+    ?assertEqual(ok, insert_json_str_list(SKey, 2, test_sel_test, imem, IsSec)),
+    ?CTPAL("Test table test_sel_test :~n~p~n", [imem_meta:read(test_sel_test)]),
 
     exec_fetch_sort_equal(SKey, query10a, 100, IsSec, "
             select col2|[]|
-            from def
+            from test_sel_test
             "
         ,
         [{<<"[\"a1\"]">>}
@@ -428,7 +428,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query10b, 100, IsSec, "
             select is_list(col2|[]|)
-            from def
+            from test_sel_test
             "
         ,
         [{<<"true">>}
@@ -441,7 +441,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query10c, 100, IsSec, "
             select col2|[1,3]|
-            from def
+            from test_sel_test
             "
         ,
         [{<<"[\"a1\",\"$not_a_value\"]">>}
@@ -454,7 +454,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query10d, 100, IsSec, "
             select col2|[0]|
-            from def
+            from test_sel_test
             "
         ,
         [{<<>>}
@@ -467,7 +467,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query10e, 100, IsSec, "
             select col1
-            from def
+            from test_sel_test
             where col2|[1,3]| = to_list('[1,3]')
             "
         ,
@@ -480,35 +480,35 @@ db1_with_or_without_sec(IsSec) ->
     R0a = exec_fetch_sort(SKey, query0a, 100, IsSec, "
             select *
             from ddTable
-            where element(2,qname) = to_atom('def')"
+            where element(2,qname) = to_atom('test_sel_test')"
     ),
     ?assertEqual(1, length(R0a)),
 
     exec_fetch_sort_equal(SKey, query0b, 100, IsSec, "
             select 1
             from ddTable
-            where element(2,qname) = to_atom('def')"
+            where element(2,qname) = to_atom('test_sel_test')"
         ,
         [{<<"1">>}]
     ),
 
     R1h = exec_fetch_sort(SKey, query1h, 100, IsSec, "
             select *
-            from def
+            from test_sel_test
             where 1=1"
     ),
     ?assertEqual(5, length(R1h)),
 
     R1i = exec_fetch_sort(SKey, query1i, 100, IsSec, "
             select *
-            from def
+            from test_sel_test
             where 1=0"
     ),
     ?assertEqual(0, length(R1i)),
 
     exec_fetch_sort_equal(SKey, query1j, 100, IsSec, "
             select col1
-            from def
+            from test_sel_test
             where col1 between 3 and 5
             "
         ,
@@ -517,7 +517,7 @@ db1_with_or_without_sec(IsSec) ->
 
     R2 = exec_fetch_sort_equal(SKey, query2, 100, IsSec, "
             select col1, col2
-            from def
+            from test_sel_test
             where col1>=3 and col1<=4"
         ,
         [{<<"3">>, <<"[1,2,3]">>}
@@ -527,7 +527,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2a, 100, IsSec, "
             select col1, col2
-            from def
+            from test_sel_test
             where col1 in (3,4)"
         ,
         R2
@@ -535,22 +535,22 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2b, 100, IsSec, "
             select col1, col2
-            from def
+            from test_sel_test
             where col2 in ('[1,2,3]','[1,2,3,4]')"
         ,
         R2
     ),
 
-    ?assertEqual(ok, imem_sql:exec(SKey, "truncate table def;", 0, [{schema, imem}], IsSec)),
-    ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
+    ?assertEqual(ok, imem_sql:exec(SKey, "truncate table test_sel_test;", 0, [{schema, imem}], IsSec)),
+    ?assertEqual(ok, insert_range(SKey, 20, test_sel_test, imem, IsSec)),
 
-    {L0, true} = if_call_mfa(IsSec, select, [SKey, def, ?MatchAllRecords, 1000]),
-    ?CTPAL("Test table def : ~p entries~n~p~n~p~n~p", [length(L0), hd(L0), '...', lists:last(L0)]),
+    {L0, true} = if_call_mfa(IsSec, select, [SKey, test_sel_test, ?MatchAllRecords, 1000]),
+    ?CTPAL("Test table test_sel_test : ~p entries~n~p~n~p~n~p", [length(L0), hd(L0), '...', lists:last(L0)]),
     ?assertEqual(20, length(L0)),
 
     exec_fetch_sort_equal(SKey, query2c, 100, IsSec, "
             select col1, col2
-            from def
+            from test_sel_test
             where col2 in (5,6)"
         ,
         []
@@ -558,7 +558,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2d, 100, IsSec, "
             select col1, col2
-            from def
+            from test_sel_test
             where col2 in ('5',col2) and col1 <= 10"
         ,
         [
@@ -570,7 +570,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2e, 100, IsSec, "
             select col4
-            from def
+            from test_sel_test
             where col4 < '10.132.7.3'"
         ,
         [
@@ -580,23 +580,23 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2f, 100, IsSec, "
             select col2
-            from def
+            from test_sel_test
             where col2 in (5,6)"
         ,
         []
     ),
 
     % exec_fetch_sort_equal(SKey, query2g, 100, IsSec,
-    %     "select def from def where col1 = 2",
-    %     [{<<"{def,2,<<\"2\">>,{{2014,3,16},{11,5,55}},{10,132,7,2},{'Atom2',2}}">>}]
+    %     "select test_sel_test from test_sel_test where col1 = 2",
+    %     [{<<"{test_sel_test,2,<<\"2\">>,{{2014,3,16},{11,5,55}},{10,132,7,2},{'Atom2',2}}">>}]
     % ),
-    if_call_mfa(IsSec, write, [SKey, def,
-        {def, 100, <<"\"text_in_quotes\"">>, {{2001, 02, 03}, {4, 5, 6}}, {10, 132, 7, 92}, {'Atom100', 100}}
+    if_call_mfa(IsSec, write, [SKey, test_sel_test,
+        {test_sel_test, 100, <<"\"text_in_quotes\"">>, {{2001, 02, 03}, {4, 5, 6}}, {10, 132, 7, 92}, {'Atom100', 100}}
     ]),
 
     exec_fetch_sort_equal(SKey, query2h, 100, IsSec, "
             select col2
-            from def
+            from test_sel_test
             where col1 = 100"
         ,
         [{<<"\"text_in_quotes\"">>}]
@@ -604,7 +604,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2i, 100, IsSec, "
             select col1, col5
-            from def
+            from test_sel_test
             where element(1,col5) = to_atom('Atom5')"
         ,
         [{<<"5">>, <<"{'Atom5',5}">>}]
@@ -612,7 +612,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2l, 100, IsSec, "
             select col1, col5
-            from def
+            from test_sel_test
             where element(2,col5) = 5"
         ,
         [{<<"5">>, <<"{'Atom5',5}">>}]
@@ -620,7 +620,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2m, 100, IsSec, "
             select col1, col5
-            from def
+            from test_sel_test
             where element(2,col5) = to_integer(4+1)"
         ,
         [{<<"5">>, <<"{'Atom5',5}">>}]
@@ -628,7 +628,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2n, 100, IsSec, "
             select col1, col5
-            from def
+            from test_sel_test
             where element(2,col5) = to_integer(5.0)"
         ,
         [{<<"5">>, <<"{'Atom5',5}">>}]
@@ -636,7 +636,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2o, 100, IsSec, "
             select col1, col5
-            from def
+            from test_sel_test
             where element(2,col5) = to_integer('5')"
         ,
         [{<<"5">>, <<"{'Atom5',5}">>}]
@@ -644,43 +644,43 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query2p, 100, IsSec, "
             select col1, col5
-            from def where col5 = to_tuple('{''Atom5'', 5}')"
+            from test_sel_test where col5 = to_tuple('{''Atom5'', 5}')"
         ,
         [{<<"5">>, <<"{'Atom5',5}">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query2q, 100, IsSec, "
             select col1, col5
-            from def where col5 = '{''Atom100'',100}'"
+            from test_sel_test where col5 = '{''Atom100'',100}'"
         ,
         [{<<"100">>, <<"{'Atom100',100}">>}]
     ),
 
     % exec_fetch_equal(SKey, query3a, 100, IsSec,
-    %     "select ip.item from def, integer ip where col1 = 1 and is_member(item,col4)",
+    %     "select ip.item from test_sel_test, integer ip where col1 = 1 and is_member(item,col4)",
     %     [{<<"10">>},{<<"132">>},{<<"7">>},{<<"1">>}]
     % ),
 
     % R3b = exec_fetch_sort(SKey, query3b, 100, IsSec,
-    %     "select col3, item from def, integer where is_member(item,to_atom('$_')) and col1 <> 100"
+    %     "select col3, item from test_sel_test, integer where is_member(item,to_atom('$_')) and col1 <> 100"
     % ),
     % ?assertEqual(20, length(R3b)),
 
     exec_fetch_sort_equal(SKey, query3g, 100, IsSec, "
             select col1, col5
-            from def, ddNode
+            from test_sel_test, ddNode
             where element(2,col5) = name"
         ,
         []
     ),
 
-    if_call_mfa(IsSec, write, [SKey, def,
-        {def, 0, <<"0">>, calendar:local_time(), {10, 132, 7, 0}, {list_to_atom("Atom" ++ integer_to_list(0)), node()}}
+    if_call_mfa(IsSec, write, [SKey, test_sel_test,
+        {test_sel_test, 0, <<"0">>, calendar:local_time(), {10, 132, 7, 0}, {list_to_atom("Atom" ++ integer_to_list(0)), node()}}
     ]),
 
     exec_fetch_sort_equal(SKey, query3h, 100, IsSec, "
             select col1, col5
-            from def, ddNode
+            from test_sel_test, ddNode
             where element(2,col5) = name"
         ,
         [{<<"0">>, <<"{'Atom0',",FullNodeBin/binary,"}">>}]
@@ -688,7 +688,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query3i, 100, IsSec, "
             select col1, col5
-            from def, ddNode
+            from test_sel_test, ddNode
             where element(2,col5) = to_atom('" ++ FullNodeStr ++ "')"
         ,
         [{<<"0">>, <<"{'Atom0',",FullNodeBin/binary,"}">>}]
@@ -696,7 +696,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query3j, 100, IsSec, "
             select col1, col5
-            from def, ddNode
+            from test_sel_test, ddNode
             where element(2,col5) = to_atom('nonode@anotherhost')"
         ,
         []
@@ -805,7 +805,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query4, 100, IsSec, "
             select t1.col1, t2.col1 j
-            from def t1, def t2
+            from test_sel_test t1, test_sel_test t2
             where t1.col1 in (5,6,7)
             and t2.col1 > t1.col1
             and t2.col1 > t1.col1
@@ -822,7 +822,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query4a, 100, IsSec, "
             select t1.col1, t2.col1
-            from def t1, def t2
+            from test_sel_test t1, test_sel_test t2
             where t1.col1 in (5,6,7)
             and t2.col1 > t1.col1
             and t2.col1 <= t1.col1 + 2"
@@ -836,7 +836,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query4b, 100, IsSec, "
             select t1.col1, t2.col1
-            from def t1, def t2
+            from test_sel_test t1, test_sel_test t2
             where t1.col1 in (5,7)
             and abs(t2.col1-t1.col1) = 1"
         ,
@@ -848,7 +848,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query4c, 100, IsSec, "
             select t1.col1, t2.col1
-            from def t1, def t2
+            from test_sel_test t1, test_sel_test t2
             where t1.col1=5
             and t2.col1 > t1.col1 / 2
             and t2.col1 <= t1.col1"
@@ -860,7 +860,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query4d, 100, IsSec, "
             select t1.col1, t2.col2
-            from def t1, def t2
+            from test_sel_test t1, test_sel_test t2
             where t1.col1 <> 5
             and t1.col1 <= 10
             and t1.col1 <> 0
@@ -875,7 +875,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query6a, 100, IsSec, "
             select col1, col2
-            from def
+            from test_sel_test
             where col1 < 11
             and col1 <> 0
             order by col1 desc, col2"
@@ -897,7 +897,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query6b, 100, IsSec, "
             select 2*col1
-            from def
+            from test_sel_test
             where col1 <= 5
             and col1 <> 0
             order by 1 desc, col2"
@@ -924,7 +924,7 @@ db1_with_or_without_sec(IsSec) ->
     % ],
     % exec_fetch_sort_equal(SKey, query6b, 100, IsSec, "
     %     select col1, col1 - col1*col1/9.5
-    %     from def
+    %     from test_sel_test
     %     where col1 <= 9
     %     and col1 <> 0
     %     order by 1"
@@ -934,7 +934,7 @@ db1_with_or_without_sec(IsSec) ->
 
     % exec_fetch_sort_equal(SKey, query6c, 100, IsSec, "
     %     select col1, col1 - col1*col1/9.5
-    %     from def
+    %     from test_sel_test
     %     where col1 <= 9
     %     and col1 <> 0
     %     order by 1 desc"
@@ -955,7 +955,7 @@ db1_with_or_without_sec(IsSec) ->
     % ],
     % exec_fetch_sort_equal(SKey, query6d, 100, IsSec, "
     %     select col1, col1 - col1*col1/9.5
-    %     from def
+    %     from test_sel_test
     %     where col1 <= 9
     %     and col1 <> 0
     %     order by 2"
@@ -965,7 +965,7 @@ db1_with_or_without_sec(IsSec) ->
 
     % exec_fetch_sort_equal(SKey, query6e, 100, IsSec, "
     %     select col1, col1 - col1*col1/9.5
-    %     from def
+    %     from test_sel_test
     %     where col1 <= 9
     %     and col1 <> 0
     %     order by 2 desc"
@@ -975,7 +975,7 @@ db1_with_or_without_sec(IsSec) ->
 
     % exec_fetch_sort_equal(SKey, query6f, 100, IsSec, "
     %     select col1, col1 - col1*col1/9.5
-    %     from def
+    %     from test_sel_test
     %     where col1 <= 9
     %     and col1 <> 0
     %     order by col1 - col1*col1/9.5 desc"
@@ -985,7 +985,7 @@ db1_with_or_without_sec(IsSec) ->
 
     % exec_fetch_sort_equal(SKey, query6g, 100, IsSec, "
     %     select col1, col1 - col1*col1/9.5
-    %     from def
+    %     from test_sel_test
     %     where col1 <= 9
     %     and col1 <> 0
     %     order by '12' asc, col1 - col1*col1/9.5 desc"
@@ -995,7 +995,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query7a, 100, IsSec, "
             select col2
-            from def
+            from test_sel_test
             where col2 like '1%'"
         ,
         [
@@ -1014,32 +1014,32 @@ db1_with_or_without_sec(IsSec) ->
     ),
 
     % exec_fetch_sort_equal(SKey, query7b, 100, IsSec, "
-    %     select col1, col2 from def where col2 like '%_in_%'"
+    %     select col1, col2 from test_sel_test where col2 like '%_in_%'"
     %     ,
     %     [{<<"100">>, <<"\"text_in_quotes\"">>}]
     % ),
 
     exec_fetch_sort_equal(SKey, query7c, 100, IsSec, "
-            select col1 from def where col2 like '%quotes\"'"
+            select col1 from test_sel_test where col2 like '%quotes\"'"
         ,
         [{<<"100">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query7d, 100, IsSec, "
-            select col1 from def where col2 like '_text_in%'"
+            select col1 from test_sel_test where col2 like '_text_in%'"
         ,
         [{<<"100">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query7e, 100, IsSec, "
-            select col1 from def where col2 like 'text_in%'"
+            select col1 from test_sel_test where col2 like 'text_in%'"
         ,
         []
     ),
 
     exec_fetch_sort_equal(SKey, query7f, 100, IsSec, "
             select col2
-            from def
+            from test_sel_test
             where col2 like '%1' or col2 like '1%'"
         ,
         [
@@ -1059,7 +1059,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query7fa, 100, IsSec, "
             select col2
-            from def
+            from test_sel_test
             where col2 like '%1' or col2 not like '1%'"
         ,
         [
@@ -1082,31 +1082,31 @@ db1_with_or_without_sec(IsSec) ->
     %% regexp_like()
 
     exec_fetch_sort_equal(SKey, query7g, 100, IsSec, "
-            select col2 from def where regexp_like(col2,'0')"
+            select col2 from test_sel_test where regexp_like(col2,'0')"
         ,
         [{<<"0">>}, {<<"10">>}, {<<"20">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query7h, 100, IsSec, "
-            select col1 from def where regexp_like(col2,'^\"')"
+            select col1 from test_sel_test where regexp_like(col2,'^\"')"
         ,
         [{<<"100">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query7i, 100, IsSec, "
-            select col1 from def where regexp_like(col2,'s\"$')"
+            select col1 from test_sel_test where regexp_like(col2,'s\"$')"
         ,
         [{<<"100">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query7j, 100, IsSec, "
-            select col1 from def where regexp_like(col2,'_.*_')"
+            select col1 from test_sel_test where regexp_like(col2,'_.*_')"
         ,
         [{<<"100">>}]
     ),
 
     exec_fetch_sort_equal(SKey, query7k, 100, IsSec, "
-            select col1 from def where regexp_like(col2,'^[^_]*_[^_]*$')"
+            select col1 from test_sel_test where regexp_like(col2,'^[^_]*_[^_]*$')"
         ,
         []
     ),
@@ -1115,7 +1115,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query7l, 100, IsSec, "
             select d1.col1, d2.col1
-            from def d1, def d2
+            from test_sel_test d1, test_sel_test d2
             where d1.col1 > 10
             and d2.col1 like '%5%'
             and d2.col1 = d1.col1"
@@ -1127,7 +1127,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query7m, 100, IsSec, "
             select d1.col1, d2.col1
-            from def d1, def d2
+            from test_sel_test d1, test_sel_test d2
             where d1.col1 >= 5
             and d2.col1 like '%5%'
             and d2.col2 like '5%'
@@ -1140,7 +1140,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query7n, 100, IsSec, "
             select d1.col1, d2.col1
-            from def d1, def d2
+            from test_sel_test d1, test_sel_test d2
             where d1.col1 >= 5
             and d2.col1 like '%5%'
             and d2.col2 not like '1%'
@@ -1153,7 +1153,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query8b, 100, IsSec, "
             select col2 || col2
-            from def
+            from test_sel_test
             where col1 = 1 or col1=20"
         ,
         [
@@ -1163,7 +1163,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query8c, 100, IsSec, "
             select col2 || to_binstr('XYZ')
-            from def
+            from test_sel_test
             where col1 = 1 or col1=20"
         ,
         [
@@ -1174,7 +1174,7 @@ db1_with_or_without_sec(IsSec) ->
 % FIXME: Currently fails in Travis
 %        exec_fetch_sort_equal(SKey, query8f, 100, IsSec, "
 %            select col2 || to_string(sqrt(2.0))
-%            from def
+%            from test_sel_test
 %            where col1 = 5"
 %            ,
 %            [
@@ -1184,7 +1184,7 @@ db1_with_or_without_sec(IsSec) ->
 %
 %        exec_fetch_sort_equal(SKey, query8g, 100, IsSec, "
 %            select col2 || to_binstr(sqrt(2.0))
-%            from def
+%            from test_sel_test
 %            where col1 = 5"
 %            ,
 %            [
@@ -1194,7 +1194,7 @@ db1_with_or_without_sec(IsSec) ->
 %
 %        exec_fetch_sort_equal(SKey, query8h, 100, IsSec, "
 %            select col2
-%            from def
+%            from test_sel_test
 %            where col2 || to_binstr(sqrt(2.0)) = to_binstr('51.41421356237309510000e+00')"
 %            ,
 %            [
@@ -1204,7 +1204,7 @@ db1_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query8i, 100, IsSec, "
             select col2
-            from def
+            from test_sel_test
             where byte_size(col2) > 1 and col1 < 11"
         ,
         [
@@ -1216,7 +1216,7 @@ db1_with_or_without_sec(IsSec) ->
         ?assertEqual(ok, imem_sql:exec(SKey, "drop table member_test;", 0, [{schema, imem}], IsSec))
                      end},
     _ = {timeout, 5, fun() ->
-        ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema, imem}], IsSec))
+        ?assertEqual(ok, imem_sql:exec(SKey, "drop table test_sel_test;", 0, [{schema, imem}], IsSec))
                      end},
 
     case IsSec of
@@ -1259,7 +1259,7 @@ db2_with_or_without_sec(IsSec) ->
            end,
 
     ?assertMatch({ok, _}, imem_sql:exec(SKey,
-        "create table def (
+        "create table test_sel_test (
             col1 integer,
             col2 varchar2(2000),
             col3 date,
@@ -1267,7 +1267,7 @@ db2_with_or_without_sec(IsSec) ->
             col5 tuple
         );", 0, [{schema, imem}], IsSec)),
 
-    ?assertEqual(ok, insert_range(SKey, 20, def, imem, IsSec)),
+    ?assertEqual(ok, insert_range(SKey, 20, test_sel_test, imem, IsSec)),
 
     %% test table member_test
 
@@ -1497,12 +1497,13 @@ db2_with_or_without_sec(IsSec) ->
 
     %% joins with virtual (datatype) tables
 
-    % ?assertException(throw,{ClEr,{"Virtual table can only be joined",<<"integer">>}},
-    ?assertException(throw, {ClEr, {"Invalid virtual filter guard", true}},
+    ErrPat1 = [integer,{{1,node()}},true],
+    ?assertException(throw, {ClEr, {"Invalid virtual filter guard", ErrPat1}},
         exec_fetch_sort(SKey, query3a1, 100, IsSec, "select item from integer")
     ),
 
-    ?assertException(throw, {ClEr, {"Invalid virtual filter guard", true}},
+    ErrPat2 = [ddSize,{{1,node()}},true],
+    ?assertException(throw, {ClEr, {"Invalid virtual filter guard", ErrPat2}},
         exec_fetch_sort(SKey, query3a2, 100, IsSec, "select name from ddSize where name like 'ddAcc%'")
     ),
 
@@ -1529,7 +1530,7 @@ db2_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query5h, 100, IsSec, "
             select d.col1, m.col1
-            from def d, member_test m
+            from test_sel_test d, member_test m
             where is_member(d.col1,m.col2)"
         ,
         [
@@ -1543,7 +1544,7 @@ db2_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query5i, 100, IsSec, "
             select d.col1, m.col1
-            from def d, member_test m
+            from test_sel_test d, member_test m
             where d.col1 <> 0
             and is_member(d.col1+1,m.col2)"
         ,
@@ -1557,7 +1558,7 @@ db2_with_or_without_sec(IsSec) ->
 
     exec_fetch_sort_equal(SKey, query5j, 100, IsSec, "
             select d.col1, m.col1
-            from def d, member_test m
+            from test_sel_test d, member_test m
             where is_member(d.col1,m)"
         ,
         [
@@ -1665,7 +1666,7 @@ db2_with_or_without_sec(IsSec) ->
                 item3(item) as \"type\",
                 item4(item) as len,
                 item5(item) as prec,
-                item6(item) as def
+                item6(item) as test_sel_test
             from ddTable, list
             where is_member(item, columns)"
     ),

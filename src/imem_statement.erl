@@ -454,7 +454,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                         end
                     catch
                         _:Err ->
-                            ?Warn("fetch_recs_async error stack trace ~n~p",[erlang:get_stacktrace()]),
+                            ?Warn("fetch_recs_async error ~p stack trace ~n~p",[Err, erlang:get_stacktrace()]),
                             send_reply_to_client(Sock, {error, Err}),
                             FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
                             {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
@@ -960,8 +960,8 @@ generate_virtual_data(_Table,_Rec,false,_MaxSize) ->
     [];
 generate_virtual_data(boolean,_Rec,true,_MaxSize) ->
     [{false,<<"false">>},{true,<<"true">>}];
-generate_virtual_data(_Table,_Rec,true,_MaxSize) ->
-    ?ClientError({"Invalid virtual filter guard", true});
+generate_virtual_data(Table,Rec,true,_MaxSize) ->
+    ?ClientError({"Invalid virtual filter guard", [Table,Rec,true]});
 generate_virtual_data(Table,Rec,{is_member,Tag,'$_'},MaxSize) when is_atom(Tag) ->
     Items = element(?MainIdx,Rec),
     generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);
