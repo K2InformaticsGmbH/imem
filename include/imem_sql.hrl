@@ -70,6 +70,7 @@
                   , stmtStr = ""            ::string()            %% SQL statement
                   , stmtParse = undefined   ::tuple()             %% SQL parse tree (tuple of atoms, binaries, numbers and and lists)
                   , stmtParams = []         ::list()              %% Proplist with {<<":name">>,<<"type">>,[<<"value">>]}
+                  , stmtParamRec = []       ::list()              %% List with calculated param attributes, to be appended to MetaRec
                   , stmtClass = "L"         ::stmt_class()        %% Statement Class (how to collect the result)
                   , colMap = []             ::list(#bind{})       %% column map (one expression tree per selected column )
                   , fullMap = []            ::list(#bind{})       %% full map of bind records (meta fields and table fields used in query)

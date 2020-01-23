@@ -11,7 +11,7 @@
 
 -export([ escape_sql/1
         , un_escape_sql/1
-        , meta_rec/5
+        , meta_rec/4
         , params_from_opts/2
         , statement_class/1
         , parse_sql_name/1
@@ -99,14 +99,13 @@ params_from_opts(Opts,ParseTree) when is_list(Opts) ->
 % List = imem_statement:fetch_recs_sort(undefined, StmtResult, {self(), make_ref()}, 1000, false).
 % imem_statement:close(SKey, StmtRefs).
 
-
 exec(SKey, Sql, BlockSize, Opts, IsSec) ->
-    % TBD :  io:format("Opts ~p~n",[Opts]),
-    % _ParamRec = [imem_datatype:io_to_db(N,undefined,T,0,P,undefined,false,Value) || {N,T,P,[Value|_]} <- Params],  
     case sqlparse:parsetree(Sql) of
         {ok, [{ParseTree,_}|_]} ->
+            Params = params_from_opts(Opts, ParseTree),
+            ParamRec = [imem_datatype:io_to_db(N,undefined,T,0,P,undefined,false,Value) || {N,T,P,[Value|_]} <- Params],
             exec(SKey, element(1,ParseTree), ParseTree, 
-                #statement{stmtStr=Sql, stmtParse=ParseTree, blockSize=BlockSize}, 
+                #statement{stmtStr=Sql, stmtParse=ParseTree, stmtParams=Params, stmtParamRec=ParamRec, blockSize=BlockSize}, 
                 Opts, IsSec);
         {lex_error, Error}      -> ?ClientError({"SQL lexer error", Error});
         {parse_error, Error}    -> ?ClientError({"SQL parser error", Error})
@@ -166,24 +165,10 @@ un_escape_sql(Str) when is_list(Str) ->
 un_escape_sql(Bin) when is_binary(Bin) ->
     re:replace(Bin, "('')", "'", [global, {return, binary}]).
 
-meta_rec(_,_,[],[],_) -> ?EmptyMR;
-% meta_rec(IsSec,SKey,MetaFields,Params,?EmptyMR) ->
-%     meta_rec(IsSec,SKey,MetaFields,Params,undefined);
-meta_rec(IsSec,SKey,MetaFields,[],undefined) ->
-    list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]);
-meta_rec(_,_,[],Params,undefined) ->
-    list_to_tuple([imem_datatype:io_to_db(N,undefined,T,0,P,undefined,false,Value) || {N,T,P,[Value|_]} <- Params]);
-meta_rec(IsSec,SKey,MetaFields,Params,undefined) ->
+meta_rec(IsSec, SKey, MetaFields, ParamRec) ->
+    % dynamic MetaRec
     MetaRec = [if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields],
-    ParamRec = [imem_datatype:io_to_db(N,undefined,T,0,P,undefined,false,Value) || {N,T,P,[Value|_]} <- Params],  
-    list_to_tuple(MetaRec ++ ParamRec);
-meta_rec(IsSec,SKey,MetaFields,[],_MR) ->
-    list_to_tuple([if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields]);
-meta_rec(_,_,[],_Params,MR) ->
-    MR; 
-meta_rec(IsSec,SKey,MetaFields,Params,MR) ->
-    MetaRec = [if_call_mfa(IsSec, meta_field_value, [SKey, N]) || N <- MetaFields],
-    list_to_tuple(MetaRec ++ lists:sublist(tuple_to_list(MR),length(MetaRec)+1,length(Params))).
+    list_to_tuple(MetaRec ++ ParamRec).
 
 %% --Interface functions  (calling imem_if for now, not exported) ---------
 
