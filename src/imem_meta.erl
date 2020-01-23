@@ -2680,8 +2680,8 @@ table_memory({_Node,_Schema,Table}) ->          table_memory(Table);   %% ToDo: 
 table_memory({_Schema,Table}) ->                table_memory(Table);   %% ToDo: may depend on schema
 table_memory(Table) ->                          imem_if_mnesia:table_memory(physical_table_name(Table)). %% ToDo: sum should be returned for all local time partitions
 
-exec(Statement, BlockSize, Schema) ->
-    imem_sql:exec(none, Statement, BlockSize, Schema, false).   
+exec(Statement, BlockSize, Opts) ->
+    imem_sql:exec(none, Statement, BlockSize, Opts, false).   
 
 fetch_recs(Pid, Sock, Timeout) ->
     imem_statement:fetch_recs(none, Pid, Sock, Timeout, false).

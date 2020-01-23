@@ -52,7 +52,7 @@ test_with_or_without_sec(IsSec) ->
     SKey = ?imem_test_admin_login(),
 
     Sql0 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [/] end.);",
-    ?assertException(throw, {ClEr, {"Bad default fun", _}}, imem_sql:exec(SKey, Sql0, 0, imem, IsSec)),
+    ?assertException(throw, {ClEr, {"Bad default fun", _}}, imem_sql:exec(SKey, Sql0, 0, [{schema, imem}], IsSec)),
 
     Sql1 = "create table def (col1 varchar2(10) not null, col2 integer default 12, col3 list default fun() -> [] end.);",
     Expected =
@@ -60,14 +60,14 @@ test_with_or_without_sec(IsSec) ->
             {ddColumn, col2, integer, undefined, undefined, 12, []},
             {ddColumn, col3, list, undefined, undefined, <<"fun() -> [] end.">>, []}
         ],
-    ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql1, 0, imem, IsSec)),
+    ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql1, 0, [{schema, imem}], IsSec)),
     [Meta] = imem_sql_table:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, def}]),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Meta table~n~p~n", [Meta]),
     ?assertEqual(0, imem_sql_table:if_call_mfa(IsSec, table_size, [SKey, def])),
     ?assertEqual(Expected, element(3, Meta)),
 
     ?assertMatch({ok, _}, imem_sql:exec(SKey,
-        "create cluster table truncate_test (col1 integer, col2 string);", 0, imem, IsSec)),
+        "create cluster table truncate_test (col1 integer, col2 string);", 0, [{schema, imem}], IsSec)),
     imem_sql_table:if_call_mfa(IsSec, write, [SKey, truncate_test, {truncate_test, 1, ""}]),
     imem_sql_table:if_call_mfa(IsSec, write, [SKey, truncate_test, {truncate_test, 2, "abc"}]),
     imem_sql_table:if_call_mfa(IsSec, write, [SKey, truncate_test, {truncate_test, 3, "123"}]),
@@ -75,30 +75,30 @@ test_with_or_without_sec(IsSec) ->
     imem_sql_table:if_call_mfa(IsSec, write, [SKey, truncate_test, {truncate_test, 5, []}]),
     ?assertEqual(5, imem_sql_table:if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
     ?assertEqual(ok, imem_sql:exec(SKey,
-        "truncate table truncate_test;", 0, imem, IsSec)),
+        "truncate table truncate_test;", 0, [{schema, imem}], IsSec)),
     ?assertEqual(0, imem_sql_table:if_call_mfa(IsSec, table_size, [SKey, truncate_test])),
-    ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, imem, IsSec)),
+    ?assertEqual(ok, imem_sql:exec(SKey, "drop table truncate_test;", 0, [{schema, imem}], IsSec)),
 
     Sql30 = "create loCal SeT table key_test (col1 '{atom,integer}', col2 '{string,binstr}');",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql30: ~p~n", [Sql30]),
-    ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql30, 0, imem, IsSec)),
+    ?assertMatch({ok, _}, imem_sql:exec(SKey, Sql30, 0, [{schema, imem}], IsSec)),
     ?assertEqual(0, imem_sql_table:if_call_mfa(IsSec, table_size, [SKey, key_test])),
     _TableDef = imem_sql_table:if_call_mfa(IsSec, read, [SKey, ddTable, {imem_meta:schema(), key_test}]),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":TableDef: ~p~n", [_TableDef]),
 
     Sql40 = "create someType table def (col1 varchar2(10) not null, col2 integer);",
-    ?assertException(throw, {ClEr, {"Unsupported option", {type, <<"someType">>}}}, imem_sql:exec(SKey, Sql40, 0, imem, IsSec)),
+    ?assertException(throw, {ClEr, {"Unsupported option", {type, <<"someType">>}}}, imem_sql:exec(SKey, Sql40, 0, [{schema, imem}], IsSec)),
     Sql41 = "create imem_meta table skvhTEST();",
-    ?assertException(throw, {ClEr, {"Invalid module name for table type", {type, imem_meta}}}, imem_sql:exec(SKey, Sql41, 0, imem, IsSec)),
+    ?assertException(throw, {ClEr, {"Invalid module name for table type", {type, imem_meta}}}, imem_sql:exec(SKey, Sql41, 0, [{schema, imem}], IsSec)),
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql41: ~p~n", [Sql41]),
 
     Sql97 = "drop table key_test;",
     ct:pal(info, ?MAX_IMPORTANCE, ?MODULE_STRING ++ ":Sql97: ~p~n", [Sql97]),
-    ?assertEqual(ok, imem_sql:exec(SKey, Sql97, 0, imem, IsSec)),
+    ?assertEqual(ok, imem_sql:exec(SKey, Sql97, 0, [{schema, imem}], IsSec)),
 
-    ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
+    ?assertEqual(ok, imem_sql:exec(SKey, "drop table def;", 0, [{schema, imem}], IsSec)),
     ?assertException(throw, {ClEr, {"Table does not exist", def}}, imem_sql_table:if_call_mfa(IsSec, table_size, [SKey, def])),
-    ?assertException(throw, {ClEr, {"Table does not exist", def}}, imem_sql:exec(SKey, "drop table def;", 0, imem, IsSec)),
+    ?assertException(throw, {ClEr, {"Table does not exist", def}}, imem_sql:exec(SKey, "drop table def;", 0, [{schema, imem}], IsSec)),
 
     ok.
 

@@ -75,13 +75,13 @@ test_with_or_without_sec(IsSec) ->
         , #ddColumn{name = b2, type = float, len = 8, prec = 3}   %% value
     ],
 
-    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, "imem", IsSec)),
+    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table meta_table_1 (a char, b1 char, c1 char);", 0, [{schema, imem}], IsSec)),
     ?assertEqual(0, if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),
 
-    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, "imem", IsSec)),
+    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table meta_table_2 (a integer, b2 float);", 0, [{schema, imem}], IsSec)),
     ?assertEqual(0, if_call_mfa(IsSec, table_size, [SKey, meta_table_2])),
 
-    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, "imem", IsSec)),
+    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table meta_table_3 (a char, b3 integer, c1 char);", 0, [{schema, imem}], IsSec)),
     ?assertEqual(0, if_call_mfa(IsSec, table_size, [SKey, meta_table_1])),
     ?CTPAL("success ~p", [create_tables]),
 
