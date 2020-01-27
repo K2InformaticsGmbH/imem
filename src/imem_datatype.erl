@@ -608,14 +608,18 @@ io_to_binary(Val,Len) when is_binary(Val) ->
     F = binary:first(Val),
     L = binary:last(Val),
     if
-        (F < $0) orelse (F > $F) ->
+        (F < $0) orelse (F > $f) ->
             ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[F]}});
         (F > $9) andalso (F < $A) ->
             ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[F]}});
-        (L < $0) orelse (L > $F) ->
-            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[L]}});
+        (F > $F) andalso (F < $a) ->
+            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[F]}});
+        (L < $0) orelse (L > $f) ->
+            ?ClientErrorNoLogging({"Invalid hex string ends with",{binary,[L]}});
         (L > $9) andalso (L < $A) ->
-            ?ClientErrorNoLogging({"Invalid hex string starts with",{binary,[L]}});
+            ?ClientErrorNoLogging({"Invalid hex string ends with",{binary,[L]}});
+        (L > $F) andalso (L < $a) ->
+            ?ClientErrorNoLogging({"Invalid hex string ends with",{binary,[L]}});
         (Len /= undefined) andalso (S > Len+Len) ->
             ?ClientErrorNoLogging({"Binary data is too long",{binary,Len}});
         (S rem 2) == 1 ->
