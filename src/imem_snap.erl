@@ -1158,13 +1158,16 @@ process_chunk(SkvhMap, FoldFun, #{skvh := true} = Ctx) ->
 process_chunk(Rec, FoldFun, Ctx) ->
     apply_fold_fun(Rec, FoldFun, Ctx).
 
-filters2ms(true, Filters) ->
-    [case hasWild(Filter) of
-        false -> {#{ckey => Filter}, [], ['$_']};
-        true -> {#{ckey => '$1'}, f2mc(Filter, '$1'), ['$_']}
-    end || Filter <- Filters];
-filters2ms(false, Filters) ->
-    [{'$1', f2mc(Filter, {element, 2, '$1'}), ['$_']} || Filter <- Filters].
+filters2ms(_, []) -> [];
+filters2ms(true, [Filter|Filters]) ->
+    [filter2ms(Filter) | filters2ms(true, Filters)];
+filters2ms(false, [Filter | Filters]) ->
+    [{'$1', f2mc(Filter, {element, 2, '$1'}), ['$_']} | filters2ms(false, Filters)].
+
+filter2ms(Filter) -> filter2ms(Filter, hasWild(Filter)).
+filter2ms('*', _) -> {'$1', [], ['$_']};
+filter2ms(Filter, false) -> {#{ckey => Filter}, [], ['$_']};
+filter2ms(Filter, true) -> {#{ckey => '$1'}, f2mc(Filter, '$1'), ['$_']}.
 
 apply_fold_fun(Term, FoldFun, Ctx) ->
     case FoldFun(Term, Ctx) of
@@ -1388,7 +1391,7 @@ f2mc_test_() ->
     {
         inparallel,
         [{
-            lists:flatten(io_lib:format("~s : ~p", [Title, Filter])),
+            Title,
             fun() ->
                 case catch f2mc(Filter, '$1') of
                     {'EXIT', Exception} ->
@@ -1447,6 +1450,21 @@ f2mc_test_() ->
                         {'==', {hd, {tl, '$1'}}, {const, "two"}}
                     }]
                 }
+            ]
+        ]
+    }.
+
+filters2ms_test_() ->
+    {
+        inparallel,
+        [
+            {
+                Title,
+                ?_assertEqual(MatchSpec, filters2ms(IsSkvh, Filter))
+            } || {Title, IsSkvh, Filter, MatchSpec} <- [
+                {"all",        false,   ['*'],     [{'$1',[],['$_']}]},
+                {"list all",   true,    [['*']],   [{#{ckey => '$1'},[{is_list,'$1'}],['$_']}] },
+                {"all tuple",  true,    [{'*'}],   [{#{ckey => '$1'},[{is_tuple,'$1'}],['$_']}]}
             ]
         ]
     }.
