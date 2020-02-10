@@ -3,6 +3,11 @@ Application imem
 
 Release history with new or improved features and bugfixes
 
+Version 3.8.0 (Release Date 10.02.2020)
+=======================================
+* 009158 Bad param for parameterized SQL crashes FSM (#315)
+* implement safe subnet_filter(IPv4/6 address, subnet-length) -> mask (#309)
+
 Version 3.7.2 (Release Date 27.12.2019)
 =======================================
 * Frameworks and APIs to filter cluster snapshot (#299)
