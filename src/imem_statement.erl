@@ -389,20 +389,16 @@ handle_cast({fetch_recs_async, _IsSec, _SKey, Sock, _Opts}, #state{fetchCtx=#fet
 handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt, seco=SKey, fetchCtx=FetchCtx0}=State) ->
     % ?LogDebug("fetch_recs_async called in status ~p~n", [FetchCtx0#fetchCtx.status]),
     % ?LogDebug("fetch_recs_async called with Stmt~n~p~n", [Stmt]),
-    #statement{tables=[Table|JTabs], blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields, stmtParams=Params0} = Stmt,
+    #statement{tables=[Table|JTabs], stmtParamRec=ParamRec, blockSize=BlockSize, mainSpec=MainSpec, metaFields=MetaFields} = Stmt,
     % imem_meta:log_to_db(debug,?MODULE,handle_cast,[{sock,Sock},{opts,Opts},{status,FetchCtx0#fetchCtx.status}],"fetch_recs_async"),
     %?Info("fetch_recs_async Table Name ~p", [Table]),
     case {lists:member({fetch_mode,skip},Opts), FetchCtx0#fetchCtx.pid} of
         {Skip,undefined} ->      %% {SkipFetch, Pid} = {true|false, uninitialized} -> skip fetch
-            Params1 = case lists:keyfind(params, 1, Opts) of
-                false ->    Params0;    %% from statement exec, only used on first fetch
-                {_, P} ->   P           %% from fetch_recs, only used on first fetch
-            end,
             RecName = try imem_meta:table_record_name(Table)
                 catch {'ClientError', {"Table does not exist", _}} -> undefined
             end,
             RowNum = 1,
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params1,FetchCtx0#fetchCtx.metarec),
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,ParamRec),
             %?Info("Meta Rec: ~p~n", [MR]),
             %?Info("Main Spec before meta bind:~n~p~n", [MainSpec]),
             case Skip of
@@ -458,14 +454,14 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
                         end
                     catch
                         _:Err ->
-                            ?Warn("fetch_recs_async error stack trace ~n~p",[erlang:get_stacktrace()]),
+                            ?Warn("fetch_recs_async error ~p stack trace ~n~p",[Err, erlang:get_stacktrace()]),
                             send_reply_to_client(Sock, {error, Err}),
                             FetchAborted2 = #fetchCtx{pid=undefined, monref=undefined, status=aborted},
                             {noreply, State#state{reply=Sock,fetchCtx=FetchAborted2}}
                     end
             end;
         {true,_Pid} ->          %% skip ongoing fetch (and possibly go to tail_mode)
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,ParamRec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -474,7 +470,7 @@ handle_cast({fetch_recs_async, IsSec, _SKey, Sock, Opts}, #state{statement=Stmt,
             FetchSkipRemaining = FetchCtx0#fetchCtx{metarec=MR,lastmeta=MR,opts=Opts,tailSpec=TailSpec,filter=FilterFun},
             handle_fetch_complete(State#state{reply=Sock,fetchCtx=FetchSkipRemaining}); 
         {false,Pid} ->          %% fetch next block
-            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,Params0,FetchCtx0#fetchCtx.metarec),
+            MR = imem_sql:meta_rec(IsSec,SKey,MetaFields,ParamRec),
             % ?LogDebug("Meta Rec: ~p~n", [MR]),
             % ?LogDebug("Main Spec before meta bind:~n~p~n", [MainSpec]),
             {_SSpec,TailSpec,FilterFun} = imem_sql_expr:bind_scan(?MainIdx,{MR},MainSpec),
@@ -801,8 +797,8 @@ process_tail_delete_rows([R0 | Rest], #state{reply=Sock}=State) ->
 process_tail_row(R0,#state{isSec=IsSec,seco=SKey,fetchCtx=FetchCtx0,statement=Stmt}=State) ->
     % imem_meta:log_to_db(debug,?MODULE,handle_info,[{mnesia_table_event,write}],"tail write"),
     % ?LogDebug("received mnesia subscription event ~p ~p~n", [write, Record]),
-    #fetchCtx{status=Status,metarec=MR0,rownum=RowNum,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
-    MR1 = imem_sql:meta_rec(IsSec,SKey,Stmt#statement.metaFields,[],MR0),    %% Params cannot change any more after first fetch
+    #fetchCtx{status=Status,rownum=RowNum,remaining=Rem0,filter=FilterFun,tailSpec=TailSpec,recName=RecName}=FetchCtx0,
+    MR1 = imem_sql:meta_rec(IsSec,SKey,Stmt#statement.metaFields, Stmt#statement.stmtParamRec),
     MR2 = case RowNum of
         undefined -> MR1;
         _ ->         setelement(?RownumIdx,MR1,RowNum)
@@ -964,8 +960,8 @@ generate_virtual_data(_Table,_Rec,false,_MaxSize) ->
     [];
 generate_virtual_data(boolean,_Rec,true,_MaxSize) ->
     [{false,<<"false">>},{true,<<"true">>}];
-generate_virtual_data(_Table,_Rec,true,_MaxSize) ->
-    ?ClientError({"Invalid virtual filter guard", true});
+generate_virtual_data(Table,Rec,true,_MaxSize) ->
+    ?ClientError({"Invalid virtual filter guard", [Table,Rec,true]});
 generate_virtual_data(Table,Rec,{is_member,Tag,'$_'},MaxSize) when is_atom(Tag) ->
     Items = element(?MainIdx,Rec),
     generate_virtual(Table,tl(tuple_to_list(Items)),MaxSize);

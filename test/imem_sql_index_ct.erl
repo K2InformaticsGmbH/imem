@@ -52,7 +52,7 @@ test_with_or_without_sec(IsSec) ->
     % Creating and loading some data into index_test table
     catch imem_meta:drop_table(idx_index_test),
     catch imem_meta:drop_table(index_test),
-    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table index_test (col1 integer, col2 binstr not null);", 0, imem, IsSec)),
+    ?assertMatch({ok, _}, imem_sql:exec(SKey, "create table index_test (col1 integer, col2 binstr not null);", 0, [{schema, imem}], IsSec)),
     [_] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual(0, imem_sql_index:if_call_mfa(IsSec, table_size, [SKey, index_test])),
     TableData =
@@ -71,7 +71,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "create index i_col1 on index_test (col1);"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta1] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx]}} = lists:keysearch(index, 1, Meta1#ddTable.opts),
     ?assertEqual(1, DdIdx#ddIdxDef.id),
@@ -83,7 +83,7 @@ test_with_or_without_sec(IsSec) ->
             SKey
             , "create index i_col2 on index_test (col2)"
             " norm_with fun(X) -> imem_index:vnf_lcase_ascii_ne(X) end.;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta2] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx1, DdIdx]}} = lists:keysearch(index, 1, Meta2#ddTable.opts),
     ?assertEqual(2, DdIdx1#ddIdxDef.id),
@@ -94,7 +94,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "create index i_col2_name on index_test (col2|:NAME|);"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta3] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx2, DdIdx1, DdIdx]}} =
         lists:keysearch(index, 1, Meta3#ddTable.opts),
@@ -107,7 +107,7 @@ test_with_or_without_sec(IsSec) ->
             SKey
             , "create index i_col2_surname on index_test (col2|:SURNAME|)"
             " filter_with fun(X) -> imem_index:iff_true(X) end.;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta4] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
         lists:keysearch(index, 1, Meta4#ddTable.opts),
@@ -119,7 +119,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "create index i_col2_age on index_test (col2|:AGE|);"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta5] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
         lists:keysearch(index, 1, Meta5#ddTable.opts),
@@ -134,7 +134,7 @@ test_with_or_without_sec(IsSec) ->
             " norm_with fun(X) -> imem_index:vnf_lcase_ascii_ne(X) end."
             " filter_with fun(X) -> imem_index:iff_true(X) end."
             ";"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta6] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
         lists:keysearch(index, 1, Meta6#ddTable.opts),
@@ -146,7 +146,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "create index i_col2_surname_col1 on index_test (col2|:SURNAME|, col1);"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta7] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx6, DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
         lists:keysearch(index, 1, Meta7#ddTable.opts),
@@ -159,7 +159,7 @@ test_with_or_without_sec(IsSec) ->
             SKey
             , "create index i_all on index_test"
             " (col1, col2, col2|:NAME|, col2|:SURNAME|, col2|:AGE|);"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta8] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     {value, {index, [DdIdx7, DdIdx6, DdIdx5, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}} =
         lists:keysearch(index, 1, Meta8#ddTable.opts),
@@ -177,7 +177,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "create index i_col2_age on index_test (col2|:AGE|);"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
 
     %
     % Dropping indexes in random order
@@ -188,7 +188,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_col2_name_age from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta9] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual({value, {index, [DdIdx7, DdIdx6, DdIdx4, DdIdx3, DdIdx2, DdIdx1, DdIdx]}}
         , lists:keysearch(index, 1, Meta9#ddTable.opts)),
@@ -202,14 +202,14 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_not_exists from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
 
     % Drop index i_col1
     ?assertEqual(ok
         , imem_sql:exec(
             SKey
             , "drop index i_col1 from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta10] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual({value, {index, [DdIdx7, DdIdx6, DdIdx4, DdIdx3, DdIdx2, DdIdx1]}}
         , lists:keysearch(index, 1, Meta10#ddTable.opts)),
@@ -219,7 +219,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_col2_surname from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta11] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual({value, {index, [DdIdx7, DdIdx6, DdIdx4, DdIdx2, DdIdx1]}}
         , lists:keysearch(index, 1, Meta11#ddTable.opts)),
@@ -231,7 +231,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_col2_surname_col1 from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta12] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual({value, {index, [DdIdx7, DdIdx4, DdIdx2, DdIdx1]}}
         , lists:keysearch(index, 1, Meta12#ddTable.opts)),
@@ -241,7 +241,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_col2_name from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta13] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual({value, {index, [DdIdx7, DdIdx4, DdIdx1]}}
         , lists:keysearch(index, 1, Meta13#ddTable.opts)),
@@ -251,7 +251,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_all from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta14] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual({value, {index, [DdIdx4, DdIdx1]}}
         , lists:keysearch(index, 1, Meta14#ddTable.opts)),
@@ -265,7 +265,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_col2_name from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
 
     print_indices(IsSec, SKey, imem, index_test),
 
@@ -274,7 +274,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_col2_age from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta15] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual({value, {index, [DdIdx1]}}
         , lists:keysearch(index, 1, Meta15#ddTable.opts)),
@@ -284,7 +284,7 @@ test_with_or_without_sec(IsSec) ->
         , imem_sql:exec(
             SKey
             , "drop index i_col2 from index_test;"
-            , 0, imem, IsSec)),
+            , 0, [{schema, imem}], IsSec)),
     [Meta16] = imem_sql_index:if_call_mfa(IsSec, read, [SKey, ddTable, {imem, index_test}]),
     ?assertEqual(false, lists:keysearch(index, 1, Meta16#ddTable.opts)),
 

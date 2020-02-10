@@ -16,13 +16,13 @@
         , flatten_tables/1
         ]).
 
-exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
+exec(SKey, {select, SelectSections}=ParseTree, Stmt, _Opts, IsSec) ->
     % ToDo: spawn imem_statement here and execute in its own security context (compile & run from same process)
     ?IMEM_SKEY_PUT(SKey), % store internal SKey in statement process, may be needed to authorize join functions
     %Info("Putting SKey ~p to process dict of driver ~p",[SKey,self()]),
     {_, TableList0} = lists:keyfind(from, 1, SelectSections),
     %?Info("TableList0: ~p~n", [TableList0]),
-    Params = imem_sql:params_from_opts(Opts,ParseTree),
+    Params = Stmt#statement.stmtParams,
     %?Info("Params: ~p~n", [Params]),
     TableList = bind_table_names(Params, TableList0),
     %?Info("TableList: ~p~n", [TableList]),
@@ -95,7 +95,6 @@ exec(SKey, {select, SelectSections}=ParseTree, Stmt, Opts, IsSec) ->
     %Info("SortSpec:~p~n", [SortSpec]),
     Statements = [Stmt#statement{
                     stmtParse = {select, SelectSections},
-                    stmtParams = Params,
                     stmtClass = Class,
                     metaFields=AllMetaFields, 
                     tables=CTabs,
