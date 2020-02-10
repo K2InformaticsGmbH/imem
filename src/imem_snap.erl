@@ -1159,9 +1159,10 @@ process_chunk(Rec, FoldFun, Ctx) ->
     apply_fold_fun(Rec, FoldFun, Ctx).
 
 filters2ms(true, Filters) ->
-    [case hasWild(Filter) of
-        false -> {#{ckey => Filter}, [], ['$_']};
-        true -> {#{ckey => '$1'}, f2mc(Filter, '$1'), ['$_']}
+    [case {Filter, hasWild(Filter)} of
+       {'*',_} -> {'$1', [], ['$_']};
+       {_,false} -> {#{ckey => Filter}, [], ['$_']};
+       {_,true} -> {#{ckey => '$1'}, f2mc(Filter, '$1'), ['$_']}
     end || Filter <- Filters];
 filters2ms(false, Filters) ->
     [{'$1', f2mc(Filter, {element, 2, '$1'}), ['$_']} || Filter <- Filters].
@@ -1450,6 +1451,24 @@ f2mc_test_() ->
             ]
         ]
     }.
+
+filters2ms_test_() ->
+  {
+    inparallel,
+    [{
+      lists:flatten(io_lib:format("~s : ~p", [Title, Filter])),
+      fun() ->
+        CalculatedMs = filters2ms(Skvh,Filter),
+        ?assertEqual(MatchSpec, CalculatedMs)
+      end
+    } || {Title, Skvh, Filter, MatchSpec} <- [
+      {"all skvh",   true,    ['*'],     [{'$1',[],['$_']}]},
+      {"all",        false,   ['*'],     [{'$1',[],['$_']}]},
+      {"list all",   true,    [['*']],   [{#{ckey => '$1'},[{is_list,'$1'}],['$_']}] },
+      {"all tuple",  true,    [{'*'}],   [{#{ckey => '$1'},[{is_tuple,'$1'}],['$_']}]}
+    ]
+    ]
+  }.
 
 msrun_test_() ->
     Rows = [
